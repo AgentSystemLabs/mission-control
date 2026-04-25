@@ -2,7 +2,6 @@ import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
-import { TASK_STATUSES } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
 export type Density = "compact" | "regular" | "spacious";
@@ -18,9 +17,8 @@ export function ProjectCard({
   onOpen: () => void;
   onTogglePin: (id: string) => void;
 }) {
-  const counts = project.taskCounts;
-  const hasActivity = counts.running > 0;
-  const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
+  const { running, needsInput, done } = project.taskCounts;
+  const hasActivity = running > 0;
   const isCompact = density === "compact";
   const isSpacious = density === "spacious";
 
@@ -129,10 +127,10 @@ export function ProjectCard({
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          {TASK_STATUSES.map(
-            (s) => counts[s] > 0 && <StatusPill key={s} status={s} count={counts[s]} />
-          )}
-          {totalShown === 0 && (
+          {running > 0 && <StatusPill status="running" count={running} />}
+          {needsInput > 0 && <StatusPill status="needs-input" count={needsInput} />}
+          {done > 0 && <StatusPill status="done" count={done} />}
+          {running + needsInput + done === 0 && (
             <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-faint)" }}>
               no active tasks
             </span>

@@ -11,9 +11,7 @@ import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
-import { TASK_STATUSES } from "~/db/schema";
-import type { Group, Task, TaskStatus } from "~/db/schema";
-import { STATUS_META } from "~/lib/design-meta";
+import type { Group, Task } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
 export const Route = createFileRoute("/projects/$id")({
@@ -80,14 +78,9 @@ function ProjectPage() {
   }
 
   const visibleTasks = tasks.filter((t) => (filter === "archived" ? t.archived : !t.archived));
-  const tasksByStatus = TASK_STATUSES.reduce(
-    (acc, s) => {
-      acc[s] = [];
-      return acc;
-    },
-    {} as Record<TaskStatus, Task[]>
-  );
-  for (const t of visibleTasks) tasksByStatus[t.status].push(t);
+  const running = visibleTasks.filter((t) => t.status === "running");
+  const needs = visibleTasks.filter((t) => t.status === "needs-input");
+  const done = visibleTasks.filter((t) => t.status === "done");
 
   const selectedSet = new Set(terminals.open.map((t) => t.taskId));
 
@@ -236,19 +229,36 @@ function ProjectPage() {
 
         {filter === "active" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-            {TASK_STATUSES.map((status) => (
-              <TaskColumn
-                key={status}
-                title={STATUS_META[status].label}
-                color={STATUS_META[status].color}
-                tasks={tasksByStatus[status]}
-                selectedSet={selectedSet}
-                onToggle={toggleTerminal}
-                onArchive={archive}
-                onCommitPush={commitPush}
-                onDelete={deleteTask}
-              />
-            ))}
+            <TaskColumn
+              title="Needs input"
+              color="var(--status-needs)"
+              tasks={needs}
+              selectedSet={selectedSet}
+              onToggle={toggleTerminal}
+              onArchive={archive}
+              onCommitPush={commitPush}
+              onDelete={deleteTask}
+            />
+            <TaskColumn
+              title="Running"
+              color="var(--status-running)"
+              tasks={running}
+              selectedSet={selectedSet}
+              onToggle={toggleTerminal}
+              onArchive={archive}
+              onCommitPush={commitPush}
+              onDelete={deleteTask}
+            />
+            <TaskColumn
+              title="Done"
+              color="var(--status-done)"
+              tasks={done}
+              selectedSet={selectedSet}
+              onToggle={toggleTerminal}
+              onArchive={archive}
+              onCommitPush={commitPush}
+              onDelete={deleteTask}
+            />
             {visibleTasks.length === 0 && (
               <EmptyState
                 title="No active tasks"

@@ -28,17 +28,8 @@ export const projects = sqliteTable(
   })
 );
 
-export const TASK_AGENTS = ["claude-code", "codex", "cursor-cli", "shell"] as const;
-export type TaskAgent = (typeof TASK_AGENTS)[number];
-
-export const TASK_STATUSES = ["ready", "running", "needs-input", "idle", "failed", "done"] as const;
-export type TaskStatus = (typeof TASK_STATUSES)[number];
-
-export const ACTIVE_STATUSES: readonly TaskStatus[] = ["needs-input", "ready", "running", "idle", "failed"];
-export const TERMINAL_STATUSES: readonly TaskStatus[] = ["done"];
-
-export const isActiveStatus = (s: TaskStatus) => ACTIVE_STATUSES.includes(s);
-export const isTerminalStatus = (s: TaskStatus) => TERMINAL_STATUSES.includes(s);
+export type TaskAgent = "claude-code" | "codex" | "cursor-cli" | "shell";
+export type TaskStatus = "ready" | "running" | "needs-input" | "done" | "idle" | "failed";
 
 export const tasks = sqliteTable(
   "tasks",

@@ -3,12 +3,12 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getDb } from "~/db/client";
-import { TASK_STATUSES, isActiveStatus, projects, tasks } from "~/db/schema";
-import type { Project, Task, TaskStatus } from "~/db/schema";
+import { projects, tasks } from "~/db/schema";
+import type { Project, Task } from "~/db/schema";
 import { events } from "../events";
 
 export type ProjectWithCounts = Project & {
-  taskCounts: Record<TaskStatus, number> & { total: number; activeNonDone: number };
+  taskCounts: { running: number; needsInput: number; done: number; total: number };
   preview?: string | null;
 };
 
@@ -45,24 +45,18 @@ export function getProject(id: string): ProjectWithCounts | null {
 
 function decorate(p: Project, ts: Task[]): ProjectWithCounts {
   const active = ts.filter((t) => !t.archived);
-  const counts = TASK_STATUSES.reduce(
-    (acc, s) => {
-      acc[s] = 0;
-      return acc;
-    },
-    {} as Record<TaskStatus, number>
-  );
-  let activeNonDone = 0;
-  for (const t of active) {
-    counts[t.status]++;
-    if (isActiveStatus(t.status) && t.status !== "done") activeNonDone++;
-  }
-  const previewSource =
-    active.find((t) => t.status === "running") ?? active.find((t) => t.status === "needs-input");
+  const running = active.filter((t) => t.status === "running");
+  const needs = active.filter((t) => t.status === "needs-input");
+  const done = active.filter((t) => t.status === "done");
   return {
     ...p,
-    taskCounts: { ...counts, total: active.length, activeNonDone },
-    preview: previewSource?.preview ?? null,
+    taskCounts: {
+      running: running.length,
+      needsInput: needs.length,
+      done: done.length,
+      total: active.length,
+    },
+    preview: running[0]?.preview ?? needs[0]?.preview ?? null,
   };
 }
 
