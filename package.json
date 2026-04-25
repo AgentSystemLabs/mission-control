@@ -1,0 +1,97 @@
+{
+  "name": "mission-control",
+  "version": "0.1.0",
+  "description": "Desktop control surface for managing agentic coding work across many projects.",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron -c blue,green \"pnpm dev:server\" \"wait-on tcp:5173 && pnpm dev:electron\"",
+    "dev:server": "pnpm native:node && vite --port 5173 --strictPort",
+    "dev:electron": "pnpm native:electron:pty && tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development MC_DEV_URL=http://127.0.0.1:5173 electron dist-electron/main.js",
+    "build:web": "vite build && vite build -c vite.config.server-entry.ts",
+    "build:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\"",
+    "build": "pnpm build:web && pnpm build:electron",
+    "package": "pnpm build && pnpm native:electron && electron-builder",
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "pnpm native:node && vitest run",
+    "test:e2e": "playwright test",
+    "db:generate": "pnpm native:node && drizzle-kit generate",
+    "db:push": "pnpm native:node && drizzle-kit push",
+    "native:node": "pnpm rebuild better-sqlite3",
+    "native:electron:pty": "electron-rebuild -f -w node-pty",
+    "native:electron": "electron-rebuild -f -w better-sqlite3 -w node-pty",
+    "rebuild": "pnpm native:electron",
+    "postinstall": "pnpm native:electron:pty || true"
+  },
+  "dependencies": {
+    "@fontsource/geist-mono": "^5.1.1",
+    "@fontsource/geist-sans": "^5.1.1",
+    "@tanstack/react-router": "^1.168.0",
+    "@tanstack/react-start": "^1.167.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "better-sqlite3": "^12.9.0",
+    "drizzle-orm": "^0.45.2",
+    "node-pty": "^1.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "@playwright/test": "^1.49.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/router-plugin": "^1.167.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "drizzle-kit": "^0.31.10",
+    "electron": "^41.0.0",
+    "electron-builder": "^25.1.8",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "electron",
+      "esbuild",
+      "node-pty"
+    ]
+  },
+  "build": {
+    "appId": "labs.agentsystem.missioncontrol",
+    "productName": "MissionControl",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      ".output/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": ["AppImage"]
+    },
+    "win": {
+      "target": ["nsis"]
+    }
+  }
+}

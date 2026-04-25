@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-electron
+.output
+.vinxi
+.vite
+.DS_Store
+*.log
+.env
+.env.local
+src/routeTree.gen.ts
+release

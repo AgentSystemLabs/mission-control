@@ -1,0 +1,213 @@
+@import "tailwindcss";
+
+@import "@fontsource/geist-sans/400.css";
+@import "@fontsource/geist-sans/500.css";
+@import "@fontsource/geist-sans/600.css";
+@import "@fontsource/geist-sans/700.css";
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/500.css";
+@import "@fontsource/geist-mono/600.css";
+
+@import "@xterm/xterm/css/xterm.css";
+
+@theme {
+  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+:root {
+  --bg: #0a0b0d;
+  --surface-0: #0e1013;
+  --surface-1: #14171b;
+  --surface-2: #1a1d22;
+  --surface-3: #22262c;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --text: #e8e6df;
+  --text-dim: rgba(232, 230, 223, 0.6);
+  --text-faint: rgba(232, 230, 223, 0.38);
+
+  --accent: oklch(0.82 0.17 145);
+  --accent-dim: oklch(0.82 0.17 145 / 0.15);
+  --accent-faint: oklch(0.82 0.17 145 / 0.08);
+
+  --status-ready: oklch(0.78 0.10 220);
+  --status-running: oklch(0.82 0.17 145);
+  --status-needs: oklch(0.82 0.14 75);
+  --status-done: oklch(0.75 0.14 290);
+  --status-idle: rgba(232, 230, 223, 0.3);
+  --status-failed: oklch(0.7 0.19 25);
+
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --sans: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+}
+
+[data-theme="light"] {
+  --bg: #f7f6f2;
+  --surface-0: #ffffff;
+  --surface-1: #fafaf7;
+  --surface-2: #f1f0eb;
+  --surface-3: #e7e6e0;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --text: #1a1a1a;
+  --text-dim: rgba(26, 26, 26, 0.62);
+  --text-faint: rgba(26, 26, 26, 0.38);
+  --status-idle: rgba(26, 26, 26, 0.3);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+@keyframes caret {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.shimmer-bar {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 30%,
+    var(--accent) 50%,
+    transparent 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.4s linear infinite;
+}
+
+[data-activity="none"] .shimmer-bar,
+[data-activity="none"] [class*="shimmer"] {
+  animation: none !important;
+  background: var(--border) !important;
+}
+[data-activity="pulse"] .shimmer-bar,
+[data-activity="pulse"] [class*="shimmer"] {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+  background: var(--accent) !important;
+}
+
+.dot-grid-bg {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 0 0;
+}
+[data-theme="light"] .dot-grid-bg {
+  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+}
+
+::selection {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+/* xterm overrides to match our dark surface */
+.xterm-viewport {
+  background-color: #050607 !important;
+}
+.xterm .xterm-screen {
+  background-color: #050607;
+}
