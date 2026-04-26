@@ -1,4 +1,4 @@
-import type { Group, Project, Task } from "~/db/schema";
+import type { Group, Project, Task, UserTerminal } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -78,6 +78,21 @@ export const api = {
     }),
   deleteTask: (id: string) => req<void>(`/api/tasks/${id}`, { method: "DELETE" }),
   listArchive: () => req<{ tasks: Task[] }>("/api/archive"),
+
+  listUserTerminals: (projectId: string) =>
+    req<{ terminals: UserTerminal[] }>(`/api/projects/${projectId}/user-terminals`),
+  createUserTerminal: (projectId: string, body: { name?: string; cwd?: string | null }) =>
+    req<{ terminal: UserTerminal }>(`/api/projects/${projectId}/user-terminals`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  renameUserTerminal: (id: string, name: string) =>
+    req<{ terminal: UserTerminal }>(`/api/user-terminals/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+  deleteUserTerminal: (id: string) =>
+    req<void>(`/api/user-terminals/${id}`, { method: "DELETE" }),
 
   getSettings: () => req<{ apiToken: string }>("/api/settings"),
   regenerateToken: () =>

@@ -8,9 +8,14 @@ import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
+import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { useHotkey } from "~/lib/use-hotkey";
+import { useWheelSwipe } from "~/lib/use-wheel-swipe";
 import { api } from "~/lib/api";
+import { getElectron } from "~/lib/electron";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
+import { useUserTerminals } from "~/lib/user-terminal-store";
 import { TASK_STATUSES } from "~/db/schema";
 import type { Group, Task, TaskStatus } from "~/db/schema";
 import { STATUS_META } from "~/lib/design-meta";
@@ -31,7 +36,14 @@ function ProjectPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [apiToken, setApiToken] = useState<string | null>(null);
 
+  const newAgentHotkey = hotkeyLabel("mod+n");
+
   const terminals = useTerminals();
+  const { setProject: setActiveUserTerminalProject } = useUserTerminals();
+
+  useEffect(() => {
+    if (project) setActiveUserTerminalProject(project);
+  }, [project, setActiveUserTerminalProject]);
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +65,34 @@ function ProjectPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("lastProjectId", id);
+    } catch {}
+  }, [id]);
+
+  const goBack = useCallback(() => router.navigate({ to: "/" }), [router]);
+
+  useEffect(() => {
+    const off = getElectron()?.onSwipe((dir) => {
+      if (dir === "left") goBack();
+    });
+    return () => {
+      off?.();
+    };
+  }, [goBack]);
+
+  useWheelSwipe("left", goBack);
+
+  useHotkey(
+    "mod+n",
+    () => {
+      if (showNewAgent || showEdit) return;
+      setShowNewAgent(true);
+    },
+    { ignoreEditable: true },
+  );
 
   useServerEvents(
     useCallback(
@@ -190,6 +230,7 @@ function ProjectPage() {
           </Btn>
           <Btn variant="primary" icon="plus" onClick={() => setShowNewAgent(true)}>
             New agent
+            <Kbd variant="onPrimary">{newAgentHotkey}</Kbd>
           </Btn>
         </div>
 
@@ -256,6 +297,7 @@ function ProjectPage() {
                 action={
                   <Btn variant="primary" icon="plus" onClick={() => setShowNewAgent(true)}>
                     New agent
+                    <Kbd variant="onPrimary">{newAgentHotkey}</Kbd>
                   </Btn>
                 }
               />

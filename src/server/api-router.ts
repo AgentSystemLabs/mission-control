@@ -11,6 +11,12 @@ import {
   listAllArchived,
   getTask,
 } from "./services/tasks";
+import {
+  listUserTerminals,
+  createUserTerminal,
+  renameUserTerminal,
+  deleteUserTerminal,
+} from "./services/user-terminals";
 import { events } from "./events";
 import { getOrCreateApiToken, regenerateApiToken } from "~/db/settings";
 import { json, jsonError, requireBearerToken } from "./auth";
@@ -147,6 +153,40 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const t = restoreTask(id);
       if (!t) return jsonError(404, "not found");
       return json({ task: t });
+    }
+
+    const projectUserTerminalsMatch = pathname.match(
+      /^\/api\/projects\/([^\/]+)\/user-terminals$/
+    );
+    if (projectUserTerminalsMatch) {
+      const id = decodeURIComponent(projectUserTerminalsMatch[1]!);
+      if (method === "GET") return json({ terminals: listUserTerminals(id) });
+      if (method === "POST") {
+        const body = await readJson<any>(request);
+        const t = createUserTerminal({
+          projectId: id,
+          name: body?.name,
+          cwd: body?.cwd ?? null,
+        });
+        return json({ terminal: t }, { status: 201 });
+      }
+    }
+
+    const userTerminalMatch = pathname.match(/^\/api\/user-terminals\/([^\/]+)$/);
+    if (userTerminalMatch) {
+      const id = decodeURIComponent(userTerminalMatch[1]!);
+      if (method === "PATCH") {
+        const body = await readJson<any>(request);
+        if (typeof body?.name !== "string") return jsonError(400, "name required");
+        const t = renameUserTerminal(id, body.name);
+        if (!t) return jsonError(404, "not found");
+        return json({ terminal: t });
+      }
+      if (method === "DELETE") {
+        const ok = deleteUserTerminal(id);
+        if (!ok) return jsonError(404, "not found");
+        return new Response(null, { status: 204 });
+      }
     }
 
     if (pathname === "/api/archive" && method === "GET") {

@@ -79,6 +79,24 @@ export const terminalLogs = sqliteTable(
   })
 );
 
+export const userTerminals = sqliteTable(
+  "user_terminals",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    cwd: text("cwd"),
+    position: integer("position").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    projectIdx: index("user_terminals_project_idx").on(t.projectId),
+  })
+);
+
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -108,3 +126,5 @@ export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
+export type UserTerminal = typeof userTerminals.$inferSelect;
+export type NewUserTerminal = typeof userTerminals.$inferInsert;
