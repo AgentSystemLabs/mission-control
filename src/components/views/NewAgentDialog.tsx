@@ -3,6 +3,8 @@ import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
+import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import type { Project, TaskAgent } from "~/db/schema";
@@ -22,6 +24,7 @@ export function NewAgentDialog({
   const [title, setTitle] = useState("");
   const [branch, setBranch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -29,6 +32,7 @@ export function NewAgentDialog({
       setTitle("");
       setBranch("");
       setError(null);
+      setSubmitting(false);
     }
   }, [open]);
 
@@ -59,7 +63,26 @@ export function NewAgentDialog({
     },
   ];
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      const ids = agents.map((a) => a.id);
+      const idx = ids.indexOf(agent);
+      const next = e.key === "ArrowDown"
+        ? Math.min(ids.length - 1, idx + 1)
+        : Math.max(0, idx - 1);
+      if (next !== idx) setAgent(ids[next]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, agent, agents]);
+
   const submit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     setError(null);
     if (agent !== "shell") {
       const electron = getElectron();
@@ -70,6 +93,7 @@ export function NewAgentDialog({
           setError(
             `\`${cmd}\` was not found on your PATH. Install ${AGENT_META[agent].label} or pick a different agent.`
           );
+          setSubmitting(false);
           return;
         }
       }
@@ -82,8 +106,12 @@ export function NewAgentDialog({
       });
     } catch (e: any) {
       setError(e?.message || "Failed to start agent");
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  useHotkey("mod+enter", () => void submit(), { enabled: open });
 
   return (
     <Modal
@@ -96,8 +124,9 @@ export function NewAgentDialog({
           <Btn variant="ghost" onClick={onClose}>
             Cancel
           </Btn>
-          <Btn variant="primary" icon="play" onClick={submit}>
+          <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
             Start agent
+            <Kbd variant="onPrimary">{hotkeyLabel("mod+enter")}</Kbd>
           </Btn>
         </>
       }

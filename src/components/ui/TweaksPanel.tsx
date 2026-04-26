@@ -1,22 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Icon } from "./Icon";
 import { useTweaks, type Tweaks } from "~/lib/use-tweaks";
+import { useHotkey } from "~/lib/use-hotkey";
 
 export function TweaksLauncher() {
   const [open, setOpen] = useState(false);
   const { tweaks, setTweak, reset } = useTweaks();
 
-  // Cmd/Ctrl + . toggles the panel
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
-        e.preventDefault();
-        setOpen((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useHotkey("mod+.", () => setOpen((v) => !v));
 
   return (
     <>

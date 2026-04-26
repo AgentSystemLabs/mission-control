@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Icon } from "./Icon";
+import { useHotkey } from "~/lib/use-hotkey";
 
 export function Modal({
   open,
@@ -16,6 +17,15 @@ export function Modal({
   width?: number;
   footer?: ReactNode;
 }) {
+  useHotkey(
+    "escape",
+    (e) => {
+      e.stopPropagation();
+      onClose();
+    },
+    { enabled: open, preventDefault: false },
+  );
+
   if (!open) return null;
   return (
     <div
