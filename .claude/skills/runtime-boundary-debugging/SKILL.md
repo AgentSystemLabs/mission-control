@@ -65,6 +65,17 @@ Recommended fix:
 
 Add a short "why this keeps happening" explanation when the bug recurs after rebuilds, restarts, installs, or packaging.
 
+**Example (better-sqlite3 in an Electron app):**
+
+```text
+User action:           Clicking "Save" in the renderer throws "was compiled against a different Node.js version".
+Execution path:        Renderer click → IPC `db:save` → Electron main → require('better-sqlite3') → native .node load.
+Runtime that loads:    Electron main process (Electron 30, Node ABI 123), confirmed by process.versions.electron at the require site.
+Boundary mismatch:     `npm rebuild better-sqlite3` ran under system Node (ABI 115), so the .node binary targets the wrong ABI.
+Recommended fix:       Replace `npm rebuild` with `electron-rebuild -f -w better-sqlite3` (or `@electron/rebuild`) in the postinstall script.
+Why it keeps happening: Every `npm install` reruns postinstall under system Node, silently undoing the Electron rebuild.
+```
+
 ## Avoid
 
 - Do not assume the visible layer is the failing runtime — the UI surfaces the error, but the side effect (DB write, file read, native call) usually executes one or more boundaries away.
