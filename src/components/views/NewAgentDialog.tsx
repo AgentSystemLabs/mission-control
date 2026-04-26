@@ -63,23 +63,6 @@ export function NewAgentDialog({
     },
   ];
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-      if (isEditableTarget(e.target)) return;
-      e.preventDefault();
-      const ids = agents.map((a) => a.id);
-      const idx = ids.indexOf(agent);
-      const next = e.key === "ArrowDown"
-        ? Math.min(ids.length - 1, idx + 1)
-        : Math.max(0, idx - 1);
-      if (next !== idx) setAgent(ids[next]);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, agent, agents]);
-
   const submit = async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -110,6 +93,29 @@ export function NewAgentDialog({
       setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) return;
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const ids = agents.map((a) => a.id);
+        const idx = ids.indexOf(agent);
+        const next = e.key === "ArrowDown"
+          ? Math.min(ids.length - 1, idx + 1)
+          : Math.max(0, idx - 1);
+        if (next !== idx) setAgent(ids[next]);
+        return;
+      }
+      if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        void submit();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, agent, agents, submitting, title, branch, project]);
 
   useHotkey("mod+enter", () => void submit(), { enabled: open });
 
