@@ -18,26 +18,20 @@ Apply this workflow when the user reports:
 
 ## Workflow
 
-1. Name the failing action in user terms.
-   Example: "Creating a project fails."
+1. **Map the call chain.** Name the failing user action, trace it across every boundary crossing (UI event → fetch/IPC/worker message/spawned process → DB/FS/native call), and label each hop with its runtime (browser renderer, Electron main/preload, Vite dev server, Node server, `ELECTRON_RUN_AS_NODE` child, web worker, service worker, packaged app server).
 
-2. Trace the execution path from the user action to the failing operation.
-   Include every boundary crossing: UI event, fetch/API call, IPC call, worker message, spawned process, database call, filesystem access, or native module load.
+2. **Pin the runtime that actually loads the failing code.** At the suspected load site, prove it with a runtime probe rather than guessing from imports:
+   - Node vs Electron: log `process.versions.node` and `process.versions.electron` (only the latter is set inside Electron).
+   - Electron main vs renderer vs preload: check `process.type` (`'browser'` = main, `'renderer'`, `'worker'`, or `undefined`).
+   - Browser vs server bundle: `typeof window === 'undefined'`, `import.meta.env.SSR`, or framework equivalents (`'use server'`, Next.js `headers()` boundary).
+   - Worker vs main thread: `typeof WorkerGlobalScope !== 'undefined'` or the Node `worker_threads` `isMainThread`.
+   - Which binary launched it: inspect the parent process and the actual path of `node`/`electron`/`bun` on `PATH`; module ABI mismatches almost always trace here.
 
-3. Identify each runtime involved.
-   Examples: browser renderer, Electron main, Electron preload, Vite dev server, Node server, Electron-as-Node process, web worker, service worker, packaged app server.
+3. **Compare dev vs production boot paths.** Read both entry scripts in `package.json` and any builder config. Note differences in launcher (`vite`, `electron .`, `node dist/...`, `electron-forge start` vs packaged binary), `main`/`exports` fields, env (`NODE_ENV`, `ELECTRON_RUN_AS_NODE`), and which files each path actually loads. Same logical module can resolve to different files.
 
-4. Find the exact runtime that loads the failing code.
-   Search imports, handlers, server entrypoints, IPC handlers, API routes, worker entrypoints, package scripts, and spawned commands.
+4. **Inspect boundary-blurring scripts and config.** Flag: `npm rebuild`/`electron-rebuild` targeting the wrong ABI, server-only modules pulled into a client bundle, preload scripts exposing privileged APIs over IPC, conditional `exports` (`node`/`browser`/`electron`) picking the wrong subpath, externalized vs bundled deps in the production build.
 
-5. Compare dev and production ownership.
-   Check scripts and boot code for differences such as `vite`, `electron`, `node`, `ELECTRON_RUN_AS_NODE`, package server entries, workers, or bundled assets.
-
-6. Inspect scripts and config that blur the boundary.
-   Look for commands that run one runtime through another, rebuild dependencies for a different runtime, bundle server-only modules into client code, or expose privileged APIs through preload/IPC.
-
-7. Fix the ownership boundary first.
-   Prefer aligning the script/runtime with the intended architecture over adding retries, reinstall steps, broad fallbacks, or library swaps.
+5. **Fix the ownership boundary first.** Align the script/runtime with the intended architecture before reaching for retries, reinstalls, broad fallbacks, or library swaps. If two runtimes legitimately need the dep, treat it as an architecture decision (see Decision Guide).
 
 ## Decision Guide
 
