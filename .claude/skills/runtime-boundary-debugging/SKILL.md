@@ -43,6 +43,14 @@ Apply this workflow when the user reports:
 - If dev and production run different server entries, verify both paths intentionally load the same dependencies.
 - If one dependency is loaded by multiple runtimes, treat it as an architecture decision: split ownership, use separate build outputs, or choose a dependency that supports both runtimes.
 
+### When the path can't be fully traced
+
+If the call chain disappears into a bundle, dynamic `require`, IPC, or third-party code:
+
+1. **Instrument the boundaries instead of reading code.** Add a top-level log at each candidate load site that prints the runtime probes from Workflow step 2 (`process.versions`, `process.type`, `typeof window`, `__filename`/`import.meta.url`). Run the failing action; the first probe that fires is the owner.
+2. **Diff the resolved module.** `require.resolve()` (Node) or check the bundle output for the exact path actually loaded — `exports` conditions and bundler aliases often resolve the same import to different files in different runtimes.
+3. **If still ambiguous,** stop debugging the symptom and re-read the launcher: which binary started this process, with which `cwd`, env, and entry file. The boundary is almost always defined there, not at the failure site.
+
 ## Output Format
 
 When reporting findings, keep the answer concrete:
