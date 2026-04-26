@@ -94,6 +94,29 @@ export function ProjectCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
+              onOpen();
+            }}
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "4px 8px",
+              cursor: "pointer",
+              color: "var(--text-dim)",
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+            title="Open project"
+          >
+            Open
+            <Icon name="chevron-right" size={11} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
               onTogglePin(project.id);
             }}
             style={{

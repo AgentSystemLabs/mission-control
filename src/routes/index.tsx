@@ -1,7 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
+import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { useHotkey } from "~/lib/use-hotkey";
+import { useWheelSwipe } from "~/lib/use-wheel-swipe";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { StatusDot } from "~/components/ui/StatusDot";
@@ -9,7 +12,9 @@ import { ProjectCard, type Density } from "~/components/views/ProjectCard";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { api } from "~/lib/api";
+import { getElectron } from "~/lib/electron";
 import { useServerEvents } from "~/lib/use-events";
+import { useUserTerminals } from "~/lib/user-terminal-store";
 import type { Group } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
@@ -25,6 +30,21 @@ function MissionControlPage() {
   const [density, setDensity] = useState<Density>("regular");
   const [showAdd, setShowAdd] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const { setProject: setActiveUserTerminalProject } = useUserTerminals();
+
+  // Dashboard has no project context — detach the user-terminal panel from
+  // whichever project we were just viewing.
+  useEffect(() => {
+    setActiveUserTerminalProject(null);
+  }, [setActiveUserTerminalProject]);
+
+  useHotkey("mod+/", () => {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  });
+
+  useHotkey("mod+n", () => setShowAdd(true));
 
   const refresh = useCallback(async () => {
     const [p, g] = await Promise.all([api.listProjects(), api.listGroups()]);
@@ -35,6 +55,25 @@ function MissionControlPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const goLast = useCallback(() => {
+    let lastId: string | null = null;
+    try {
+      lastId = sessionStorage.getItem("lastProjectId");
+    } catch {}
+    if (lastId) router.navigate({ to: "/projects/$id", params: { id: lastId } });
+  }, [router]);
+
+  useEffect(() => {
+    const off = getElectron()?.onSwipe((dir) => {
+      if (dir === "right") goLast();
+    });
+    return () => {
+      off?.();
+    };
+  }, [goLast]);
+
+  useWheelSwipe("right", goLast);
 
   useServerEvents(
     useCallback(
@@ -194,6 +233,7 @@ function MissionControlPage() {
                   style={{ color: "var(--text-faint)", marginRight: 6 }}
                 />
                 <input
+                  ref={searchRef}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search projects…"
@@ -207,6 +247,7 @@ function MissionControlPage() {
                     fontSize: 11.5,
                   }}
                 />
+                <Kbd>{hotkeyLabel("mod+/")}</Kbd>
               </div>
 
               <div
@@ -248,6 +289,7 @@ function MissionControlPage() {
               </Btn>
               <Btn variant="primary" icon="plus" onClick={() => setShowAdd(true)}>
                 Add project
+                <Kbd variant="onPrimary">{hotkeyLabel("mod+n")}</Kbd>
               </Btn>
             </div>
           </div>
@@ -322,7 +364,19 @@ function MissionControlPage() {
         groups={groups}
         onClose={() => setShowAdd(false)}
         onSave={async (data) => {
-          await api.createProject(data);
+          const { pendingImage, imagePath: _ignore, ...createBody } = data;
+          const { project: created } = await api.createProject(createBody);
+          if (pendingImage) {
+            const electron = (await import("~/lib/electron")).getElectron();
+            const result = await electron?.saveProjectImage({
+              projectId: created.id,
+              sourcePath: pendingImage.sourcePath,
+              extension: pendingImage.extension,
+            });
+            if (result && "filename" in result) {
+              await api.updateProject(created.id, { imagePath: result.filename });
+            }
+          }
           setShowAdd(false);
           await refresh();
         }}

@@ -1,0 +1,311 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "@tanstack/react-router";
+import { Icon } from "~/components/ui/Icon";
+import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { api } from "~/lib/api";
+import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
+import type { ProjectWithCounts } from "~/server/services/projects";
+import type { Group } from "~/db/schema";
+
+type Section = { key: string; label: string | null; color: string | null; projects: ProjectWithCounts[] };
+
+export function ProjectPicker({ projectId }: { projectId?: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [projects, setProjects] = useState<ProjectWithCounts[] | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const current = projects?.find((p) => p.id === projectId) ?? null;
+  const label = current?.name ?? "Project";
+
+  const filtered = useMemo(() => {
+    if (!projects) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter((p) => p.name.toLowerCase().includes(q));
+  }, [projects, query]);
+
+  // Group filtered projects into sections: pinned → each group → ungrouped.
+  // Mirrors the landing page layout so the affordance is consistent.
+  const sections = useMemo<Section[]>(() => {
+    const out: Section[] = [];
+    const pinned = filtered.filter((p) => p.pinned);
+    if (pinned.length) out.push({ key: "__pinned", label: "Pinned", color: null, projects: pinned });
+    const validGroupIds = new Set(groups.map((g) => g.id));
+    for (const g of groups) {
+      const ps = filtered.filter((p) => !p.pinned && p.groupId === g.id);
+      if (ps.length) out.push({ key: g.id, label: g.name, color: g.color, projects: ps });
+    }
+    const ungrouped = filtered.filter((p) => !p.pinned && (!p.groupId || !validGroupIds.has(p.groupId)));
+    if (ungrouped.length) {
+      out.push({ key: "__ungrouped", label: out.length ? "Ungrouped" : null, color: null, projects: ungrouped });
+    }
+    return out;
+  }, [filtered, groups]);
+
+  // Flat list of selectable items, in render order — drives keyboard nav indexing.
+  const flatItems = useMemo(() => sections.flatMap((s) => s.projects), [sections]);
+
+  useEffect(() => {
+    if (!open || projects) return;
+    let cancelled = false;
+    Promise.all([api.listProjects(), api.listGroups()])
+      .then(([p, g]) => {
+        if (cancelled) return;
+        setProjects(p.projects);
+        setGroups(g.groups);
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, projects]);
+
+  // Refresh list whenever projectId changes (e.g., after navigating) so name stays current.
+  useEffect(() => {
+    Promise.all([api.listProjects(), api.listGroups()])
+      .then(([p, g]) => {
+        setProjects(p.projects);
+        setGroups(g.groups);
+      })
+      .catch(() => {});
+  }, [projectId]);
+
+  const select = (id: string) => {
+    setOpen(false);
+    setQuery("");
+    if (id !== projectId) router.navigate({ to: "/projects/$id", params: { id } });
+  };
+
+  useHotkey(
+    "mod+p",
+    (e) => {
+      if (isEditableTarget(e.target) && !wrapRef.current?.contains(e.target as Node)) return;
+      e.preventDefault();
+      setOpen((o) => !o);
+    },
+    { preventDefault: false },
+  );
+
+  // Reset state when opening; focus input.
+  useEffect(() => {
+    if (!open) return;
+    setQuery("");
+    setHighlight(0);
+    const t = setTimeout(() => inputRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  // Clamp highlight when filtered list shrinks.
+  useEffect(() => {
+    if (highlight >= flatItems.length) setHighlight(0);
+  }, [flatItems, highlight]);
+
+  // Scroll highlighted item into view.
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[highlight]?.scrollIntoView({ block: "nearest" });
+  }, [open, highlight]);
+
+  // Outside click closes.
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const n = flatItems.length;
+      if (n > 0) setHighlight((h) => (h + 1) % n);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = flatItems.length;
+      if (n > 0) setHighlight((h) => (h - 1 + n) % n);
+      return;
+    }
+    if (e.key === "Enter") {
+      const target = flatItems[highlight];
+      if (target) {
+        e.preventDefault();
+        select(target.id);
+      }
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontFamily: "var(--mono)",
+          fontSize: 12,
+          color: "var(--text)",
+          background: open ? "var(--surface-1)" : "transparent",
+          border: "1px solid var(--border)",
+          borderRadius: 4,
+          padding: "3px 8px",
+          cursor: "pointer",
+        }}
+        title="Switch project (⌘P)"
+      >
+        {current && <ProjectIcon project={current} size={14} />}
+        <span>{label}</span>
+        <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
+        <Kbd variant="ghost" style={{ marginLeft: 2 }}>
+          {hotkeyLabel("mod+p")}
+        </Kbd>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            minWidth: 320,
+            background: "var(--surface-0)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            zIndex: 50,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ padding: 6, borderBottom: "1px solid var(--border)" }}>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onInputKeyDown}
+              placeholder="Search projects…"
+              style={{
+                width: "100%",
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                fontFamily: "var(--mono)",
+                fontSize: 12,
+                color: "var(--text)",
+                padding: "4px 6px",
+              }}
+            />
+          </div>
+          <div style={{ maxHeight: 320, overflowY: "auto", padding: 4 }}>
+            {projects === null ? (
+              <div style={{ padding: 10, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-faint)" }}>
+                Loading…
+              </div>
+            ) : flatItems.length === 0 ? (
+              <div style={{ padding: 10, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-faint)" }}>
+                No matches.
+              </div>
+            ) : (
+              (() => {
+                let idx = 0;
+                return sections.map((section) => (
+                  <div key={section.key}>
+                    {section.label && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "6px 8px 2px",
+                          fontFamily: "var(--mono)",
+                          fontSize: 10,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          color: "var(--text-faint)",
+                        }}
+                      >
+                        {section.color && (
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: section.color,
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                        <span>{section.label}</span>
+                      </div>
+                    )}
+                    {section.projects.map((p) => {
+                      const i = idx++;
+                      const active = p.id === projectId;
+                      const highlighted = i === highlight;
+                      return (
+                        <button
+                          key={p.id}
+                          ref={(el) => {
+                            itemRefs.current[i] = el;
+                          }}
+                          onClick={() => select(p.id)}
+                          onMouseMove={() => setHighlight(i)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "6px 8px",
+                            background: highlighted
+                              ? "var(--surface-2, var(--surface-1))"
+                              : active
+                                ? "var(--surface-1)"
+                                : "transparent",
+                            border: "none",
+                            borderRadius: 4,
+                            cursor: "pointer",
+                            textAlign: "left",
+                            fontFamily: "var(--mono)",
+                            fontSize: 12,
+                            color: "var(--text)",
+                            outline: highlighted ? "1px solid var(--border)" : "none",
+                          }}
+                        >
+                          <ProjectIcon project={p} size={18} />
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {p.name}
+                          </span>
+                          {active && <Icon name="check" size={12} style={{ color: "var(--text-faint)" }} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ));
+              })()
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

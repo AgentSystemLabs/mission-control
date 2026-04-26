@@ -33,6 +33,7 @@ export type ElectronBridge = {
     onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => () => void;
     replay: (ptyId: string) => Promise<string>;
   };
+  onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
 };
 
 declare global {

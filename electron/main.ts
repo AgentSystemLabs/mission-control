@@ -115,6 +115,11 @@ async function createWindow() {
   });
 
   win.once("ready-to-show", () => win?.show());
+
+  // macOS-only: 3-finger swipe (System Settings → Trackpad → More Gestures).
+  win.on("swipe", (_e, direction) => {
+    win?.webContents.send("app:swipe", direction);
+  });
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };

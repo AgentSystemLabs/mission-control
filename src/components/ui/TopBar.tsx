@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
 
-export type Crumb = { label: string; onClick?: () => void };
+export type Crumb = { label: string; onClick?: () => void; node?: ReactNode };
 
 export function TopBar({
   crumbs,
@@ -74,17 +74,21 @@ export function TopBar({
                 {i > 0 && (
                   <Icon name="chevron-right" size={11} style={{ color: "var(--text-faint)" }} />
                 )}
-                <span
-                  onClick={c.onClick}
-                  style={{
-                    fontFamily: "var(--mono)",
-                    fontSize: 12,
-                    color: i === crumbs.length - 1 ? "var(--text)" : "var(--text-dim)",
-                    cursor: c.onClick ? "pointer" : "default",
-                  }}
-                >
-                  {c.label}
-                </span>
+                {c.node ? (
+                  c.node
+                ) : (
+                  <span
+                    onClick={c.onClick}
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 12,
+                      color: i === crumbs.length - 1 ? "var(--text)" : "var(--text-dim)",
+                      cursor: c.onClick ? "pointer" : "default",
+                    }}
+                  >
+                    {c.label}
+                  </span>
+                )}
               </span>
             ))}
           </>

@@ -43,6 +43,11 @@ const electronAPI = {
     },
     replay: (ptyId: string): Promise<string> => ipcRenderer.invoke("pty:replay", { ptyId }) as Promise<string>,
   },
+  onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => {
+    const listener = (_: Electron.IpcRendererEvent, direction: "left" | "right" | "up" | "down") => cb(direction);
+    ipcRenderer.on("app:swipe", listener);
+    return () => ipcRenderer.removeListener("app:swipe", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);
