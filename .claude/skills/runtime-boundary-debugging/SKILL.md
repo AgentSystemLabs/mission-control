@@ -5,7 +5,9 @@ description: Debug cross-runtime failures by tracing which process actually load
 
 # Runtime Boundary Debugging
 
-Use this skill when a bug crosses process or runtime boundaries. The goal is to identify the runtime that owns the failing dependency or side effect before changing libraries, rebuild commands, or architecture.
+> **Core mindset:** Identify the runtime that owns the failing dependency or side effect before changing libraries, scripts, or rebuild commands.
+
+Use this skill when a bug crosses process or runtime boundaries.
 
 ## Triggers
 
