@@ -63,7 +63,7 @@ Add a short "why this keeps happening" explanation when the bug recurs after reb
 
 ## Avoid
 
-- Do not assume the visible layer is the failing runtime.
-- Do not recommend reinstalling or rebuilding before identifying which runtime needs the artifact.
-- Do not blame a library until the runtime boundary and ownership path are clear.
-- Do not collapse dev and production behavior into one explanation when boot paths differ.
+- Do not assume the visible layer is the failing runtime — the UI surfaces the error, but the side effect (DB write, file read, native call) usually executes one or more boundaries away.
+- Do not recommend reinstalling or rebuilding before identifying which runtime needs the artifact — `npm rebuild` compiles native modules against whichever Node ABI invoked it, which is often not the Electron ABI that will actually load them, so the rebuild "fixes" the wrong target.
+- Do not blame a library until the runtime boundary and ownership path are clear — most "library bugs" in this class are really the right library loaded by the wrong runtime.
+- Do not collapse dev and production behavior into one explanation when boot paths differ — dev typically runs through a dev server (Vite, tsx, electron + vite) while production runs a bundled entry, and they can import entirely different files for the same logical module.
