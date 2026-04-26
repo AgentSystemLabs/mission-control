@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,green \"pnpm dev:server\" \"wait-on tcp:5173 && pnpm dev:electron\"",
     "dev:server": "pnpm native:node && vite --port 5173 --strictPort",
-    "dev:electron": "pnpm native:electron:pty && tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development MC_DEV_URL=http://127.0.0.1:5173 electron dist-electron/main.js",
+    "dev:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development MC_DEV_URL=http://127.0.0.1:5173 electron dist-electron/main.js",
     "build:web": "vite build && vite build -c vite.config.server-entry.ts",
     "build:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\"",
     "build": "pnpm build:web && pnpm build:electron",

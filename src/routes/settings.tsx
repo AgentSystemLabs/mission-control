@@ -81,13 +81,13 @@ function SettingsPage() {
               </Btn>
             </div>
           </Field>
-          <Field label="Example: mark a task done">
+          <Field label="Example: mark a task finished">
             <CodeBlock
-              value={`curl -H "Authorization: Bearer $TOKEN" \\\n  -X POST ${baseUrl}/api/tasks/$TASK_ID/status \\\n  -d '{"status":"done","preview":"All tests passing"}'`}
+              value={`curl -H "Authorization: Bearer $TOKEN" \\\n  -X POST ${baseUrl}/api/tasks/$TASK_ID/status \\\n  -d '{"status":"finished","preview":"All tests passing"}'`}
               onCopy={() =>
                 token &&
                 copy(
-                  `curl -H "Authorization: Bearer ${token}" -X POST ${baseUrl}/api/tasks/$TASK_ID/status -d '{"status":"done","preview":"All tests passing"}'`,
+                  `curl -H "Authorization: Bearer ${token}" -X POST ${baseUrl}/api/tasks/$TASK_ID/status -d '{"status":"finished","preview":"All tests passing"}'`,
                   "curl"
                 )
               }

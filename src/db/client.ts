@@ -5,6 +5,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as schema from "./schema";
 
+const migrationFiles = import.meta.glob("./migrations/*.sql", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
+
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let _sqlite: Database.Database | null = null;
 
@@ -27,7 +33,42 @@ export function getDb() {
   _sqlite.pragma("foreign_keys = ON");
   _db = drizzle(_sqlite, { schema });
   ensureSchema(_sqlite);
+  runMigrations(_sqlite);
   return _db;
+}
+
+/**
+ * Apply versioned SQL migrations from ./migrations, tracking what's been
+ * applied in the `schema_migrations` table. ensureSchema handles the initial
+ * table layout; this runner is for incremental data/schema changes after that.
+ */
+function runMigrations(sqlite: Database.Database) {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
+  `);
+  const applied = new Set(
+    sqlite
+      .prepare("SELECT name FROM schema_migrations")
+      .all()
+      .map((r: any) => r.name as string)
+  );
+  const names = Object.keys(migrationFiles)
+    .map((p) => p.split("/").pop()!)
+    .sort();
+  for (const name of names) {
+    if (applied.has(name)) continue;
+    const sql = migrationFiles[`./migrations/${name}`];
+    const tx = sqlite.transaction(() => {
+      sqlite.exec(sql);
+      sqlite
+        .prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)")
+        .run(name, Date.now());
+    });
+    tx();
+  }
 }
 
 export function getSqlite() {

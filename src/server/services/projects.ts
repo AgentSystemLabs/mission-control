@@ -55,7 +55,7 @@ function decorate(p: Project, ts: Task[]): ProjectWithCounts {
   let activeNonDone = 0;
   for (const t of active) {
     counts[t.status]++;
-    if (isActiveStatus(t.status) && t.status !== "done") activeNonDone++;
+    if (isActiveStatus(t.status) && t.status !== "finished") activeNonDone++;
   }
   const previewSource =
     active.find((t) => t.status === "running") ?? active.find((t) => t.status === "needs-input");

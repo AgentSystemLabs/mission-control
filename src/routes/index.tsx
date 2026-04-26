@@ -74,7 +74,7 @@ function MissionControlPage() {
 
   const totalRunning = projects.reduce((a, p) => a + p.taskCounts.running, 0);
   const totalNeeds = projects.reduce((a, p) => a + p.taskCounts["needs-input"], 0);
-  const totalDone = projects.reduce((a, p) => a + p.taskCounts.done, 0);
+  const totalDone = projects.reduce((a, p) => a + p.taskCounts.finished, 0);
 
   const dateLabel = useMemo(
     () =>

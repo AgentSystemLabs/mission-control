@@ -228,7 +228,7 @@ function mapHookEventToStatus(event: string): import("~/db/schema").TaskStatus |
       return "running";
     case "Stop":
     case "SubagentStop":
-      return "idle";
+      return "finished";
     case "Notification":
     case "PermissionRequest":
       return "needs-input";

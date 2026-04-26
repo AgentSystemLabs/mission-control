@@ -162,7 +162,7 @@ export function TaskCard({
             )}
           </div>
         )}
-        {task.status === "done" && (
+        {task.status === "finished" && (
           <div style={{ display: "flex", gap: 6 }}>
             {onCommitPush && (
               <Btn

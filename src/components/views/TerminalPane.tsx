@@ -105,6 +105,18 @@ export function TerminalPane({
             if (msg.ptyId === ptyId) {
               term.writeln("");
               term.writeln(`\x1b[2m[process exited (code=${msg.exitCode})]\x1b[0m`);
+              void (async () => {
+                try {
+                  const settings = await api.getSettings();
+                  await api.updateTaskStatus(
+                    descriptor.taskId,
+                    { status: "terminated" },
+                    settings.apiToken
+                  );
+                } catch {
+                  /* best effort */
+                }
+              })();
             }
           })
         );

@@ -3,19 +3,17 @@ import * as path from "node:path";
 
 const MARKER = "_mcManaged";
 
-const HOOK_CMD = [
-  "sh",
-  "-c",
-  // Read stdin (Claude's hook payload JSON) and forward to Mission Control.
-  // Fail-soft: never block the user's session if MC is down.
+// Read stdin (Claude's hook payload JSON) and forward to Mission Control.
+// Fail-soft: never block the user's session if MC is down. Claude Code
+// runs `command` via `/bin/sh -c`, so this is a plain shell snippet.
+const HOOK_CMD =
   'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
-    "curl -sS -m 3 -X POST " +
-    '-H "Authorization: Bearer $MC_API_TOKEN" ' +
-    '-H "Content-Type: application/json" ' +
-    "--data-binary @- " +
-    '"$MC_API_URL/api/hooks/claude?taskId=$MC_TASK_ID" ' +
-    ">/dev/null 2>&1 || true",
-].join(" ");
+  "curl -sS -m 3 -X POST " +
+  '-H "Authorization: Bearer $MC_API_TOKEN" ' +
+  '-H "Content-Type: application/json" ' +
+  "--data-binary @- " +
+  '"$MC_API_URL/api/hooks/claude?taskId=$MC_TASK_ID" ' +
+  ">/dev/null 2>&1 || true";
 
 // Events we care about. "Notification" covers the "Claude needs your input"
 // permission prompt case in current Claude Code; older builds also emit
