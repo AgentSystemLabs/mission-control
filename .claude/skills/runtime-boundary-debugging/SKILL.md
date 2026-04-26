@@ -1,6 +1,6 @@
 ---
 name: runtime-boundary-debugging
-description: Debug cross-runtime failures by tracing which process actually loads the failing code. Use when errors involve Electron vs Node, browser vs server, dev server vs packaged app, worker vs main thread, CLI vs app runtime, native modules, API boundaries, or behavior that appears to fail in one layer but may originate in another.
+description: Debug cross-runtime failures by tracing which process actually loads the failing code. Use when errors involve Electron vs Node, browser vs server, dev server vs packaged app, worker vs main thread, CLI vs app runtime, native modules, ABI mismatch, preload script, IPC boundary, SSR vs client bundle, electron-rebuild, postinstall, or NODE_MODULE_VERSION errors.
 ---
 
 # Runtime Boundary Debugging
