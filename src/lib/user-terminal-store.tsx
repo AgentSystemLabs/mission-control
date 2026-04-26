@@ -59,10 +59,14 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     setProjectState((prev) => (prev?.id === next?.id ? prev : next));
   }, []);
 
-  // Load terminals when project changes; kill PTYs from previous project.
+  // Load terminals when switching to a different project; keep sessions alive
+  // when project goes null (e.g. dashboard) so returning to the same project
+  // preserves running PTYs.
   useEffect(() => {
     const id = project?.id ?? null;
-    if (id === projectIdRef.current) return;
+    const prevId = projectIdRef.current;
+    if (id === prevId) return;
+    if (id === null) return; // detach view only; don't tear down sessions
     projectIdRef.current = id;
 
     setSessions((prev) => {
@@ -71,7 +75,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     });
     setFocusedId(null);
 
-    if (!id) return;
     let cancelled = false;
     void (async () => {
       try {
