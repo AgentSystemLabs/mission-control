@@ -21,7 +21,8 @@ type Ctx = {
   toggle: (project: Project, task: Task) => void;
   /** Permanently close the session and kill its PTY. */
   close: (taskId: string) => Promise<void>;
-  closeAll: () => Promise<void>;
+  /** Hide every visible pane without killing PTYs — sessions remain alive in the background. */
+  hideAll: () => void;
   setPtyId: (taskId: string, ptyId: string) => void;
   closeForProject: (projectId: string) => Promise<void>;
   startCommandFor: (agent: TaskAgent) => string;
@@ -93,11 +94,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const closeAll = useCallback(async () => {
-    setSessions((prev) => {
-      for (const t of prev) void killPty(t.ptyId);
-      return [];
-    });
+  const hideAll = useCallback(() => {
+    setSessions((prev) => prev.map((p) => (p.visible ? { ...p, visible: false } : p)));
   }, []);
 
   const closeForProject = useCallback(async (projectId: string) => {
@@ -145,7 +143,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         isOpen,
         toggle,
         close,
-        closeAll,
+        hideAll,
         setPtyId,
         closeForProject,
         startCommandFor: commandFor,

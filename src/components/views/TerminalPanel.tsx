@@ -8,12 +8,12 @@ export type OpenTerminal = TerminalDescriptor & { project: Project; task: Task }
 export function TerminalPanel({
   open,
   onClose,
-  onCloseAll,
+  onHideAll,
   onPtyReady,
 }: {
   open: OpenTerminal[];
   onClose: (taskId: string) => void;
-  onCloseAll: () => void;
+  onHideAll: () => void;
   onPtyReady: (taskId: string, ptyId: string) => void;
 }) {
   if (open.length === 0) return null;
@@ -58,13 +58,7 @@ export function TerminalPanel({
           </span>
         </div>
         <button
-          onClick={async () => {
-            const electron = getElectron();
-            for (const t of open) {
-              if (t.ptyId && electron) await electron.pty.kill(t.ptyId).catch(() => undefined);
-            }
-            onCloseAll();
-          }}
+          onClick={onHideAll}
           style={{
             background: "transparent",
             border: "1px solid var(--border)",
@@ -79,7 +73,7 @@ export function TerminalPanel({
             gap: 5,
           }}
         >
-          <Icon name="x" size={10} /> Close all
+          <Icon name="x" size={10} /> Hide all
         </button>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>

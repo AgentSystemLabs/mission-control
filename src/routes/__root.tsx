@@ -54,7 +54,7 @@ function RootComponent() {
 function Shell() {
   const router = useRouter();
   const { theme, toggle } = useTheme();
-  const { open, close, closeAll, setPtyId } = useTerminals();
+  const { open, close, hideAll, setPtyId } = useTerminals();
   const userTerminals = useUserTerminals();
 
   const path = router.state.location.pathname;
@@ -184,7 +184,7 @@ function Shell() {
           <TerminalPanel
             open={open}
             onClose={close}
-            onCloseAll={closeAll}
+            onHideAll={hideAll}
             onPtyReady={setPtyId}
           />
         </div>
