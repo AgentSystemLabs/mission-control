@@ -6,6 +6,7 @@ import { getDb } from "~/db/client";
 import { TASK_STATUSES, isActiveStatus, projects, tasks } from "~/db/schema";
 import type { Project, Task, TaskStatus } from "~/db/schema";
 import { events } from "../events";
+import { deleteAllProjectImagesFor } from "./project-images";
 
 export type ProjectWithCounts = Project & {
   taskCounts: Record<TaskStatus, number> & { total: number; activeNonDone: number };
@@ -90,6 +91,7 @@ export function createProject(input: {
     path: input.path,
     icon: (input.icon || name.slice(0, 2)).toUpperCase().slice(0, 2),
     iconColor: input.iconColor || "#7ce58a",
+    imagePath: null,
     groupId: input.groupId ?? null,
     pinned: false,
     branch,
@@ -103,7 +105,7 @@ export function createProject(input: {
 
 export function updateProject(
   id: string,
-  patch: Partial<Pick<Project, "name" | "path" | "icon" | "iconColor" | "groupId" | "pinned" | "branch">>
+  patch: Partial<Pick<Project, "name" | "path" | "icon" | "iconColor" | "imagePath" | "groupId" | "pinned" | "branch">>
 ): Project | null {
   const db = getDb();
   const existing = db.select().from(projects).where(eq(projects.id, id)).get();
@@ -134,6 +136,7 @@ export function togglePin(id: string): Project | null {
 export function deleteProject(id: string): boolean {
   const db = getDb();
   const result = db.delete(projects).where(eq(projects.id, id)).run();
+  if (result.changes > 0) deleteAllProjectImagesFor(id);
   events.emit("project:deleted", { id });
   return result.changes > 0;
 }

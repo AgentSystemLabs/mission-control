@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from "electron";
+import { pathToFileURL } from "node:url";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as http from "node:http";
-import * as net from "node:net";
+import * as nodeNet from "node:net";
 import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
@@ -16,7 +17,7 @@ let runtimePort: number | null = null;
 
 function pickPort(): Promise<number> {
   return new Promise((resolve, reject) => {
-    const srv = net.createServer();
+    const srv = nodeNet.createServer();
     srv.unref();
     srv.on("error", reject);
     srv.listen(0, "127.0.0.1", () => {
@@ -126,6 +127,96 @@ async function createWindow() {
   }
 }
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "app",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
+]);
+
+const ALLOWED_IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function projectImagesDir(): string {
+  return path.join(app.getPath("userData"), "project-images");
+}
+
+function registerProjectImageProtocol() {
+  protocol.handle("app", async (req) => {
+    try {
+      const url = new URL(req.url);
+      if (url.host !== "project-image") return new Response("not found", { status: 404 });
+      const filename = path.basename(decodeURIComponent(url.pathname));
+      if (!filename || filename.includes("\0")) return new Response("not found", { status: 404 });
+      const ext = path.extname(filename).slice(1).toLowerCase();
+      if (!ALLOWED_IMAGE_EXT.has(ext)) return new Response("not found", { status: 404 });
+      const dirReal = path.resolve(projectImagesDir());
+      const abs = path.resolve(dirReal, filename);
+      if (abs !== dirReal && !abs.startsWith(dirReal + path.sep)) {
+        return new Response("not found", { status: 404 });
+      }
+      if (!fs.existsSync(abs)) return new Response("not found", { status: 404 });
+      return await net.fetch(pathToFileURL(abs).toString());
+    } catch (err) {
+      return new Response(String(err), { status: 500 });
+    }
+  });
+}
+
+// Tracks paths returned from `dialog:pickImage`. `file:saveProjectImage` will only
+// accept a sourcePath that's been issued by us — prevents a compromised renderer
+// from copying arbitrary FS paths (e.g. /etc/passwd) into project-images/.
+const ALLOWED_PICKED_PATHS = new Set<string>();
+
+ipcMain.handle("dialog:pickImage", async () => {
+  if (!win) return null;
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Images", extensions: [...ALLOWED_IMAGE_EXT] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  const sourcePath = result.filePaths[0]!;
+  const ext = path.extname(sourcePath).slice(1).toLowerCase();
+  if (!ALLOWED_IMAGE_EXT.has(ext)) {
+    return { error: `Unsupported file type: .${ext}` };
+  }
+  ALLOWED_PICKED_PATHS.add(sourcePath);
+  return { sourcePath, extension: ext };
+});
+
+ipcMain.handle(
+  "file:saveProjectImage",
+  async (_evt, opts: { projectId: string; sourcePath: string; extension: string }) => {
+    const { projectId, sourcePath } = opts;
+    const ext = opts.extension.toLowerCase();
+    if (!projectId || !/^[A-Za-z0-9_-]+$/.test(projectId)) {
+      return { error: "invalid projectId" };
+    }
+    if (!ALLOWED_PICKED_PATHS.has(sourcePath)) {
+      return { error: "source not issued by image picker" };
+    }
+    if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: `unsupported extension: ${ext}` };
+    if (!fs.existsSync(sourcePath)) return { error: "source file not found" };
+    const stat = fs.statSync(sourcePath);
+    if (stat.size > MAX_IMAGE_BYTES) return { error: "image exceeds 5MB" };
+
+    const dir = projectImagesDir();
+    fs.mkdirSync(dir, { recursive: true });
+    // Sweep any prior file with a different extension for this project.
+    for (const name of fs.readdirSync(dir)) {
+      if (name.split(".")[0] === projectId) {
+        try {
+          fs.unlinkSync(path.join(dir, name));
+        } catch {}
+      }
+    }
+    const filename = `${projectId}.${ext}`;
+    fs.copyFileSync(sourcePath, path.join(dir, filename));
+    ALLOWED_PICKED_PATHS.delete(sourcePath);
+    return { filename };
+  }
+);
+
 ipcMain.handle("dialog:browseFolder", async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
@@ -172,7 +263,10 @@ app.on("before-quit", () => {
   if (serverProcess) serverProcess.kill();
 });
 
-app.whenReady().then(createWindow).catch((err) => {
+app.whenReady().then(() => {
+  registerProjectImageProtocol();
+  return createWindow();
+}).catch((err) => {
   console.error("[main] startup failed:", err);
   app.quit();
 });

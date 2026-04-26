@@ -2,6 +2,15 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const electronAPI = {
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke("dialog:browseFolder"),
+  pickImage: (): Promise<
+    { sourcePath: string; extension: string } | { error: string } | null
+  > => ipcRenderer.invoke("dialog:pickImage"),
+  saveProjectImage: (opts: {
+    projectId: string;
+    sourcePath: string;
+    extension: string;
+  }): Promise<{ filename: string } | { error: string }> =>
+    ipcRenderer.invoke("file:saveProjectImage", opts),
   getRuntimePort: (): Promise<number | null> => ipcRenderer.invoke("app:getRuntimePort"),
   getUserDataDir: (): Promise<string> => ipcRenderer.invoke("app:getUserDataDir"),
   cliCheck: (command: string): Promise<{ ok: true; path: string } | { ok: false; reason: string }> =>

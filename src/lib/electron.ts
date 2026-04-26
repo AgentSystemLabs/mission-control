@@ -2,6 +2,14 @@
 
 export type ElectronBridge = {
   browseFolder: () => Promise<string | null>;
+  pickImage: () => Promise<
+    { sourcePath: string; extension: string } | { error: string } | null
+  >;
+  saveProjectImage: (opts: {
+    projectId: string;
+    sourcePath: string;
+    extension: string;
+  }) => Promise<{ filename: string } | { error: string }>;
   getRuntimePort: () => Promise<number | null>;
   getUserDataDir: () => Promise<string>;
   cliCheck: (

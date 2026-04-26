@@ -4,6 +4,8 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { useHotkey } from "~/lib/use-hotkey";
 import { ICON_COLORS } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import type { Group, Project } from "~/db/schema";
@@ -26,6 +28,8 @@ export function ProjectDialog({
     icon?: string;
     iconColor: string;
     groupId: string | null;
+    imagePath?: string | null;
+    pendingImage?: { sourcePath: string; extension: string } | null;
   }) => Promise<void> | void;
   onDelete?: () => Promise<void> | void;
 }) {
@@ -34,6 +38,12 @@ export function ProjectDialog({
   const [groupId, setGroupId] = useState<string>("");
   const [icon, setIcon] = useState("");
   const [iconColor, setIconColor] = useState("#7ce58a");
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imageVersion, setImageVersion] = useState(0);
+  const [pendingImage, setPendingImage] = useState<
+    { sourcePath: string; extension: string } | null
+  >(null);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,9 +53,51 @@ export function ProjectDialog({
       setGroupId(project?.groupId || "");
       setIcon(project?.icon || "");
       setIconColor(project?.iconColor || "#7ce58a");
+      setImagePath(project?.imagePath ?? null);
+      setImageVersion(project?.updatedAt ?? 0);
+      setPendingImage(null);
       setError(null);
     }
   }, [open, project]);
+
+  const chooseImage = async () => {
+    setError(null);
+    const electron = getElectron();
+    if (!electron) return;
+    const picked = await electron.pickImage();
+    if (!picked) return;
+    if ("error" in picked) {
+      setError(picked.error);
+      return;
+    }
+    if (!project) {
+      // Create flow: defer upload until after the project exists.
+      setPendingImage(picked);
+      return;
+    }
+    setUploading(true);
+    try {
+      const result = await electron.saveProjectImage({
+        projectId: project.id,
+        sourcePath: picked.sourcePath,
+        extension: picked.extension,
+      });
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      setImagePath(result.filename);
+      setImageVersion(Date.now());
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeImage = () => {
+    setImagePath(null);
+    setPendingImage(null);
+    setImageVersion(Date.now());
+  };
 
   const browse = async () => {
     const electron = getElectron();
@@ -72,11 +124,14 @@ export function ProjectDialog({
         icon: icon || effectiveName.slice(0, 2).toUpperCase(),
         iconColor,
         groupId: groupId || null,
+        ...(project ? { imagePath } : { pendingImage }),
       });
     } catch (e: any) {
       setError(e?.message || "Save failed");
     }
   };
+
+  useHotkey("mod+enter", () => void submit(), { enabled: open });
 
   return (
     <Modal
@@ -103,6 +158,7 @@ export function ProjectDialog({
           </Btn>
           <Btn variant="primary" onClick={submit}>
             {project ? "Save" : "Add project"}
+            <Kbd variant="onPrimary">{hotkeyLabel("mod+enter")}</Kbd>
           </Btn>
         </>
       }
@@ -123,6 +179,8 @@ export function ProjectDialog({
             project={{
               icon: (icon || name.slice(0, 2) || "??").toUpperCase().slice(0, 2),
               iconColor,
+              imagePath,
+              updatedAt: imageVersion,
             }}
             size={44}
           />
@@ -188,7 +246,58 @@ export function ProjectDialog({
               marginBottom: 6,
             }}
           >
-            Icon
+            Custom image
+          </label>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Btn variant="solid" icon="folder" onClick={chooseImage} disabled={uploading}>
+              {uploading
+                ? "Uploading…"
+                : imagePath || pendingImage
+                  ? "Replace image…"
+                  : "Choose image…"}
+            </Btn>
+            {(imagePath || pendingImage) && (
+              <Btn variant="ghost" onClick={removeImage}>
+                Remove
+              </Btn>
+            )}
+            {pendingImage && (
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                }}
+              >
+                {pendingImage.sourcePath.split(/[\\/]/).pop()} — uploads on save
+              </span>
+            )}
+            <span
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                color: "var(--text-faint)",
+              }}
+            >
+              PNG / JPG / WebP / GIF, ≤ 5MB
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <label
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: 10.5,
+              fontWeight: 500,
+              color: "var(--text-dim)",
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              display: "block",
+              marginBottom: 6,
+            }}
+          >
+            Icon (fallback)
           </label>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <input

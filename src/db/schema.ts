@@ -16,6 +16,7 @@ export const projects = sqliteTable(
     path: text("path").notNull(),
     icon: text("icon").notNull(),
     iconColor: text("icon_color").notNull(),
+    imagePath: text("image_path"),
     groupId: text("group_id").references(() => groups.id, { onDelete: "set null" }),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     branch: text("branch").notNull().default("main"),

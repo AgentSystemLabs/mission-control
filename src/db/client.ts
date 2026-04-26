@@ -14,7 +14,7 @@ const migrationFiles = import.meta.glob("./migrations/*.sql", {
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let _sqlite: Database.Database | null = null;
 
-function resolveUserDataDir(): string {
+export function resolveUserDataDir(): string {
   if (process.env.MC_USER_DATA_DIR) return process.env.MC_USER_DATA_DIR;
   const platform = process.platform;
   const home = os.homedir();
