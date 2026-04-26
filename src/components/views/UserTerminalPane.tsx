@@ -71,6 +71,7 @@ export function UserTerminalPane({
       term.loadAddon(fit);
       term.open(containerRef.current);
       termRef.current = { focus: () => term.focus() };
+      term.focus();
 
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;

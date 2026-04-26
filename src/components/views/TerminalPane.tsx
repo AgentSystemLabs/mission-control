@@ -92,6 +92,7 @@ export function TerminalPane({
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(containerRef.current);
+      term.focus();
 
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
