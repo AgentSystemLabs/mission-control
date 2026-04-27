@@ -163,12 +163,14 @@ function Shell() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <Outlet />
           </div>
-          <TerminalPanel
-            open={open}
-            onClose={hide}
-            onHideAll={hideAll}
-            onPtyReady={setPtyId}
-          />
+          {projectMatch && (
+            <TerminalPanel
+              open={open.filter((t) => t.project.id === projectMatch[1])}
+              onClose={hide}
+              onHideAll={hideAll}
+              onPtyReady={setPtyId}
+            />
+          )}
         </div>
         <UserTerminalPanel />
       </div>

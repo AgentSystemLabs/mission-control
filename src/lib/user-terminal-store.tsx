@@ -38,47 +38,41 @@ const UserTerminalContext = createContext<Ctx | null>(null);
 
 export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const [project, setProjectState] = useState<Project | null>(null);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  // Sessions for every project visited this app run, keyed by projectId.
+  // Sessions stay alive across project switches so PTYs are not killed when
+  // the user navigates away and back.
+  const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
+  const [focusedByProject, setFocusedByProject] = useState<Record<string, string | null>>({});
   const [panelOpen, setPanelOpen] = useState(true);
-  const [focusedId, setFocusedId] = useState<string | null>(null);
-  const projectIdRef = useRef<string | null>(null);
-
-  const killPty = async (id: string | null) => {
-    if (!id) return;
-    const electron = getElectron();
-    if (!electron) return;
-    await electron.pty.kill(id).catch(() => undefined);
-  };
+  const loadedProjectsRef = useRef<Set<string>>(new Set());
 
   const setProject = useCallback((next: Project | null) => {
     setProjectState((prev) => (prev?.id === next?.id ? prev : next));
   }, []);
 
-  // Load terminals when switching to a different project; keep sessions alive
-  // when project goes null (e.g. dashboard) so returning to the same project
-  // preserves running PTYs.
+  // Lazy-load each project's persisted terminals the first time we see it.
+  // Existing buckets are left alone so live PTYs survive project switches.
   useEffect(() => {
-    const id = project?.id ?? null;
-    const prevId = projectIdRef.current;
-    if (id === prevId) return;
-    if (id === null) return; // detach view only; don't tear down sessions
-    projectIdRef.current = id;
-
-    setSessions((prev) => {
-      for (const s of prev) void killPty(s.ptyId);
-      return [];
-    });
-    setFocusedId(null);
+    const id = project?.id;
+    if (!id) return;
+    if (loadedProjectsRef.current.has(id)) return;
+    loadedProjectsRef.current.add(id);
 
     let cancelled = false;
     void (async () => {
       try {
         const { terminals } = await api.listUserTerminals(id);
-        if (cancelled || projectIdRef.current !== id) return;
-        setSessions(terminals.map((t) => ({ terminal: t, ptyId: null })));
-        if (terminals.length > 0) setFocusedId(terminals[0]!.id);
+        if (cancelled) return;
+        setSessionsByProject((prev) => {
+          if (prev[id]) return prev; // a createTerminal call beat us to it
+          return { ...prev, [id]: terminals.map((t) => ({ terminal: t, ptyId: null })) };
+        });
+        setFocusedByProject((prev) => {
+          if (prev[id] !== undefined) return prev;
+          return { ...prev, [id]: terminals[0]?.id ?? null };
+        });
       } catch {
-        /* swallow */
+        loadedProjectsRef.current.delete(id);
       }
     })();
     return () => {
@@ -86,43 +80,85 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     };
   }, [project]);
 
+  const sessions = project ? (sessionsByProject[project.id] ?? []) : [];
+  const focusedId = project ? (focusedByProject[project.id] ?? null) : null;
+
+  const updateSessions = useCallback(
+    (projectId: string, fn: (prev: Session[]) => Session[]) => {
+      setSessionsByProject((prev) => ({ ...prev, [projectId]: fn(prev[projectId] ?? []) }));
+    },
+    []
+  );
+
+  const setFocusFor = useCallback((projectId: string, id: string | null) => {
+    setFocusedByProject((prev) => ({ ...prev, [projectId]: id }));
+  }, []);
+
   const createTerminal = useCallback(async () => {
     if (!project) return;
-    const { terminal } = await api.createUserTerminal(project.id, { cwd: project.path });
-    setSessions((prev) => [...prev, { terminal, ptyId: null }]);
-    setFocusedId(terminal.id);
+    const projectId = project.id;
+    const { terminal } = await api.createUserTerminal(projectId, { cwd: project.path });
+    updateSessions(projectId, (prev) => [...prev, { terminal, ptyId: null }]);
+    setFocusFor(projectId, terminal.id);
     setPanelOpen(true);
-  }, [project]);
+  }, [project, updateSessions, setFocusFor]);
 
-  const killTerminal = useCallback(async (id: string) => {
-    let neighborId: string | null = null;
-    setSessions((prev) => {
-      const idx = prev.findIndex((s) => s.terminal.id === id);
-      const target = idx >= 0 ? prev[idx] : undefined;
-      if (target) void killPty(target.ptyId);
-      const next = prev.filter((s) => s.terminal.id !== id);
-      if (idx >= 0 && next.length > 0) {
-        const pick = idx > 0 ? idx - 1 : 0;
-        neighborId = next[pick].terminal.id;
+  const killTerminal = useCallback(
+    async (id: string) => {
+      const electron = getElectron();
+      // Find which project owns this terminal so we can update the right bucket
+      // (the user might have already navigated away).
+      let ownerProjectId: string | null = null;
+      let killedPtyId: string | null = null;
+      let neighborId: string | null = null;
+      setSessionsByProject((prev) => {
+        const next = { ...prev };
+        for (const [pid, list] of Object.entries(prev)) {
+          const idx = list.findIndex((s) => s.terminal.id === id);
+          if (idx === -1) continue;
+          ownerProjectId = pid;
+          killedPtyId = list[idx]!.ptyId;
+          const filtered = list.filter((s) => s.terminal.id !== id);
+          if (filtered.length > 0) {
+            const pick = idx > 0 ? idx - 1 : 0;
+            neighborId = filtered[pick]!.terminal.id;
+          }
+          next[pid] = filtered;
+          break;
+        }
+        return next;
+      });
+      if (killedPtyId && electron) {
+        await electron.pty.kill(killedPtyId).catch(() => undefined);
       }
-      return next;
-    });
-    setFocusedId((prev) => (prev === id ? neighborId : prev));
-    try {
-      await api.deleteUserTerminal(id);
-    } catch {
-      /* swallow */
-    }
-  }, []);
+      if (ownerProjectId) {
+        setFocusedByProject((prev) => {
+          if (prev[ownerProjectId!] !== id) return prev;
+          return { ...prev, [ownerProjectId!]: neighborId };
+        });
+      }
+      try {
+        await api.deleteUserTerminal(id);
+      } catch {
+        /* swallow */
+      }
+    },
+    []
+  );
 
   const renameTerminal = useCallback(async (id: string, name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.terminal.id === id ? { ...s, terminal: { ...s.terminal, name: trimmed } } : s
-      )
-    );
+    setSessionsByProject((prev) => {
+      const next = { ...prev };
+      for (const [pid, list] of Object.entries(prev)) {
+        if (!list.some((s) => s.terminal.id === id)) continue;
+        next[pid] = list.map((s) =>
+          s.terminal.id === id ? { ...s, terminal: { ...s.terminal, name: trimmed } } : s
+        );
+      }
+      return next;
+    });
     try {
       await api.renameUserTerminal(id, trimmed);
     } catch {
@@ -131,31 +167,40 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setPtyId = useCallback((terminalId: string, ptyId: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.terminal.id === terminalId ? { ...s, ptyId } : s))
-    );
+    setSessionsByProject((prev) => {
+      const next = { ...prev };
+      for (const [pid, list] of Object.entries(prev)) {
+        if (!list.some((s) => s.terminal.id === terminalId)) continue;
+        next[pid] = list.map((s) =>
+          s.terminal.id === terminalId ? { ...s, ptyId } : s
+        );
+      }
+      return next;
+    });
   }, []);
 
   const togglePanel = useCallback(() => setPanelOpen((v) => !v), []);
 
-  const focusTerminal = useCallback((id: string) => setFocusedId(id), []);
+  const focusTerminal = useCallback(
+    (id: string) => {
+      if (!project) return;
+      setFocusFor(project.id, id);
+    },
+    [project, setFocusFor]
+  );
 
   const cycle = useCallback(
     (delta: 1 | -1) => {
-      setSessions((prev) => {
-        if (prev.length === 0) return prev;
-        setPanelOpen(true);
-        setFocusedId((curId) => {
-          if (!curId) return prev[0]!.terminal.id;
-          const idx = prev.findIndex((s) => s.terminal.id === curId);
-          if (idx === -1) return prev[0]!.terminal.id;
-          const nextIdx = (idx + delta + prev.length) % prev.length;
-          return prev[nextIdx]!.terminal.id;
-        });
-        return prev;
-      });
+      if (!project) return;
+      const list = sessionsByProject[project.id] ?? [];
+      if (list.length === 0) return;
+      setPanelOpen(true);
+      const cur = focusedByProject[project.id] ?? null;
+      const idx = cur ? list.findIndex((s) => s.terminal.id === cur) : -1;
+      const nextIdx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
+      setFocusFor(project.id, list[nextIdx]!.terminal.id);
     },
-    []
+    [project, sessionsByProject, focusedByProject, setFocusFor]
   );
 
   const cycleNext = useCallback(() => cycle(1), [cycle]);
