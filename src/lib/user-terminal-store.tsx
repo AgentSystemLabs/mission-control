@@ -26,7 +26,8 @@ type Ctx = {
   sessions: Session[];
   focusedId: string | null;
   focusTerminal: (id: string) => void;
-  createTerminal: () => Promise<void>;
+  createTerminal: (opts?: { name?: string; startCommand?: string | null }) => Promise<UserTerminal | null>;
+  killTerminalsByStartCommand: (commands: string[]) => Promise<void>;
   killTerminal: (id: string) => Promise<void>;
   renameTerminal: (id: string, name: string) => Promise<void>;
   setPtyId: (terminalId: string, ptyId: string) => void;
@@ -94,14 +95,22 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     setFocusedByProject((prev) => ({ ...prev, [projectId]: id }));
   }, []);
 
-  const createTerminal = useCallback(async () => {
-    if (!project) return;
-    const projectId = project.id;
-    const { terminal } = await api.createUserTerminal(projectId, { cwd: project.path });
-    updateSessions(projectId, (prev) => [...prev, { terminal, ptyId: null }]);
-    setFocusFor(projectId, terminal.id);
-    setPanelOpen(true);
-  }, [project, updateSessions, setFocusFor]);
+  const createTerminal = useCallback(
+    async (opts?: { name?: string; startCommand?: string | null }) => {
+      if (!project) return null;
+      const projectId = project.id;
+      const { terminal } = await api.createUserTerminal(projectId, {
+        cwd: project.path,
+        name: opts?.name,
+        startCommand: opts?.startCommand ?? null,
+      });
+      updateSessions(projectId, (prev) => [...prev, { terminal, ptyId: null }]);
+      setFocusFor(projectId, terminal.id);
+      setPanelOpen(true);
+      return terminal;
+    },
+    [project, updateSessions, setFocusFor]
+  );
 
   const killTerminal = useCallback(
     async (id: string) => {
@@ -179,6 +188,19 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const killTerminalsByStartCommand = useCallback(
+    async (commands: string[]) => {
+      if (!project) return;
+      const list = sessionsByProject[project.id] ?? [];
+      const wanted = new Set(commands.map((c) => c.trim()).filter(Boolean));
+      const targets = list.filter(
+        (s) => s.terminal.startCommand && wanted.has(s.terminal.startCommand.trim())
+      );
+      await Promise.all(targets.map((s) => killTerminal(s.terminal.id)));
+    },
+    [project, sessionsByProject, killTerminal]
+  );
+
   const togglePanel = useCallback(() => setPanelOpen((v) => !v), []);
 
   const focusTerminal = useCallback(
@@ -218,6 +240,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusTerminal,
       createTerminal,
       killTerminal,
+      killTerminalsByStartCommand,
       renameTerminal,
       setPtyId,
       cycleNext,
@@ -233,6 +256,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusTerminal,
       createTerminal,
       killTerminal,
+      killTerminalsByStartCommand,
       renameTerminal,
       setPtyId,
       cycleNext,

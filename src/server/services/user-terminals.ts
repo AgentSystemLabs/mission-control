@@ -21,6 +21,7 @@ export function createUserTerminal(input: {
   projectId: string;
   name?: string;
   cwd?: string | null;
+  startCommand?: string | null;
 }): UserTerminal {
   const db = getDb();
   const existing = listUserTerminals(input.projectId);
@@ -30,6 +31,7 @@ export function createUserTerminal(input: {
     projectId: input.projectId,
     name: (input.name?.trim() || `Terminal ${existing.length + 1}`),
     cwd: input.cwd ?? null,
+    startCommand: input.startCommand?.trim() || null,
     position: existing.length,
     createdAt: now,
     updatedAt: now,

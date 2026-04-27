@@ -168,6 +168,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           projectId: id,
           name: body?.name,
           cwd: body?.cwd ?? null,
+          startCommand: body?.startCommand ?? null,
         });
         return json({ terminal: t }, { status: 201 });
       }

@@ -7,6 +7,7 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
+import { LaunchButton } from "~/components/views/LaunchButton";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -236,6 +237,7 @@ function ProjectPage() {
               </span>
             </div>
           </div>
+          <LaunchButton project={project} onProjectUpdated={refresh} />
           {project.githubUrl && (
             <Btn
               variant="ghost"

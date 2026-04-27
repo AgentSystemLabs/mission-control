@@ -154,7 +154,7 @@ export function UserTerminalPane({
           const { ptyId: newId } = await electron.pty.spawn({
             taskId: terminal.id,
             cwd,
-            command: "",
+            command: terminal.startCommand ?? "",
             cols: term.cols,
             rows: term.rows,
           });

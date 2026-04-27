@@ -20,6 +20,7 @@ export const projects = sqliteTable(
     groupId: text("group_id").references(() => groups.id, { onDelete: "set null" }),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     branch: text("branch").notNull().default("main"),
+    launchCommands: text("launch_commands"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -89,6 +90,7 @@ export const userTerminals = sqliteTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     cwd: text("cwd"),
+    startCommand: text("start_command"),
     position: integer("position").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
@@ -127,5 +129,27 @@ export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
+export const LAUNCH_COMMANDS_MAX = 5;
+export type LaunchCommand = { id: string; name: string; command: string };
+
+export function parseLaunchCommands(raw: string | null | undefined): LaunchCommand[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v
+      .filter(
+        (c) =>
+          c &&
+          typeof c.id === "string" &&
+          typeof c.name === "string" &&
+          typeof c.command === "string"
+      )
+      .slice(0, LAUNCH_COMMANDS_MAX);
+  } catch {
+    return [];
+  }
+}
+
 export type UserTerminal = typeof userTerminals.$inferSelect;
 export type NewUserTerminal = typeof userTerminals.$inferInsert;

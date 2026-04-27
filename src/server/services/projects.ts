@@ -3,8 +3,8 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getDb } from "~/db/client";
-import { TASK_STATUSES, isActiveStatus, projects, tasks } from "~/db/schema";
-import type { Project, Task, TaskStatus } from "~/db/schema";
+import { TASK_STATUSES, isActiveStatus, projects, tasks, LAUNCH_COMMANDS_MAX } from "~/db/schema";
+import type { LaunchCommand, Project, Task, TaskStatus } from "~/db/schema";
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
 
@@ -117,6 +117,7 @@ export function createProject(input: {
     groupId: input.groupId ?? null,
     pinned: false,
     branch,
+    launchCommands: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -127,19 +128,46 @@ export function createProject(input: {
 
 export function updateProject(
   id: string,
-  patch: Partial<Pick<Project, "name" | "path" | "icon" | "iconColor" | "imagePath" | "groupId" | "pinned" | "branch">>
+  patch: Partial<
+    Pick<
+      Project,
+      "name" | "path" | "icon" | "iconColor" | "imagePath" | "groupId" | "pinned" | "branch"
+    >
+  > & { launchCommands?: LaunchCommand[] | null }
 ): Project | null {
   const db = getDb();
   const existing = db.select().from(projects).where(eq(projects.id, id)).get();
   if (!existing) return null;
+  const { launchCommands, ...rest } = patch;
   const updated = {
     ...existing,
-    ...patch,
+    ...rest,
+    ...(launchCommands !== undefined
+      ? { launchCommands: serializeLaunchCommands(launchCommands) }
+      : {}),
     updatedAt: Date.now(),
   };
   db.update(projects).set(updated).where(eq(projects.id, id)).run();
   events.emit("project:updated", { id });
   return updated;
+}
+
+function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
+  if (!input) return null;
+  if (!Array.isArray(input)) throw new Error("launchCommands must be an array");
+  if (input.length > LAUNCH_COMMANDS_MAX) {
+    throw new Error(`launchCommands cannot exceed ${LAUNCH_COMMANDS_MAX} entries`);
+  }
+  const cleaned = input.map((c) => {
+    const id = String(c?.id ?? "").trim();
+    const name = String(c?.name ?? "").trim();
+    const command = String(c?.command ?? "").trim();
+    if (!id) throw new Error("launchCommands: id is required");
+    if (!name) throw new Error("launchCommands: name is required");
+    if (!command) throw new Error("launchCommands: command is required");
+    return { id, name, command };
+  });
+  return cleaned.length === 0 ? null : JSON.stringify(cleaned);
 }
 
 export function togglePin(id: string): Project | null {

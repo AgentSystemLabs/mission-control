@@ -81,7 +81,10 @@ export const api = {
 
   listUserTerminals: (projectId: string) =>
     req<{ terminals: UserTerminal[] }>(`/api/projects/${projectId}/user-terminals`),
-  createUserTerminal: (projectId: string, body: { name?: string; cwd?: string | null }) =>
+  createUserTerminal: (
+    projectId: string,
+    body: { name?: string; cwd?: string | null; startCommand?: string | null }
+  ) =>
     req<{ terminal: UserTerminal }>(`/api/projects/${projectId}/user-terminals`, {
       method: "POST",
       body: JSON.stringify(body),
