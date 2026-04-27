@@ -37,6 +37,8 @@ export function TerminalPane({
   isLast,
   descriptor,
   onPtyReady,
+  collapsed = false,
+  onToggleCollapsed,
 }: {
   project: Project;
   task: Task;
@@ -44,8 +46,11 @@ export function TerminalPane({
   isLast: boolean;
   descriptor: TerminalDescriptor;
   onPtyReady: (ptyId: string) => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<XFitAddon | null>(null);
   const [bridgeMissing, setBridgeMissing] = useState(false);
 
   const meta = AGENT_META[task.agent];
@@ -90,6 +95,7 @@ export function TerminalPane({
         scrollback: 5000,
       });
       const fit = new FitAddon();
+      fitRef.current = fit;
       term.loadAddon(fit);
       term.open(containerRef.current);
       term.focus();
@@ -183,6 +189,7 @@ export function TerminalPane({
         cancelAnimationFrame(rafHandle);
         for (const off of subscriptions) off();
         ro.disconnect();
+        fitRef.current = null;
         term.dispose();
       };
     })();
@@ -194,11 +201,26 @@ export function TerminalPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descriptor.taskId]);
 
+  // When the pane re-expands, the xterm container goes from `display:none` back
+  // to `block` — ResizeObserver doesn't always fire that transition reliably,
+  // so re-fit explicitly to match the now-visible container.
+  useEffect(() => {
+    if (collapsed) return;
+    const id = window.requestAnimationFrame(() => {
+      try {
+        fitRef.current?.fit();
+      } catch {
+        /* container not measured yet */
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [collapsed]);
+
   return (
     <div
       style={{
-        flex: 1,
-        minHeight: 120,
+        flex: collapsed ? "0 0 auto" : 1,
+        minHeight: collapsed ? 0 : 120,
         display: "flex",
         flexDirection: "column",
         borderBottom: isLast ? "none" : "1px solid var(--border)",
@@ -206,16 +228,39 @@ export function TerminalPane({
       }}
     >
       <div
+        onClick={onToggleCollapsed}
         style={{
           display: "flex",
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
           background: "var(--surface-1)",
-          borderBottom: "1px solid var(--border)",
+          borderBottom: collapsed ? "none" : "1px solid var(--border)",
           flexShrink: 0,
+          cursor: onToggleCollapsed ? "pointer" : "default",
+          userSelect: "none",
         }}
       >
+        {onToggleCollapsed && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapsed();
+            }}
+            aria-label={collapsed ? "Expand terminal" : "Collapse terminal"}
+            title={collapsed ? "Expand" : "Collapse"}
+            style={{
+              background: "transparent",
+              border: 0,
+              padding: 2,
+              color: "var(--text-faint)",
+              cursor: "pointer",
+              display: "flex",
+            }}
+          >
+            <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={11} />
+          </button>
+        )}
         <StatusDot status={task.status} size={7} />
         <ProjectIcon project={project} size={20} />
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -252,7 +297,10 @@ export function TerminalPane({
           </div>
         </div>
         <button
-          onClick={onClose}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
           style={{
             background: "transparent",
             border: 0,
@@ -267,7 +315,14 @@ export function TerminalPane({
         </button>
       </div>
       <ShimmerBar active={isRunning} color={meta?.color} />
-      <div style={{ flex: 1, position: "relative", background: "#050607" }}>
+      <div
+        style={{
+          flex: 1,
+          position: "relative",
+          background: "#050607",
+          display: collapsed ? "none" : "block",
+        }}
+      >
         {bridgeMissing ? (
           <div
             style={{

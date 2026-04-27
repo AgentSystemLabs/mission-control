@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
+import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { useHotkey } from "~/lib/use-hotkey";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
-import { getElectron } from "~/lib/electron";
 import type { Project, Task } from "~/db/schema";
 
 export type OpenTerminal = TerminalDescriptor & { project: Project; task: Task };
@@ -16,6 +18,34 @@ export function TerminalPanel({
   onHideAll: () => void;
   onPtyReady: (taskId: string, ptyId: string) => void;
 }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  // Drop collapsed state for panes that are no longer open so newly re-opened
+  // panes default back to expanded.
+  useEffect(() => {
+    setCollapsed((prev) => {
+      const visible = new Set(open.map((o) => o.taskId));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (visible.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [open]);
+
+  const toggleCollapsed = (taskId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  useHotkey("mod+l", onHideAll, { enabled: open.length > 0 });
+
   if (open.length === 0) return null;
   return (
     <div
@@ -74,6 +104,7 @@ export function TerminalPanel({
           }}
         >
           <Icon name="x" size={10} /> Hide all
+          <Kbd variant="ghost">{hotkeyLabel("mod+l")}</Kbd>
         </button>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -84,11 +115,9 @@ export function TerminalPanel({
             task={t.task}
             descriptor={t}
             isLast={i === open.length - 1}
-            onClose={async () => {
-              const electron = getElectron();
-              if (t.ptyId && electron) await electron.pty.kill(t.ptyId).catch(() => undefined);
-              onClose(t.taskId);
-            }}
+            collapsed={collapsed.has(t.taskId)}
+            onToggleCollapsed={() => toggleCollapsed(t.taskId)}
+            onClose={() => onClose(t.taskId)}
             onPtyReady={(ptyId) => onPtyReady(t.taskId, ptyId)}
           />
         ))}
