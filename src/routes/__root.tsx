@@ -20,7 +20,6 @@ import {
 import { TerminalPanel } from "~/components/views/TerminalPanel";
 import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
-import { TweaksLauncher } from "~/components/ui/TweaksPanel";
 import "~/styles.css";
 
 export const Route = createRootRoute({
@@ -184,7 +183,6 @@ function Shell() {
         </div>
         <UserTerminalPanel />
       </div>
-      <TweaksLauncher />
     </div>
   );
 }

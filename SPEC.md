@@ -134,7 +134,6 @@ Show me at a glance which projects need my attention and let me pop into a proje
   - [x] Animations carried over: `shimmer`, `pulse-dot`, `caret`, `fade-up`, `slide-right`
   - [x] Dot-grid background on main views
   - [x] Custom scrollbars per the prototype
-  - [x] Bonus: floating Tweaks panel (⌘.) for live theme/accent/density/activity tuning
 - **Priority:** P0
 - **Status:** Done (light-mode xterm theming is the only known gap)
 
@@ -317,7 +316,7 @@ The Electron main process is the only writer for SQLite. The TanStack Start serv
   - Skills: `react-patterns`, `ui-design`
   - Complexity: M
   - Dependencies: T3
-  - Status: Done. Plus `Section`, `EmptyState`, `TweaksPanel` added.
+  - Status: Done. Plus `Section`, `EmptyState` added.
 
 - [x] **T6: Mission Control view** — port `MissionControl` + `ProjectCard` + `Section` + `EmptyState` from `designs/views.jsx`. Wire up density toggle, search, group/pin sections, dot-grid background. Hook up to live data via TanStack Query (loaders) hitting the projects API.
   - Skills: `react-patterns`, `data-fetching`, `tanstack-start`
@@ -395,7 +394,7 @@ The Electron main process is the only writer for SQLite. The TanStack Start serv
   - Skills: `ux`, `ui-design`
   - Complexity: S
   - Dependencies: T10
-  - Status: API token copy + regenerate done. Theme toggle lives on the top bar, accent picker + density + activity live in the floating Tweaks panel (`⌘.`) — both intentionally outside the Settings page since they're frequently-toggled global controls.
+  - Status: API token copy + regenerate done. Theme toggle lives on the top bar.
 
 ### Stage 6 — Hardening (M)
 
