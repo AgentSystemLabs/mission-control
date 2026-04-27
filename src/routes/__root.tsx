@@ -6,10 +6,11 @@ import {
   Scripts,
   useRouter,
 } from "@tanstack/react-router";
+import { getElectron } from "~/lib/electron";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
-import { isEditableTarget, matchHotkey } from "~/lib/use-hotkey";
+import { matchHotkey } from "~/lib/use-hotkey";
 import { useTheme } from "~/lib/use-theme";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import {
@@ -54,7 +55,7 @@ function RootComponent() {
 function Shell() {
   const router = useRouter();
   const { theme, toggle } = useTheme();
-  const { open, close, hideAll, setPtyId } = useTerminals();
+  const { open, hide, hideAll, setPtyId } = useTerminals();
   const userTerminals = useUserTerminals();
 
   const path = router.state.location.pathname;
@@ -72,37 +73,15 @@ function Shell() {
   // Cmd/Ctrl + [ / ] cycles through user terminals; opens panel if hidden.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // Confirmation prompt — Enter confirms, Escape cancels. No modifier needed.
-      if (userTerminals.pendingKillId && !isEditableTarget(e.target)) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          userTerminals.confirmKill();
-          return;
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          userTerminals.cancelKill();
-          return;
-        }
-      }
       if (!(e.metaKey || e.ctrlKey)) return;
-      // Mod-key bindings shouldn't fire while typing in inputs/textareas (would
-      // accidentally launch terminals, navigate home, etc.).
-      if (isEditableTarget(e.target)) return;
-      // Cmd/Ctrl + W → request close of the focused user terminal (with confirm).
-      // When the panel is closed or no terminal is focused we fall through to the
-      // OS, which on macOS closes the window — that's the platform default.
-      if ((e.key === "w" || e.key === "W") && userTerminals.panelOpen && userTerminals.focusedId) {
-        e.preventDefault();
-        userTerminals.requestKill(userTerminals.focusedId);
-        return;
-      }
+      // Global app shortcuts fire regardless of focus — including when xterm's
+      // hidden textarea has focus (which counts as "editable").
       if (matchHotkey(e, "ctrl+`")) {
         e.preventDefault();
         userTerminals.togglePanel();
         return;
       }
-      if (e.key === "t" || e.key === "T") {
+      if ((e.key === "t" || e.key === "T") && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         void userTerminals.createTerminal();
         return;
@@ -112,19 +91,34 @@ function Shell() {
         router.navigate({ to: "/" });
         return;
       }
-      if (e.key === "[") {
+      if (e.key === "[" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         userTerminals.cyclePrev();
         return;
       }
-      if (e.key === "]") {
+      if (e.key === "]" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         userTerminals.cycleNext();
+        return;
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [userTerminals, router]);
+
+  // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
+  // default app menu's "Close Window" item closes the BrowserWindow before any
+  // renderer handler runs). The main process forwards an `app:close-intent`
+  // event; we close the focused user terminal if the panel is open.
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron) return;
+    return electron.onCloseIntent(() => {
+      if (userTerminals.panelOpen && userTerminals.focusedId) {
+        void userTerminals.killTerminal(userTerminals.focusedId);
+      }
+    });
+  }, [userTerminals]);
 
   return (
     <div id="root">
@@ -183,7 +177,7 @@ function Shell() {
           </div>
           <TerminalPanel
             open={open}
-            onClose={close}
+            onClose={hide}
             onHideAll={hideAll}
             onPtyReady={setPtyId}
           />

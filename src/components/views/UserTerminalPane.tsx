@@ -72,6 +72,9 @@ export function UserTerminalPane({
       term.open(containerRef.current);
       termRef.current = { focus: () => term.focus() };
       term.focus();
+      const onFocusIn = () => onFocus();
+      const focusEl = containerRef.current;
+      focusEl.addEventListener("focusin", onFocusIn);
 
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
@@ -143,6 +146,7 @@ export function UserTerminalPane({
 
       cleanup = () => {
         cancelAnimationFrame(rafHandle);
+        focusEl.removeEventListener("focusin", onFocusIn);
         for (const off of subscriptions) off();
         ro.disconnect();
         term.dispose();

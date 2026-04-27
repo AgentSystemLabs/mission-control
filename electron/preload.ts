@@ -48,6 +48,11 @@ const electronAPI = {
     ipcRenderer.on("app:swipe", listener);
     return () => ipcRenderer.removeListener("app:swipe", listener);
   },
+  onCloseIntent: (cb: () => void) => {
+    const listener = () => cb();
+    ipcRenderer.on("app:close-intent", listener);
+    return () => ipcRenderer.removeListener("app:close-intent", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);

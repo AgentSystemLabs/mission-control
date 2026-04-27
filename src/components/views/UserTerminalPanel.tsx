@@ -1,5 +1,4 @@
 import { Icon } from "~/components/ui/Icon";
-import { Kbd } from "~/components/ui/Kbd";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { UserTerminalPane } from "./UserTerminalPane";
 
@@ -15,14 +14,7 @@ export function UserTerminalPanel() {
     killTerminal,
     renameTerminal,
     setPtyId,
-    pendingKillId,
-    confirmKill,
-    cancelKill,
   } = useUserTerminals();
-
-  const pending = pendingKillId
-    ? sessions.find((s) => s.terminal.id === pendingKillId)?.terminal ?? null
-    : null;
 
   if (!panelOpen) return null;
 
@@ -148,91 +140,6 @@ export function UserTerminalPanel() {
           ))
         )}
       </div>
-      {pending && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(0,0,0,0.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10,
-          }}
-          onClick={cancelKill}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "var(--surface-1)",
-              border: "1px solid var(--border-strong)",
-              borderRadius: 8,
-              padding: "16px 20px",
-              minWidth: 320,
-              maxWidth: 440,
-              fontFamily: "var(--sans)",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--text)",
-                marginBottom: 6,
-              }}
-            >
-              Close terminal &ldquo;{pending.name}&rdquo;?
-            </div>
-            <div
-              style={{
-                fontSize: 12,
-                color: "var(--text-dim)",
-                marginBottom: 14,
-              }}
-            >
-              The shell process will be killed. Press{" "}
-              <Kbd variant="inline">Enter</Kbd>{" "}
-              to confirm,{" "}
-              <Kbd variant="inline">Esc</Kbd>{" "}
-              to cancel.
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button
-                onClick={cancelKill}
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--border)",
-                  color: "var(--text-dim)",
-                  padding: "5px 12px",
-                  borderRadius: 5,
-                  cursor: "pointer",
-                  fontFamily: "var(--mono)",
-                  fontSize: 11,
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmKill}
-                style={{
-                  background: "var(--status-failed, #d05a5a)",
-                  border: "1px solid var(--status-failed, #d05a5a)",
-                  color: "#0a0b0d",
-                  padding: "5px 12px",
-                  borderRadius: 5,
-                  cursor: "pointer",
-                  fontFamily: "var(--mono)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

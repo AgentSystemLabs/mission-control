@@ -116,6 +116,18 @@ async function createWindow() {
 
   win.once("ready-to-show", () => win?.show());
 
+  // Intercept Cmd/Ctrl+W before the default app menu's "Close Window" accelerator
+  // closes the BrowserWindow. We forward to the renderer so it can close the
+  // focused terminal instead; if nothing claims it, the keystroke is just swallowed.
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const mod = process.platform === "darwin" ? input.meta : input.control;
+    if (mod && !input.shift && !input.alt && input.key.toLowerCase() === "w") {
+      event.preventDefault();
+      win?.webContents.send("app:close-intent");
+    }
+  });
+
   // macOS-only: 3-finger swipe (System Settings → Trackpad → More Gestures).
   win.on("swipe", (_e, direction) => {
     win?.webContents.send("app:swipe", direction);

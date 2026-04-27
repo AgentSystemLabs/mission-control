@@ -34,6 +34,7 @@ export type ElectronBridge = {
     replay: (ptyId: string) => Promise<string>;
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
+  onCloseIntent: (cb: () => void) => () => void;
 };
 
 declare global {

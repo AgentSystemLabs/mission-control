@@ -32,10 +32,6 @@ type Ctx = {
   setPtyId: (terminalId: string, ptyId: string) => void;
   cycleNext: () => void;
   cyclePrev: () => void;
-  pendingKillId: string | null;
-  requestKill: (id: string) => void;
-  confirmKill: () => void;
-  cancelKill: () => void;
 };
 
 const UserTerminalContext = createContext<Ctx | null>(null);
@@ -45,7 +41,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [pendingKillId, setPendingKillId] = useState<string | null>(null);
   const projectIdRef = useRef<string | null>(null);
 
   const killPty = async (id: string | null) => {
@@ -100,30 +95,26 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   }, [project]);
 
   const killTerminal = useCallback(async (id: string) => {
+    let neighborId: string | null = null;
     setSessions((prev) => {
-      const target = prev.find((s) => s.terminal.id === id);
+      const idx = prev.findIndex((s) => s.terminal.id === id);
+      const target = idx >= 0 ? prev[idx] : undefined;
       if (target) void killPty(target.ptyId);
       const next = prev.filter((s) => s.terminal.id !== id);
       if (next.length === 0) setPanelOpen(false);
+      if (idx >= 0 && next.length > 0) {
+        const pick = idx > 0 ? idx - 1 : 0;
+        neighborId = next[pick].terminal.id;
+      }
       return next;
     });
-    setFocusedId((prev) => (prev === id ? null : prev));
-    setPendingKillId((prev) => (prev === id ? null : prev));
+    setFocusedId((prev) => (prev === id ? neighborId : prev));
     try {
       await api.deleteUserTerminal(id);
     } catch {
       /* swallow */
     }
   }, []);
-
-  const requestKill = useCallback((id: string) => setPendingKillId(id), []);
-  const cancelKill = useCallback(() => setPendingKillId(null), []);
-  const confirmKill = useCallback(() => {
-    setPendingKillId((id) => {
-      if (id) void killTerminal(id);
-      return null;
-    });
-  }, [killTerminal]);
 
   const renameTerminal = useCallback(async (id: string, name: string) => {
     const trimmed = name.trim();
@@ -187,10 +178,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       setPtyId,
       cycleNext,
       cyclePrev,
-      pendingKillId,
-      requestKill,
-      confirmKill,
-      cancelKill,
     }),
     [
       project,
@@ -206,10 +193,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       setPtyId,
       cycleNext,
       cyclePrev,
-      pendingKillId,
-      requestKill,
-      confirmKill,
-      cancelKill,
     ]
   );
 
