@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
 import { api } from "~/lib/api";
+import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import type { ProjectWithCounts } from "~/server/services/projects";
 import type { Group } from "~/db/schema";
@@ -69,15 +70,28 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
     };
   }, [open, projects]);
 
-  // Refresh list whenever projectId changes (e.g., after navigating) so name stays current.
-  useEffect(() => {
+  const refresh = useCallback(() => {
     Promise.all([api.listProjects(), api.listGroups()])
       .then(([p, g]) => {
         setProjects(p.projects);
         setGroups(g.groups);
       })
       .catch(() => {});
-  }, [projectId]);
+  }, []);
+
+  // Refresh list whenever projectId changes (e.g., after navigating) so name stays current.
+  useEffect(() => {
+    refresh();
+  }, [projectId, refresh]);
+
+  useServerEvents(
+    useCallback(
+      (e) => {
+        if (e.type.startsWith("project:") || e.type.startsWith("group:")) refresh();
+      },
+      [refresh],
+    ),
+  );
 
   const select = (id: string) => {
     setOpen(false);
