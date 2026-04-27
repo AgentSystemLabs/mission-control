@@ -137,6 +137,12 @@ async function createWindow() {
     return { action: "deny" };
   });
 
+  // A file dropped outside any drop target would otherwise navigate the
+  // window to its file:// URL, blowing away the app shell.
+  win.webContents.on("will-navigate", (event, navUrl) => {
+    if (navUrl !== url) event.preventDefault();
+  });
+
   await win.loadURL(url);
 
   if (isDev) {

@@ -101,9 +101,34 @@ export function TerminalPane({
       term.open(containerRef.current);
       term.focus();
 
+      const host = containerRef.current;
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
+
+      // Dropping a file from Finder pastes its path into the PTY, matching
+      // iTerm/Terminal.app behavior. Claude Code reads images by path.
+      const onDragOver = (e: DragEvent) => {
+        if (e.dataTransfer?.types.includes("Files")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      };
+      const onDrop = (e: DragEvent) => {
+        const files = Array.from(e.dataTransfer?.files ?? []);
+        if (!files.length) return;
+        e.preventDefault();
+        if (!activePtyId) return;
+        const paths = files
+          .map((f) => electron.getPathForFile(f))
+          .filter(Boolean)
+          .map((p) => (/[\s"'\\]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p));
+        if (!paths.length) return;
+        electron.pty.write(activePtyId, paths.join(" ") + " ");
+        term.focus();
+      };
+      host.addEventListener("dragover", onDragOver);
+      host.addEventListener("drop", onDrop);
 
       // Shift+Enter must insert a literal newline in Claude Code's prompt;
       // xterm.js otherwise emits plain CR for both Enter and Shift+Enter,
@@ -202,6 +227,8 @@ export function TerminalPane({
       cleanup = () => {
         cancelAnimationFrame(rafHandle);
         for (const off of subscriptions) off();
+        host.removeEventListener("dragover", onDragOver);
+        host.removeEventListener("drop", onDrop);
         ro.disconnect();
         fitRef.current = null;
         term.dispose();

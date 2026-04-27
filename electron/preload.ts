@@ -1,6 +1,7 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 const electronAPI = {
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke("dialog:browseFolder"),
   openPath: (path: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke("shell:openPath", path),

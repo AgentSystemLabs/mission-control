@@ -1,6 +1,7 @@
 // Thin client-side wrapper for the Electron preload bridge.
 
 export type ElectronBridge = {
+  getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;
   pickImage: () => Promise<
     { sourcePath: string; extension: string } | { error: string } | null

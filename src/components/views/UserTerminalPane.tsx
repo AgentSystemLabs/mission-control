@@ -77,6 +77,29 @@ export function UserTerminalPane({
       const focusEl = containerRef.current;
       focusEl.addEventListener("focusin", onFocusIn);
 
+      // Dropped files paste their paths into the PTY, matching iTerm/Terminal.app.
+      const onDragOver = (e: DragEvent) => {
+        if (e.dataTransfer?.types.includes("Files")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      };
+      const onDrop = (e: DragEvent) => {
+        const files = Array.from(e.dataTransfer?.files ?? []);
+        if (!files.length) return;
+        e.preventDefault();
+        if (!activePtyId) return;
+        const paths = files
+          .map((f) => electron.getPathForFile(f))
+          .filter(Boolean)
+          .map((p) => (/[\s"'\\]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p));
+        if (!paths.length) return;
+        electron.pty.write(activePtyId, paths.join(" ") + " ");
+        term.focus();
+      };
+      focusEl.addEventListener("dragover", onDragOver);
+      focusEl.addEventListener("drop", onDrop);
+
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
@@ -160,6 +183,8 @@ export function UserTerminalPane({
       cleanup = () => {
         cancelAnimationFrame(rafHandle);
         focusEl.removeEventListener("focusin", onFocusIn);
+        focusEl.removeEventListener("dragover", onDragOver);
+        focusEl.removeEventListener("drop", onDrop);
         for (const off of subscriptions) off();
         ro.disconnect();
         term.dispose();
