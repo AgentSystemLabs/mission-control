@@ -151,19 +151,6 @@ function ProjectPage() {
     await refresh();
   };
 
-  const commitPush = async (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    if (!terminals.isOpen(taskId)) {
-      terminals.toggle(project, task);
-      // give pty a beat to spawn before writing
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    const safeMsg = task.title.replace(/'/g, "'\\''");
-    const cmd = `git add -A && git commit -m '${safeMsg}' && git push`;
-    await terminals.runIn(taskId, cmd);
-  };
-
   const remove = async () => {
     if (!confirm(`Remove "${project.name}" from MissionControl?\n\nThis only unlinks the project — the files at ${project.path} are not touched.`)) {
       return;
@@ -285,7 +272,6 @@ function ProjectPage() {
                 selectedSet={selectedSet}
                 onToggle={toggleTerminal}
                 onArchive={archive}
-                onCommitPush={commitPush}
                 onDelete={deleteTask}
               />
             ))}

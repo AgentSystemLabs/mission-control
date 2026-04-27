@@ -8,7 +8,6 @@ export function TaskColumn({
   selectedSet,
   onToggle,
   onArchive,
-  onCommitPush,
   onDelete,
 }: {
   title: string;
@@ -17,7 +16,6 @@ export function TaskColumn({
   selectedSet: Set<string>;
   onToggle: (id: string) => void;
   onArchive: (id: string) => void;
-  onCommitPush?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
   if (tasks.length === 0) return null;
@@ -70,7 +68,6 @@ export function TaskColumn({
             selected={selectedSet.has(t.id)}
             onToggle={onToggle}
             onArchive={onArchive}
-            onCommitPush={onCommitPush}
             onDelete={onDelete}
           />
         ))}

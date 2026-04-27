@@ -16,14 +16,12 @@ export function TaskCard({
   selected,
   onToggle,
   onArchive,
-  onCommitPush,
   onDelete,
 }: {
   task: Task;
   selected: boolean;
   onToggle: (taskId: string) => void;
   onArchive: (taskId: string) => void;
-  onCommitPush?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -224,19 +222,6 @@ export function TaskCard({
         )}
         {task.status === "finished" && (
           <div style={{ display: "flex", gap: 6 }}>
-            {onCommitPush && (
-              <Btn
-                size="sm"
-                variant="accent"
-                icon="upload"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCommitPush(task.id);
-                }}
-              >
-                Commit & push
-              </Btn>
-            )}
             <Btn
               size="sm"
               variant="ghost"
