@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
+import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
 import type { Project, Task } from "~/db/schema";
 
 export type OpenTerminal = TerminalDescriptor & { project: Project; task: Task };
+
+const MIN_WIDTH = 380;
 
 export function TerminalPanel({
   open,
@@ -46,20 +49,42 @@ export function TerminalPanel({
 
   useHotkey("mod+l", onHideAll, { enabled: open.length > 0 });
 
+  const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
+    storageKey: "mc:agentsPanelWidth",
+    axis: "x",
+    defaultSize: 560,
+    minSize: MIN_WIDTH,
+    maxSize: (vw) => vw - 320,
+  });
+
   if (open.length === 0) return null;
   return (
     <div
       style={{
-        width: 560,
-        minWidth: 380,
+        width,
+        minWidth: MIN_WIDTH,
         background: "#050607",
         borderLeft: "1px solid var(--border-strong)",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
         animation: "slide-right 0.2s ease-out",
+        position: "relative",
       }}
     >
+      <div
+        onMouseDown={onResizeMouseDown}
+        title="Drag to resize"
+        style={{
+          position: "absolute",
+          left: -3,
+          top: 0,
+          bottom: 0,
+          width: 6,
+          cursor: "col-resize",
+          zIndex: 10,
+        }}
+      />
       <div
         style={{
           display: "flex",
@@ -81,7 +106,7 @@ export function TerminalPanel({
               letterSpacing: "0.02em",
             }}
           >
-            Terminals
+            Agents
           </span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-faint)" }}>
             {open.length}

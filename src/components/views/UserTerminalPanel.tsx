@@ -1,8 +1,11 @@
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { Kbd } from "~/components/ui/Kbd";
+import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { UserTerminalPane } from "./UserTerminalPane";
+
+const MIN_HEIGHT = 160;
 
 export function UserTerminalPanel() {
   const {
@@ -18,13 +21,21 @@ export function UserTerminalPanel() {
     setPtyId,
   } = useUserTerminals();
 
+  const { size: height, onMouseDown: onResizeMouseDown } = useResizablePanel({
+    storageKey: "mc:userTerminalsPanelHeight",
+    axis: "y",
+    defaultSize: 320,
+    minSize: MIN_HEIGHT,
+    maxSize: (vh) => vh - 160,
+  });
+
   if (!project) return null;
 
   return (
     <div
       style={{
-        height: panelOpen ? 320 : "auto",
-        minHeight: panelOpen ? 160 : 0,
+        height: panelOpen ? height : "auto",
+        minHeight: panelOpen ? MIN_HEIGHT : 0,
         background: "#050607",
         borderTop: "1px solid var(--border-strong)",
         display: "flex",
@@ -33,6 +44,21 @@ export function UserTerminalPanel() {
         position: "relative",
       }}
     >
+      {panelOpen && (
+        <div
+          onMouseDown={onResizeMouseDown}
+          title="Drag to resize"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: -3,
+            height: 6,
+            cursor: "row-resize",
+            zIndex: 10,
+          }}
+        />
+      )}
       <button
         type="button"
         onClick={() => setPanelOpen(!panelOpen)}
