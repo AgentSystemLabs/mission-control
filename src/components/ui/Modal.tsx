@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Icon } from "./Icon";
 import { useHotkey } from "~/lib/use-hotkey";
 
@@ -26,6 +26,11 @@ export function Modal({
     { enabled: open, preventDefault: false },
   );
 
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
+  }, [open]);
+
   if (!open) return null;
   return (
     <div
@@ -43,9 +48,12 @@ export function Modal({
       }}
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           width,
+          outline: "none",
           maxWidth: "92vw",
           maxHeight: "85vh",
           background: "var(--surface-1)",

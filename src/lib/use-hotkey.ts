@@ -20,8 +20,12 @@ export function matchHotkey(e: KeyboardEvent, combo: HotkeyCombo): boolean {
       return mod && plain && e.key === "/";
     case "mod+.":
       return mod && plain && e.key === ".";
+    case "mod+l":
+      return mod && plain && (e.key === "l" || e.key === "L");
     case "ctrl+`":
       return mod && !e.altKey && (e.key === "`" || e.key === "~");
+    case "enter":
+      return plain && !mod && e.key === "Enter";
     case "escape":
       return e.key === "Escape";
   }

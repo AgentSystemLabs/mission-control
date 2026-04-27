@@ -41,7 +41,9 @@ export type HotkeyCombo =
   | "mod+m"
   | "mod+/"
   | "mod+."
+  | "mod+l"
   | "ctrl+`"
+  | "enter"
   | "escape";
 
 export function hotkeyLabel(combo: HotkeyCombo): string {
@@ -58,8 +60,12 @@ export function hotkeyLabel(combo: HotkeyCombo): string {
       return isMac ? "⌘/" : "Ctrl+/";
     case "mod+.":
       return isMac ? "⌘." : "Ctrl+.";
+    case "mod+l":
+      return isMac ? "⌘L" : "Ctrl+L";
     case "ctrl+`":
       return "⌃~";
+    case "enter":
+      return "↵";
     case "escape":
       return "Esc";
   }
