@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { getElectron } from "~/lib/electron";
+import { mapTerminalKey } from "~/lib/terminal-keymap";
 import type { UserTerminal } from "~/db/schema";
 
 export function UserTerminalPane({
@@ -78,8 +79,20 @@ export function UserTerminalPane({
 
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
+      let activePtyId: string | null = null;
+
+      // Shift+Enter must insert a newline in Claude Code's prompt; xterm.js
+      // otherwise emits plain CR. Send ESC+CR (the same sequence
+      // `claude /terminal-setup` wires up for iTerm2/Terminal.app).
+      term.attachCustomKeyEventHandler((e) => {
+        const bytes = mapTerminalKey(e);
+        if (bytes === null) return true;
+        if (activePtyId) electron.pty.write(activePtyId, bytes);
+        return false;
+      });
 
       const wireToPty = (id: string) => {
+        activePtyId = id;
         subscriptions.push(
           electron.pty.onData((msg) => {
             if (msg.ptyId === id) term.write(msg.data);

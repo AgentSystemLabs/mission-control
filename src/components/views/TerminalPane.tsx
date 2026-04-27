@@ -7,6 +7,7 @@ import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
+import { mapTerminalKey } from "~/lib/terminal-keymap";
 import { api } from "~/lib/api";
 import type { Project, Task } from "~/db/schema";
 
@@ -102,8 +103,21 @@ export function TerminalPane({
 
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
+      let activePtyId: string | null = null;
+
+      // Shift+Enter must insert a literal newline in Claude Code's prompt;
+      // xterm.js otherwise emits plain CR for both Enter and Shift+Enter,
+      // which Claude treats as submit. Send ESC+CR (alt-enter), the same
+      // sequence `claude /terminal-setup` registers for iTerm2/Terminal.app.
+      term.attachCustomKeyEventHandler((e) => {
+        const bytes = mapTerminalKey(e);
+        if (bytes === null) return true;
+        if (activePtyId) electron.pty.write(activePtyId, bytes);
+        return false;
+      });
 
       const wireToPty = (ptyId: string) => {
+        activePtyId = ptyId;
         subscriptions.push(
           electron.pty.onData((msg) => {
             if (msg.ptyId === ptyId) term.write(msg.data);
