@@ -14,27 +14,31 @@ export type OpenTerminal = {
 };
 
 type Ctx = {
-  /** Only the currently visible terminals; hidden sessions stay alive in the background. */
+  /** Sessions currently rendered in the panel (visible & panel not collapsed). */
   open: OpenTerminal[];
-  isOpen: (taskId: string) => boolean;
-  /** Hide if visible, show if hidden, create if no session exists. Never kills the PTY. */
+  /** All sessions in the tray, regardless of panel-collapsed or per-session visibility. */
+  selected: OpenTerminal[];
+  isSelected: (taskId: string) => boolean;
+  /** Add to tray if absent, remove (and kill PTY) if present. */
   toggle: (project: Project, task: Task, opts?: { startCommandOverride?: string }) => void;
-  /** Permanently close the session and kill its PTY. */
+  /** Permanently close one session and kill its PTY. */
   close: (taskId: string) => Promise<void>;
-  /** Hide a single pane without killing its PTY — the session stays alive in the background. */
-  hide: (taskId: string) => void;
-  /** Hide every visible pane without killing PTYs — sessions remain alive in the background. */
-  hideAll: () => void;
-  setPtyId: (taskId: string, ptyId: string) => void;
+  /** Permanently close every session for a project (kills PTYs, clears tray). */
   closeForProject: (projectId: string) => Promise<void>;
+  setPtyId: (taskId: string, ptyId: string) => void;
   startCommandFor: (agent: TaskAgent) => string;
   /** Run an arbitrary command in the active PTY for this task. */
   runIn: (taskId: string, command: string) => Promise<void>;
+  /** Whether the right agent panel is collapsed (sessions stay alive). */
+  panelCollapsed: boolean;
+  togglePanel: () => void;
+  setPanelCollapsed: (collapsed: boolean) => void;
 };
 
 const TerminalContext = createContext<Ctx | null>(null);
 
 const MAX_PANES = 4;
+const PANEL_COLLAPSED_KEY = "mc:agentsPanelCollapsed";
 
 function commandFor(agent: TaskAgent): string {
   if (agent === "shell") return "";
@@ -42,10 +46,34 @@ function commandFor(agent: TaskAgent): string {
 }
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
-  // All sessions, both visible and hidden. Hidden ones keep their PTY alive in
-  // the main process so the underlying agent (e.g. Claude) is not restarted
-  // when the panel is collapsed and reopened.
   const [sessions, setSessions] = useState<OpenTerminal[]>([]);
+  const [panelCollapsed, setPanelCollapsedState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(PANEL_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const persistCollapsed = (value: boolean) => {
+    try {
+      window.localStorage.setItem(PANEL_COLLAPSED_KEY, value ? "1" : "0");
+    } catch {}
+  };
+
+  const setPanelCollapsed = useCallback((collapsed: boolean) => {
+    setPanelCollapsedState(collapsed);
+    persistCollapsed(collapsed);
+  }, []);
+
+  const togglePanel = useCallback(() => {
+    setPanelCollapsedState((prev) => {
+      const next = !prev;
+      persistCollapsed(next);
+      return next;
+    });
+  }, []);
 
   const killPty = async (id: string | null) => {
     if (!id) return;
@@ -55,14 +83,15 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   };
 
   const toggle = useCallback((project: Project, task: Task, opts?: { startCommandOverride?: string }) => {
+    let toKill: string | null = null;
+    let added = false;
     setSessions((prev) => {
       const existing = prev.find((p) => p.taskId === task.id);
       if (existing) {
-        // Just flip visibility — keep the PTY alive in the background.
-        return prev.map((p) =>
-          p.taskId === task.id ? { ...p, visible: !p.visible } : p
-        );
+        toKill = existing.ptyId;
+        return prev.filter((p) => p.taskId !== task.id);
       }
+      added = true;
       const next: OpenTerminal = {
         taskId: task.id,
         ptyId: null,
@@ -73,8 +102,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         visible: true,
       };
       const arr = [...prev, next];
-      // Cap the number of *visible* panes; bump the oldest visible one to hidden
-      // (still alive) rather than killing it.
       const visibleCount = arr.filter((p) => p.visible).length;
       if (visibleCount > MAX_PANES) {
         for (const p of arr) {
@@ -86,7 +113,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       }
       return arr;
     });
-  }, []);
+    if (toKill) void killPty(toKill);
+    if (added) setPanelCollapsed(false);
+  }, [setPanelCollapsed]);
 
   const close = useCallback(async (taskId: string) => {
     setSessions((prev) => {
@@ -94,16 +123,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       if (target) void killPty(target.ptyId);
       return prev.filter((p) => p.taskId !== taskId);
     });
-  }, []);
-
-  const hide = useCallback((taskId: string) => {
-    setSessions((prev) =>
-      prev.map((p) => (p.taskId === taskId ? { ...p, visible: false } : p))
-    );
-  }, []);
-
-  const hideAll = useCallback(() => {
-    setSessions((prev) => prev.map((p) => (p.visible ? { ...p, visible: false } : p)));
   }, []);
 
   const closeForProject = useCallback(async (projectId: string) => {
@@ -124,12 +143,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setSessions((prev) => prev.map((p) => (p.taskId === taskId ? { ...p, ptyId } : p)));
   }, []);
 
-  // `open` reflects only what the panel renders; hidden sessions are excluded
-  // but remain in `sessions` so their PTYs stay alive.
-  const open = sessions.filter((p) => p.visible);
+  const visibleSessions = sessions.filter((p) => p.visible);
+  const open = panelCollapsed ? [] : visibleSessions;
 
-  const isOpen = useCallback(
-    (taskId: string) => sessions.some((p) => p.taskId === taskId && p.visible),
+  const isSelected = useCallback(
+    (taskId: string) => sessions.some((p) => p.taskId === taskId),
     [sessions]
   );
 
@@ -148,15 +166,17 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     <TerminalContext.Provider
       value={{
         open,
-        isOpen,
+        selected: sessions,
+        isSelected,
         toggle,
         close,
-        hide,
-        hideAll,
-        setPtyId,
         closeForProject,
+        setPtyId,
         startCommandFor: commandFor,
         runIn,
+        panelCollapsed,
+        togglePanel,
+        setPanelCollapsed,
       }}
     >
       {children}

@@ -136,7 +136,9 @@ function ProjectPage() {
   );
   for (const t of visibleTasks) tasksByStatus[t.status].push(t);
 
-  const selectedSet = new Set(terminals.open.map((t) => t.taskId));
+  const selectedSet = new Set(
+    terminals.selected.filter((t) => t.project.id === project.id).map((t) => t.taskId)
+  );
 
   const toggleTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -252,6 +254,26 @@ function ProjectPage() {
             Edit
             <Kbd>{editProjectHotkey}</Kbd>
           </Btn>
+          {selectedSet.size > 0 && (
+            <Btn
+              variant="ghost"
+              icon="x"
+              onClick={() => terminals.closeForProject(project.id)}
+              title="Close every agent terminal for this project"
+            >
+              Unselect all
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 10.5,
+                  color: "var(--text-faint)",
+                  marginLeft: 4,
+                }}
+              >
+                {selectedSet.size}
+              </span>
+            </Btn>
+          )}
           <Btn variant="primary" icon="plus" onClick={() => setShowNewAgent(true)}>
             New agent
             <Kbd variant="onPrimary">{newAgentHotkey}</Kbd>

@@ -54,7 +54,7 @@ function RootComponent() {
 function Shell() {
   const router = useRouter();
   const { theme, toggle } = useTheme();
-  const { open, hide, hideAll, setPtyId } = useTerminals();
+  const { open, selected, close, setPtyId, panelCollapsed, togglePanel, setPanelCollapsed } = useTerminals();
   const userTerminals = useUserTerminals();
 
   const path = router.state.location.pathname;
@@ -166,8 +166,11 @@ function Shell() {
           {projectMatch && (
             <TerminalPanel
               open={open.filter((t) => t.project.id === projectMatch[1])}
-              onClose={hide}
-              onHideAll={hideAll}
+              selectedForProject={selected.filter((t) => t.project.id === projectMatch[1])}
+              collapsed={panelCollapsed}
+              onTogglePanel={togglePanel}
+              onExpand={() => setPanelCollapsed(false)}
+              onClose={close}
               onPtyReady={setPtyId}
             />
           )}

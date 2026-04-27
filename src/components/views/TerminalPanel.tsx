@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { useHotkey } from "~/lib/use-hotkey";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
@@ -12,21 +13,25 @@ const MIN_WIDTH = 380;
 
 export function TerminalPanel({
   open,
+  selectedForProject,
+  collapsed,
+  onTogglePanel,
+  onExpand,
   onClose,
-  onHideAll,
   onPtyReady,
 }: {
   open: OpenTerminal[];
+  selectedForProject: OpenTerminal[];
+  collapsed: boolean;
+  onTogglePanel: () => void;
+  onExpand: () => void;
   onClose: (taskId: string) => void;
-  onHideAll: () => void;
   onPtyReady: (taskId: string, ptyId: string) => void;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [paneCollapsed, setPaneCollapsed] = useState<Set<string>>(new Set());
 
-  // Drop collapsed state for panes that are no longer open so newly re-opened
-  // panes default back to expanded.
   useEffect(() => {
-    setCollapsed((prev) => {
+    setPaneCollapsed((prev) => {
       const visible = new Set(open.map((o) => o.taskId));
       let changed = false;
       const next = new Set<string>();
@@ -38,8 +43,8 @@ export function TerminalPanel({
     });
   }, [open]);
 
-  const toggleCollapsed = (taskId: string) => {
-    setCollapsed((prev) => {
+  const togglePaneCollapsed = (taskId: string) => {
+    setPaneCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(taskId)) next.delete(taskId);
       else next.add(taskId);
@@ -47,7 +52,7 @@ export function TerminalPanel({
     });
   };
 
-  useHotkey("mod+l", onHideAll, { enabled: open.length > 0 });
+  useHotkey("mod+l", onTogglePanel);
 
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:agentsPanelWidth",
@@ -56,6 +61,90 @@ export function TerminalPanel({
     minSize: MIN_WIDTH,
     maxSize: (vw) => vw - 320,
   });
+
+  const focusPane = (taskId: string) => {
+    const others = selectedForProject
+      .filter((t) => t.task.id !== taskId && t.visible)
+      .map((t) => t.task.id);
+    setPaneCollapsed(new Set(others));
+    onExpand();
+  };
+
+  if (collapsed) {
+    if (selectedForProject.length === 0) return null;
+    return (
+      <div
+        style={{
+          width: 36,
+          flexShrink: 0,
+          background: "var(--surface-0)",
+          borderLeft: "1px solid var(--border-strong)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 6,
+          padding: "10px 0",
+        }}
+      >
+        <button
+          onClick={onExpand}
+          title={`Show agents panel (${hotkeyLabel("mod+l")})`}
+          style={{
+            background: "transparent",
+            border: 0,
+            cursor: "pointer",
+            color: "var(--text-dim)",
+            padding: 4,
+            display: "inline-flex",
+          }}
+        >
+          <Icon name="chevron-left" size={12} />
+        </button>
+        <span
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 10,
+            fontWeight: 600,
+            color: "var(--text-faint)",
+            fontVariantNumeric: "tabular-nums",
+            marginBottom: 2,
+          }}
+        >
+          {selectedForProject.length}
+        </span>
+        {selectedForProject.slice(0, 12).map((t) => {
+          const meta = AGENT_META[t.task.agent];
+          const statusColor = STATUS_META[t.task.status].color;
+          return (
+            <button
+              key={t.taskId}
+              onClick={() => focusPane(t.task.id)}
+              title={t.task.title}
+              style={{
+                background: "transparent",
+                border: 0,
+                cursor: "pointer",
+                padding: "4px 6px",
+                fontFamily: "var(--mono)",
+                fontSize: 15,
+                lineHeight: 1,
+                color: statusColor,
+                borderRadius: 4,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--surface-2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
+            >
+              {meta.glyph}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
 
   if (open.length === 0) return null;
   return (
@@ -113,7 +202,8 @@ export function TerminalPanel({
           </span>
         </div>
         <button
-          onClick={onHideAll}
+          onClick={onTogglePanel}
+          title="Collapse panel (sessions stay alive)"
           style={{
             background: "transparent",
             border: "1px solid var(--border)",
@@ -128,7 +218,7 @@ export function TerminalPanel({
             gap: 5,
           }}
         >
-          <Icon name="x" size={10} /> Hide all
+          <Icon name="chevron-right" size={10} /> Collapse
           <Kbd variant="ghost">{hotkeyLabel("mod+l")}</Kbd>
         </button>
       </div>
@@ -140,8 +230,8 @@ export function TerminalPanel({
             task={t.task}
             descriptor={t}
             isLast={i === open.length - 1}
-            collapsed={collapsed.has(t.taskId)}
-            onToggleCollapsed={() => toggleCollapsed(t.taskId)}
+            collapsed={paneCollapsed.has(t.taskId)}
+            onToggleCollapsed={() => togglePaneCollapsed(t.taskId)}
             onClose={() => onClose(t.taskId)}
             onPtyReady={(ptyId) => onPtyReady(t.taskId, ptyId)}
           />
