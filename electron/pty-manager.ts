@@ -45,7 +45,43 @@ type Pty = {
   bufferBytes: number;
   cwd: string;
   command: string;
+  agent?: string;
+  mcEnv?: { apiUrl?: string; token?: string };
+  scanTail: string;
+  lastInterruptAt: number;
 };
+
+const INTERRUPT_MARKER = "Interrupted by user";
+const INTERRUPT_COOLDOWN_MS = 2000;
+const SCAN_TAIL_MAX = 256;
+
+function scanForInterrupt(p: Pty, chunk: string) {
+  if (p.agent !== "claude-code") return;
+  if (!p.mcEnv?.apiUrl || !p.mcEnv?.token) return;
+  const haystack = (p.scanTail + chunk).slice(-SCAN_TAIL_MAX - chunk.length);
+  p.scanTail = haystack.slice(-SCAN_TAIL_MAX);
+  if (!haystack.includes(INTERRUPT_MARKER)) return;
+  const now = Date.now();
+  if (now - p.lastInterruptAt < INTERRUPT_COOLDOWN_MS) return;
+  p.lastInterruptAt = now;
+  void postSyntheticHook(p, "UserInterrupt");
+}
+
+async function postSyntheticHook(p: Pty, event: string) {
+  try {
+    const url = `${p.mcEnv!.apiUrl}/api/hooks/claude?taskId=${encodeURIComponent(p.taskId)}`;
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${p.mcEnv!.token}`,
+      },
+      body: JSON.stringify({ hook_event_name: event }),
+    });
+  } catch {
+    /* swallow — best-effort status sync */
+  }
+}
 
 const ptys = new Map<string, Pty>();
 const RING_LIMIT_BYTES = 1_000_000;
@@ -152,11 +188,16 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
         bufferBytes: 0,
         cwd: opts.cwd,
         command: opts.command,
+        agent: opts.agent,
+        mcEnv: opts.mcEnv,
+        scanTail: "",
+        lastInterruptAt: 0,
       };
       ptys.set(id, p);
 
       proc.onData((data: string) => {
         appendBuffer(p, data);
+        scanForInterrupt(p, data);
         send(getWin, "pty:data", { ptyId: id, data });
       });
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
