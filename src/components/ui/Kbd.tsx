@@ -37,6 +37,7 @@ const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform
 export type HotkeyCombo =
   | "mod+enter"
   | "mod+n"
+  | "mod+e"
   | "mod+p"
   | "mod+m"
   | "mod+/"
@@ -52,6 +53,8 @@ export function hotkeyLabel(combo: HotkeyCombo): string {
       return isMac ? "⌘↵" : "Ctrl+↵";
     case "mod+n":
       return isMac ? "⌘N" : "Ctrl+N";
+    case "mod+e":
+      return isMac ? "⌘E" : "Ctrl+E";
     case "mod+p":
       return isMac ? "⌘P" : "Ctrl+P";
     case "mod+m":

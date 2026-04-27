@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 export function TextField({
   label,
@@ -9,6 +9,8 @@ export function TextField({
   mono,
   rightAddon,
   type = "text",
+  autoFocus,
+  inputRef,
 }: {
   label?: string;
   hint?: string;
@@ -18,6 +20,8 @@ export function TextField({
   mono?: boolean;
   rightAddon?: ReactNode;
   type?: string;
+  autoFocus?: boolean;
+  inputRef?: Ref<HTMLInputElement>;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -50,6 +54,8 @@ export function TextField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          autoFocus={autoFocus}
+          ref={inputRef}
           style={{
             flex: 1,
             background: "transparent",

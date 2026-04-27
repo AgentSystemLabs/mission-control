@@ -12,6 +12,8 @@ export function matchHotkey(e: KeyboardEvent, combo: HotkeyCombo): boolean {
       return mod && plain && e.key === "Enter";
     case "mod+n":
       return mod && plain && (e.key === "n" || e.key === "N");
+    case "mod+e":
+      return mod && plain && (e.key === "e" || e.key === "E");
     case "mod+p":
       return mod && plain && (e.key === "p" || e.key === "P");
     case "mod+m":

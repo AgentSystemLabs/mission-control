@@ -37,6 +37,7 @@ function ProjectPage() {
   const [apiToken, setApiToken] = useState<string | null>(null);
 
   const newAgentHotkey = hotkeyLabel("mod+n");
+  const editProjectHotkey = hotkeyLabel("mod+e");
 
   const terminals = useTerminals();
   const { setProject: setActiveUserTerminalProject } = useUserTerminals();
@@ -93,6 +94,11 @@ function ProjectPage() {
     },
     { ignoreEditable: true },
   );
+
+  useHotkey("mod+e", () => {
+    if (showNewAgent) return;
+    setShowEdit((v) => !v);
+  });
 
   useServerEvents(
     useCallback(
@@ -213,6 +219,7 @@ function ProjectPage() {
           </div>
           <Btn variant="ghost" icon="settings" onClick={() => setShowEdit(true)}>
             Edit
+            <Kbd>{editProjectHotkey}</Kbd>
           </Btn>
           <Btn variant="primary" icon="plus" onClick={() => setShowNewAgent(true)}>
             New agent

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
@@ -45,9 +45,12 @@ export function ProjectDialog({
   >(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
+      nameRef.current?.focus();
+      nameRef.current?.select();
       setName(project?.name || "");
       setPath(project?.path || "");
       setGroupId(project?.groupId || "");
@@ -164,45 +167,11 @@ export function ProjectDialog({
       }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
-            padding: 14,
-            background: "var(--surface-0)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-          }}
-        >
-          <ProjectIcon
-            project={{
-              icon: (icon || name.slice(0, 2) || "??").toUpperCase().slice(0, 2),
-              iconColor,
-              imagePath,
-              updatedAt: imageVersion,
-            }}
-            size={44}
-          />
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{name || "Project name"}</div>
-            <div
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--text-faint)",
-                marginTop: 2,
-              }}
-            >
-              {path || "~/path/to/project"}
-            </div>
-          </div>
-        </div>
-
         <TextField
           label="Name (optional — defaults to folder name)"
           value={name}
           onChange={setName}
+          inputRef={nameRef}
           placeholder={
             path.trim().split(/[\\/]/).filter(Boolean).pop() || "my-project"
           }
