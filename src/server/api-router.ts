@@ -20,6 +20,7 @@ import {
 import { events } from "./events";
 import { getOrCreateApiToken, regenerateApiToken } from "~/db/settings";
 import { json, jsonError, requireBearerToken } from "./auth";
+import { generateTitleForTask } from "./services/title-generator";
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -207,12 +208,16 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       if (!auth.ok) return auth.response;
       const taskId = url.searchParams.get("taskId");
       if (!taskId) return jsonError(400, "taskId required");
-      const payload = await readJson<{ hook_event_name?: string }>(request);
+      const payload = await readJson<{ hook_event_name?: string; prompt?: string }>(request);
       const event = payload?.hook_event_name || "";
       const status = mapHookEventToStatus(event);
       if (!status) return json({ ok: true, ignored: event });
       const t = updateStatus(taskId, { status });
       if (!t) return jsonError(404, "task not found");
+      if (event === "UserPromptSubmit" && typeof payload?.prompt === "string" && payload.prompt.trim()) {
+        // Fire-and-forget: don't block the hook response on CLI generation.
+        void generateTitleForTask(taskId, payload.prompt);
+      }
       return json({ ok: true, status });
     }
 

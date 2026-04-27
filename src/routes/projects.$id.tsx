@@ -146,7 +146,6 @@ function ProjectPage() {
   const deleteTask = async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
-    if (!confirm(`Delete agent "${task.title}"?\n\nThis cannot be undone.`)) return;
     await terminals.close(taskId);
     await api.deleteTask(taskId);
     await refresh();

@@ -7,6 +7,7 @@ import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
+import { TITLE_WAITING } from "~/lib/task-sentinels";
 import type { Project, TaskAgent } from "~/db/schema";
 
 export function NewAgentDialog({
@@ -55,12 +56,6 @@ export function NewAgentDialog({
       desc: "Cursor's background agent. Best for quick inline edits.",
       cmd: "cursor-agent",
     },
-    {
-      id: "shell",
-      label: "Shell",
-      desc: "Plain interactive shell in this project's directory.",
-      cmd: "$SHELL",
-    },
   ];
 
   const submit = async () => {
@@ -84,7 +79,7 @@ export function NewAgentDialog({
     try {
       await onStart({
         agent,
-        title: title.trim() || "Untitled task",
+        title: title.trim() || TITLE_WAITING,
         branch: branch.trim() || project?.branch || "main",
       });
     } catch (e: any) {
@@ -247,7 +242,7 @@ export function NewAgentDialog({
           label="Task title"
           value={title}
           onChange={setTitle}
-          placeholder="Add streaming support to SSE transport"
+          placeholder="Leave blank to auto-generate from your first prompt"
         />
         <TextField
           label="Git branch"

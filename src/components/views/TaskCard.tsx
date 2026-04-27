@@ -3,8 +3,12 @@ import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { Btn } from "~/components/ui/Btn";
+import { Modal } from "~/components/ui/Modal";
+import { Kbd } from "~/components/ui/Kbd";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
+import { useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
+import { isSentinelTitle } from "~/lib/task-sentinels";
 import type { Task } from "~/db/schema";
 
 export function TaskCard({
@@ -23,6 +27,8 @@ export function TaskCard({
   onDelete?: (taskId: string) => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   useEffect(() => {
     if (!menu) return;
@@ -35,6 +41,17 @@ export function TaskCard({
       window.removeEventListener("scroll", close, true);
     };
   }, [menu]);
+
+  useHotkey(
+    "enter",
+    (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (onDelete) onDelete(task.id);
+      setConfirmOpen(false);
+    },
+    { enabled: confirmOpen },
+  );
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
   const isRunning = task.status === "running";
@@ -60,9 +77,11 @@ export function TaskCard({
         boxShadow: selected ? "0 0 0 1px var(--accent), 0 0 16px var(--accent-faint)" : "none",
       }}
       onMouseEnter={(e) => {
+        setHovered(true);
         if (!selected) e.currentTarget.style.borderColor = "var(--border-strong)";
       }}
       onMouseLeave={(e) => {
+        setHovered(false);
         if (!selected) e.currentTarget.style.borderColor = "var(--border)";
       }}
     >
@@ -87,17 +106,23 @@ export function TaskCard({
               <span style={{ color: "var(--text-faint)", fontSize: 10, fontFamily: "var(--mono)" }}>·</span>
               <AgentGlyph agent={task.agent} showLabel size={10.5} />
             </div>
-            <div
-              style={{
-                fontSize: 13.5,
-                fontWeight: 500,
-                lineHeight: 1.35,
-                color: "var(--text)",
-                marginBottom: 4,
-              }}
-            >
-              {task.title}
-            </div>
+            {(() => {
+              const sentinel = isSentinelTitle(task.title);
+              return (
+                <div
+                  style={{
+                    fontSize: 13.5,
+                    fontWeight: 500,
+                    lineHeight: 1.35,
+                    color: sentinel ? "var(--text-dim)" : "var(--text)",
+                    fontStyle: sentinel ? "italic" : "normal",
+                    marginBottom: 4,
+                  }}
+                >
+                  {task.title}
+                </div>
+              );
+            })()}
             <div
               style={{
                 display: "flex",
@@ -117,7 +142,42 @@ export function TaskCard({
               <span>{updated}</span>
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {onDelete && (
+              <button
+                aria-label="Delete task"
+                title="Delete task"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmOpen(true);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 20,
+                  height: 20,
+                  border: 0,
+                  borderRadius: 4,
+                  background: "transparent",
+                  color: "var(--text-faint)",
+                  cursor: "pointer",
+                  opacity: hovered ? 1 : 0,
+                  pointerEvents: hovered ? "auto" : "none",
+                  transition: "opacity 0.12s, color 0.12s, background 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--status-failed)";
+                  e.currentTarget.style.background = "var(--surface-2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-faint)";
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <Icon name="trash" size={12} />
+              </button>
+            )}
             <div
               style={{
                 width: 18,
@@ -210,7 +270,7 @@ export function TaskCard({
               onClick={(e) => {
                 e.stopPropagation();
                 setMenu(null);
-                onDelete(task.id);
+                setConfirmOpen(true);
               }}
               style={{
                 display: "flex",
@@ -248,6 +308,40 @@ export function TaskCard({
           </Btn>
         )}
       </div>
+      {onDelete && (
+        <div onClick={(e) => e.stopPropagation()}>
+        <Modal
+          open={confirmOpen}
+          onClose={() => setConfirmOpen(false)}
+          title="Delete task"
+          width={420}
+          footer={
+            <>
+              <Btn variant="ghost" onClick={() => setConfirmOpen(false)}>
+                Cancel <Kbd variant="inline">Esc</Kbd>
+              </Btn>
+              <Btn
+                variant="danger"
+                icon="trash"
+                onClick={() => {
+                  onDelete(task.id);
+                  setConfirmOpen(false);
+                }}
+              >
+                Delete <Kbd variant="inline">Enter</Kbd>
+              </Btn>
+            </>
+          }
+        >
+          <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+            Delete &ldquo;{task.title}&rdquo;?
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+            This task and its worktree will be removed. This cannot be undone.
+          </div>
+        </Modal>
+        </div>
+      )}
     </div>
   );
 }
