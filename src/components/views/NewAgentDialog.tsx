@@ -10,6 +10,8 @@ import { getElectron } from "~/lib/electron";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import type { Project, TaskAgent } from "~/db/schema";
 
+const SKIP_PERMS_KEY = "mc:newAgent:dangerouslySkipPermissions";
+
 export function NewAgentDialog({
   open,
   project,
@@ -19,11 +21,17 @@ export function NewAgentDialog({
   open: boolean;
   project: Project | null;
   onClose: () => void;
-  onStart: (data: { agent: TaskAgent; title: string; branch: string }) => Promise<void> | void;
+  onStart: (data: {
+    agent: TaskAgent;
+    title: string;
+    branch: string;
+    dangerouslySkipPermissions: boolean;
+  }) => Promise<void> | void;
 }) {
   const [agent, setAgent] = useState<TaskAgent>("claude-code");
   const [title, setTitle] = useState("");
   const [branch, setBranch] = useState("");
+  const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -32,6 +40,11 @@ export function NewAgentDialog({
       setAgent("claude-code");
       setTitle("");
       setBranch("");
+      try {
+        setDangerouslySkipPermissions(localStorage.getItem(SKIP_PERMS_KEY) === "1");
+      } catch {
+        setDangerouslySkipPermissions(false);
+      }
       setError(null);
       setSubmitting(false);
     }
@@ -77,10 +90,19 @@ export function NewAgentDialog({
       }
     }
     try {
+      const skip = agent === "claude-code" && dangerouslySkipPermissions;
+      try {
+        if (agent === "claude-code") {
+          localStorage.setItem(SKIP_PERMS_KEY, dangerouslySkipPermissions ? "1" : "0");
+        }
+      } catch {
+        /* localStorage unavailable */
+      }
       await onStart({
         agent,
         title: title.trim() || TITLE_WAITING,
         branch: branch.trim() || project?.branch || "main",
+        dangerouslySkipPermissions: skip,
       });
     } catch (e: any) {
       setError(e?.message || "Failed to start agent");
@@ -251,6 +273,45 @@ export function NewAgentDialog({
           onChange={setBranch}
           placeholder={project?.branch || "main"}
         />
+
+        {agent === "claude-code" && (
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              padding: "10px 12px",
+              background: "var(--surface-0)",
+              border: "1px solid var(--border)",
+              borderRadius: 7,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={dangerouslySkipPermissions}
+              onChange={(e) => setDangerouslySkipPermissions(e.target.checked)}
+              style={{ marginTop: 2, accentColor: "var(--accent)" }}
+            />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 2 }}>
+                Skip permission prompts
+              </div>
+              <div
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                  lineHeight: 1.4,
+                }}
+              >
+                Launches with{" "}
+                <code style={{ color: "var(--text)" }}>--dangerously-skip-permissions</code>. Saved
+                as your default.
+              </div>
+            </div>
+          </label>
+        )}
 
         {error && (
           <div

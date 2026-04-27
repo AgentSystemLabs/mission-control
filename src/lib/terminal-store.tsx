@@ -18,7 +18,7 @@ type Ctx = {
   open: OpenTerminal[];
   isOpen: (taskId: string) => boolean;
   /** Hide if visible, show if hidden, create if no session exists. Never kills the PTY. */
-  toggle: (project: Project, task: Task) => void;
+  toggle: (project: Project, task: Task, opts?: { startCommandOverride?: string }) => void;
   /** Permanently close the session and kill its PTY. */
   close: (taskId: string) => Promise<void>;
   /** Hide a single pane without killing its PTY — the session stays alive in the background. */
@@ -54,7 +54,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     await electron.pty.kill(id).catch(() => undefined);
   };
 
-  const toggle = useCallback((project: Project, task: Task) => {
+  const toggle = useCallback((project: Project, task: Task, opts?: { startCommandOverride?: string }) => {
     setSessions((prev) => {
       const existing = prev.find((p) => p.taskId === task.id);
       if (existing) {
@@ -66,7 +66,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       const next: OpenTerminal = {
         taskId: task.id,
         ptyId: null,
-        startCommand: commandFor(task.agent),
+        startCommand: opts?.startCommandOverride ?? commandFor(task.agent),
         cwd: project.path,
         project,
         task,

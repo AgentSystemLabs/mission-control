@@ -166,7 +166,12 @@ function ProjectPage() {
     router.navigate({ to: "/" });
   };
 
-  const startAgent = async (data: { agent: any; title: string; branch: string }) => {
+  const startAgent = async (data: {
+    agent: any;
+    title: string;
+    branch: string;
+    dangerouslySkipPermissions: boolean;
+  }) => {
     if (!apiToken) return;
     const created = await api.createTaskInternal(
       project.id,
@@ -175,7 +180,11 @@ function ProjectPage() {
     );
     setShowNewAgent(false);
     await refresh();
-    terminals.toggle(project, created.task);
+    const startCommandOverride =
+      data.agent === "claude-code" && data.dangerouslySkipPermissions
+        ? "claude --dangerously-skip-permissions"
+        : undefined;
+    terminals.toggle(project, created.task, { startCommandOverride });
   };
 
   return (
