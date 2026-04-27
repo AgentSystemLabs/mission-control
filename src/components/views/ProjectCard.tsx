@@ -79,6 +79,11 @@ export function ProjectCard({
               )}
             </div>
             <div
+              onClick={(e) => {
+                e.stopPropagation();
+                window.electronAPI?.openPath(project.path);
+              }}
+              title="Reveal in Finder"
               style={{
                 fontFamily: "var(--mono)",
                 fontSize: 11,
@@ -86,6 +91,15 @@ export function ProjectCard({
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--text-dim)";
+                e.currentTarget.style.textDecoration = "underline";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-faint)";
+                e.currentTarget.style.textDecoration = "none";
               }}
             >
               {project.path}

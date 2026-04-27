@@ -243,6 +243,13 @@ ipcMain.handle("dialog:browseFolder", async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("shell:openPath", async (_evt, p: string) => {
+  if (!p) return { ok: false, error: "empty" };
+  const err = await shell.openPath(p);
+  if (err) return { ok: false, error: err };
+  return { ok: true };
+});
+
 ipcMain.handle("app:getRuntimePort", () => runtimePort);
 ipcMain.handle("app:getUserDataDir", () => app.getPath("userData"));
 

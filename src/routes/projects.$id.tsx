@@ -219,13 +219,33 @@ function ProjectPage() {
                 color: "var(--text-dim)",
               }}
             >
-              <span>{project.path}</span>
-              <span>·</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name="git-branch" size={11} /> {project.branch}
+              <span
+                onClick={() => window.electronAPI?.openPath(project.path)}
+                title="Reveal in Finder"
+                style={{ cursor: "pointer" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.textDecoration = "underline";
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.textDecoration = "none";
+                  e.currentTarget.style.color = "var(--text-dim)";
+                }}
+              >
+                {project.path}
               </span>
             </div>
           </div>
+          {project.githubUrl && (
+            <Btn
+              variant="ghost"
+              icon="github"
+              onClick={() => window.open(project.githubUrl!, "_blank", "noreferrer")}
+              title="Open GitHub repo"
+            >
+              GitHub
+            </Btn>
+          )}
           <Btn variant="ghost" icon="settings" onClick={() => setShowEdit(true)}>
             Edit
             <Kbd>{editProjectHotkey}</Kbd>

@@ -11,7 +11,28 @@ import { deleteAllProjectImagesFor } from "./project-images";
 export type ProjectWithCounts = Project & {
   taskCounts: Record<TaskStatus, number> & { total: number; activeNonDone: number };
   preview?: string | null;
+  githubUrl?: string | null;
 };
+
+export function detectGithubUrl(dir: string): string | null {
+  try {
+    const cfg = path.join(dir, ".git", "config");
+    if (!fs.existsSync(cfg)) return null;
+    const text = fs.readFileSync(cfg, "utf8");
+    const m = text.match(/\[remote "origin"\][^\[]*?url\s*=\s*(\S+)/);
+    if (!m) return null;
+    let url = m[1].trim();
+    // git@github.com:owner/repo(.git)
+    const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
+    if (ssh) return `https://github.com/${ssh[1]}`;
+    // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
+    const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
+    if (https) return `https://github.com/${https[1]}`;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 function newId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
@@ -64,6 +85,7 @@ function decorate(p: Project, ts: Task[]): ProjectWithCounts {
     ...p,
     taskCounts: { ...counts, total: active.length, activeNonDone },
     preview: previewSource?.preview ?? null,
+    githubUrl: detectGithubUrl(p.path),
   };
 }
 
