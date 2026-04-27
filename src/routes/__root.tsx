@@ -132,17 +132,6 @@ function Shell() {
                 <Kbd variant="ghost">{hotkeyLabel("mod+m")}</Kbd>
               </Btn>
             )}
-            {path !== "/" && (
-              <Btn
-                variant="ghost"
-                icon="terminal"
-                onClick={userTerminals.togglePanel}
-                title="Toggle terminal panel"
-              >
-                Terminals
-                <Kbd variant="ghost">{hotkeyLabel("ctrl+`")}</Kbd>
-              </Btn>
-            )}
             <Btn
               variant="ghost"
               icon="settings"

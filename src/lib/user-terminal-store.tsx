@@ -39,7 +39,7 @@ const UserTerminalContext = createContext<Ctx | null>(null);
 export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const [project, setProjectState] = useState<Project | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const projectIdRef = useRef<string | null>(null);
 
@@ -101,7 +101,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       const target = idx >= 0 ? prev[idx] : undefined;
       if (target) void killPty(target.ptyId);
       const next = prev.filter((s) => s.terminal.id !== id);
-      if (next.length === 0) setPanelOpen(false);
       if (idx >= 0 && next.length > 0) {
         const pick = idx > 0 ? idx - 1 : 0;
         neighborId = next[pick].terminal.id;
