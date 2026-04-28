@@ -24,6 +24,16 @@ import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, requireBearerToken } from "./auth";
 import { generateTitleForTask } from "./services/title-generator";
+import {
+  getGitStatus,
+  getGitDiff,
+  stageFiles,
+  unstageFiles,
+  commit as gitCommit,
+  push as gitPush,
+  generateCommitMessage,
+  gitErrorPayload,
+} from "./services/git";
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -157,6 +167,53 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const t = restoreTask(id);
       if (!t) return jsonError(404, "not found");
       return json({ task: t });
+    }
+
+    const gitMatch = pathname.match(/^\/api\/projects\/([^\/]+)\/git\/([a-z-]+)$/);
+    if (gitMatch) {
+      const id = decodeURIComponent(gitMatch[1]!);
+      const action = gitMatch[2]!;
+      try {
+        if (action === "status" && method === "GET") {
+          return json(await getGitStatus(id));
+        }
+        if (action === "diff" && method === "GET") {
+          const file = url.searchParams.get("file");
+          if (!file) return jsonError(400, "file is required");
+          const stagedParam = url.searchParams.get("staged");
+          const staged = stagedParam === "1" || stagedParam === "true";
+          return json(await getGitDiff(id, file, staged));
+        }
+        if (action === "stage" && method === "POST") {
+          const body = await readJson<{ files?: string[] }>(request);
+          await stageFiles(id, body.files ?? []);
+          return json({ ok: true });
+        }
+        if (action === "unstage" && method === "POST") {
+          const body = await readJson<{ files?: string[] }>(request);
+          await unstageFiles(id, body.files ?? []);
+          return json({ ok: true });
+        }
+        if (action === "commit" && method === "POST") {
+          const body = await readJson<{ message?: string }>(request);
+          if (!body.message) return jsonError(400, "message is required");
+          return json(await gitCommit(id, body.message));
+        }
+        if (action === "push" && method === "POST") {
+          return json(await gitPush(id));
+        }
+        if (action === "generate-commit-message" && method === "POST") {
+          const message = await generateCommitMessage(id);
+          return json({ message });
+        }
+        return jsonError(404, "not found");
+      } catch (e: any) {
+        const payload = gitErrorPayload(e);
+        return new Response(
+          JSON.stringify({ error: payload.message, stderr: payload.stderr }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
     }
 
     const projectUserTerminalsMatch = pathname.match(
