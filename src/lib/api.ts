@@ -1,5 +1,6 @@
 import type { Group, Project, Task, UserTerminal } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
+import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -96,6 +97,19 @@ export const api = {
     }),
   deleteUserTerminal: (id: string) =>
     req<void>(`/api/user-terminals/${id}`, { method: "DELETE" }),
+
+  getKeybindings: () => req<{ bindings: BindingMap }>("/api/keybindings"),
+  setKeybinding: (action: HotkeyAction, binding: Binding) =>
+    req<{ bindings: BindingMap }>("/api/keybindings", {
+      method: "PUT",
+      body: JSON.stringify({ action, binding }),
+    }),
+  resetKeybinding: (action: HotkeyAction) =>
+    req<{ bindings: BindingMap }>(`/api/keybindings?action=${encodeURIComponent(action)}`, {
+      method: "DELETE",
+    }),
+  resetAllKeybindings: () =>
+    req<{ bindings: BindingMap }>("/api/keybindings", { method: "DELETE" }),
 
   getSettings: () => req<{ apiToken: string }>("/api/settings"),
   regenerateToken: () =>

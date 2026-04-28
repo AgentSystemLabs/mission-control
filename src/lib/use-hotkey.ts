@@ -1,36 +1,20 @@
 import { useEffect, useRef } from "react";
-import type { HotkeyCombo } from "~/components/ui/Kbd";
+import { matchBinding } from "~/lib/keybindings/match";
+import { useKeybindings } from "~/lib/keybindings/store";
+import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 
-export function matchHotkey(e: KeyboardEvent, combo: HotkeyCombo): boolean {
-  const mod = e.metaKey || e.ctrlKey;
-  // All `mod+*` combos require *only* the mod key — no Shift/Alt — so muscle
-  // memory like Cmd+Shift+P (browser command palette) doesn't trigger our
-  // bindings. ctrl+` accepts Shift since `~` requires it on US layouts.
-  const plain = !e.shiftKey && !e.altKey;
-  switch (combo) {
-    case "mod+enter":
-      return mod && plain && e.key === "Enter";
-    case "mod+n":
-      return mod && plain && (e.key === "n" || e.key === "N");
-    case "mod+e":
-      return mod && plain && (e.key === "e" || e.key === "E");
-    case "mod+p":
-      return mod && plain && (e.key === "p" || e.key === "P");
-    case "mod+m":
-      return mod && plain && (e.key === "m" || e.key === "M");
-    case "mod+/":
-      return mod && plain && e.key === "/";
-    case "mod+.":
-      return mod && plain && e.key === ".";
-    case "mod+l":
-      return mod && plain && (e.key === "l" || e.key === "L");
-    case "ctrl+`":
-      return mod && !e.altKey && (e.key === "`" || e.key === "~");
-    case "enter":
-      return plain && !mod && e.key === "Enter";
-    case "escape":
-      return e.key === "Escape";
+export type HotkeyTarget = HotkeyAction | "enter" | "escape";
+
+function isAction(t: HotkeyTarget): t is HotkeyAction {
+  return (HOTKEY_ACTIONS as readonly string[]).includes(t);
+}
+
+function matchLiteral(e: KeyboardEvent, t: "enter" | "escape"): boolean {
+  if (t === "enter") {
+    const mod = e.metaKey || e.ctrlKey;
+    return !mod && !e.shiftKey && !e.altKey && e.key === "Enter";
   }
+  return e.key === "Escape";
 }
 
 export function isEditableTarget(target: EventTarget | null): boolean {
@@ -50,7 +34,7 @@ export type HotkeyOptions = {
 };
 
 export function useHotkey(
-  combo: HotkeyCombo,
+  target: HotkeyTarget,
   handler: (e: KeyboardEvent) => void,
   options: HotkeyOptions = {},
 ) {
@@ -63,18 +47,24 @@ export function useHotkey(
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
 
+  // Always call useKeybindings so hook order stays stable; bindings ref read inside listener.
+  const { bindings } = useKeybindings();
+  const bindingsRef = useRef(bindings);
+  bindingsRef.current = bindings;
+
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
-      if (!matchHotkey(e, combo)) return;
+      const matched = isAction(target)
+        ? matchBinding(e, bindingsRef.current[target])
+        : matchLiteral(e, target);
+      if (!matched) return;
       if (ignoreEditable && isEditableTarget(e.target)) return;
       if (preventDefault) e.preventDefault();
-      // In capture phase, stop propagation so descendants (xterm.js textarea)
-      // never see the key. Bubble-phase listeners stay non-intrusive.
       if (capture) e.stopPropagation();
       handlerRef.current(e);
     };
     window.addEventListener("keydown", onKey, capture);
     return () => window.removeEventListener("keydown", onKey, capture);
-  }, [combo, enabled, ignoreEditable, preventDefault, capture]);
+  }, [target, enabled, ignoreEditable, preventDefault, capture]);
 }

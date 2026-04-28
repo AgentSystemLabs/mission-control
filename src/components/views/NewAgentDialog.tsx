@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { KbdAction } from "~/components/ui/Kbd";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
@@ -150,7 +150,7 @@ export function NewAgentDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, agent, agents, submitting, project, rememberSettings, dangerouslySkipPermissions]);
 
-  useHotkey("mod+enter", () => void submit(), { enabled: open });
+  useHotkey("dialog.submit", () => void submit(), { enabled: open });
 
   return (
     <Modal
@@ -165,7 +165,7 @@ export function NewAgentDialog({
           </Btn>
           <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
             Start agent
-            <Kbd variant="onPrimary">{hotkeyLabel("mod+enter")}</Kbd>
+            <KbdAction action="dialog.submit" variant="onPrimary" />
           </Btn>
         </>
       }

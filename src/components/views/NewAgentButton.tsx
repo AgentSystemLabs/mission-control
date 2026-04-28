@@ -1,5 +1,5 @@
 import { Btn } from "~/components/ui/Btn";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { KbdAction } from "~/components/ui/Kbd";
 import type { Project } from "~/db/schema";
 
 export function NewAgentButton({
@@ -13,14 +13,13 @@ export function NewAgentButton({
   onConfigure: () => void;
   disabled?: boolean;
 }) {
-  const hotkey = hotkeyLabel("mod+n");
   const remembered = !!(project.rememberAgentSettings && project.savedAgent);
 
   if (!remembered) {
     return (
       <Btn variant="primary" icon="plus" onClick={onPrimary} disabled={disabled}>
         New agent
-        <Kbd variant="onPrimary">{hotkey}</Kbd>
+        <KbdAction action="agent.new" variant="onPrimary" />
       </Btn>
     );
   }
@@ -36,7 +35,7 @@ export function NewAgentButton({
         style={{ borderRadius: "7px 0 0 7px", borderRight: "none" }}
       >
         New agent
-        <Kbd variant="onPrimary">{hotkey}</Kbd>
+        <KbdAction action="agent.new" variant="onPrimary" />
       </Btn>
       <Btn
         variant="primary"

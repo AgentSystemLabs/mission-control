@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
+import { useFormattedBinding } from "~/lib/keybindings/store";
+import type { HotkeyAction } from "~/lib/keybindings/types";
 
 export type KbdVariant = "onPrimary" | "ghost" | "inline";
 
@@ -32,48 +34,6 @@ const VARIANT_STYLE: Record<KbdVariant, CSSProperties> = {
   },
 };
 
-const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-
-export type HotkeyCombo =
-  | "mod+enter"
-  | "mod+n"
-  | "mod+e"
-  | "mod+p"
-  | "mod+m"
-  | "mod+/"
-  | "mod+."
-  | "mod+l"
-  | "ctrl+`"
-  | "enter"
-  | "escape";
-
-export function hotkeyLabel(combo: HotkeyCombo): string {
-  switch (combo) {
-    case "mod+enter":
-      return isMac ? "⌘↵" : "Ctrl+↵";
-    case "mod+n":
-      return isMac ? "⌘N" : "Ctrl+N";
-    case "mod+e":
-      return isMac ? "⌘E" : "Ctrl+E";
-    case "mod+p":
-      return isMac ? "⌘P" : "Ctrl+P";
-    case "mod+m":
-      return isMac ? "⌘M" : "Ctrl+M";
-    case "mod+/":
-      return isMac ? "⌘/" : "Ctrl+/";
-    case "mod+.":
-      return isMac ? "⌘." : "Ctrl+.";
-    case "mod+l":
-      return isMac ? "⌘L" : "Ctrl+L";
-    case "ctrl+`":
-      return "⌃~";
-    case "enter":
-      return "↵";
-    case "escape":
-      return "Esc";
-  }
-}
-
 export function Kbd({
   variant = "ghost",
   children,
@@ -84,4 +44,18 @@ export function Kbd({
   style?: CSSProperties;
 }) {
   return <kbd style={{ ...BASE, ...VARIANT_STYLE[variant], ...style }}>{children}</kbd>;
+}
+
+/** Render the user's current binding for an action. */
+export function KbdAction({
+  action,
+  variant = "ghost",
+  style,
+}: {
+  action: HotkeyAction;
+  variant?: KbdVariant;
+  style?: CSSProperties;
+}) {
+  const label = useFormattedBinding(action);
+  return <Kbd variant={variant} style={style}>{label}</Kbd>;
 }
