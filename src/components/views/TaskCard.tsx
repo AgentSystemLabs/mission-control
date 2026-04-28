@@ -7,6 +7,7 @@ import { Modal } from "~/components/ui/Modal";
 import { Kbd } from "~/components/ui/Kbd";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { useHotkey } from "~/lib/use-hotkey";
+import { useCardGlow } from "~/lib/use-card-glow";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
 import type { Task } from "~/db/schema";
@@ -27,16 +28,21 @@ export function TaskCard({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const glowRef = useCardGlow<HTMLDivElement>();
 
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
     window.addEventListener("click", close);
     window.addEventListener("scroll", close, true);
-    window.addEventListener("keydown", (e) => e.key === "Escape" && close());
+    window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("click", close);
       window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
     };
   }, [menu]);
 
@@ -58,7 +64,7 @@ export function TaskCard({
 
   return (
     <div
-      onClick={() => onToggle(task.id)}
+      ref={glowRef}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -83,8 +89,25 @@ export function TaskCard({
         if (!selected) e.currentTarget.style.borderColor = "var(--border)";
       }}
     >
+      <button
+        type="button"
+        onClick={() => onToggle(task.id)}
+        aria-label={`${selected ? "Close" : "Open"} terminal for ${task.title}`}
+        aria-pressed={selected}
+        style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: 0,
+          background: "transparent",
+          border: 0,
+          padding: 0,
+          margin: 0,
+          cursor: "pointer",
+          borderRadius: "inherit",
+        }}
+      />
       <ShimmerBar active={isRunning} color={meta?.color} />
-      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, position: "relative", zIndex: 1, pointerEvents: "none" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -163,6 +186,8 @@ export function TaskCard({
                   opacity: hovered ? 1 : 0,
                   pointerEvents: hovered ? "auto" : "none",
                   transition: "opacity 0.12s, color 0.12s, background 0.12s",
+                  position: "relative",
+                  zIndex: 1,
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = "var(--status-failed)";
@@ -176,21 +201,6 @@ export function TaskCard({
                 <Icon name="trash" size={12} />
               </button>
             )}
-            <div
-              style={{
-                width: 18,
-                height: 18,
-                borderRadius: 4,
-                border: selected ? "1px solid var(--accent)" : "1px solid var(--border-strong)",
-                background: selected ? "var(--accent)" : "transparent",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#0a0b0d",
-              }}
-            >
-              {selected && <Icon name="check" size={11} />}
-            </div>
           </div>
         </div>
         {task.preview && (
@@ -221,7 +231,7 @@ export function TaskCard({
           </div>
         )}
         {task.status === "finished" && (
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, position: "relative", zIndex: 1, pointerEvents: "auto" }}>
             <Btn
               size="sm"
               variant="ghost"
@@ -237,6 +247,8 @@ export function TaskCard({
         )}
         {menu && onDelete && (
           <div
+            role="menu"
+            aria-label="Task actions"
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "fixed",
@@ -249,9 +261,12 @@ export function TaskCard({
               padding: 4,
               minWidth: 140,
               boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
+              pointerEvents: "auto",
             }}
           >
             <button
+              role="menuitem"
+              autoFocus
               onClick={(e) => {
                 e.stopPropagation();
                 setMenu(null);
@@ -280,17 +295,19 @@ export function TaskCard({
           </div>
         )}
         {task.status === "needs-input" && (
-          <Btn
-            size="sm"
-            variant="accent"
-            icon="terminal"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle(task.id);
-            }}
-          >
-            Open terminal to reply
-          </Btn>
+          <div style={{ position: "relative", zIndex: 1, pointerEvents: "auto" }}>
+            <Btn
+              size="sm"
+              variant="accent"
+              icon="terminal"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle(task.id);
+              }}
+            >
+              Open terminal to reply
+            </Btn>
+          </div>
         )}
       </div>
       {onDelete && (

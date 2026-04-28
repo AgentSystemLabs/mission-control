@@ -199,6 +199,71 @@ button {
   background-image: radial-gradient(circle, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
 }
 
+.cursor-glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 400ms ease;
+  background: radial-gradient(
+    260px circle at var(--x, 50%) var(--y, 50%),
+    rgba(120, 110, 220, 0.07),
+    transparent 70%
+  );
+}
+.cursor-glow[data-active] {
+  opacity: 1;
+}
+[data-theme="light"] .cursor-glow {
+  background: radial-gradient(
+    260px circle at var(--x, 50%) var(--y, 50%),
+    rgba(255, 170, 120, 0.11),
+    transparent 70%
+  );
+}
+@media (pointer: coarse) {
+  .cursor-glow {
+    display: none;
+  }
+}
+body[data-card-glow] .cursor-glow {
+  opacity: 0;
+}
+
+[data-glow]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  background: radial-gradient(
+    220px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(120, 110, 220, 0.18),
+    transparent 65%
+  );
+  z-index: 0;
+}
+[data-glow="1"]::before {
+  opacity: 1;
+}
+[data-theme="light"] [data-glow]::before {
+  background: radial-gradient(
+    220px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(255, 170, 120, 0.22),
+    transparent 65%
+  );
+}
+[data-glow] > * {
+  position: relative;
+  z-index: 1;
+}
+
 ::selection {
   background: var(--accent-dim);
   color: var(--text);

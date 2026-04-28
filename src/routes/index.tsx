@@ -8,6 +8,7 @@ import { useWheelSwipe } from "~/lib/use-wheel-swipe";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { StatusDot } from "~/components/ui/StatusDot";
+import { CursorGlow } from "~/components/ui/CursorGlow";
 import { ProjectCard, type Density } from "~/components/views/ProjectCard";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
@@ -133,6 +134,7 @@ function MissionControlPage() {
 
   return (
     <>
+      <CursorGlow />
       <div style={{ flex: 1, overflow: "auto", padding: "28px 32px 80px" }} className="dot-grid-bg">
         <div style={{ maxWidth: 1400, margin: "0 auto" }}>
           <div
@@ -237,6 +239,7 @@ function MissionControlPage() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search projects…"
+                  aria-label="Search projects"
                   style={{
                     flex: 1,
                     background: "transparent",
@@ -251,6 +254,8 @@ function MissionControlPage() {
               </div>
 
               <div
+                role="group"
+                aria-label="Card density"
                 style={{
                   display: "flex",
                   padding: 2,
@@ -265,6 +270,8 @@ function MissionControlPage() {
                     key={d}
                     onClick={() => setDensity(d)}
                     title={d}
+                    aria-label={`${d} density`}
+                    aria-pressed={density === d}
                     style={{
                       background: density === d ? "var(--surface-3)" : "transparent",
                       border: 0,

@@ -1,3 +1,4 @@
+import { useCardGlow } from "~/lib/use-card-glow";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
@@ -23,10 +24,11 @@ export function ProjectCard({
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
   const isCompact = density === "compact";
   const isSpacious = density === "spacious";
+  const glowRef = useCardGlow<HTMLDivElement>();
 
   return (
     <div
-      onClick={onOpen}
+      ref={glowRef}
       style={{
         background: "var(--surface-1)",
         border: "1px solid var(--border)",
@@ -47,6 +49,22 @@ export function ProjectCard({
         e.currentTarget.style.background = "var(--surface-1)";
       }}
     >
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open project ${project.name}`}
+        style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: 0,
+          background: "transparent",
+          border: 0,
+          padding: 0,
+          margin: 0,
+          cursor: "pointer",
+          borderRadius: "inherit",
+        }}
+      />
       <ShimmerBar active={hasActivity} />
       <div
         style={{
@@ -54,6 +72,9 @@ export function ProjectCard({
           display: "flex",
           flexDirection: "column",
           gap: isCompact ? 10 : 14,
+          position: "relative",
+          zIndex: 1,
+          pointerEvents: "none",
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -78,12 +99,14 @@ export function ProjectCard({
                 <Icon name="pin-fill" size={10} style={{ color: "var(--accent)", flexShrink: 0 }} />
               )}
             </div>
-            <div
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 window.electronAPI?.openPath(project.path);
               }}
               title="Reveal in Finder"
+              aria-label={`Reveal ${project.path} in Finder`}
               style={{
                 fontFamily: "var(--mono)",
                 fontSize: 11,
@@ -92,6 +115,16 @@ export function ProjectCard({
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 cursor: "pointer",
+                background: "transparent",
+                border: 0,
+                padding: 0,
+                margin: 0,
+                textAlign: "left",
+                display: "block",
+                width: "100%",
+                pointerEvents: "auto",
+                position: "relative",
+                zIndex: 1,
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = "var(--text-dim)";
@@ -103,7 +136,7 @@ export function ProjectCard({
               }}
             >
               {project.path}
-            </div>
+            </button>
           </div>
           <button
             onClick={(e) => {
@@ -122,6 +155,9 @@ export function ProjectCard({
               display: "flex",
               alignItems: "center",
               gap: 4,
+              pointerEvents: "auto",
+              position: "relative",
+              zIndex: 1,
             }}
             title="Open project"
           >
@@ -133,6 +169,7 @@ export function ProjectCard({
               e.stopPropagation();
               onTogglePin(project.id);
             }}
+            aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
             style={{
               background: "transparent",
               border: 0,
@@ -140,6 +177,9 @@ export function ProjectCard({
               cursor: "pointer",
               color: project.pinned ? "var(--accent)" : "var(--text-faint)",
               display: "flex",
+              pointerEvents: "auto",
+              position: "relative",
+              zIndex: 1,
             }}
             title={project.pinned ? "Unpin" : "Pin"}
           >
