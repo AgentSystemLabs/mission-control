@@ -1,22 +1,24 @@
 import { jsx, jsxs } from "react/jsx-runtime";
-import { useState, useCallback, useEffect } from "react";
-import { a as api, P as ProjectIcon, B as Btn } from "./router-YiALtSFa.js";
-import { u as useServerEvents, E as EmptyState } from "./use-events-D3hEWd0y.js";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { u as useArchive, a as useProjects, q as queryKeys, b as useServerEvents, P as ProjectIcon, B as Btn, c as api } from "./router-XpjizlSW.js";
+import { E as EmptyState } from "./EmptyState-B-4KeMG-.js";
 import "@tanstack/react-router";
+import "@tanstack/react-router-with-query";
 function ArchivePage() {
-  const [tasks, setTasks] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const refresh = useCallback(async () => {
-    const [a, p] = await Promise.all([api.listArchive(), api.listProjects()]);
-    setTasks(a.tasks);
-    setProjects(p.projects);
-  }, []);
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const queryClient = useQueryClient();
+  const {
+    data: tasks = []
+  } = useArchive();
+  const {
+    data: projects = []
+  } = useProjects();
+  const invalidateArchive = useCallback(() => queryClient.invalidateQueries({
+    queryKey: queryKeys.archive
+  }), [queryClient]);
   useServerEvents(useCallback((e) => {
-    if (e.type.startsWith("task:")) void refresh();
-  }, [refresh]));
+    if (e.type.startsWith("task:")) void invalidateArchive();
+  }, [invalidateArchive]));
   const projectFor = (id) => projects.find((p) => p.id === id);
   return /* @__PURE__ */ jsx("div", { style: {
     flex: 1,
@@ -82,7 +84,7 @@ function ArchivePage() {
         ] }),
         /* @__PURE__ */ jsx(Btn, { size: "sm", variant: "ghost", onClick: async () => {
           await api.restoreTask(t.id);
-          await refresh();
+          await invalidateArchive();
         }, children: "Restore" })
       ] }, t.id);
     }) })

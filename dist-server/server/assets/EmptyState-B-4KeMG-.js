@@ -1,6 +1,5 @@
 import { jsxs, jsx } from "react/jsx-runtime";
-import { I as Icon } from "./router-YiALtSFa.js";
-import { useEffect } from "react";
+import { I as Icon } from "./router-XpjizlSW.js";
 function EmptyState({
   title,
   subtitle,
@@ -46,35 +45,6 @@ function EmptyState({
     }
   );
 }
-function useServerEvents(onEvent) {
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let stopped = false;
-    let es = null;
-    const connect = () => {
-      if (stopped) return;
-      es = new EventSource("/api/events");
-      es.onmessage = (msg) => {
-        try {
-          const data = JSON.parse(msg.data);
-          onEvent(data);
-        } catch {
-        }
-      };
-      es.onerror = () => {
-        es?.close();
-        es = null;
-        if (!stopped) setTimeout(connect, 1500);
-      };
-    };
-    connect();
-    return () => {
-      stopped = true;
-      es?.close();
-    };
-  }, [onEvent]);
-}
 export {
-  EmptyState as E,
-  useServerEvents as u
+  EmptyState as E
 };

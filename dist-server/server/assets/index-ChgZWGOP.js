@@ -1,9 +1,13 @@
 import { jsxs, jsx, Fragment } from "react/jsx-runtime";
 import { useRouter } from "@tanstack/react-router";
-import { useState, useCallback, useEffect, useMemo } from "react";
-import { I as Icon, S as ShimmerBar, P as ProjectIcon, b as StatusPill, c as StatusDot, B as Btn, a as api } from "./router-YiALtSFa.js";
-import { u as useServerEvents, E as EmptyState } from "./use-events-D3hEWd0y.js";
-import { M as Modal, T as TextField, P as ProjectDialog } from "./ProjectDialog-qYivCJla.js";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { I as Icon, S as ShimmerBar, P as ProjectIcon, d as StatusPill, e as StatusDot, B as Btn, a as useProjects, f as useGroups, h as useUserTerminals, i as useHotkey, q as queryKeys, b as useServerEvents, K as KbdAction, c as api } from "./router-XpjizlSW.js";
+import { E as EmptyState } from "./EmptyState-B-4KeMG-.js";
+import { T as TASK_STATUSES, u as useCardGlow, M as Modal, a as TextField, C as CursorGlow, P as ProjectDialog } from "./ProjectDialog-BHF1I7qp.js";
+import "@tanstack/react-router-with-query";
+import "drizzle-orm/sqlite-core";
+import "drizzle-orm";
 function Section({
   label,
   count,
@@ -75,14 +79,16 @@ function ProjectCard({
   onOpen,
   onTogglePin
 }) {
-  const { running, needsInput, done } = project.taskCounts;
-  const hasActivity = running > 0;
+  const counts = project.taskCounts;
+  const hasActivity = counts.running > 0;
+  const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
   const isCompact = density === "compact";
   const isSpacious = density === "spacious";
+  const glowRef = useCardGlow();
   return /* @__PURE__ */ jsxs(
     "div",
     {
-      onClick: onOpen,
+      ref: glowRef,
       style: {
         background: "var(--surface-1)",
         border: "1px solid var(--border)",
@@ -103,6 +109,25 @@ function ProjectCard({
         e.currentTarget.style.background = "var(--surface-1)";
       },
       children: [
+        /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            onClick: onOpen,
+            "aria-label": `Open project ${project.name}`,
+            style: {
+              position: "absolute",
+              inset: 0,
+              zIndex: 0,
+              background: "transparent",
+              border: 0,
+              padding: 0,
+              margin: 0,
+              cursor: "pointer",
+              borderRadius: "inherit"
+            }
+          }
+        ),
         /* @__PURE__ */ jsx(ShimmerBar, { active: hasActivity }),
         /* @__PURE__ */ jsxs(
           "div",
@@ -111,7 +136,10 @@ function ProjectCard({
               padding: isCompact ? 12 : isSpacious ? 20 : 16,
               display: "flex",
               flexDirection: "column",
-              gap: isCompact ? 10 : 14
+              gap: isCompact ? 10 : 14,
+              position: "relative",
+              zIndex: 1,
+              pointerEvents: "none"
             },
             children: [
               /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "flex-start", gap: 12 }, children: [
@@ -137,20 +165,76 @@ function ProjectCard({
                     project.pinned && /* @__PURE__ */ jsx(Icon, { name: "pin-fill", size: 10, style: { color: "var(--accent)", flexShrink: 0 } })
                   ] }),
                   /* @__PURE__ */ jsx(
-                    "div",
+                    "button",
                     {
+                      type: "button",
+                      onClick: (e) => {
+                        e.stopPropagation();
+                        window.electronAPI?.openPath(project.path);
+                      },
+                      title: "Reveal in Finder",
+                      "aria-label": `Reveal ${project.path} in Finder`,
                       style: {
                         fontFamily: "var(--mono)",
                         fontSize: 11,
                         color: "var(--text-faint)",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
-                        whiteSpace: "nowrap"
+                        whiteSpace: "nowrap",
+                        cursor: "pointer",
+                        background: "transparent",
+                        border: 0,
+                        padding: 0,
+                        margin: 0,
+                        textAlign: "left",
+                        display: "block",
+                        width: "100%",
+                        pointerEvents: "auto",
+                        position: "relative",
+                        zIndex: 1
+                      },
+                      onMouseEnter: (e) => {
+                        e.currentTarget.style.color = "var(--text-dim)";
+                        e.currentTarget.style.textDecoration = "underline";
+                      },
+                      onMouseLeave: (e) => {
+                        e.currentTarget.style.color = "var(--text-faint)";
+                        e.currentTarget.style.textDecoration = "none";
                       },
                       children: project.path
                     }
                   )
                 ] }),
+                /* @__PURE__ */ jsxs(
+                  "button",
+                  {
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      onOpen();
+                    },
+                    style: {
+                      background: "transparent",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      padding: "4px 8px",
+                      cursor: "pointer",
+                      color: "var(--text-dim)",
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      pointerEvents: "auto",
+                      position: "relative",
+                      zIndex: 1
+                    },
+                    title: "Open project",
+                    children: [
+                      "Open",
+                      /* @__PURE__ */ jsx(Icon, { name: "chevron-right", size: 11 })
+                    ]
+                  }
+                ),
                 /* @__PURE__ */ jsx(
                   "button",
                   {
@@ -158,13 +242,17 @@ function ProjectCard({
                       e.stopPropagation();
                       onTogglePin(project.id);
                     },
+                    "aria-label": project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`,
                     style: {
                       background: "transparent",
                       border: 0,
                       padding: 4,
                       cursor: "pointer",
                       color: project.pinned ? "var(--accent)" : "var(--text-faint)",
-                      display: "flex"
+                      display: "flex",
+                      pointerEvents: "auto",
+                      position: "relative",
+                      zIndex: 1
                     },
                     title: project.pinned ? "Unpin" : "Pin",
                     children: /* @__PURE__ */ jsx(Icon, { name: project.pinned ? "pin-fill" : "pin", size: 12 })
@@ -189,10 +277,10 @@ function ProjectCard({
                 }
               ),
               /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }, children: [
-                running > 0 && /* @__PURE__ */ jsx(StatusPill, { status: "running", count: running }),
-                needsInput > 0 && /* @__PURE__ */ jsx(StatusPill, { status: "needs-input", count: needsInput }),
-                done > 0 && /* @__PURE__ */ jsx(StatusPill, { status: "done", count: done }),
-                running + needsInput + done === 0 && /* @__PURE__ */ jsx("span", { style: { fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-faint)" }, children: "no active tasks" })
+                TASK_STATUSES.map(
+                  (s) => counts[s] > 0 && /* @__PURE__ */ jsx(StatusPill, { status: s, count: counts[s] }, s)
+                ),
+                totalShown === 0 && /* @__PURE__ */ jsx("span", { style: { fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-faint)" }, children: "no active tasks" })
               ] }),
               !isCompact && hasActivity && project.preview && /* @__PURE__ */ jsxs(
                 "div",
@@ -445,25 +533,43 @@ Projects in this group will become ungrouped — they aren't deleted.`
 }
 function MissionControlPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState([]);
-  const [groups, setGroups] = useState([]);
+  const queryClient = useQueryClient();
+  const {
+    data: projects = []
+  } = useProjects();
+  const {
+    data: groups = []
+  } = useGroups();
   const [search, setSearch] = useState("");
   const [density, setDensity] = useState("regular");
   const [showAdd, setShowAdd] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
-  const refresh = useCallback(async () => {
-    const [p, g] = await Promise.all([api.listProjects(), api.listGroups()]);
-    setProjects(p.projects);
-    setGroups(g.groups);
-  }, []);
+  const searchRef = useRef(null);
+  const {
+    setProject: setActiveUserTerminalProject
+  } = useUserTerminals();
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    setActiveUserTerminalProject(null);
+  }, [setActiveUserTerminalProject]);
+  useHotkey("search.focus", () => {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  });
+  useHotkey("agent.new", () => setShowAdd(true));
+  const invalidateProjects = useCallback(() => queryClient.invalidateQueries({
+    queryKey: queryKeys.projects
+  }), [queryClient]);
+  const invalidateGroups = useCallback(() => queryClient.invalidateQueries({
+    queryKey: queryKeys.groups
+  }), [queryClient]);
   useServerEvents(useCallback((e) => {
-    if (e.type.startsWith("project:") || e.type.startsWith("group:") || e.type.startsWith("task:")) {
-      void refresh();
+    if (e.type.startsWith("project:") || e.type.startsWith("task:")) {
+      void invalidateProjects();
     }
-  }, [refresh]));
+    if (e.type.startsWith("group:")) {
+      void invalidateGroups();
+    }
+  }, [invalidateProjects, invalidateGroups]));
   const filter = (p) => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.path.toLowerCase().includes(search.toLowerCase());
   const pinned = projects.filter((p) => p.pinned && filter(p));
   const byGroup = groups.map((g) => ({
@@ -473,8 +579,8 @@ function MissionControlPage() {
   const ungrouped = projects.filter((p) => !p.groupId && !p.pinned && filter(p));
   const gridCols = density === "compact" ? "repeat(auto-fill, minmax(240px, 1fr))" : density === "spacious" ? "repeat(auto-fill, minmax(360px, 1fr))" : "repeat(auto-fill, minmax(300px, 1fr))";
   const totalRunning = projects.reduce((a, p) => a + p.taskCounts.running, 0);
-  const totalNeeds = projects.reduce((a, p) => a + p.taskCounts.needsInput, 0);
-  const totalDone = projects.reduce((a, p) => a + p.taskCounts.done, 0);
+  const totalNeeds = projects.reduce((a, p) => a + p.taskCounts["needs-input"], 0);
+  const totalDone = projects.reduce((a, p) => a + p.taskCounts.finished, 0);
   const dateLabel = useMemo(() => (/* @__PURE__ */ new Date()).toLocaleDateString(void 0, {
     weekday: "long",
     month: "long",
@@ -488,9 +594,10 @@ function MissionControlPage() {
   });
   const togglePin = async (id) => {
     await api.togglePin(id);
-    await refresh();
+    await invalidateProjects();
   };
   return /* @__PURE__ */ jsxs(Fragment, { children: [
+    /* @__PURE__ */ jsx(CursorGlow, {}),
     /* @__PURE__ */ jsx("div", { style: {
       flex: 1,
       overflow: "auto",
@@ -595,7 +702,7 @@ function MissionControlPage() {
               color: "var(--text-faint)",
               marginRight: 6
             } }),
-            /* @__PURE__ */ jsx("input", { value: search, onChange: (e) => setSearch(e.target.value), placeholder: "Search projects…", style: {
+            /* @__PURE__ */ jsx("input", { ref: searchRef, value: search, onChange: (e) => setSearch(e.target.value), placeholder: "Search projects…", "aria-label": "Search projects", style: {
               flex: 1,
               background: "transparent",
               border: 0,
@@ -603,16 +710,17 @@ function MissionControlPage() {
               color: "var(--text)",
               fontFamily: "var(--mono)",
               fontSize: 11.5
-            } })
+            } }),
+            /* @__PURE__ */ jsx(KbdAction, { action: "search.focus" })
           ] }),
-          /* @__PURE__ */ jsx("div", { style: {
+          /* @__PURE__ */ jsx("div", { role: "group", "aria-label": "Card density", style: {
             display: "flex",
             padding: 2,
             background: "var(--surface-1)",
             border: "1px solid var(--border)",
             borderRadius: 7,
             height: 32
-          }, children: ["compact", "regular", "spacious"].map((d) => /* @__PURE__ */ jsx("button", { onClick: () => setDensity(d), title: d, style: {
+          }, children: ["compact", "regular", "spacious"].map((d) => /* @__PURE__ */ jsx("button", { onClick: () => setDensity(d), title: d, "aria-label": `${d} density`, "aria-pressed": density === d, style: {
             background: density === d ? "var(--surface-3)" : "transparent",
             border: 0,
             color: density === d ? "var(--text)" : "var(--text-dim)",
@@ -626,7 +734,10 @@ function MissionControlPage() {
           /* @__PURE__ */ jsx(Btn, { variant: "ghost", icon: "archive", onClick: () => router.navigate({
             to: "/archive"
           }), children: "Archive" }),
-          /* @__PURE__ */ jsx(Btn, { variant: "primary", icon: "plus", onClick: () => setShowAdd(true), children: "Add project" })
+          /* @__PURE__ */ jsxs(Btn, { variant: "primary", icon: "plus", onClick: () => setShowAdd(true), children: [
+            "Add project",
+            /* @__PURE__ */ jsx(KbdAction, { action: "agent.new", variant: "onPrimary" })
+          ] })
         ] })
       ] }),
       pinned.length > 0 && /* @__PURE__ */ jsx(Section, { label: "Pinned", count: pinned.length, icon: "pin-fill", children: /* @__PURE__ */ jsx("div", { style: {
@@ -650,23 +761,43 @@ function MissionControlPage() {
       projects.filter(filter).length === 0 && /* @__PURE__ */ jsx(EmptyState, { title: search ? "No matches" : "No projects yet", subtitle: search ? "Try a different search." : "Add your first project to start running agents.", action: !search && /* @__PURE__ */ jsx(Btn, { variant: "primary", icon: "plus", onClick: () => setShowAdd(true), children: "Add project" }) })
     ] }) }),
     /* @__PURE__ */ jsx(ProjectDialog, { open: showAdd, project: null, groups, onClose: () => setShowAdd(false), onSave: async (data) => {
-      await api.createProject(data);
+      const {
+        pendingImage,
+        imagePath: _ignore,
+        ...createBody
+      } = data;
+      const {
+        project: created
+      } = await api.createProject(createBody);
+      if (pendingImage) {
+        const electron = (await import("./router-XpjizlSW.js").then((n) => n.E)).getElectron();
+        const result = await electron?.saveProjectImage({
+          projectId: created.id,
+          sourcePath: pendingImage.sourcePath,
+          extension: pendingImage.extension
+        });
+        if (result && "filename" in result) {
+          await api.updateProject(created.id, {
+            imagePath: result.filename
+          });
+        }
+      }
       setShowAdd(false);
-      await refresh();
+      await invalidateProjects();
     } }),
     /* @__PURE__ */ jsx(GroupsDialog, { open: showGroups, groups, projects, onClose: () => setShowGroups(false), onAdd: async (name) => {
       await api.createGroup({
         name
       });
-      await refresh();
+      await invalidateGroups();
     }, onRemove: async (id) => {
       await api.deleteGroup(id);
-      await refresh();
+      await Promise.all([invalidateGroups(), invalidateProjects()]);
     }, onRename: async (id, name) => {
       await api.updateGroup(id, {
         name
       });
-      await refresh();
+      await invalidateGroups();
     } })
   ] });
 }
