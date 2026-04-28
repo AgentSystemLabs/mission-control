@@ -53,7 +53,7 @@ export function NewAgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const agents: { id: TaskAgent; label: string; desc: string; cmd: string }[] = [
+  const agents: { id: TaskAgent; label: string; desc: string; cmd: string; disabled?: boolean }[] = [
     {
       id: "claude-code",
       label: "Claude Code",
@@ -65,12 +65,14 @@ export function NewAgentDialog({
       label: "Codex",
       desc: "OpenAI's terminal coder. Best for test-driven, narrow tasks.",
       cmd: "codex",
+      disabled: true,
     },
     {
       id: "cursor-cli",
       label: "Cursor CLI",
       desc: "Cursor's background agent. Best for quick inline edits.",
       cmd: "cursor-agent",
+      disabled: true,
     },
   ];
 
@@ -133,7 +135,7 @@ export function NewAgentDialog({
       if (isEditableTarget(e.target)) return;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
-        const ids = agents.map((a) => a.id);
+        const ids = agents.filter((a) => !a.disabled).map((a) => a.id);
         const idx = ids.indexOf(agent);
         const next = e.key === "ArrowDown"
           ? Math.min(ids.length - 1, idx + 1)
@@ -193,7 +195,10 @@ export function NewAgentDialog({
               return (
                 <button
                   key={a.id}
-                  onClick={() => setAgent(a.id)}
+                  onClick={() => !a.disabled && setAgent(a.id)}
+                  disabled={a.disabled}
+                  aria-disabled={a.disabled}
+                  title={a.disabled ? "Coming soon" : undefined}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -203,9 +208,10 @@ export function NewAgentDialog({
                     background: selected ? "var(--surface-2)" : "var(--surface-0)",
                     border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
                     borderRadius: 8,
-                    cursor: "pointer",
+                    cursor: a.disabled ? "not-allowed" : "pointer",
                     color: "var(--text)",
                     boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
+                    opacity: a.disabled ? 0.5 : 1,
                   }}
                 >
                   <div
@@ -247,9 +253,11 @@ export function NewAgentDialog({
                       padding: "3px 7px",
                       border: "1px solid var(--border)",
                       borderRadius: 4,
+                      textTransform: a.disabled ? "uppercase" : "none",
+                      letterSpacing: a.disabled ? "0.05em" : "normal",
                     }}
                   >
-                    ${a.cmd}
+                    {a.disabled ? "Coming soon" : `$${a.cmd}`}
                   </code>
                 </button>
               );
