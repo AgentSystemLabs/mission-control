@@ -10,7 +10,7 @@ import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey } from "~/lib/terminal-keymap";
 import { api } from "~/lib/api";
-import { settingsQueryOptions } from "~/queries";
+import { queryKeys, settingsQueryOptions } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 
 async function resolveMcEnv(
@@ -151,21 +151,16 @@ export function TerminalPane({
           }),
           electron.pty.onExit((msg) => {
             if (msg.ptyId === ptyId) {
-              term.writeln("");
-              term.writeln(`\x1b[2m[process exited (code=${msg.exitCode})]\x1b[0m`);
               void (async () => {
                 try {
-                  const settings = await queryClient.ensureQueryData(
-                    settingsQueryOptions()
-                  );
-                  await api.updateTaskStatus(
-                    descriptor.taskId,
-                    { status: "terminated" },
-                    settings.apiToken
-                  );
+                  await api.deleteTask(descriptor.taskId);
                 } catch {
                   /* best effort */
                 }
+                await queryClient.invalidateQueries({
+                  queryKey: queryKeys.tasks(project.id),
+                });
+                onClose();
               })();
             }
           })
@@ -206,11 +201,11 @@ export function TerminalPane({
             agent: task.agent,
             mcEnv,
           });
-          if (cancelled) {
-            await electron.pty.kill(ptyId).catch(() => undefined);
-            return;
-          }
+          // Persist the ptyId even if the pane unmounted mid-spawn — the
+          // session lives on so a re-select can re-attach via replay. Killing
+          // here would silently drop the user's claude session.
           onPtyReady(ptyId);
+          if (cancelled) return;
           wireToPty(ptyId);
         } catch (err: any) {
           term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);

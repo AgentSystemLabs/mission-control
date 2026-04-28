@@ -176,14 +176,12 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       // If a command was supplied, run it inside a login shell via `-l -c`.
       // Login shell loads the user's PATH; `-c` forks the command directly so
       // we don't depend on a 60ms write-after-spawn race for the prompt.
-      // After the command exits we drop into an interactive shell so the
-      // user can keep working in the same project directory.
+      // When the agent CLI exits, the pty exits too — the renderer treats that
+      // as the signal to delete the task.
       let shellArgs: string[];
       if (opts.command && !isWindows) {
         const cmd = [opts.command, ...(opts.args ?? [])].join(" ");
-        // exec the agent CLI; when it exits, hand control back to an
-        // interactive login shell in the same cwd.
-        shellArgs = ["-l", "-c", `${cmd}; exec ${userShell} -l`];
+        shellArgs = ["-l", "-c", cmd];
       } else {
         shellArgs = isWindows ? [] : ["-l"];
       }
