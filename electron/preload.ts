@@ -56,6 +56,38 @@ const electronAPI = {
     ipcRenderer.on("app:close-intent", listener);
     return () => ipcRenderer.removeListener("app:close-intent", listener);
   },
+  files: {
+    list: (projectRoot: string): Promise<{ ok: true; files: string[] } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("files:list", projectRoot),
+    read: (
+      projectRoot: string,
+      relPath: string,
+    ): Promise<
+      | { ok: true; content: string; mtimeMs: number; lineCount: number }
+      | { ok: false; error: "invalid-path" | "not-found" | "binary" | "too-large" | string; lineCount?: number }
+    > => ipcRenderer.invoke("files:read", projectRoot, relPath),
+    write: (
+      projectRoot: string,
+      relPath: string,
+      content: string,
+      expectedMtimeMs: number | null,
+    ): Promise<
+      | { ok: true; mtimeMs: number }
+      | { ok: false; error: "invalid-path" | "invalid-content" | "stale" | string; currentMtimeMs?: number }
+    > => ipcRenderer.invoke("files:write", projectRoot, relPath, content, expectedMtimeMs),
+    watch: (
+      projectRoot: string,
+      relPath: string,
+    ): Promise<{ ok: true; watchId: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("files:watch", projectRoot, relPath),
+    unwatch: (watchId: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke("files:unwatch", watchId),
+    onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) => {
+      const listener = (_: Electron.IpcRendererEvent, msg: { watchId: string; mtimeMs: number }) => cb(msg);
+      ipcRenderer.on("files:changed", listener);
+      return () => ipcRenderer.removeListener("files:changed", listener);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);

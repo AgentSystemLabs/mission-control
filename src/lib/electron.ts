@@ -3,6 +3,7 @@
 export type ElectronBridge = {
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;
+  openPath: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   pickImage: () => Promise<
     { sourcePath: string; extension: string } | { error: string } | null
   >;
@@ -36,6 +37,41 @@ export type ElectronBridge = {
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
+  files: {
+    list: (
+      projectRoot: string,
+    ) => Promise<{ ok: true; files: string[] } | { ok: false; error: string }>;
+    read: (
+      projectRoot: string,
+      relPath: string,
+    ) => Promise<
+      | { ok: true; content: string; mtimeMs: number; lineCount: number }
+      | {
+          ok: false;
+          error: "invalid-path" | "not-found" | "binary" | "too-large" | string;
+          lineCount?: number;
+        }
+    >;
+    write: (
+      projectRoot: string,
+      relPath: string,
+      content: string,
+      expectedMtimeMs: number | null,
+    ) => Promise<
+      | { ok: true; mtimeMs: number }
+      | {
+          ok: false;
+          error: "invalid-path" | "invalid-content" | "stale" | string;
+          currentMtimeMs?: number;
+        }
+    >;
+    watch: (
+      projectRoot: string,
+      relPath: string,
+    ) => Promise<{ ok: true; watchId: string } | { ok: false; error: string }>;
+    unwatch: (watchId: string) => Promise<{ ok: true }>;
+    onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) => () => void;
+  };
 };
 
 declare global {

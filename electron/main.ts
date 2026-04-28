@@ -7,6 +7,7 @@ import * as nodeNet from "node:net";
 import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
+import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 
 const isDev = process.env.NODE_ENV === "development";
 const devUrl = process.env.MC_DEV_URL || "http://127.0.0.1:5173";
@@ -278,6 +279,7 @@ ipcMain.handle("cli:check", (_evt, command: string) => {
 });
 
 registerPtyHandlers(ipcMain, () => win);
+registerFileHandlers(ipcMain, () => win);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
@@ -290,6 +292,7 @@ app.on("activate", () => {
 app.on("before-quit", () => {
   (app as any).isQuiting = true;
   killAllPtys();
+  disposeAllFileWatchers();
   if (serverProcess) serverProcess.kill();
 });
 
