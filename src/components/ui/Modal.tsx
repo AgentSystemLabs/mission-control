@@ -64,6 +64,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div
+      data-modal-open
       onClick={onClose}
       style={{
         position: "fixed",

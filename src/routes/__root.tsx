@@ -12,6 +12,7 @@ import { Btn } from "~/components/ui/Btn";
 import { KbdAction } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
+import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { useTheme } from "~/lib/use-theme";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import {
@@ -59,6 +60,8 @@ function Shell() {
   const { theme, toggle } = useTheme();
   const { active, close, setPtyId } = useTerminals();
   const userTerminals = useUserTerminals();
+
+  useNavigationSwipe();
 
   const path = router.state.location.pathname;
   const projectMatch = path.match(/^\/projects\/([^/]+)/);

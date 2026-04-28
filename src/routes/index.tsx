@@ -4,7 +4,6 @@ import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { KbdAction } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
-import { useWheelSwipe } from "~/lib/use-wheel-swipe";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { StatusDot } from "~/components/ui/StatusDot";
@@ -13,7 +12,6 @@ import { ProjectCard, type Density } from "~/components/views/ProjectCard";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { api } from "~/lib/api";
-import { getElectron } from "~/lib/electron";
 import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import type { Group } from "~/db/schema";
@@ -56,25 +54,6 @@ function MissionControlPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const goLast = useCallback(() => {
-    let lastId: string | null = null;
-    try {
-      lastId = sessionStorage.getItem("lastProjectId");
-    } catch {}
-    if (lastId) router.navigate({ to: "/projects/$id", params: { id: lastId } });
-  }, [router]);
-
-  useEffect(() => {
-    const off = getElectron()?.onSwipe((dir) => {
-      if (dir === "right") goLast();
-    });
-    return () => {
-      off?.();
-    };
-  }, [goLast]);
-
-  useWheelSwipe("right", goLast);
 
   useServerEvents(
     useCallback(

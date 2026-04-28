@@ -15,10 +15,8 @@ import { Kbd } from "~/components/ui/Kbd";
 import { useFormattedBinding } from "~/lib/keybindings/store";
 import { Modal } from "~/components/ui/Modal";
 import { useHotkey } from "~/lib/use-hotkey";
-import { useWheelSwipe } from "~/lib/use-wheel-swipe";
 import { api } from "~/lib/api";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
-import { getElectron } from "~/lib/electron";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -84,25 +82,6 @@ function ProjectPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem("lastProjectId", id);
-    } catch {}
-  }, [id]);
-
-  const goBack = useCallback(() => router.navigate({ to: "/" }), [router]);
-
-  useEffect(() => {
-    const off = getElectron()?.onSwipe((dir) => {
-      if (dir === "left") goBack();
-    });
-    return () => {
-      off?.();
-    };
-  }, [goBack]);
-
-  useWheelSwipe("left", goBack);
 
   const startWithSaved = useCallback(async () => {
     if (!project || !apiToken) return;
