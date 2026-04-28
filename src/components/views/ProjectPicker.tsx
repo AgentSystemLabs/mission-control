@@ -3,13 +3,53 @@ import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { StatusDot } from "~/components/ui/StatusDot";
 import { KbdAction } from "~/components/ui/Kbd";
+import { STATUS_META } from "~/lib/design-meta";
+import type { TaskStatus } from "~/db/schema";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { queryKeys, useGroups, useProjects } from "~/queries";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
 type Section = { key: string; label: string | null; color: string | null; projects: ProjectWithCounts[] };
+
+function DotCount({ status, count, size }: { status: TaskStatus; count: number; size: number }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: STATUS_META[status].color }}>
+      <StatusDot status={status} size={size} />
+      <span>{count}</span>
+    </span>
+  );
+}
+
+function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; size?: number }) {
+  const running = project.taskCounts.running;
+  const needs = project.taskCounts["needs-input"];
+  if (!running && !needs) return null;
+  const title = [
+    needs ? `${needs} ${needs === 1 ? "task needs input" : "tasks need input"}` : null,
+    running ? `${running} ${running === 1 ? "agent running" : "agents running"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        fontFamily: "var(--mono)",
+        fontSize: 11,
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {needs > 0 && <DotCount status="needs-input" count={needs} size={size} />}
+      {running > 0 && <DotCount status="running" count={running} size={size} />}
+    </span>
+  );
+}
 
 export function ProjectPicker({ projectId }: { projectId?: string }) {
   const router = useRouter();
@@ -57,7 +97,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   useServerEvents(
     useCallback(
       (e) => {
-        if (e.type.startsWith("project:")) {
+        if (e.type.startsWith("project:") || e.type.startsWith("task:")) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
         }
         if (e.type.startsWith("group:")) {
@@ -164,6 +204,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
       >
         {current && <ProjectIcon project={current} size={14} />}
         <span>{label}</span>
+        {current && <ActivityCounts project={current} />}
         <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
         <KbdAction action="project.picker" variant="ghost" style={{ marginLeft: 2 }} />
       </button>
@@ -282,6 +323,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {p.name}
                           </span>
+                          <ActivityCounts project={p} />
                           {active && <Icon name="check" size={12} style={{ color: "var(--text-faint)" }} />}
                         </button>
                       );
