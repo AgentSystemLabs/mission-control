@@ -13,7 +13,6 @@ import { FileFinderDialog } from "~/components/views/FileFinderDialog";
 import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchButton } from "~/components/views/LaunchButton";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
-import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { Kbd, KbdAction } from "~/components/ui/Kbd";
 import { useFormattedBinding } from "~/lib/keybindings/store";
@@ -88,10 +87,10 @@ function ProjectPage() {
     });
   }, [router, id]);
   const apiToken = settings?.apiToken ?? null;
-  const [filter, setFilter] = useState<"active" | "archived">("active");
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
 
@@ -235,7 +234,7 @@ function ProjectPage() {
     );
   }
 
-  const visibleTasks = tasks.filter((t) => (filter === "archived" ? t.archived : !t.archived));
+  const visibleTasks = tasks.filter((t) => !t.archived);
   const tasksByStatus = TASK_STATUSES.reduce(
     (acc, s) => {
       acc[s] = [];
@@ -280,6 +279,13 @@ function ProjectPage() {
     await terminals.closeForProject(project.id);
     await api.deleteProject(project.id);
     router.navigate({ to: "/" });
+  };
+
+  const clearAll = async () => {
+    setConfirmClearAll(false);
+    await terminals.closeForProject(project.id);
+    await Promise.all(visibleTasks.map((t) => api.deleteTask(t.id).catch(() => undefined)));
+    await refresh();
   };
 
   const startAgent = async (data: {
@@ -419,128 +425,53 @@ function ProjectPage() {
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 2,
-            marginBottom: 20,
-            padding: 3,
-            background: "var(--surface-1)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            width: "fit-content",
-          }}
-        >
-          {[
-            { id: "active" as const, label: "Active", count: tasks.filter((t) => !t.archived).length },
-            { id: "archived" as const, label: "Archived", count: tasks.filter((t) => t.archived).length },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilter(tab.id)}
-              aria-pressed={filter === tab.id}
-              aria-label={`${tab.label} tasks (${tab.count})`}
-              style={{
-                background: filter === tab.id ? "var(--surface-3)" : "transparent",
-                border: 0,
-                cursor: "pointer",
-                padding: "6px 14px",
-                borderRadius: 5,
-                color: filter === tab.id ? "var(--text)" : "var(--text-dim)",
-                fontFamily: "var(--mono)",
-                fontSize: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
+        {visibleTasks.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginBottom: 20,
+            }}
+          >
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="trash"
+              onClick={() => setConfirmClearAll(true)}
+              title="Stop and remove all agents and terminals for this project"
             >
-              {tab.label}
-              <span style={{ color: "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {filter === "active" ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-            {TASK_STATUSES.map((status) => (
-              <TaskColumn
-                key={status}
-                title={STATUS_META[status].label}
-                color={STATUS_META[status].color}
-                tasks={tasksByStatus[status]}
-                activeId={activeId}
-                onToggle={toggleTerminal}
-                onArchive={archive}
-                onDelete={deleteTask}
-              />
-            ))}
-            {visibleTasks.length === 0 && (
-              <EmptyState
-                title="No active tasks"
-                subtitle="Start a new agent to begin working on this project."
-                action={
-                  <NewAgentButton
-                    project={project}
-                    onPrimary={onNewAgentPrimary}
-                    onConfigure={() => setShowNewAgent(true)}
-                  />
-                }
-              />
-            )}
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {visibleTasks.length === 0 ? (
-              <EmptyState
-                title="Nothing archived"
-                subtitle="Archived tasks will appear here."
-                icon="archive"
-              />
-            ) : (
-              visibleTasks.map((t) => (
-                <div
-                  key={t.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "10px 14px",
-                    background: "var(--surface-1)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                  }}
-                >
-                  <AgentGlyph agent={t.agent} size={12} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: "var(--text)" }}>{t.title}</div>
-                    <div
-                      style={{
-                        fontFamily: "var(--mono)",
-                        fontSize: 10.5,
-                        color: "var(--text-faint)",
-                        marginTop: 2,
-                      }}
-                    >
-                      {t.branch} · +{t.lines} lines · archived
-                    </div>
-                  </div>
-                  <Btn
-                    size="sm"
-                    variant="ghost"
-                    onClick={async () => {
-                      await api.restoreTask(t.id);
-                      await refresh();
-                    }}
-                  >
-                    Restore
-                  </Btn>
-                </div>
-              ))
-            )}
+              Clear all
+            </Btn>
           </div>
         )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+          {TASK_STATUSES.map((status) => (
+            <TaskColumn
+              key={status}
+              title={STATUS_META[status].label}
+              color={STATUS_META[status].color}
+              tasks={tasksByStatus[status]}
+              activeId={activeId}
+              onToggle={toggleTerminal}
+              onArchive={archive}
+              onDelete={deleteTask}
+            />
+          ))}
+          {visibleTasks.length === 0 && (
+            <EmptyState
+              title="No active tasks"
+              subtitle="Start a new agent to begin working on this project."
+              action={
+                <NewAgentButton
+                  project={project}
+                  onPrimary={onNewAgentPrimary}
+                  onConfigure={() => setShowNewAgent(true)}
+                />
+              }
+            />
+          )}
+        </div>
       </div>
 
       <NewAgentDialog
@@ -601,6 +532,30 @@ function ProjectPage() {
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           This only unlinks the project — the files at {project.path} are not touched.
+        </div>
+      </Modal>
+
+      <Modal
+        open={confirmClearAll}
+        onClose={() => setConfirmClearAll(false)}
+        title="Clear all agents"
+        width={460}
+        footer={
+          <>
+            <Btn variant="ghost" onClick={() => setConfirmClearAll(false)}>
+              Cancel <Kbd variant="inline">Esc</Kbd>
+            </Btn>
+            <Btn variant="danger" icon="trash" onClick={clearAll}>
+              Clear all
+            </Btn>
+          </>
+        }
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+          Stop and remove every agent and terminal in &ldquo;{project.name}&rdquo;?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          {visibleTasks.length} agent{visibleTasks.length === 1 ? "" : "s"} will be deleted and their terminals killed. This only affects this project.
         </div>
       </Modal>
       </div>
