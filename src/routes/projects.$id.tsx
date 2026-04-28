@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -8,11 +8,15 @@ import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { LaunchButton } from "~/components/views/LaunchButton";
+import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
+import { CursorGlow } from "~/components/ui/CursorGlow";
 import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { Modal } from "~/components/ui/Modal";
 import { useHotkey } from "~/lib/use-hotkey";
 import { useWheelSwipe } from "~/lib/use-wheel-swipe";
 import { api } from "~/lib/api";
+import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { getElectron } from "~/lib/electron";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
@@ -35,10 +39,23 @@ function ProjectPage() {
   const [filter, setFilter] = useState<"active" | "archived">("active");
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [apiToken, setApiToken] = useState<string | null>(null);
 
   const newAgentHotkey = hotkeyLabel("mod+n");
   const editProjectHotkey = hotkeyLabel("mod+e");
+
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const [headerNarrow, setHeaderNarrow] = useState(false);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      setHeaderNarrow(entry.contentRect.width < 720);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   const terminals = useTerminals();
   const { setProject: setActiveUserTerminalProject } = useUserTerminals();
@@ -87,18 +104,45 @@ function ProjectPage() {
 
   useWheelSwipe("left", goBack);
 
-  useHotkey(
-    "mod+n",
-    () => {
-      if (showNewAgent || showEdit) return;
-      setShowNewAgent(true);
-    },
-    { ignoreEditable: true },
-  );
+  const startWithSaved = useCallback(async () => {
+    if (!project || !apiToken) return;
+    if (!(project.rememberAgentSettings && project.savedAgent)) return;
+    const created = await api.createTaskInternal(
+      project.id,
+      { title: TITLE_WAITING, agent: project.savedAgent, branch: project.branch || "main" },
+      apiToken
+    );
+    await refresh();
+    const startCommandOverride =
+      project.savedAgent === "claude-code" && project.savedSkipPermissions
+        ? "claude --dangerously-skip-permissions"
+        : undefined;
+    terminals.toggle(project, created.task, { startCommandOverride });
+  }, [project, apiToken, refresh, terminals]);
+
+  const onNewAgentPrimary = useCallback(() => {
+    if (showNewAgent || showEdit) return;
+    if (project?.rememberAgentSettings && project.savedAgent) {
+      void startWithSaved();
+      return;
+    }
+    setShowNewAgent(true);
+  }, [project, showNewAgent, showEdit, startWithSaved]);
+
+  useHotkey("mod+n", onNewAgentPrimary, { ignoreEditable: true });
 
   useHotkey("mod+e", () => {
     if (showNewAgent) return;
     setShowEdit((v) => !v);
+  });
+
+  const closePanelEnabled =
+    !showNewAgent && !showEdit && !confirmRemove && terminals.active !== null;
+
+  // Capture phase so xterm.js (focused terminal) can't swallow the key first.
+  useHotkey("mod+l", () => terminals.deselect(), {
+    enabled: closePanelEnabled,
+    capture: true,
   });
 
   useServerEvents(
@@ -113,6 +157,8 @@ function ProjectPage() {
   if (!project) {
     return (
       <div
+        role="status"
+        aria-live="polite"
         style={{
           flex: 1,
           padding: 32,
@@ -136,11 +182,10 @@ function ProjectPage() {
   );
   for (const t of visibleTasks) tasksByStatus[t.status].push(t);
 
-  const selectedSet = new Set(
-    terminals.selected
-      .filter((t) => t.project.id === project.id && t.visible)
-      .map((t) => t.taskId)
-  );
+  const activeId =
+    terminals.active && terminals.active.project.id === project.id
+      ? terminals.active.taskId
+      : null;
 
   const toggleTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -162,10 +207,13 @@ function ProjectPage() {
     await refresh();
   };
 
-  const remove = async () => {
-    if (!confirm(`Remove "${project.name}" from MissionControl?\n\nThis only unlinks the project — the files at ${project.path} are not touched.`)) {
-      return;
-    }
+  const remove = () => {
+    setConfirmRemove(true);
+  };
+
+  const confirmRemoveProject = async () => {
+    if (!project) return;
+    setConfirmRemove(false);
     await terminals.closeForProject(project.id);
     await api.deleteProject(project.id);
     router.navigate({ to: "/" });
@@ -193,93 +241,94 @@ function ProjectPage() {
   };
 
   return (
-    <div style={{ flex: 1, overflow: "auto", padding: "24px 32px 80px" }} className="dot-grid-bg">
+    <>
+      <CursorGlow />
+      <div style={{ flex: 1, overflow: "auto", padding: "24px 32px 80px" }} className="dot-grid-bg">
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <div
+          ref={headerRef}
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 16,
+            gap: 12,
             marginBottom: 24,
             paddingBottom: 20,
             borderBottom: "1px solid var(--border)",
           }}
         >
           <ProjectIcon project={project} size={52} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: "-0.015em" }}>
-                {project.name}
-              </h1>
-              {project.pinned && (
-                <Icon name="pin-fill" size={13} style={{ color: "var(--accent)" }} />
-              )}
-            </div>
-            <div
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              overflow: "hidden",
+            }}
+          >
+            <h1
               style={{
-                display: "flex",
-                gap: 14,
-                fontFamily: "var(--mono)",
-                fontSize: 12,
-                color: "var(--text-dim)",
+                margin: 0,
+                fontSize: 22,
+                fontWeight: 600,
+                letterSpacing: "-0.015em",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                minWidth: 0,
               }}
+              title={project.name}
             >
-              <span
-                onClick={() => window.electronAPI?.openPath(project.path)}
-                title="Reveal in Finder"
-                style={{ cursor: "pointer" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.textDecoration = "underline";
-                  e.currentTarget.style.color = "var(--text)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.textDecoration = "none";
-                  e.currentTarget.style.color = "var(--text-dim)";
-                }}
-              >
-                {project.path}
-              </span>
-            </div>
+              {project.name}
+            </h1>
+            {project.pinned && (
+              <Icon
+                name="pin-fill"
+                size={13}
+                style={{ color: "var(--accent)", flexShrink: 0 }}
+              />
+            )}
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="folder"
+              onClick={() => window.electronAPI?.openPath(project.path)}
+              title={`Reveal in Finder — ${project.path}`}
+              aria-label="Reveal project folder in Finder"
+              style={{ flexShrink: 0 }}
+            />
           </div>
-          <LaunchButton project={project} onProjectUpdated={refresh} />
-          {project.githubUrl && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <LaunchButton
+              project={project}
+              onProjectUpdated={refresh}
+              compact={headerNarrow}
+            />
+            {project.githubUrl && (
+              <Btn
+                variant="ghost"
+                icon="github"
+                onClick={() => window.open(project.githubUrl!, "_blank", "noreferrer")}
+                title="Open GitHub repo"
+                aria-label="Open GitHub repo"
+                style={{ width: 30, padding: 0 }}
+              />
+            )}
             <Btn
               variant="ghost"
-              icon="github"
-              onClick={() => window.open(project.githubUrl!, "_blank", "noreferrer")}
-              title="Open GitHub repo"
-            >
-              GitHub
-            </Btn>
-          )}
-          <Btn variant="ghost" icon="settings" onClick={() => setShowEdit(true)}>
-            Edit
-            <Kbd>{editProjectHotkey}</Kbd>
-          </Btn>
-          {selectedSet.size > 0 && (
-            <Btn
-              variant="ghost"
-              icon="x"
-              onClick={() => terminals.closeForProject(project.id)}
-              title="Close every agent terminal for this project"
-            >
-              Unselect all
-              <span
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 10.5,
-                  color: "var(--text-faint)",
-                  marginLeft: 4,
-                }}
-              >
-                {selectedSet.size}
-              </span>
-            </Btn>
-          )}
-          <Btn variant="primary" icon="plus" onClick={() => setShowNewAgent(true)}>
-            New agent
-            <Kbd variant="onPrimary">{newAgentHotkey}</Kbd>
-          </Btn>
+              icon="settings"
+              onClick={() => setShowEdit(true)}
+              title={`Edit project (${editProjectHotkey})`}
+              aria-label={`Edit project (${editProjectHotkey})`}
+              style={{ width: 30, padding: 0, marginRight: 4 }}
+            />
+            <NewAgentButton
+              project={project}
+              onPrimary={onNewAgentPrimary}
+              onConfigure={() => setShowNewAgent(true)}
+            />
+          </div>
         </div>
 
         <div
@@ -301,6 +350,8 @@ function ProjectPage() {
             <button
               key={tab.id}
               onClick={() => setFilter(tab.id)}
+              aria-pressed={filter === tab.id}
+              aria-label={`${tab.label} tasks (${tab.count})`}
               style={{
                 background: filter === tab.id ? "var(--surface-3)" : "transparent",
                 border: 0,
@@ -331,7 +382,7 @@ function ProjectPage() {
                 title={STATUS_META[status].label}
                 color={STATUS_META[status].color}
                 tasks={tasksByStatus[status]}
-                selectedSet={selectedSet}
+                activeId={activeId}
                 onToggle={toggleTerminal}
                 onArchive={archive}
                 onDelete={deleteTask}
@@ -342,10 +393,11 @@ function ProjectPage() {
                 title="No active tasks"
                 subtitle="Start a new agent to begin working on this project."
                 action={
-                  <Btn variant="primary" icon="plus" onClick={() => setShowNewAgent(true)}>
-                    New agent
-                    <Kbd variant="onPrimary">{newAgentHotkey}</Kbd>
-                  </Btn>
+                  <NewAgentButton
+                    project={project}
+                    onPrimary={onNewAgentPrimary}
+                    onConfigure={() => setShowNewAgent(true)}
+                  />
                 }
               />
             )}
@@ -408,6 +460,10 @@ function ProjectPage() {
         project={project}
         onClose={() => setShowNewAgent(false)}
         onStart={startAgent}
+        onPersistRemember={async (patch) => {
+          await api.updateProject(project.id, patch);
+          await refresh();
+        }}
       />
 
       <ProjectDialog
@@ -422,6 +478,31 @@ function ProjectPage() {
         }}
         onDelete={remove}
       />
-    </div>
+
+      <Modal
+        open={confirmRemove}
+        onClose={() => setConfirmRemove(false)}
+        title="Remove project"
+        width={460}
+        footer={
+          <>
+            <Btn variant="ghost" onClick={() => setConfirmRemove(false)}>
+              Cancel <Kbd variant="inline">Esc</Kbd>
+            </Btn>
+            <Btn variant="danger" icon="trash" onClick={confirmRemoveProject}>
+              Remove
+            </Btn>
+          </>
+        }
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+          Remove &ldquo;{project.name}&rdquo; from MissionControl?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          This only unlinks the project — the files at {project.path} are not touched.
+        </div>
+      </Modal>
+      </div>
+    </>
   );
 }

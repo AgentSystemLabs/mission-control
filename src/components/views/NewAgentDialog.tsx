@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { TextField } from "~/components/ui/TextField";
-import { Icon } from "~/components/ui/Icon";
 import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
@@ -10,13 +8,18 @@ import { getElectron } from "~/lib/electron";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import type { Project, TaskAgent } from "~/db/schema";
 
-const SKIP_PERMS_KEY = "mc:newAgent:dangerouslySkipPermissions";
+export type RememberPatch = {
+  rememberAgentSettings: boolean;
+  savedAgent: TaskAgent | null;
+  savedSkipPermissions: boolean;
+};
 
 export function NewAgentDialog({
   open,
   project,
   onClose,
   onStart,
+  onPersistRemember,
 }: {
   open: boolean;
   project: Project | null;
@@ -27,27 +30,27 @@ export function NewAgentDialog({
     branch: string;
     dangerouslySkipPermissions: boolean;
   }) => Promise<void> | void;
+  onPersistRemember: (patch: RememberPatch) => Promise<void> | void;
 }) {
   const [agent, setAgent] = useState<TaskAgent>("claude-code");
-  const [title, setTitle] = useState("");
-  const [branch, setBranch] = useState("");
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
+  const [rememberSettings, setRememberSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      setAgent("claude-code");
-      setTitle("");
-      setBranch("");
-      try {
-        setDangerouslySkipPermissions(localStorage.getItem(SKIP_PERMS_KEY) === "1");
-      } catch {
-        setDangerouslySkipPermissions(false);
-      }
-      setError(null);
-      setSubmitting(false);
-    }
+    if (!open) return;
+    const seedAgent: TaskAgent =
+      project?.rememberAgentSettings && project?.savedAgent ? project.savedAgent : "claude-code";
+    const seedSkip = project?.rememberAgentSettings ? !!project.savedSkipPermissions : false;
+    setAgent(seedAgent);
+    setDangerouslySkipPermissions(seedSkip);
+    setRememberSettings(!!project?.rememberAgentSettings);
+    setError(null);
+    setSubmitting(false);
+    // Seed only when the dialog opens; later refreshes of `project` (e.g. after
+    // persisting the remember toggle) must not stomp in-flight form state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const agents: { id: TaskAgent; label: string; desc: string; cmd: string }[] = [
@@ -71,6 +74,19 @@ export function NewAgentDialog({
     },
   ];
 
+  const toggleRemember = async (next: boolean) => {
+    setRememberSettings(next);
+    await onPersistRemember(
+      next
+        ? {
+            rememberAgentSettings: true,
+            savedAgent: agent,
+            savedSkipPermissions: agent === "claude-code" ? dangerouslySkipPermissions : false,
+          }
+        : { rememberAgentSettings: false, savedAgent: null, savedSkipPermissions: false }
+    );
+  };
+
   const submit = async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -91,17 +107,17 @@ export function NewAgentDialog({
     }
     try {
       const skip = agent === "claude-code" && dangerouslySkipPermissions;
-      try {
-        if (agent === "claude-code") {
-          localStorage.setItem(SKIP_PERMS_KEY, dangerouslySkipPermissions ? "1" : "0");
-        }
-      } catch {
-        /* localStorage unavailable */
+      if (rememberSettings) {
+        await onPersistRemember({
+          rememberAgentSettings: true,
+          savedAgent: agent,
+          savedSkipPermissions: skip,
+        });
       }
       await onStart({
         agent,
-        title: title.trim() || TITLE_WAITING,
-        branch: branch.trim() || project?.branch || "main",
+        title: TITLE_WAITING,
+        branch: project?.branch || "main",
         dangerouslySkipPermissions: skip,
       });
     } catch (e: any) {
@@ -132,7 +148,7 @@ export function NewAgentDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, agent, agents, submitting, title, branch, project]);
+  }, [open, agent, agents, submitting, project, rememberSettings, dangerouslySkipPermissions]);
 
   useHotkey("mod+enter", () => void submit(), { enabled: open });
 
@@ -155,25 +171,6 @@ export function NewAgentDialog({
       }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "10px 12px",
-            background: "var(--surface-0)",
-            border: "1px solid var(--border)",
-            borderRadius: 7,
-            fontFamily: "var(--mono)",
-            fontSize: 11.5,
-            color: "var(--text-dim)",
-          }}
-        >
-          <Icon name="folder" size={12} style={{ color: "var(--text-faint)" }} />
-          <span>cd</span>
-          <span style={{ color: "var(--text)" }}>{project?.path}</span>
-        </div>
-
         <div>
           <label
             style={{
@@ -260,20 +257,6 @@ export function NewAgentDialog({
           </div>
         </div>
 
-        <TextField
-          label="Task title"
-          value={title}
-          onChange={setTitle}
-          placeholder="Leave blank to auto-generate from your first prompt"
-        />
-        <TextField
-          label="Git branch"
-          mono
-          value={branch}
-          onChange={setBranch}
-          placeholder={project?.branch || "main"}
-        />
-
         {agent === "claude-code" && (
           <label
             style={{
@@ -306,12 +289,47 @@ export function NewAgentDialog({
                 }}
               >
                 Launches with{" "}
-                <code style={{ color: "var(--text)" }}>--dangerously-skip-permissions</code>. Saved
-                as your default.
+                <code style={{ color: "var(--text)" }}>--dangerously-skip-permissions</code>.
               </div>
             </div>
           </label>
         )}
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 10,
+            padding: "10px 12px",
+            background: "var(--surface-0)",
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={rememberSettings}
+            onChange={(e) => void toggleRemember(e.target.checked)}
+            style={{ marginTop: 2, accentColor: "var(--accent)" }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 2 }}>
+              Remember settings for this project
+            </div>
+            <div
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                color: "var(--text-dim)",
+                lineHeight: 1.4,
+              }}
+            >
+              The New agent button will skip this dialog and start{" "}
+              <code style={{ color: "var(--text)" }}>{AGENT_META[agent].label}</code> directly.
+            </div>
+          </div>
+        </label>
 
         {error && (
           <div

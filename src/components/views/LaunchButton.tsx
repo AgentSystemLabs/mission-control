@@ -14,9 +14,11 @@ import {
 export function LaunchButton({
   project,
   onProjectUpdated,
+  compact = false,
 }: {
   project: Project;
   onProjectUpdated: () => Promise<void> | void;
+  compact?: boolean;
 }) {
   const [showConfig, setShowConfig] = useState(false);
   const [showEmpty, setShowEmpty] = useState(false);
@@ -61,9 +63,11 @@ export function LaunchButton({
           style={{
             display: "inline-flex",
             alignItems: "center",
+            justifyContent: "center",
             gap: 6,
             height: 30,
-            padding: "0 12px",
+            padding: compact ? 0 : "0 12px",
+            width: compact ? 30 : undefined,
             background: "var(--surface-2)",
             border: "1px solid var(--border-strong)",
             borderRight: "none",
@@ -83,7 +87,7 @@ export function LaunchButton({
           }}
         >
           <Icon name="play" size={13} />
-          {launching ? "Launching…" : "Launch"}
+          {!compact && (launching ? "Launching…" : "Launch")}
         </button>
         <button
           onClick={() => setShowConfig(true)}
