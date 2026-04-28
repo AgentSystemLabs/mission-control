@@ -1,0 +1,85 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
+import { Btn } from "~/components/ui/Btn";
+import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
+import { api } from "~/lib/api";
+import { getElectron } from "~/lib/electron";
+
+export const Route = createFileRoute("/settings/api")({
+  component: ApiSettingsPage,
+});
+
+function ApiSettingsPage() {
+  const [token, setToken] = useState<string | null>(null);
+  const [port, setPort] = useState<number | null>(null);
+  const { copied, copy } = useCopy();
+
+  const load = useCallback(async () => {
+    const s = await api.getSettings();
+    setToken(s.apiToken);
+    const electron = getElectron();
+    if (electron) {
+      setPort(await electron.getRuntimePort());
+    } else {
+      setPort(Number(window.location.port) || null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const regenerate = async () => {
+    const r = await api.regenerateToken();
+    setToken(r.apiToken);
+  };
+
+  const baseUrl = `http://127.0.0.1:${port ?? "PORT"}`;
+
+  return (
+    <>
+      <h1 style={{ margin: "0 0 24px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.015em" }}>
+        External API
+      </h1>
+      <SettingsSection
+        title="External API"
+        subtitle="External CLIs (Claude Code / Codex / Cursor CLI) post status updates here."
+      >
+        <Field label="Endpoint">
+          <CodeBlock
+            value={baseUrl}
+            onCopy={() => copy(baseUrl, "endpoint")}
+            copied={copied === "endpoint"}
+          />
+        </Field>
+        <Field label="API Token">
+          <CodeBlock
+            value={token ?? "loading…"}
+            onCopy={() => token && copy(token, "token")}
+            copied={copied === "token"}
+            monoSize={11}
+          />
+          <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+            <Btn variant="ghost" icon="refresh" onClick={regenerate} size="sm">
+              Regenerate token
+            </Btn>
+          </div>
+        </Field>
+        <Field label="Example: mark a task finished">
+          <CodeBlock
+            value={`curl -H "Authorization: Bearer $TOKEN" \\\n  -X POST ${baseUrl}/api/tasks/$TASK_ID/status \\\n  -d '{"status":"finished","preview":"All tests passing"}'`}
+            onCopy={() =>
+              token &&
+              copy(
+                `curl -H "Authorization: Bearer ${token}" -X POST ${baseUrl}/api/tasks/$TASK_ID/status -d '{"status":"finished","preview":"All tests passing"}'`,
+                "curl"
+              )
+            }
+            copied={copied === "curl"}
+            monoSize={11}
+          />
+        </Field>
+      </SettingsSection>
+    </>
+  );
+}

@@ -69,7 +69,7 @@ function Shell() {
     ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} /> }]
     : path === "/archive"
       ? [{ label: "Archive" }]
-      : path === "/settings"
+      : path.startsWith("/settings")
         ? [{ label: "Settings" }]
         : [{ label: "Project", node: <ProjectPicker /> }];
 
