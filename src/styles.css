@@ -32,9 +32,9 @@
   --accent-faint: oklch(0.82 0.17 145 / 0.08);
 
   --status-ready: oklch(0.78 0.10 220);
-  --status-running: oklch(0.82 0.17 145);
-  --status-needs: oklch(0.82 0.14 75);
-  --status-done: oklch(0.75 0.14 290);
+  --status-running: oklch(0.82 0.14 75);
+  --status-needs: oklch(0.7 0.19 25);
+  --status-done: oklch(0.82 0.17 145);
   --status-idle: rgba(232, 230, 223, 0.3);
   --status-failed: oklch(0.7 0.19 25);
 

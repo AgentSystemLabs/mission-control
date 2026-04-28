@@ -2,9 +2,9 @@ import type { CSSProperties } from "react";
 import { Icon } from "~/components/ui/Icon";
 import type { GitChangedFile, GitFileStatus } from "~/server/services/git";
 
-const ADD = "var(--status-ready, #6cd07e)";
-const MOD = "var(--status-running, #e8b94a)";
-const DEL = "var(--status-failed, #e06b6b)";
+const ADD = "#6cd07e";
+const MOD = "#e8b94a";
+const DEL = "#e06b6b";
 
 const STATUS_META: Record<GitFileStatus, { letter: string; color: string }> = {
   added: { letter: "A", color: ADD },
