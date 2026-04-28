@@ -38,23 +38,13 @@ export function TopBar({
         }}
       >
         <div onClick={onHome} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <div
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 5,
-              background: "var(--accent)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#0a0b0d",
-              fontFamily: "var(--mono)",
-              fontSize: 13,
-              fontWeight: 700,
-            }}
-          >
-            M
-          </div>
+          <img
+            src="/robot.png"
+            alt="AgentSystem.dev"
+            width={22}
+            height={22}
+            style={{ borderRadius: 5, display: "block" }}
+          />
           <span
             style={{
               fontFamily: "var(--mono)",
@@ -63,7 +53,10 @@ export function TopBar({
               letterSpacing: "0.02em",
             }}
           >
-            MissionControl
+            Mission Control{" "}
+            <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>
+              (by <span style={{ color: "var(--accent)" }}>AgentSystem</span>)
+            </span>
           </span>
         </div>
         {crumbs && crumbs.length > 0 && (
