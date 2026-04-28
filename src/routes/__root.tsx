@@ -9,8 +9,9 @@ import {
 import { getElectron } from "~/lib/electron";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
-import { matchHotkey } from "~/lib/use-hotkey";
+import { KbdAction } from "~/components/ui/Kbd";
+import { useHotkey } from "~/lib/use-hotkey";
+import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useTheme } from "~/lib/use-theme";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import {
@@ -40,11 +41,13 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body>
-        <TerminalProvider>
-          <UserTerminalProvider>
-            <Shell />
-          </UserTerminalProvider>
-        </TerminalProvider>
+        <KeybindingsProvider>
+          <TerminalProvider>
+            <UserTerminalProvider>
+              <Shell />
+            </UserTerminalProvider>
+          </TerminalProvider>
+        </KeybindingsProvider>
         <Scripts />
       </body>
     </html>
@@ -69,25 +72,15 @@ function Shell() {
 
   const goHome = () => router.navigate({ to: "/" });
 
-  // Cmd/Ctrl + [ / ] cycles through user terminals; opens panel if hidden.
+  useHotkey("terminal.toggle", () => userTerminals.togglePanel());
+  useHotkey("nav.toggle", () => router.navigate({ to: "/" }));
+  // Cmd/Ctrl + [ / ] / T are non-rebindable terminal-focused shortcuts.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      // Global app shortcuts fire regardless of focus — including when xterm's
-      // hidden textarea has focus (which counts as "editable").
-      if (matchHotkey(e, "ctrl+`")) {
-        e.preventDefault();
-        userTerminals.togglePanel();
-        return;
-      }
       if ((e.key === "t" || e.key === "T") && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         void userTerminals.createTerminal();
-        return;
-      }
-      if (matchHotkey(e, "mod+m")) {
-        e.preventDefault();
-        router.navigate({ to: "/" });
         return;
       }
       if (e.key === "[" && !e.shiftKey && !e.altKey) {
@@ -103,7 +96,7 @@ function Shell() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [userTerminals, router]);
+  }, [userTerminals]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
   // default app menu's "Close Window" item closes the BrowserWindow before any
@@ -129,7 +122,7 @@ function Shell() {
             {path !== "/" && (
               <Btn variant="ghost" icon="home" onClick={goHome}>
                 Mission Control
-                <Kbd variant="ghost">{hotkeyLabel("mod+m")}</Kbd>
+                <KbdAction action="nav.toggle" />
               </Btn>
             )}
             <Btn

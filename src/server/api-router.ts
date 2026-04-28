@@ -19,6 +19,9 @@ import {
 } from "./services/user-terminals";
 import { events } from "./events";
 import { getOrCreateApiToken, regenerateApiToken } from "~/db/settings";
+import { getBindings, setBinding, resetBinding, resetAllBindings } from "~/db/keybindings";
+import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
+import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, requireBearerToken } from "./auth";
 import { generateTitleForTask } from "./services/title-generator";
 
@@ -201,6 +204,36 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         const body = await readJson<any>(request).catch(() => ({}));
         if ((body as any)?.regenerate) return json({ apiToken: regenerateApiToken() });
         return json({ apiToken: getOrCreateApiToken() });
+      }
+    }
+
+    if (pathname === "/api/keybindings") {
+      if (method === "GET") return json({ bindings: getBindings() });
+      if (method === "PUT") {
+        const body = await readJson<any>(request).catch(() => null);
+        const action = body?.action as string | undefined;
+        const binding = body?.binding;
+        if (!action || !(HOTKEY_ACTIONS as readonly string[]).includes(action)) {
+          return jsonError(400, "invalid action");
+        }
+        if (!binding || typeof binding !== "object") return jsonError(400, "binding required");
+        const candidate = {
+          mod: !!binding.mod,
+          shift: !!binding.shift,
+          alt: !!binding.alt,
+          key: typeof binding.key === "string" ? binding.key : "",
+        };
+        const valid = isValidBinding(candidate);
+        if (!valid.ok) return jsonError(400, valid.reason);
+        return json({ bindings: setBinding(action as HotkeyAction, candidate) });
+      }
+      if (method === "DELETE") {
+        const action = url.searchParams.get("action");
+        if (action === null) return json({ bindings: resetAllBindings() });
+        if (!(HOTKEY_ACTIONS as readonly string[]).includes(action)) {
+          return jsonError(400, "invalid action");
+        }
+        return json({ bindings: resetBinding(action as HotkeyAction) });
       }
     }
 

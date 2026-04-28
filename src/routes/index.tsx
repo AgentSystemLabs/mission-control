@@ -2,7 +2,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { KbdAction } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
 import { useWheelSwipe } from "~/lib/use-wheel-swipe";
 import { Section } from "~/components/ui/Section";
@@ -40,12 +40,12 @@ function MissionControlPage() {
     setActiveUserTerminalProject(null);
   }, [setActiveUserTerminalProject]);
 
-  useHotkey("mod+/", () => {
+  useHotkey("search.focus", () => {
     searchRef.current?.focus();
     searchRef.current?.select();
   });
 
-  useHotkey("mod+n", () => setShowAdd(true));
+  useHotkey("agent.new", () => setShowAdd(true));
 
   const refresh = useCallback(async () => {
     const [p, g] = await Promise.all([api.listProjects(), api.listGroups()]);
@@ -250,7 +250,7 @@ function MissionControlPage() {
                     fontSize: 11.5,
                   }}
                 />
-                <Kbd>{hotkeyLabel("mod+/")}</Kbd>
+                <KbdAction action="search.focus" />
               </div>
 
               <div
@@ -296,7 +296,7 @@ function MissionControlPage() {
               </Btn>
               <Btn variant="primary" icon="plus" onClick={() => setShowAdd(true)}>
                 Add project
-                <Kbd variant="onPrimary">{hotkeyLabel("mod+n")}</Kbd>
+                <KbdAction action="agent.new" variant="onPrimary" />
               </Btn>
             </div>
           </div>

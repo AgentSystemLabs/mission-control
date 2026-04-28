@@ -4,7 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { KbdAction } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ICON_COLORS } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
@@ -134,7 +134,7 @@ export function ProjectDialog({
     }
   };
 
-  useHotkey("mod+enter", () => void submit(), { enabled: open });
+  useHotkey("dialog.submit", () => void submit(), { enabled: open });
 
   return (
     <Modal
@@ -161,7 +161,7 @@ export function ProjectDialog({
           </Btn>
           <Btn variant="primary" onClick={submit}>
             {project ? "Save" : "Add project"}
-            <Kbd variant="onPrimary">{hotkeyLabel("mod+enter")}</Kbd>
+            <KbdAction action="dialog.submit" variant="onPrimary" />
           </Btn>
         </>
       }

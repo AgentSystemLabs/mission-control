@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { KbdAction } from "~/components/ui/Kbd";
 import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
@@ -100,7 +100,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   };
 
   useHotkey(
-    "mod+p",
+    "project.picker",
     (e) => {
       if (isEditableTarget(e.target) && !wrapRef.current?.contains(e.target as Node)) return;
       e.preventDefault();
@@ -190,9 +190,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
         {current && <ProjectIcon project={current} size={14} />}
         <span>{label}</span>
         <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
-        <Kbd variant="ghost" style={{ marginLeft: 2 }}>
-          {hotkeyLabel("mod+p")}
-        </Kbd>
+        <KbdAction action="project.picker" variant="ghost" style={{ marginLeft: 2 }} />
       </button>
       {open && (
         <div

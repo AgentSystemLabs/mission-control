@@ -1,0 +1,16 @@
+import type { Binding, BindingMap } from "./types";
+
+export function makeBinding(partial: Partial<Binding> & { key: string }): Binding {
+  return { mod: false, shift: false, alt: false, ...partial };
+}
+
+export const DEFAULT_BINDINGS: BindingMap = {
+  "agent.new": makeBinding({ mod: true, key: "n" }),
+  "project.edit": makeBinding({ mod: true, key: "e" }),
+  "project.picker": makeBinding({ mod: true, key: "p" }),
+  "nav.toggle": makeBinding({ mod: true, key: "m" }),
+  "search.focus": makeBinding({ mod: true, key: "/" }),
+  "terminal.toggle": makeBinding({ mod: true, key: "`" }),
+  "terminal.close": makeBinding({ mod: true, key: "l" }),
+  "dialog.submit": makeBinding({ mod: true, key: "Enter" }),
+};

@@ -1,5 +1,5 @@
 import { Icon } from "~/components/ui/Icon";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { KbdAction } from "~/components/ui/Kbd";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
 import type { Project, Task } from "~/db/schema";
@@ -76,7 +76,7 @@ export function TerminalPanel({
           Agent
         </span>
         <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10.5 }}>
-          Close <Kbd variant="ghost">{hotkeyLabel("mod+l")}</Kbd>
+          Close <KbdAction action="terminal.close" variant="ghost" />
         </span>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>

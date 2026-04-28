@@ -11,7 +11,8 @@ import { LaunchButton } from "~/components/views/LaunchButton";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { CursorGlow } from "~/components/ui/CursorGlow";
-import { Kbd, hotkeyLabel } from "~/components/ui/Kbd";
+import { Kbd } from "~/components/ui/Kbd";
+import { useFormattedBinding } from "~/lib/keybindings/store";
 import { Modal } from "~/components/ui/Modal";
 import { useHotkey } from "~/lib/use-hotkey";
 import { useWheelSwipe } from "~/lib/use-wheel-swipe";
@@ -42,8 +43,7 @@ function ProjectPage() {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [apiToken, setApiToken] = useState<string | null>(null);
 
-  const newAgentHotkey = hotkeyLabel("mod+n");
-  const editProjectHotkey = hotkeyLabel("mod+e");
+  const editProjectHotkey = useFormattedBinding("project.edit");
 
   const headerRef = useRef<HTMLDivElement | null>(null);
   const [headerNarrow, setHeaderNarrow] = useState(false);
@@ -129,9 +129,9 @@ function ProjectPage() {
     setShowNewAgent(true);
   }, [project, showNewAgent, showEdit, startWithSaved]);
 
-  useHotkey("mod+n", onNewAgentPrimary, { ignoreEditable: true });
+  useHotkey("agent.new", onNewAgentPrimary, { ignoreEditable: true });
 
-  useHotkey("mod+e", () => {
+  useHotkey("project.edit", () => {
     if (showNewAgent) return;
     setShowEdit((v) => !v);
   });
@@ -140,7 +140,7 @@ function ProjectPage() {
     !showNewAgent && !showEdit && !confirmRemove && terminals.active !== null;
 
   // Capture phase so xterm.js (focused terminal) can't swallow the key first.
-  useHotkey("mod+l", () => terminals.deselect(), {
+  useHotkey("terminal.close", () => terminals.deselect(), {
     enabled: closePanelEnabled,
     capture: true,
   });

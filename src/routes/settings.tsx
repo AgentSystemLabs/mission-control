@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
+import { KeybindingsSettings } from "~/components/views/KeybindingsSettings";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 
@@ -95,6 +96,13 @@ function SettingsPage() {
               monoSize={11}
             />
           </Field>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Keybindings"
+          subtitle="Rebind any global app shortcut. Bindings are saved per-app and apply immediately."
+        >
+          <KeybindingsSettings />
         </SettingsSection>
 
         {userData && (
