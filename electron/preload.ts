@@ -16,6 +16,8 @@ const electronAPI = {
     ipcRenderer.invoke("file:saveProjectImage", opts),
   getRuntimePort: (): Promise<number | null> => ipcRenderer.invoke("app:getRuntimePort"),
   getUserDataDir: (): Promise<string> => ipcRenderer.invoke("app:getUserDataDir"),
+  getUserName: (): Promise<{ source: "git" | "os"; fullName: string; firstName: string }> =>
+    ipcRenderer.invoke("app:getUserName"),
   cliCheck: (command: string): Promise<{ ok: true; path: string } | { ok: false; reason: string }> =>
     ipcRenderer.invoke("cli:check", command),
   pty: {

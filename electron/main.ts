@@ -260,6 +260,19 @@ ipcMain.handle("shell:openPath", async (_evt, p: string) => {
 ipcMain.handle("app:getRuntimePort", () => runtimePort);
 ipcMain.handle("app:getUserDataDir", () => app.getPath("userData"));
 
+ipcMain.handle("app:getUserName", () => {
+  try {
+    const result = spawnSync("git", ["config", "--global", "user.name"], {
+      encoding: "utf8",
+      timeout: 2000,
+    });
+    const gitName = (result.stdout || "").trim();
+    if (gitName) return { source: "git" as const, fullName: gitName, firstName: gitName.split(/\s+/)[0] };
+  } catch {}
+  const username = os.userInfo().username;
+  return { source: "os" as const, fullName: username, firstName: username };
+});
+
 ipcMain.handle("cli:check", (_evt, command: string) => {
   if (!command) return { ok: false, reason: "empty" };
   const isWindows = os.platform() === "win32";

@@ -106,6 +106,25 @@ function MissionControlPage() {
   const totalNeeds = projects.reduce((a, p) => a + p.taskCounts["needs-input"], 0);
   const totalDone = projects.reduce((a, p) => a + p.taskCounts.finished, 0);
 
+  const [firstName, setFirstName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!window.electronAPI?.getUserName) return;
+    let cancelled = false;
+    void window.electronAPI.getUserName().then((r) => {
+      if (!cancelled) setFirstName(r.firstName);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 18) return "Good afternoon";
+    return "Good evening";
+  }, []);
+
   const dateLabel = useMemo(
     () =>
       new Date().toLocaleDateString(undefined, {
@@ -151,8 +170,12 @@ function MissionControlPage() {
                 ✦ {dateLabel}
               </div>
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: "-0.02em" }}>
-                Mission Control
+                <span style={{ color: "var(--accent)" }}>{greeting}</span>
+                {firstName ? `, ${firstName}` : ""}
               </h1>
+              <div style={{ marginTop: 4, fontSize: 14, color: "var(--text-dim)" }}>
+                Here's what's running today.
+              </div>
               <div
                 style={{
                   display: "flex",
