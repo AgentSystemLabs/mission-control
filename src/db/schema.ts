@@ -21,6 +21,13 @@ export const projects = sqliteTable(
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     branch: text("branch").notNull().default("main"),
     launchCommands: text("launch_commands"),
+    rememberAgentSettings: integer("remember_agent_settings", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    savedAgent: text("saved_agent").$type<TaskAgent>(),
+    savedSkipPermissions: integer("saved_skip_permissions", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

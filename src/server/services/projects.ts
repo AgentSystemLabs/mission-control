@@ -118,6 +118,9 @@ export function createProject(input: {
     pinned: false,
     branch,
     launchCommands: null,
+    rememberAgentSettings: false,
+    savedAgent: null,
+    savedSkipPermissions: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -131,7 +134,17 @@ export function updateProject(
   patch: Partial<
     Pick<
       Project,
-      "name" | "path" | "icon" | "iconColor" | "imagePath" | "groupId" | "pinned" | "branch"
+      | "name"
+      | "path"
+      | "icon"
+      | "iconColor"
+      | "imagePath"
+      | "groupId"
+      | "pinned"
+      | "branch"
+      | "rememberAgentSettings"
+      | "savedAgent"
+      | "savedSkipPermissions"
     >
   > & { launchCommands?: LaunchCommand[] | null }
 ): Project | null {
