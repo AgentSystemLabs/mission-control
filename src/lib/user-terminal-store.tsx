@@ -44,8 +44,23 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   // the user navigates away and back.
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
   const [focusedByProject, setFocusedByProject] = useState<Record<string, string | null>>({});
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>({});
   const loadedProjectsRef = useRef<Set<string>>(new Set());
+
+  const panelOpen = project ? (panelOpenByProject[project.id] ?? true) : false;
+  const setPanelOpen = useCallback(
+    (open: boolean) => {
+      if (!project) return;
+      const pid = project.id;
+      setPanelOpenByProject((prev) => (prev[pid] === open ? prev : { ...prev, [pid]: open }));
+    },
+    [project]
+  );
+  const togglePanel = useCallback(() => {
+    if (!project) return;
+    const pid = project.id;
+    setPanelOpenByProject((prev) => ({ ...prev, [pid]: !(prev[pid] ?? true) }));
+  }, [project]);
 
   const setProject = useCallback((next: Project | null) => {
     setProjectState((prev) => (prev?.id === next?.id ? prev : next));
@@ -200,8 +215,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     },
     [project, sessionsByProject, killTerminal]
   );
-
-  const togglePanel = useCallback(() => setPanelOpen((v) => !v), []);
 
   const focusTerminal = useCallback(
     (id: string) => {
