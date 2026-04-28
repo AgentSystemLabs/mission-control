@@ -1,6 +1,7 @@
 import type { IpcMain, BrowserWindow } from "electron";
 import * as os from "node:os";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { installClaudeHooks } from "./claude-hooks";
 
 function resolveShell(): string {
@@ -34,7 +35,35 @@ function sanitizeEnv(): Record<string, string> {
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v === "string") out[k] = v;
   }
+  // The PTY is xterm.js, not whichever terminal launched Electron. Leaking
+  // TERM_PROGRAM=ghostty (or iTerm.app, etc.) makes Claude Code take terminal-
+  // specific code paths that don't match what we actually emit — e.g. it skips
+  // installing the Shift+Enter keybinding when it thinks Ghostty is handling it
+  // natively, but xterm.js sends `\x1b\r` (the iTerm sequence) instead of LF.
+  delete out.TERM_PROGRAM;
+  delete out.TERM_PROGRAM_VERSION;
   return out;
+}
+
+// Claude Code only treats ESC+CR (`\x1b\r`, what `terminal-keymap.ts` emits for
+// Shift+Enter) as "insert newline" when this flag is set. Normally `/terminal-
+// setup` writes it; do it eagerly so the user doesn't have to.
+function ensureClaudeShiftEnterBinding(): void {
+  try {
+    const dir = path.join(os.homedir(), ".claude");
+    const file = path.join(dir, "settings.json");
+    let settings: Record<string, unknown> = {};
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, "utf8");
+      if (raw.trim()) settings = JSON.parse(raw);
+    }
+    if (settings.shiftEnterKeyBindingInstalled === true) return;
+    settings.shiftEnterKeyBindingInstalled = true;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  } catch {
+    // best-effort — user can still run `/terminal-setup` manually.
+  }
 }
 
 type Pty = {
@@ -136,6 +165,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       // starts a turn, finishes, or needs human input.
       if (opts.agent === "claude-code") {
         installClaudeHooks(opts.cwd);
+        ensureClaudeShiftEnterBinding();
       }
 
       const env = sanitizeEnv();

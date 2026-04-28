@@ -1,9 +1,17 @@
 import type { Group, Project, Task, UserTerminal } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
+import type { GitDiff, GitStatus, PushResult } from "~/server/services/git";
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  // Node's fetch (used during TanStack Start SSR) rejects relative URLs.
+  // In the browser the page origin is implicit; on the server, prepend the
+  // Vite dev origin so loader prefetches resolve correctly.
+  const resolved =
+    typeof window === "undefined" && url.startsWith("/")
+      ? (process.env.MC_DEV_URL ?? "http://127.0.0.1:5173") + url
+      : url;
+  const res = await fetch(resolved, {
     ...init,
     headers: {
       "content-type": "application/json",
@@ -117,4 +125,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ regenerate: true }),
     }),
+
+  getGitStatus: (projectId: string) =>
+    req<GitStatus>(`/api/projects/${projectId}/git/status`),
+  getGitDiff: (projectId: string, file: string, staged: boolean) =>
+    req<GitDiff>(
+      `/api/projects/${projectId}/git/diff?file=${encodeURIComponent(file)}&staged=${staged ? "1" : "0"}`,
+    ),
+  stageFiles: (projectId: string, files: string[]) =>
+    req<{ ok: true }>(`/api/projects/${projectId}/git/stage`, {
+      method: "POST",
+      body: JSON.stringify({ files }),
+    }),
+  unstageFiles: (projectId: string, files: string[]) =>
+    req<{ ok: true }>(`/api/projects/${projectId}/git/unstage`, {
+      method: "POST",
+      body: JSON.stringify({ files }),
+    }),
+  gitCommit: (projectId: string, message: string) =>
+    req<{ sha: string }>(`/api/projects/${projectId}/git/commit`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
+  gitPush: (projectId: string) =>
+    req<PushResult>(`/api/projects/${projectId}/git/push`, { method: "POST" }),
+  generateCommitMessage: (projectId: string) =>
+    req<{ message: string }>(
+      `/api/projects/${projectId}/git/generate-commit-message`,
+      { method: "POST" },
+    ),
 };

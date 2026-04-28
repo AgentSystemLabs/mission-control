@@ -1,37 +1,36 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import { queryKeys, settingsQueryOptions, useSettings } from "~/queries";
 
 export const Route = createFileRoute("/settings/api")({
+  loader: ({ context }) => context.queryClient.ensureQueryData(settingsQueryOptions()),
   component: ApiSettingsPage,
 });
 
 function ApiSettingsPage() {
-  const [token, setToken] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { data: settings } = useSettings();
+  const token = settings?.apiToken ?? null;
   const [port, setPort] = useState<number | null>(null);
   const { copied, copy } = useCopy();
 
-  const load = useCallback(async () => {
-    const s = await api.getSettings();
-    setToken(s.apiToken);
+  useEffect(() => {
     const electron = getElectron();
     if (electron) {
-      setPort(await electron.getRuntimePort());
+      void electron.getRuntimePort().then(setPort);
     } else {
       setPort(Number(window.location.port) || null);
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const regenerate = async () => {
     const r = await api.regenerateToken();
-    setToken(r.apiToken);
+    queryClient.setQueryData(queryKeys.settings, { apiToken: r.apiToken });
   };
 
   const baseUrl = `http://127.0.0.1:${port ?? "PORT"}`;

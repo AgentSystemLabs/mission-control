@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { KbdAction } from "~/components/ui/Kbd";
-import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
+import { queryKeys, useGroups, useProjects } from "~/queries";
 import type { ProjectWithCounts } from "~/server/services/projects";
-import type { Group } from "~/db/schema";
 
 type Section = { key: string; label: string | null; color: string | null; projects: ProjectWithCounts[] };
 
 export function ProjectPicker({ projectId }: { projectId?: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [projects, setProjects] = useState<ProjectWithCounts[] | null>(null);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const { data: projects } = useProjects();
+  const { data: groups = [] } = useGroups();
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -25,7 +26,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const current = projects?.find((p) => p.id === projectId) ?? null;
   const label = current?.name ?? "Project";
 
-  const filtered = useMemo(() => {
+  const filtered = useMemo<ProjectWithCounts[]>(() => {
     if (!projects) return [];
     const q = query.trim().toLowerCase();
     if (!q) return projects;
@@ -53,43 +54,17 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   // Flat list of selectable items, in render order — drives keyboard nav indexing.
   const flatItems = useMemo(() => sections.flatMap((s) => s.projects), [sections]);
 
-  useEffect(() => {
-    if (!open || projects) return;
-    let cancelled = false;
-    Promise.all([api.listProjects(), api.listGroups()])
-      .then(([p, g]) => {
-        if (cancelled) return;
-        setProjects(p.projects);
-        setGroups(g.groups);
-      })
-      .catch(() => {
-        if (!cancelled) setProjects([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, projects]);
-
-  const refresh = useCallback(() => {
-    Promise.all([api.listProjects(), api.listGroups()])
-      .then(([p, g]) => {
-        setProjects(p.projects);
-        setGroups(g.groups);
-      })
-      .catch(() => {});
-  }, []);
-
-  // Refresh list whenever projectId changes (e.g., after navigating) so name stays current.
-  useEffect(() => {
-    refresh();
-  }, [projectId, refresh]);
-
   useServerEvents(
     useCallback(
       (e) => {
-        if (e.type.startsWith("project:") || e.type.startsWith("group:")) refresh();
+        if (e.type.startsWith("project:")) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+        }
+        if (e.type.startsWith("group:")) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+        }
       },
-      [refresh],
+      [queryClient],
     ),
   );
 
@@ -229,7 +204,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
             />
           </div>
           <div style={{ maxHeight: 320, overflowY: "auto", padding: 4 }}>
-            {projects === null ? (
+            {!projects ? (
               <div style={{ padding: 10, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-faint)" }}>
                 Loading…
               </div>

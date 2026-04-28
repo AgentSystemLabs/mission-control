@@ -7,10 +7,13 @@ export function makeBinding(partial: Partial<Binding> & { key: string }): Bindin
 export const DEFAULT_BINDINGS: BindingMap = {
   "agent.new": makeBinding({ mod: true, key: "n" }),
   "project.edit": makeBinding({ mod: true, key: "e" }),
-  "project.picker": makeBinding({ mod: true, key: "p" }),
+  "project.picker": makeBinding({ mod: true, key: "u" }),
   "nav.toggle": makeBinding({ mod: true, key: "m" }),
   "search.focus": makeBinding({ mod: true, key: "/" }),
   "terminal.toggle": makeBinding({ mod: true, key: "`" }),
   "terminal.close": makeBinding({ mod: true, key: "l" }),
   "dialog.submit": makeBinding({ mod: true, key: "Enter" }),
+  "file.finder": makeBinding({ mod: true, key: "p" }),
+  "file.save": makeBinding({ mod: true, key: "s" }),
+  "git.diff": makeBinding({ mod: true, key: "g" }),
 };

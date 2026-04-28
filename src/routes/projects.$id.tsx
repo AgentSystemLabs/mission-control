@@ -1,5 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -7,11 +9,13 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
+import { FileFinderDialog } from "~/components/views/FileFinderDialog";
+import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchButton } from "~/components/views/LaunchButton";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { CursorGlow } from "~/components/ui/CursorGlow";
-import { Kbd } from "~/components/ui/Kbd";
+import { Kbd, KbdAction } from "~/components/ui/Kbd";
 import { useFormattedBinding } from "~/lib/keybindings/store";
 import { Modal } from "~/components/ui/Modal";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -20,26 +24,80 @@ import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
+import {
+  groupsQueryOptions,
+  projectQueryOptions,
+  queryKeys,
+  settingsQueryOptions,
+  tasksQueryOptions,
+  useGroups,
+  useProject,
+  useSettings,
+  useTasks,
+} from "~/queries";
+import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
+import { GitDiffView } from "~/components/views/GitDiffView";
 import { TASK_STATUSES } from "~/db/schema";
-import type { Group, Task, TaskStatus } from "~/db/schema";
+import type { Task, TaskStatus } from "~/db/schema";
 import { STATUS_META } from "~/lib/design-meta";
-import type { ProjectWithCounts } from "~/server/services/projects";
+
+const projectSearchSchema = z.object({
+  view: z.enum(["diff"]).optional(),
+});
 
 export const Route = createFileRoute("/projects/$id")({
+  validateSearch: projectSearchSchema,
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(projectQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(tasksQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(groupsQueryOptions()),
+      context.queryClient.ensureQueryData(settingsQueryOptions()),
+      context.queryClient
+        .ensureQueryData(gitStatusQueryOptions(params.id))
+        .catch(() => null),
+    ]),
   component: ProjectPage,
 });
 
 function ProjectPage() {
   const { id } = Route.useParams();
+  const search = Route.useSearch();
   const router = useRouter();
-  const [project, setProject] = useState<ProjectWithCounts | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const queryClient = useQueryClient();
+  const { data: project, error: projectError } = useProject(id);
+  const { data: tasks = [] } = useTasks(id);
+  const { data: groups = [] } = useGroups();
+  const { data: settings } = useSettings();
+  const { data: gitStatus } = useGitStatus(id);
+  const showDiffView = search.view === "diff";
+
+  const openDiffView = useCallback(() => {
+    router.navigate({
+      to: "/projects/$id",
+      params: { id },
+      search: { view: "diff" },
+    });
+  }, [router, id]);
+
+  const closeDiffView = useCallback(() => {
+    router.navigate({
+      to: "/projects/$id",
+      params: { id },
+      search: {},
+    });
+  }, [router, id]);
+  const apiToken = settings?.apiToken ?? null;
   const [filter, setFilter] = useState<"active" | "archived">("active");
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [apiToken, setApiToken] = useState<string | null>(null);
+  const [fileFinderOpen, setFileFinderOpen] = useState(false);
+  const [openFileRel, setOpenFileRel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (projectError) router.navigate({ to: "/" });
+  }, [projectError, router]);
 
   const editProjectHotkey = useFormattedBinding("project.edit");
 
@@ -62,26 +120,21 @@ function ProjectPage() {
     if (project) setActiveUserTerminalProject(project);
   }, [project, setActiveUserTerminalProject]);
 
+  const invalidateProject = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
+    [queryClient, id]
+  );
+  const invalidateTasks = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks(id) }),
+    [queryClient, id]
+  );
+  const invalidateProjects = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+    [queryClient]
+  );
   const refresh = useCallback(async () => {
-    try {
-      const [pr, ts, gs, st] = await Promise.all([
-        api.getProject(id),
-        api.listTasks(id),
-        api.listGroups(),
-        api.getSettings(),
-      ]);
-      setProject(pr.project);
-      setTasks(ts.tasks);
-      setGroups(gs.groups);
-      setApiToken(st.apiToken);
-    } catch {
-      router.navigate({ to: "/" });
-    }
-  }, [id, router]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    await Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
+  }, [invalidateProject, invalidateTasks, invalidateProjects]);
 
   const startWithSaved = useCallback(async () => {
     if (!project || !apiToken) return;
@@ -115,6 +168,31 @@ function ProjectPage() {
     setShowEdit((v) => !v);
   });
 
+  useHotkey(
+    "file.finder",
+    () => {
+      if (openFileRel || showNewAgent || showEdit || confirmRemove) return;
+      setFileFinderOpen((v) => !v);
+    },
+    { ignoreEditable: true },
+  );
+
+  useHotkey(
+    "git.diff",
+    () => {
+      if (
+        openFileRel ||
+        showNewAgent ||
+        showEdit ||
+        confirmRemove ||
+        fileFinderOpen
+      ) return;
+      if (showDiffView) closeDiffView();
+      else openDiffView();
+    },
+    { ignoreEditable: true },
+  );
+
   const closePanelEnabled =
     !showNewAgent && !showEdit && !confirmRemove && terminals.active !== null;
 
@@ -127,9 +205,15 @@ function ProjectPage() {
   useServerEvents(
     useCallback(
       (e) => {
-        if (e.type.startsWith("task:") || e.type.startsWith("project:")) void refresh();
+        if (e.type.startsWith("task:")) {
+          void invalidateTasks();
+          void invalidateProject();
+        } else if (e.type.startsWith("project:")) {
+          void invalidateProject();
+          void invalidateProjects();
+        }
       },
-      [refresh]
+      [invalidateTasks, invalidateProject, invalidateProjects]
     )
   );
 
@@ -219,6 +303,19 @@ function ProjectPage() {
     terminals.toggle(project, created.task, { startCommandOverride });
   };
 
+  if (showDiffView) {
+    return (
+      <>
+        <CursorGlow />
+        <GitDiffView
+          projectId={project.id}
+          projectPath={project.path}
+          onBack={closeDiffView}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <CursorGlow />
@@ -279,6 +376,18 @@ function ProjectPage() {
             />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            {gitStatus && gitStatus.changedCount > 0 && (
+              <Btn
+                variant="ghost"
+                icon="git-branch"
+                onClick={openDiffView}
+                title={`${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"} on ${gitStatus.branch} — review diffs`}
+                aria-label={`Review ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`}
+              >
+                {gitStatus.changedCount} changed
+                <KbdAction action="git.diff" />
+              </Btn>
+            )}
             <LaunchButton
               project={project}
               onProjectUpdated={refresh}
@@ -456,6 +565,19 @@ function ProjectPage() {
           await refresh();
         }}
         onDelete={remove}
+      />
+
+      <FileFinderDialog
+        open={fileFinderOpen}
+        projectRoot={project.path}
+        onClose={() => setFileFinderOpen(false)}
+        onPick={(rel) => setOpenFileRel(rel)}
+      />
+
+      <FileEditorDialog
+        projectRoot={project.path}
+        relPath={openFileRel}
+        onClose={() => setOpenFileRel(null)}
       />
 
       <Modal

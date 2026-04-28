@@ -1,37 +1,44 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
-import type { Task } from "~/db/schema";
-import type { ProjectWithCounts } from "~/server/services/projects";
+import {
+  archiveQueryOptions,
+  projectsQueryOptions,
+  queryKeys,
+  useArchive,
+  useProjects,
+} from "~/queries";
 
 export const Route = createFileRoute("/archive")({
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(archiveQueryOptions()),
+      context.queryClient.ensureQueryData(projectsQueryOptions()),
+    ]),
   component: ArchivePage,
 });
 
 function ArchivePage() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [projects, setProjects] = useState<ProjectWithCounts[]>([]);
+  const queryClient = useQueryClient();
+  const { data: tasks = [] } = useArchive();
+  const { data: projects = [] } = useProjects();
 
-  const refresh = useCallback(async () => {
-    const [a, p] = await Promise.all([api.listArchive(), api.listProjects()]);
-    setTasks(a.tasks);
-    setProjects(p.projects);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const invalidateArchive = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.archive }),
+    [queryClient]
+  );
 
   useServerEvents(
     useCallback(
       (e) => {
-        if (e.type.startsWith("task:")) void refresh();
+        if (e.type.startsWith("task:")) void invalidateArchive();
       },
-      [refresh]
+      [invalidateArchive]
     )
   );
 
@@ -95,7 +102,7 @@ function ArchivePage() {
                     variant="ghost"
                     onClick={async () => {
                       await api.restoreTask(t.id);
-                      await refresh();
+                      await invalidateArchive();
                     }}
                   >
                     Restore

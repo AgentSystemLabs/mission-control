@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
@@ -9,13 +10,17 @@ import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey } from "~/lib/terminal-keymap";
 import { api } from "~/lib/api";
+import { settingsQueryOptions } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 
-async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
+async function resolveMcEnv(
+  electron: NonNullable<ReturnType<typeof getElectron>>,
+  queryClient: QueryClient
+) {
   try {
     const [port, settings] = await Promise.all([
       electron.getRuntimePort(),
-      api.getSettings(),
+      queryClient.ensureQueryData(settingsQueryOptions()),
     ]);
     if (!port) return undefined;
     return { apiUrl: `http://127.0.0.1:${port}`, token: settings.apiToken };
@@ -49,6 +54,7 @@ export function TerminalPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<XFitAddon | null>(null);
   const [bridgeMissing, setBridgeMissing] = useState(false);
+  const queryClient = useQueryClient();
 
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
@@ -149,7 +155,9 @@ export function TerminalPane({
               term.writeln(`\x1b[2m[process exited (code=${msg.exitCode})]\x1b[0m`);
               void (async () => {
                 try {
-                  const settings = await api.getSettings();
+                  const settings = await queryClient.ensureQueryData(
+                    settingsQueryOptions()
+                  );
                   await api.updateTaskStatus(
                     descriptor.taskId,
                     { status: "terminated" },
@@ -188,7 +196,7 @@ export function TerminalPane({
             return;
           }
 
-          const mcEnv = await resolveMcEnv(electron);
+          const mcEnv = await resolveMcEnv(electron, queryClient);
           const { ptyId } = await electron.pty.spawn({
             taskId: descriptor.taskId,
             cwd: descriptor.cwd,

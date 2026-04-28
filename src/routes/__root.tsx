@@ -1,11 +1,12 @@
 import { useEffect } from "react";
 import {
   Outlet,
-  createRootRoute,
+  createRootRouteWithContext,
   HeadContent,
   Scripts,
   useRouter,
 } from "@tanstack/react-router";
+import type { QueryClient } from "@tanstack/react-query";
 import { getElectron } from "~/lib/electron";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
@@ -24,7 +25,7 @@ import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import "~/styles.css";
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
       { charSet: "utf-8" },

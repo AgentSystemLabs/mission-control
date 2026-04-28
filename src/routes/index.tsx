@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
@@ -14,17 +15,29 @@ import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import type { Group } from "~/db/schema";
+import {
+  groupsQueryOptions,
+  projectsQueryOptions,
+  queryKeys,
+  useGroups,
+  useProjects,
+} from "~/queries";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
 export const Route = createFileRoute("/")({
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(projectsQueryOptions()),
+      context.queryClient.ensureQueryData(groupsQueryOptions()),
+    ]),
   component: MissionControlPage,
 });
 
 function MissionControlPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<ProjectWithCounts[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const queryClient = useQueryClient();
+  const { data: projects = [] } = useProjects();
+  const { data: groups = [] } = useGroups();
   const [search, setSearch] = useState("");
   const [density, setDensity] = useState<Density>("regular");
   const [showAdd, setShowAdd] = useState(false);
@@ -45,28 +58,26 @@ function MissionControlPage() {
 
   useHotkey("agent.new", () => setShowAdd(true));
 
-  const refresh = useCallback(async () => {
-    const [p, g] = await Promise.all([api.listProjects(), api.listGroups()]);
-    setProjects(p.projects);
-    setGroups(g.groups);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const invalidateProjects = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+    [queryClient]
+  );
+  const invalidateGroups = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.groups }),
+    [queryClient]
+  );
 
   useServerEvents(
     useCallback(
       (e) => {
-        if (
-          e.type.startsWith("project:") ||
-          e.type.startsWith("group:") ||
-          e.type.startsWith("task:")
-        ) {
-          void refresh();
+        if (e.type.startsWith("project:") || e.type.startsWith("task:")) {
+          void invalidateProjects();
+        }
+        if (e.type.startsWith("group:")) {
+          void invalidateGroups();
         }
       },
-      [refresh]
+      [invalidateProjects, invalidateGroups]
     )
   );
 
@@ -108,7 +119,7 @@ function MissionControlPage() {
   const open = (id: string) => router.navigate({ to: "/projects/$id", params: { id } });
   const togglePin = async (id: string) => {
     await api.togglePin(id);
-    await refresh();
+    await invalidateProjects();
   };
 
   return (
@@ -364,7 +375,7 @@ function MissionControlPage() {
             }
           }
           setShowAdd(false);
-          await refresh();
+          await invalidateProjects();
         }}
       />
       <GroupsDialog
@@ -374,15 +385,15 @@ function MissionControlPage() {
         onClose={() => setShowGroups(false)}
         onAdd={async (name) => {
           await api.createGroup({ name });
-          await refresh();
+          await invalidateGroups();
         }}
         onRemove={async (id) => {
           await api.deleteGroup(id);
-          await refresh();
+          await Promise.all([invalidateGroups(), invalidateProjects()]);
         }}
         onRename={async (id, name) => {
           await api.updateGroup(id, { name });
-          await refresh();
+          await invalidateGroups();
         }}
       />
     </>

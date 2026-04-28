@@ -7,6 +7,9 @@ export const HOTKEY_ACTIONS = [
   "terminal.toggle",
   "terminal.close",
   "dialog.submit",
+  "file.finder",
+  "file.save",
+  "git.diff",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -29,4 +32,7 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "terminal.toggle": { label: "Toggle terminal panel", description: "Show or hide the bottom terminal panel." },
   "terminal.close": { label: "Close terminal", description: "Deselect / close the active terminal session." },
   "dialog.submit": { label: "Submit dialog", description: "Submit a dialog form (New agent, edit project, etc.)." },
+  "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },
+  "file.save": { label: "Save file", description: "Save the file currently open in the editor." },
+  "git.diff": { label: "Open git diff", description: "Open the git diff review view for the current project." },
 };
