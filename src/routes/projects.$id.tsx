@@ -137,7 +137,9 @@ function ProjectPage() {
   for (const t of visibleTasks) tasksByStatus[t.status].push(t);
 
   const selectedSet = new Set(
-    terminals.selected.filter((t) => t.project.id === project.id).map((t) => t.taskId)
+    terminals.selected
+      .filter((t) => t.project.id === project.id && t.visible)
+      .map((t) => t.taskId)
   );
 
   const toggleTerminal = (taskId: string) => {

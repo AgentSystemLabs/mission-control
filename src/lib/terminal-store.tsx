@@ -83,13 +83,13 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   };
 
   const toggle = useCallback((project: Project, task: Task, opts?: { startCommandOverride?: string }) => {
-    let toKill: string | null = null;
     let added = false;
     setSessions((prev) => {
       const existing = prev.find((p) => p.taskId === task.id);
       if (existing) {
-        toKill = existing.ptyId;
-        return prev.filter((p) => p.taskId !== task.id);
+        return prev.map((p) =>
+          p.taskId === task.id ? { ...p, visible: !p.visible } : p
+        );
       }
       added = true;
       const next: OpenTerminal = {
@@ -113,7 +113,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       }
       return arr;
     });
-    if (toKill) void killPty(toKill);
     if (added) setPanelCollapsed(false);
   }, [setPanelCollapsed]);
 
