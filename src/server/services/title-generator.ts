@@ -1,12 +1,10 @@
-import { spawn } from "node:child_process";
 import type { TaskAgent } from "~/db/schema";
 import { TITLE_GENERATING, TITLE_WAITING, isSentinelTitle } from "~/lib/task-sentinels";
+import { runCli } from "./claude-cli";
 import { getTask, updateTask } from "./tasks";
 
 const META_PROMPT =
   "Generate a concise 4-7 word title (no quotes, no trailing punctuation, plain text only) for the following task. Respond with the title and nothing else.\n\nTask:\n";
-
-const GENERATION_TIMEOUT_MS = 60_000;
 
 type PrintInvocation = { cmd: string; args: (input: string) => string[] } | null;
 
@@ -34,41 +32,6 @@ function sanitizeTitle(raw: string): string {
   t = words.join(" ");
   if (t.length > 80) t = t.slice(0, 80).trim();
   return t;
-}
-
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
-function runCli(cmd: string, args: string[], cwd?: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // Spawn through the user's login shell so claude/codex/cursor-agent
-    // resolve via the same PATH the rest of the app uses (see pty-manager).
-    const userShell = process.env.SHELL || "/bin/sh";
-    const line = [cmd, ...args].map(shellQuote).join(" ");
-    const child = spawn(userShell, ["-l", "-c", line], {
-      cwd,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let out = "";
-    let err = "";
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("timeout"));
-    }, GENERATION_TIMEOUT_MS);
-    child.stdout.on("data", (d) => (out += d.toString()));
-    child.stderr.on("data", (d) => (err += d.toString()));
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(out);
-      else reject(new Error(err.trim() || `exit ${code}`));
-    });
-  });
 }
 
 export async function generateTitleForTask(taskId: string, prompt: string): Promise<void> {
