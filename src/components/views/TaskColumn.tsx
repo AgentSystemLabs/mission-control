@@ -5,7 +5,7 @@ export function TaskColumn({
   title,
   color,
   tasks,
-  selectedSet,
+  activeId,
   onToggle,
   onArchive,
   onDelete,
@@ -13,7 +13,7 @@ export function TaskColumn({
   title: string;
   color: string;
   tasks: Task[];
-  selectedSet: Set<string>;
+  activeId: string | null;
   onToggle: (id: string) => void;
   onArchive: (id: string) => void;
   onDelete?: (id: string) => void;
@@ -65,7 +65,7 @@ export function TaskColumn({
           <TaskCard
             key={t.id}
             task={t}
-            selected={selectedSet.has(t.id)}
+            selected={activeId === t.id}
             onToggle={onToggle}
             onArchive={onArchive}
             onDelete={onDelete}

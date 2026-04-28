@@ -44,6 +44,9 @@ export type HotkeyOptions = {
   enabled?: boolean;
   ignoreEditable?: boolean;
   preventDefault?: boolean;
+  /** Listen in the capture phase — needed when a focused descendant (e.g. xterm)
+   *  swallows the event before it reaches the bubble-phase window listener. */
+  capture?: boolean;
 };
 
 export function useHotkey(
@@ -51,7 +54,12 @@ export function useHotkey(
   handler: (e: KeyboardEvent) => void,
   options: HotkeyOptions = {},
 ) {
-  const { enabled = true, ignoreEditable = false, preventDefault = true } = options;
+  const {
+    enabled = true,
+    ignoreEditable = false,
+    preventDefault = true,
+    capture = false,
+  } = options;
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
 
@@ -61,9 +69,12 @@ export function useHotkey(
       if (!matchHotkey(e, combo)) return;
       if (ignoreEditable && isEditableTarget(e.target)) return;
       if (preventDefault) e.preventDefault();
+      // In capture phase, stop propagation so descendants (xterm.js textarea)
+      // never see the key. Bubble-phase listeners stay non-intrusive.
+      if (capture) e.stopPropagation();
       handlerRef.current(e);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [combo, enabled, ignoreEditable, preventDefault]);
+    window.addEventListener("keydown", onKey, capture);
+    return () => window.removeEventListener("keydown", onKey, capture);
+  }, [combo, enabled, ignoreEditable, preventDefault, capture]);
 }
