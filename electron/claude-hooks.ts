@@ -15,16 +15,16 @@ const HOOK_CMD =
   '"$MC_API_URL/api/hooks/claude?taskId=$MC_TASK_ID" ' +
   ">/dev/null 2>&1 || true";
 
-// Events we care about. "Notification" covers the "Claude needs your input"
-// permission prompt case in current Claude Code; older builds also emit
-// "PermissionRequest" — registering both is harmless if one is unknown.
-const EVENTS = [
-  "UserPromptSubmit",
-  "Stop",
-  "SubagentStop",
-  "Notification",
-  "PermissionRequest",
+const HOOKS: Array<{ event: string; matcher?: string }> = [
+  { event: "UserPromptSubmit" },
+  { event: "Stop" },
+  // PermissionRequest is the precise "human approval required" signal.
+  // Notification also fires for idle reminders, so keep it narrowed to the
+  // permission notification type for Claude builds that rely on it.
+  { event: "PermissionRequest" },
+  { event: "Notification", matcher: "permission_prompt" },
 ];
+const LEGACY_EVENTS = ["SubagentStop"];
 
 type HookEntry = { type: "command"; command: string };
 type HookGroup = { matcher?: string; hooks: HookEntry[]; [MARKER]?: boolean };
@@ -33,9 +33,9 @@ type Settings = {
   [k: string]: unknown;
 };
 
-function buildManagedGroup(): HookGroup {
+function buildManagedGroup(matcher?: string): HookGroup {
   return {
-    matcher: "",
+    ...(matcher === undefined ? {} : { matcher }),
     hooks: [{ type: "command", command: HOOK_CMD }],
     [MARKER]: true,
   };
@@ -62,11 +62,18 @@ export function installClaudeHooks(cwd: string): void {
   }
 
   const hooks = (settings.hooks ??= {});
-  for (const event of EVENTS) {
+  for (const { event, matcher } of HOOKS) {
     const groups = (hooks[event] ??= []);
     const filtered = groups.filter((g) => !g[MARKER]);
-    filtered.push(buildManagedGroup());
+    filtered.push(buildManagedGroup(matcher));
     hooks[event] = filtered;
+  }
+  for (const event of LEGACY_EVENTS) {
+    const groups = hooks[event];
+    if (!groups) continue;
+    const filtered = groups.filter((g) => !g[MARKER]);
+    if (filtered.length) hooks[event] = filtered;
+    else delete hooks[event];
   }
 
   try {

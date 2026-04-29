@@ -11,14 +11,22 @@ process. We register hooks per project so each task reports its own state.
 A new task starts in `ready` (terminal spawned, prompt waiting). The first
 hook flips it.
 
-| Hook event          | Mapped status   | Meaning                                  |
-| ------------------- | --------------- | ---------------------------------------- |
-| _(spawn)_           | `ready`         | Terminal up, user hasn't typed yet       |
-| `UserPromptSubmit`  | `running`       | User just submitted a prompt; work began |
-| `Stop`              | `idle`          | Claude finished its turn                 |
-| `SubagentStop`      | `idle`          | Subagent finished (rolled up to idle)    |
-| `Notification`      | `needs-input`   | Permission / tool approval requested     |
-| `PermissionRequest` | `needs-input`   | (older builds) explicit permission gate  |
+| Hook event                         | Mapped status   | Meaning                                  |
+| ---------------------------------- | --------------- | ---------------------------------------- |
+| _(spawn)_                          | `ready`         | Terminal up, user hasn't typed yet       |
+| `UserPromptSubmit`                 | `running`       | User just submitted a prompt; work began |
+| `Stop`                             | `finished`      | Claude finished its turn                 |
+| `PermissionRequest`                | `needs-input`   | Permission / tool approval requested     |
+| `Notification` `permission_prompt` | `needs-input`   | Permission prompt notification fallback  |
+
+`SubagentStop` is intentionally ignored. It means a child agent finished, not
+that the top-level Claude turn is done. A top-level `Stop` follows when the
+whole turn is actually finished.
+
+`Notification` is also intentionally narrowed to `permission_prompt`. Claude
+Code also sends idle input reminders through the same hook event, so treating
+all notifications as `needs-input` creates false positives that later flip to
+`finished` when the real `Stop` event arrives.
 
 There is **no need for a custom MCP server** — hooks are the supported
 primitive for this. MCP would add work without giving us anything new.
@@ -52,8 +60,10 @@ sh -c 'curl -sS -m 3 -X POST \
 Claude pipes the hook payload (`hook_event_name`, `session_id`, `cwd`,
 `transcript_path`, …) on stdin; we forward it as the request body. The
 endpoint `POST /api/hooks/claude?taskId=<id>` (`src/server/api-router.ts`)
-maps `hook_event_name` to a `TaskStatus` and calls `updateStatus`, which
-emits the existing event bus so the UI updates live.
+maps the hook payload to a `TaskStatus` and calls `updateStatus`, which emits
+the existing event bus so the UI updates live. The endpoint also filters old
+or broad `Notification` hooks defensively, so already-running terminals do not
+turn idle reminders into `needs-input`.
 
 The hook is fail-soft (`|| true`) — if Mission Control is down or the
 endpoint is slow it never blocks the user's session.

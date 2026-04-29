@@ -299,9 +299,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       if (!auth.ok) return auth.response;
       const taskId = url.searchParams.get("taskId");
       if (!taskId) return jsonError(400, "taskId required");
-      const payload = await readJson<{ hook_event_name?: string; prompt?: string }>(request);
+      const payload = await readJson<{
+        hook_event_name?: string;
+        prompt?: string;
+        notification_type?: string;
+        message?: string;
+        title?: string;
+      }>(request);
       const event = payload?.hook_event_name || "";
-      const status = mapHookEventToStatus(event);
+      const status = mapHookEventToStatus(payload);
       if (!status) return json({ ok: true, ignored: event });
       const t = updateStatus(taskId, { status });
       if (!t) return jsonError(404, "task not found");
@@ -358,20 +364,37 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   }
 }
 
-function mapHookEventToStatus(event: string): import("~/db/schema").TaskStatus | null {
-  switch (event) {
+export function mapHookEventToStatus(payload: {
+  hook_event_name?: string;
+  notification_type?: string;
+  message?: string;
+  title?: string;
+}): import("~/db/schema").TaskStatus | null {
+  switch (payload.hook_event_name || "") {
     case "UserPromptSubmit":
       return "running";
     case "Stop":
-    case "SubagentStop":
     case "UserInterrupt":
       return "finished";
-    case "Notification":
     case "PermissionRequest":
       return "needs-input";
+    case "Notification":
+      return isPermissionNotification(payload) ? "needs-input" : null;
     default:
       return null;
   }
+}
+
+function isPermissionNotification(payload: {
+  notification_type?: string;
+  message?: string;
+  title?: string;
+}): boolean {
+  if (payload.notification_type) {
+    return payload.notification_type === "permission_prompt";
+  }
+  const text = `${payload.title ?? ""} ${payload.message ?? ""}`.toLowerCase();
+  return text.includes("permission");
 }
 
 async function readJson<T>(request: Request): Promise<T> {
