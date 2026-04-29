@@ -3,6 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { KbdAction } from "~/components/ui/Kbd";
 import { STATUS_META } from "~/lib/design-meta";
@@ -320,6 +321,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
                           }}
                         >
                           <ProjectIcon project={p} size={18} />
+                          <ProjectRunningDot running={p.taskCounts.running > 0} size={7} />
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {p.name}
                           </span>

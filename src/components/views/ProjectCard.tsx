@@ -1,5 +1,6 @@
 import { useCardGlow } from "~/lib/use-card-glow";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
@@ -79,6 +80,7 @@ export function ProjectCard({
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <ProjectIcon project={project} size={isCompact ? 30 : isSpacious ? 44 : 36} />
+          <ProjectRunningDot running={hasActivity} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
               <span

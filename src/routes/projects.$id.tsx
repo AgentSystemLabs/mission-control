@@ -5,13 +5,14 @@ import { z } from "zod";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
 import { FileEditorDialog } from "~/components/views/FileEditorDialog";
-import { LaunchButton } from "~/components/views/LaunchButton";
+import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { Kbd, KbdAction } from "~/components/ui/Kbd";
@@ -24,6 +25,7 @@ import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
+import { parseLaunchCommands } from "~/db/schema";
 import {
   groupsQueryOptions,
   projectQueryOptions,
@@ -103,6 +105,10 @@ function ProjectPage() {
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
+  const [showLaunchConfig, setShowLaunchConfig] = useState(false);
+  const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
 
   useEffect(() => {
     if (projectError) router.navigate({ to: "/" });
@@ -110,20 +116,49 @@ function ProjectPage() {
 
   const editProjectHotkey = useFormattedBinding("project.edit");
 
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  const [headerNarrow, setHeaderNarrow] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver(([entry]) => {
-      setHeaderNarrow(entry.contentRect.width < 720);
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
+    if (!overflowOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!overflowRef.current?.contains(e.target as Node)) setOverflowOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOverflowOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [overflowOpen]);
 
   const terminals = useTerminals();
-  const { setProject: setActiveUserTerminalProject } = useUserTerminals();
+  const {
+    setProject: setActiveUserTerminalProject,
+    createTerminal,
+    killTerminalsByStartCommand,
+    setPanelOpen,
+  } = useUserTerminals();
+
+  const runLaunch = useCallback(async () => {
+    setOverflowOpen(false);
+    if (launchCommands.length === 0) {
+      setShowLaunchEmpty(true);
+      return;
+    }
+    setLaunching(true);
+    try {
+      await killTerminalsByStartCommand(launchCommands.map((c) => c.command));
+      for (const c of launchCommands) {
+        await createTerminal({ name: c.name, startCommand: c.command });
+      }
+      setPanelOpen(true);
+    } finally {
+      setLaunching(false);
+    }
+  }, [launchCommands, killTerminalsByStartCommand, createTerminal, setPanelOpen]);
 
   useEffect(() => {
     if (project) setActiveUserTerminalProject(project);
@@ -348,7 +383,6 @@ function ProjectPage() {
       <div style={{ flex: 1, overflow: "auto", padding: "24px 32px 80px" }} className="dot-grid-bg">
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <div
-          ref={headerRef}
           style={{
             display: "flex",
             alignItems: "center",
@@ -358,85 +392,166 @@ function ProjectPage() {
             borderBottom: "1px solid var(--border)",
           }}
         >
-          <ProjectIcon project={project} size={52} />
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              overflow: "hidden",
-            }}
-          >
-            <h1
+          <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: 1 }}>
+            <button
+              onClick={() => setOverflowOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={overflowOpen}
+              title="Project actions"
               style={{
-                margin: 0,
-                fontSize: 22,
-                fontWeight: 600,
-                letterSpacing: "-0.015em",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "6px 10px 6px 6px",
+                background: "none",
+                border: "1px solid transparent",
+                borderRadius: 10,
+                cursor: "pointer",
+                color: "var(--text)",
+                maxWidth: "100%",
                 minWidth: 0,
+                transition: "background 0.12s, border-color 0.12s",
               }}
-              title={project.name}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--surface-2)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "none";
+                e.currentTarget.style.borderColor = "transparent";
+              }}
             >
-              {project.name}
-            </h1>
-            {project.pinned && (
-              <Icon
-                name="pin-fill"
-                size={13}
-                style={{ color: "var(--accent)", flexShrink: 0 }}
-              />
-            )}
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="folder"
-              onClick={() => window.electronAPI?.openPath(project.path)}
-              title={`Reveal in Finder — ${project.path}`}
-              aria-label="Reveal project folder in Finder"
-              style={{ flexShrink: 0 }}
-            />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            {gitStatus && gitStatus.changedCount > 0 && (
-              <Btn
-                variant="ghost"
-                icon="git-branch"
-                onClick={openDiffView}
-                title={`${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"} on ${gitStatus.branch} — review diffs`}
-                aria-label={`Review ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`}
+              <ProjectRunningDot running={project.taskCounts.running > 0} />
+              <ProjectIcon project={project} size={36} />
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  letterSpacing: "-0.015em",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 0,
+                }}
+                title={project.name}
               >
-                {gitStatus.changedCount} changed
-                <KbdAction action="git.diff" />
-              </Btn>
-            )}
-            <LaunchButton
-              project={project}
-              onProjectUpdated={refresh}
-              compact={headerNarrow}
-            />
-            {project.githubUrl && (
-              <Btn
-                variant="ghost"
-                icon="github"
-                onClick={() => window.open(project.githubUrl!, "_blank", "noreferrer")}
-                title="Open GitHub repo"
-                aria-label="Open GitHub repo"
-                style={{ width: 30, padding: 0 }}
+                {project.name}
+              </h1>
+              {project.pinned && (
+                <Icon
+                  name="pin-fill"
+                  size={13}
+                  style={{ color: "var(--accent)", flexShrink: 0 }}
+                />
+              )}
+              <Icon
+                name="chevron-down"
+                size={14}
+                style={{ color: "var(--text-dim)", flexShrink: 0 }}
               />
+            </button>
+            {overflowOpen && (
+              <div
+                role="menu"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: 0,
+                  minWidth: 220,
+                  padding: 4,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                  gap: 2,
+                  background: "var(--surface-3)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                  zIndex: 50,
+                }}
+              >
+                <Btn
+                  variant="ghost"
+                  icon="play"
+                  onClick={runLaunch}
+                  disabled={launching}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  {launching ? "Launching…" : "Launch"}
+                </Btn>
+                <Btn
+                  variant="ghost"
+                  icon="settings"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setShowLaunchConfig(true);
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  Configure launch commands
+                </Btn>
+                <div style={{ height: 1, background: "var(--border)", margin: "4px 2px" }} />
+                <Btn
+                  variant="ghost"
+                  icon="folder"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    window.electronAPI?.openPath(project.path);
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                  title={project.path}
+                >
+                  Reveal in Finder
+                </Btn>
+                {project.githubUrl && (
+                  <Btn
+                    variant="ghost"
+                    icon="github"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      window.open(project.githubUrl!, "_blank", "noreferrer");
+                    }}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    Open GitHub
+                  </Btn>
+                )}
+                <Btn
+                  variant="ghost"
+                  icon="settings"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setShowEdit(true);
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  Edit project
+                  <Kbd>{editProjectHotkey}</Kbd>
+                </Btn>
+              </div>
             )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <Btn
               variant="ghost"
-              icon="settings"
-              onClick={() => setShowEdit(true)}
-              title={`Edit project (${editProjectHotkey})`}
-              aria-label={`Edit project (${editProjectHotkey})`}
-              style={{ width: 30, padding: 0, marginRight: 4 }}
-            />
+              icon="git-branch"
+              onClick={openDiffView}
+              title={
+                gitStatus && gitStatus.changedCount > 0
+                  ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"} on ${gitStatus.branch} — review diffs`
+                  : `On branch ${gitStatus?.branch ?? project.branch ?? "main"} — review diffs`
+              }
+              aria-label="Review changed files"
+            >
+              {gitStatus?.branch ?? project.branch ?? "main"}
+              {gitStatus && gitStatus.changedCount > 0 && (
+                <span style={{ color: "var(--text-dim)" }}>
+                  · {gitStatus.changedCount} changed
+                </span>
+              )}
+              <KbdAction action="git.diff" />
+            </Btn>
             <NewAgentButton
               project={project}
               onPrimary={onNewAgentPrimary}
@@ -553,6 +668,45 @@ function ProjectPage() {
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           This only unlinks the project — the files at {project.path} are not touched.
         </div>
+      </Modal>
+
+      <LaunchCommandsDialog
+        open={showLaunchConfig}
+        project={project}
+        onClose={() => setShowLaunchConfig(false)}
+        onSave={async (next) => {
+          await api.updateProject(project.id, { launchCommands: next });
+          await refresh();
+        }}
+      />
+
+      <Modal
+        open={showLaunchEmpty}
+        onClose={() => setShowLaunchEmpty(false)}
+        title="No launch commands"
+        width={420}
+        footer={
+          <>
+            <Btn variant="ghost" onClick={() => setShowLaunchEmpty(false)}>
+              Close <Kbd variant="inline">Esc</Kbd>
+            </Btn>
+            <Btn
+              variant="primary"
+              icon="settings"
+              onClick={() => {
+                setShowLaunchEmpty(false);
+                setShowLaunchConfig(true);
+              }}
+            >
+              Configure
+            </Btn>
+          </>
+        }
+      >
+        <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.5 }}>
+          You haven't configured any launch commands for this project yet. Open the configuration
+          modal to add up to 5 commands that will run when you press Launch.
+        </p>
       </Modal>
 
       <Modal

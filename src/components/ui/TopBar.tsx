@@ -64,15 +64,28 @@ export function TopBar({
           <span
             style={{
               fontFamily: "var(--mono)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              letterSpacing: "0.02em",
+              fontSize: 13,
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "var(--text)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            Mission Control{" "}
-            <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>
-              (by <span style={{ color: "var(--accent)" }}>AgentSystem</span>)
-            </span>
+            <span>Mission</span>
+            <span
+              aria-hidden
+              style={{
+                width: 4,
+                height: 4,
+                borderRadius: "50%",
+                background: "#f59e0b",
+                boxShadow: "0 0 6px #f59e0b",
+              }}
+            />
+            <span style={{ color: "#f59e0b" }}>Control</span>
           </span>
         </div>
         {crumbs && crumbs.length > 0 && (
