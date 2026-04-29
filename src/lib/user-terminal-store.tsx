@@ -46,6 +46,15 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const [focusedByProject, setFocusedByProject] = useState<Record<string, string | null>>({});
   const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>({});
   const loadedProjectsRef = useRef<Set<string>>(new Set());
+  // Mirror of sessionsByProject. killTerminal reads this synchronously instead
+  // of via a setState updater, since React 18 skips eager-state evaluation
+  // when the fiber already has pending lanes (e.g. when the same click also
+  // triggered a focus setState first), making closure mutation inside the
+  // updater unreliable.
+  const sessionsByProjectRef = useRef<Record<string, Session[]>>({});
+  useEffect(() => {
+    sessionsByProjectRef.current = sessionsByProject;
+  }, [sessionsByProject]);
 
   const panelOpen = project ? (panelOpenByProject[project.id] ?? true) : false;
   const setPanelOpen = useCallback(
@@ -130,36 +139,40 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const killTerminal = useCallback(
     async (id: string) => {
       const electron = getElectron();
-      // Find which project owns this terminal so we can update the right bucket
-      // (the user might have already navigated away).
+      // Resolve owner + neighbor synchronously from the latest snapshot. Doing
+      // this inside a setState updater breaks when the fiber has pending lanes
+      // (the updater would run lazily, leaving the closure vars null).
+      const snapshot = sessionsByProjectRef.current;
       let ownerProjectId: string | null = null;
       let killedPtyId: string | null = null;
       let neighborId: string | null = null;
-      setSessionsByProject((prev) => {
-        const next = { ...prev };
-        for (const [pid, list] of Object.entries(prev)) {
-          const idx = list.findIndex((s) => s.terminal.id === id);
-          if (idx === -1) continue;
-          ownerProjectId = pid;
-          killedPtyId = list[idx]!.ptyId;
-          const filtered = list.filter((s) => s.terminal.id !== id);
-          if (filtered.length > 0) {
-            const pick = idx > 0 ? idx - 1 : 0;
-            neighborId = filtered[pick]!.terminal.id;
-          }
-          next[pid] = filtered;
-          break;
+      for (const [pid, list] of Object.entries(snapshot)) {
+        const idx = list.findIndex((s) => s.terminal.id === id);
+        if (idx === -1) continue;
+        ownerProjectId = pid;
+        killedPtyId = list[idx]!.ptyId;
+        const filtered = list.filter((s) => s.terminal.id !== id);
+        if (filtered.length > 0) {
+          const pick = idx > 0 ? idx - 1 : 0;
+          neighborId = filtered[pick]!.terminal.id;
         }
-        return next;
+        break;
+      }
+      if (!ownerProjectId) return;
+
+      setSessionsByProject((prev) => ({
+        ...prev,
+        [ownerProjectId!]: (prev[ownerProjectId!] ?? []).filter(
+          (s) => s.terminal.id !== id
+        ),
+      }));
+      setFocusedByProject((prev) => {
+        if (prev[ownerProjectId!] !== id) return prev;
+        return { ...prev, [ownerProjectId!]: neighborId };
       });
+
       if (killedPtyId && electron) {
         await electron.pty.kill(killedPtyId).catch(() => undefined);
-      }
-      if (ownerProjectId) {
-        setFocusedByProject((prev) => {
-          if (prev[ownerProjectId!] !== id) return prev;
-          return { ...prev, [ownerProjectId!]: neighborId };
-        });
       }
       try {
         await api.deleteUserTerminal(id);

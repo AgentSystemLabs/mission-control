@@ -207,9 +207,13 @@ export function UserTerminalPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminal.id]);
 
-  // Bring focus to the xterm when this pane becomes focused via cycling.
+  // Bring focus to the xterm when this pane becomes focused via cycling or
+  // after a sibling pane is closed. Defer to the next frame so the focus call
+  // lands after Chromium has finished settling focus from the unmounted pane.
   useEffect(() => {
-    if (focused) termRef.current?.focus();
+    if (!focused) return;
+    const raf = requestAnimationFrame(() => termRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
   }, [focused]);
 
   const commitRename = () => {
