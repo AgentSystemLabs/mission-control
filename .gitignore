@@ -1,7 +1,9 @@
 node_modules
 dist
 dist-electron
+dist-server
 .output
+.pnpm-store
 .vinxi
 .vite
 .DS_Store
