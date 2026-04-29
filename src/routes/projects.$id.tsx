@@ -108,6 +108,7 @@ function ProjectPage() {
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
 
   useEffect(() => {
@@ -140,7 +141,26 @@ function ProjectPage() {
     createTerminal,
     killTerminalsByStartCommand,
     setPanelOpen,
+    sessions: userTerminalSessions,
+    runningProjectIds,
   } = useUserTerminals();
+  const launchCommandSet = new Set(
+    launchCommands.map((c) => c.command.trim()).filter(Boolean)
+  );
+  const hasRunningLaunch = userTerminalSessions.some(
+    (s) => s.terminal.startCommand && launchCommandSet.has(s.terminal.startCommand.trim())
+  );
+
+  const stopLaunch = useCallback(async () => {
+    setOverflowOpen(false);
+    if (launchCommands.length === 0) return;
+    setStopping(true);
+    try {
+      await killTerminalsByStartCommand(launchCommands.map((c) => c.command));
+    } finally {
+      setStopping(false);
+    }
+  }, [launchCommands, killTerminalsByStartCommand]);
 
   const runLaunch = useCallback(async () => {
     setOverflowOpen(false);
@@ -218,6 +238,19 @@ function ProjectPage() {
     if (showNewAgent) return;
     setShowEdit((v) => !v);
   });
+
+  useHotkey(
+    "project.runToggle",
+    () => {
+      if (showNewAgent || showEdit || confirmRemove) return;
+      if (hasRunningLaunch) {
+        if (!stopping) void stopLaunch();
+      } else if (!launching) {
+        void runLaunch();
+      }
+    },
+    { ignoreEditable: true },
+  );
 
   useHotkey(
     "file.finder",
@@ -421,7 +454,7 @@ function ProjectPage() {
                 e.currentTarget.style.borderColor = "transparent";
               }}
             >
-              <ProjectRunningDot running={project.taskCounts.running > 0} />
+              <ProjectRunningDot running={project.taskCounts.running > 0 || runningProjectIds.has(project.id)} />
               <ProjectIcon project={project} size={36} />
               <h1
                 style={{
@@ -471,15 +504,29 @@ function ProjectPage() {
                   zIndex: 50,
                 }}
               >
-                <Btn
-                  variant="ghost"
-                  icon="play"
-                  onClick={runLaunch}
-                  disabled={launching}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  {launching ? "Launching…" : "Launch"}
-                </Btn>
+                {hasRunningLaunch ? (
+                  <Btn
+                    variant="ghost"
+                    icon="x"
+                    onClick={stopLaunch}
+                    disabled={stopping}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    {stopping ? "Stopping…" : "Stop"}
+                    <KbdAction action="project.runToggle" />
+                  </Btn>
+                ) : (
+                  <Btn
+                    variant="ghost"
+                    icon="play"
+                    onClick={runLaunch}
+                    disabled={launching}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    {launching ? "Launching…" : "Launch"}
+                    <KbdAction action="project.runToggle" />
+                  </Btn>
+                )}
                 <Btn
                   variant="ghost"
                   icon="settings"

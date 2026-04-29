@@ -17,6 +17,7 @@ export function ProjectRunningDot({
         background: running ? "#22c55e" : "var(--text-faint)",
         boxShadow: running ? "0 0 6px #22c55e88" : "none",
         transition: "background 0.15s, box-shadow 0.15s",
+        animation: running ? "pulse-dot 1.6s ease-in-out infinite" : "none",
       }}
     />
   );

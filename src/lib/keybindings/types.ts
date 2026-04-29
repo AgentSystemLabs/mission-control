@@ -10,6 +10,7 @@ export const HOTKEY_ACTIONS = [
   "file.finder",
   "file.save",
   "git.diff",
+  "project.runToggle",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -35,4 +36,5 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },
   "file.save": { label: "Save file", description: "Save the file currently open in the editor." },
   "git.diff": { label: "Open git diff", description: "Open the git diff review view for the current project." },
+  "project.runToggle": { label: "Run / Stop project", description: "Run the project's launch commands, or stop them if already running." },
 };

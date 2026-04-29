@@ -24,6 +24,7 @@ type Ctx = {
   togglePanel: () => void;
   setPanelOpen: (open: boolean) => void;
   sessions: Session[];
+  runningProjectIds: Set<string>;
   focusedId: string | null;
   focusTerminal: (id: string) => void;
   createTerminal: (opts?: { name?: string; startCommand?: string | null }) => Promise<UserTerminal | null>;
@@ -106,6 +107,13 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   }, [project]);
 
   const sessions = project ? (sessionsByProject[project.id] ?? []) : [];
+  const runningProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [pid, list] of Object.entries(sessionsByProject)) {
+      if (list.some((s) => s.ptyId)) ids.add(pid);
+    }
+    return ids;
+  }, [sessionsByProject]);
   const focusedId = project ? (focusedByProject[project.id] ?? null) : null;
 
   const updateSessions = useCallback(
@@ -262,6 +270,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       togglePanel,
       setPanelOpen,
       sessions,
+      runningProjectIds,
       focusedId,
       focusTerminal,
       createTerminal,
@@ -278,6 +287,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       panelOpen,
       togglePanel,
       sessions,
+      runningProjectIds,
       focusedId,
       focusTerminal,
       createTerminal,

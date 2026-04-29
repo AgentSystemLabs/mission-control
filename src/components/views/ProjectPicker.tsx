@@ -10,6 +10,7 @@ import { STATUS_META } from "~/lib/design-meta";
 import type { TaskStatus } from "~/db/schema";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
+import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys, useGroups, useProjects } from "~/queries";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
@@ -55,6 +56,7 @@ function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; siz
 export function ProjectPicker({ projectId }: { projectId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { runningProjectIds } = useUserTerminals();
   const [open, setOpen] = useState(false);
   const { data: projects } = useProjects();
   const { data: groups = [] } = useGroups();
@@ -321,7 +323,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
                           }}
                         >
                           <ProjectIcon project={p} size={18} />
-                          <ProjectRunningDot running={p.taskCounts.running > 0} size={7} />
+                          <ProjectRunningDot running={p.taskCounts.running > 0 || runningProjectIds.has(p.id)} size={7} />
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {p.name}
                           </span>

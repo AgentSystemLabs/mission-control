@@ -5,6 +5,7 @@ import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
 import { TASK_STATUSES } from "~/db/schema";
+import { useUserTerminals } from "~/lib/user-terminal-store";
 import type { ProjectWithCounts } from "~/server/services/projects";
 
 export type Density = "compact" | "regular" | "spacious";
@@ -21,7 +22,8 @@ export function ProjectCard({
   onTogglePin: (id: string) => void;
 }) {
   const counts = project.taskCounts;
-  const hasActivity = counts.running > 0;
+  const { runningProjectIds } = useUserTerminals();
+  const hasActivity = counts.running > 0 || runningProjectIds.has(project.id);
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
   const isCompact = density === "compact";
   const isSpacious = density === "spacious";
