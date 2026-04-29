@@ -34,6 +34,10 @@ export function getDb() {
   _db = drizzle(_sqlite, { schema });
   ensureSchema(_sqlite);
   runMigrations(_sqlite);
+  // Launch-spawned user terminals are session-only: their PTY died with the
+  // previous app process, so the persisted row would respawn the command on
+  // next visit and look like the run "survived" the restart. Drop them.
+  _sqlite.prepare("DELETE FROM user_terminals WHERE start_command IS NOT NULL").run();
   return _db;
 }
 
