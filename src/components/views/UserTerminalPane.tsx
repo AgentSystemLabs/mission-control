@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { getElectron } from "~/lib/electron";
-import { mapTerminalKey } from "~/lib/terminal-keymap";
+import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
 import type { UserTerminal } from "~/db/schema";
 
 export function UserTerminalPane({
@@ -107,9 +107,17 @@ export function UserTerminalPane({
       // Shift+Enter must insert a newline in Claude Code's prompt; xterm.js
       // otherwise emits plain CR. Send ESC+CR (the same sequence
       // `claude /terminal-setup` wires up for iTerm2/Terminal.app).
+      // preventDefault is required: returning false makes xterm.js bail
+      // before its own preventDefault, so the hidden textarea would also
+      // insert `\n` and xterm's input handler would write it to the PTY.
       term.attachCustomKeyEventHandler((e) => {
         const bytes = mapTerminalKey(e);
-        if (bytes === null) return true;
+        if (bytes === null) {
+          if (!shouldSuppressTerminalKey(e)) return true;
+          e.preventDefault();
+          return false;
+        }
+        e.preventDefault();
         if (activePtyId) electron.pty.write(activePtyId, bytes);
         return false;
       });

@@ -140,6 +140,7 @@ function send(getWin: () => BrowserWindow | null, channel: string, payload: any)
 }
 
 export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindow | null) {
+  ensureClaudeShiftEnterBinding();
   ipcMain.handle(
     "pty:spawn",
     (
@@ -165,7 +166,6 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       // starts a turn, finishes, or needs human input.
       if (opts.agent === "claude-code") {
         installClaudeHooks(opts.cwd);
-        ensureClaudeShiftEnterBinding();
       }
 
       const env = sanitizeEnv();

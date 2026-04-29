@@ -5,7 +5,7 @@
 export function mapTerminalKey(e: KeyboardEvent): string | null {
   if (e.type !== "keydown") return null;
 
-  if (e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+  if (isShiftEnter(e)) {
     return "\x1b\r";
   }
 
@@ -21,4 +21,15 @@ export function mapTerminalKey(e: KeyboardEvent): string | null {
   }
 
   return null;
+}
+
+// xterm.js calls the custom handler for keydown, keypress, and keyup. We write
+// custom bytes on keydown, then suppress the follow-up keypress so Chromium
+// cannot turn Shift+Enter into a plain Enter byte through the textarea path.
+export function shouldSuppressTerminalKey(e: KeyboardEvent): boolean {
+  return e.type === "keypress" && isShiftEnter(e);
+}
+
+function isShiftEnter(e: KeyboardEvent): boolean {
+  return e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
 }

@@ -8,7 +8,7 @@ import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
-import { mapTerminalKey } from "~/lib/terminal-keymap";
+import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { queryKeys, settingsQueryOptions } from "~/queries";
@@ -137,9 +137,17 @@ export function TerminalPane({
       // xterm.js otherwise emits plain CR for both Enter and Shift+Enter,
       // which Claude treats as submit. Send ESC+CR (alt-enter), the same
       // sequence `claude /terminal-setup` registers for iTerm2/Terminal.app.
+      // preventDefault is required: returning false makes xterm.js bail
+      // before its own preventDefault, so the hidden textarea would also
+      // insert `\n` and xterm's input handler would write it to the PTY.
       term.attachCustomKeyEventHandler((e) => {
         const bytes = mapTerminalKey(e);
-        if (bytes === null) return true;
+        if (bytes === null) {
+          if (!shouldSuppressTerminalKey(e)) return true;
+          e.preventDefault();
+          return false;
+        }
+        e.preventDefault();
         if (activePtyId) electron.pty.write(activePtyId, bytes);
         return false;
       });
