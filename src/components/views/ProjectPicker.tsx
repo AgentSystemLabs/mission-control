@@ -124,7 +124,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
       e.preventDefault();
       setOpen((o) => !o);
     },
-    { enabled: !!projectId, preventDefault: false },
+    { preventDefault: false },
   );
 
   // Reset state when opening; focus input.

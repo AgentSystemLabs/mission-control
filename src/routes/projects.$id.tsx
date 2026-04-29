@@ -71,6 +71,18 @@ export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
 });
 
+function MenuSeparator() {
+  return (
+    <div
+      style={{
+        height: 1,
+        background: "var(--border)",
+        margin: "4px 2px",
+      }}
+    />
+  );
+}
+
 function ProjectPage() {
   const { id } = Route.useParams();
   const search = Route.useSearch();
@@ -505,16 +517,19 @@ function ProjectPage() {
                 }}
               >
                 {hasRunningLaunch ? (
-                  <Btn
-                    variant="ghost"
-                    icon="x"
-                    onClick={stopLaunch}
-                    disabled={stopping}
-                    style={{ justifyContent: "flex-start" }}
-                  >
-                    {stopping ? "Stopping…" : "Stop launch"}
-                    <KbdAction action="project.runToggle" />
-                  </Btn>
+                  <>
+                    <Btn
+                      variant="ghost"
+                      icon="x"
+                      onClick={stopLaunch}
+                      disabled={stopping}
+                      style={{ justifyContent: "flex-start" }}
+                    >
+                      {stopping ? "Stopping…" : "Stop launch"}
+                      <KbdAction action="project.runToggle" />
+                    </Btn>
+                    <MenuSeparator />
+                  </>
                 ) : null}
                 <Btn
                   variant="ghost"
@@ -566,6 +581,7 @@ function ProjectPage() {
                   </span>
                   <KbdAction action="git.diff" />
                 </Btn>
+                <MenuSeparator />
                 <Btn
                   variant="ghost"
                   icon="play"
@@ -589,13 +605,7 @@ function ProjectPage() {
                   <span style={{ flex: 1, textAlign: "left" }}>Edit project</span>
                   <Kbd>{editProjectHotkey}</Kbd>
                 </Btn>
-                <div
-                  style={{
-                    height: 1,
-                    background: "var(--border)",
-                    margin: "4px 2px",
-                  }}
-                />
+                <MenuSeparator />
                 <Btn
                   variant="ghost"
                   icon="trash"

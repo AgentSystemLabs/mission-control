@@ -1,6 +1,7 @@
 import { useCardGlow } from "~/lib/use-card-glow";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
+import { Btn } from "~/components/ui/Btn";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
 import { ProjectStatusBadge } from "~/components/ui/ProjectStatusBadge";
@@ -114,116 +115,26 @@ export function ProjectCard({
               >
                 {project.name}
               </span>
-              {project.pinned && (
-                <Icon name="pin-fill" size={10} style={{ color: "var(--accent)", flexShrink: 0 }} />
-              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>
               <ProjectStatusBadge active={hasActivity} />
             </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                window.electronAPI?.openPath(project.path);
-              }}
-              title="Reveal in Finder"
-              aria-label={`Reveal ${project.path} in Finder`}
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--text-faint)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                cursor: "pointer",
-                background: "transparent",
-                border: 0,
-                padding: 0,
-                margin: 0,
-                textAlign: "left",
-                display: "block",
-                width: "100%",
-                pointerEvents: "auto",
-                position: "relative",
-                zIndex: 1,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--text-dim)";
-                e.currentTarget.style.textDecoration = "underline";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-faint)";
-                e.currentTarget.style.textDecoration = "none";
-              }}
-            >
-              {project.path}
-            </button>
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen();
-            }}
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              padding: "4px 8px",
-              cursor: "pointer",
-              color: "var(--text-dim)",
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              pointerEvents: "auto",
-              position: "relative",
-              zIndex: 1,
-            }}
-            title="Open project"
-          >
-            Open
-            <Icon name="chevron-right" size={11} />
-          </button>
-          <button
+          <Btn
+            size="sm"
+            variant={project.pinned ? "accent" : "ghost"}
+            icon={project.pinned ? "pin-fill" : "pin"}
             onClick={(e) => {
               e.stopPropagation();
               onTogglePin(project.id);
             }}
             aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
-            style={{
-              background: "transparent",
-              border: 0,
-              padding: 4,
-              cursor: "pointer",
-              color: project.pinned ? "var(--accent)" : "var(--text-faint)",
-              display: "flex",
-              pointerEvents: "auto",
-              position: "relative",
-              zIndex: 1,
-            }}
             title={project.pinned ? "Unpin" : "Pin"}
+            style={{ pointerEvents: "auto", position: "relative", zIndex: 1 }}
           >
-            <Icon name={project.pinned ? "pin-fill" : "pin"} size={12} />
-          </button>
+            {project.pinned ? "Pinned" : "Pin"}
+          </Btn>
         </div>
-
-        {!isCompact && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              color: "var(--text-dim)",
-            }}
-          >
-            <Icon name="git-branch" size={11} style={{ color: "var(--text-faint)" }} />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {project.branch}
-            </span>
-          </div>
-        )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           {TASK_STATUSES.map(
