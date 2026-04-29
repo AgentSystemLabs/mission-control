@@ -121,7 +121,6 @@ export const api = {
       body: JSON.stringify(body),
     }),
   deleteTask: (id: string) => req<void>(`/api/tasks/${id}`, { method: "DELETE" }),
-  listArchive: () => req<{ tasks: Task[] }>("/api/archive"),
 
   listUserTerminals: (projectId: string) =>
     req<{ terminals: UserTerminal[] }>(`/api/projects/${projectId}/user-terminals`),

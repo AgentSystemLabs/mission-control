@@ -8,7 +8,6 @@ import {
   restoreTask,
   updateTask,
   deleteTask,
-  listAllArchived,
   getTask,
 } from "./services/tasks";
 import {
@@ -261,10 +260,6 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         if (!ok) return jsonError(404, "not found");
         return new Response(null, { status: 204 });
       }
-    }
-
-    if (pathname === "/api/archive" && method === "GET") {
-      return json({ tasks: listAllArchived() });
     }
 
     if (pathname === "/api/settings") {

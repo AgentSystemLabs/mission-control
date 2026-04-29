@@ -73,11 +73,9 @@ function Shell() {
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const crumbs: Crumb[] = projectMatch
     ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} /> }]
-    : path === "/archive"
-      ? [{ label: "Archive" }]
-      : path.startsWith("/settings")
-        ? [{ label: "Settings" }]
-        : [{ label: "Project", node: <ProjectPicker /> }];
+    : path.startsWith("/settings")
+      ? [{ label: "Settings" }]
+      : [{ label: "Project", node: <ProjectPicker /> }];
 
   const goHome = () => router.navigate({ to: "/" });
 

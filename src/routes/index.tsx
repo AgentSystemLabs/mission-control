@@ -304,9 +304,6 @@ function MissionControlPage() {
               <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
                 Groups
               </Btn>
-              <Btn variant="ghost" icon="archive" onClick={() => router.navigate({ to: "/archive" })}>
-                Archive
-              </Btn>
               <Btn variant="primary" icon="plus" onClick={() => setShowAdd(true)}>
                 Add project
                 <KbdAction action="agent.new" variant="onPrimary" />

@@ -6,7 +6,6 @@ export const queryKeys = {
   project: (id: string) => ["projects", id] as const,
   groups: ["groups"] as const,
   tasks: (projectId: string) => ["projects", projectId, "tasks"] as const,
-  archive: ["archive"] as const,
   settings: ["settings"] as const,
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
@@ -37,12 +36,6 @@ export const tasksQueryOptions = (projectId: string) =>
     queryFn: async () => (await api.listTasks(projectId)).tasks,
   });
 
-export const archiveQueryOptions = () =>
-  queryOptions({
-    queryKey: queryKeys.archive,
-    queryFn: async () => (await api.listArchive()).tasks,
-  });
-
 export const settingsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.settings,
@@ -60,7 +53,6 @@ export const useProject = (id: string) => useQuery(projectQueryOptions(id));
 export const useGroups = () => useQuery(groupsQueryOptions());
 export const useTasks = (projectId: string) =>
   useQuery(tasksQueryOptions(projectId));
-export const useArchive = () => useQuery(archiveQueryOptions());
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useUserTerminalsQuery = (projectId: string) =>
   useQuery(userTerminalsQueryOptions(projectId));

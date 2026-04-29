@@ -138,15 +138,6 @@ export function deleteTask(id: string): boolean {
   return false;
 }
 
-export function listAllArchived(): Task[] {
-  return getDb()
-    .select()
-    .from(tasks)
-    .where(eq(tasks.archived, true))
-    .orderBy(desc(tasks.updatedAt))
-    .all();
-}
-
 const RING_LIMIT_BYTES = 1_000_000;
 
 export function appendTerminalLog(taskId: string, chunk: string) {
