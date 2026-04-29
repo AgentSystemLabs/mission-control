@@ -40,10 +40,10 @@ export const projects = sqliteTable(
 export const TASK_AGENTS = ["claude-code", "codex", "cursor-cli", "shell"] as const;
 export type TaskAgent = (typeof TASK_AGENTS)[number];
 
-export const TASK_STATUSES = ["ready", "running", "needs-input", "finished", "terminated"] as const;
+export const TASK_STATUSES = ["ready", "running", "needs-input", "finished", "terminated", "disconnected"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export const ACTIVE_STATUSES: readonly TaskStatus[] = ["ready", "running", "needs-input", "finished"];
+export const ACTIVE_STATUSES: readonly TaskStatus[] = ["ready", "running", "needs-input", "finished", "disconnected"];
 export const TERMINAL_STATUSES: readonly TaskStatus[] = ["terminated"];
 
 export const isActiveStatus = (s: TaskStatus) => ACTIVE_STATUSES.includes(s);
@@ -63,6 +63,8 @@ export const tasks = sqliteTable(
     preview: text("preview").notNull().default(""),
     lines: integer("lines").notNull().default(0),
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+    claudeSessionId: text("claude_session_id"),
+    claudeSkipPermissions: integer("claude_skip_permissions", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { getElectron } from "./electron";
 import { AGENT_META } from "./design-meta";
+import { buildClaudeCommand, newSessionId } from "./claude-command";
+import { api } from "./api";
 import type { Project, Task, TaskAgent } from "~/db/schema";
 
 export type OpenTerminal = {
@@ -19,7 +21,7 @@ type Ctx = {
   active: OpenTerminal | null;
   activeTaskId: string | null;
   /** Click a card: select if not active, deselect (hide panel) if already active. */
-  toggle: (project: Project, task: Task, opts?: { startCommandOverride?: string }) => void;
+  toggle: (project: Project, task: Task) => void;
   /** Deselect the active card and hide the panel without killing the PTY. */
   deselect: () => void;
   /** Permanently close one session and kill its PTY. */
@@ -39,6 +41,25 @@ function commandFor(agent: TaskAgent): string {
   return AGENT_META[agent].cmd;
 }
 
+/**
+ * Compute the start command for a task. For claude-code, embeds either
+ * --session-id (first launch) or --resume (subsequent launches) so the
+ * conversation survives app restarts. Side effect: generates and persists
+ * a session ID if one is missing on a claude-code task (defensive — task
+ * creation should have populated it).
+ */
+function commandForTask(task: Task): string {
+  if (task.agent !== "claude-code") return commandFor(task.agent);
+  const skip = !!task.claudeSkipPermissions;
+  const sessionId = task.claudeSessionId;
+  if (sessionId) {
+    return buildClaudeCommand({ kind: "resume", sessionId, skipPermissions: skip });
+  }
+  const fresh = newSessionId();
+  void api.updateTask(task.id, { claudeSessionId: fresh }).catch(() => undefined);
+  return buildClaudeCommand({ kind: "new", sessionId: fresh, skipPermissions: skip });
+}
+
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<OpenTerminal[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -51,13 +72,13 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   };
 
   const toggle = useCallback(
-    (project: Project, task: Task, opts?: { startCommandOverride?: string }) => {
+    (project: Project, task: Task) => {
       setSessions((prev) => {
         if (prev.some((p) => p.taskId === task.id)) return prev;
         const next: OpenTerminal = {
           taskId: task.id,
           ptyId: null,
-          startCommand: opts?.startCommandOverride ?? commandFor(task.agent),
+          startCommand: commandForTask(task),
           cwd: project.path,
           project,
           task,

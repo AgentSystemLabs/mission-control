@@ -16,6 +16,7 @@ export const STATUS_META: Record<
   "needs-input": { label: "Needs input", color: "var(--status-needs)", dot: true, shimmer: false },
   finished: { label: "Finished", color: "var(--status-done)", dot: true, shimmer: false },
   terminated: { label: "Terminated", color: "var(--status-idle)", dot: false, shimmer: false },
+  disconnected: { label: "Disconnected", color: "var(--status-idle)", dot: true, shimmer: false },
 };
 
 export const ICON_COLORS = ["#7ce58a", "#8ab4ff", "#c792ea", "#fbbf24", "#f472b6", "#34d399", "#fb923c"];

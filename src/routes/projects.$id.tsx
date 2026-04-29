@@ -19,6 +19,7 @@ import { useFormattedBinding } from "~/lib/keybindings/store";
 import { Modal } from "~/components/ui/Modal";
 import { useHotkey } from "~/lib/use-hotkey";
 import { api } from "~/lib/api";
+import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
@@ -138,17 +139,20 @@ function ProjectPage() {
   const startWithSaved = useCallback(async () => {
     if (!project || !apiToken) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
+    const isClaude = project.savedAgent === "claude-code";
     const created = await api.createTaskInternal(
       project.id,
-      { title: TITLE_WAITING, agent: project.savedAgent, branch: project.branch || "main" },
+      {
+        title: TITLE_WAITING,
+        agent: project.savedAgent,
+        branch: project.branch || "main",
+        claudeSessionId: isClaude ? newSessionId() : undefined,
+        claudeSkipPermissions: isClaude ? !!project.savedSkipPermissions : undefined,
+      },
       apiToken
     );
     await refresh();
-    const startCommandOverride =
-      project.savedAgent === "claude-code" && project.savedSkipPermissions
-        ? "claude --dangerously-skip-permissions"
-        : undefined;
-    terminals.toggle(project, created.task, { startCommandOverride });
+    terminals.toggle(project, created.task);
   }, [project, apiToken, refresh, terminals]);
 
   const onNewAgentPrimary = useCallback(() => {
@@ -295,18 +299,21 @@ function ProjectPage() {
     dangerouslySkipPermissions: boolean;
   }) => {
     if (!apiToken) return;
+    const isClaude = data.agent === "claude-code";
     const created = await api.createTaskInternal(
       project.id,
-      { title: data.title, agent: data.agent, branch: data.branch },
+      {
+        title: data.title,
+        agent: data.agent,
+        branch: data.branch,
+        claudeSessionId: isClaude ? newSessionId() : undefined,
+        claudeSkipPermissions: isClaude ? data.dangerouslySkipPermissions : undefined,
+      },
       apiToken
     );
     setShowNewAgent(false);
     await refresh();
-    const startCommandOverride =
-      data.agent === "claude-code" && data.dangerouslySkipPermissions
-        ? "claude --dangerously-skip-permissions"
-        : undefined;
-    terminals.toggle(project, created.task, { startCommandOverride });
+    terminals.toggle(project, created.task);
   };
 
   if (showDiffView) {

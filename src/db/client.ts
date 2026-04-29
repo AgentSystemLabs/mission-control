@@ -115,6 +115,8 @@ function ensureSchema(sqlite: Database.Database) {
       preview TEXT NOT NULL DEFAULT '',
       lines INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0,
+      claude_session_id TEXT,
+      claude_skip_permissions INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );

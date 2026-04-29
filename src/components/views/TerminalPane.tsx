@@ -10,6 +10,7 @@ import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey } from "~/lib/terminal-keymap";
 import { api } from "~/lib/api";
+import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { queryKeys, settingsQueryOptions } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 
@@ -143,6 +144,13 @@ export function TerminalPane({
         return false;
       });
 
+      // If a `claude --resume <uuid>` spawn dies almost immediately, the
+      // session file is gone or unreadable. Per the persistence design we
+      // start fresh under a NEW uuid instead of deleting the task card.
+      const RESUME_FAST_EXIT_MS = 3000;
+      let spawnAt = 0;
+      let spawnedAsResume = false;
+
       const wireToPty = (ptyId: string) => {
         activePtyId = ptyId;
         subscriptions.push(
@@ -150,19 +158,43 @@ export function TerminalPane({
             if (msg.ptyId === ptyId) term.write(msg.data);
           }),
           electron.pty.onExit((msg) => {
-            if (msg.ptyId === ptyId) {
+            if (msg.ptyId !== ptyId) return;
+            const elapsed = Date.now() - spawnAt;
+            if (
+              spawnedAsResume &&
+              task.agent === "claude-code" &&
+              elapsed < RESUME_FAST_EXIT_MS
+            ) {
               void (async () => {
+                const fresh = newSessionId();
                 try {
-                  await api.deleteTask(descriptor.taskId);
+                  await api.updateTask(descriptor.taskId, { claudeSessionId: fresh });
                 } catch {
-                  /* best effort */
+                  /* best effort — even if patch fails, spawn with fresh id */
                 }
-                await queryClient.invalidateQueries({
-                  queryKey: queryKeys.tasks(project.id),
+                term.writeln(
+                  `\x1b[33m[resume failed; starting a fresh Claude session]\x1b[0m`
+                );
+                const cmd = buildClaudeCommand({
+                  kind: "new",
+                  sessionId: fresh,
+                  skipPermissions: !!task.claudeSkipPermissions,
                 });
-                onClose();
+                await spawnAndWire(cmd, false);
               })();
+              return;
             }
+            void (async () => {
+              try {
+                await api.deleteTask(descriptor.taskId);
+              } catch {
+                /* best effort */
+              }
+              await queryClient.invalidateQueries({
+                queryKey: queryKeys.tasks(project.id),
+              });
+              onClose();
+            })();
           })
         );
         term.onData((data) => {
@@ -171,6 +203,24 @@ export function TerminalPane({
         term.onResize(({ cols, rows }) => {
           electron.pty.resize(ptyId, cols, rows);
         });
+      };
+
+      const spawnAndWire = async (command: string, isResume: boolean) => {
+        const mcEnv = await resolveMcEnv(electron, queryClient);
+        const { ptyId } = await electron.pty.spawn({
+          taskId: descriptor.taskId,
+          cwd: descriptor.cwd,
+          command,
+          cols: term.cols,
+          rows: term.rows,
+          agent: task.agent,
+          mcEnv,
+        });
+        spawnAt = Date.now();
+        spawnedAsResume = isResume;
+        onPtyReady(ptyId);
+        if (cancelled) return;
+        wireToPty(ptyId);
       };
 
       const ensurePty = async () => {
@@ -191,22 +241,10 @@ export function TerminalPane({
             return;
           }
 
-          const mcEnv = await resolveMcEnv(electron, queryClient);
-          const { ptyId } = await electron.pty.spawn({
-            taskId: descriptor.taskId,
-            cwd: descriptor.cwd,
-            command: descriptor.startCommand,
-            cols: term.cols,
-            rows: term.rows,
-            agent: task.agent,
-            mcEnv,
-          });
-          // Persist the ptyId even if the pane unmounted mid-spawn — the
-          // session lives on so a re-select can re-attach via replay. Killing
-          // here would silently drop the user's claude session.
-          onPtyReady(ptyId);
-          if (cancelled) return;
-          wireToPty(ptyId);
+          const isResume =
+            task.agent === "claude-code" &&
+            descriptor.startCommand.includes("--resume");
+          await spawnAndWire(descriptor.startCommand, isResume);
         } catch (err: any) {
           term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
         }

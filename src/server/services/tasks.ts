@@ -29,6 +29,8 @@ export function createTask(input: {
   branch?: string;
   status?: TaskStatus;
   preview?: string;
+  claudeSessionId?: string | null;
+  claudeSkipPermissions?: boolean;
 }): Task {
   if (!input.projectId) throw new Error("projectId required");
   if (!input.title?.trim()) throw new Error("title required");
@@ -46,6 +48,8 @@ export function createTask(input: {
     preview: input.preview ?? "",
     lines: 0,
     archived: false,
+    claudeSessionId: input.claudeSessionId ?? null,
+    claudeSkipPermissions: input.claudeSkipPermissions ?? false,
     createdAt: now,
     updatedAt: now,
   };
@@ -85,7 +89,7 @@ export function updateStatus(
 
 export function updateTask(
   id: string,
-  patch: Partial<Pick<Task, "title" | "branch">>
+  patch: Partial<Pick<Task, "title" | "branch" | "claudeSessionId" | "claudeSkipPermissions">>
 ): Task | null {
   const db = getDb();
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();

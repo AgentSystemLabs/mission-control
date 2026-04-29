@@ -79,11 +79,34 @@ export const api = {
       body: JSON.stringify(body),
       headers: { authorization: `Bearer ${token}` },
     }),
-  createTaskInternal: (projectId: string, body: { title: string; agent: string; branch?: string }, token: string) =>
+  createTaskInternal: (
+    projectId: string,
+    body: {
+      title: string;
+      agent: string;
+      branch?: string;
+      claudeSessionId?: string | null;
+      claudeSkipPermissions?: boolean;
+    },
+    token: string
+  ) =>
     req<{ task: Task }>(`/api/projects/${projectId}/tasks`, {
       method: "POST",
       body: JSON.stringify(body),
       headers: { authorization: `Bearer ${token}` },
+    }),
+  updateTask: (
+    id: string,
+    body: {
+      title?: string;
+      branch?: string;
+      claudeSessionId?: string | null;
+      claudeSkipPermissions?: boolean;
+    }
+  ) =>
+    req<{ task: Task }>(`/api/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
     }),
   deleteTask: (id: string) => req<void>(`/api/tasks/${id}`, { method: "DELETE" }),
   listArchive: () => req<{ tasks: Task[] }>("/api/archive"),
