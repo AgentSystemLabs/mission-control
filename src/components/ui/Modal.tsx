@@ -69,7 +69,7 @@ export function Modal({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 100,
+        zIndex: 9999,
         background: "rgba(0,0,0,0.55)",
         backdropFilter: "blur(4px)",
         display: "flex",
