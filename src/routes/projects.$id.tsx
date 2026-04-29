@@ -5,7 +5,6 @@ import { z } from "zod";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
@@ -18,6 +17,7 @@ import { CursorGlow } from "~/components/ui/CursorGlow";
 import { Kbd, KbdAction } from "~/components/ui/Kbd";
 import { useFormattedBinding } from "~/lib/keybindings/store";
 import { Modal } from "~/components/ui/Modal";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { api } from "~/lib/api";
 import { newSessionId } from "~/lib/claude-command";
@@ -214,7 +214,8 @@ function ProjectPage() {
         agent: project.savedAgent,
         branch: project.branch || "main",
         claudeSessionId: isClaude ? newSessionId() : undefined,
-        claudeSkipPermissions: isClaude ? !!project.savedSkipPermissions : undefined,
+        claudeSkipPermissions:
+          isClaude || project.savedAgent === "codex" ? !!project.savedSkipPermissions : undefined,
       },
       apiToken
     );
@@ -387,7 +388,8 @@ function ProjectPage() {
         agent: data.agent,
         branch: data.branch,
         claudeSessionId: isClaude ? newSessionId() : undefined,
-        claudeSkipPermissions: isClaude ? data.dangerouslySkipPermissions : undefined,
+        claudeSkipPermissions:
+          isClaude || data.agent === "codex" ? data.dangerouslySkipPermissions : undefined,
       },
       apiToken
     );
@@ -419,12 +421,12 @@ function ProjectPage() {
             display: "flex",
             alignItems: "center",
             gap: 12,
+            rowGap: 10,
+            flexWrap: "wrap",
             marginBottom: 24,
-            paddingBottom: 20,
-            borderBottom: "1px solid var(--border)",
           }}
         >
-          <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: 1 }}>
+          <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto" }}>
             <button
               onClick={() => setOverflowOpen((v) => !v)}
               aria-haspopup="menu"
@@ -453,8 +455,7 @@ function ProjectPage() {
                 e.currentTarget.style.borderColor = "transparent";
               }}
             >
-              <ProjectRunningDot running={hasRunningLaunch} />
-              <ProjectIcon project={project} size={36} />
+              <ProjectIcon project={project} size={32} />
               <h1
                 style={{
                   margin: 0,
@@ -542,6 +543,42 @@ function ProjectPage() {
                 )}
                 <Btn
                   variant="ghost"
+                  icon="git-branch"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    openDiffView();
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                  title={
+                    gitStatus && gitStatus.changedCount > 0
+                      ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"} on ${gitStatus.branch}`
+                      : `On branch ${gitStatus?.branch ?? project.branch ?? "main"}`
+                  }
+                >
+                  <span style={{ flex: 1, textAlign: "left" }}>
+                    {gitStatus?.branch ?? project.branch ?? "main"}
+                    {gitStatus && gitStatus.changedCount > 0 && (
+                      <span style={{ color: "var(--text-dim)" }}>
+                        {" · "}
+                        {gitStatus.changedCount} changed
+                      </span>
+                    )}
+                  </span>
+                  <KbdAction action="git.diff" />
+                </Btn>
+                <Btn
+                  variant="ghost"
+                  icon="play"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setShowLaunchConfig(true);
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  Configure launch commands
+                </Btn>
+                <Btn
+                  variant="ghost"
                   icon="settings"
                   onClick={() => {
                     setOverflowOpen(false);
@@ -549,141 +586,91 @@ function ProjectPage() {
                   }}
                   style={{ justifyContent: "flex-start" }}
                 >
-                  Edit project
+                  <span style={{ flex: 1, textAlign: "left" }}>Edit project</span>
                   <Kbd>{editProjectHotkey}</Kbd>
+                </Btn>
+                <div
+                  style={{
+                    height: 1,
+                    background: "var(--border)",
+                    margin: "4px 2px",
+                  }}
+                />
+                <Btn
+                  variant="ghost"
+                  icon="trash"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setConfirmRemove(true);
+                  }}
+                  style={{ justifyContent: "flex-start", color: "var(--danger)" }}
+                  title="Remove this project from Mission Control. The folder on disk is not touched."
+                >
+                  Remove project
                 </Btn>
               </div>
             )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "stretch",
-                border: "1px solid var(--accent)",
-                borderRadius: 7,
-                overflow: "hidden",
-                height: 30,
-                boxShadow: hasRunningLaunch ? "0 0 10px rgba(255, 90, 31, 0.32)" : "none",
-                animation: hasRunningLaunch ? "pulse-border 1.6s ease-in-out infinite" : "none",
-              }}
-            >
-              <button
-                type="button"
-                onClick={hasRunningLaunch ? stopLaunch : runLaunch}
-                disabled={hasRunningLaunch ? stopping : launching}
-                title={hasRunningLaunch ? "Stop launch" : "Run launch commands"}
-                aria-label={hasRunningLaunch ? "Stop launch" : "Run launch commands"}
-                style={{
-                  minWidth: 58,
-                  padding: "0 8px",
-                  border: 0,
-                  borderRight: "1px solid var(--border)",
-                  background: hasRunningLaunch ? "transparent" : "var(--accent)",
-                  color: hasRunningLaunch ? "var(--accent)" : "#0a0b0d",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 5,
-                  cursor: "pointer",
-                }}
-              >
-                <Icon name={hasRunningLaunch ? "x" : "play"} size={13} />
-                <KbdAction
-                  action="project.runToggle"
-                  variant={hasRunningLaunch ? "ghost" : "onPrimary"}
-                  style={{
-                    marginLeft: 0,
-                    borderColor: hasRunningLaunch ? "color-mix(in srgb, var(--accent) 45%, transparent)" : undefined,
-                    color: hasRunningLaunch ? "var(--accent)" : undefined,
-                    background: hasRunningLaunch ? "var(--accent-faint)" : undefined,
-                  }}
-                />
-              </button>
-              {hasRunningLaunch && project.launchUrl && (
-                <button
-                  type="button"
-                  onClick={() => window.electronAPI?.openExternal(project.launchUrl!)}
-                  title={`Open ${project.launchUrl}`}
-                  aria-label="Open running application"
-                  style={{
-                    width: 34,
-                    border: 0,
-                    borderRight: "1px solid var(--border)",
-                    background: "transparent",
-                    color: "var(--text-dim)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Icon name="globe" size={13} />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowLaunchConfig(true)}
-                title="Configure launch commands"
-                aria-label="Configure launch commands"
-                style={{
-                  width: 34,
-                  border: 0,
-                  background: "transparent",
-                  color: "var(--text-dim)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                }}
-              >
-                <Icon name="settings" size={13} />
-              </button>
-            </div>
-            <Btn
-              variant="ghost"
-              icon="git-branch"
-              onClick={openDiffView}
-              title={
-                gitStatus && gitStatus.changedCount > 0
-                  ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"} on ${gitStatus.branch} — review diffs`
-                  : `On branch ${gitStatus?.branch ?? project.branch ?? "main"} — review diffs`
-              }
-              aria-label="Review changed files"
-            >
-              {gitStatus?.branch ?? project.branch ?? "main"}
-              {gitStatus && gitStatus.changedCount > 0 && (
-                <span style={{ color: "var(--text-dim)" }}>
-                  · {gitStatus.changedCount} changed
-                </span>
-              )}
-              <KbdAction action="git.diff" />
-            </Btn>
-            <NewAgentButton
-              project={project}
-              onPrimary={onNewAgentPrimary}
-              onConfigure={() => setShowNewAgent(true)}
-            />
-          </div>
+          <RunStatusPill
+            running={hasRunningLaunch}
+            launching={launching}
+            stopping={stopping}
+            launchUrl={project.launchUrl ?? null}
+            onStart={runLaunch}
+            onOpenUrl={() =>
+              project.launchUrl && window.electronAPI?.openExternal(project.launchUrl)
+            }
+          />
+          <div style={{ flex: 1 }} />
+          <NewAgentButton
+            project={project}
+            onPrimary={onNewAgentPrimary}
+            onConfigure={() => setShowNewAgent(true)}
+          />
         </div>
 
         {visibleTasks.length > 0 && (
           <div
             style={{
               display: "flex",
-              justifyContent: "flex-end",
-              marginBottom: 20,
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              marginBottom: 16,
             }}
           >
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="trash"
-              onClick={() => setConfirmClearAll(true)}
-              title="Stop and remove all agents and terminals for this project"
-            >
-              Clear all
-            </Btn>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: "var(--text)",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                Sessions
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-dim)",
+                  lineHeight: 1.5,
+                }}
+              >
+                Create and manage sessions that can work on tasks autonomously
+                with Claude Code.
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Btn
+                variant="ghost"
+                icon="trash"
+                onClick={() => setConfirmClearAll(true)}
+                title="Stop and remove all sessions and terminals for this project"
+              >
+                Clear all
+              </Btn>
+            </div>
           </div>
         )}
 
@@ -703,7 +690,7 @@ function ProjectPage() {
           {visibleTasks.length === 0 && (
             <EmptyState
               title="No active tasks"
-              subtitle="Start a new agent to begin working on this project."
+              subtitle="Start a new session to begin working on this project."
               action={
                 <NewAgentButton
                   project={project}
@@ -753,21 +740,14 @@ function ProjectPage() {
         onClose={() => setOpenFileRel(null)}
       />
 
-      <Modal
+      <ConfirmDialog
         open={confirmRemove}
         onClose={() => setConfirmRemove(false)}
+        onConfirm={confirmRemoveProject}
         title="Remove project"
+        confirmLabel="Remove"
+        icon="trash"
         width={460}
-        footer={
-          <>
-            <Btn variant="ghost" onClick={() => setConfirmRemove(false)}>
-              Cancel <Kbd variant="inline">Esc</Kbd>
-            </Btn>
-            <Btn variant="danger" icon="trash" onClick={confirmRemoveProject}>
-              Remove
-            </Btn>
-          </>
-        }
       >
         <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
           Remove &ldquo;{project.name}&rdquo; from MissionControl?
@@ -775,7 +755,7 @@ function ProjectPage() {
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           This only unlinks the project — the files at {project.path} are not touched.
         </div>
-      </Modal>
+      </ConfirmDialog>
 
       <LaunchCommandsDialog
         open={showLaunchConfig}
@@ -816,30 +796,130 @@ function ProjectPage() {
         </p>
       </Modal>
 
-      <Modal
+      <ConfirmDialog
         open={confirmClearAll}
         onClose={() => setConfirmClearAll(false)}
-        title="Clear all agents"
+        onConfirm={clearAll}
+        title="Clear all sessions"
+        confirmLabel="Clear all"
+        icon="trash"
         width={460}
-        footer={
-          <>
-            <Btn variant="ghost" onClick={() => setConfirmClearAll(false)}>
-              Cancel <Kbd variant="inline">Esc</Kbd>
-            </Btn>
-            <Btn variant="danger" icon="trash" onClick={clearAll}>
-              Clear all
-            </Btn>
-          </>
-        }
       >
         <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Stop and remove every agent and terminal in &ldquo;{project.name}&rdquo;?
+          Stop and remove every session and terminal in &ldquo;{project.name}&rdquo;?
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          {visibleTasks.length} agent{visibleTasks.length === 1 ? "" : "s"} will be deleted and their terminals killed. This only affects this project.
+          {visibleTasks.length} session{visibleTasks.length === 1 ? "" : "s"} will be deleted and their terminals killed. This only affects this project.
         </div>
-      </Modal>
+      </ConfirmDialog>
       </div>
     </>
+  );
+}
+
+function RunStatusPill({
+  running,
+  launching,
+  stopping,
+  launchUrl,
+  onStart,
+  onOpenUrl,
+}: {
+  running: boolean;
+  launching: boolean;
+  stopping: boolean;
+  launchUrl: string | null;
+  onStart: () => void;
+  onOpenUrl: () => void;
+}) {
+  const busy = launching || stopping;
+  const label = stopping
+    ? "Stopping…"
+    : launching
+      ? "Starting…"
+      : running
+        ? "Running"
+        : "Offline";
+
+  const interactive = !busy && (running ? !!launchUrl : true);
+  const onClick = busy
+    ? undefined
+    : running
+      ? launchUrl
+        ? onOpenUrl
+        : undefined
+      : onStart;
+
+  const title = busy
+    ? label
+    : running
+      ? launchUrl
+        ? `Open ${launchUrl}`
+        : "Running"
+      : "Run launch commands";
+
+  const tone = running || launching ? "active" : "idle";
+  const dotColor = tone === "active" ? "var(--accent)" : "var(--text-faint)";
+  const borderColor = tone === "active" ? "var(--accent-border)" : "var(--border)";
+  const background = tone === "active" ? "var(--accent-faint)" : "var(--surface-0)";
+  const fg = tone === "active" ? "var(--accent)" : "var(--text-dim)";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!interactive}
+      title={title}
+      aria-label={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        height: 28,
+        padding: "0 12px",
+        borderRadius: 999,
+        border: `1px solid ${borderColor}`,
+        background,
+        color: fg,
+        fontFamily: "var(--mono)",
+        fontSize: 11.5,
+        fontWeight: 600,
+        cursor: interactive ? "pointer" : "default",
+        opacity: busy ? 0.7 : 1,
+        transition: "background 0.12s, border-color 0.12s, color 0.12s",
+        boxShadow: running ? "0 0 8px var(--accent-glow)" : "none",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: dotColor,
+          boxShadow: running ? "0 0 6px var(--accent-glow)" : "none",
+          animation: launching || stopping ? "pulse-border 1.4s ease-in-out infinite" : "none",
+        }}
+      />
+      <span>{label}</span>
+      {running && launchUrl && (
+        <>
+          <span style={{ color: "var(--text-faint)" }}>·</span>
+          <span
+            style={{
+              color: "var(--text-dim)",
+              maxWidth: 200,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {launchUrl.replace(/^https?:\/\//, "")}
+          </span>
+          <Icon name="globe" size={12} style={{ color: "var(--text-faint)" }} />
+        </>
+      )}
+      <KbdAction action="project.runToggle" />
+    </button>
   );
 }
