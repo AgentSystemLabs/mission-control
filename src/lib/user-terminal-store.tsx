@@ -46,7 +46,26 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   // the user navigates away and back.
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
   const [focusedByProject, setFocusedByProject] = useState<Record<string, string | null>>({});
-  const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>({});
+  const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("mc.userTerminalPanelOpen");
+      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        "mc.userTerminalPanelOpen",
+        JSON.stringify(panelOpenByProject)
+      );
+    } catch {
+      /* quota or disabled */
+    }
+  }, [panelOpenByProject]);
   const loadedProjectsRef = useRef<Set<string>>(new Set());
   // Mirror of sessionsByProject. killTerminal reads this synchronously instead
   // of via a setState updater, since React 18 skips eager-state evaluation
