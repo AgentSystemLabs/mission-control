@@ -1,5 +1,19 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "./Icon";
+
+const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+
+function useTrafficLightPad() {
+  const [pad, setPad] = useState(isMac ? 60 : 0);
+  useEffect(() => {
+    if (!isMac) return;
+    const api = (window as any).electronAPI;
+    if (!api?.onFullScreenChange) return;
+    api.isFullScreen?.().then((fs: boolean) => setPad(fs ? 0 : 60));
+    return api.onFullScreenChange((fs: boolean) => setPad(fs ? 0 : 60));
+  }, []);
+  return pad;
+}
 
 export type Crumb = { label: string; onClick?: () => void; node?: ReactNode };
 
@@ -12,6 +26,7 @@ export function TopBar({
   right?: ReactNode;
   onHome?: () => void;
 }) {
+  const trafficLightPad = useTrafficLightPad();
   return (
     <div
       style={{
@@ -33,7 +48,8 @@ export function TopBar({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          paddingLeft: 60, // room for macOS traffic lights
+          paddingLeft: trafficLightPad,
+          transition: "padding-left 150ms ease",
           ["WebkitAppRegion" as any]: "no-drag",
         }}
       >

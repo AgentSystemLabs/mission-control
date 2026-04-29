@@ -53,6 +53,12 @@ const electronAPI = {
     ipcRenderer.on("app:swipe", listener);
     return () => ipcRenderer.removeListener("app:swipe", listener);
   },
+  isFullScreen: (): Promise<boolean> => ipcRenderer.invoke("app:isFullScreen"),
+  onFullScreenChange: (cb: (isFullScreen: boolean) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, isFullScreen: boolean) => cb(isFullScreen);
+    ipcRenderer.on("app:fullscreen-change", listener);
+    return () => ipcRenderer.removeListener("app:fullscreen-change", listener);
+  },
   onCloseIntent: (cb: () => void) => {
     const listener = () => cb();
     ipcRenderer.on("app:close-intent", listener);

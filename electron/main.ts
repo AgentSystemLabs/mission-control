@@ -133,6 +133,10 @@ async function createWindow() {
   win.on("swipe", (_e, direction) => {
     win?.webContents.send("app:swipe", direction);
   });
+
+  win.on("enter-full-screen", () => win?.webContents.send("app:fullscreen-change", true));
+  win.on("leave-full-screen", () => win?.webContents.send("app:fullscreen-change", false));
+  ipcMain.handle("app:isFullScreen", () => win?.isFullScreen() ?? false);
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
