@@ -3,16 +3,19 @@ import { matchBinding } from "~/lib/keybindings/match";
 import { useKeybindings } from "~/lib/keybindings/store";
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 
-export type HotkeyTarget = HotkeyAction | "enter" | "escape";
+export type HotkeyTarget = HotkeyAction | "enter" | "mod+enter" | "escape";
 
 function isAction(t: HotkeyTarget): t is HotkeyAction {
   return (HOTKEY_ACTIONS as readonly string[]).includes(t);
 }
 
-function matchLiteral(e: KeyboardEvent, t: "enter" | "escape"): boolean {
+function matchLiteral(e: KeyboardEvent, t: "enter" | "mod+enter" | "escape"): boolean {
   if (t === "enter") {
     const mod = e.metaKey || e.ctrlKey;
     return !mod && !e.shiftKey && !e.altKey && e.key === "Enter";
+  }
+  if (t === "mod+enter") {
+    return (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "Enter";
   }
   return e.key === "Escape";
 }
