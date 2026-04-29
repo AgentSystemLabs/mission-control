@@ -5,6 +5,8 @@ const electronAPI = {
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke("dialog:browseFolder"),
   openPath: (path: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke("shell:openPath", path),
+  openExternal: (url: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke("shell:openExternal", url),
   pickImage: (): Promise<
     { sourcePath: string; extension: string } | { error: string } | null
   > => ipcRenderer.invoke("dialog:pickImage"),

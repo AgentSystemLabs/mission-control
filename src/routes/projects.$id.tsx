@@ -142,7 +142,6 @@ function ProjectPage() {
     killTerminalsByStartCommand,
     setPanelOpen,
     sessions: userTerminalSessions,
-    runningProjectIds,
   } = useUserTerminals();
   const launchCommandSet = new Set(
     launchCommands.map((c) => c.command.trim()).filter(Boolean)
@@ -454,7 +453,7 @@ function ProjectPage() {
                 e.currentTarget.style.borderColor = "transparent";
               }}
             >
-              <ProjectRunningDot running={project.taskCounts.running > 0 || runningProjectIds.has(project.id)} />
+              <ProjectRunningDot running={hasRunningLaunch} />
               <ProjectIcon project={project} size={36} />
               <h1
                 style={{
@@ -512,33 +511,10 @@ function ProjectPage() {
                     disabled={stopping}
                     style={{ justifyContent: "flex-start" }}
                   >
-                    {stopping ? "Stopping…" : "Stop"}
+                    {stopping ? "Stopping…" : "Stop launch"}
                     <KbdAction action="project.runToggle" />
                   </Btn>
-                ) : (
-                  <Btn
-                    variant="ghost"
-                    icon="play"
-                    onClick={runLaunch}
-                    disabled={launching}
-                    style={{ justifyContent: "flex-start" }}
-                  >
-                    {launching ? "Launching…" : "Launch"}
-                    <KbdAction action="project.runToggle" />
-                  </Btn>
-                )}
-                <Btn
-                  variant="ghost"
-                  icon="settings"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    setShowLaunchConfig(true);
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  Configure launch commands
-                </Btn>
-                <div style={{ height: 1, background: "var(--border)", margin: "4px 2px" }} />
+                ) : null}
                 <Btn
                   variant="ghost"
                   icon="folder"
@@ -580,6 +556,90 @@ function ProjectPage() {
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "stretch",
+                border: "1px solid var(--accent)",
+                borderRadius: 7,
+                overflow: "hidden",
+                height: 30,
+                boxShadow: hasRunningLaunch ? "0 0 10px rgba(255, 90, 31, 0.32)" : "none",
+                animation: hasRunningLaunch ? "pulse-border 1.6s ease-in-out infinite" : "none",
+              }}
+            >
+              <button
+                type="button"
+                onClick={hasRunningLaunch ? stopLaunch : runLaunch}
+                disabled={hasRunningLaunch ? stopping : launching}
+                title={hasRunningLaunch ? "Stop launch" : "Run launch commands"}
+                aria-label={hasRunningLaunch ? "Stop launch" : "Run launch commands"}
+                style={{
+                  minWidth: 58,
+                  padding: "0 8px",
+                  border: 0,
+                  borderRight: "1px solid var(--border)",
+                  background: hasRunningLaunch ? "transparent" : "var(--accent)",
+                  color: hasRunningLaunch ? "var(--accent)" : "#0a0b0d",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name={hasRunningLaunch ? "x" : "play"} size={13} />
+                <KbdAction
+                  action="project.runToggle"
+                  variant={hasRunningLaunch ? "ghost" : "onPrimary"}
+                  style={{
+                    marginLeft: 0,
+                    borderColor: hasRunningLaunch ? "color-mix(in srgb, var(--accent) 45%, transparent)" : undefined,
+                    color: hasRunningLaunch ? "var(--accent)" : undefined,
+                    background: hasRunningLaunch ? "var(--accent-faint)" : undefined,
+                  }}
+                />
+              </button>
+              {hasRunningLaunch && project.launchUrl && (
+                <button
+                  type="button"
+                  onClick={() => window.electronAPI?.openExternal(project.launchUrl!)}
+                  title={`Open ${project.launchUrl}`}
+                  aria-label="Open running application"
+                  style={{
+                    width: 34,
+                    border: 0,
+                    borderRight: "1px solid var(--border)",
+                    background: "transparent",
+                    color: "var(--text-dim)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon name="globe" size={13} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowLaunchConfig(true)}
+                title="Configure launch commands"
+                aria-label="Configure launch commands"
+                style={{
+                  width: 34,
+                  border: 0,
+                  background: "transparent",
+                  color: "var(--text-dim)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name="settings" size={13} />
+              </button>
+            </div>
             <Btn
               variant="ghost"
               icon="git-branch"

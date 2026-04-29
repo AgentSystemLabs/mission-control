@@ -261,6 +261,12 @@ ipcMain.handle("shell:openPath", async (_evt, p: string) => {
   return { ok: true };
 });
 
+ipcMain.handle("shell:openExternal", async (_evt, url: string) => {
+  if (!url) return { ok: false, error: "empty" };
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
 ipcMain.handle("app:getRuntimePort", () => runtimePort);
 ipcMain.handle("app:getUserDataDir", () => app.getPath("userData"));
 

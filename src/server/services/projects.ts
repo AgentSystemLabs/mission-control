@@ -112,12 +112,13 @@ export function createProject(input: {
     name,
     path: input.path,
     icon: (input.icon || name.slice(0, 2)).toUpperCase().slice(0, 2),
-    iconColor: input.iconColor || "#7ce58a",
+    iconColor: input.iconColor || "#ff5a1f",
     imagePath: null,
     groupId: input.groupId ?? null,
     pinned: false,
     branch,
     launchCommands: null,
+    launchUrl: null,
     rememberAgentSettings: false,
     savedAgent: null,
     savedSkipPermissions: false,
@@ -142,6 +143,7 @@ export function updateProject(
       | "groupId"
       | "pinned"
       | "branch"
+      | "launchUrl"
       | "rememberAgentSettings"
       | "savedAgent"
       | "savedSkipPermissions"

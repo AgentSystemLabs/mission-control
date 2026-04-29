@@ -21,6 +21,7 @@ export const projects = sqliteTable(
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     branch: text("branch").notNull().default("main"),
     launchCommands: text("launch_commands"),
+    launchUrl: text("launch_url"),
     rememberAgentSettings: integer("remember_agent_settings", { mode: "boolean" })
       .notNull()
       .default(false),

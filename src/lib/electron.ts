@@ -4,6 +4,7 @@ export type ElectronBridge = {
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;
   openPath: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  openExternal: (url: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   pickImage: () => Promise<
     { sourcePath: string; extension: string } | { error: string } | null
   >;

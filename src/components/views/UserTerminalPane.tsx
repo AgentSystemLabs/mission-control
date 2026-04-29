@@ -11,6 +11,7 @@ export function UserTerminalPane({
   focused,
   onFocus,
   onPtyReady,
+  onLaunchUrlDetected,
   onKill,
   onRename,
   isLast,
@@ -21,6 +22,7 @@ export function UserTerminalPane({
   focused: boolean;
   onFocus: () => void;
   onPtyReady: (ptyId: string) => void;
+  onLaunchUrlDetected?: (url: string) => void;
   onKill: () => void;
   onRename: (name: string) => void;
   isLast: boolean;
@@ -59,7 +61,7 @@ export function UserTerminalPane({
         theme: {
           background: "#050607",
           foreground: "#e8e6df",
-          cursor: "#7ce58a",
+          cursor: "#ff5a1f",
           black: "#0a0b0d",
           brightBlack: "#22262c",
           white: "#e8e6df",
@@ -73,6 +75,30 @@ export function UserTerminalPane({
       term.open(containerRef.current);
       termRef.current = { focus: () => term.focus() };
       term.focus();
+      term.registerLinkProvider({
+        provideLinks(y, callback) {
+          const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
+          const links: any[] = [];
+          const regex = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/[^\s'"<>)\]]*)?/g;
+          let match: RegExpExecArray | null;
+          while ((match = regex.exec(line)) !== null) {
+            const text = match[0]!;
+            links.push({
+              text,
+              range: {
+                start: { x: match.index + 1, y: 1 },
+                end: { x: match.index + text.length, y: 1 },
+              },
+              activate(event: MouseEvent, uri: string) {
+                if (event.metaKey || event.ctrlKey) {
+                  void electron.openExternal(uri);
+                }
+              },
+            });
+          }
+          callback(links);
+        },
+      });
       const onFocusIn = () => onFocus();
       const focusEl = containerRef.current;
       focusEl.addEventListener("focusin", onFocusIn);
@@ -124,9 +150,27 @@ export function UserTerminalPane({
 
       const wireToPty = (id: string) => {
         activePtyId = id;
+        const seenLaunchUrls = new Set<string>();
+        const detectLaunchUrl = (data: string) => {
+          if (!terminal.startCommand || !onLaunchUrlDetected) return;
+          const cleaned = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+          const matches = cleaned.matchAll(
+            /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?(?:\/[^\s'"<>)\]]*)?/g
+          );
+          for (const match of matches) {
+            const url = match[0]!;
+            if (seenLaunchUrls.has(url)) continue;
+            seenLaunchUrls.add(url);
+            onLaunchUrlDetected(url);
+            return;
+          }
+        };
         subscriptions.push(
           electron.pty.onData((msg) => {
-            if (msg.ptyId === id) term.write(msg.data);
+            if (msg.ptyId === id) {
+              term.write(msg.data);
+              detectLaunchUrl(msg.data);
+            }
           }),
           electron.pty.onExit((msg) => {
             if (msg.ptyId === id) {

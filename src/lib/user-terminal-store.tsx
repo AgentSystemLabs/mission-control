@@ -31,6 +31,7 @@ type Ctx = {
   killTerminalsByStartCommand: (commands: string[]) => Promise<void>;
   killTerminal: (id: string) => Promise<void>;
   renameTerminal: (id: string, name: string) => Promise<void>;
+  updateLaunchUrl: (url: string) => Promise<void>;
   setPtyId: (terminalId: string, ptyId: string) => void;
   cycleNext: () => void;
   cyclePrev: () => void;
@@ -211,6 +212,23 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const updateLaunchUrl = useCallback(
+    async (url: string) => {
+      if (!project) return;
+      const normalized = url.replace(/\[::1\]/, "localhost");
+      if (project.launchUrl === normalized) return;
+      setProjectState((prev) =>
+        prev?.id === project.id ? { ...prev, launchUrl: normalized, updatedAt: Date.now() } : prev
+      );
+      try {
+        await api.updateProjectLaunchUrl(project.id, normalized);
+      } catch {
+        /* swallow */
+      }
+    },
+    [project]
+  );
+
   const setPtyId = useCallback((terminalId: string, ptyId: string) => {
     setSessionsByProject((prev) => {
       const next = { ...prev };
@@ -277,6 +295,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       killTerminal,
       killTerminalsByStartCommand,
       renameTerminal,
+      updateLaunchUrl,
       setPtyId,
       cycleNext,
       cyclePrev,
@@ -294,6 +313,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       killTerminal,
       killTerminalsByStartCommand,
       renameTerminal,
+      updateLaunchUrl,
       setPtyId,
       cycleNext,
       cyclePrev,
