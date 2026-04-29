@@ -72,13 +72,13 @@ export function TaskCard({
       }}
       style={{
         background: selected ? "var(--surface-2)" : "var(--surface-1)",
-        border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+        border: `1px solid ${selected ? statusMeta.color : "var(--border)"}`,
         borderRadius: 10,
         overflow: "hidden",
         cursor: "pointer",
         transition: "all 0.15s",
         position: "relative",
-        boxShadow: selected ? "0 0 0 1px var(--accent), 0 0 16px var(--accent-faint)" : "none",
+        boxShadow: selected ? `0 0 0 1px ${statusMeta.color}, 0 0 16px ${statusMeta.color}33` : "none",
       }}
       onMouseEnter={(e) => {
         setHovered(true);
