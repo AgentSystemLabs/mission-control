@@ -34,6 +34,11 @@ export function getDb() {
   _db = drizzle(_sqlite, { schema });
   ensureSchema(_sqlite);
   runMigrations(_sqlite);
+  // PTYs are owned by the Electron process and are not restored across app
+  // restarts. Any task left as running after a restart is stale.
+  _sqlite
+    .prepare("UPDATE tasks SET status = 'disconnected', updated_at = ? WHERE status = 'running'")
+    .run(Date.now());
   // Launch-spawned user terminals are session-only: their PTY died with the
   // previous app process, so the persisted row would respawn the command on
   // next visit and look like the run "survived" the restart. Drop them.
