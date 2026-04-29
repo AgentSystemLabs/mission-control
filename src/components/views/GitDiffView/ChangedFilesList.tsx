@@ -1,5 +1,6 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Icon } from "~/components/ui/Icon";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import type { GitChangedFile, GitFileStatus } from "~/server/services/git";
 
 const ADD = "#6cd07e";
@@ -28,6 +29,7 @@ export function ChangedFilesList({
   onUnstage,
   onStageAll,
   onUnstageAll,
+  onDeleteFile,
   busyPaths,
 }: {
   staged: GitChangedFile[];
@@ -38,8 +40,36 @@ export function ChangedFilesList({
   onUnstage: (paths: string[]) => void;
   onStageAll: () => void;
   onUnstageAll: () => void;
+  onDeleteFile: (path: string) => void;
   busyPaths: Set<string>;
 }) {
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(
+    null,
+  );
+  const [confirmPath, setConfirmPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
+  const openMenu = (e: React.MouseEvent, path: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, path });
+  };
+
   return (
     <div
       style={{
@@ -74,6 +104,7 @@ export function ChangedFilesList({
                 isBusy={busyPaths.has(f.path)}
                 onSelect={() => onSelect({ path: f.path, staged: true })}
                 onAction={() => onUnstage([f.path])}
+                onContextMenu={(e) => openMenu(e, f.path)}
               />
             ))
           )}
@@ -99,11 +130,86 @@ export function ChangedFilesList({
                 isBusy={busyPaths.has(f.path)}
                 onSelect={() => onSelect({ path: f.path, staged: false })}
                 onAction={() => onStage([f.path])}
+                onContextMenu={(e) => openMenu(e, f.path)}
               />
             ))
           )}
         </Section>
       </div>
+      {menu && (
+        <div
+          role="menu"
+          aria-label="File actions"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: menu.y,
+            left: menu.x,
+            zIndex: 1000,
+            background: "var(--surface-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: 4,
+            minWidth: 140,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            autoFocus
+            onClick={(e) => {
+              e.stopPropagation();
+              const p = menu.path;
+              setMenu(null);
+              setConfirmPath(p);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              padding: "7px 10px",
+              background: "transparent",
+              border: 0,
+              borderRadius: 4,
+              cursor: "pointer",
+              color: "var(--status-failed, #e06c75)",
+              fontSize: 12,
+              fontFamily: "var(--mono)",
+              textAlign: "left",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "var(--surface-3)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
+          >
+            <Icon name="trash" size={12} /> Delete
+          </button>
+        </div>
+      )}
+      <ConfirmDialog
+        open={confirmPath !== null}
+        onClose={() => setConfirmPath(null)}
+        onConfirm={() => {
+          if (confirmPath) onDeleteFile(confirmPath);
+          setConfirmPath(null);
+        }}
+        title="Delete file"
+        confirmLabel="Delete"
+        variant="danger"
+        icon="trash"
+        width={440}
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+          Delete <code>{confirmPath}</code>?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          The file will be removed from disk. This cannot be undone.
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }
@@ -160,9 +266,10 @@ function Section({
             onClick={onAction}
             title={actionTitle}
             aria-label={actionTitle}
-            style={iconBtnStyle}
+            style={textBtnStyle}
           >
-            <Icon name={actionIcon} size={11} />
+            <Icon name={actionIcon} size={10} />
+            <span>{actionTitle}</span>
           </button>
         )}
       </div>
@@ -178,6 +285,7 @@ function FileRow({
   isBusy,
   onSelect,
   onAction,
+  onContextMenu,
 }: {
   file: GitChangedFile;
   isStaged: boolean;
@@ -185,12 +293,14 @@ function FileRow({
   isBusy: boolean;
   onSelect: () => void;
   onAction: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const { letter: statusLetter, color: statusColor } = STATUS_META[file.status];
   const display = displayPath(file.path);
   return (
     <div
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       role="button"
       aria-pressed={isSelected}
       style={{
@@ -294,6 +404,24 @@ function displayPath(p: string): { basename: string; dir: string } {
   if (idx < 0) return { basename: p, dir: "" };
   return { basename: p.slice(idx + 1), dir: p.slice(0, idx) };
 }
+
+const textBtnStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  background: "transparent",
+  border: "1px solid var(--border)",
+  borderRadius: 4,
+  color: "var(--text-dim)",
+  cursor: "pointer",
+  padding: "2px 6px",
+  fontFamily: "var(--mono)",
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  flexShrink: 0,
+};
 
 const iconBtnStyle: CSSProperties = {
   background: "transparent",

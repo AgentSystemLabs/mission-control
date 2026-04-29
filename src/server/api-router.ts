@@ -42,8 +42,8 @@ import {
   unstageFiles,
   commit as gitCommit,
   push as gitPush,
-  generateCommitMessage,
   gitErrorPayload,
+  deleteProjectFile,
 } from "./services/git";
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
@@ -180,6 +180,21 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return json({ task: t });
     }
 
+    const projectFileMatch = pathname.match(
+      /^\/api\/projects\/([^\/]+)\/file$/
+    );
+    if (projectFileMatch && method === "DELETE") {
+      const id = decodeURIComponent(projectFileMatch[1]!);
+      const filePath = url.searchParams.get("path");
+      if (!filePath) return jsonError(400, "path is required");
+      try {
+        await deleteProjectFile(id, filePath);
+        return json({ ok: true });
+      } catch (e: any) {
+        return jsonError(400, e?.message || "delete failed");
+      }
+    }
+
     const gitMatch = pathname.match(/^\/api\/projects\/([^\/]+)\/git\/([a-z-]+)$/);
     if (gitMatch) {
       const id = decodeURIComponent(gitMatch[1]!);
@@ -206,16 +221,10 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           return json({ ok: true });
         }
         if (action === "commit" && method === "POST") {
-          const body = await readJson<{ message?: string }>(request);
-          if (!body.message) return jsonError(400, "message is required");
-          return json(await gitCommit(id, body.message));
+          return json(await gitCommit(id));
         }
         if (action === "push" && method === "POST") {
           return json(await gitPush(id));
-        }
-        if (action === "generate-commit-message" && method === "POST") {
-          const message = await generateCommitMessage(id);
-          return json({ message });
         }
         return jsonError(404, "not found");
       } catch (e: any) {

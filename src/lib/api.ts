@@ -1,6 +1,11 @@
 import type { Group, Project, Task, UserTerminal } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
-import type { GitDiff, GitStatus, PushResult } from "~/server/services/git";
+import type {
+  CommitResult,
+  GitDiff,
+  GitStatus,
+  PushResult,
+} from "~/server/services/git";
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 
@@ -181,16 +186,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ files }),
     }),
-  gitCommit: (projectId: string, message: string) =>
-    req<{ sha: string }>(`/api/projects/${projectId}/git/commit`, {
+  gitCommit: (projectId: string) =>
+    req<CommitResult>(`/api/projects/${projectId}/git/commit`, {
       method: "POST",
-      body: JSON.stringify({ message }),
     }),
   gitPush: (projectId: string) =>
     req<PushResult>(`/api/projects/${projectId}/git/push`, { method: "POST" }),
-  generateCommitMessage: (projectId: string) =>
-    req<{ message: string }>(
-      `/api/projects/${projectId}/git/generate-commit-message`,
-      { method: "POST" },
+  deleteProjectFile: (projectId: string, filePath: string) =>
+    req<{ ok: true }>(
+      `/api/projects/${projectId}/file?path=${encodeURIComponent(filePath)}`,
+      { method: "DELETE" },
     ),
 };

@@ -68,6 +68,10 @@ function loadGitignore(projectRoot: string) {
   } catch {
     // best-effort
   }
+  // Re-include common dev dotfiles that .gitignore typically excludes but
+  // developers expect to find in the file finder.
+  ig.add("!.env");
+  ig.add("!.env.*");
   return ig;
 }
 

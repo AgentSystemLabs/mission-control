@@ -68,7 +68,7 @@ export function useUnstageFiles(projectId: string) {
 export function useGitCommit(projectId: string) {
   const invalidate = useInvalidateGit(projectId);
   return useMutation({
-    mutationFn: (message: string) => api.gitCommit(projectId, message),
+    mutationFn: () => api.gitCommit(projectId),
     onSettled: invalidate,
   });
 }
@@ -81,8 +81,10 @@ export function useGitPush(projectId: string) {
   });
 }
 
-export function useGenerateCommitMessage(projectId: string) {
+export function useDeleteProjectFile(projectId: string) {
+  const invalidate = useInvalidateGit(projectId);
   return useMutation({
-    mutationFn: () => api.generateCommitMessage(projectId),
+    mutationFn: (filePath: string) => api.deleteProjectFile(projectId, filePath),
+    onSettled: invalidate,
   });
 }

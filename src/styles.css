@@ -155,6 +155,11 @@ button {
     opacity: 0;
   }
 }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @keyframes fade-up {
   from {
     opacity: 0;

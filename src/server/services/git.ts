@@ -270,6 +270,33 @@ export async function stageFiles(projectId: string, files: string[]): Promise<vo
   await gitOk(cwd, ["add", "--", ...files]);
 }
 
+export async function deleteProjectFile(
+  projectId: string,
+  relPath: string,
+): Promise<void> {
+  if (!relPath || relPath.trim() === "") {
+    throw new GitError("file path is required");
+  }
+  const cwd = projectCwd(projectId);
+  const abs = path.resolve(cwd, relPath);
+  const rootWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
+  if (abs !== cwd && !abs.startsWith(rootWithSep)) {
+    throw new GitError("path escapes project root");
+  }
+  if (abs === cwd) {
+    throw new GitError("refusing to delete project root");
+  }
+  try {
+    await fs.promises.rm(abs, { force: false });
+  } catch (e: any) {
+    if (e?.code === "ENOENT") return; // already gone
+    if (e?.code === "EISDIR") {
+      throw new GitError("path is a directory");
+    }
+    throw new GitError("could not delete file", e?.message || String(e));
+  }
+}
+
 export async function unstageFiles(projectId: string, files: string[]): Promise<void> {
   if (files.length === 0) return;
   const cwd = projectCwd(projectId);
@@ -286,25 +313,51 @@ export async function unstageFiles(projectId: string, files: string[]): Promise<
   }
 }
 
-export async function commit(projectId: string, message: string): Promise<{ sha: string }> {
-  if (!message.trim()) throw new GitError("commit message is empty");
+export type CommitResult =
+  | { kind: "committed"; sha: string; message: string }
+  | { kind: "nothing-to-commit" };
+
+export async function commit(projectId: string): Promise<CommitResult> {
   const cwd = projectCwd(projectId);
+  // Detect anything that could become a commit (staged or unstaged tracked
+  // changes, or untracked files). If nothing, bail before invoking the LLM.
+  const status = await gitOk(cwd, ["status", "--porcelain=v1", "-z"]);
+  if (!status.trim()) return { kind: "nothing-to-commit" };
+  // If nothing is staged yet, stage everything so the single-button flow
+  // commits the user's full working tree.
+  const cached = await gitOk(cwd, ["diff", "--cached", "--name-only"]);
+  if (!cached.trim()) {
+    await gitOk(cwd, ["add", "-A"]);
+    const stagedAfter = await gitOk(cwd, ["diff", "--cached", "--name-only"]);
+    if (!stagedAfter.trim()) return { kind: "nothing-to-commit" };
+  }
+  const message = (await generateCommitMessage(projectId)).trim();
+  if (!message) throw new GitError("generated commit message was empty");
   await gitOk(cwd, ["commit", "-m", message], 30_000);
   const sha = (await gitOk(cwd, ["rev-parse", "HEAD"])).trim();
-  return { sha };
+  return { kind: "committed", sha, message };
 }
 
-export type PushResult = {
-  ok: true;
-  setUpstream: boolean;
-  output: string;
-};
+export type PushResult =
+  | { kind: "pushed"; setUpstream: boolean; output: string }
+  | { kind: "nothing-to-push" };
 
 export async function push(projectId: string): Promise<PushResult> {
   const cwd = projectCwd(projectId);
+  // If an upstream is configured and there are no unpushed commits, surface
+  // that to the UI as a distinct kind rather than letting `git push` print
+  // "Everything up-to-date".
+  const ahead = await runGit(cwd, [
+    "rev-list",
+    "--count",
+    "@{u}..HEAD",
+  ]);
+  if (ahead.code === 0 && ahead.stdout.trim() === "0") {
+    return { kind: "nothing-to-push" };
+  }
   const first = await runGit(cwd, ["push"], { timeoutMs: PUSH_TIMEOUT_MS });
   if (first.code === 0) {
-    return { ok: true, setUpstream: false, output: combineStreams(first) };
+    return { kind: "pushed", setUpstream: false, output: combineStreams(first) };
   }
   // Detect "no upstream" failure and retry with -u.
   const stderr = first.stderr || "";
@@ -319,6 +372,13 @@ export async function push(projectId: string): Promise<PushResult> {
   if (!branch || branch === "HEAD") {
     throw new GitError("cannot push: detached HEAD");
   }
+  // No upstream configured — only push if HEAD has at least one commit to
+  // publish. Otherwise an unborn or empty branch would surface as a generic
+  // git error instead of "nothing to push".
+  const headCount = await runGit(cwd, ["rev-list", "--count", "HEAD"]);
+  if (headCount.code === 0 && headCount.stdout.trim() === "0") {
+    return { kind: "nothing-to-push" };
+  }
   const second = await runGit(cwd, ["push", "-u", "origin", branch], {
     timeoutMs: PUSH_TIMEOUT_MS,
   });
@@ -328,7 +388,7 @@ export async function push(projectId: string): Promise<PushResult> {
       second.stderr.trim() || `exit ${second.code}`,
     );
   }
-  return { ok: true, setUpstream: true, output: combineStreams(second) };
+  return { kind: "pushed", setUpstream: true, output: combineStreams(second) };
 }
 
 function combineStreams(r: RunGitResult): string {
@@ -342,7 +402,7 @@ Format: a single short subject line (50 chars or fewer, imperative mood, no trai
 --- STAGED DIFF ---
 `;
 
-export async function generateCommitMessage(projectId: string): Promise<string> {
+async function generateCommitMessage(projectId: string): Promise<string> {
   const cwd = projectCwd(projectId);
   // Use stat-prefixed diff so the model gets a roof on size.
   const diff = await gitOk(cwd, ["diff", "--cached"], 30_000);

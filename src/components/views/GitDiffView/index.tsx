@@ -4,6 +4,7 @@ import { Icon } from "~/components/ui/Icon";
 import { Kbd } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
 import {
+  useDeleteProjectFile,
   useGitDiff,
   useGitStatus,
   useStageFiles,
@@ -25,6 +26,7 @@ export function GitDiffView({
   const { data: status, isLoading, error } = useGitStatus(projectId);
   const stageM = useStageFiles(projectId);
   const unstageM = useUnstageFiles(projectId);
+  const deleteM = useDeleteProjectFile(projectId);
 
   const [selection, setSelection] = useState<FileSelection>(null);
   const stagedFiles = useMemo(() => status?.staged ?? [], [status]);
@@ -206,6 +208,7 @@ export function GitDiffView({
             onUnstage={(paths) => unstageM.mutate(paths)}
             onStageAll={onStageAll}
             onUnstageAll={onUnstageAll}
+            onDeleteFile={(p) => deleteM.mutate(p)}
             busyPaths={busyPaths}
           />
           <div
@@ -248,7 +251,7 @@ export function GitDiffView({
         </div>
       )}
 
-      <CommitBar projectId={projectId} stagedCount={stagedFiles.length} />
+      <CommitBar projectId={projectId} />
     </div>
   );
 }
