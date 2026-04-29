@@ -65,7 +65,6 @@ export function NewAgentDialog({
       label: "Codex",
       desc: "OpenAI's terminal coder. Best for test-driven, narrow tasks.",
       cmd: "codex",
-      disabled: true,
     },
     {
       id: "cursor-cli",
@@ -83,7 +82,8 @@ export function NewAgentDialog({
         ? {
             rememberAgentSettings: true,
             savedAgent: agent,
-            savedSkipPermissions: agent === "claude-code" ? dangerouslySkipPermissions : false,
+            savedSkipPermissions:
+              agent === "claude-code" || agent === "codex" ? dangerouslySkipPermissions : false,
           }
         : { rememberAgentSettings: false, savedAgent: null, savedSkipPermissions: false }
     );
@@ -108,7 +108,8 @@ export function NewAgentDialog({
       }
     }
     try {
-      const skip = agent === "claude-code" && dangerouslySkipPermissions;
+      const supportsSkip = agent === "claude-code" || agent === "codex";
+      const skip = supportsSkip && dangerouslySkipPermissions;
       if (rememberSettings) {
         await onPersistRemember({
           rememberAgentSettings: true,
@@ -123,7 +124,7 @@ export function NewAgentDialog({
         dangerouslySkipPermissions: skip,
       });
     } catch (e: any) {
-      setError(e?.message || "Failed to start agent");
+      setError(e?.message || "Failed to start session");
     } finally {
       setSubmitting(false);
     }
@@ -158,7 +159,7 @@ export function NewAgentDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title="Start a new agent"
+      title="Start a new session"
       width={540}
       footer={
         <>
@@ -166,7 +167,7 @@ export function NewAgentDialog({
             Cancel
           </Btn>
           <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
-            Start agent
+            Start session
             <KbdAction action="dialog.submit" variant="onPrimary" />
           </Btn>
         </>
@@ -265,7 +266,7 @@ export function NewAgentDialog({
           </div>
         </div>
 
-        {agent === "claude-code" && (
+        {(agent === "claude-code" || agent === "codex") && (
           <label
             style={{
               display: "flex",
@@ -297,7 +298,12 @@ export function NewAgentDialog({
                 }}
               >
                 Launches with{" "}
-                <code style={{ color: "var(--text)" }}>--dangerously-skip-permissions</code>.
+                <code style={{ color: "var(--text)" }}>
+                  {agent === "claude-code"
+                    ? "--dangerously-skip-permissions"
+                    : "--dangerously-bypass-approvals-and-sandbox"}
+                </code>
+                .
               </div>
             </div>
           </label>
@@ -333,7 +339,7 @@ export function NewAgentDialog({
                 lineHeight: 1.4,
               }}
             >
-              The New agent button will skip this dialog and start{" "}
+              The New session button will skip this dialog and start{" "}
               <code style={{ color: "var(--text)" }}>{AGENT_META[agent].label}</code> directly.
             </div>
           </div>

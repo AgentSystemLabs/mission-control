@@ -50,6 +50,11 @@ function commandFor(agent: TaskAgent): string {
  * creation should have populated it).
  */
 function commandForTask(task: Task): string {
+  if (task.agent === "codex") {
+    return task.claudeSkipPermissions
+      ? "codex --dangerously-bypass-approvals-and-sandbox"
+      : "codex";
+  }
   if (task.agent !== "claude-code") return commandFor(task.agent);
   const skip = !!task.claudeSkipPermissions;
   const sessionId = task.claudeSessionId;
