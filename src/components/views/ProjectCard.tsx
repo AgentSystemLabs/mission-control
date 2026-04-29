@@ -3,6 +3,7 @@ import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
+import { ProjectStatusBadge } from "~/components/ui/ProjectStatusBadge";
 import { TASK_STATUSES } from "~/db/schema";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import type { ProjectWithCounts } from "~/server/services/projects";
@@ -116,7 +117,7 @@ export function ProjectCard({
               {project.pinned && (
                 <Icon name="pin-fill" size={10} style={{ color: "var(--accent)", flexShrink: 0 }} />
               )}
-              <ProjectRunState active={hasActivity} />
+              <ProjectStatusBadge active={hasActivity} />
             </div>
             <button
               type="button"
@@ -262,39 +263,3 @@ export function ProjectCard({
   );
 }
 
-function ProjectRunState({ active }: { active: boolean }) {
-  return (
-    <span
-      title={active ? "Project is running" : "Project is not running"}
-      aria-label={active ? "Project is running" : "Project is not running"}
-      style={{
-        flexShrink: 0,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        height: 18,
-        padding: "0 7px",
-        borderRadius: 999,
-        border: `1px solid ${active ? "var(--accent-border)" : "var(--border)"}`,
-        background: active ? "var(--accent-faint)" : "var(--surface-0)",
-        color: active ? "var(--accent)" : "var(--text-faint)",
-        fontFamily: "var(--mono)",
-        fontSize: 10,
-        fontWeight: 600,
-        lineHeight: 1,
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: active ? "var(--accent)" : "var(--text-faint)",
-          boxShadow: active ? "0 0 7px var(--accent-glow)" : "none",
-        }}
-      />
-      {active ? "Running" : "Idle"}
-    </span>
-  );
-}
