@@ -91,7 +91,7 @@ export function TerminalPane({
         theme: {
           background: "#050607",
           foreground: "#e8e6df",
-          cursor: meta?.color ?? "#7ce58a",
+          cursor: meta?.color ?? "#ff5a1f",
           black: "#0a0b0d",
           brightBlack: "#22262c",
           white: "#e8e6df",

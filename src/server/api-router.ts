@@ -18,7 +18,19 @@ import {
   deleteUserTerminal,
 } from "./services/user-terminals";
 import { events } from "./events";
-import { getOrCreateApiToken, regenerateApiToken } from "~/db/settings";
+import {
+  getBooleanSetting,
+  getOrCreateApiToken,
+  getSetting,
+  regenerateApiToken,
+  setBooleanSetting,
+  setSetting,
+} from "~/db/settings";
+import {
+  DEFAULT_ACCENT_COLOR,
+  isAccentColorId,
+  type AccentColorId,
+} from "~/lib/accent-colors";
 import { getBindings, setBinding, resetBinding, resetAllBindings } from "~/db/keybindings";
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
@@ -256,11 +268,32 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     }
 
     if (pathname === "/api/settings") {
-      if (method === "GET") return json({ apiToken: getOrCreateApiToken() });
+      const getAccentColorSetting = (): AccentColorId => {
+        const value = getSetting("accent_color");
+        return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
+      };
+      const settingsPayload = () => ({
+        apiToken: getOrCreateApiToken(),
+        agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
+        accentColor: getAccentColorSetting(),
+      });
+      if (method === "GET") {
+        return json(settingsPayload());
+      }
       if (method === "POST") {
         const body = await readJson<any>(request).catch(() => ({}));
-        if ((body as any)?.regenerate) return json({ apiToken: regenerateApiToken() });
-        return json({ apiToken: getOrCreateApiToken() });
+        if ((body as any)?.regenerate) {
+          const apiToken = regenerateApiToken();
+          return json({ ...settingsPayload(), apiToken });
+        }
+        if (typeof body?.agentSystemBannerDisabled === "boolean") {
+          setBooleanSetting("agent_system_banner_disabled", body.agentSystemBannerDisabled);
+        }
+        if (body?.accentColor !== undefined) {
+          if (!isAccentColorId(body.accentColor)) return jsonError(400, "invalid accentColor");
+          setSetting("accent_color", body.accentColor);
+        }
+        return json(settingsPayload());
       }
     }
 

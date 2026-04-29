@@ -81,11 +81,11 @@ export function TopBar({
                 width: 4,
                 height: 4,
                 borderRadius: "50%",
-                background: "#f59e0b",
-                boxShadow: "0 0 6px #f59e0b",
+                background: "var(--accent)",
+                boxShadow: "0 0 6px var(--accent)",
               }}
             />
-            <span style={{ color: "#f59e0b" }}>Control</span>
+            <span style={{ color: "var(--accent)" }}>Control</span>
           </span>
         </div>
         {crumbs && crumbs.length > 0 && (

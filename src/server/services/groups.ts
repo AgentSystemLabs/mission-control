@@ -18,7 +18,7 @@ export function createGroup(input: { name: string; color?: string }): Group {
   if (!input.name?.trim()) throw new Error("Group name is required");
   const db = getDb();
   const existing = listGroups();
-  const color = input.color || GROUP_COLORS[existing.length % GROUP_COLORS.length] || "#7ce58a";
+  const color = input.color || GROUP_COLORS[existing.length % GROUP_COLORS.length] || "#ff5a1f";
   const row: Group = {
     id: newId(),
     name: input.name.trim(),

@@ -124,7 +124,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
       e.preventDefault();
       setOpen((o) => !o);
     },
-    { preventDefault: false },
+    { enabled: !!projectId, preventDefault: false },
   );
 
   // Reset state when opening; focus input.
@@ -203,7 +203,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
           padding: "3px 8px",
           cursor: "pointer",
         }}
-        title="Switch project (⌘P)"
+        title="Switch project"
       >
         {current && <ProjectIcon project={current} size={14} />}
         <span>{label}</span>

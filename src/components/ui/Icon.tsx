@@ -19,6 +19,7 @@ export type IconName =
   | "settings"
   | "git-branch"
   | "home"
+  | "globe"
   | "play"
   | "upload"
   | "group"
@@ -109,9 +110,19 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       );
     case "settings":
       return (
-        <svg {...common}>
-          <circle cx="8" cy="8" r="2" />
-          <path d="M8 1v2M8 13v2M15 8h-2M3 8H1M12.9 3.1l-1.4 1.4M4.5 11.5l-1.4 1.4M12.9 12.9l-1.4-1.4M4.5 4.5L3.1 3.1" />
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={style}
+        >
+          <path d="M9.67 2h4.66l.55 3.05c.43.18.83.41 1.2.69l2.91-1.04 2.33 4.04-2.36 2.01a7.7 7.7 0 010 1.5l2.36 2.01-2.33 4.04-2.91-1.04c-.37.28-.77.51-1.2.69L14.33 21H9.67l-.55-3.05a6.88 6.88 0 01-1.2-.69L5.01 18.3l-2.33-4.04 2.36-2.01a7.7 7.7 0 010-1.5L2.68 8.74 5.01 4.7l2.91 1.04c.37-.28.77-.51 1.2-.69L9.67 2z" />
+          <circle cx="12" cy="12" r="3" />
         </svg>
       );
     case "git-branch":
@@ -127,6 +138,13 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       return (
         <svg {...common}>
           <path d="M2 7l6-5 6 5v6.5c0 .3-.2.5-.5.5H10V9H6v5H2.5c-.3 0-.5-.2-.5-.5V7z" />
+        </svg>
+      );
+    case "globe":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="6" />
+          <path d="M2.5 8h11M8 2c1.7 1.5 2.5 3.5 2.5 6S9.7 12.5 8 14M8 2C6.3 3.5 5.5 5.5 5.5 8S6.3 12.5 8 14" />
         </svg>
       );
     case "play":

@@ -37,7 +37,7 @@ export function ProjectDialog({
   const [path, setPath] = useState("");
   const [groupId, setGroupId] = useState<string>("");
   const [icon, setIcon] = useState("");
-  const [iconColor, setIconColor] = useState("#7ce58a");
+  const [iconColor, setIconColor] = useState("#ff5a1f");
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
   const [pendingImage, setPendingImage] = useState<
@@ -55,7 +55,7 @@ export function ProjectDialog({
       setPath(project?.path || "");
       setGroupId(project?.groupId || "");
       setIcon(project?.icon || "");
-      setIconColor(project?.iconColor || "#7ce58a");
+      setIconColor(project?.iconColor || "#ff5a1f");
       setImagePath(project?.imagePath ?? null);
       setImageVersion(project?.updatedAt ?? 0);
       setPendingImage(null);

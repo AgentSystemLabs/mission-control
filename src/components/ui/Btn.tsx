@@ -34,9 +34,9 @@ const SIZE_STYLES: Record<Size, CSSProperties> = {
 };
 
 const HOVER_BG: Record<Variant, string> = {
-  primary: "oklch(0.87 0.17 145)",
+  primary: "#ff6b33",
   ghost: "var(--surface-1)",
-  accent: "oklch(0.82 0.17 145 / 0.22)",
+  accent: "rgba(255, 90, 31, 0.26)",
   solid: "var(--surface-3)",
   danger: "var(--surface-1)",
 };

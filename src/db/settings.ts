@@ -17,6 +17,16 @@ export function setSetting(key: string, value: string): void {
     .run();
 }
 
+export function getBooleanSetting(key: string, defaultValue = false): boolean {
+  const value = getSetting(key);
+  if (value === null) return defaultValue;
+  return value === "true";
+}
+
+export function setBooleanSetting(key: string, value: boolean): void {
+  setSetting(key, value ? "true" : "false");
+}
+
 export function getOrCreateApiToken(): string {
   let token = getSetting("api_token");
   if (!token) {

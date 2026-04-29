@@ -2,6 +2,13 @@ import type { Group, Project, Task, UserTerminal } from "~/db/schema";
 import type { ProjectWithCounts } from "~/server/services/projects";
 import type { GitDiff, GitStatus, PushResult } from "~/server/services/git";
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
+import type { AccentColorId } from "~/lib/accent-colors";
+
+export type AppSettings = {
+  apiToken: string;
+  agentSystemBannerDisabled: boolean;
+  accentColor: AccentColorId;
+};
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   // Node's fetch (used during TanStack Start SSR) rejects relative URLs.
@@ -44,6 +51,11 @@ export const api = {
     req<{ project: Project }>(`/api/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
+    }),
+  updateProjectLaunchUrl: (id: string, launchUrl: string | null) =>
+    req<{ project: Project }>(`/api/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ launchUrl }),
     }),
   togglePin: (id: string) =>
     req<{ project: Project }>(`/api/projects/${id}`, {
@@ -142,9 +154,14 @@ export const api = {
   resetAllKeybindings: () =>
     req<{ bindings: BindingMap }>("/api/keybindings", { method: "DELETE" }),
 
-  getSettings: () => req<{ apiToken: string }>("/api/settings"),
+  getSettings: () => req<AppSettings>("/api/settings"),
+  updateSettings: (body: Partial<Pick<AppSettings, "agentSystemBannerDisabled" | "accentColor">>) =>
+    req<AppSettings>("/api/settings", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   regenerateToken: () =>
-    req<{ apiToken: string }>("/api/settings", {
+    req<AppSettings>("/api/settings", {
       method: "POST",
       body: JSON.stringify({ regenerate: true }),
     }),

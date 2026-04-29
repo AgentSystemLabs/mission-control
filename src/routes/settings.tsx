@@ -17,6 +17,7 @@ function SettingsLayout() {
   }, []);
 
   const items: NavItem[] = [
+    { to: "/settings/general", label: "General", icon: "settings" },
     { to: "/settings/api", label: "External API", icon: "terminal" },
     { to: "/settings/keybindings", label: "Keybindings", icon: "settings" },
     ...(isElectron

@@ -1,6 +1,5 @@
 import { useCardGlow } from "~/lib/use-card-glow";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
@@ -34,7 +33,7 @@ export function ProjectCard({
       ref={glowRef}
       style={{
         background: "var(--surface-1)",
-        border: "1px solid var(--border)",
+        border: `1px solid ${hasActivity ? "var(--accent-border)" : "var(--border)"}`,
         borderRadius: 12,
         overflow: "hidden",
         cursor: "pointer",
@@ -48,7 +47,7 @@ export function ProjectCard({
         e.currentTarget.style.background = "var(--surface-2)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--border)";
+        e.currentTarget.style.borderColor = hasActivity ? "var(--accent-border)" : "var(--border)";
         e.currentTarget.style.background = "var(--surface-1)";
       }}
     >
@@ -69,6 +68,20 @@ export function ProjectCard({
         }}
       />
       <ShimmerBar active={hasActivity} />
+      {hasActivity && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            background: "var(--accent)",
+            boxShadow: "0 0 14px var(--accent-glow)",
+          }}
+        />
+      )}
       <div
         style={{
           padding: isCompact ? 12 : isSpacious ? 20 : 16,
@@ -82,9 +95,8 @@ export function ProjectCard({
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <ProjectIcon project={project} size={isCompact ? 30 : isSpacious ? 44 : 36} />
-          <ProjectRunningDot running={hasActivity} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
               <span
                 style={{
                   fontFamily: "var(--mono)",
@@ -92,6 +104,8 @@ export function ProjectCard({
                   fontWeight: 600,
                   color: "var(--text)",
                   letterSpacing: "-0.01em",
+                  flex: "1 1 auto",
+                  minWidth: 0,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -102,6 +116,7 @@ export function ProjectCard({
               {project.pinned && (
                 <Icon name="pin-fill" size={10} style={{ color: "var(--accent)", flexShrink: 0 }} />
               )}
+              <ProjectRunState active={hasActivity} />
             </div>
             <button
               type="button"
@@ -244,5 +259,42 @@ export function ProjectCard({
         )}
       </div>
     </div>
+  );
+}
+
+function ProjectRunState({ active }: { active: boolean }) {
+  return (
+    <span
+      title={active ? "Project is running" : "Project is not running"}
+      aria-label={active ? "Project is running" : "Project is not running"}
+      style={{
+        flexShrink: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        height: 18,
+        padding: "0 7px",
+        borderRadius: 999,
+        border: `1px solid ${active ? "var(--accent-border)" : "var(--border)"}`,
+        background: active ? "var(--accent-faint)" : "var(--surface-0)",
+        color: active ? "var(--accent)" : "var(--text-faint)",
+        fontFamily: "var(--mono)",
+        fontSize: 10,
+        fontWeight: 600,
+        lineHeight: 1,
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: active ? "var(--accent)" : "var(--text-faint)",
+          boxShadow: active ? "0 0 7px var(--accent-glow)" : "none",
+        }}
+      />
+      {active ? "Running" : "Idle"}
+    </span>
   );
 }

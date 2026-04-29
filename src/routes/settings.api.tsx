@@ -30,7 +30,7 @@ function ApiSettingsPage() {
 
   const regenerate = async () => {
     const r = await api.regenerateToken();
-    queryClient.setQueryData(queryKeys.settings, { apiToken: r.apiToken });
+    queryClient.setQueryData(queryKeys.settings, r);
   };
 
   const baseUrl = `http://127.0.0.1:${port ?? "PORT"}`;
