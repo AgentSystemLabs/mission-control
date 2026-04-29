@@ -222,7 +222,7 @@ button {
   transition: opacity 400ms ease;
   background: radial-gradient(
     260px circle at var(--x, 50%) var(--y, 50%),
-    rgba(120, 110, 220, 0.07),
+    rgba(255, 90, 31, 0.08),
     transparent 70%
   );
 }
@@ -232,7 +232,7 @@ button {
 [data-theme="light"] .cursor-glow {
   background: radial-gradient(
     260px circle at var(--x, 50%) var(--y, 50%),
-    rgba(255, 170, 120, 0.11),
+    rgba(255, 90, 31, 0.12),
     transparent 70%
   );
 }
@@ -255,7 +255,7 @@ body[data-card-glow] .cursor-glow {
   transition: opacity 200ms ease;
   background: radial-gradient(
     220px circle at var(--gx, 50%) var(--gy, 50%),
-    rgba(120, 110, 220, 0.18),
+    rgba(255, 90, 31, 0.18),
     transparent 65%
   );
   z-index: 0;
@@ -266,7 +266,7 @@ body[data-card-glow] .cursor-glow {
 [data-theme="light"] [data-glow]::before {
   background: radial-gradient(
     220px circle at var(--gx, 50%) var(--gy, 50%),
-    rgba(255, 170, 120, 0.22),
+    rgba(255, 90, 31, 0.22),
     transparent 65%
   );
 }

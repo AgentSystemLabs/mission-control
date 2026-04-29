@@ -207,7 +207,7 @@ function AgentSystemBanner() {
         gap: 12,
         flexWrap: "wrap",
         background:
-          "linear-gradient(90deg, rgba(255, 90, 31, 0.22), rgba(14, 16, 19, 0.98) 34%, rgba(120, 110, 220, 0.14))",
+          "linear-gradient(90deg, rgba(255, 90, 31, 0.22), rgba(14, 16, 19, 0.98) 34%, rgba(255, 90, 31, 0.14))",
         borderBottom: "1px solid var(--border-strong)",
         color: "var(--text)",
         flexShrink: 0,
