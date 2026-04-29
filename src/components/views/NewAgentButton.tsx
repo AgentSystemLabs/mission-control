@@ -18,7 +18,7 @@ export function NewAgentButton({
   if (!remembered) {
     return (
       <Btn variant="primary" icon="plus" onClick={onPrimary} disabled={disabled}>
-        New agent
+        New session
         <KbdAction action="agent.new" variant="onPrimary" />
       </Btn>
     );
@@ -31,18 +31,18 @@ export function NewAgentButton({
         icon="plus"
         onClick={onPrimary}
         disabled={disabled}
-        title={`Start ${project.savedAgent} directly — click the gear to change`}
+        title={`Start ${project.savedAgent} session directly — click the gear to change`}
         style={{ borderRadius: "7px 0 0 7px", borderRight: "none" }}
       >
-        New agent
+        New session
         <KbdAction action="agent.new" variant="onPrimary" />
       </Btn>
       <Btn
         variant="primary"
         icon="settings"
         onClick={onConfigure}
-        title="Change agent settings"
-        aria-label="Change agent settings"
+        title="Change session settings"
+        aria-label="Change session settings"
         style={{
           borderRadius: "0 7px 7px 0",
           padding: 0,

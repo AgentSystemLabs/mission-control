@@ -73,7 +73,7 @@ export function TerminalPanel({
             letterSpacing: "0.02em",
           }}
         >
-          Agent
+          Session
         </span>
         <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10.5 }}>
           Close <KbdAction action="terminal.close" variant="ghost" />

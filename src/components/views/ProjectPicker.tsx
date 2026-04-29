@@ -31,7 +31,7 @@ function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; siz
   if (!running && !needs) return null;
   const title = [
     needs ? `${needs} ${needs === 1 ? "task needs input" : "tasks need input"}` : null,
-    running ? `${running} ${running === 1 ? "agent running" : "agents running"}` : null,
+    running ? `${running} ${running === 1 ? "session running" : "sessions running"}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

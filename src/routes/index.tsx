@@ -365,7 +365,7 @@ function MissionControlPage() {
           {projects.filter(filter).length === 0 && (
             <EmptyState
               title={search ? "No matches" : "No projects yet"}
-              subtitle={search ? "Try a different search." : "Add your first project to start running agents."}
+              subtitle={search ? "Try a different search." : "Add your first project to start running sessions."}
               action={
                 !search && (
                   <Btn variant="primary" icon="plus" onClick={() => setShowAdd(true)}>
