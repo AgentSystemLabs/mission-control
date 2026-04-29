@@ -4,7 +4,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { Kbd, KbdAction } from "~/components/ui/Kbd";
-import { Modal } from "~/components/ui/Modal";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { languageForFilename } from "~/lib/file-language";
 
@@ -405,32 +405,21 @@ export function FileEditorDialog({
         </div>
       </div>
 
-      <Modal
+      <ConfirmDialog
         open={confirmClose}
         onClose={() => setConfirmClose(false)}
+        onConfirm={() => {
+          setConfirmClose(false);
+          onClose();
+        }}
         title="Discard unsaved changes?"
+        confirmLabel="Discard"
         width={420}
-        footer={
-          <>
-            <Btn variant="ghost" onClick={() => setConfirmClose(false)}>
-              Cancel <Kbd variant="inline">Esc</Kbd>
-            </Btn>
-            <Btn
-              variant="danger"
-              onClick={() => {
-                setConfirmClose(false);
-                onClose();
-              }}
-            >
-              Discard
-            </Btn>
-          </>
-        }
       >
         <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
           You have unsaved edits. Closing the editor will discard them.
         </div>
-      </Modal>
+      </ConfirmDialog>
     </div>
   );
 }

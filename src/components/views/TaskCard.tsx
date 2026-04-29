@@ -3,10 +3,8 @@ import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { Btn } from "~/components/ui/Btn";
-import { Modal } from "~/components/ui/Modal";
-import { Kbd } from "~/components/ui/Kbd";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
-import { useHotkey } from "~/lib/use-hotkey";
 import { useCardGlow } from "~/lib/use-card-glow";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
@@ -46,16 +44,6 @@ export function TaskCard({
     };
   }, [menu]);
 
-  useHotkey(
-    "enter",
-    (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (onDelete) onDelete(task.id);
-      setConfirmOpen(false);
-    },
-    { enabled: confirmOpen },
-  );
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
   const isRunning = task.status === "running";
@@ -312,28 +300,17 @@ export function TaskCard({
       </div>
       {onDelete && (
         <div onClick={(e) => e.stopPropagation()}>
-        <Modal
+        <ConfirmDialog
           open={confirmOpen}
           onClose={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            onDelete(task.id);
+            setConfirmOpen(false);
+          }}
           title="Delete task"
+          confirmLabel="Delete"
+          icon="trash"
           width={420}
-          footer={
-            <>
-              <Btn variant="ghost" onClick={() => setConfirmOpen(false)}>
-                Cancel <Kbd variant="inline">Esc</Kbd>
-              </Btn>
-              <Btn
-                variant="danger"
-                icon="trash"
-                onClick={() => {
-                  onDelete(task.id);
-                  setConfirmOpen(false);
-                }}
-              >
-                Delete <Kbd variant="inline">Enter</Kbd>
-              </Btn>
-            </>
-          }
         >
           <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
             Delete &ldquo;{task.title}&rdquo;?
@@ -341,7 +318,7 @@ export function TaskCard({
           <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
             This task and its worktree will be removed. This cannot be undone.
           </div>
-        </Modal>
+        </ConfirmDialog>
         </div>
       )}
     </div>
