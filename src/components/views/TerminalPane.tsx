@@ -11,7 +11,7 @@ import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
-import { queryKeys, settingsQueryOptions } from "~/queries";
+import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 
 async function resolveMcEnv(
@@ -57,9 +57,11 @@ export function TerminalPane({
   const [bridgeMissing, setBridgeMissing] = useState(false);
   const queryClient = useQueryClient();
 
-  const meta = AGENT_META[task.agent];
-  const statusMeta = STATUS_META[task.status];
-  const isRunning = task.status === "running";
+  const { data: liveTasks } = useTasks(project.id);
+  const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
+  const meta = AGENT_META[liveTask.agent];
+  const statusMeta = STATUS_META[liveTask.status];
+  const isRunning = liveTask.status === "running";
 
   useEffect(() => {
     const electron = getElectron();
@@ -310,7 +312,7 @@ export function TerminalPane({
           userSelect: "none",
         }}
       >
-        <StatusDot status={task.status} size={7} />
+        <StatusDot status={liveTask.status} size={7} />
         <ProjectIcon project={project} size={20} />
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
           <div
@@ -324,7 +326,7 @@ export function TerminalPane({
               whiteSpace: "nowrap",
             }}
           >
-            {task.title}
+            {liveTask.title}
           </div>
           <div
             style={{

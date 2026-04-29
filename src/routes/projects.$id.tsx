@@ -41,6 +41,15 @@ import { TASK_STATUSES } from "~/db/schema";
 import type { Task, TaskStatus } from "~/db/schema";
 import { STATUS_META } from "~/lib/design-meta";
 
+const STATUS_DISPLAY_ORDER: readonly TaskStatus[] = [
+  "needs-input",
+  "ready",
+  "running",
+  "finished",
+  "terminated",
+  "disconnected",
+];
+
 const projectSearchSchema = z.object({
   view: z.enum(["diff"]).optional(),
 });
@@ -119,6 +128,10 @@ function ProjectPage() {
   useEffect(() => {
     if (project) setActiveUserTerminalProject(project);
   }, [project, setActiveUserTerminalProject]);
+
+  useEffect(() => {
+    for (const task of tasks) terminals.syncTask(task);
+  }, [tasks, terminals.syncTask]);
 
   const invalidateProject = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
@@ -453,7 +466,7 @@ function ProjectPage() {
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-          {TASK_STATUSES.map((status) => (
+          {STATUS_DISPLAY_ORDER.map((status) => (
             <TaskColumn
               key={status}
               title={STATUS_META[status].label}

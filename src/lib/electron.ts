@@ -14,6 +14,7 @@ export type ElectronBridge = {
   }) => Promise<{ filename: string } | { error: string }>;
   getRuntimePort: () => Promise<number | null>;
   getUserDataDir: () => Promise<string>;
+  getUserName: () => Promise<{ source: "git" | "os"; fullName: string; firstName: string }>;
   cliCheck: (
     command: string
   ) => Promise<{ ok: true; path: string } | { ok: false; reason: string }>;

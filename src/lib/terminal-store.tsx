@@ -29,6 +29,7 @@ type Ctx = {
   /** Permanently close every session for a project (kills PTYs). */
   closeForProject: (projectId: string) => Promise<void>;
   setPtyId: (taskId: string, ptyId: string) => void;
+  syncTask: (task: Task) => void;
   startCommandFor: (agent: TaskAgent) => string;
   /** Run an arbitrary command in the active PTY for this task. */
   runIn: (taskId: string, command: string) => Promise<void>;
@@ -126,6 +127,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setSessions((prev) => prev.map((p) => (p.taskId === taskId ? { ...p, ptyId } : p)));
   }, []);
 
+  const syncTask = useCallback((task: Task) => {
+    setSessions((prev) =>
+      prev.map((p) => (p.taskId === task.id ? { ...p, task } : p))
+    );
+  }, []);
+
   const runIn = useCallback(
     async (taskId: string, command: string) => {
       const electron = getElectron();
@@ -152,6 +159,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         close,
         closeForProject,
         setPtyId,
+        syncTask,
         startCommandFor: commandFor,
         runIn,
       }}
