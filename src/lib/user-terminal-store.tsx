@@ -77,7 +77,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     sessionsByProjectRef.current = sessionsByProject;
   }, [sessionsByProject]);
 
-  const panelOpen = project ? (panelOpenByProject[project.id] ?? true) : false;
+  const panelOpen = project ? (panelOpenByProject[project.id] ?? false) : false;
   const setPanelOpen = useCallback(
     (open: boolean) => {
       if (!project) return;

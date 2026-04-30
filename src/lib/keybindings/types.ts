@@ -1,5 +1,6 @@
 export const HOTKEY_ACTIONS = [
   "agent.new",
+  "project.add",
   "project.edit",
   "project.picker",
   "nav.toggle",
@@ -26,6 +27,7 @@ export type BindingMap = Record<HotkeyAction, Binding>;
 
 export const ACTION_META: Record<HotkeyAction, { label: string; description: string }> = {
   "agent.new": { label: "New agent / project", description: "Create a new agent on a project page, or a new project on the home page." },
+  "project.add": { label: "Add project", description: "Open the Add Project dialog from anywhere in the app." },
   "project.edit": { label: "Edit project", description: "Open the edit dialog for the current project." },
   "project.picker": { label: "Open project picker", description: "Open the cross-project quick switcher." },
   "nav.toggle": { label: "Toggle nav menu", description: "Show or hide the navigation menu." },

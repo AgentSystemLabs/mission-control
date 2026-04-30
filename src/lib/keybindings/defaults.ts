@@ -6,6 +6,7 @@ export function makeBinding(partial: Partial<Binding> & { key: string }): Bindin
 
 export const DEFAULT_BINDINGS: BindingMap = {
   "agent.new": makeBinding({ mod: true, key: "n" }),
+  "project.add": makeBinding({ mod: true, key: "o" }),
   "project.edit": makeBinding({ mod: true, key: "e" }),
   "project.picker": makeBinding({ mod: true, key: "u" }),
   "nav.toggle": makeBinding({ mod: true, key: "m" }),

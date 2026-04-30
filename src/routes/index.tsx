@@ -10,8 +10,8 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { ProjectCard, type Density } from "~/components/views/ProjectCard";
-import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
+import { useAddProject } from "~/lib/add-project-store";
 import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -40,10 +40,10 @@ function MissionControlPage() {
   const { data: groups = [] } = useGroups();
   const [search, setSearch] = useState("");
   const [density, setDensity] = useState<Density>("regular");
-  const [showAdd, setShowAdd] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const { setProject: setActiveUserTerminalProject } = useUserTerminals();
+  const { open: openAddProject } = useAddProject();
 
   // Dashboard has no project context — detach the user-terminal panel from
   // whichever project we were just viewing.
@@ -56,7 +56,7 @@ function MissionControlPage() {
     searchRef.current?.select();
   });
 
-  useHotkey("agent.new", () => setShowAdd(true));
+  useHotkey("agent.new", () => openAddProject());
 
   const invalidateProjects = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -304,7 +304,7 @@ function MissionControlPage() {
               <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
                 Groups
               </Btn>
-              <Btn variant="primary" icon="plus" onClick={() => setShowAdd(true)}>
+              <Btn variant="primary" icon="plus" onClick={openAddProject}>
                 Add project
                 <KbdAction action="agent.new" variant="onPrimary" />
               </Btn>
@@ -365,8 +365,9 @@ function MissionControlPage() {
               subtitle={search ? "Try a different search." : "Add your first project to start running sessions."}
               action={
                 !search && (
-                  <Btn variant="primary" icon="plus" onClick={() => setShowAdd(true)}>
+                  <Btn variant="primary" icon="plus" onClick={openAddProject}>
                     Add project
+                    <KbdAction action="project.add" variant="onPrimary" />
                   </Btn>
                 )
               }
@@ -375,29 +376,6 @@ function MissionControlPage() {
         </div>
       </div>
 
-      <ProjectDialog
-        open={showAdd}
-        project={null}
-        groups={groups}
-        onClose={() => setShowAdd(false)}
-        onSave={async (data) => {
-          const { pendingImage, imagePath: _ignore, ...createBody } = data;
-          const { project: created } = await api.createProject(createBody);
-          if (pendingImage) {
-            const electron = (await import("~/lib/electron")).getElectron();
-            const result = await electron?.saveProjectImage({
-              projectId: created.id,
-              sourcePath: pendingImage.sourcePath,
-              extension: pendingImage.extension,
-            });
-            if (result && "filename" in result) {
-              await api.updateProject(created.id, { imagePath: result.filename });
-            }
-          }
-          setShowAdd(false);
-          await invalidateProjects();
-        }}
-      />
       <GroupsDialog
         open={showGroups}
         groups={groups}

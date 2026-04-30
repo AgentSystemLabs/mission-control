@@ -25,6 +25,7 @@ import {
 import { TerminalPanel } from "~/components/views/TerminalPanel";
 import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
+import { AddProjectProvider } from "~/lib/add-project-store";
 import { useSettings } from "~/queries";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import "~/styles.css";
@@ -50,7 +51,9 @@ function RootComponent() {
         <KeybindingsProvider>
           <TerminalProvider>
             <UserTerminalProvider>
-              <Shell />
+              <AddProjectProvider>
+                <Shell />
+              </AddProjectProvider>
             </UserTerminalProvider>
           </TerminalProvider>
         </KeybindingsProvider>
