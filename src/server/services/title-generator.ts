@@ -1,25 +1,10 @@
-import type { TaskAgent } from "~/db/schema";
+import { AGENT_REGISTRY } from "~/shared/agents";
 import { TITLE_GENERATING, TITLE_WAITING, isSentinelTitle } from "~/lib/task-sentinels";
 import { runCli } from "./claude-cli";
 import { getTask, updateTask } from "./tasks";
 
 const META_PROMPT =
   "Generate a concise 4-7 word title (no quotes, no trailing punctuation, plain text only) for the following task. Respond with the title and nothing else.\n\nTask:\n";
-
-type PrintInvocation = { cmd: string; args: (input: string) => string[] } | null;
-
-function invocationFor(agent: TaskAgent): PrintInvocation {
-  switch (agent) {
-    case "claude-code":
-      return { cmd: "claude", args: (input) => ["-p", input] };
-    case "codex":
-      return { cmd: "codex", args: (input) => ["exec", input] };
-    case "cursor-cli":
-      return { cmd: "cursor-agent", args: (input) => ["-p", input] };
-    default:
-      return null;
-  }
-}
 
 function sanitizeTitle(raw: string): string {
   let t = raw.trim();
@@ -40,7 +25,7 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
   if (!isSentinelTitle(task.title)) return; // user has set a manual title
   if (!prompt.trim()) return;
 
-  const invocation = invocationFor(task.agent);
+  const invocation = AGENT_REGISTRY[task.agent].titleInvocation?.(META_PROMPT + prompt);
   if (!invocation) return; // agent has no print mode — leave sentinel
 
   // Move from "Waiting" → "Generating".
@@ -49,7 +34,7 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
   }
 
   try {
-    const raw = await runCli(invocation.cmd, invocation.args(META_PROMPT + prompt));
+    const raw = await runCli(invocation.cmd, invocation.args);
     const title = sanitizeTitle(raw);
     const fresh = getTask(taskId);
     if (!fresh || !isSentinelTitle(fresh.title)) return; // user edited mid-flight

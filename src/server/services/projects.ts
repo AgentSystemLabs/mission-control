@@ -3,16 +3,15 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getDb } from "~/db/client";
-import { TASK_STATUSES, isActiveStatus, projects, tasks, LAUNCH_COMMANDS_MAX } from "~/db/schema";
-import type { LaunchCommand, Project, Task, TaskStatus } from "~/db/schema";
+import { projects, tasks } from "~/db/schema";
+import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } from "~/shared/domain";
+import type { LaunchCommand, TaskStatus } from "~/shared/domain";
+import type { Project, Task } from "~/db/schema";
+import type { ProjectWithCounts } from "~/shared/projects";
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
 
-export type ProjectWithCounts = Project & {
-  taskCounts: Record<TaskStatus, number> & { total: number; activeNonDone: number };
-  preview?: string | null;
-  githubUrl?: string | null;
-};
+export type { ProjectWithCounts } from "~/shared/projects";
 
 export function detectGithubUrl(dir: string): string | null {
   try {
@@ -41,12 +40,12 @@ function newId(prefix: string) {
 export function detectBranch(dir: string): string {
   try {
     const headFile = path.join(dir, ".git", "HEAD");
-    if (!fs.existsSync(headFile)) return "main";
+    if (!fs.existsSync(headFile)) return DEFAULT_BRANCH;
     const content = fs.readFileSync(headFile, "utf8").trim();
     if (content.startsWith("ref: refs/heads/")) return content.replace("ref: refs/heads/", "");
     return content.slice(0, 7);
   } catch {
-    return "main";
+    return DEFAULT_BRANCH;
   }
 }
 

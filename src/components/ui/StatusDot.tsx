@@ -1,5 +1,5 @@
 import { STATUS_META } from "~/lib/design-meta";
-import type { TaskStatus } from "~/db/schema";
+import type { TaskStatus } from "~/shared/domain";
 
 export function StatusDot({ status, size = 6 }: { status: TaskStatus; size?: number }) {
   const meta = STATUS_META[status];

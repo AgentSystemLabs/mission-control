@@ -53,5 +53,4 @@ export function applyAccentColor(id: string | null | undefined) {
   root.style.setProperty("--accent-faint", `rgba(${color.rgb}, 0.1)`);
   root.style.setProperty("--accent-border", `rgba(${color.rgb}, 0.38)`);
   root.style.setProperty("--accent-glow", `rgba(${color.rgb}, 0.48)`);
-  root.style.setProperty("--status-done", color.value);
 }

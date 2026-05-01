@@ -1,5 +1,18 @@
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
+import {
+  DEFAULT_BRANCH,
+  DEFAULT_TASK_STATUS,
+  LAUNCH_COMMANDS_MAX,
+  TASK_AGENTS,
+  TASK_STATUSES,
+  parseLaunchCommands,
+  isActiveStatus,
+  isTerminalStatus,
+  type LaunchCommand,
+  type TaskAgent,
+  type TaskStatus,
+} from "~/shared/domain";
 
 export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
@@ -19,7 +32,7 @@ export const projects = sqliteTable(
     imagePath: text("image_path"),
     groupId: text("group_id").references(() => groups.id, { onDelete: "set null" }),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
-    branch: text("branch").notNull().default("main"),
+    branch: text("branch").notNull().default(DEFAULT_BRANCH),
     launchCommands: text("launch_commands"),
     launchUrl: text("launch_url"),
     rememberAgentSettings: integer("remember_agent_settings", { mode: "boolean" })
@@ -38,18 +51,6 @@ export const projects = sqliteTable(
   })
 );
 
-export const TASK_AGENTS = ["claude-code", "codex", "cursor-cli", "shell"] as const;
-export type TaskAgent = (typeof TASK_AGENTS)[number];
-
-export const TASK_STATUSES = ["ready", "running", "needs-input", "finished", "terminated", "disconnected"] as const;
-export type TaskStatus = (typeof TASK_STATUSES)[number];
-
-export const ACTIVE_STATUSES: readonly TaskStatus[] = ["ready", "running", "needs-input", "finished", "disconnected"];
-export const TERMINAL_STATUSES: readonly TaskStatus[] = ["terminated"];
-
-export const isActiveStatus = (s: TaskStatus) => ACTIVE_STATUSES.includes(s);
-export const isTerminalStatus = (s: TaskStatus) => TERMINAL_STATUSES.includes(s);
-
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -59,8 +60,8 @@ export const tasks = sqliteTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     agent: text("agent").$type<TaskAgent>().notNull(),
-    status: text("status").$type<TaskStatus>().notNull().default("ready"),
-    branch: text("branch").notNull().default("main"),
+    status: text("status").$type<TaskStatus>().notNull().default(DEFAULT_TASK_STATUS),
+    branch: text("branch").notNull().default(DEFAULT_BRANCH),
     preview: text("preview").notNull().default(""),
     lines: integer("lines").notNull().default(0),
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
@@ -139,27 +140,16 @@ export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
-export const LAUNCH_COMMANDS_MAX = 5;
-export type LaunchCommand = { id: string; name: string; command: string };
-
-export function parseLaunchCommands(raw: string | null | undefined): LaunchCommand[] {
-  if (!raw) return [];
-  try {
-    const v = JSON.parse(raw);
-    if (!Array.isArray(v)) return [];
-    return v
-      .filter(
-        (c) =>
-          c &&
-          typeof c.id === "string" &&
-          typeof c.name === "string" &&
-          typeof c.command === "string"
-      )
-      .slice(0, LAUNCH_COMMANDS_MAX);
-  } catch {
-    return [];
-  }
-}
-
 export type UserTerminal = typeof userTerminals.$inferSelect;
 export type NewUserTerminal = typeof userTerminals.$inferInsert;
+export {
+  DEFAULT_BRANCH,
+  DEFAULT_TASK_STATUS,
+  LAUNCH_COMMANDS_MAX,
+  TASK_AGENTS,
+  TASK_STATUSES,
+  parseLaunchCommands,
+  isActiveStatus,
+  isTerminalStatus,
+};
+export type { LaunchCommand, TaskAgent, TaskStatus };

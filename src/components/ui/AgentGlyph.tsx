@@ -1,5 +1,5 @@
 import { AGENT_META } from "~/lib/design-meta";
-import type { TaskAgent } from "~/db/schema";
+import type { TaskAgent } from "~/shared/domain";
 
 export function AgentGlyph({
   agent,

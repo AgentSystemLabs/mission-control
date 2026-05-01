@@ -1,8 +1,10 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { getDb } from "~/db/client";
-import { TASK_AGENTS, TASK_STATUSES, tasks, terminalLogs } from "~/db/schema";
-import type { Task, TaskAgent, TaskStatus } from "~/db/schema";
+import { tasks, terminalLogs } from "~/db/schema";
+import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "~/shared/domain";
+import type { TaskAgent, TaskStatus } from "~/shared/domain";
+import type { Task } from "~/db/schema";
 import { events } from "../events";
 
 function newId() {
@@ -34,7 +36,7 @@ export function createTask(input: {
 }): Task {
   if (!input.projectId) throw new Error("projectId required");
   if (!input.title?.trim()) throw new Error("title required");
-  if (!(TASK_AGENTS as readonly TaskAgent[]).includes(input.agent)) throw new Error("invalid agent");
+  if (!isTaskAgent(input.agent)) throw new Error("invalid agent");
 
   const db = getDb();
   const now = Date.now();
@@ -43,8 +45,8 @@ export function createTask(input: {
     projectId: input.projectId,
     title: input.title.trim(),
     agent: input.agent,
-    status: input.status ?? "ready",
-    branch: input.branch || "main",
+    status: input.status ?? DEFAULT_TASK_STATUS,
+    branch: input.branch || DEFAULT_BRANCH,
     preview: input.preview ?? "",
     lines: 0,
     archived: false,
@@ -62,8 +64,7 @@ export function updateStatus(
   id: string,
   patch: { status?: TaskStatus; preview?: string; lines?: number }
 ): Task | null {
-  if (patch.status && !(TASK_STATUSES as readonly TaskStatus[]).includes(patch.status))
-    throw new Error("invalid status");
+  if (patch.status && !isTaskStatus(patch.status)) throw new Error("invalid status");
   const db = getDb();
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!existing) return null;

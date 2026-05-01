@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as schema from "./schema";
+import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS } from "~/shared/domain";
 
 const migrationFiles = import.meta.glob("./migrations/*.sql", {
   eager: true,
@@ -32,8 +33,9 @@ export function getDb() {
   _sqlite.pragma("journal_mode = WAL");
   _sqlite.pragma("foreign_keys = ON");
   _db = drizzle(_sqlite, { schema });
+  const freshBootstrap = !tableExists(_sqlite, "projects");
   ensureSchema(_sqlite);
-  runMigrations(_sqlite);
+  runMigrations(_sqlite, { markAllAppliedOnly: freshBootstrap });
   // PTYs are owned by the Electron process and are not restored across app
   // restarts. Any task left as running after a restart is stale.
   _sqlite
@@ -51,7 +53,10 @@ export function getDb() {
  * applied in the `schema_migrations` table. ensureSchema handles the initial
  * table layout; this runner is for incremental data/schema changes after that.
  */
-function runMigrations(sqlite: Database.Database) {
+function runMigrations(
+  sqlite: Database.Database,
+  opts: { markAllAppliedOnly?: boolean } = {}
+) {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       name TEXT PRIMARY KEY,
@@ -67,6 +72,16 @@ function runMigrations(sqlite: Database.Database) {
   const names = Object.keys(migrationFiles)
     .map((p) => p.split("/").pop()!)
     .sort();
+  if (opts.markAllAppliedOnly) {
+    const now = Date.now();
+    for (const name of names) {
+      if (applied.has(name)) continue;
+      sqlite
+        .prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)")
+        .run(name, now);
+    }
+    return;
+  }
   for (const name of names) {
     if (applied.has(name)) continue;
     const sql = migrationFiles[`./migrations/${name}`];
@@ -78,6 +93,13 @@ function runMigrations(sqlite: Database.Database) {
     });
     tx();
   }
+}
+
+function tableExists(sqlite: Database.Database, name: string): boolean {
+  const row = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name);
+  return !!row;
 }
 
 export function getSqlite() {
@@ -105,9 +127,15 @@ function ensureSchema(sqlite: Database.Database) {
       path TEXT NOT NULL,
       icon TEXT NOT NULL,
       icon_color TEXT NOT NULL,
+      image_path TEXT,
       group_id TEXT REFERENCES groups(id) ON DELETE SET NULL,
       pinned INTEGER NOT NULL DEFAULT 0,
-      branch TEXT NOT NULL DEFAULT 'main',
+      branch TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH}',
+      launch_commands TEXT,
+      launch_url TEXT,
+      remember_agent_settings INTEGER NOT NULL DEFAULT 0,
+      saved_agent TEXT,
+      saved_skip_permissions INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -119,8 +147,8 @@ function ensureSchema(sqlite: Database.Database) {
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       agent TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'running',
-      branch TEXT NOT NULL DEFAULT 'main',
+      status TEXT NOT NULL DEFAULT '${DEFAULT_TASK_STATUS}',
+      branch TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH}',
       preview TEXT NOT NULL DEFAULT '',
       lines INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +174,7 @@ function ensureSchema(sqlite: Database.Database) {
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       cwd TEXT,
+      start_command TEXT,
       position INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
