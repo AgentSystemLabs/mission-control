@@ -1,6 +1,7 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useState, type CSSProperties } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import type { GitChangedFile, GitFileStatus } from "~/server/services/git";
 
 const ADD = "#6cd07e";
@@ -48,21 +49,8 @@ export function ChangedFilesList({
   );
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [menu]);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  useDismissableMenu(menu !== null, closeMenu);
 
   const openMenu = (e: React.MouseEvent, path: string) => {
     e.preventDefault();

@@ -61,7 +61,7 @@ export function ProjectDialog({
       setPendingImage(null);
       setError(null);
     }
-  }, [open, project]);
+  }, [open, project?.id]);
 
   const chooseImage = async () => {
     setError(null);

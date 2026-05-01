@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
@@ -6,6 +6,7 @@ import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { useCardGlow } from "~/lib/use-card-glow";
+import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
 import type { Task } from "~/db/schema";
@@ -28,21 +29,8 @@ export function TaskCard({
   const [hovered, setHovered] = useState(false);
   const glowRef = useCardGlow<HTMLDivElement>();
 
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [menu]);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  useDismissableMenu(menu !== null, closeMenu);
 
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
