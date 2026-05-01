@@ -3,12 +3,13 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 import { missionControlApi } from "./src/server/vite-api-plugin";
+import { DEV_SERVER_HOST, DEV_SERVER_PORT } from "./src/shared/dev-server";
 
 export default defineConfig({
   server: {
-    port: 5173,
+    port: DEV_SERVER_PORT,
     strictPort: true,
-    host: "127.0.0.1",
+    host: DEV_SERVER_HOST,
   },
   resolve: {
     alias: {

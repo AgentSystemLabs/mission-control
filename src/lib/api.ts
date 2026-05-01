@@ -1,5 +1,7 @@
 import type { Group, Project, Task, UserTerminal } from "~/db/schema";
-import type { ProjectWithCounts } from "~/server/services/projects";
+import type { TaskAgent, TaskStatus } from "~/shared/domain";
+import type { ProjectWithCounts } from "~/shared/projects";
+import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   CommitResult,
   GitDiff,
@@ -21,7 +23,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   // Vite dev origin so loader prefetches resolve correctly.
   const resolved =
     typeof window === "undefined" && url.startsWith("/")
-      ? (process.env.MC_DEV_URL ?? "http://127.0.0.1:5173") + url
+      ? DEV_SERVER_ORIGIN + url
       : url;
   const res = await fetch(resolved, {
     ...init,
@@ -90,7 +92,7 @@ export const api = {
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/restore`, { method: "POST" }),
-  updateTaskStatus: (id: string, body: { status?: string; preview?: string; lines?: number }, token: string) =>
+  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number }, token: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/status`, {
       method: "POST",
       body: JSON.stringify(body),
@@ -100,7 +102,7 @@ export const api = {
     projectId: string,
     body: {
       title: string;
-      agent: string;
+      agent: TaskAgent;
       branch?: string;
       claudeSessionId?: string | null;
       claudeSkipPermissions?: boolean;
