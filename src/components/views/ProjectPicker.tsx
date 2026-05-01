@@ -7,14 +7,13 @@ import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { KbdAction } from "~/components/ui/Kbd";
 import { STATUS_META } from "~/lib/design-meta";
-import type { TaskStatus } from "~/db/schema";
+import { projectPickerSections } from "~/lib/group-projects";
+import type { TaskStatus } from "~/shared/domain";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys, useGroups, useProjects } from "~/queries";
-import type { ProjectWithCounts } from "~/server/services/projects";
-
-type Section = { key: string; label: string | null; color: string | null; projects: ProjectWithCounts[] };
+import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
 
 function DotCount({ status, count, size }: { status: TaskStatus; count: number; size: number }) {
   return (
@@ -76,23 +75,8 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
     return projects.filter((p) => p.name.toLowerCase().includes(q));
   }, [projects, query]);
 
-  // Group filtered projects into sections: pinned → each group → ungrouped.
   // Mirrors the landing page layout so the affordance is consistent.
-  const sections = useMemo<Section[]>(() => {
-    const out: Section[] = [];
-    const pinned = filtered.filter((p) => p.pinned);
-    if (pinned.length) out.push({ key: "__pinned", label: "Pinned", color: null, projects: pinned });
-    const validGroupIds = new Set(groups.map((g) => g.id));
-    for (const g of groups) {
-      const ps = filtered.filter((p) => !p.pinned && p.groupId === g.id);
-      if (ps.length) out.push({ key: g.id, label: g.name, color: g.color, projects: ps });
-    }
-    const ungrouped = filtered.filter((p) => !p.pinned && (!p.groupId || !validGroupIds.has(p.groupId)));
-    if (ungrouped.length) {
-      out.push({ key: "__ungrouped", label: out.length ? "Ungrouped" : null, color: null, projects: ungrouped });
-    }
-    return out;
-  }, [filtered, groups]);
+  const sections = useMemo(() => projectPickerSections(filtered, groups), [filtered, groups]);
 
   // Flat list of selectable items, in render order — drives keyboard nav indexing.
   const flatItems = useMemo(() => sections.flatMap((s) => s.projects), [sections]);
@@ -323,7 +307,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
                           }}
                         >
                           <ProjectIcon project={p} size={18} />
-                          <ProjectRunningDot running={p.taskCounts.running > 0 || runningProjectIds.has(p.id)} size={7} />
+                          <ProjectRunningDot running={isProjectActive(getProjectActivity(p, runningProjectIds))} size={7} />
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {p.name}
                           </span>

@@ -5,11 +5,14 @@ import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { KbdAction } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
+import { groupProjects } from "~/lib/group-projects";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { CursorGlow } from "~/components/ui/CursorGlow";
-import { ProjectCard, type Density } from "~/components/views/ProjectCard";
+import { ProjectCard } from "~/components/views/ProjectCard";
+import type { Density } from "~/lib/density";
+import { DensityToggle } from "~/components/ui/DensityToggle";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { useAddProject } from "~/lib/add-project-store";
 import { api } from "~/lib/api";
@@ -22,7 +25,7 @@ import {
   useGroups,
   useProjects,
 } from "~/queries";
-import type { ProjectWithCounts } from "~/server/services/projects";
+import type { ProjectWithCounts } from "~/shared/projects";
 
 export const Route = createFileRoute("/")({
   loader: ({ context }) =>
@@ -86,14 +89,8 @@ function MissionControlPage() {
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.path.toLowerCase().includes(search.toLowerCase());
 
-  const pinned = projects.filter((p) => p.pinned && filter(p));
-  const byGroup = groups
-    .map((g) => ({
-      group: g,
-      projects: projects.filter((p) => p.groupId === g.id && !p.pinned && filter(p)),
-    }))
-    .filter((gr) => gr.projects.length > 0);
-  const ungrouped = projects.filter((p) => !p.groupId && !p.pinned && filter(p));
+  const filteredProjects = projects.filter(filter);
+  const { pinned, byGroup, ungrouped } = groupProjects(filteredProjects, groups);
 
   const gridCols =
     density === "compact"
@@ -266,40 +263,7 @@ function MissionControlPage() {
                 <KbdAction action="search.focus" />
               </div>
 
-              <div
-                role="group"
-                aria-label="Card density"
-                style={{
-                  display: "flex",
-                  padding: 2,
-                  background: "var(--surface-1)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 7,
-                  height: 32,
-                }}
-              >
-                {(["compact", "regular", "spacious"] as Density[]).map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setDensity(d)}
-                    title={d}
-                    aria-label={`${d} density`}
-                    aria-pressed={density === d}
-                    style={{
-                      background: density === d ? "var(--surface-3)" : "transparent",
-                      border: 0,
-                      color: density === d ? "var(--text)" : "var(--text-dim)",
-                      borderRadius: 5,
-                      cursor: "pointer",
-                      padding: "0 10px",
-                      fontFamily: "var(--mono)",
-                      fontSize: 11,
-                    }}
-                  >
-                    {d === "compact" ? "▪" : d === "regular" ? "▪▪" : "▪▪▪"}
-                  </button>
-                ))}
-              </div>
+              <DensityToggle value={density} onChange={setDensity} />
 
               <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
                 Groups
@@ -359,7 +323,7 @@ function MissionControlPage() {
             </Section>
           )}
 
-          {projects.filter(filter).length === 0 && (
+          {filteredProjects.length === 0 && (
             <EmptyState
               title={search ? "No matches" : "No projects yet"}
               subtitle={search ? "Try a different search." : "Add your first project to start running sessions."}

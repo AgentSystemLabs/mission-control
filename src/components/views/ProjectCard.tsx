@@ -5,11 +5,10 @@ import { Btn } from "~/components/ui/Btn";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
 import { ProjectStatusBadge } from "~/components/ui/ProjectStatusBadge";
-import { TASK_STATUSES } from "~/db/schema";
+import { TASK_STATUSES } from "~/shared/domain";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import type { ProjectWithCounts } from "~/server/services/projects";
-
-export type Density = "compact" | "regular" | "spacious";
+import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
+import type { Density } from "~/lib/density";
 
 export function ProjectCard({
   project,
@@ -24,7 +23,8 @@ export function ProjectCard({
 }) {
   const counts = project.taskCounts;
   const { runningProjectIds } = useUserTerminals();
-  const hasActivity = counts.running > 0 || runningProjectIds.has(project.id);
+  const activity = getProjectActivity(project, runningProjectIds);
+  const hasActivity = isProjectActive(activity);
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
   const isCompact = density === "compact";
   const isSpacious = density === "spacious";
@@ -117,7 +117,7 @@ export function ProjectCard({
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>
-              <ProjectStatusBadge active={hasActivity} />
+              <ProjectStatusBadge activity={activity} />
             </div>
           </div>
           <Btn
@@ -173,4 +173,3 @@ export function ProjectCard({
     </div>
   );
 }
-

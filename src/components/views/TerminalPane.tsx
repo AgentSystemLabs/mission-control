@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { Terminal as XTerm } from "@xterm/xterm";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
@@ -9,6 +8,7 @@ import { StatusDot } from "~/components/ui/StatusDot";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
+import { createTerminalOptions } from "~/lib/terminal-options";
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
@@ -83,23 +83,7 @@ export function TerminalPane({
       ]);
       if (cancelled || !containerRef.current) return;
 
-      const term = new Terminal({
-        fontFamily: 'Geist Mono, ui-monospace, "SF Mono", Menlo, monospace',
-        fontSize: 12,
-        lineHeight: 1.4,
-        cursorBlink: true,
-        theme: {
-          background: "#050607",
-          foreground: "#e8e6df",
-          cursor: meta?.color ?? "#ff5a1f",
-          black: "#0a0b0d",
-          brightBlack: "#22262c",
-          white: "#e8e6df",
-          brightWhite: "#ffffff",
-        },
-        allowProposedApi: true,
-        scrollback: 5000,
-      });
+      const term = new Terminal(createTerminalOptions({ cursorColor: meta?.color }));
       const fit = new FitAddon();
       fitRef.current = fit;
       term.loadAddon(fit);

@@ -2,12 +2,8 @@ import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
-import {
-  LAUNCH_COMMANDS_MAX,
-  parseLaunchCommands,
-  type LaunchCommand,
-  type Project,
-} from "~/db/schema";
+import { LAUNCH_COMMANDS_MAX, parseLaunchCommands, type LaunchCommand } from "~/shared/domain";
+import type { Project } from "~/db/schema";
 
 function newRowId() {
   return `lc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -33,7 +29,7 @@ export function LaunchCommandsDialog({
     setError(null);
     setSaving(false);
     setRows(parseLaunchCommands(project?.launchCommands ?? null));
-  }, [open, project]);
+  }, [open, project?.id]);
 
   const update = (id: string, patch: Partial<LaunchCommand>) =>
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));

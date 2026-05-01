@@ -69,6 +69,15 @@ function Shell() {
   const { data: settings } = useSettings();
   const { active, close, setPtyId } = useTerminals();
   const userTerminals = useUserTerminals();
+  const {
+    togglePanel,
+    createTerminal,
+    cyclePrev,
+    cycleNext,
+    panelOpen: userTerminalPanelOpen,
+    focusedId: focusedUserTerminalId,
+    killTerminal: killUserTerminal,
+  } = userTerminals;
 
   useNavigationSwipe();
 
@@ -86,7 +95,7 @@ function Shell() {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
 
-  useHotkey("terminal.toggle", () => userTerminals.togglePanel());
+  useHotkey("terminal.toggle", () => togglePanel());
   useHotkey("nav.toggle", () => router.navigate({ to: "/" }));
   // Cmd/Ctrl + [ / ] / T are non-rebindable terminal-focused shortcuts.
   useEffect(() => {
@@ -94,23 +103,23 @@ function Shell() {
       if (!(e.metaKey || e.ctrlKey)) return;
       if ((e.key === "t" || e.key === "T") && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        void userTerminals.createTerminal();
+        void createTerminal();
         return;
       }
       if (e.key === "[" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        userTerminals.cyclePrev();
+        cyclePrev();
         return;
       }
       if (e.key === "]" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        userTerminals.cycleNext();
+        cycleNext();
         return;
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [userTerminals]);
+  }, [createTerminal, cycleNext, cyclePrev]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
   // default app menu's "Close Window" item closes the BrowserWindow before any
@@ -120,11 +129,11 @@ function Shell() {
     const electron = getElectron();
     if (!electron) return;
     return electron.onCloseIntent(() => {
-      if (userTerminals.panelOpen && userTerminals.focusedId) {
-        void userTerminals.killTerminal(userTerminals.focusedId);
+      if (userTerminalPanelOpen && focusedUserTerminalId) {
+        void killUserTerminal(focusedUserTerminalId);
       }
     });
-  }, [userTerminals]);
+  }, [userTerminalPanelOpen, focusedUserTerminalId, killUserTerminal]);
 
   return (
     <div id="root">

@@ -6,13 +6,18 @@ import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
-import type { Project, TaskAgent } from "~/db/schema";
+import { AGENT_REGISTRY, UI_AGENTS, agentSupportsSkipPermissions } from "~/shared/agents";
+import { DEFAULT_BRANCH } from "~/shared/domain";
+import type { TaskAgent } from "~/shared/domain";
+import type { Project } from "~/db/schema";
 
 export type RememberPatch = {
   rememberAgentSettings: boolean;
   savedAgent: TaskAgent | null;
   savedSkipPermissions: boolean;
 };
+
+const AGENT_OPTIONS = UI_AGENTS.map((id) => ({ id, ...AGENT_REGISTRY[id] }));
 
 export function NewAgentDialog({
   open,
@@ -53,28 +58,6 @@ export function NewAgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const agents: { id: TaskAgent; label: string; desc: string; cmd: string; disabled?: boolean }[] = [
-    {
-      id: "claude-code",
-      label: "Claude Code",
-      desc: "Anthropic's agentic coder. Best for multi-file refactors and reasoning.",
-      cmd: "claude",
-    },
-    {
-      id: "codex",
-      label: "Codex",
-      desc: "OpenAI's terminal coder. Best for test-driven, narrow tasks.",
-      cmd: "codex",
-    },
-    {
-      id: "cursor-cli",
-      label: "Cursor CLI",
-      desc: "Cursor's background agent. Best for quick inline edits.",
-      cmd: "cursor-agent",
-      disabled: true,
-    },
-  ];
-
   const toggleRemember = async (next: boolean) => {
     setRememberSettings(next);
     await onPersistRemember(
@@ -82,8 +65,7 @@ export function NewAgentDialog({
         ? {
             rememberAgentSettings: true,
             savedAgent: agent,
-            savedSkipPermissions:
-              agent === "claude-code" || agent === "codex" ? dangerouslySkipPermissions : false,
+            savedSkipPermissions: agentSupportsSkipPermissions(agent) ? dangerouslySkipPermissions : false,
           }
         : { rememberAgentSettings: false, savedAgent: null, savedSkipPermissions: false }
     );
@@ -108,7 +90,7 @@ export function NewAgentDialog({
       }
     }
     try {
-      const supportsSkip = agent === "claude-code" || agent === "codex";
+      const supportsSkip = agentSupportsSkipPermissions(agent);
       const skip = supportsSkip && dangerouslySkipPermissions;
       if (rememberSettings) {
         await onPersistRemember({
@@ -120,7 +102,7 @@ export function NewAgentDialog({
       await onStart({
         agent,
         title: TITLE_WAITING,
-        branch: project?.branch || "main",
+        branch: project?.branch || DEFAULT_BRANCH,
         dangerouslySkipPermissions: skip,
       });
     } catch (e: any) {
@@ -136,7 +118,7 @@ export function NewAgentDialog({
       if (isEditableTarget(e.target)) return;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
-        const ids = agents.filter((a) => !a.disabled).map((a) => a.id);
+        const ids = AGENT_OPTIONS.filter((a) => !a.disabled).map((a) => a.id);
         const idx = ids.indexOf(agent);
         const next = e.key === "ArrowDown"
           ? Math.min(ids.length - 1, idx + 1)
@@ -151,7 +133,7 @@ export function NewAgentDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, agent, agents, submitting, project, rememberSettings, dangerouslySkipPermissions]);
+  }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions]);
 
   useHotkey("dialog.submit", () => void submit(), { enabled: open });
 
@@ -190,7 +172,7 @@ export function NewAgentDialog({
             Agent
           </label>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {agents.map((a) => {
+            {AGENT_OPTIONS.map((a) => {
               const meta = AGENT_META[a.id];
               const selected = agent === a.id;
               return (
@@ -242,7 +224,7 @@ export function NewAgentDialog({
                         lineHeight: 1.4,
                       }}
                     >
-                      {a.desc}
+                    {a.description}
                     </div>
                   </div>
                   <code
@@ -258,7 +240,7 @@ export function NewAgentDialog({
                       letterSpacing: a.disabled ? "0.05em" : "normal",
                     }}
                   >
-                    {a.disabled ? "Coming soon" : `$${a.cmd}`}
+                    {a.disabled ? "Coming soon" : `$${a.command}`}
                   </code>
                 </button>
               );
@@ -266,7 +248,7 @@ export function NewAgentDialog({
           </div>
         </div>
 
-        {(agent === "claude-code" || agent === "codex") && (
+        {agentSupportsSkipPermissions(agent) && (
           <label
             style={{
               display: "flex",
@@ -299,9 +281,7 @@ export function NewAgentDialog({
               >
                 Launches with{" "}
                 <code style={{ color: "var(--text)" }}>
-                  {agent === "claude-code"
-                    ? "--dangerously-skip-permissions"
-                    : "--dangerously-bypass-approvals-and-sandbox"}
+                  {AGENT_REGISTRY[agent].skipPermissionsFlag}
                 </code>
                 .
               </div>

@@ -1,6 +1,15 @@
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
-import { KbdAction } from "~/components/ui/Kbd";
+import { Kbd, KbdAction } from "~/components/ui/Kbd";
+import { Btn } from "~/components/ui/Btn";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
+import { getElectron } from "~/lib/electron";
+import { api } from "~/lib/api";
+import { useUserTerminals } from "~/lib/user-terminal-store";
+import { DUPLICATE_ACTIVE_SESSION_EVENT } from "~/lib/design-meta";
+import { queryKeys } from "~/queries";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
 import type { Project, Task } from "~/db/schema";
 
@@ -14,9 +23,41 @@ export function TerminalPanel({
   onPtyReady,
 }: {
   active: OpenTerminal | null;
-  onClose: (taskId: string) => void;
+  onClose: (taskId: string) => Promise<void> | void;
   onPtyReady: (taskId: string, ptyId: string) => void;
 }) {
+  const queryClient = useQueryClient();
+  const userTerminals = useUserTerminals();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Cmd/Ctrl+W is intercepted in the Electron main process and forwarded as
+  // `app:close-intent`. The user-terminal panel claims it first when a user
+  // terminal is focused; otherwise, when an agent session panel is open, we
+  // open the delete-confirm dialog.
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron || !active) return;
+    return electron.onCloseIntent(() => {
+      if (userTerminals.panelOpen && userTerminals.focusedId) return;
+      setConfirmDelete(true);
+    });
+  }, [active, userTerminals.panelOpen, userTerminals.focusedId]);
+
+  const handleDelete = async () => {
+    if (!active) return;
+    setDeleting(true);
+    try {
+      await Promise.all([onClose(active.taskId), api.deleteTask(active.taskId)]);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks(active.project.id),
+      });
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:agentsPanelWidth",
     axis: "x",
@@ -78,6 +119,24 @@ export function TerminalPanel({
         <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10.5 }}>
           Close <KbdAction action="terminal.close" variant="ghost" />
         </span>
+        <Btn
+          variant="ghost"
+          size="sm"
+          icon="copy"
+          onClick={() => window.dispatchEvent(new CustomEvent(DUPLICATE_ACTIVE_SESSION_EVENT))}
+          title="Spin off a new session with this session's agent and branch"
+        >
+          Make Similar Session <Kbd variant="ghost">⌘ ⇧ D</Kbd>
+        </Btn>
+        <Btn
+          variant="danger"
+          size="sm"
+          icon="trash"
+          onClick={() => setConfirmDelete(true)}
+          title="Delete this session"
+        >
+          Delete <Kbd variant="ghost">⌘ W</Kbd>
+        </Btn>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <TerminalPane
@@ -90,6 +149,19 @@ export function TerminalPanel({
           onPtyReady={(ptyId) => onPtyReady(active.taskId, ptyId)}
         />
       </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={handleDelete}
+        title="Delete session?"
+        confirmLabel="Delete"
+        variant="danger"
+        icon="trash"
+        loading={deleting}
+      >
+        This will permanently delete the session and kill its terminal. This
+        cannot be undone.
+      </ConfirmDialog>
     </div>
   );
 }

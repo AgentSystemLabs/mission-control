@@ -1,8 +1,19 @@
-export function ProjectStatusBadge({ active }: { active: boolean }) {
+import type { ProjectActivityState } from "~/shared/projects";
+
+const ACTIVITY_LABELS: Record<ProjectActivityState, string> = {
+  offline: "Offline",
+  "terminal-running": "Terminal running",
+  "agent-running": "Agent running",
+  "needs-input": "Needs input",
+};
+
+export function ProjectStatusBadge({ activity }: { activity: ProjectActivityState }) {
+  const active = activity !== "offline";
+  const label = ACTIVITY_LABELS[activity];
   return (
     <span
-      title={active ? "Project is online" : "Project is offline"}
-      aria-label={active ? "Project is online" : "Project is offline"}
+      title={label}
+      aria-label={label}
       style={{
         flexShrink: 0,
         display: "inline-flex",
@@ -30,7 +41,7 @@ export function ProjectStatusBadge({ active }: { active: boolean }) {
           boxShadow: active ? "0 0 7px var(--accent-glow)" : "none",
         }}
       />
-      {active ? "Online" : "Offline"}
+      {label}
     </span>
   );
 }

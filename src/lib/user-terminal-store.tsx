@@ -285,15 +285,16 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const cycle = useCallback(
     (delta: 1 | -1) => {
       if (!project) return;
+      // No-op when the panel is closed — don't open it as a side effect of cycling.
+      if (!(panelOpenByProject[project.id] ?? false)) return;
       const list = sessionsByProject[project.id] ?? [];
       if (list.length === 0) return;
-      setPanelOpen(true);
       const cur = focusedByProject[project.id] ?? null;
       const idx = cur ? list.findIndex((s) => s.terminal.id === cur) : -1;
       const nextIdx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
       setFocusFor(project.id, list[nextIdx]!.terminal.id);
     },
-    [project, sessionsByProject, focusedByProject, setFocusFor]
+    [project, panelOpenByProject, sessionsByProject, focusedByProject, setFocusFor]
   );
 
   const cycleNext = useCallback(() => cycle(1), [cycle]);

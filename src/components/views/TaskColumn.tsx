@@ -1,11 +1,13 @@
 import type { Task } from "~/db/schema";
 import { TaskCard } from "./TaskCard";
+import { taskGridCols, type TaskDensity } from "~/lib/use-task-density";
 
 export function TaskColumn({
   title,
   color,
   tasks,
   activeId,
+  density = "regular",
   onToggle,
   onArchive,
   onDelete,
@@ -14,6 +16,7 @@ export function TaskColumn({
   color: string;
   tasks: Task[];
   activeId: string | null;
+  density?: TaskDensity;
   onToggle: (id: string) => void;
   onArchive: (id: string) => void;
   onDelete?: (id: string) => void;
@@ -57,7 +60,7 @@ export function TaskColumn({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
+          gridTemplateColumns: taskGridCols(density),
           gap: 12,
         }}
       >

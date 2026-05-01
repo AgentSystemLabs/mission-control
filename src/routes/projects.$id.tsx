@@ -25,7 +25,8 @@ import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import { parseLaunchCommands } from "~/db/schema";
+import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER, TASK_STATUSES } from "~/shared/domain";
+import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
   groupsQueryOptions,
   projectQueryOptions,
@@ -39,18 +40,14 @@ import {
 } from "~/queries";
 import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
-import { TASK_STATUSES } from "~/db/schema";
 import type { Task, TaskStatus } from "~/db/schema";
-import { STATUS_META } from "~/lib/design-meta";
-
-const STATUS_DISPLAY_ORDER: readonly TaskStatus[] = [
-  "needs-input",
-  "ready",
-  "running",
-  "finished",
-  "terminated",
-  "disconnected",
-];
+import {
+  DUPLICATE_ACTIVE_SESSION_EVENT,
+  pickByPriority,
+  STATUS_META,
+} from "~/lib/design-meta";
+import { useTaskDensity } from "~/lib/use-task-density";
+import { DensityToggle } from "~/components/ui/DensityToggle";
 
 const projectSearchSchema = z.object({
   view: z.enum(["diff"]).optional(),
@@ -93,6 +90,7 @@ function ProjectPage() {
   const { data: groups = [] } = useGroups();
   const { data: settings } = useSettings();
   const { data: gitStatus } = useGitStatus(id);
+  const { density, setDensity } = useTaskDensity();
   const showDiffView = search.view === "diff";
 
   const openDiffView = useCallback(() => {
@@ -199,6 +197,29 @@ function ProjectPage() {
     for (const task of tasks) terminals.syncTask(task);
   }, [tasks, terminals.syncTask]);
 
+  // When the active session is deleted/archived, jump to the next
+  // highest-priority card. Plain deselect (Cmd+L, X) leaves the panel closed.
+  // We hold the prev active id across renders until the tasks query catches
+  // up — only then can we tell deletion (task gone) from deselect (still there).
+  const lastActiveTaskIdRef = useRef<string | null>(null);
+  const activeTaskId =
+    terminals.active && terminals.active.project.id === id
+      ? terminals.active.taskId
+      : null;
+  useEffect(() => {
+    if (activeTaskId !== null) {
+      lastActiveTaskIdRef.current = activeTaskId;
+      return;
+    }
+    const prev = lastActiveTaskIdRef.current;
+    if (!prev || !project) return;
+    const visible = tasks.filter((t) => !t.archived);
+    if (visible.some((t) => t.id === prev)) return; // still there → deselect or refresh pending
+    lastActiveTaskIdRef.current = null;
+    const next = pickByPriority(visible);
+    if (next) terminals.toggle(project, next);
+  }, [activeTaskId, tasks, project, terminals]);
+
   const invalidateProject = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
     [queryClient, id]
@@ -215,25 +236,42 @@ function ProjectPage() {
     await Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
   }, [invalidateProject, invalidateTasks, invalidateProjects]);
 
+  const createSession = useCallback(
+    async (payload: {
+      agent: Task["agent"];
+      branch: string;
+      skipPermissions: boolean;
+    }) => {
+      if (!project || !apiToken) return;
+      const isClaude = payload.agent === "claude-code";
+      const created = await api.createTaskInternal(
+        project.id,
+        {
+          title: TITLE_WAITING,
+          agent: payload.agent,
+          branch: payload.branch,
+          claudeSessionId: isClaude ? newSessionId() : undefined,
+          claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
+            ? payload.skipPermissions
+            : undefined,
+        },
+        apiToken
+      );
+      terminals.toggle(project, created.task);
+      await refresh();
+    },
+    [project, apiToken, refresh, terminals]
+  );
+
   const startWithSaved = useCallback(async () => {
-    if (!project || !apiToken) return;
+    if (!project) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
-    const isClaude = project.savedAgent === "claude-code";
-    const created = await api.createTaskInternal(
-      project.id,
-      {
-        title: TITLE_WAITING,
-        agent: project.savedAgent,
-        branch: project.branch || "main",
-        claudeSessionId: isClaude ? newSessionId() : undefined,
-        claudeSkipPermissions:
-          isClaude || project.savedAgent === "codex" ? !!project.savedSkipPermissions : undefined,
-      },
-      apiToken
-    );
-    await refresh();
-    terminals.toggle(project, created.task);
-  }, [project, apiToken, refresh, terminals]);
+    await createSession({
+      agent: project.savedAgent,
+      branch: project.branch || DEFAULT_BRANCH,
+      skipPermissions: !!project.savedSkipPermissions,
+    });
+  }, [project, createSession]);
 
   const onNewAgentPrimary = useCallback(() => {
     if (showNewAgent || showEdit) return;
@@ -273,15 +311,103 @@ function ProjectPage() {
     { ignoreEditable: true },
   );
 
+  const anyBlockingDialogOpen =
+    showNewAgent ||
+    showEdit ||
+    confirmRemove ||
+    confirmClearAll ||
+    fileFinderOpen ||
+    openFileRel !== null ||
+    showLaunchConfig ||
+    showLaunchEmpty;
+
+  const cycleSession = useCallback(
+    (direction: 1 | -1) => {
+      if (!project) return;
+      if (anyBlockingDialogOpen) return;
+      const visible = tasks.filter((t) => !t.archived);
+      if (visible.length === 0) return;
+      const ordered: Task[] = [];
+      for (const status of STATUS_DISPLAY_ORDER) {
+        for (const t of visible) if (t.status === status) ordered.push(t);
+      }
+      if (ordered.length === 0) return;
+      const currentId =
+        terminals.active && terminals.active.project.id === project.id
+          ? terminals.active.taskId
+          : null;
+      // Panel closed: open the highest-priority card instead of cycling.
+      if (!currentId) {
+        const firstByPriority = pickByPriority(visible);
+        if (!firstByPriority) return;
+        terminals.toggle(project, firstByPriority);
+        return;
+      }
+      const idx = ordered.findIndex((t) => t.id === currentId);
+      if (idx === -1) return;
+      const nextIdx = (idx + direction + ordered.length) % ordered.length;
+      const nextTask = ordered[nextIdx];
+      if (!nextTask || nextTask.id === currentId) return;
+      terminals.toggle(project, nextTask);
+    },
+    [project, tasks, terminals, anyBlockingDialogOpen],
+  );
+
+  // Direct window-capture listener (not useHotkey) — xterm's focused textarea
+  // intermittently masks the action-based hook after a focus change. Mirrors
+  // the proven Cmd+[/Cmd+] pattern in __root.tsx. Cmd+Shift+] / Cmd+Shift+[
+  // arrive as e.key="}" / e.key="{" on US layouts, so match by e.code instead.
+  const cycleSessionRef = useRef(cycleSession);
+  cycleSessionRef.current = cycleSession;
+
+  const duplicateActiveSession = useCallback(() => {
+    if (!project) return;
+    if (anyBlockingDialogOpen) return;
+    const active = terminals.active;
+    if (!active || active.project.id !== project.id) return;
+    const sourceTask = tasks.find((t) => t.id === active.taskId);
+    if (!sourceTask) return;
+    void createSession({
+      agent: sourceTask.agent,
+      branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
+      skipPermissions: !!sourceTask.claudeSkipPermissions,
+    });
+  }, [project, tasks, terminals, createSession, anyBlockingDialogOpen]);
+  const duplicateActiveSessionRef = useRef(duplicateActiveSession);
+  duplicateActiveSessionRef.current = duplicateActiveSession;
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (!e.shiftKey || e.altKey) return;
+      if (e.code === "BracketRight") {
+        e.preventDefault();
+        e.stopPropagation();
+        cycleSessionRef.current(1);
+      } else if (e.code === "BracketLeft") {
+        e.preventDefault();
+        e.stopPropagation();
+        cycleSessionRef.current(-1);
+      } else if (e.code === "KeyD") {
+        e.preventDefault();
+        e.stopPropagation();
+        duplicateActiveSessionRef.current();
+      }
+    };
+    const onDuplicateRequest = () => duplicateActiveSessionRef.current();
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
+    };
+  }, []);
+
   useHotkey(
     "git.diff",
     () => {
       if (
-        openFileRel ||
-        showNewAgent ||
-        showEdit ||
-        confirmRemove ||
-        fileFinderOpen
+        anyBlockingDialogOpen
       ) return;
       if (showDiffView) closeDiffView();
       else openDiffView();
@@ -289,8 +415,7 @@ function ProjectPage() {
     { ignoreEditable: true },
   );
 
-  const closePanelEnabled =
-    !showNewAgent && !showEdit && !confirmRemove && terminals.active !== null;
+  const closePanelEnabled = !anyBlockingDialogOpen && terminals.active !== null;
 
   // Capture phase so xterm.js (focused terminal) can't swallow the key first.
   useHotkey("terminal.close", () => terminals.deselect(), {
@@ -386,28 +511,17 @@ function ProjectPage() {
   };
 
   const startAgent = async (data: {
-    agent: any;
+    agent: Task["agent"];
     title: string;
     branch: string;
     dangerouslySkipPermissions: boolean;
   }) => {
-    if (!apiToken) return;
-    const isClaude = data.agent === "claude-code";
-    const created = await api.createTaskInternal(
-      project.id,
-      {
-        title: data.title,
-        agent: data.agent,
-        branch: data.branch,
-        claudeSessionId: isClaude ? newSessionId() : undefined,
-        claudeSkipPermissions:
-          isClaude || data.agent === "codex" ? data.dangerouslySkipPermissions : undefined,
-      },
-      apiToken
-    );
     setShowNewAgent(false);
-    await refresh();
-    terminals.toggle(project, created.task);
+    await createSession({
+      agent: data.agent,
+      branch: data.branch,
+      skipPermissions: data.dangerouslySkipPermissions,
+    });
   };
 
   if (showDiffView) {
@@ -567,11 +681,11 @@ function ProjectPage() {
                   title={
                     gitStatus && gitStatus.changedCount > 0
                       ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"} on ${gitStatus.branch}`
-                      : `On branch ${gitStatus?.branch ?? project.branch ?? "main"}`
+                      : `On branch ${gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}`
                   }
                 >
                   <span style={{ flex: 1, textAlign: "left" }}>
-                    {gitStatus?.branch ?? project.branch ?? "main"}
+                    {gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
                     {gitStatus && gitStatus.changedCount > 0 && (
                       <span style={{ color: "var(--text-dim)" }}>
                         {" · "}
@@ -672,6 +786,7 @@ function ProjectPage() {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <DensityToggle value={density} onChange={setDensity} />
               <Btn
                 variant="ghost"
                 icon="trash"
@@ -692,6 +807,7 @@ function ProjectPage() {
               color={STATUS_META[status].color}
               tasks={tasksByStatus[status]}
               activeId={activeId}
+              density={density}
               onToggle={toggleTerminal}
               onArchive={archive}
               onDelete={deleteTask}
@@ -699,7 +815,7 @@ function ProjectPage() {
           ))}
           {visibleTasks.length === 0 && (
             <EmptyState
-              title="No active tasks"
+              title="No active sessions"
               subtitle="Start a new session to begin working on this project."
               action={
                 <NewAgentButton

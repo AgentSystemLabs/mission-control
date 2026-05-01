@@ -1,9 +1,10 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { getElectron } from "./electron";
-import { AGENT_META } from "./design-meta";
+import { AGENT_REGISTRY } from "~/shared/agents";
 import { buildClaudeCommand, newSessionId } from "./claude-command";
 import { api } from "./api";
-import type { Project, Task, TaskAgent } from "~/db/schema";
+import type { TaskAgent } from "~/shared/domain";
+import type { Project, Task } from "~/db/schema";
 
 export type OpenTerminal = {
   taskId: string;
@@ -38,8 +39,7 @@ type Ctx = {
 const TerminalContext = createContext<Ctx | null>(null);
 
 function commandFor(agent: TaskAgent): string {
-  if (agent === "shell") return "";
-  return AGENT_META[agent].cmd;
+  return AGENT_REGISTRY[agent].startCommand();
 }
 
 /**
@@ -51,9 +51,7 @@ function commandFor(agent: TaskAgent): string {
  */
 function commandForTask(task: Task): string {
   if (task.agent === "codex") {
-    return task.claudeSkipPermissions
-      ? "codex --dangerously-bypass-approvals-and-sandbox"
-      : "codex";
+    return AGENT_REGISTRY.codex.startCommand({ skipPermissions: task.claudeSkipPermissions });
   }
   if (task.agent !== "claude-code") return commandFor(task.agent);
   const skip = !!task.claudeSkipPermissions;
@@ -153,25 +151,35 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     ? sessions.find((s) => s.taskId === activeTaskId) ?? null
     : null;
 
-  return (
-    <TerminalContext.Provider
-      value={{
-        sessions,
-        active,
-        activeTaskId,
-        toggle,
-        deselect,
-        close,
-        closeForProject,
-        setPtyId,
-        syncTask,
-        startCommandFor: commandFor,
-        runIn,
-      }}
-    >
-      {children}
-    </TerminalContext.Provider>
+  const value = useMemo<Ctx>(
+    () => ({
+      sessions,
+      active,
+      activeTaskId,
+      toggle,
+      deselect,
+      close,
+      closeForProject,
+      setPtyId,
+      syncTask,
+      startCommandFor: commandFor,
+      runIn,
+    }),
+    [
+      sessions,
+      active,
+      activeTaskId,
+      toggle,
+      deselect,
+      close,
+      closeForProject,
+      setPtyId,
+      syncTask,
+      runIn,
+    ]
   );
+
+  return <TerminalContext.Provider value={value}>{children}</TerminalContext.Provider>;
 }
 
 export function useTerminals() {
