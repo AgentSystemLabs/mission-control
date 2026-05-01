@@ -2,7 +2,8 @@ import type { IpcMain, BrowserWindow } from "electron";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { installClaudeHooks } from "./claude-hooks";
+import { installAgentHooks } from "./agent-hooks";
+import { IPC } from "./ipc-channels";
 
 function resolveShell(): string {
   const env = process.env.SHELL;
@@ -142,7 +143,7 @@ function send(getWin: () => BrowserWindow | null, channel: string, payload: any)
 export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindow | null) {
   ensureClaudeShiftEnterBinding();
   ipcMain.handle(
-    "pty:spawn",
+      IPC.ptySpawn,
     (
       _evt,
       opts: {
@@ -161,12 +162,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       const userShell = resolveShell();
       assertCwd(opts.cwd);
 
-      // For Claude Code agents, register hooks into the project's
-      // `.claude/settings.local.json` so we get callbacks when the agent
-      // starts a turn, finishes, or needs human input.
-      if (opts.agent === "claude-code") {
-        installClaudeHooks(opts.cwd);
-      }
+      installAgentHooks(opts.agent, opts.cwd);
 
       const env = sanitizeEnv();
       env.MC_TASK_ID = opts.taskId;
@@ -226,10 +222,10 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       proc.onData((data: string) => {
         appendBuffer(p, data);
         scanForInterrupt(p, data);
-        send(getWin, "pty:data", { ptyId: id, data });
+        send(getWin, IPC.ptyData, { ptyId: id, data });
       });
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
-        send(getWin, "pty:exit", { ptyId: id, exitCode, signal });
+        send(getWin, IPC.ptyExit, { ptyId: id, exitCode, signal });
         ptys.delete(id);
       });
 
@@ -237,7 +233,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
     }
   );
 
-  ipcMain.handle("pty:write", (_evt, { ptyId, data }: { ptyId: string; data: string }) => {
+  ipcMain.handle(IPC.ptyWrite, (_evt, { ptyId, data }: { ptyId: string; data: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
     p.proc.write(data);
@@ -245,7 +241,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
   });
 
   ipcMain.handle(
-    "pty:resize",
+      IPC.ptyResize,
     (_evt, { ptyId, cols, rows }: { ptyId: string; cols: number; rows: number }) => {
       const p = ptys.get(ptyId);
       if (!p) return false;
@@ -258,7 +254,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
     }
   );
 
-  ipcMain.handle("pty:kill", (_evt, { ptyId }: { ptyId: string }) => {
+  ipcMain.handle(IPC.ptyKill, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
     try {
@@ -270,7 +266,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
     return true;
   });
 
-  ipcMain.handle("pty:replay", (_evt, { ptyId }: { ptyId: string }) => {
+  ipcMain.handle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return "";
     return p.buffer.join("");

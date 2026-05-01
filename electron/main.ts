@@ -8,9 +8,12 @@ import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
+import { IPC } from "./ipc-channels";
 
 const isDev = process.env.NODE_ENV === "development";
-const devUrl = process.env.MC_DEV_URL || "http://127.0.0.1:5173";
+const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
+const devServerPort = Number(process.env.MC_DEV_PORT ?? 5173);
+const devUrl = process.env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPort}`;
 
 let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
@@ -21,7 +24,7 @@ function pickPort(): Promise<number> {
     const srv = nodeNet.createServer();
     srv.unref();
     srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
+    srv.listen(0, devServerHost, () => {
       const addr = srv.address();
       if (addr && typeof addr === "object") {
         const port = addr.port;
@@ -52,6 +55,21 @@ function waitForHttp(url: string, timeoutMs = 30_000): Promise<void> {
   });
 }
 
+async function openExternalHttpUrl(url: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!url) return { ok: false, error: "empty" };
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, error: "invalid-url" };
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return { ok: false, error: "unsupported-url-scheme" };
+  }
+  await shell.openExternal(parsed.toString());
+  return { ok: true };
+}
+
 async function startProductionServer(): Promise<string> {
   const port = await pickPort();
   runtimePort = port;
@@ -67,7 +85,7 @@ async function startProductionServer(): Promise<string> {
     env: {
       ...process.env,
       PORT: String(port),
-      HOST: "127.0.0.1",
+      HOST: devServerHost,
       ELECTRON_RUN_AS_NODE: "1",
       MC_USER_DATA_DIR: app.getPath("userData"),
     },
@@ -81,8 +99,8 @@ async function startProductionServer(): Promise<string> {
     }
   });
 
-  await waitForHttp(`http://127.0.0.1:${port}`);
-  return `http://127.0.0.1:${port}`;
+  await waitForHttp(`http://${devServerHost}:${port}`);
+  return `http://${devServerHost}:${port}`;
 }
 
 async function bootDevServer(): Promise<string> {
@@ -125,20 +143,20 @@ async function createWindow() {
     const mod = process.platform === "darwin" ? input.meta : input.control;
     if (mod && !input.shift && !input.alt && input.key.toLowerCase() === "w") {
       event.preventDefault();
-      win?.webContents.send("app:close-intent");
+      win?.webContents.send(IPC.appCloseIntent);
     }
   });
 
   // macOS-only: 3-finger swipe (System Settings → Trackpad → More Gestures).
   win.on("swipe", (_e, direction) => {
-    win?.webContents.send("app:swipe", direction);
+    win?.webContents.send(IPC.appSwipe, direction);
   });
 
-  win.on("enter-full-screen", () => win?.webContents.send("app:fullscreen-change", true));
-  win.on("leave-full-screen", () => win?.webContents.send("app:fullscreen-change", false));
-  ipcMain.handle("app:isFullScreen", () => win?.isFullScreen() ?? false);
+  win.on("enter-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, true));
+  win.on("leave-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, false));
+  ipcMain.handle(IPC.appIsFullScreen, () => win?.isFullScreen() ?? false);
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    void openExternalHttpUrl(url);
     return { action: "deny" };
   });
 
@@ -196,7 +214,7 @@ function registerProjectImageProtocol() {
 // from copying arbitrary FS paths (e.g. /etc/passwd) into project-images/.
 const ALLOWED_PICKED_PATHS = new Set<string>();
 
-ipcMain.handle("dialog:pickImage", async () => {
+ipcMain.handle(IPC.dialogPickImage, async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile"],
@@ -213,7 +231,7 @@ ipcMain.handle("dialog:pickImage", async () => {
 });
 
 ipcMain.handle(
-  "file:saveProjectImage",
+  IPC.fileSaveProjectImage,
   async (_evt, opts: { projectId: string; sourcePath: string; extension: string }) => {
     const { projectId, sourcePath } = opts;
     const ext = opts.extension.toLowerCase();
@@ -226,7 +244,7 @@ ipcMain.handle(
     if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: `unsupported extension: ${ext}` };
     if (!fs.existsSync(sourcePath)) return { error: "source file not found" };
     const stat = fs.statSync(sourcePath);
-    if (stat.size > MAX_IMAGE_BYTES) return { error: "image exceeds 5MB" };
+    if (stat.size > MAX_IMAGE_BYTES) return { error: `image exceeds ${MAX_IMAGE_BYTES / 1024 / 1024}MB` };
 
     const dir = projectImagesDir();
     fs.mkdirSync(dir, { recursive: true });
@@ -245,7 +263,7 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle("dialog:browseFolder", async () => {
+ipcMain.handle(IPC.dialogBrowseFolder, async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     properties: ["openDirectory", "createDirectory"],
@@ -254,23 +272,21 @@ ipcMain.handle("dialog:browseFolder", async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle("shell:openPath", async (_evt, p: string) => {
+ipcMain.handle(IPC.shellOpenPath, async (_evt, p: string) => {
   if (!p) return { ok: false, error: "empty" };
   const err = await shell.openPath(p);
   if (err) return { ok: false, error: err };
   return { ok: true };
 });
 
-ipcMain.handle("shell:openExternal", async (_evt, url: string) => {
-  if (!url) return { ok: false, error: "empty" };
-  await shell.openExternal(url);
-  return { ok: true };
+ipcMain.handle(IPC.shellOpenExternal, async (_evt, url: string) => {
+  return openExternalHttpUrl(url);
 });
 
-ipcMain.handle("app:getRuntimePort", () => runtimePort);
-ipcMain.handle("app:getUserDataDir", () => app.getPath("userData"));
+ipcMain.handle(IPC.appGetRuntimePort, () => runtimePort);
+ipcMain.handle(IPC.appGetUserDataDir, () => app.getPath("userData"));
 
-ipcMain.handle("app:getUserName", () => {
+ipcMain.handle(IPC.appGetUserName, () => {
   try {
     const result = spawnSync("git", ["config", "--global", "user.name"], {
       encoding: "utf8",
@@ -283,7 +299,7 @@ ipcMain.handle("app:getUserName", () => {
   return { source: "os" as const, fullName: username, firstName: username };
 });
 
-ipcMain.handle("cli:check", (_evt, command: string) => {
+ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
   if (!command) return { ok: false, reason: "empty" };
   const isWindows = os.platform() === "win32";
   const probe = isWindows ? "where" : "command";

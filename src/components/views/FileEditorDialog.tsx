@@ -7,13 +7,14 @@ import { Kbd, KbdAction } from "~/components/ui/Kbd";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { languageForFilename } from "~/lib/file-language";
+import type { FileReadError } from "~/shared/electron-contract";
 
 type LoadedFile = {
   content: string;
   mtimeMs: number;
 };
 
-type LoadError = "not-found" | "binary" | "too-large" | "invalid-path" | string;
+type LoadError = FileReadError | string;
 
 export function FileEditorDialog({
   projectRoot,
@@ -463,6 +464,9 @@ function LoadErrorView({
   } else if (kind === "not-found") {
     title = "File not found";
     body = "The file no longer exists on disk.";
+  } else if (kind === "invalid-path") {
+    title = "Invalid file path";
+    body = "This path is outside the project or cannot be opened safely.";
   }
   return (
     <div
@@ -485,4 +489,3 @@ function LoadErrorView({
     </div>
   );
 }
-

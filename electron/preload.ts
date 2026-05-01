@@ -1,27 +1,28 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
+import { IPC } from "./ipc-channels";
 
 const electronAPI = {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
-  browseFolder: (): Promise<string | null> => ipcRenderer.invoke("dialog:browseFolder"),
+  browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),
   openPath: (path: string): Promise<{ ok: true } | { ok: false; error: string }> =>
-    ipcRenderer.invoke("shell:openPath", path),
+    ipcRenderer.invoke(IPC.shellOpenPath, path),
   openExternal: (url: string): Promise<{ ok: true } | { ok: false; error: string }> =>
-    ipcRenderer.invoke("shell:openExternal", url),
+    ipcRenderer.invoke(IPC.shellOpenExternal, url),
   pickImage: (): Promise<
     { sourcePath: string; extension: string } | { error: string } | null
-  > => ipcRenderer.invoke("dialog:pickImage"),
+  > => ipcRenderer.invoke(IPC.dialogPickImage),
   saveProjectImage: (opts: {
     projectId: string;
     sourcePath: string;
     extension: string;
   }): Promise<{ filename: string } | { error: string }> =>
-    ipcRenderer.invoke("file:saveProjectImage", opts),
-  getRuntimePort: (): Promise<number | null> => ipcRenderer.invoke("app:getRuntimePort"),
-  getUserDataDir: (): Promise<string> => ipcRenderer.invoke("app:getUserDataDir"),
+    ipcRenderer.invoke(IPC.fileSaveProjectImage, opts),
+  getRuntimePort: (): Promise<number | null> => ipcRenderer.invoke(IPC.appGetRuntimePort),
+  getUserDataDir: (): Promise<string> => ipcRenderer.invoke(IPC.appGetUserDataDir),
   getUserName: (): Promise<{ source: "git" | "os"; fullName: string; firstName: string }> =>
-    ipcRenderer.invoke("app:getUserName"),
+    ipcRenderer.invoke(IPC.appGetUserName),
   cliCheck: (command: string): Promise<{ ok: true; path: string } | { ok: false; reason: string }> =>
-    ipcRenderer.invoke("cli:check", command),
+    ipcRenderer.invoke(IPC.cliCheck, command),
   pty: {
     spawn: (opts: {
       taskId: string;
@@ -32,50 +33,50 @@ const electronAPI = {
       rows?: number;
       agent?: string;
       mcEnv?: { apiUrl?: string; token?: string };
-    }) => ipcRenderer.invoke("pty:spawn", opts) as Promise<{ ptyId: string }>,
-    write: (ptyId: string, data: string) => ipcRenderer.invoke("pty:write", { ptyId, data }),
+    }) => ipcRenderer.invoke(IPC.ptySpawn, opts) as Promise<{ ptyId: string }>,
+    write: (ptyId: string, data: string) => ipcRenderer.invoke(IPC.ptyWrite, { ptyId, data }),
     resize: (ptyId: string, cols: number, rows: number) =>
-      ipcRenderer.invoke("pty:resize", { ptyId, cols, rows }),
-    kill: (ptyId: string) => ipcRenderer.invoke("pty:kill", { ptyId }),
+      ipcRenderer.invoke(IPC.ptyResize, { ptyId, cols, rows }),
+    kill: (ptyId: string) => ipcRenderer.invoke(IPC.ptyKill, { ptyId }),
     onData: (cb: (msg: { ptyId: string; data: string }) => void) => {
       const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; data: string }) => cb(msg);
-      ipcRenderer.on("pty:data", listener);
-      return () => ipcRenderer.removeListener("pty:data", listener);
+      ipcRenderer.on(IPC.ptyData, listener);
+      return () => ipcRenderer.removeListener(IPC.ptyData, listener);
     },
     onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => {
       const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; exitCode: number; signal?: number }) =>
         cb(msg);
-      ipcRenderer.on("pty:exit", listener);
-      return () => ipcRenderer.removeListener("pty:exit", listener);
+      ipcRenderer.on(IPC.ptyExit, listener);
+      return () => ipcRenderer.removeListener(IPC.ptyExit, listener);
     },
-    replay: (ptyId: string): Promise<string> => ipcRenderer.invoke("pty:replay", { ptyId }) as Promise<string>,
+    replay: (ptyId: string): Promise<string> => ipcRenderer.invoke(IPC.ptyReplay, { ptyId }) as Promise<string>,
   },
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => {
     const listener = (_: Electron.IpcRendererEvent, direction: "left" | "right" | "up" | "down") => cb(direction);
-    ipcRenderer.on("app:swipe", listener);
-    return () => ipcRenderer.removeListener("app:swipe", listener);
+    ipcRenderer.on(IPC.appSwipe, listener);
+    return () => ipcRenderer.removeListener(IPC.appSwipe, listener);
   },
-  isFullScreen: (): Promise<boolean> => ipcRenderer.invoke("app:isFullScreen"),
+  isFullScreen: (): Promise<boolean> => ipcRenderer.invoke(IPC.appIsFullScreen),
   onFullScreenChange: (cb: (isFullScreen: boolean) => void) => {
     const listener = (_: Electron.IpcRendererEvent, isFullScreen: boolean) => cb(isFullScreen);
-    ipcRenderer.on("app:fullscreen-change", listener);
-    return () => ipcRenderer.removeListener("app:fullscreen-change", listener);
+    ipcRenderer.on(IPC.appFullScreenChange, listener);
+    return () => ipcRenderer.removeListener(IPC.appFullScreenChange, listener);
   },
   onCloseIntent: (cb: () => void) => {
     const listener = () => cb();
-    ipcRenderer.on("app:close-intent", listener);
-    return () => ipcRenderer.removeListener("app:close-intent", listener);
+    ipcRenderer.on(IPC.appCloseIntent, listener);
+    return () => ipcRenderer.removeListener(IPC.appCloseIntent, listener);
   },
   files: {
     list: (projectRoot: string): Promise<{ ok: true; files: string[] } | { ok: false; error: string }> =>
-      ipcRenderer.invoke("files:list", projectRoot),
+      ipcRenderer.invoke(IPC.filesList, projectRoot),
     read: (
       projectRoot: string,
       relPath: string,
     ): Promise<
       | { ok: true; content: string; mtimeMs: number; lineCount: number }
       | { ok: false; error: "invalid-path" | "not-found" | "binary" | "too-large" | string; lineCount?: number }
-    > => ipcRenderer.invoke("files:read", projectRoot, relPath),
+    > => ipcRenderer.invoke(IPC.filesRead, projectRoot, relPath),
     write: (
       projectRoot: string,
       relPath: string,
@@ -84,18 +85,18 @@ const electronAPI = {
     ): Promise<
       | { ok: true; mtimeMs: number }
       | { ok: false; error: "invalid-path" | "invalid-content" | "stale" | string; currentMtimeMs?: number }
-    > => ipcRenderer.invoke("files:write", projectRoot, relPath, content, expectedMtimeMs),
+    > => ipcRenderer.invoke(IPC.filesWrite, projectRoot, relPath, content, expectedMtimeMs),
     watch: (
       projectRoot: string,
       relPath: string,
     ): Promise<{ ok: true; watchId: string } | { ok: false; error: string }> =>
-      ipcRenderer.invoke("files:watch", projectRoot, relPath),
+      ipcRenderer.invoke(IPC.filesWatch, projectRoot, relPath),
     unwatch: (watchId: string): Promise<{ ok: true }> =>
-      ipcRenderer.invoke("files:unwatch", watchId),
+      ipcRenderer.invoke(IPC.filesUnwatch, watchId),
     onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) => {
       const listener = (_: Electron.IpcRendererEvent, msg: { watchId: string; mtimeMs: number }) => cb(msg);
-      ipcRenderer.on("files:changed", listener);
-      return () => ipcRenderer.removeListener("files:changed", listener);
+      ipcRenderer.on(IPC.filesChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.filesChanged, listener);
     },
   },
 };

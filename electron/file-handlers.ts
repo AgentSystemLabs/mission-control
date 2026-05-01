@@ -2,6 +2,7 @@ import type { BrowserWindow, IpcMain } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
+import { IPC } from "./ipc-channels";
 
 const HARDCODED_IGNORES = [
   "node_modules",
@@ -119,7 +120,7 @@ function isProbablyBinary(buf: Buffer): boolean {
 }
 
 export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow | null) {
-  ipc.handle("files:list", async (_evt, projectRoot: string) => {
+  ipc.handle(IPC.filesList, async (_evt, projectRoot: string) => {
     if (!projectRoot || typeof projectRoot !== "string") {
       return { ok: false as const, error: "invalid root" };
     }
@@ -132,7 +133,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
   });
 
   ipc.handle(
-    "files:read",
+    IPC.filesRead,
     async (_evt, projectRoot: string, relPath: string) => {
       const abs = resolveInsideRoot(projectRoot, relPath);
       if (!abs) return { ok: false as const, error: "invalid-path" as const };
@@ -169,7 +170,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
   );
 
   ipc.handle(
-    "files:write",
+      IPC.filesWrite,
     async (
       _evt,
       projectRoot: string,
@@ -201,7 +202,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
     }
   );
 
-  ipc.handle("files:watch", async (_evt, projectRoot: string, relPath: string) => {
+  ipc.handle(IPC.filesWatch, async (_evt, projectRoot: string, relPath: string) => {
     const abs = resolveInsideRoot(projectRoot, relPath);
     if (!abs) return { ok: false as const, error: "invalid-path" as const };
     try {
@@ -219,7 +220,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
         if (cur.mtimeMs <= entry.lastMtimeMs) return;
         entry.lastMtimeMs = cur.mtimeMs;
         const win = getWin();
-        win?.webContents.send("files:changed", { watchId, mtimeMs: cur.mtimeMs });
+      win?.webContents.send(IPC.filesChanged, { watchId, mtimeMs: cur.mtimeMs });
       });
       entry.watcher = watcher;
       watchers.set(watchId, entry);
@@ -229,7 +230,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
     }
   });
 
-  ipc.handle("files:unwatch", async (_evt, watchId: string) => {
+  ipc.handle(IPC.filesUnwatch, async (_evt, watchId: string) => {
     const entry = watchers.get(watchId);
     if (!entry) return { ok: true as const };
     try {

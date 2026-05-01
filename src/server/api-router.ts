@@ -35,6 +35,7 @@ import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, requireBearerToken } from "./auth";
 import { generateTitleForTask } from "./services/title-generator";
+import { mapHookEventToStatus } from "~/shared/agent-hook-events";
 import {
   getGitStatus,
   getGitDiff,
@@ -45,6 +46,8 @@ import {
   gitErrorPayload,
   deleteProjectFile,
 } from "./services/git";
+
+const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -331,7 +334,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       }
     }
 
-    if (pathname === "/api/hooks/claude" && method === "POST") {
+    const agentHookMatch = pathname.match(AGENT_HOOK_PATH);
+    if (agentHookMatch && method === "POST") {
       const auth = requireBearerToken(request);
       if (!auth.ok) return auth.response;
       const taskId = url.searchParams.get("taskId");
@@ -401,38 +405,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   }
 }
 
-export function mapHookEventToStatus(payload: {
-  hook_event_name?: string;
-  notification_type?: string;
-  message?: string;
-  title?: string;
-}): import("~/db/schema").TaskStatus | null {
-  switch (payload.hook_event_name || "") {
-    case "UserPromptSubmit":
-      return "running";
-    case "Stop":
-    case "UserInterrupt":
-      return "finished";
-    case "PermissionRequest":
-      return "needs-input";
-    case "Notification":
-      return isPermissionNotification(payload) ? "needs-input" : null;
-    default:
-      return null;
-  }
-}
-
-function isPermissionNotification(payload: {
-  notification_type?: string;
-  message?: string;
-  title?: string;
-}): boolean {
-  if (payload.notification_type) {
-    return payload.notification_type === "permission_prompt";
-  }
-  const text = `${payload.title ?? ""} ${payload.message ?? ""}`.toLowerCase();
-  return text.includes("permission");
-}
+export { mapHookEventToStatus } from "~/shared/agent-hook-events";
 
 async function readJson<T>(request: Request): Promise<T> {
   if (!request.body) return {} as T;
