@@ -6,12 +6,18 @@ export type ProjectWithCounts = Project & {
   githubUrl?: string | null;
 };
 
-export type ProjectActivityState = "offline" | "terminal-running" | "agent-running" | "needs-input";
+export type ProjectActivityState =
+  | "offline"
+  | "terminal-running"
+  | "agent-running"
+  | "needs-input"
+  | "interrupted";
 
 export function getProjectActivity(
   project: ProjectWithCounts,
   runningProjectIds: ReadonlySet<string>
 ): ProjectActivityState {
+  if (project.taskCounts.interrupted > 0) return "interrupted";
   if (project.taskCounts["needs-input"] > 0) return "needs-input";
   if (project.taskCounts.running > 0) return "agent-running";
   if (runningProjectIds.has(project.id)) return "terminal-running";

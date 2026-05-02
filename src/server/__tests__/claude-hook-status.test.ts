@@ -5,6 +5,7 @@ describe("agent hook status mapping", () => {
   it("maps turn lifecycle events", () => {
     expect(mapHookEventToStatus({ hook_event_name: "UserPromptSubmit" })).toBe("running");
     expect(mapHookEventToStatus({ hook_event_name: "Stop" })).toBe("finished");
+    expect(mapHookEventToStatus({ hook_event_name: "UserInterrupt" })).toBe("interrupted");
   });
 
   it("maps permission requests to needs-input", () => {

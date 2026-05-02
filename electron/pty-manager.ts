@@ -81,16 +81,23 @@ type Pty = {
   lastInterruptAt: number;
 };
 
-const INTERRUPT_MARKER = "Interrupted by user";
 const INTERRUPT_COOLDOWN_MS = 2000;
 const SCAN_TAIL_MAX = 256;
+
+export function hasClaudeInterruptPrompt(text: string): boolean {
+  return (
+    text.includes("Interrupted by user") ||
+    (text.includes("Interrupted") &&
+      text.includes("What should Claude do instead"))
+  );
+}
 
 function scanForInterrupt(p: Pty, chunk: string) {
   if (p.agent !== "claude-code") return;
   if (!p.mcEnv?.apiUrl || !p.mcEnv?.token) return;
   const haystack = (p.scanTail + chunk).slice(-SCAN_TAIL_MAX - chunk.length);
   p.scanTail = haystack.slice(-SCAN_TAIL_MAX);
-  if (!haystack.includes(INTERRUPT_MARKER)) return;
+  if (!hasClaudeInterruptPrompt(haystack)) return;
   const now = Date.now();
   if (now - p.lastInterruptAt < INTERRUPT_COOLDOWN_MS) return;
   p.lastInterruptAt = now;

@@ -27,7 +27,7 @@ Lookup order:
   ```bash
   curl -s -H "Authorization: Bearer $MC_TOKEN" \
     -X POST http://127.0.0.1:$MC_PORT/api/tasks/$MC_TASK_ID/status \
-    -d '{"status":"done","preview":"Refactor complete. Tests green."}'
+    -d '{"status":"finished","preview":"Refactor complete. Tests green."}'
   ```
 
 - **When you have a blocking question for the user**:
@@ -48,16 +48,17 @@ Lookup order:
   ```bash
   curl -s -H "Authorization: Bearer $MC_TOKEN" \
     -X POST http://127.0.0.1:$MC_PORT/api/tasks/$MC_TASK_ID/status \
-    -d '{"status":"failed","preview":"node-pty build failed on arm64"}'
+    -d '{"status":"terminated","preview":"node-pty build failed on arm64"}'
   ```
 
 ## Status values
 
 - `running` — actively making progress
 - `needs-input` — blocked on a user decision
-- `done` — task complete, ready for review/commit
-- `failed` — task failed, won't proceed without intervention
-- `idle` — agent is alive but not actively working
+- `interrupted` — user interrupted the agent and it is waiting for revised instructions
+- `finished` — task complete, ready for review/commit
+- `terminated` — task stopped and won't proceed without intervention
+- `disconnected` — MissionControl lost the terminal process
 
 ## Optional fields
 

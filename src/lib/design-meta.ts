@@ -17,6 +17,7 @@ export const STATUS_META: Record<
   ready: TASK_STATUS_META.ready,
   running: TASK_STATUS_META.running,
   "needs-input": TASK_STATUS_META["needs-input"],
+  interrupted: TASK_STATUS_META.interrupted,
   finished: TASK_STATUS_META.finished,
   terminated: TASK_STATUS_META.terminated,
   disconnected: TASK_STATUS_META.disconnected,

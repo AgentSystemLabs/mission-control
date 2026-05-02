@@ -72,6 +72,15 @@ turn idle reminders into `needs-input`.
 The hook is fail-soft (`|| true`) — if Mission Control is down or the
 endpoint is slow it never blocks the user's session.
 
+## Interrupt fallback
+
+Claude does not expose `UserInterrupt` as a settings hook event. When a user
+presses Esc during a Claude turn, the Electron PTY manager scans output for
+Claude's interrupt prompt (`Interrupted ... What should Claude do instead?`)
+and posts an internal synthetic `UserInterrupt` payload to the same local hook
+endpoint. The server maps that synthetic event to `interrupted` because Claude
+is waiting for revised instructions after an explicit user interruption.
+
 ## Other agents
 
 `cursor-cli` and `shell` don't have an equivalent hook surface. For those we

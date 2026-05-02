@@ -477,12 +477,6 @@ function ProjectPage() {
     terminals.toggle(project, task);
   };
 
-  const archive = async (taskId: string) => {
-    await api.archiveTask(taskId);
-    await terminals.close(taskId);
-    await refresh();
-  };
-
   const deleteTask = async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -809,7 +803,6 @@ function ProjectPage() {
               activeId={activeId}
               density={density}
               onToggle={toggleTerminal}
-              onArchive={archive}
               onDelete={deleteTask}
             />
           ))}

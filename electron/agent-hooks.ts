@@ -31,7 +31,7 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
       { event: "PermissionRequest" },
       { event: "Notification", matcher: "permission_prompt" },
     ],
-    removeManagedEvents: ["SubagentStop"],
+    removeManagedEvents: ["SubagentStop", "UserInterrupt"],
   },
   codex: {
     configPath: [".codex", "hooks.json"],

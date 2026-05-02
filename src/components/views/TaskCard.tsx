@@ -15,13 +15,11 @@ export function TaskCard({
   task,
   selected,
   onToggle,
-  onArchive,
   onDelete,
 }: {
   task: Task;
   selected: boolean;
   onToggle: (taskId: string) => void;
-  onArchive: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -37,6 +35,7 @@ export function TaskCard({
   const isRunning = task.status === "running";
 
   const updated = formatRelative(task.updatedAt);
+  const toggleTask = () => onToggle(task.id);
 
   return (
     <div
@@ -65,15 +64,16 @@ export function TaskCard({
         if (!selected) e.currentTarget.style.borderColor = "var(--border)";
       }}
     >
+      <ShimmerBar active={isRunning} color={meta?.color} />
       <button
         type="button"
-        onClick={() => onToggle(task.id)}
+        onClick={toggleTask}
         aria-label={`${selected ? "Close" : "Open"} terminal for ${task.title}`}
         aria-pressed={selected}
         style={{
           position: "absolute",
           inset: 0,
-          zIndex: 0,
+          zIndex: 1,
           background: "transparent",
           border: 0,
           padding: 0,
@@ -82,8 +82,17 @@ export function TaskCard({
           borderRadius: "inherit",
         }}
       />
-      <ShimmerBar active={isRunning} color={meta?.color} />
-      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, position: "relative", zIndex: 1, pointerEvents: "none" }}>
+      <div
+        style={{
+          padding: 14,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          position: "relative",
+          zIndex: 2,
+          pointerEvents: "none",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -206,21 +215,6 @@ export function TaskCard({
             )}
           </div>
         )}
-        {task.status === "finished" && (
-          <div style={{ display: "flex", gap: 6, position: "relative", zIndex: 1, pointerEvents: "auto" }}>
-            <Btn
-              size="sm"
-              variant="ghost"
-              icon="archive"
-              onClick={(e) => {
-                e.stopPropagation();
-                onArchive(task.id);
-              }}
-            >
-              Archive
-            </Btn>
-          </div>
-        )}
         {menu && onDelete && (
           <div
             role="menu"
@@ -270,7 +264,7 @@ export function TaskCard({
             </button>
           </div>
         )}
-        {task.status === "needs-input" && (
+        {(task.status === "needs-input" || task.status === "interrupted") && (
           <div style={{ position: "relative", zIndex: 1, pointerEvents: "auto" }}>
             <Btn
               size="sm"
@@ -278,7 +272,7 @@ export function TaskCard({
               icon="terminal"
               onClick={(e) => {
                 e.stopPropagation();
-                onToggle(task.id);
+                toggleTask();
               }}
             >
               Open terminal to reply

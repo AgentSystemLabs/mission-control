@@ -27,8 +27,10 @@ function DotCount({ status, count, size }: { status: TaskStatus; count: number; 
 function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; size?: number }) {
   const running = project.taskCounts.running;
   const needs = project.taskCounts["needs-input"];
-  if (!running && !needs) return null;
+  const interrupted = project.taskCounts.interrupted;
+  if (!running && !needs && !interrupted) return null;
   const title = [
+    interrupted ? `${interrupted} ${interrupted === 1 ? "task interrupted" : "tasks interrupted"}` : null,
     needs ? `${needs} ${needs === 1 ? "task needs input" : "tasks need input"}` : null,
     running ? `${running} ${running === 1 ? "session running" : "sessions running"}` : null,
   ]
@@ -46,6 +48,7 @@ function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; siz
         fontVariantNumeric: "tabular-nums",
       }}
     >
+      {interrupted > 0 && <DotCount status="interrupted" count={interrupted} size={size} />}
       {needs > 0 && <DotCount status="needs-input" count={needs} size={size} />}
       {running > 0 && <DotCount status="running" count={running} size={size} />}
     </span>

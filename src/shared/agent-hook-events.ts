@@ -21,8 +21,9 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
     case AGENT_HOOK_EVENTS.userPromptSubmit:
       return "running";
     case AGENT_HOOK_EVENTS.stop:
-    case AGENT_HOOK_EVENTS.userInterrupt:
       return "finished";
+    case AGENT_HOOK_EVENTS.userInterrupt:
+      return "interrupted";
     case AGENT_HOOK_EVENTS.permissionRequest:
       return "needs-input";
     case AGENT_HOOK_EVENTS.notification:

@@ -9,7 +9,6 @@ export function TaskColumn({
   activeId,
   density = "regular",
   onToggle,
-  onArchive,
   onDelete,
 }: {
   title: string;
@@ -18,7 +17,6 @@ export function TaskColumn({
   activeId: string | null;
   density?: TaskDensity;
   onToggle: (id: string) => void;
-  onArchive: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
   if (tasks.length === 0) return null;
@@ -70,7 +68,6 @@ export function TaskColumn({
             task={t}
             selected={activeId === t.id}
             onToggle={onToggle}
-            onArchive={onArchive}
             onDelete={onDelete}
           />
         ))}

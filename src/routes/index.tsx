@@ -101,6 +101,7 @@ function MissionControlPage() {
 
   const totalRunning = projects.reduce((a, p) => a + p.taskCounts.running, 0);
   const totalNeeds = projects.reduce((a, p) => a + p.taskCounts["needs-input"], 0);
+  const totalInterrupted = projects.reduce((a, p) => a + p.taskCounts.interrupted, 0);
   const totalDone = projects.reduce((a, p) => a + p.taskCounts.finished, 0);
 
   const [firstName, setFirstName] = useState<string | null>(null);
@@ -195,6 +196,19 @@ function MissionControlPage() {
                     {totalRunning}
                   </span>{" "}
                   running
+                </span>
+                <span>
+                  <StatusDot status="interrupted" />{" "}
+                  <span
+                    style={{
+                      color: "var(--text)",
+                      marginLeft: 6,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {totalInterrupted}
+                  </span>{" "}
+                  interrupted
                 </span>
                 <span>
                   <StatusDot status="needs-input" />{" "}

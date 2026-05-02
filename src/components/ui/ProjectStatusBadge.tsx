@@ -5,6 +5,7 @@ const ACTIVITY_LABELS: Record<ProjectActivityState, string> = {
   "terminal-running": "Terminal running",
   "agent-running": "Agent running",
   "needs-input": "Needs input",
+  interrupted: "Interrupted",
 };
 
 export function ProjectStatusBadge({ activity }: { activity: ProjectActivityState }) {
