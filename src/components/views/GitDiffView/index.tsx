@@ -100,11 +100,17 @@ export function GitDiffView({
   return (
     <div
       style={{
-        flex: 1,
+        position: "fixed",
+        top: "var(--mc-workspace-top, 0px)",
+        left: "var(--mc-workspace-left, 0px)",
+        right: 0,
+        bottom: 0,
+        zIndex: 200,
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
         background: "var(--surface-0)",
+        boxShadow: "0 0 0 1px var(--border-strong)",
       }}
     >
       <div

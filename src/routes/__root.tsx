@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -68,6 +68,7 @@ function Shell() {
   const { theme, toggle } = useTheme();
   const { data: settings } = useSettings();
   const { active, close, setPtyId } = useTerminals();
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
   const {
     togglePanel,
@@ -94,6 +95,29 @@ function Shell() {
   useEffect(() => {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+
+    const updateWorkspaceBounds = () => {
+      const rect = workspace.getBoundingClientRect();
+      document.documentElement.style.setProperty("--mc-workspace-top", `${rect.top}px`);
+      document.documentElement.style.setProperty("--mc-workspace-left", `${rect.left}px`);
+    };
+
+    updateWorkspaceBounds();
+    const observer = new ResizeObserver(updateWorkspaceBounds);
+    observer.observe(workspace);
+    window.addEventListener("resize", updateWorkspaceBounds);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateWorkspaceBounds);
+      document.documentElement.style.removeProperty("--mc-workspace-top");
+      document.documentElement.style.removeProperty("--mc-workspace-left");
+    };
+  }, []);
 
   useHotkey("terminal.toggle", () => togglePanel());
   useHotkey("nav.toggle", () => router.navigate({ to: "/" }));
@@ -175,7 +199,16 @@ function Shell() {
           </>
         }
       />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+      <div
+        ref={workspaceRef}
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          minHeight: 0,
+        }}
+      >
         <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <Outlet />
