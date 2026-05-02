@@ -173,6 +173,7 @@ export function TerminalPane({
                   kind: "new",
                   sessionId: fresh,
                   skipPermissions: !!task.claudeSkipPermissions,
+                  bareSession: !!task.claudeBareSession,
                 });
                 await spawnAndWire(cmd, false);
               })();

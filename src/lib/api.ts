@@ -106,6 +106,7 @@ export const api = {
       branch?: string;
       claudeSessionId?: string | null;
       claudeSkipPermissions?: boolean;
+      claudeBareSession?: boolean;
     },
     token: string
   ) =>
@@ -121,6 +122,7 @@ export const api = {
       branch?: string;
       claudeSessionId?: string | null;
       claudeSkipPermissions?: boolean;
+      claudeBareSession?: boolean;
     }
   ) =>
     req<{ task: Task }>(`/api/tasks/${id}`, {

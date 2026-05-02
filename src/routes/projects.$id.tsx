@@ -241,6 +241,7 @@ function ProjectPage() {
       agent: Task["agent"];
       branch: string;
       skipPermissions: boolean;
+      bareSession: boolean;
     }) => {
       if (!project || !apiToken) return;
       const isClaude = payload.agent === "claude-code";
@@ -251,6 +252,7 @@ function ProjectPage() {
           agent: payload.agent,
           branch: payload.branch,
           claudeSessionId: isClaude ? newSessionId() : undefined,
+          claudeBareSession: isClaude ? payload.bareSession : undefined,
           claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
             ? payload.skipPermissions
             : undefined,
@@ -270,6 +272,7 @@ function ProjectPage() {
       agent: project.savedAgent,
       branch: project.branch || DEFAULT_BRANCH,
       skipPermissions: !!project.savedSkipPermissions,
+      bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
     });
   }, [project, createSession]);
 
@@ -371,6 +374,7 @@ function ProjectPage() {
       agent: sourceTask.agent,
       branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
       skipPermissions: !!sourceTask.claudeSkipPermissions,
+      bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
     });
   }, [project, tasks, terminals, createSession, anyBlockingDialogOpen]);
   const duplicateActiveSessionRef = useRef(duplicateActiveSession);
@@ -509,12 +513,14 @@ function ProjectPage() {
     title: string;
     branch: string;
     dangerouslySkipPermissions: boolean;
+    bareSession: boolean;
   }) => {
     setShowNewAgent(false);
     await createSession({
       agent: data.agent,
       branch: data.branch,
       skipPermissions: data.dangerouslySkipPermissions,
+      bareSession: data.bareSession,
     });
   };
 

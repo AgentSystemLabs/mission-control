@@ -121,6 +121,7 @@ export function createProject(input: {
     rememberAgentSettings: false,
     savedAgent: null,
     savedSkipPermissions: false,
+    savedBareSession: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -146,6 +147,7 @@ export function updateProject(
       | "rememberAgentSettings"
       | "savedAgent"
       | "savedSkipPermissions"
+      | "savedBareSession"
     >
   > & { launchCommands?: LaunchCommand[] | null }
 ): Project | null {

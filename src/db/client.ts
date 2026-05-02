@@ -136,6 +136,7 @@ function ensureSchema(sqlite: Database.Database) {
       remember_agent_settings INTEGER NOT NULL DEFAULT 0,
       saved_agent TEXT,
       saved_skip_permissions INTEGER NOT NULL DEFAULT 0,
+      saved_bare_session INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -154,6 +155,7 @@ function ensureSchema(sqlite: Database.Database) {
       archived INTEGER NOT NULL DEFAULT 0,
       claude_session_id TEXT,
       claude_skip_permissions INTEGER NOT NULL DEFAULT 0,
+      claude_bare_session INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );

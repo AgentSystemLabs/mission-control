@@ -15,6 +15,7 @@ export type RememberPatch = {
   rememberAgentSettings: boolean;
   savedAgent: TaskAgent | null;
   savedSkipPermissions: boolean;
+  savedBareSession: boolean;
 };
 
 const AGENT_OPTIONS = UI_AGENTS.map((id) => ({ id, ...AGENT_REGISTRY[id] }));
@@ -34,6 +35,7 @@ export function NewAgentDialog({
     title: string;
     branch: string;
     dangerouslySkipPermissions: boolean;
+    bareSession: boolean;
   }) => Promise<void> | void;
   onPersistRemember: (patch: RememberPatch) => Promise<void> | void;
 }) {
@@ -66,8 +68,14 @@ export function NewAgentDialog({
             rememberAgentSettings: true,
             savedAgent: agent,
             savedSkipPermissions: agentSupportsSkipPermissions(agent) ? dangerouslySkipPermissions : false,
+            savedBareSession: false,
           }
-        : { rememberAgentSettings: false, savedAgent: null, savedSkipPermissions: false }
+        : {
+            rememberAgentSettings: false,
+            savedAgent: null,
+            savedSkipPermissions: false,
+            savedBareSession: false,
+          }
     );
   };
 
@@ -97,6 +105,7 @@ export function NewAgentDialog({
           rememberAgentSettings: true,
           savedAgent: agent,
           savedSkipPermissions: skip,
+          savedBareSession: false,
         });
       }
       await onStart({
@@ -104,6 +113,7 @@ export function NewAgentDialog({
         title: TITLE_WAITING,
         branch: project?.branch || DEFAULT_BRANCH,
         dangerouslySkipPermissions: skip,
+        bareSession: false,
       });
     } catch (e: any) {
       setError(e?.message || "Failed to start session");

@@ -55,13 +55,14 @@ function commandForTask(task: Task): string {
   }
   if (task.agent !== "claude-code") return commandFor(task.agent);
   const skip = !!task.claudeSkipPermissions;
+  const bare = !!task.claudeBareSession;
   const sessionId = task.claudeSessionId;
   if (sessionId) {
-    return buildClaudeCommand({ kind: "resume", sessionId, skipPermissions: skip });
+    return buildClaudeCommand({ kind: "resume", sessionId, skipPermissions: skip, bareSession: bare });
   }
   const fresh = newSessionId();
   void api.updateTask(task.id, { claudeSessionId: fresh }).catch(() => undefined);
-  return buildClaudeCommand({ kind: "new", sessionId: fresh, skipPermissions: skip });
+  return buildClaudeCommand({ kind: "new", sessionId: fresh, skipPermissions: skip, bareSession: bare });
 }
 
 export function TerminalProvider({ children }: { children: ReactNode }) {

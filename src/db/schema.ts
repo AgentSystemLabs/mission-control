@@ -42,6 +42,9 @@ export const projects = sqliteTable(
     savedSkipPermissions: integer("saved_skip_permissions", { mode: "boolean" })
       .notNull()
       .default(false),
+    savedBareSession: integer("saved_bare_session", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -67,6 +70,7 @@ export const tasks = sqliteTable(
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
     claudeSessionId: text("claude_session_id"),
     claudeSkipPermissions: integer("claude_skip_permissions", { mode: "boolean" }).notNull().default(false),
+    claudeBareSession: integer("claude_bare_session", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

@@ -33,6 +33,7 @@ export function createTask(input: {
   preview?: string;
   claudeSessionId?: string | null;
   claudeSkipPermissions?: boolean;
+  claudeBareSession?: boolean;
 }): Task {
   if (!input.projectId) throw new Error("projectId required");
   if (!input.title?.trim()) throw new Error("title required");
@@ -52,6 +53,7 @@ export function createTask(input: {
     archived: false,
     claudeSessionId: input.claudeSessionId ?? null,
     claudeSkipPermissions: input.claudeSkipPermissions ?? false,
+    claudeBareSession: input.claudeBareSession ?? false,
     createdAt: now,
     updatedAt: now,
   };
@@ -90,7 +92,9 @@ export function updateStatus(
 
 export function updateTask(
   id: string,
-  patch: Partial<Pick<Task, "title" | "branch" | "claudeSessionId" | "claudeSkipPermissions">>
+  patch: Partial<
+    Pick<Task, "title" | "branch" | "claudeSessionId" | "claudeSkipPermissions" | "claudeBareSession">
+  >
 ): Task | null {
   const db = getDb();
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
