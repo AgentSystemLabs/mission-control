@@ -36,6 +36,12 @@ export type GitStatus = {
   unstaged: GitChangedFile[];
   /** Total unique files across staged + unstaged — for the header indicator. */
   changedCount: number;
+  /**
+   * Commits on HEAD not yet on the push target — what `git push` would publish.
+   * Prefers the configured upstream; falls back to `origin/main` / `main`.
+   * `null` when no comparable ref exists (e.g. fresh repo, detached HEAD).
+   */
+  aheadCount: number | null;
 };
 
 export type GitDiff =
@@ -166,9 +172,10 @@ export function parsePorcelainZ(stdout: string): { staged: GitChangedFile[]; uns
 
 export async function getGitStatus(projectId: string): Promise<GitStatus> {
   const cwd = projectCwd(projectId);
-  const [statusOut, branchOut] = await Promise.all([
+  const [statusOut, branchOut, aheadCount] = await Promise.all([
     gitOk(cwd, ["status", "--porcelain=v1", "-z"]),
     gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "HEAD\n"),
+    countAhead(cwd),
   ]);
   const { staged, unstaged } = parsePorcelainZ(statusOut);
   const seen = new Set<string>();
@@ -179,7 +186,19 @@ export async function getGitStatus(projectId: string): Promise<GitStatus> {
     staged,
     unstaged,
     changedCount: seen.size,
+    aheadCount,
   };
+}
+
+async function countAhead(cwd: string): Promise<number | null> {
+  for (const target of ["@{u}", "origin/main", "main"]) {
+    const r = await runGit(cwd, ["rev-list", "--count", `${target}..HEAD`]);
+    if (r.code === 0) {
+      const n = parseInt(r.stdout.trim(), 10);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
 }
 
 /** Detect a binary patch by looking at the textual diff git emits. */

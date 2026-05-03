@@ -40,6 +40,7 @@ import {
 } from "~/queries";
 import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
+import { CommitPushButton } from "~/components/views/CommitPushButton";
 import type { Task, TaskStatus } from "~/db/schema";
 import {
   DUPLICATE_ACTIVE_SESSION_EVENT,
@@ -783,6 +784,7 @@ function ProjectPage() {
             changedCount={gitStatus?.changedCount}
             onClick={openDiffView}
           />
+          <CommitPushButton projectId={id} />
           <div style={{ flex: 1 }} />
           <NewAgentButton
             project={project}

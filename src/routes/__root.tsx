@@ -25,8 +25,9 @@ import {
 import { TerminalPanel } from "~/components/views/TerminalPanel";
 import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
+import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
-import { useSettings } from "~/queries";
+import { useSettings, useProjects } from "~/queries";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import "~/styles.css";
 
@@ -67,6 +68,7 @@ function Shell() {
   const router = useRouter();
   const { theme, toggle } = useTheme();
   const { data: settings } = useSettings();
+  const { data: projects } = useProjects();
   const { active, close, setPtyId } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
@@ -140,10 +142,20 @@ function Shell() {
         cycleNext();
         return;
       }
+      if (!e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+        const pinned = (projects ?? []).filter((p) => p.pinned);
+        const idx = Number(e.key) - 1;
+        const target = pinned[idx];
+        if (target) {
+          e.preventDefault();
+          router.navigate({ to: "/projects/$id", params: { id: target.id } });
+        }
+        return;
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createTerminal, cycleNext, cyclePrev]);
+  }, [createTerminal, cycleNext, cyclePrev, projects, router]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
   // default app menu's "Close Window" item closes the BrowserWindow before any
@@ -217,6 +229,7 @@ function Shell() {
         }}
       >
         <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
+          <ProjectBar />
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <Outlet />
           </div>

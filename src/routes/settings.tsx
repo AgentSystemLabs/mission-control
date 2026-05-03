@@ -1,7 +1,10 @@
-import { Link, Outlet, createFileRoute } from "@tanstack/react-router";
+import { Link, Outlet, createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { Btn } from "~/components/ui/Btn";
 import { Icon, type IconName } from "~/components/ui/Icon";
+import { Kbd } from "~/components/ui/Kbd";
 import { getElectron } from "~/lib/electron";
+import { useHotkey } from "~/lib/use-hotkey";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsLayout,
@@ -11,10 +14,21 @@ type NavItem = { to: string; label: string; icon: IconName };
 
 function SettingsLayout() {
   const [isElectron, setIsElectron] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     setIsElectron(!!getElectron());
   }, []);
+
+  const onBack = () => {
+    if (window.history.length > 1) {
+      router.history.back();
+    } else {
+      router.navigate({ to: "/" });
+    }
+  };
+
+  useHotkey("escape", onBack, { preventDefault: false });
 
   const items: NavItem[] = [
     { to: "/settings/general", label: "General", icon: "settings" },
@@ -26,8 +40,60 @@ function SettingsLayout() {
   ];
 
   return (
-    <div style={{ flex: 1, display: "flex", overflow: "hidden" }} className="dot-grid-bg">
-      <aside
+    <div
+      style={{
+        position: "fixed",
+        top: "var(--mc-workspace-top, 0px)",
+        left: "var(--mc-workspace-left, 0px)",
+        right: 0,
+        bottom: 0,
+        zIndex: 200,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: "var(--surface-0)",
+        boxShadow: "0 0 0 1px var(--border-strong)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 16px",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--surface-1)",
+        }}
+      >
+        <Btn
+          variant="ghost"
+          size="sm"
+          icon="chevron-left"
+          onClick={onBack}
+          title="Back"
+          aria-label="Back"
+        >
+          Back <Kbd variant="inline">Esc</Kbd>
+        </Btn>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            color: "var(--text-dim)",
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            minWidth: 0,
+          }}
+        >
+          <Icon name="settings" size={12} />
+          <span>Settings</span>
+        </div>
+        <div style={{ flex: 1 }} />
+      </div>
+
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }} className="dot-grid-bg">
+        <aside
         style={{
           width: 220,
           flexShrink: 0,
@@ -56,9 +122,10 @@ function SettingsLayout() {
           ))}
         </nav>
       </aside>
-      <div style={{ flex: 1, overflow: "auto", padding: "28px 32px 80px" }}>
-        <div style={{ maxWidth: 720, margin: "0 auto" }}>
-          <Outlet />
+        <div style={{ flex: 1, overflow: "auto", padding: "28px 32px 80px" }}>
+          <div style={{ maxWidth: 720, margin: "0 auto" }}>
+            <Outlet />
+          </div>
         </div>
       </div>
     </div>
