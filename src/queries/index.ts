@@ -10,6 +10,7 @@ export const queryKeys = {
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
     ["projects", projectId, "user-terminals"] as const,
+  usage: (days: number) => ["usage", days] as const,
 };
 
 export const projectsQueryOptions = () =>
@@ -48,6 +49,13 @@ export const userTerminalsQueryOptions = (projectId: string) =>
     queryFn: async () => (await api.listUserTerminals(projectId)).terminals,
   });
 
+export const usageQueryOptions = (days: number = 30) =>
+  queryOptions({
+    queryKey: queryKeys.usage(days),
+    queryFn: async () => api.getUsage(days),
+    staleTime: 30_000,
+  });
+
 export const useProjects = () => useQuery(projectsQueryOptions());
 export const useProject = (id: string) => useQuery(projectQueryOptions(id));
 export const useGroups = () => useQuery(groupsQueryOptions());
@@ -56,3 +64,4 @@ export const useTasks = (projectId: string) =>
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useUserTerminalsQuery = (projectId: string) =>
   useQuery(userTerminalsQueryOptions(projectId));
+export const useUsage = (days: number = 30) => useQuery(usageQueryOptions(days));

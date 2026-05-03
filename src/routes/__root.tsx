@@ -175,6 +175,13 @@ function Shell() {
             )}
             <Btn
               variant="ghost"
+              icon="chart"
+              onClick={() => router.navigate({ to: "/usage" })}
+            >
+              Usage
+            </Btn>
+            <Btn
+              variant="ghost"
               icon="settings"
               onClick={() => router.navigate({ to: "/settings" })}
             >

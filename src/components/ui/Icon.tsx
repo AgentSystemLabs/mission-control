@@ -27,7 +27,8 @@ export type IconName =
   | "sparkles"
   | "copy"
   | "trash"
-  | "github";
+  | "github"
+  | "chart";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const common = {
@@ -182,6 +183,15 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       return (
         <svg {...common}>
           <path d="M2.5 4h11M6 4V2.5h4V4M3.5 4l.7 9.1c0 .5.4.9.9.9h5.8c.5 0 .9-.4.9-.9L12.5 4M6.5 7v4M9.5 7v4" />
+        </svg>
+      );
+    case "chart":
+      return (
+        <svg {...common}>
+          <path d="M2 13h12" />
+          <rect x="3.5" y="8" width="2" height="5" />
+          <rect x="7" y="5" width="2" height="8" />
+          <rect x="10.5" y="2.5" width="2" height="10.5" />
         </svg>
       );
     case "github":

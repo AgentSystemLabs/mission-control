@@ -10,6 +10,7 @@ import type {
 } from "~/server/services/git";
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
+import type { UsageSummary } from "~/shared/token-usage";
 
 export type AppSettings = {
   apiToken: string;
@@ -196,6 +197,9 @@ export const api = {
     }),
   gitPush: (projectId: string) =>
     req<PushResult>(`/api/projects/${projectId}/git/push`, { method: "POST" }),
+  getUsage: (days: number = 30) =>
+    req<UsageSummary>(`/api/usage?days=${days}`),
+
   deleteProjectFile: (projectId: string, filePath: string) =>
     req<{ ok: true }>(
       `/api/projects/${projectId}/file?path=${encodeURIComponent(filePath)}`,
