@@ -17,6 +17,7 @@ import {
   deleteUserTerminal,
 } from "./services/user-terminals";
 import { events } from "./events";
+import { getUsageSummary, syncTokenUsage } from "./services/token-usage";
 import {
   getBooleanSetting,
   getOrCreateApiToken,
@@ -357,6 +358,18 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         void generateTitleForTask(taskId, payload.prompt);
       }
       return json({ ok: true, status });
+    }
+
+    if (pathname === "/api/usage" && method === "GET") {
+      const daysParam = url.searchParams.get("days");
+      const days = Math.max(
+        1,
+        Math.min(365, Number.parseInt(daysParam ?? "30", 10) || 30)
+      );
+      const skipSync = url.searchParams.get("sync") === "0";
+      const ingested = skipSync ? 0 : await syncTokenUsage();
+      const summary = getUsageSummary(days);
+      return json({ ...summary, ingested });
     }
 
     if (pathname === "/api/events" && method === "GET") {

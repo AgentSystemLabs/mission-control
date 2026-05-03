@@ -120,6 +120,47 @@ export const appSettings = sqliteTable("app_settings", {
   value: text("value").notNull(),
 });
 
+export const tokenUsage = sqliteTable(
+  "token_usage",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    claudeSessionId: text("claude_session_id").notNull(),
+    messageUuid: text("message_uuid").notNull().unique(),
+    model: text("model"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    ts: integer("ts").notNull(),
+  },
+  (t) => ({
+    taskIdx: index("token_usage_task_idx").on(t.taskId),
+    projectIdx: index("token_usage_project_idx").on(t.projectId),
+    tsIdx: index("token_usage_ts_idx").on(t.ts),
+  })
+);
+
+export const tokenUsageSessionOffsets = sqliteTable(
+  "token_usage_session_offsets",
+  {
+    claudeSessionId: text("claude_session_id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    byteOffset: integer("byte_offset").notNull().default(0),
+    updatedAt: integer("updated_at").notNull(),
+  }
+);
+
 export const groupsRelations = relations(groups, ({ many }) => ({
   projects: many(projects),
 }));
