@@ -33,6 +33,7 @@ export function TaskCard({
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
   const isRunning = task.status === "running";
+  const showDeleteAction = hovered && !confirmOpen;
 
   const updated = formatRelative(task.updatedAt);
   const toggleTask = () => onToggle(task.id);
@@ -168,8 +169,8 @@ export function TaskCard({
                   background: "transparent",
                   color: "var(--text-faint)",
                   cursor: "pointer",
-                  opacity: hovered ? 1 : 0,
-                  pointerEvents: hovered ? "auto" : "none",
+                  opacity: showDeleteAction ? 1 : 0,
+                  pointerEvents: showDeleteAction ? "auto" : "none",
                   transition: "opacity 0.12s, color 0.12s, background 0.12s",
                   position: "relative",
                   zIndex: 1,
@@ -265,7 +266,7 @@ export function TaskCard({
           </div>
         )}
         {(task.status === "needs-input" || task.status === "interrupted") && (
-          <div style={{ position: "relative", zIndex: 1, pointerEvents: "auto" }}>
+          <div style={{ position: "relative", zIndex: 1 }}>
             <Btn
               size="sm"
               variant="accent"
@@ -274,6 +275,7 @@ export function TaskCard({
                 e.stopPropagation();
                 toggleTask();
               }}
+              style={{ pointerEvents: "auto", position: "relative", zIndex: 1 }}
             >
               Open terminal to reply
             </Btn>

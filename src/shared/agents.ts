@@ -35,10 +35,10 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
     command: "codex",
     uiVisible: true,
     supportsSkipPermissions: true,
-    skipPermissionsFlag: "--dangerously-bypass-approvals-and-sandbox",
+    skipPermissionsFlag: "--yolo",
     startCommand: (opts) =>
       opts?.skipPermissions
-        ? "codex --enable codex_hooks --dangerously-bypass-approvals-and-sandbox"
+        ? "codex --enable codex_hooks --yolo"
         : "codex --enable codex_hooks",
     titleInvocation: (input) => ({ cmd: "codex", args: ["exec", input] }),
   },

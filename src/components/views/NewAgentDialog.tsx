@@ -45,6 +45,18 @@ export function NewAgentDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const persistRememberedSettings = async (
+    nextAgent: TaskAgent,
+    nextSkipPermissions: boolean
+  ) => {
+    await onPersistRemember({
+      rememberAgentSettings: true,
+      savedAgent: nextAgent,
+      savedSkipPermissions: agentSupportsSkipPermissions(nextAgent) ? nextSkipPermissions : false,
+      savedBareSession: false,
+    });
+  };
+
   useEffect(() => {
     if (!open) return;
     const seedAgent: TaskAgent =
@@ -75,8 +87,22 @@ export function NewAgentDialog({
             savedAgent: null,
             savedSkipPermissions: false,
             savedBareSession: false,
-          }
+        }
     );
+  };
+
+  const selectAgent = (nextAgent: TaskAgent) => {
+    setAgent(nextAgent);
+    if (rememberSettings) {
+      void persistRememberedSettings(nextAgent, dangerouslySkipPermissions);
+    }
+  };
+
+  const setSkipPermissions = (nextSkipPermissions: boolean) => {
+    setDangerouslySkipPermissions(nextSkipPermissions);
+    if (rememberSettings) {
+      void persistRememberedSettings(agent, nextSkipPermissions);
+    }
   };
 
   const submit = async () => {
@@ -188,7 +214,7 @@ export function NewAgentDialog({
               return (
                 <button
                   key={a.id}
-                  onClick={() => !a.disabled && setAgent(a.id)}
+                  onClick={() => !a.disabled && selectAgent(a.id)}
                   disabled={a.disabled}
                   aria-disabled={a.disabled}
                   title={a.disabled ? "Coming soon" : undefined}
@@ -274,7 +300,7 @@ export function NewAgentDialog({
             <input
               type="checkbox"
               checked={dangerouslySkipPermissions}
-              onChange={(e) => setDangerouslySkipPermissions(e.target.checked)}
+              onChange={(e) => setSkipPermissions(e.target.checked)}
               style={{ marginTop: 2, accentColor: "var(--accent)" }}
             />
             <div style={{ flex: 1 }}>

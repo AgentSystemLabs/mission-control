@@ -119,6 +119,7 @@ function ProjectPage() {
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [pinning, setPinning] = useState(false);
   const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
 
   useEffect(() => {
@@ -235,6 +236,18 @@ function ProjectPage() {
   const refresh = useCallback(async () => {
     await Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
   }, [invalidateProject, invalidateTasks, invalidateProjects]);
+
+  const toggleProjectPin = useCallback(async () => {
+    if (!project || pinning) return;
+    setOverflowOpen(false);
+    setPinning(true);
+    try {
+      await api.togglePin(project.id);
+      await Promise.all([invalidateProject(), invalidateProjects()]);
+    } finally {
+      setPinning(false);
+    }
+  }, [project, pinning, invalidateProject, invalidateProjects]);
 
   const createSession = useCallback(
     async (payload: {
@@ -697,6 +710,21 @@ function ProjectPage() {
                 </Btn>
                 <MenuSeparator />
                 <Btn
+                  variant={project.pinned ? "accent" : "ghost"}
+                  icon={project.pinned ? "pin-fill" : "pin"}
+                  onClick={toggleProjectPin}
+                  disabled={pinning}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  {pinning
+                    ? project.pinned
+                      ? "Unpinning..."
+                      : "Pinning..."
+                    : project.pinned
+                      ? "Unpin project"
+                      : "Pin project"}
+                </Btn>
+                <Btn
                   variant="ghost"
                   icon="play"
                   onClick={() => {
@@ -744,6 +772,16 @@ function ProjectPage() {
             onOpenUrl={() =>
               project.launchUrl && window.electronAPI?.openExternal(project.launchUrl)
             }
+          />
+          <ProjectPinButton
+            pinned={project.pinned}
+            busy={pinning}
+            onClick={toggleProjectPin}
+          />
+          <ProjectGitStatusButton
+            branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
+            changedCount={gitStatus?.changedCount}
+            onClick={openDiffView}
           />
           <div style={{ flex: 1 }} />
           <NewAgentButton
@@ -834,6 +872,9 @@ function ProjectPage() {
         onClose={() => setShowNewAgent(false)}
         onStart={startAgent}
         onPersistRemember={async (patch) => {
+          queryClient.setQueryData(queryKeys.project(project.id), (prev: typeof project | undefined) =>
+            prev ? { ...prev, ...patch } : prev
+          );
           await api.updateProject(project.id, patch);
           await refresh();
         }}
@@ -939,6 +980,146 @@ function ProjectPage() {
       </ConfirmDialog>
       </div>
     </>
+  );
+}
+
+function ProjectPinButton({
+  pinned,
+  busy,
+  onClick,
+}: {
+  pinned: boolean;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  const label = busy
+    ? pinned
+      ? "Unpinning..."
+      : "Pinning..."
+    : pinned
+      ? "Pinned"
+      : "Pin";
+  const actionLabel = pinned ? "Unpin project" : "Pin project";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      title={actionLabel}
+      aria-label={actionLabel}
+      aria-pressed={pinned}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        height: 28,
+        padding: "0 12px",
+        borderRadius: 999,
+        border: `1px solid ${pinned ? "var(--accent-border)" : "var(--border)"}`,
+        background: pinned ? "var(--accent-faint)" : "var(--surface-0)",
+        color: pinned ? "var(--accent)" : "var(--text-dim)",
+        fontFamily: "var(--mono)",
+        fontSize: 11.5,
+        fontWeight: 600,
+        cursor: busy ? "default" : "pointer",
+        opacity: busy ? 0.7 : 1,
+        transition: "background 0.12s, border-color 0.12s, color 0.12s",
+      }}
+      onMouseEnter={(e) => {
+        if (busy) return;
+        e.currentTarget.style.background = pinned ? "var(--accent-dim)" : "var(--surface-2)";
+        e.currentTarget.style.borderColor = pinned ? "var(--accent)" : "var(--border-strong)";
+        e.currentTarget.style.color = pinned ? "var(--accent)" : "var(--text)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = pinned ? "var(--accent-faint)" : "var(--surface-0)";
+        e.currentTarget.style.borderColor = pinned ? "var(--accent-border)" : "var(--border)";
+        e.currentTarget.style.color = pinned ? "var(--accent)" : "var(--text-dim)";
+      }}
+    >
+      <Icon name={pinned ? "pin-fill" : "pin"} size={12} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function ProjectGitStatusButton({
+  branch,
+  changedCount,
+  onClick,
+}: {
+  branch: string;
+  changedCount: number | undefined;
+  onClick: () => void;
+}) {
+  const changedLabel =
+    changedCount === undefined
+      ? "Checking…"
+      : `${changedCount} changed`;
+  const title =
+    changedCount === undefined
+      ? `Open Get Diff for ${branch}`
+      : `Open Get Diff: ${changedCount} changed file${changedCount === 1 ? "" : "s"} on ${branch}`;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        height: 28,
+        minWidth: 0,
+        maxWidth: 320,
+        padding: "0 12px",
+        borderRadius: 999,
+        border: "1px solid var(--border)",
+        background: "var(--surface-0)",
+        color: "var(--text-dim)",
+        fontFamily: "var(--mono)",
+        fontSize: 11.5,
+        fontWeight: 600,
+        cursor: "pointer",
+        transition: "background 0.12s, border-color 0.12s, color 0.12s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--surface-2)";
+        e.currentTarget.style.borderColor = "var(--border-strong)";
+        e.currentTarget.style.color = "var(--text)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "var(--surface-0)";
+        e.currentTarget.style.borderColor = "var(--border)";
+        e.currentTarget.style.color = "var(--text-dim)";
+      }}
+    >
+      <Icon name="git-branch" size={12} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
+      <span
+        style={{
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {branch}
+      </span>
+      <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>·</span>
+      <span
+        style={{
+          color: changedCount && changedCount > 0 ? "var(--accent)" : "var(--text-dim)",
+          flexShrink: 0,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {changedLabel}
+      </span>
+      <KbdAction action="git.diff" />
+    </button>
   );
 }
 

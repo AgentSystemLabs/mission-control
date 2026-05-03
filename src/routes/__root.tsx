@@ -258,7 +258,8 @@ function AgentSystemBanner() {
         flexShrink: 0,
         position: "relative",
         zIndex: 11,
-        ["WebkitAppRegion" as any]: "no-drag",
+        userSelect: "none",
+        ["WebkitAppRegion" as any]: "drag",
       }}
     >
       <div
@@ -295,6 +296,7 @@ function AgentSystemBanner() {
             color: "var(--accent)",
             fontWeight: 600,
             textDecoration: "none",
+            ["WebkitAppRegion" as any]: "no-drag",
           }}
         >
           AgentSystem.dev
@@ -309,6 +311,7 @@ function AgentSystemBanner() {
             fontWeight: 500,
             textDecoration: "underline",
             textUnderlineOffset: 3,
+            ["WebkitAppRegion" as any]: "no-drag",
           }}
         >
           Disable banner in settings
@@ -330,6 +333,7 @@ function AgentSystemBanner() {
           color: "var(--text-dim)",
           cursor: "pointer",
           flexShrink: 0,
+          ["WebkitAppRegion" as any]: "no-drag",
         }}
       >
         <Icon name="x" size={13} />
