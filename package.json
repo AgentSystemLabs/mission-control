@@ -13,7 +13,7 @@
     "dev:server": "pnpm native:node && vite --strictPort",
     "dev:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development electron dist-electron/main.js",
     "build:web": "vite build && vite build -c vite.config.server-entry.ts",
-    "build:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\"",
+    "build:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && node -e \"require('fs').copyFileSync('electron/server-runner.mjs','dist-electron/server-runner.mjs')\"",
     "build": "pnpm build:web && pnpm build:electron",
     "package": "pnpm build && pnpm native:electron && electron-builder",
     "dist": "pnpm build && pnpm native:electron && electron-builder --publish never",
@@ -90,7 +90,7 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      ".output/**/*",
+      "dist-server/**/*",
       "package.json"
     ],
     "directories": {

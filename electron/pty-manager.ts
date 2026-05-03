@@ -4,16 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
-
-function resolveShell(): string {
-  const env = process.env.SHELL;
-  if (env && fs.existsSync(env)) return env;
-  if (os.platform() === "win32") return "powershell.exe";
-  for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return "/bin/sh";
-}
+import { resolveShell, sanitizedProcessEnv } from "./shell-env";
 
 function assertCwd(cwd: string): void {
   if (!cwd) throw new Error("cwd is required");
@@ -32,10 +23,7 @@ function assertCwd(cwd: string): void {
 }
 
 function sanitizeEnv(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === "string") out[k] = v;
-  }
+  const out = sanitizedProcessEnv();
   // The PTY is xterm.js, not whichever terminal launched Electron. Leaking
   // TERM_PROGRAM=ghostty (or iTerm.app, etc.) makes Claude Code take terminal-
   // specific code paths that don't match what we actually emit — e.g. it skips

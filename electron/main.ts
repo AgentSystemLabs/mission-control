@@ -9,11 +9,14 @@ import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { IPC } from "./ipc-channels";
+import { augmentProcessEnv, resolveShell, sanitizedProcessEnv, shellQuote } from "./shell-env";
 
 const isDev = process.env.NODE_ENV === "development";
 const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
 const devServerPort = Number(process.env.MC_DEV_PORT ?? 5173);
 const devUrl = process.env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPort}`;
+
+augmentProcessEnv();
 
 let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
@@ -72,20 +75,27 @@ async function openExternalHttpUrl(url: string): Promise<{ ok: true } | { ok: fa
 
 async function startProductionServer(): Promise<string> {
   const port = await pickPort();
+  const origin = `http://${devServerHost}:${port}`;
   runtimePort = port;
   const portFile = path.join(app.getPath("userData"), ".port");
   fs.mkdirSync(path.dirname(portFile), { recursive: true });
   fs.writeFileSync(portFile, String(port), "utf8");
 
-  const serverEntry = path.join(process.resourcesPath, "app", ".output", "server", "index.mjs");
-  const fallbackEntry = path.join(__dirname, "..", ".output", "server", "index.mjs");
+  const serverEntry = path.join(process.resourcesPath, "app", "dist-server", "server", "server.js");
+  const fallbackEntry = path.join(__dirname, "..", "dist-server", "server", "server.js");
   const entry = fs.existsSync(serverEntry) ? serverEntry : fallbackEntry;
 
-  serverProcess = spawn(process.execPath, [entry], {
+  const runner = path.join(__dirname, "server-runner.mjs");
+
+  serverProcess = spawn(process.execPath, [runner], {
     env: {
       ...process.env,
+      SERVER_ENTRY: entry,
       PORT: String(port),
       HOST: devServerHost,
+      MC_SERVER_ORIGIN: origin,
+      MC_DEV_URL: origin,
+      MC_DEV_PORT: String(port),
       ELECTRON_RUN_AS_NODE: "1",
       MC_USER_DATA_DIR: app.getPath("userData"),
     },
@@ -99,8 +109,8 @@ async function startProductionServer(): Promise<string> {
     }
   });
 
-  await waitForHttp(`http://${devServerHost}:${port}`);
-  return `http://${devServerHost}:${port}`;
+  await waitForHttp(origin);
+  return origin;
 }
 
 async function bootDevServer(): Promise<string> {
@@ -305,10 +315,13 @@ ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
   const probe = isWindows ? "where" : "command";
   const args = isWindows ? [command] : ["-v", command];
   // Run inside the user's shell so PATH and shell-defined aliases resolve.
-  const userShell = process.env.SHELL || "/bin/bash";
-  const cmdline = isWindows ? `${probe} ${command}` : `${probe} ${args.join(" ")}`;
+  const userShell = resolveShell();
+  const cmdline = isWindows
+    ? `${probe} ${shellQuote(command)}`
+    : `${probe} ${args.map(shellQuote).join(" ")}`;
   const result = spawnSync(userShell, ["-l", "-c", cmdline], {
     encoding: "utf8",
+    env: sanitizedProcessEnv(),
     timeout: 4000,
   });
   if (result.status === 0 && (result.stdout || "").trim()) {
