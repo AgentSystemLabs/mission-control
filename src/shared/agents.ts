@@ -44,14 +44,14 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
   },
   "cursor-cli": {
     label: "Cursor CLI",
-    description: "Cursor's background agent. Best for quick inline edits.",
+    description: "Cursor's terminal agent. Best for quick inline edits.",
     color: "#c792ea",
     glyph: "▲",
     command: "cursor-agent",
     uiVisible: true,
-    disabled: true,
-    supportsSkipPermissions: false,
-    startCommand: () => "cursor-agent",
+    supportsSkipPermissions: true,
+    skipPermissionsFlag: "--force",
+    startCommand: (opts) => (opts?.skipPermissions ? "cursor-agent --force" : "cursor-agent"),
     titleInvocation: (input) => ({ cmd: "cursor-agent", args: ["-p", input] }),
   },
   shell: {

@@ -49,11 +49,12 @@ function commandFor(agent: TaskAgent): string {
  * a session ID if one is missing on a claude-code task (defensive — task
  * creation should have populated it).
  */
-function commandForTask(task: Task): string {
-  if (task.agent === "codex") {
-    return AGENT_REGISTRY.codex.startCommand({ skipPermissions: task.claudeSkipPermissions });
+export function commandForTask(task: Task): string {
+  if (task.agent !== "claude-code") {
+    return AGENT_REGISTRY[task.agent].startCommand({
+      skipPermissions: task.claudeSkipPermissions,
+    });
   }
-  if (task.agent !== "claude-code") return commandFor(task.agent);
   const skip = !!task.claudeSkipPermissions;
   const bare = !!task.claudeBareSession;
   const sessionId = task.claudeSessionId;
