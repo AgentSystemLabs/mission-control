@@ -74,7 +74,9 @@ export function UserTerminalPanel() {
           flexShrink: 0,
           width: "100%",
           textAlign: "left",
-          border: 0,
+          borderTop: 0,
+          borderRight: 0,
+          borderLeft: 0,
           cursor: "pointer",
           color: "inherit",
         }}

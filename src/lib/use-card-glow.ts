@@ -1,10 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 
 export function useCardGlow<T extends HTMLElement = HTMLDivElement>() {
   const ref = useRef<T | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    const el = ref.current;
+  return useCallback((el: T | null) => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    ref.current = el;
     if (!el) return;
 
     const onMove = (e: PointerEvent) => {
@@ -26,13 +29,12 @@ export function useCardGlow<T extends HTMLElement = HTMLDivElement>() {
     el.addEventListener("pointerenter", onEnter);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerleave", onLeave);
-    return () => {
+    cleanupRef.current = () => {
       el.removeEventListener("pointerenter", onEnter);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerleave", onLeave);
+      delete el.dataset.glow;
       delete document.body.dataset.cardGlow;
     };
   }, []);
-
-  return ref;
 }

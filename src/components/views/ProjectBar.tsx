@@ -1,6 +1,7 @@
 import { useRouter } from "@tanstack/react-router";
 import { useProjects } from "~/queries";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { useCardGlow } from "~/lib/use-card-glow";
 
 const HOTKEY_LIMIT = 9;
 
@@ -8,6 +9,7 @@ export function ProjectBar() {
   const router = useRouter();
   const { data: projects } = useProjects();
   const pinned = (projects ?? []).filter((p) => p.pinned);
+  const glowRef = useCardGlow<HTMLDivElement>();
 
   if (pinned.length === 0) return null;
 
@@ -16,9 +18,11 @@ export function ProjectBar() {
 
   return (
     <div
+      ref={glowRef}
       role="navigation"
       aria-label="Pinned projects"
       style={{
+        position: "relative",
         width: 56,
         flexShrink: 0,
         display: "flex",
@@ -28,6 +32,7 @@ export function ProjectBar() {
         padding: "10px 0",
         background: "var(--surface-0)",
         borderRight: "1px solid var(--border)",
+        overflowX: "hidden",
         overflowY: "auto",
       }}
     >

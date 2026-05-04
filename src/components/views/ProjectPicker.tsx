@@ -6,6 +6,7 @@ import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { KbdAction } from "~/components/ui/Kbd";
+import { useCardGlow } from "~/lib/use-card-glow";
 import { STATUS_META } from "~/lib/design-meta";
 import { projectPickerSections } from "~/lib/group-projects";
 import type { TaskStatus } from "~/shared/domain";
@@ -67,6 +68,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const panelGlowRef = useCardGlow<HTMLDivElement>();
 
   const current = projects?.find((p) => p.id === projectId) ?? null;
   const label = current?.name ?? "Project";
@@ -200,6 +202,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
       </button>
       {open && (
         <div
+          ref={panelGlowRef}
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
