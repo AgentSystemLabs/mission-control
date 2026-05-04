@@ -1,18 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
-import { queryKeys, settingsQueryOptions, useSettings } from "~/queries";
+import { queryKeys, useSettings } from "~/queries";
 
-export const Route = createFileRoute("/settings/api")({
-  loader: ({ context }) => context.queryClient.ensureQueryData(settingsQueryOptions()),
-  component: ApiSettingsPage,
-});
-
-function ApiSettingsPage() {
+export function ApiSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const token = settings?.apiToken ?? null;

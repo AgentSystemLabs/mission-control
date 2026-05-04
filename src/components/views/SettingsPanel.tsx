@@ -1,46 +1,45 @@
-import { Link, Outlet, createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon, type IconName } from "~/components/ui/Icon";
 import { Kbd } from "~/components/ui/Kbd";
 import { getElectron } from "~/lib/electron";
 import { useHotkey } from "~/lib/use-hotkey";
+import { GeneralSettingsPage } from "./GeneralSettingsPage";
+import { ApiSettingsPage } from "./ApiSettingsPage";
+import { KeybindingsPage } from "./KeybindingsPage";
+import { StorageSettingsPage } from "./StorageSettingsPage";
 
-export const Route = createFileRoute("/settings")({
-  component: SettingsLayout,
-});
+type SettingsPanelId = "general" | "api" | "keybindings" | "storage";
+type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
-type NavItem = { to: string; label: string; icon: IconName };
-
-function SettingsLayout() {
+export function SettingsPanel({
+  onBack,
+  initialPanel = "general",
+}: {
+  onBack: () => void;
+  initialPanel?: SettingsPanelId;
+}) {
   const [isElectron, setIsElectron] = useState(false);
-  const router = useRouter();
+  const [activePanel, setActivePanel] = useState<SettingsPanelId>(initialPanel);
 
   useEffect(() => {
     setIsElectron(!!getElectron());
   }, []);
 
-  const onBack = () => {
-    if (window.history.length > 1) {
-      router.history.back();
-    } else {
-      router.navigate({ to: "/" });
-    }
-  };
-
   useHotkey("escape", onBack, { preventDefault: false });
 
   const items: NavItem[] = [
-    { to: "/settings/general", label: "General", icon: "settings" },
-    { to: "/settings/api", label: "External API", icon: "terminal" },
-    { to: "/settings/keybindings", label: "Keybindings", icon: "settings" },
+    { id: "general", label: "General", icon: "settings" },
+    { id: "api", label: "External API", icon: "terminal" },
+    { id: "keybindings", label: "Keybindings", icon: "settings" },
     ...(isElectron
-      ? ([{ to: "/settings/storage", label: "Storage", icon: "folder" }] as NavItem[])
+      ? ([{ id: "storage", label: "Storage", icon: "folder" }] as NavItem[])
       : []),
   ];
 
   return (
     <div
+      data-navigation-swipe-blocker
       style={{
         position: "fixed",
         top: "var(--mc-workspace-top, 0px)",
@@ -118,13 +117,26 @@ function SettingsLayout() {
         </div>
         <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {items.map((item) => (
-            <SettingsNavLink key={item.to} {...item} />
+            <SettingsNavButton
+              key={item.id}
+              {...item}
+              active={activePanel === item.id}
+              onClick={() => setActivePanel(item.id)}
+            />
           ))}
         </nav>
       </aside>
         <div style={{ flex: 1, overflow: "auto", padding: "28px 32px 80px" }}>
           <div style={{ maxWidth: 720, margin: "0 auto" }}>
-            <Outlet />
+            {activePanel === "general" ? (
+              <GeneralSettingsPage />
+            ) : activePanel === "api" ? (
+              <ApiSettingsPage />
+            ) : activePanel === "keybindings" ? (
+              <KeybindingsPage />
+            ) : (
+              <StorageSettingsPage />
+            )}
           </div>
         </div>
       </div>
@@ -132,10 +144,16 @@ function SettingsLayout() {
   );
 }
 
-function SettingsNavLink({ to, label, icon }: NavItem) {
+function SettingsNavButton({
+  label,
+  icon,
+  active,
+  onClick,
+}: NavItem & { active: boolean; onClick: () => void }) {
   return (
-    <Link
-      to={to}
+    <button
+      type="button"
+      onClick={onClick}
       style={{
         display: "flex",
         alignItems: "center",
@@ -144,20 +162,15 @@ function SettingsNavLink({ to, label, icon }: NavItem) {
         borderRadius: 7,
         fontFamily: "var(--mono)",
         fontSize: 12,
-        textDecoration: "none",
-        color: "var(--text-dim)",
-        border: "1px solid transparent",
-      }}
-      activeProps={{
-        style: {
-          color: "var(--text)",
-          background: "var(--surface-1)",
-          border: "1px solid var(--border)",
-        },
+        color: active ? "var(--text)" : "var(--text-dim)",
+        border: `1px solid ${active ? "var(--border)" : "transparent"}`,
+        background: active ? "var(--surface-1)" : "transparent",
+        cursor: "pointer",
+        textAlign: "left",
       }}
     >
       <Icon name={icon} size={13} />
       {label}
-    </Link>
+    </button>
   );
 }

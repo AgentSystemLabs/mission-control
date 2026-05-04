@@ -99,6 +99,7 @@ export function GitDiffView({
 
   return (
     <div
+      data-navigation-swipe-blocker
       style={{
         position: "fixed",
         top: "var(--mc-workspace-top, 0px)",

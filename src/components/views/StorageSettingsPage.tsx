@@ -1,13 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
 import { getElectron } from "~/lib/electron";
 
-export const Route = createFileRoute("/settings/storage")({
-  component: StorageSettingsPage,
-});
-
-function StorageSettingsPage() {
+export function StorageSettingsPage() {
   const [userData, setUserData] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const { copied, copy } = useCopy();

@@ -1,12 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { KeybindingsSettings } from "~/components/views/KeybindingsSettings";
 import { SettingsSection } from "~/components/views/SettingsParts";
 
-export const Route = createFileRoute("/settings/keybindings")({
-  component: KeybindingsPage,
-});
-
-function KeybindingsPage() {
+export function KeybindingsPage() {
   return (
     <>
       <h1 style={{ margin: "0 0 24px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.015em" }}>

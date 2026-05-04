@@ -1,8 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
 import { api } from "~/lib/api";
-import { queryKeys, settingsQueryOptions, useSettings } from "~/queries";
+import { queryKeys, useSettings } from "~/queries";
 import {
   ACCENT_COLORS,
   applyAccentColor,
@@ -10,12 +9,7 @@ import {
   type AccentColorId,
 } from "~/lib/accent-colors";
 
-export const Route = createFileRoute("/settings/general")({
-  loader: ({ context }) => context.queryClient.ensureQueryData(settingsQueryOptions()),
-  component: GeneralSettingsPage,
-});
-
-function GeneralSettingsPage() {
+export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const disabled = settings?.agentSystemBannerDisabled ?? false;

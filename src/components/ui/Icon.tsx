@@ -28,7 +28,9 @@ export type IconName =
   | "copy"
   | "trash"
   | "github"
-  | "chart";
+  | "chart"
+  | "sun"
+  | "moon";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const common = {
@@ -192,6 +194,19 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <rect x="3.5" y="8" width="2" height="5" />
           <rect x="7" y="5" width="2" height="8" />
           <rect x="10.5" y="2.5" width="2" height="10.5" />
+        </svg>
+      );
+    case "sun":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="3" />
+          <path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.9.9M11.7 11.7l.9.9M12.6 3.4l-.9.9M4.3 11.7l-.9.9" />
+        </svg>
+      );
+    case "moon":
+      return (
+        <svg {...common}>
+          <path d="M13.5 10.1A5.6 5.6 0 015.9 2.5a5.8 5.8 0 107.6 7.6z" />
         </svg>
       );
     case "github":

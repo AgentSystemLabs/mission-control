@@ -19,15 +19,15 @@ export function useNavigationSwipe() {
   useEffect(() => {
     const dispatch = makeDispatcher(router);
 
-    const isModalOpen = () =>
-      document.querySelector("[data-modal-open]") !== null;
+    const isNavigationBlocked = () =>
+      document.querySelector("[data-modal-open], [data-navigation-swipe-blocker]") !== null;
 
     let wheelSum = 0;
     let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
     const onWheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-      if (isModalOpen()) return;
+      if (isNavigationBlocked()) return;
 
       // Accumulate signed deltaX across the gesture so slow steady swipes
       // (many small deltas) still cross the threshold. The dispatcher's
@@ -51,7 +51,7 @@ export function useNavigationSwipe() {
     window.addEventListener("wheel", onWheel, { passive: true });
 
     const offSwipe = getElectron()?.onSwipe((dir) => {
-      if (isModalOpen()) return;
+      if (isNavigationBlocked()) return;
       if (dir === "left") dispatch("back");
       else if (dir === "right") dispatch("forward");
     });

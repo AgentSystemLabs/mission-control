@@ -1,33 +1,18 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useUsage, usageQueryOptions } from "~/queries";
+import { useUsage } from "~/queries";
 import { UsageView } from "~/components/views/UsageView";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { Kbd } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
 
-export const Route = createFileRoute("/usage")({
-  loader: ({ context }) =>
-    context.queryClient.ensureQueryData(usageQueryOptions(30)),
-  component: UsagePage,
-});
-
-function UsagePage() {
+export function UsagePanel({ onBack }: { onBack: () => void }) {
   const { data, isLoading, error } = useUsage(30);
-  const router = useRouter();
-
-  const onBack = () => {
-    if (window.history.length > 1) {
-      router.history.back();
-    } else {
-      router.navigate({ to: "/" });
-    }
-  };
 
   useHotkey("escape", onBack, { preventDefault: false });
 
   return (
     <div
+      data-navigation-swipe-blocker
       style={{
         position: "fixed",
         top: "var(--mc-workspace-top, 0px)",

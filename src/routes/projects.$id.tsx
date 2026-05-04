@@ -1,7 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { z } from "zod";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -50,12 +49,7 @@ import {
 import { useTaskDensity } from "~/lib/use-task-density";
 import { DensityToggle } from "~/components/ui/DensityToggle";
 
-const projectSearchSchema = z.object({
-  view: z.enum(["diff"]).optional(),
-});
-
 export const Route = createFileRoute("/projects/$id")({
-  validateSearch: projectSearchSchema,
   loader: ({ context, params }) =>
     Promise.all([
       context.queryClient.ensureQueryData(projectQueryOptions(params.id)),
@@ -83,7 +77,6 @@ function MenuSeparator() {
 
 function ProjectPage() {
   const { id } = Route.useParams();
-  const search = Route.useSearch();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: project, error: projectError } = useProject(id);
@@ -92,23 +85,15 @@ function ProjectPage() {
   const { data: settings } = useSettings();
   const { data: gitStatus } = useGitStatus(id);
   const { density, setDensity } = useTaskDensity();
-  const showDiffView = search.view === "diff";
+  const [showDiffView, setShowDiffView] = useState(false);
 
   const openDiffView = useCallback(() => {
-    router.navigate({
-      to: "/projects/$id",
-      params: { id },
-      search: { view: "diff" },
-    });
-  }, [router, id]);
+    setShowDiffView(true);
+  }, []);
 
   const closeDiffView = useCallback(() => {
-    router.navigate({
-      to: "/projects/$id",
-      params: { id },
-      search: {},
-    });
-  }, [router, id]);
+    setShowDiffView(false);
+  }, []);
   const apiToken = settings?.apiToken ?? null;
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);

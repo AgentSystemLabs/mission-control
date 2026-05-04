@@ -3,7 +3,6 @@ import {
   Outlet,
   createRootRouteWithContext,
   HeadContent,
-  Link,
   Scripts,
   useRouter,
 } from "@tanstack/react-router";
@@ -29,6 +28,8 @@ import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { useSettings, useProjects } from "~/queries";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
+import { SettingsPanel } from "~/components/views/SettingsPanel";
+import { UsagePanel } from "~/components/views/UsagePanel";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -66,6 +67,7 @@ function RootComponent() {
 
 function Shell() {
   const router = useRouter();
+  const [activePanel, setActivePanel] = useState<"settings" | "usage" | null>(null);
   const { theme, toggle } = useTheme();
   const { data: settings } = useSettings();
   const { data: projects } = useProjects();
@@ -88,11 +90,18 @@ function Shell() {
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const crumbs: Crumb[] = projectMatch
     ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} /> }]
-    : path.startsWith("/settings")
+    : activePanel === "settings"
       ? [{ label: "Settings" }]
+      : activePanel === "usage"
+        ? [{ label: "Usage" }]
       : [{ label: "Project", node: <ProjectPicker /> }];
 
-  const goHome = () => router.navigate({ to: "/" });
+  const closePanel = () => setActivePanel(null);
+
+  const goHome = () => {
+    setActivePanel(null);
+    router.navigate({ to: "/" });
+  };
 
   useEffect(() => {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
@@ -122,7 +131,7 @@ function Shell() {
   }, []);
 
   useHotkey("terminal.toggle", () => togglePanel());
-  useHotkey("nav.toggle", () => router.navigate({ to: "/" }));
+  useHotkey("nav.toggle", goHome);
   // Cmd/Ctrl + [ / ] / T are non-rebindable terminal-focused shortcuts.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -173,7 +182,7 @@ function Shell() {
 
   return (
     <div id="root">
-      <AgentSystemBanner />
+      <AgentSystemBanner onOpenSettings={() => setActivePanel("settings")} />
       <TopBar
         crumbs={crumbs}
         onHome={goHome}
@@ -188,14 +197,14 @@ function Shell() {
             <Btn
               variant="ghost"
               icon="chart"
-              onClick={() => router.navigate({ to: "/usage" })}
+              onClick={() => setActivePanel("usage")}
             >
               Usage
             </Btn>
             <Btn
               variant="ghost"
               icon="settings"
-              onClick={() => router.navigate({ to: "/settings" })}
+              onClick={() => setActivePanel("settings")}
             >
               Settings
             </Btn>
@@ -203,17 +212,19 @@ function Shell() {
               onClick={toggle}
               title={theme === "dark" ? "Switch to light" : "Switch to dark"}
               style={{
-                fontFamily: "var(--mono)",
-                fontSize: 10.5,
+                width: 28,
+                height: 24,
+                display: "inline-grid",
+                placeItems: "center",
                 color: "var(--text-faint)",
-                padding: "2px 7px",
+                padding: 0,
                 border: "1px solid var(--border)",
                 borderRadius: 4,
                 background: "transparent",
                 cursor: "pointer",
               }}
             >
-              {theme === "dark" ? "☼" : "☽"}
+              <Icon name={theme === "dark" ? "sun" : "moon"} size={14} />
             </button>
           </>
         }
@@ -245,11 +256,13 @@ function Shell() {
         </div>
         <UserTerminalPanel />
       </div>
+      {activePanel === "settings" && <SettingsPanel onBack={closePanel} />}
+      {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
     </div>
   );
 }
 
-function AgentSystemBanner() {
+function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [dismissed, setDismissed] = useState(false);
   const { data: settings } = useSettings();
 
@@ -322,8 +335,9 @@ function AgentSystemBanner() {
           AgentSystem.dev
         </a>
         .
-        <Link
-          to="/settings/general"
+        <button
+          type="button"
+          onClick={onOpenSettings}
           style={{
             marginLeft: 8,
             color: "var(--text-faint)",
@@ -331,11 +345,15 @@ function AgentSystemBanner() {
             fontWeight: 500,
             textDecoration: "underline",
             textUnderlineOffset: 3,
+            border: 0,
+            padding: 0,
+            background: "transparent",
+            cursor: "pointer",
             ["WebkitAppRegion" as any]: "no-drag",
           }}
         >
           Disable banner in settings
-        </Link>
+        </button>
       </div>
       <button
         type="button"
