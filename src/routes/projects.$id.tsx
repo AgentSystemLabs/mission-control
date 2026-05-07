@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -99,6 +99,7 @@ function ProjectPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [confirmClearFinished, setConfirmClearFinished] = useState(false);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
@@ -188,24 +189,36 @@ function ProjectPage() {
   // highest-priority card. Plain deselect (Cmd+L, X) leaves the panel closed.
   // We hold the prev active id across renders until the tasks query catches
   // up — only then can we tell deletion (task gone) from deselect (still there).
-  const lastActiveTaskIdRef = useRef<string | null>(null);
-  const activeTaskId =
-    terminals.active && terminals.active.project.id === id
-      ? terminals.active.taskId
-      : null;
+  // Scope the ref to {projectId, taskId} so the route component being reused
+  // across project switches doesn't make a stale ref look like a deletion in
+  // the new project (which would auto-open a session there).
+  const lastActiveRef = useRef<{ projectId: string; taskId: string } | null>(null);
+  const activeTaskId = terminals.activeTaskIdFor(id);
+  const lastHiddenSessionRef = useRef<{ projectId: string; taskId: string } | null>(null);
   useEffect(() => {
     if (activeTaskId !== null) {
-      lastActiveTaskIdRef.current = activeTaskId;
+      lastActiveRef.current = { projectId: id, taskId: activeTaskId };
       return;
     }
-    const prev = lastActiveTaskIdRef.current;
-    if (!prev || !project) return;
+    const prev = lastActiveRef.current;
+    if (!prev || prev.projectId !== id || !project) return;
     const visible = tasks.filter((t) => !t.archived);
-    if (visible.some((t) => t.id === prev)) return; // still there → deselect or refresh pending
-    lastActiveTaskIdRef.current = null;
+    if (visible.some((t) => t.id === prev.taskId)) return;
+    lastActiveRef.current = null;
     const next = pickByPriority(visible);
     if (next) terminals.toggle(project, next);
-  }, [activeTaskId, tasks, project, terminals]);
+  }, [activeTaskId, tasks, project, terminals, id]);
+
+  // Rehydrate after reload: if a persisted activeTaskId resolves to an
+  // existing task for this project, materialize a session entry so the panel
+  // reopens without requiring a click.
+  useEffect(() => {
+    if (!project) return;
+    const tid = terminals.activeTaskIdFor(project.id);
+    if (!tid) return;
+    const task = tasks.find((t) => t.id === tid);
+    if (task) terminals.rehydrate(project, task);
+  }, [project, tasks, terminals]);
 
   const invalidateProject = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
@@ -334,10 +347,7 @@ function ProjectPage() {
         for (const t of visible) if (t.status === status) ordered.push(t);
       }
       if (ordered.length === 0) return;
-      const currentId =
-        terminals.active && terminals.active.project.id === project.id
-          ? terminals.active.taskId
-          : null;
+      const currentId = terminals.activeTaskIdFor(project.id);
       // Panel closed: open the highest-priority card instead of cycling.
       if (!currentId) {
         const firstByPriority = pickByPriority(visible);
@@ -365,8 +375,8 @@ function ProjectPage() {
   const duplicateActiveSession = useCallback(() => {
     if (!project) return;
     if (anyBlockingDialogOpen) return;
-    const active = terminals.active;
-    if (!active || active.project.id !== project.id) return;
+    const active = terminals.activeFor(project.id);
+    if (!active) return;
     const sourceTask = tasks.find((t) => t.id === active.taskId);
     if (!sourceTask) return;
     void createSession({
@@ -418,13 +428,45 @@ function ProjectPage() {
     { ignoreEditable: true },
   );
 
-  const closePanelEnabled = !anyBlockingDialogOpen && terminals.active !== null;
+  const hiddenSession = lastHiddenSessionRef.current;
+  const canRestoreHiddenSession =
+    !!project &&
+    hiddenSession?.projectId === project.id &&
+    terminals.sessions.some(
+      (s) => s.taskId === hiddenSession.taskId && s.project.id === project.id,
+    ) &&
+    tasks.some((t) => t.id === hiddenSession.taskId && !t.archived);
+  const closePanelEnabled =
+    !anyBlockingDialogOpen && !!project
+      ? terminals.activeFor(project.id) !== null || canRestoreHiddenSession
+      : false;
 
   // Capture phase so xterm.js (focused terminal) can't swallow the key first.
-  useHotkey("terminal.close", () => terminals.deselect(), {
-    enabled: closePanelEnabled,
-    capture: true,
-  });
+  useHotkey(
+    "terminal.close",
+    () => {
+      if (!project) return;
+      const active = terminals.activeFor(project.id);
+      if (active) {
+        lastHiddenSessionRef.current = { projectId: project.id, taskId: active.taskId };
+        terminals.deselect(project.id);
+        return;
+      }
+      const hidden = lastHiddenSessionRef.current;
+      if (!hidden || hidden.projectId !== project.id) return;
+      const sessionStillOpen = terminals.sessions.some(
+        (s) => s.taskId === hidden.taskId && s.project.id === project.id,
+      );
+      if (!sessionStillOpen) return;
+      const task = tasks.find((t) => t.id === hidden.taskId && !t.archived);
+      if (!task) return;
+      terminals.toggle(project, task);
+    },
+    {
+      enabled: closePanelEnabled,
+      capture: true,
+    },
+  );
 
   useServerEvents(
     useCallback(
@@ -469,14 +511,15 @@ function ProjectPage() {
   );
   for (const t of visibleTasks) tasksByStatus[t.status].push(t);
 
-  const activeId =
-    terminals.active && terminals.active.project.id === project.id
-      ? terminals.active.taskId
-      : null;
+  const activeId = terminals.activeTaskIdFor(project.id);
 
   const toggleTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
+    const active = terminals.activeFor(project.id);
+    if (active?.taskId === taskId) {
+      lastHiddenSessionRef.current = { projectId: project.id, taskId };
+    }
     terminals.toggle(project, task);
   };
 
@@ -504,6 +547,18 @@ function ProjectPage() {
     setConfirmClearAll(false);
     await terminals.closeForProject(project.id);
     await Promise.all(visibleTasks.map((t) => api.deleteTask(t.id).catch(() => undefined)));
+    await refresh();
+  };
+
+  const clearFinished = async () => {
+    setConfirmClearFinished(false);
+    const finished = tasksByStatus.finished;
+    await Promise.all(
+      finished.map(async (t) => {
+        await terminals.close(t.id).catch(() => undefined);
+        await api.deleteTask(t.id).catch(() => undefined);
+      })
+    );
     await refresh();
   };
 
@@ -551,6 +606,15 @@ function ProjectPage() {
             marginBottom: 24,
           }}
         >
+          <Btn
+            size="sm"
+            variant={project.pinned ? "accent" : "ghost"}
+            icon={project.pinned ? "pin-fill" : "pin"}
+            onClick={toggleProjectPin}
+            disabled={pinning}
+            aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
+            title={project.pinned ? "Unpin project" : "Pin project"}
+          />
           <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto" }}>
             <button
               onClick={() => setOverflowOpen((v) => !v)}
@@ -677,14 +741,16 @@ function ProjectPage() {
                     openDiffView();
                   }}
                   style={{ justifyContent: "flex-start" }}
-                  title={
-                    gitStatus && gitStatus.changedCount > 0
-                      ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"} on ${gitStatus.branch}`
-                      : `On branch ${gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}`
-                  }
+                  title={(() => {
+                    const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
+                    if (gitStatus && gitStatus.changedCount > 0) {
+                      return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
+                    }
+                    return `Branch ${b}`;
+                  })()}
                 >
                   <span style={{ flex: 1, textAlign: "left" }}>
-                    {gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
+                    Review Changes
                     {gitStatus && gitStatus.changedCount > 0 && (
                       <span style={{ color: "var(--text-dim)" }}>
                         {" · "}
@@ -695,21 +761,6 @@ function ProjectPage() {
                   <KbdAction action="git.diff" />
                 </Btn>
                 <MenuSeparator />
-                <Btn
-                  variant={project.pinned ? "accent" : "ghost"}
-                  icon={project.pinned ? "pin-fill" : "pin"}
-                  onClick={toggleProjectPin}
-                  disabled={pinning}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  {pinning
-                    ? project.pinned
-                      ? "Unpinning..."
-                      : "Pinning..."
-                    : project.pinned
-                      ? "Unpin project"
-                      : "Pin project"}
-                </Btn>
                 <Btn
                   variant="ghost"
                   icon="play"
@@ -741,7 +792,7 @@ function ProjectPage() {
                     setOverflowOpen(false);
                     setConfirmRemove(true);
                   }}
-                  style={{ justifyContent: "flex-start", color: "var(--danger)" }}
+                  style={{ justifyContent: "flex-start" }}
                   title="Remove this project from Mission Control. The folder on disk is not touched."
                 >
                   Remove project
@@ -758,18 +809,38 @@ function ProjectPage() {
             onOpenUrl={() =>
               project.launchUrl && window.electronAPI?.openExternal(project.launchUrl)
             }
+            onStop={stopLaunch}
           />
-          <ProjectPinButton
-            pinned={project.pinned}
-            busy={pinning}
-            onClick={toggleProjectPin}
-          />
-          <ProjectGitStatusButton
-            branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
-            changedCount={gitStatus?.changedCount}
-            onClick={openDiffView}
-          />
-          <CommitPushButton projectId={id} />
+          <div
+            role="group"
+            aria-label="Review changes and commit"
+            style={{
+              display: "inline-flex",
+              alignItems: "stretch",
+              height: 28,
+              borderRadius: 999,
+              border: "1px solid var(--border)",
+              overflow: "hidden",
+              maxWidth: 480,
+              minWidth: 0,
+            }}
+          >
+            <ProjectGitStatusButton
+              layout="splitLeft"
+              branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
+              changedCount={gitStatus?.changedCount}
+              onClick={openDiffView}
+            />
+            <div
+              aria-hidden
+              style={{
+                width: 1,
+                flexShrink: 0,
+                background: "var(--border)",
+              }}
+            />
+            <CommitPushButton projectId={id} splitTrailing />
+          </div>
           <div style={{ flex: 1 }} />
           <NewAgentButton
             project={project}
@@ -835,6 +906,18 @@ function ProjectPage() {
               density={density}
               onToggle={toggleTerminal}
               onDelete={deleteTask}
+              headerAction={
+                status === "finished" && tasksByStatus.finished.length > 0 ? (
+                  <Btn
+                    variant="ghost"
+                    icon="trash"
+                    onClick={() => setConfirmClearFinished(true)}
+                    title="Remove all finished sessions"
+                  >
+                    Clear
+                  </Btn>
+                ) : undefined
+              }
             />
           ))}
           {visibleTasks.length === 0 && (
@@ -965,69 +1048,25 @@ function ProjectPage() {
           {visibleTasks.length} session{visibleTasks.length === 1 ? "" : "s"} will be deleted and their terminals killed. This only affects this project.
         </div>
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmClearFinished}
+        onClose={() => setConfirmClearFinished(false)}
+        onConfirm={clearFinished}
+        title="Clear finished sessions"
+        confirmLabel="Clear"
+        icon="trash"
+        width={460}
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+          Remove all finished sessions in &ldquo;{project.name}&rdquo;?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          {tasksByStatus.finished.length} finished session{tasksByStatus.finished.length === 1 ? "" : "s"} will be deleted. Other sessions are unaffected.
+        </div>
+      </ConfirmDialog>
       </div>
     </>
-  );
-}
-
-function ProjectPinButton({
-  pinned,
-  busy,
-  onClick,
-}: {
-  pinned: boolean;
-  busy: boolean;
-  onClick: () => void;
-}) {
-  const label = busy
-    ? pinned
-      ? "Unpinning..."
-      : "Pinning..."
-    : pinned
-      ? "Pinned"
-      : "Pin";
-  const actionLabel = pinned ? "Unpin project" : "Pin project";
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      title={actionLabel}
-      aria-label={actionLabel}
-      aria-pressed={pinned}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        height: 28,
-        padding: "0 12px",
-        borderRadius: 999,
-        border: `1px solid ${pinned ? "var(--accent-border)" : "var(--border)"}`,
-        background: pinned ? "var(--accent-faint)" : "var(--surface-0)",
-        color: pinned ? "var(--accent)" : "var(--text-dim)",
-        fontFamily: "var(--mono)",
-        fontSize: 11.5,
-        fontWeight: 600,
-        cursor: busy ? "default" : "pointer",
-        opacity: busy ? 0.7 : 1,
-        transition: "background 0.12s, border-color 0.12s, color 0.12s",
-      }}
-      onMouseEnter={(e) => {
-        if (busy) return;
-        e.currentTarget.style.background = pinned ? "var(--accent-dim)" : "var(--surface-2)";
-        e.currentTarget.style.borderColor = pinned ? "var(--accent)" : "var(--border-strong)";
-        e.currentTarget.style.color = pinned ? "var(--accent)" : "var(--text)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = pinned ? "var(--accent-faint)" : "var(--surface-0)";
-        e.currentTarget.style.borderColor = pinned ? "var(--accent-border)" : "var(--border)";
-        e.currentTarget.style.color = pinned ? "var(--accent)" : "var(--text-dim)";
-      }}
-    >
-      <Icon name={pinned ? "pin-fill" : "pin"} size={12} />
-      <span>{label}</span>
-    </button>
   );
 }
 
@@ -1035,10 +1074,12 @@ function ProjectGitStatusButton({
   branch,
   changedCount,
   onClick,
+  layout = "pill",
 }: {
   branch: string;
   changedCount: number | undefined;
   onClick: () => void;
+  layout?: "pill" | "splitLeft";
 }) {
   const changedLabel =
     changedCount === undefined
@@ -1046,8 +1087,10 @@ function ProjectGitStatusButton({
       : `${changedCount} changed`;
   const title =
     changedCount === undefined
-      ? `Open Get Diff for ${branch}`
-      : `Open Get Diff: ${changedCount} changed file${changedCount === 1 ? "" : "s"} on ${branch}`;
+      ? `Open Review Changes · branch ${branch}`
+      : `Open Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branch}`;
+
+  const splitLeft = layout === "splitLeft";
 
   return (
     <button
@@ -1059,12 +1102,13 @@ function ProjectGitStatusButton({
         display: "inline-flex",
         alignItems: "center",
         gap: 8,
-        height: 28,
+        height: splitLeft ? "100%" : 28,
         minWidth: 0,
-        maxWidth: 320,
+        flex: splitLeft ? 1 : undefined,
+        maxWidth: splitLeft ? undefined : 320,
         padding: "0 12px",
-        borderRadius: 999,
-        border: "1px solid var(--border)",
+        borderRadius: splitLeft ? 0 : 999,
+        border: splitLeft ? "none" : "1px solid var(--border)",
         background: "var(--surface-0)",
         color: "var(--text-dim)",
         fontFamily: "var(--mono)",
@@ -1075,12 +1119,12 @@ function ProjectGitStatusButton({
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = "var(--surface-2)";
-        e.currentTarget.style.borderColor = "var(--border-strong)";
+        if (!splitLeft) e.currentTarget.style.borderColor = "var(--border-strong)";
         e.currentTarget.style.color = "var(--text)";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = "var(--surface-0)";
-        e.currentTarget.style.borderColor = "var(--border)";
+        if (!splitLeft) e.currentTarget.style.borderColor = "var(--border)";
         e.currentTarget.style.color = "var(--text-dim)";
       }}
     >
@@ -1093,7 +1137,7 @@ function ProjectGitStatusButton({
           whiteSpace: "nowrap",
         }}
       >
-        {branch}
+        Review Changes
       </span>
       <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>·</span>
       <span
@@ -1117,6 +1161,7 @@ function RunStatusPill({
   launchUrl,
   onStart,
   onOpenUrl,
+  onStop,
 }: {
   running: boolean;
   launching: boolean;
@@ -1124,6 +1169,7 @@ function RunStatusPill({
   launchUrl: string | null;
   onStart: () => void;
   onOpenUrl: () => void;
+  onStop: () => void;
 }) {
   const busy = launching || stopping;
   const label = stopping
@@ -1156,6 +1202,192 @@ function RunStatusPill({
   const borderColor = tone === "active" ? "var(--accent-border)" : "var(--border)";
   const background = tone === "active" ? "var(--accent-faint)" : "var(--surface-0)";
   const fg = tone === "active" ? "var(--accent)" : "var(--text-dim)";
+
+  const segmentBase: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    height: 28,
+    border: "none",
+    margin: 0,
+    background,
+    color: fg,
+    fontFamily: "var(--mono)",
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: "pointer",
+    transition: "background 0.12s, border-color 0.12s, color 0.12s",
+  };
+
+  const showRunningSplit = running && !busy;
+
+  if (showRunningSplit) {
+    return (
+      <div
+        role="group"
+        aria-label="Project launch"
+        style={{
+          display: "inline-flex",
+          alignItems: "stretch",
+          height: 28,
+          borderRadius: 999,
+          border: `1px solid ${borderColor}`,
+          background,
+          overflow: "hidden",
+          boxShadow: "0 0 8px var(--accent-glow)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={!interactive}
+          title={title}
+          aria-label={title}
+          style={{
+            ...segmentBase,
+            flex: 1,
+            minWidth: 0,
+            padding: "0 10px 0 12px",
+            cursor: interactive ? "pointer" : "default",
+            borderTopLeftRadius: 999,
+            borderBottomLeftRadius: 999,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: dotColor,
+              boxShadow: "0 0 6px var(--accent-glow)",
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ flexShrink: 0 }}>{label}</span>
+          {launchUrl ? (
+            <>
+              <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>·</span>
+              <span
+                style={{
+                  color: "var(--text-dim)",
+                  minWidth: 0,
+                  flex: 1,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {launchUrl.replace(/^https?:\/\//, "")}
+              </span>
+              <Icon name="globe" size={12} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
+            </>
+          ) : null}
+        </button>
+        <div
+          aria-hidden
+          style={{
+            width: 1,
+            alignSelf: "stretch",
+            flexShrink: 0,
+            background: borderColor,
+            opacity: 0.85,
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => onStop()}
+          title="Stop launch commands"
+          aria-label="Stop launch commands"
+          style={{
+            ...segmentBase,
+            flexShrink: 0,
+            padding: "0 10px 0 11px",
+            gap: 6,
+            borderTopRightRadius: 999,
+            borderBottomRightRadius: 999,
+            color: "var(--danger)",
+          }}
+        >
+          <Icon name="x" size={12} style={{ flexShrink: 0 }} />
+          <span>Stop</span>
+          <KbdAction action="project.runToggle" />
+        </button>
+      </div>
+    );
+  }
+
+  const showOfflineSplit = !running && !busy;
+
+  if (showOfflineSplit) {
+    return (
+      <div
+        role="group"
+        aria-label="Project launch"
+        style={{
+          display: "inline-flex",
+          alignItems: "stretch",
+          height: 28,
+          borderRadius: 999,
+          border: `1px solid ${borderColor}`,
+          background,
+          overflow: "hidden",
+          boxShadow: "none",
+        }}
+      >
+        <div
+          style={{
+            ...segmentBase,
+            flex: 1,
+            minWidth: 0,
+            padding: "0 10px 0 12px",
+            borderTopLeftRadius: 999,
+            borderBottomLeftRadius: 999,
+            cursor: "default",
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: dotColor,
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ flexShrink: 0 }}>{label}</span>
+        </div>
+        <div
+          aria-hidden
+          style={{
+            width: 1,
+            alignSelf: "stretch",
+            flexShrink: 0,
+            background: borderColor,
+            opacity: 0.85,
+          }}
+        />
+        <button
+          type="button"
+          onClick={onStart}
+          title={title}
+          aria-label={`${title} — play`}
+          style={{
+            ...segmentBase,
+            flexShrink: 0,
+            padding: "0 10px 0 11px",
+            gap: 6,
+            borderTopRightRadius: 999,
+            borderBottomRightRadius: 999,
+          }}
+        >
+          <Icon name="play" size={12} style={{ color: "var(--accent)", flexShrink: 0 }} />
+          <KbdAction action="project.runToggle" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <button

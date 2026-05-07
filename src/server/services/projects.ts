@@ -8,8 +8,22 @@ import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } fr
 import type { LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectWithCounts } from "~/shared/projects";
+import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
+import { readLicenseState } from "./license";
+
+export class ProjectCapExceededError extends Error {
+  constructor(
+    public readonly limit: number,
+    public readonly current: number,
+  ) {
+    super(
+      `Mission Control Lite is limited to ${limit} projects. Upgrade to Pro for unlimited projects.`,
+    );
+    this.name = "ProjectCapExceededError";
+  }
+}
 
 export type { ProjectWithCounts } from "~/shared/projects";
 
@@ -103,6 +117,14 @@ export function createProject(input: {
   const name = input.name?.trim() || path.basename(input.path) || "project";
 
   const db = getDb();
+
+  if (!isProTier(readLicenseState())) {
+    const existing = db.select({ id: projects.id }).from(projects).all();
+    if (existing.length >= FREE_PROJECT_CAP) {
+      throw new ProjectCapExceededError(FREE_PROJECT_CAP, existing.length);
+    }
+  }
+
   const now = Date.now();
   const id = newId("p");
   const branch = detectBranch(input.path);

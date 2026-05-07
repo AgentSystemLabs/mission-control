@@ -1,15 +1,26 @@
+import { useCallback, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
-import { useProjects } from "~/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { useProjects, queryKeys } from "~/queries";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { Icon } from "~/components/ui/Icon";
 import { useCardGlow } from "~/lib/use-card-glow";
+import { useDismissableMenu } from "~/lib/use-dismissable-menu";
+import { api } from "~/lib/api";
 
 const HOTKEY_LIMIT = 9;
 
 export function ProjectBar() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: projects } = useProjects();
   const pinned = (projects ?? []).filter((p) => p.pinned);
   const glowRef = useCardGlow<HTMLDivElement>();
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
+    null
+  );
+  const closeMenu = useCallback(() => setMenu(null), []);
+  useDismissableMenu(menu !== null, closeMenu);
 
   if (pinned.length === 0) return null;
 
@@ -49,6 +60,11 @@ export function ProjectBar() {
             onClick={() =>
               router.navigate({ to: "/projects/$id", params: { id: project.id } })
             }
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setMenu({ x: e.clientX, y: e.clientY, id: project.id, name: project.name });
+            }}
             style={{
               position: "relative",
               width: 40,
@@ -99,6 +115,57 @@ export function ProjectBar() {
           </button>
         );
       })}
+      {menu && (
+        <div
+          role="menu"
+          aria-label={`${menu.name} actions`}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: menu.y,
+            left: menu.x,
+            zIndex: 1000,
+            background: "var(--surface-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: 4,
+            minWidth: 140,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            autoFocus
+            onClick={async (e) => {
+              e.stopPropagation();
+              const id = menu.id;
+              setMenu(null);
+              await api.togglePin(id);
+              await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              padding: "7px 10px",
+              background: "transparent",
+              border: 0,
+              borderRadius: 4,
+              cursor: "pointer",
+              color: "var(--text)",
+              fontSize: 12,
+              fontFamily: "var(--mono)",
+              textAlign: "left",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          >
+            <Icon name="pin" size={12} /> Unpin
+          </button>
+        </div>
+      )}
     </div>
   );
 }
