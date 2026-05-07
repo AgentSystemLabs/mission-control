@@ -8,8 +8,16 @@ import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { ApiSettingsPage } from "./ApiSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { StorageSettingsPage } from "./StorageSettingsPage";
+import { LicenseSettingsPage } from "./LicenseSettingsPage";
+import { SkillsSettingsPage } from "./SkillsSettingsPage";
 
-type SettingsPanelId = "general" | "api" | "keybindings" | "storage";
+export type SettingsPanelId =
+  | "general"
+  | "license"
+  | "skills"
+  | "api"
+  | "keybindings"
+  | "storage";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
 export function SettingsPanel({
@@ -30,6 +38,8 @@ export function SettingsPanel({
 
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
+    { id: "license", label: "License", icon: "sparkles" },
+    { id: "skills", label: "Skills", icon: "sparkles" },
     { id: "api", label: "External API", icon: "terminal" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
     ...(isElectron
@@ -130,6 +140,10 @@ export function SettingsPanel({
           <div style={{ maxWidth: 720, margin: "0 auto" }}>
             {activePanel === "general" ? (
               <GeneralSettingsPage />
+            ) : activePanel === "license" ? (
+              <LicenseSettingsPage />
+            ) : activePanel === "skills" ? (
+              <SkillsSettingsPage />
             ) : activePanel === "api" ? (
               <ApiSettingsPage />
             ) : activePanel === "keybindings" ? (
