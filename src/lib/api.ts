@@ -11,12 +11,24 @@ import type {
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
+import type { LicenseState } from "~/shared/license";
 
 export type AppSettings = {
   apiToken: string;
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
 };
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   // Node's fetch (used during TanStack Start SSR) rejects relative URLs.
@@ -35,7 +47,17 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    let body: unknown = text;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // not JSON — keep as text
+    }
+    const message =
+      (body && typeof body === "object" && "error" in body && typeof (body as any).error === "string"
+        ? (body as any).error
+        : null) ?? `${res.status} ${res.statusText}: ${text}`;
+    throw new ApiError(message, res.status, body);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -164,6 +186,28 @@ export const api = {
     req<{ bindings: BindingMap }>("/api/keybindings", { method: "DELETE" }),
 
   getSettings: () => req<AppSettings>("/api/settings"),
+
+  getLicense: () => req<{ license: LicenseState }>("/api/license"),
+  validateLicense: (key: string) =>
+    req<{ license: LicenseState }>("/api/license/validate", {
+      method: "POST",
+      body: JSON.stringify({ key }),
+    }),
+  revalidateLicense: () =>
+    req<{ license: LicenseState }>("/api/license/revalidate", {
+      method: "POST",
+    }),
+  removeLicense: () =>
+    req<{ license: LicenseState }>("/api/license", { method: "DELETE" }),
+
+  getSkillsStatus: () =>
+    req<{ initializedAt: string | null; dir: string }>("/api/skills"),
+  initializeSkills: () =>
+    req<{ initializedAt: string; dir: string; fileCount: number }>(
+      "/api/skills/initialize",
+      { method: "POST" },
+    ),
+
   updateSettings: (body: Partial<Pick<AppSettings, "agentSystemBannerDisabled" | "accentColor">>) =>
     req<AppSettings>("/api/settings", {
       method: "POST",
@@ -191,9 +235,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ files }),
     }),
-  gitCommit: (projectId: string) =>
+  gitCommit: (projectId: string, opts: { autoStage?: boolean } = {}) =>
     req<CommitResult>(`/api/projects/${projectId}/git/commit`, {
       method: "POST",
+      body: JSON.stringify(opts),
     }),
   gitPush: (projectId: string) =>
     req<PushResult>(`/api/projects/${projectId}/git/push`, { method: "POST" }),

@@ -1,4 +1,5 @@
-import { listProjects, createProject, getProject, updateProject, deleteProject, togglePin, refreshBranch } from "./services/projects";
+import { listProjects, createProject, getProject, updateProject, deleteProject, togglePin, refreshBranch, ProjectCapExceededError } from "./services/projects";
+import { initializeSkills, readSkillsStatus, SkillsBundleError } from "./services/skills-bundle";
 import { listGroups, createGroup, updateGroup, deleteGroup } from "./services/groups";
 import {
   listTasksForProject,
@@ -35,6 +36,12 @@ import { getBindings, setBinding, resetBinding, resetAllBindings } from "~/db/ke
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, requireBearerToken } from "./auth";
+import {
+  readLicenseState,
+  removeLicense,
+  revalidateOnBoot,
+  validateLicense,
+} from "./services/license";
 import { generateTitleForTask } from "./services/title-generator";
 import { mapHookEventToStatus } from "~/shared/agent-hook-events";
 import {
@@ -64,8 +71,23 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       if (method === "POST") {
         const body = await readJson<any>(request);
         if (!body.path) return jsonError(400, "path is required");
-        const p = createProject(body);
-        return json({ project: p }, { status: 201 });
+        try {
+          const p = createProject(body);
+          return json({ project: p }, { status: 201 });
+        } catch (e: any) {
+          if (e instanceof ProjectCapExceededError) {
+            return new Response(
+              JSON.stringify({
+                error: e.message,
+                code: "free_tier_project_cap",
+                limit: e.limit,
+                current: e.current,
+              }),
+              { status: 402, headers: { "content-type": "application/json" } },
+            );
+          }
+          throw e;
+        }
       }
     }
 
@@ -225,7 +247,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           return json({ ok: true });
         }
         if (action === "commit" && method === "POST") {
-          return json(await gitCommit(id));
+          const body = await readJson<{ autoStage?: boolean }>(request);
+          return json(await gitCommit(id, { autoStage: body.autoStage }));
         }
         if (action === "push" && method === "POST") {
           return json(await gitPush(id));
@@ -302,6 +325,48 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           setSetting("accent_color", body.accentColor);
         }
         return json(settingsPayload());
+      }
+    }
+
+    if (pathname === "/api/license") {
+      if (method === "GET") {
+        return json({ license: readLicenseState() });
+      }
+      if (method === "DELETE") {
+        return json({ license: removeLicense() });
+      }
+    }
+
+    if (pathname === "/api/license/validate" && method === "POST") {
+      const body = await readJson<any>(request).catch(() => null);
+      const key = typeof body?.key === "string" ? body.key.trim() : "";
+      if (!key) return jsonError(400, "key required");
+      const license = await validateLicense(key);
+      return json({ license });
+    }
+
+    if (pathname === "/api/license/revalidate" && method === "POST") {
+      const license = await revalidateOnBoot();
+      return json({ license });
+    }
+
+    if (pathname === "/api/skills") {
+      if (method === "GET") return json(readSkillsStatus());
+    }
+
+    if (pathname === "/api/skills/initialize" && method === "POST") {
+      try {
+        const result = await initializeSkills();
+        return json({ ...result, ...readSkillsStatus() });
+      } catch (e: any) {
+        if (e instanceof SkillsBundleError) {
+          const status = e.code === "not_pro" || e.code === "no_key" ? 402 : 502;
+          return new Response(
+            JSON.stringify({ error: e.message, code: e.code }),
+            { status, headers: { "content-type": "application/json" } },
+          );
+        }
+        throw e;
       }
     }
 
