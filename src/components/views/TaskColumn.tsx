@@ -1,3 +1,4 @@
+import type React from "react";
 import type { Task } from "~/db/schema";
 import { TaskCard } from "./TaskCard";
 import { taskGridCols, type TaskDensity } from "~/lib/use-task-density";
@@ -10,6 +11,7 @@ export function TaskColumn({
   density = "regular",
   onToggle,
   onDelete,
+  headerAction,
 }: {
   title: string;
   color: string;
@@ -18,6 +20,7 @@ export function TaskColumn({
   density?: TaskDensity;
   onToggle: (id: string) => void;
   onDelete?: (id: string) => void;
+  headerAction?: React.ReactNode;
 }) {
   if (tasks.length === 0) return null;
   return (
@@ -54,6 +57,7 @@ export function TaskColumn({
         >
           {tasks.length}
         </span>
+        {headerAction && <div style={{ marginLeft: "auto" }}>{headerAction}</div>}
       </div>
       <div
         style={{
