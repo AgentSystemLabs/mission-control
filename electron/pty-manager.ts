@@ -2,6 +2,7 @@ import type { IpcMain, BrowserWindow } from "electron";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
 import { resolveShell, sanitizedProcessEnv } from "./shell-env";
@@ -111,6 +112,13 @@ async function postSyntheticHook(p: Pty, event: string) {
 const ptys = new Map<string, Pty>();
 const RING_LIMIT_BYTES = 1_000_000;
 
+type PortKillResult = {
+  port: number;
+  pids: number[];
+  killed: number[];
+  errors: string[];
+};
+
 let nodePty: typeof import("node-pty") | null = null;
 function loadNodePty() {
   if (!nodePty) {
@@ -133,6 +141,82 @@ function send(getWin: () => BrowserWindow | null, channel: string, payload: any)
   const win = getWin();
   if (!win || win.isDestroyed()) return;
   win.webContents.send(channel, payload);
+}
+
+function normalizedCommand(command: string): string {
+  return command.trim();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pidsListeningOnPort(port: number): number[] {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return [];
+  if (os.platform() === "win32") return [];
+
+  const result = spawnSync("lsof", ["-nP", `-tiTCP:${port}`, "-sTCP:LISTEN"], {
+    encoding: "utf8",
+    timeout: 2000,
+  });
+  if (result.error || result.status !== 0) return [];
+
+  const pids = (result.stdout || "")
+    .split(/\s+/)
+    .map((raw) => Number(raw))
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+  return [...new Set(pids)];
+}
+
+async function killPidsListeningOnPort(port: number): Promise<PortKillResult> {
+  const pids = pidsListeningOnPort(port);
+  const killed: number[] = [];
+  const errors: string[] = [];
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGTERM");
+      killed.push(pid);
+    } catch (err: any) {
+      errors.push(`pid ${pid}: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  if (killed.length > 0) {
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline && pidsListeningOnPort(port).some((pid) => killed.includes(pid))) {
+      await sleep(100);
+    }
+    for (const pid of pidsListeningOnPort(port).filter((pid) => killed.includes(pid))) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* already exited or not permitted */
+      }
+    }
+  }
+
+  return { port, pids, killed, errors };
+}
+
+async function killPty(p: Pty): Promise<boolean> {
+  let exited = false;
+  try {
+    const sub = p.proc.onExit(() => {
+      exited = true;
+    });
+    p.proc.kill();
+    const deadline = Date.now() + 1500;
+    while (!exited && Date.now() < deadline) {
+      await sleep(50);
+    }
+    sub?.dispose?.();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    ptys.delete(p.id);
+  }
 }
 
 export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindow | null) {
@@ -260,6 +344,26 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
     ptys.delete(ptyId);
     return true;
   });
+
+  ipcMain.handle(
+    IPC.ptyKillLaunchProcesses,
+    async (
+      _evt,
+      opts: { cwd: string; commands: string[]; ports?: number[] }
+    ): Promise<{ ptyCount: number; ports: PortKillResult[] }> => {
+      const wanted = new Set((opts.commands ?? []).map(normalizedCommand).filter(Boolean));
+      const targets = [...ptys.values()].filter(
+        (p) => p.cwd === opts.cwd && wanted.has(normalizedCommand(p.command))
+      );
+      await Promise.all(targets.map((p) => killPty(p)));
+
+      const ports = [...new Set(opts.ports ?? [])].filter(
+        (port) => Number.isInteger(port) && port > 0 && port <= 65535
+      );
+      const portResults = await Promise.all(ports.map((port) => killPidsListeningOnPort(port)));
+      return { ptyCount: targets.length, ports: portResults };
+    }
+  );
 
   ipcMain.handle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);

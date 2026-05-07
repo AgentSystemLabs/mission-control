@@ -1,7 +1,7 @@
-import { eq, asc } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { getDb } from "~/db/client";
-import { userTerminals } from "~/db/schema";
+import { projects, userTerminals } from "~/db/schema";
 import type { UserTerminal } from "~/db/schema";
 
 function newId() {
@@ -9,10 +9,14 @@ function newId() {
 }
 
 export function listUserTerminals(projectId: string): UserTerminal[] {
-  return getDb()
+  const db = getDb();
+  db.delete(userTerminals)
+    .where(and(eq(userTerminals.projectId, projectId), isNotNull(userTerminals.startCommand)))
+    .run();
+  return db
     .select()
     .from(userTerminals)
-    .where(eq(userTerminals.projectId, projectId))
+    .where(and(eq(userTerminals.projectId, projectId), isNull(userTerminals.startCommand)))
     .orderBy(asc(userTerminals.position), asc(userTerminals.createdAt))
     .all();
 }
@@ -24,6 +28,13 @@ export function createUserTerminal(input: {
   startCommand?: string | null;
 }): UserTerminal {
   const db = getDb();
+  const projectExists = db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
+    .get();
+  if (!projectExists) throw new Error("Project does not exist");
+
   const existing = listUserTerminals(input.projectId);
   const now = Date.now();
   const row: UserTerminal = {
@@ -36,6 +47,7 @@ export function createUserTerminal(input: {
     createdAt: now,
     updatedAt: now,
   };
+  if (row.startCommand) return row;
   db.insert(userTerminals).values(row).run();
   return row;
 }

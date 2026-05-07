@@ -28,11 +28,14 @@ type Ctx = {
   focusedId: string | null;
   focusTerminal: (id: string) => void;
   createTerminal: (opts?: { name?: string; startCommand?: string | null }) => Promise<UserTerminal | null>;
-  killTerminalsByStartCommand: (commands: string[]) => Promise<void>;
+  killTerminalsByStartCommand: (
+    commands: string[],
+    opts?: { ports?: number[] }
+  ) => Promise<void>;
   killTerminal: (id: string) => Promise<void>;
   renameTerminal: (id: string, name: string) => Promise<void>;
   updateLaunchUrl: (url: string) => Promise<void>;
-  setPtyId: (terminalId: string, ptyId: string) => void;
+  setPtyId: (terminalId: string, ptyId: string | null) => void;
   cycleNext: () => void;
   cyclePrev: () => void;
 };
@@ -248,7 +251,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     [project]
   );
 
-  const setPtyId = useCallback((terminalId: string, ptyId: string) => {
+  const setPtyId = useCallback((terminalId: string, ptyId: string | null) => {
     setSessionsByProject((prev) => {
       const next = { ...prev };
       for (const [pid, list] of Object.entries(prev)) {
@@ -262,14 +265,23 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const killTerminalsByStartCommand = useCallback(
-    async (commands: string[]) => {
+    async (commands: string[], opts?: { ports?: number[] }) => {
       if (!project) return;
+      const electron = getElectron();
       const list = sessionsByProject[project.id] ?? [];
       const wanted = new Set(commands.map((c) => c.trim()).filter(Boolean));
+      if (wanted.size === 0) return;
       const targets = list.filter(
         (s) => s.terminal.startCommand && wanted.has(s.terminal.startCommand.trim())
       );
       await Promise.all(targets.map((s) => killTerminal(s.terminal.id)));
+      await electron?.pty
+        .killLaunchProcesses({
+          cwd: project.path,
+          commands: [...wanted],
+          ports: opts?.ports ?? [],
+        })
+        .catch(() => undefined);
     },
     [project, sessionsByProject, killTerminal]
   );

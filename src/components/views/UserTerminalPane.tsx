@@ -17,6 +17,7 @@ export function UserTerminalPane({
   focused,
   onFocus,
   onPtyReady,
+  onPtyExit,
   onLaunchUrlDetected,
   onKill,
   onRename,
@@ -28,6 +29,7 @@ export function UserTerminalPane({
   focused: boolean;
   onFocus: () => void;
   onPtyReady: (ptyId: string) => void;
+  onPtyExit: () => void;
   onLaunchUrlDetected?: (url: string) => void;
   onKill: () => void;
   onRename: (name: string) => void;
@@ -167,8 +169,10 @@ export function UserTerminalPane({
           }),
           electron.pty.onExit((msg) => {
             if (msg.ptyId === id) {
+              activePtyId = null;
               term.writeln("");
               term.writeln(`\x1b[2m[process exited (code=${msg.exitCode})]\x1b[0m`);
+              onPtyExit();
             }
           })
         );

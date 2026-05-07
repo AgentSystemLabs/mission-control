@@ -71,6 +71,39 @@ describe("user-terminals service", () => {
     expect(listUserTerminals(p2.id)).toHaveLength(1);
   });
 
+  it("does not persist launch-created terminals", () => {
+    const p = makeProject();
+    const terminal = createUserTerminal({
+      projectId: p.id,
+      name: "Dev server",
+      cwd: p.path,
+      startCommand: "pnpm dev",
+    });
+
+    expect(terminal.startCommand).toBe("pnpm dev");
+    expect(listUserTerminals(p.id)).toHaveLength(0);
+  });
+
+  it("cleans stale launch-created terminals from older app versions", () => {
+    const p = makeProject();
+    const db = getDb();
+    db.insert(userTerminals)
+      .values({
+        id: "ut-stale-launch",
+        projectId: p.id,
+        name: "Dev server",
+        cwd: p.path,
+        startCommand: "pnpm dev",
+        position: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .run();
+
+    expect(listUserTerminals(p.id)).toHaveLength(0);
+    expect(db.select().from(userTerminals).all()).toHaveLength(0);
+  });
+
   it("cascades on project delete", () => {
     const p = makeProject();
     createUserTerminal({ projectId: p.id });

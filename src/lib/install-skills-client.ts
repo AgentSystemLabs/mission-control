@@ -1,34 +1,64 @@
-// Thin renderer-side wrapper around the install-skills electron bridge.
-import { getElectron } from "~/lib/electron";
-import { ACADEMY_BASE_URL } from "~/shared/academy";
+// Renderer-side wrapper for the install-skills HTTP API.
+// The local mission-control server resolves ACADEMY_BASE_URL itself
+// (localhost:3000 in dev, https://agentsystem.dev in prod) — same pattern
+// the license flow uses, so no env var is required from the user.
+import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
-  InstallSkillsArgs,
   InstallSkillsResult,
   LatestSkillsManifest,
 } from "~/shared/electron-contract";
 
-// Renderer-side env override (Vite). Falls back to shared default.
-const VITE_BASE = (import.meta as unknown as { env?: { VITE_ACADEMY_BASE_URL?: string } })
-  .env?.VITE_ACADEMY_BASE_URL;
-export const RENDERER_ACADEMY_BASE_URL = VITE_BASE ?? ACADEMY_BASE_URL;
-
-export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest> {
-  const electron = getElectron();
-  if (!electron) throw new Error("Install Skills requires the desktop app");
-  const res = await electron.installSkills.fetchLatest(RENDERER_ACADEMY_BASE_URL);
-  if (!res.ok) throw new Error(res.error);
-  return res.manifest;
+async function req<T>(url: string, init?: RequestInit): Promise<T> {
+  const resolved =
+    typeof window === "undefined" && url.startsWith("/")
+      ? DEV_SERVER_ORIGIN + url
+      : url;
+  const res = await fetch(resolved, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {}
+    throw new Error(message);
+  }
+  return (await res.json()) as T;
 }
 
-export async function runInstallSkills(
-  args: Omit<InstallSkillsArgs, "baseUrl">,
-): Promise<InstallSkillsResult> {
-  const electron = getElectron();
-  if (!electron) throw new Error("Install Skills requires the desktop app");
-  const res = await electron.installSkills.run({
-    ...args,
-    baseUrl: RENDERER_ACADEMY_BASE_URL,
-  });
-  if (!res.ok) throw new Error(res.error);
-  return res.result;
+export type InstalledSkillsVersion = {
+  version: string | null;
+  publishedAt: string | null;
+};
+
+export async function fetchInstalledSkillsVersion(
+  projectPath: string,
+): Promise<InstalledSkillsVersion> {
+  const { installed } = await req<{ installed: InstalledSkillsVersion }>(
+    `/api/skills/install/installed?projectPath=${encodeURIComponent(projectPath)}`,
+  );
+  return installed;
+}
+
+export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest> {
+  const { manifest } = await req<{ manifest: LatestSkillsManifest }>(
+    "/api/skills/install/latest",
+  );
+  return manifest;
+}
+
+export async function runInstallSkills(args: {
+  projectPath: string;
+  harnesses: { claude: boolean; codex: boolean };
+}): Promise<InstallSkillsResult> {
+  const { result } = await req<{ result: InstallSkillsResult }>(
+    "/api/skills/install",
+    { method: "POST", body: JSON.stringify(args) },
+  );
+  return result;
 }

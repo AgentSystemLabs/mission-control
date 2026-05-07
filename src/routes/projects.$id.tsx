@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -41,14 +41,13 @@ import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
+import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
 import type { Task, TaskStatus } from "~/db/schema";
 import {
   DUPLICATE_ACTIVE_SESSION_EVENT,
   pickByPriority,
   STATUS_META,
 } from "~/lib/design-meta";
-import { useTaskDensity } from "~/lib/use-task-density";
-import { DensityToggle } from "~/components/ui/DensityToggle";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: ({ context, params }) =>
@@ -63,6 +62,18 @@ export const Route = createFileRoute("/projects/$id")({
     ]),
   component: ProjectPage,
 });
+
+function launchUrlPort(raw: string | null): number[] {
+  if (!raw) return [];
+  try {
+    const url = new URL(raw);
+    if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)) return [];
+    const port = Number(url.port);
+    return Number.isInteger(port) && port > 0 ? [port] : [];
+  } catch {
+    return [];
+  }
+}
 
 function MenuSeparator() {
   return (
@@ -85,7 +96,6 @@ function ProjectPage() {
   const { data: groups = [] } = useGroups();
   const { data: settings } = useSettings();
   const { data: gitStatus } = useGitStatus(id);
-  const { density, setDensity } = useTaskDensity();
   const [showDiffView, setShowDiffView] = useState(false);
 
   const openDiffView = useCallback(() => {
@@ -146,7 +156,11 @@ function ProjectPage() {
     launchCommands.map((c) => c.command.trim()).filter(Boolean)
   );
   const hasRunningLaunch = userTerminalSessions.some(
-    (s) => s.terminal.startCommand && launchCommandSet.has(s.terminal.startCommand.trim())
+    (s) => s.ptyId && s.terminal.startCommand && launchCommandSet.has(s.terminal.startCommand.trim())
+  );
+  const launchPorts = useMemo(
+    () => launchUrlPort(project?.launchUrl ?? null),
+    [project?.launchUrl]
   );
 
   const stopLaunch = useCallback(async () => {
@@ -154,11 +168,13 @@ function ProjectPage() {
     if (launchCommands.length === 0) return;
     setStopping(true);
     try {
-      await killTerminalsByStartCommand(launchCommands.map((c) => c.command));
+      await killTerminalsByStartCommand(launchCommands.map((c) => c.command), {
+        ports: launchPorts,
+      });
     } finally {
       setStopping(false);
     }
-  }, [launchCommands, killTerminalsByStartCommand]);
+  }, [launchCommands, launchPorts, killTerminalsByStartCommand]);
 
   const runLaunch = useCallback(async () => {
     setOverflowOpen(false);
@@ -168,7 +184,9 @@ function ProjectPage() {
     }
     setLaunching(true);
     try {
-      await killTerminalsByStartCommand(launchCommands.map((c) => c.command));
+      await killTerminalsByStartCommand(launchCommands.map((c) => c.command), {
+        ports: launchPorts,
+      });
       for (const c of launchCommands) {
         await createTerminal({ name: c.name, startCommand: c.command });
       }
@@ -176,7 +194,7 @@ function ProjectPage() {
     } finally {
       setLaunching(false);
     }
-  }, [launchCommands, killTerminalsByStartCommand, createTerminal, setPanelOpen]);
+  }, [launchCommands, launchPorts, killTerminalsByStartCommand, createTerminal, setPanelOpen]);
 
   useEffect(() => {
     if (project) setActiveUserTerminalProject(project);
@@ -607,15 +625,6 @@ function ProjectPage() {
             marginBottom: 24,
           }}
         >
-          <Btn
-            size="sm"
-            variant={project.pinned ? "accent" : "ghost"}
-            icon={project.pinned ? "pin-fill" : "pin"}
-            onClick={toggleProjectPin}
-            disabled={pinning}
-            aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
-            title={project.pinned ? "Unpin project" : "Pin project"}
-          />
           <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto" }}>
             <button
               onClick={() => setOverflowOpen((v) => !v)}
@@ -711,6 +720,21 @@ function ProjectPage() {
                 ) : null}
                 <Btn
                   variant="ghost"
+                  icon={project.pinned ? "pin-fill" : "pin"}
+                  onClick={toggleProjectPin}
+                  disabled={pinning}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  {pinning
+                    ? project.pinned
+                      ? "Unpinning..."
+                      : "Pinning..."
+                    : project.pinned
+                      ? "Unpin project"
+                      : "Pin project"}
+                </Btn>
+                <Btn
+                  variant="ghost"
                   icon="folder"
                   onClick={() => {
                     setOverflowOpen(false);
@@ -773,6 +797,10 @@ function ProjectPage() {
                 >
                   Configure launch commands
                 </Btn>
+                <InstallSkillsMenuItem
+                  projectPath={project.path}
+                  onOpen={() => setOverflowOpen(false)}
+                />
                 <Btn
                   variant="ghost"
                   icon="settings"
@@ -853,12 +881,16 @@ function ProjectPage() {
           </Btn>
           <div style={{ flex: 1 }} />
           <InstallSkillsButton projectPath={project.path} />
-          <NewAgentButton
-            project={project}
-            onPrimary={onNewAgentPrimary}
-            onConfigure={() => setShowNewAgent(true)}
-          />
         </div>
+
+        <div
+          aria-hidden
+          style={{
+            height: 1,
+            background: "var(--border)",
+            margin: "0 0 22px",
+          }}
+        />
 
         {visibleTasks.length > 0 && (
           <div
@@ -870,7 +902,7 @@ function ProjectPage() {
               marginBottom: 16,
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div
                 style={{
                   fontSize: 22,
@@ -881,19 +913,6 @@ function ProjectPage() {
               >
                 Sessions
               </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "var(--text-dim)",
-                  lineHeight: 1.5,
-                }}
-              >
-                Create and manage sessions that can work on tasks autonomously
-                with Claude Code.
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <DensityToggle value={density} onChange={setDensity} />
               <Btn
                 variant="ghost"
                 icon="trash"
@@ -902,6 +921,13 @@ function ProjectPage() {
               >
                 Clear all
               </Btn>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <NewAgentButton
+                project={project}
+                onPrimary={onNewAgentPrimary}
+                onConfigure={() => setShowNewAgent(true)}
+              />
             </div>
           </div>
         )}
@@ -914,7 +940,6 @@ function ProjectPage() {
               color={STATUS_META[status].color}
               tasks={tasksByStatus[status]}
               activeId={activeId}
-              density={density}
               onToggle={toggleTerminal}
               onDelete={deleteTask}
               headerAction={
@@ -1095,7 +1120,7 @@ function ProjectGitStatusButton({
   const changedLabel =
     changedCount === undefined
       ? "Checking…"
-      : `${changedCount} changed`;
+      : `${changedCount} ${changedCount === 1 ? "Change" : "Changes"}`;
   const title =
     changedCount === undefined
       ? `Open Review Changes · branch ${branch}`
@@ -1139,18 +1164,6 @@ function ProjectGitStatusButton({
         e.currentTarget.style.color = "var(--text-dim)";
       }}
     >
-      <Icon name="git-branch" size={12} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
-      <span
-        style={{
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        Review Changes
-      </span>
-      <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>·</span>
       <span
         style={{
           color: changedCount && changedCount > 0 ? "var(--accent)" : "var(--text-dim)",
@@ -1191,21 +1204,13 @@ function RunStatusPill({
         ? "Running"
         : "Offline";
 
-  const interactive = !busy && (running ? !!launchUrl : true);
-  const onClick = busy
-    ? undefined
-    : running
-      ? launchUrl
-        ? onOpenUrl
-        : undefined
-      : onStart;
+  const interactive = !busy && !running;
+  const onClick = busy ? undefined : running ? undefined : onStart;
 
   const title = busy
     ? label
     : running
-      ? launchUrl
-        ? `Open ${launchUrl}`
-        : "Running"
+      ? "Running"
       : "Run launch commands";
 
   const tone = running || launching ? "active" : "idle";
@@ -1248,18 +1253,13 @@ function RunStatusPill({
           boxShadow: "0 0 8px var(--accent-glow)",
         }}
       >
-        <button
-          type="button"
-          onClick={onClick}
-          disabled={!interactive}
-          title={title}
-          aria-label={title}
+        <div
           style={{
             ...segmentBase,
             flex: 1,
             minWidth: 0,
             padding: "0 10px 0 12px",
-            cursor: interactive ? "pointer" : "default",
+            cursor: "default",
             borderTopLeftRadius: 999,
             borderBottomLeftRadius: 999,
           }}
@@ -1276,25 +1276,36 @@ function RunStatusPill({
             }}
           />
           <span style={{ flexShrink: 0 }}>{label}</span>
-          {launchUrl ? (
-            <>
-              <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>·</span>
-              <span
-                style={{
-                  color: "var(--text-dim)",
-                  minWidth: 0,
-                  flex: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {launchUrl.replace(/^https?:\/\//, "")}
-              </span>
+        </div>
+        {launchUrl ? (
+          <>
+            <div
+              aria-hidden
+              style={{
+                width: 1,
+                alignSelf: "stretch",
+                flexShrink: 0,
+                background: borderColor,
+                opacity: 0.85,
+              }}
+            />
+            <button
+              type="button"
+              onClick={onOpenUrl}
+              title={`Open ${launchUrl}`}
+              aria-label="Open hosted app"
+              style={{
+                ...segmentBase,
+                flexShrink: 0,
+                width: 32,
+                justifyContent: "center",
+                padding: 0,
+              }}
+            >
               <Icon name="globe" size={12} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
-            </>
-          ) : null}
-        </button>
+            </button>
+          </>
+        ) : null}
         <div
           aria-hidden
           style={{
@@ -1438,23 +1449,6 @@ function RunStatusPill({
         }}
       />
       <span>{label}</span>
-      {running && launchUrl && (
-        <>
-          <span style={{ color: "var(--text-faint)" }}>·</span>
-          <span
-            style={{
-              color: "var(--text-dim)",
-              maxWidth: 200,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {launchUrl.replace(/^https?:\/\//, "")}
-          </span>
-          <Icon name="globe" size={12} style={{ color: "var(--text-faint)" }} />
-        </>
-      )}
       <KbdAction action="project.runToggle" />
     </button>
   );

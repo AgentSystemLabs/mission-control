@@ -34,6 +34,16 @@ export type InstallSkillsResult = {
   skillCount: number;
 };
 
+export type LaunchProcessKillResult = {
+  ptyCount: number;
+  ports: Array<{
+    port: number;
+    pids: number[];
+    killed: number[];
+    errors: string[];
+  }>;
+};
+
 export type ElectronBridge = {
   installSkills: {
     fetchLatest: (
@@ -78,6 +88,11 @@ export type ElectronBridge = {
     write: (ptyId: string, data: string) => Promise<boolean>;
     resize: (ptyId: string, cols: number, rows: number) => Promise<boolean>;
     kill: (ptyId: string) => Promise<boolean>;
+    killLaunchProcesses: (opts: {
+      cwd: string;
+      commands: string[];
+      ports?: number[];
+    }) => Promise<LaunchProcessKillResult>;
     onData: (cb: (msg: { ptyId: string; data: string }) => void) => () => void;
     onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => () => void;
     replay: (ptyId: string) => Promise<string>;

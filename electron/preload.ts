@@ -47,6 +47,8 @@ const electronAPI = {
     resize: (ptyId: string, cols: number, rows: number) =>
       ipcRenderer.invoke(IPC.ptyResize, { ptyId, cols, rows }),
     kill: (ptyId: string) => ipcRenderer.invoke(IPC.ptyKill, { ptyId }),
+    killLaunchProcesses: (opts: { cwd: string; commands: string[]; ports?: number[] }) =>
+      ipcRenderer.invoke(IPC.ptyKillLaunchProcesses, opts),
     onData: (cb: (msg: { ptyId: string; data: string }) => void) => {
       const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; data: string }) => cb(msg);
       ipcRenderer.on(IPC.ptyData, listener);

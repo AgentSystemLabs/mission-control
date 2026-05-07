@@ -1,5 +1,10 @@
 import { listProjects, createProject, getProject, updateProject, deleteProject, togglePin, refreshBranch, ProjectCapExceededError } from "./services/projects";
 import { initializeSkills, readSkillsStatus, SkillsBundleError } from "./services/skills-bundle";
+import {
+  fetchLatestSkillsManifest,
+  installProjectSkills,
+  readInstalledSkillsVersion,
+} from "./services/install-skills";
 import { listGroups, createGroup, updateGroup, deleteGroup } from "./services/groups";
 import {
   listTasksForProject,
@@ -352,6 +357,38 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     if (pathname === "/api/skills") {
       if (method === "GET") return json(readSkillsStatus());
+    }
+
+    if (pathname === "/api/skills/install/installed" && method === "GET") {
+      const projectPath = url.searchParams.get("projectPath") ?? "";
+      return json({ installed: readInstalledSkillsVersion(projectPath) });
+    }
+
+    if (pathname === "/api/skills/install/latest" && method === "GET") {
+      try {
+        const manifest = await fetchLatestSkillsManifest();
+        return json({ manifest });
+      } catch (e: any) {
+        return jsonError(502, e?.message ?? "Failed to fetch manifest");
+      }
+    }
+
+    if (pathname === "/api/skills/install" && method === "POST") {
+      const body = await readJson<any>(request).catch(() => null);
+      const projectPath = typeof body?.projectPath === "string" ? body.projectPath : "";
+      const harnesses = body?.harnesses ?? {};
+      try {
+        const result = await installProjectSkills({
+          projectPath,
+          harnesses: {
+            claude: !!harnesses.claude,
+            codex: !!harnesses.codex,
+          },
+        });
+        return json({ result });
+      } catch (e: any) {
+        return jsonError(400, e?.message ?? "Install failed");
+      }
     }
 
     if (pathname === "/api/skills/initialize" && method === "POST") {

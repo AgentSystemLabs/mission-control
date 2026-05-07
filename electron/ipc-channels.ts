@@ -16,6 +16,7 @@ export const IPC = {
   ptyWrite: "pty:write",
   ptyResize: "pty:resize",
   ptyKill: "pty:kill",
+  ptyKillLaunchProcesses: "pty:killLaunchProcesses",
   ptyReplay: "pty:replay",
   ptyData: "pty:data",
   ptyExit: "pty:exit",

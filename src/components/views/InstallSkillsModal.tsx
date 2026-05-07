@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { Kbd } from "~/components/ui/Kbd";
@@ -20,6 +21,7 @@ export function InstallSkillsModal({
   onClose: () => void;
   projectPath: string;
 }) {
+  const queryClient = useQueryClient();
   const [installClaude, setInstallClaude] = useState(true);
   const [installCodex, setInstallCodex] = useState(true);
   const [manifest, setManifest] = useState<LatestSkillsManifest | null>(null);
@@ -70,6 +72,10 @@ export function InstallSkillsModal({
         harnesses: { claude: installClaude, codex: installCodex },
       });
       clearTimeout(extractTimer);
+      // Refresh the freshness check so the InstallSkillsButton can hide /
+      // relabel itself immediately after a successful install.
+      void queryClient.invalidateQueries({ queryKey: ["skills-installed", projectPath] });
+      void queryClient.invalidateQueries({ queryKey: ["skills-latest"] });
       setPhase("done");
       setNotice(
         `Installed ${result.skillCount} skill${result.skillCount === 1 ? "" : "s"} (v${result.version})`,

@@ -192,6 +192,7 @@ export function UserTerminalPanel() {
               focused={focusedId === s.terminal.id}
               onFocus={() => focusTerminal(s.terminal.id)}
               onPtyReady={(ptyId) => setPtyId(s.terminal.id, ptyId)}
+              onPtyExit={() => setPtyId(s.terminal.id, null)}
               onLaunchUrlDetected={updateLaunchUrl}
               onKill={() => void killTerminal(s.terminal.id)}
               onRename={(name) => void renameTerminal(s.terminal.id, name)}
