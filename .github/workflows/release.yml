@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to (re)publish (e.g. v0.1.0). The tag must already exist on origin."
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac-arm64
+            build_script: dist:mac
+            # electron-builder --mac (default arch follows host = arm64 on macos-latest)
+            arch_flag: "--arm64"
+            artifact_glob: "dist-electron-out/*.dmg"
+          - os: macos-13
+            platform: mac-x64
+            build_script: dist:mac
+            arch_flag: "--x64"
+            artifact_glob: "dist-electron-out/*.dmg"
+          - os: windows-latest
+            platform: win-x64
+            build_script: dist:win
+            arch_flag: ""
+            artifact_glob: "dist-electron-out/*.exe"
+          - os: ubuntu-latest
+            platform: linux-x64
+            build_script: dist:linux
+            arch_flag: ""
+            artifact_glob: "dist-electron-out/*.AppImage"
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Resolve ref
+        id: ref
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build app
+        env:
+          # Direct electron-builder output to a stable folder for the publish job.
+          ELECTRON_BUILDER_OUTPUT: ${{ github.workspace }}/dist-electron-out
+        shell: bash
+        run: |
+          # Override the `--publish never` flag is already in package.json scripts; just append arch.
+          pnpm run ${{ matrix.build_script }} -- ${{ matrix.arch_flag }} -c.directories.output="$ELECTRON_BUILDER_OUTPUT"
+
+      - name: Compute checksums
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          # Find the freshly built installer/package matching this platform.
+          shopt -s nullglob
+          files=( ${{ matrix.artifact_glob }} )
+          if (( ${#files[@]} == 0 )); then
+            echo "No artifacts matched ${{ matrix.artifact_glob }}"
+            exit 1
+          fi
+          # Pick the largest file (the actual installer, not block-map / yml metadata).
+          src="$(printf '%s\n' "${files[@]}" | xargs -I{} -d '\n' sh -c 'wc -c < "$0" | tr -d " "; echo " $0"' {} | sort -nr | head -1 | cut -d' ' -f2-)"
+          name="$(basename "$src")"
+          cp "$src" "artifacts/$name"
+          if command -v sha256sum >/dev/null; then
+            sha="$(sha256sum "artifacts/$name" | awk '{print $1}')"
+          else
+            sha="$(shasum -a 256 "artifacts/$name" | awk '{print $1}')"
+          fi
+          size="$(wc -c < "artifacts/$name" | tr -d ' ')"
+          # macOS dmg → application/x-apple-diskimage; Windows exe → application/vnd.microsoft.portable-executable;
+          # Linux AppImage → application/x-executable.
+          case "$name" in
+            *.dmg) ct="application/x-apple-diskimage" ;;
+            *.exe) ct="application/vnd.microsoft.portable-executable" ;;
+            *.AppImage) ct="application/x-executable" ;;
+            *) ct="application/octet-stream" ;;
+          esac
+          cat > artifacts/manifest.json <<EOF
+          {
+            "platform": "${{ matrix.platform }}",
+            "fileName": "$name",
+            "sizeBytes": $size,
+            "sha256": "$sha",
+            "contentType": "$ct"
+          }
+          EOF
+          echo "Built $name ($size bytes, sha256=$sha)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mc-${{ matrix.platform }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to academy
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve ref
+        id: ref
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: mc-*
+          merge-multiple: false
+
+      - name: Extract release notes from tag annotation
+        id: notes
+        shell: bash
+        run: |
+          tag="${{ steps.ref.outputs.ref }}"
+          # Annotated tag bodies (skip the subject line and any PGP signature lines).
+          notes="$(git tag -l --format='%(contents:body)' "$tag" || true)"
+          if [[ -z "$notes" ]]; then
+            notes="$(git tag -l --format='%(contents)' "$tag" || true)"
+          fi
+          # Save multi-line via heredoc.
+          {
+            echo 'notes<<NOTES_EOF'
+            printf '%s\n' "$notes"
+            echo 'NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Upload to academy
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ steps.ref.outputs.ref }}
+          RELEASE_NOTES: ${{ steps.notes.outputs.notes }}
+        run: node scripts/publish-release.mjs
