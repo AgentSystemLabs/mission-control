@@ -117,7 +117,7 @@ export function TerminalPanel({
           Session
         </span>
         <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10.5 }}>
-          Close <KbdAction action="terminal.close" variant="ghost" />
+          Hide/show <KbdAction action="terminal.close" variant="ghost" />
         </span>
         <Btn
           variant="ghost"

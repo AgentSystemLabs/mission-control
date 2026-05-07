@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { getElectron } from "./electron";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import { buildClaudeCommand, newSessionId } from "./claude-command";
@@ -18,13 +26,16 @@ export type OpenTerminal = {
 type Ctx = {
   /** All live sessions (PTYs alive in background). */
   sessions: OpenTerminal[];
-  /** The single session currently displayed in the panel, if any. */
-  active: OpenTerminal | null;
-  activeTaskId: string | null;
+  /** The session currently displayed in the panel for `projectId`, if any. */
+  activeFor: (projectId: string) => OpenTerminal | null;
+  /** The active taskId persisted for `projectId` (null = explicitly closed). */
+  activeTaskIdFor: (projectId: string) => string | null;
   /** Click a card: select if not active, deselect (hide panel) if already active. */
   toggle: (project: Project, task: Task) => void;
-  /** Deselect the active card and hide the panel without killing the PTY. */
-  deselect: () => void;
+  /** Deselect the active card for `projectId` and hide the panel without killing the PTY. */
+  deselect: (projectId: string) => void;
+  /** Materialize a session entry from a persisted taskId after reload, if not already present. */
+  rehydrate: (project: Project, task: Task) => void;
   /** Permanently close one session and kill its PTY. */
   close: (taskId: string) => Promise<void>;
   /** Permanently close every session for a project (kills PTYs). */
@@ -66,9 +77,32 @@ export function commandForTask(task: Task): string {
   return buildClaudeCommand({ kind: "new", sessionId: fresh, skipPermissions: skip, bareSession: bare });
 }
 
+const ACTIVE_BY_PROJECT_KEY = "mc.terminalActiveByProject";
+
+function loadActiveByProject(): Record<string, string | null> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_BY_PROJECT_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string | null>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<OpenTerminal[]>([]);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [activeByProject, setActiveByProject] = useState<Record<string, string | null>>(
+    loadActiveByProject
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(ACTIVE_BY_PROJECT_KEY, JSON.stringify(activeByProject));
+    } catch {
+      /* quota or disabled */
+    }
+  }, [activeByProject]);
 
   const killPty = async (id: string | null) => {
     if (!id) return;
@@ -91,13 +125,35 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         };
         return [...prev, next];
       });
-      setActiveTaskId((curr) => (curr === task.id ? null : task.id));
+      setActiveByProject((prev) => {
+        const curr = prev[project.id] ?? null;
+        return { ...prev, [project.id]: curr === task.id ? null : task.id };
+      });
     },
     []
   );
 
-  const deselect = useCallback(() => {
-    setActiveTaskId(null);
+  const rehydrate = useCallback((project: Project, task: Task) => {
+    setSessions((prev) => {
+      if (prev.some((p) => p.taskId === task.id)) return prev;
+      return [
+        ...prev,
+        {
+          taskId: task.id,
+          ptyId: null,
+          startCommand: commandForTask(task),
+          cwd: project.path,
+          project,
+          task,
+        },
+      ];
+    });
+  }, []);
+
+  const deselect = useCallback((projectId: string) => {
+    setActiveByProject((prev) =>
+      prev[projectId] === null ? prev : { ...prev, [projectId]: null }
+    );
   }, []);
 
   const close = useCallback(async (taskId: string) => {
@@ -106,7 +162,19 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       if (target) void killPty(target.ptyId);
       return prev.filter((p) => p.taskId !== taskId);
     });
-    setActiveTaskId((curr) => (curr === taskId ? null : curr));
+    setActiveByProject((prev) => {
+      const next: Record<string, string | null> = {};
+      let changed = false;
+      for (const [pid, tid] of Object.entries(prev)) {
+        if (tid === taskId) {
+          next[pid] = null;
+          changed = true;
+        } else {
+          next[pid] = tid;
+        }
+      }
+      return changed ? next : prev;
+    });
   }, []);
 
   const closeForProject = useCallback(async (projectId: string) => {
@@ -118,15 +186,13 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       }
       return remaining;
     });
-    setActiveTaskId((curr) => {
-      if (!curr) return curr;
-      // Clear if the active session was just closed.
-      const stillAlive = sessions.some(
-        (s) => s.taskId === curr && s.project.id !== projectId
-      );
-      return stillAlive ? curr : null;
+    setActiveByProject((prev) => {
+      if (!(projectId in prev)) return prev;
+      const next = { ...prev };
+      delete next[projectId];
+      return next;
     });
-  }, [sessions]);
+  }, []);
 
   const setPtyId = useCallback((taskId: string, ptyId: string) => {
     setSessions((prev) => prev.map((p) => (p.taskId === taskId ? { ...p, ptyId } : p)));
@@ -149,17 +215,28 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     [sessions]
   );
 
-  const active = activeTaskId
-    ? sessions.find((s) => s.taskId === activeTaskId) ?? null
-    : null;
+  const activeFor = useCallback(
+    (projectId: string): OpenTerminal | null => {
+      const tid = activeByProject[projectId] ?? null;
+      if (!tid) return null;
+      return sessions.find((s) => s.taskId === tid && s.project.id === projectId) ?? null;
+    },
+    [activeByProject, sessions]
+  );
+
+  const activeTaskIdFor = useCallback(
+    (projectId: string) => activeByProject[projectId] ?? null,
+    [activeByProject]
+  );
 
   const value = useMemo<Ctx>(
     () => ({
       sessions,
-      active,
-      activeTaskId,
+      activeFor,
+      activeTaskIdFor,
       toggle,
       deselect,
+      rehydrate,
       close,
       closeForProject,
       setPtyId,
@@ -169,10 +246,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     }),
     [
       sessions,
-      active,
-      activeTaskId,
+      activeFor,
+      activeTaskIdFor,
       toggle,
       deselect,
+      rehydrate,
       close,
       closeForProject,
       setPtyId,

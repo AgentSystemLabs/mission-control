@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
-import { createTerminalOptions } from "~/lib/terminal-options";
+import {
+  createTerminalOptions,
+  createTerminalTheme,
+  getTerminalColorScheme,
+  watchTerminalColorScheme,
+} from "~/lib/terminal-options";
 import type { UserTerminal } from "~/db/schema";
 
 export function UserTerminalPane({
@@ -54,12 +59,15 @@ export function UserTerminalPane({
       ]);
       if (cancelled || !containerRef.current) return;
 
-      const term = new Terminal(createTerminalOptions());
+      const term = new Terminal(createTerminalOptions({ colorScheme: getTerminalColorScheme() }));
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(containerRef.current);
       termRef.current = { focus: () => term.focus() };
       term.focus();
+      const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
+        term.options.theme = createTerminalTheme({ colorScheme });
+      });
       term.registerLinkProvider({
         provideLinks(y, callback) {
           const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
@@ -222,6 +230,7 @@ export function UserTerminalPane({
         focusEl.removeEventListener("focusin", onFocusIn);
         focusEl.removeEventListener("dragover", onDragOver);
         focusEl.removeEventListener("drop", onDrop);
+        stopWatchingColorScheme();
         for (const off of subscriptions) off();
         ro.disconnect();
         term.dispose();
@@ -339,7 +348,7 @@ export function UserTerminalPane({
           <Icon name="x" size={11} />
         </button>
       </div>
-      <div style={{ flex: 1, position: "relative", background: "#050607" }}>
+      <div style={{ flex: 1, position: "relative", background: "var(--terminal-bg)" }}>
         {bridgeMissing ? (
           <div style={{ padding: 16, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
             Terminals require the Electron runtime.

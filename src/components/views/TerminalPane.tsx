@@ -8,9 +8,15 @@ import { StatusDot } from "~/components/ui/StatusDot";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
-import { createTerminalOptions } from "~/lib/terminal-options";
+import {
+  createTerminalOptions,
+  createTerminalTheme,
+  getTerminalColorScheme,
+  watchTerminalColorScheme,
+} from "~/lib/terminal-options";
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
+import { terminalInputStartsTurn } from "~/lib/task-status-sync";
 import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 
@@ -83,7 +89,10 @@ export function TerminalPane({
       ]);
       if (cancelled || !containerRef.current) return;
 
-      const term = new Terminal(createTerminalOptions({ cursorColor: meta?.color }));
+      const cursorColor = meta?.color;
+      const term = new Terminal(
+        createTerminalOptions({ cursorColor, colorScheme: getTerminalColorScheme() })
+      );
       const fit = new FitAddon();
       fitRef.current = fit;
       term.loadAddon(fit);
@@ -94,6 +103,10 @@ export function TerminalPane({
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
+      let fallbackRunningPosted = false;
+      const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
+        term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
+      });
 
       // Dropping a file from Finder pastes its path into the PTY, matching
       // iTerm/Terminal.app behavior. Claude Code reads images by path.
@@ -193,6 +206,22 @@ export function TerminalPane({
           })
         );
         term.onData((data) => {
+          if (!fallbackRunningPosted && terminalInputStartsTurn(task.agent, data)) {
+            fallbackRunningPosted = true;
+            void (async () => {
+              try {
+                const settings = await queryClient.ensureQueryData(settingsQueryOptions());
+                await api.updateTaskStatus(descriptor.taskId, { status: "running" }, settings.apiToken);
+                await Promise.all([
+                  queryClient.invalidateQueries({ queryKey: queryKeys.tasks(project.id) }),
+                  queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
+                  queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+                ]);
+              } catch {
+                fallbackRunningPosted = false;
+              }
+            })();
+          }
           electron.pty.write(ptyId, data);
         });
         term.onResize(({ cols, rows }) => {
@@ -259,6 +288,7 @@ export function TerminalPane({
       cleanup = () => {
         cancelAnimationFrame(rafHandle);
         for (const off of subscriptions) off();
+        stopWatchingColorScheme();
         host.removeEventListener("dragover", onDragOver);
         host.removeEventListener("drop", onDrop);
         ro.disconnect();
@@ -355,7 +385,7 @@ export function TerminalPane({
         style={{
           flex: 1,
           position: "relative",
-          background: "#050607",
+          background: "var(--terminal-bg)",
         }}
       >
         {bridgeMissing ? (
