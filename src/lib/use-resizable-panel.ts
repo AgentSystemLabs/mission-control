@@ -8,8 +8,16 @@ export function useResizablePanel(opts: {
   defaultSize: number;
   minSize: number;
   maxSize?: (viewport: number) => number;
+  resizeEdge?: "start" | "end";
 }) {
-  const { storageKey, axis, defaultSize, minSize, maxSize } = opts;
+  const {
+    storageKey,
+    axis,
+    defaultSize,
+    minSize,
+    maxSize,
+    resizeEdge = "start",
+  } = opts;
 
   const [size, setSize] = useState<number>(() => {
     if (typeof window === "undefined") return defaultSize;
@@ -34,10 +42,16 @@ export function useResizablePanel(opts: {
       const onMove = (ev: MouseEvent) => {
         if (!dragRef.current) return;
         const cur = axis === "x" ? ev.clientX : ev.clientY;
-        const delta = dragRef.current.start - cur;
+        const delta =
+          resizeEdge === "start"
+            ? dragRef.current.start - cur
+            : cur - dragRef.current.start;
         const viewport = axis === "x" ? window.innerWidth : window.innerHeight;
         const upperBound = maxSize ? maxSize(viewport) : viewport - minSize;
-        const next = Math.max(minSize, Math.min(upperBound, dragRef.current.startSize + delta));
+        const next = Math.max(
+          minSize,
+          Math.min(upperBound, dragRef.current.startSize + delta),
+        );
         setSize(next);
       };
       const onUp = () => {
@@ -52,7 +66,7 @@ export function useResizablePanel(opts: {
       document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
       document.body.style.userSelect = "none";
     },
-    [axis, size, minSize, maxSize],
+    [axis, size, minSize, maxSize, resizeEdge],
   );
 
   return { size, onMouseDown };

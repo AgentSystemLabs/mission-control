@@ -21,10 +21,12 @@ export function TopBar({
   crumbs,
   right,
   onHome,
+  leading,
 }: {
   crumbs?: Crumb[];
   right?: ReactNode;
   onHome?: () => void;
+  leading?: ReactNode;
 }) {
   const trafficLightPad = useTrafficLightPad();
   return (
@@ -88,6 +90,7 @@ export function TopBar({
             <span style={{ color: "var(--accent)" }}>Control</span>
           </span>
         </div>
+        {leading}
         {crumbs && crumbs.length > 0 && (
           <>
             <Icon name="chevron-right" size={11} style={{ color: "var(--text-faint)" }} />

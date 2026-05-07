@@ -33,10 +33,10 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "nav.toggle": { label: "Toggle nav menu", description: "Show or hide the navigation menu." },
   "search.focus": { label: "Focus search", description: "Focus the project search field on the home page." },
   "terminal.toggle": { label: "Toggle terminal panel", description: "Show or hide the bottom terminal panel." },
-  "terminal.close": { label: "Close terminal", description: "Deselect / close the active terminal session." },
+  "terminal.close": { label: "Toggle session panel", description: "Hide the active session panel, or show the last hidden session for the current project." },
   "dialog.submit": { label: "Submit dialog", description: "Submit a dialog form (New agent, edit project, etc.)." },
   "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },
   "file.save": { label: "Save file", description: "Save the file currently open in the editor." },
-  "git.diff": { label: "Open git diff", description: "Open the git diff review view for the current project." },
+  "git.diff": { label: "Open Review Changes", description: "Open the change review view for the current project." },
   "project.runToggle": { label: "Run / Stop project", description: "Run the project's launch commands, or stop them if already running." },
 };

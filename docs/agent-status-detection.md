@@ -84,8 +84,9 @@ is waiting for revised instructions after an explicit user interruption.
 ## Other agents
 
 `cursor-cli` and `shell` don't have an equivalent hook surface. For those we
-still rely on PTY output heuristics (idle detection by inactivity) and
-explicit user actions. The hook path is opt-in by agent type.
+mark the task `running` when the user submits a line in the terminal. More
+specific states still require explicit status updates. The hook path is opt-in
+by agent type.
 
 ## What about a custom MCP?
 
