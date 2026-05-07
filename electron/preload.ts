@@ -2,6 +2,15 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { IPC } from "./ipc-channels";
 
 const electronAPI = {
+  installSkills: {
+    fetchLatest: (baseUrl?: string) =>
+      ipcRenderer.invoke(IPC.installSkillsFetchLatest, baseUrl),
+    run: (args: {
+      projectPath: string;
+      harnesses: { claude: boolean; codex: boolean };
+      baseUrl?: string;
+    }) => ipcRenderer.invoke(IPC.installSkillsRun, args),
+  },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),
   openPath: (path: string): Promise<{ ok: true } | { ok: false; error: string }> =>

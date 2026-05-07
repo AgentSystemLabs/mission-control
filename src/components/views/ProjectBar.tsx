@@ -3,10 +3,13 @@ import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProjects, queryKeys } from "~/queries";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { Icon } from "~/components/ui/Icon";
 import { useCardGlow } from "~/lib/use-card-glow";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { api } from "~/lib/api";
+import { useUserTerminals } from "~/lib/user-terminal-store";
+import { getProjectActivity, isProjectActive } from "~/shared/projects";
 
 const HOTKEY_LIMIT = 9;
 
@@ -14,6 +17,7 @@ export function ProjectBar() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: projects } = useProjects();
+  const { runningProjectIds } = useUserTerminals();
   const pinned = (projects ?? []).filter((p) => p.pinned);
   const glowRef = useCardGlow<HTMLDivElement>();
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
@@ -50,7 +54,18 @@ export function ProjectBar() {
       {pinned.map((project, idx) => {
         const hotkey = idx < HOTKEY_LIMIT ? idx + 1 : null;
         const isActive = activeId === project.id;
-        const tooltip = hotkey ? `${project.name} (${modSymbol}${hotkey})` : project.name;
+        const runningCount = project.taskCounts.running;
+        const isRunning = isProjectActive(getProjectActivity(project, runningProjectIds));
+        const runningLabel =
+          runningCount > 0
+            ? `${runningCount} ${runningCount === 1 ? "agent" : "agents"} running`
+            : null;
+        const tooltip = [
+          hotkey ? `${project.name} (${modSymbol}${hotkey})` : project.name,
+          runningLabel,
+        ]
+          .filter(Boolean)
+          .join(" — ");
         return (
           <button
             key={project.id}
@@ -87,6 +102,32 @@ export function ProjectBar() {
             }}
           >
             <ProjectIcon project={project} size={36} />
+            {runningCount > 0 && (
+              <span
+                aria-label={runningLabel ?? undefined}
+                style={{
+                  position: "absolute",
+                  top: -2,
+                  right: -2,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  height: 14,
+                  padding: "0 4px",
+                  borderRadius: 7,
+                  background: "var(--surface-3, var(--surface-2))",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                  fontFamily: "var(--mono)",
+                  fontSize: 9,
+                  lineHeight: "12px",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                <ProjectRunningDot running={isRunning} size={6} />
+                {runningCount}
+              </span>
+            )}
             {hotkey && (
               <span
                 aria-hidden

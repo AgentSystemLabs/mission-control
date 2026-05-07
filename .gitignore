@@ -14,3 +14,7 @@ dist-server
 .env.local
 src/routeTree.gen.ts
 release
+.env.release
+dist-electron-out/
+artifacts/
+

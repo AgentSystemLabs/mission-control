@@ -9,6 +9,7 @@ import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { IPC } from "./ipc-channels";
+import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
 import { augmentProcessEnv, resolveShell, sanitizedProcessEnv, shellQuote } from "./shell-env";
 
 const isDev = process.env.NODE_ENV === "development";
@@ -332,6 +333,34 @@ ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
 
 registerPtyHandlers(ipcMain, () => win);
 registerFileHandlers(ipcMain, () => win);
+
+ipcMain.handle(IPC.installSkillsFetchLatest, async (_evt, baseUrl?: string) => {
+  try {
+    const manifest = await fetchLatestSkillsManifest(baseUrl);
+    return { ok: true as const, manifest };
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle(
+  IPC.installSkillsRun,
+  async (
+    _evt,
+    args: {
+      projectPath: string;
+      harnesses: { claude: boolean; codex: boolean };
+      baseUrl?: string;
+    },
+  ) => {
+    try {
+      const result = await installSkills(args);
+      return { ok: true as const, result };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

@@ -31,6 +31,7 @@
     "native:electron:pty": "electron-rebuild -f -w node-pty",
     "native:electron": "electron-rebuild -f -w better-sqlite3 -w node-pty",
     "rebuild": "pnpm native:electron",
+    "release:local": "node scripts/release-local.mjs",
     "postinstall": "pnpm native:electron:pty || true"
   },
   "dependencies": {
@@ -90,11 +91,22 @@
     "productName": "MissionControl",
     "files": [
       "dist/**/*",
+      "!dist/**/*.dmg",
+      "!dist/**/*.blockmap",
+      "!dist/**/*.AppImage",
+      "!dist/**/*.exe",
+      "!dist/latest*.yml",
+      "!dist/builder-*.yml",
+      "!dist/builder-*.yaml",
+      "!dist/mac*/**/*",
+      "!dist/win*/**/*",
+      "!dist/linux*/**/*",
       "dist-electron/**/*",
       "dist-server/**/*",
       "package.json"
     ],
     "directories": {
+      "output": "dist-electron-out",
       "buildResources": "build"
     },
     "mac": {

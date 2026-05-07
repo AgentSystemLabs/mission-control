@@ -40,6 +40,7 @@ import {
 import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
+import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
 import type { Task, TaskStatus } from "~/db/schema";
 import {
   DUPLICATE_ACTIVE_SESSION_EVENT,
@@ -841,7 +842,17 @@ function ProjectPage() {
             />
             <CommitPushButton projectId={id} splitTrailing />
           </div>
+          <Btn
+            variant="ghost"
+            icon="search"
+            onClick={() => setFileFinderOpen(true)}
+            title="Find file in project"
+          >
+            Find file
+            <KbdAction action="file.finder" />
+          </Btn>
           <div style={{ flex: 1 }} />
+          <InstallSkillsButton projectPath={project.path} />
           <NewAgentButton
             project={project}
             onPrimary={onNewAgentPrimary}

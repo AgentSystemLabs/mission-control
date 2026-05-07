@@ -14,7 +14,38 @@ export type FileWriteResult =
   | { ok: true; mtimeMs: number }
   | { ok: false; error: FileWriteError | string; currentMtimeMs?: number };
 
+export type LatestSkillsManifest = {
+  version: string;
+  downloadUrl: string;
+  sha256: string;
+  size: number;
+};
+
+export type InstallSkillsArgs = {
+  projectPath: string;
+  harnesses: { claude: boolean; codex: boolean };
+  baseUrl?: string;
+};
+
+export type InstallSkillsResult = {
+  version: string;
+  claudeInstalled: boolean;
+  codexInstalled: boolean;
+  skillCount: number;
+};
+
 export type ElectronBridge = {
+  installSkills: {
+    fetchLatest: (
+      baseUrl?: string,
+    ) => Promise<
+      | { ok: true; manifest: LatestSkillsManifest }
+      | { ok: false; error: string }
+    >;
+    run: (
+      args: InstallSkillsArgs,
+    ) => Promise<{ ok: true; result: InstallSkillsResult } | { ok: false; error: string }>;
+  };
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;
   openPath: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;

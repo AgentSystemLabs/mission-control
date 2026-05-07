@@ -173,7 +173,7 @@ export function parsePorcelainZ(stdout: string): { staged: GitChangedFile[]; uns
 export async function getGitStatus(projectId: string): Promise<GitStatus> {
   const cwd = projectCwd(projectId);
   const [statusOut, branchOut, aheadCount] = await Promise.all([
-    gitOk(cwd, ["status", "--porcelain=v1", "-z"]),
+    gitOk(cwd, ["status", "--porcelain=v1", "-uall", "-z"]),
     gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "HEAD\n"),
     countAhead(cwd),
   ]);
