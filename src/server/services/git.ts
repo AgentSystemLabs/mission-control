@@ -336,19 +336,22 @@ export type CommitResult =
   | { kind: "committed"; sha: string; message: string }
   | { kind: "nothing-to-commit" };
 
-export async function commit(projectId: string): Promise<CommitResult> {
+export async function commit(
+  projectId: string,
+  opts: { autoStage?: boolean } = {},
+): Promise<CommitResult> {
+  const { autoStage = true } = opts;
   const cwd = projectCwd(projectId);
   // Detect anything that could become a commit (staged or unstaged tracked
   // changes, or untracked files). If nothing, bail before invoking the LLM.
   const status = await gitOk(cwd, ["status", "--porcelain=v1", "-z"]);
   if (!status.trim()) return { kind: "nothing-to-commit" };
-  // If nothing is staged yet, stage everything so the single-button flow
-  // commits the user's full working tree.
+  if (autoStage) {
+    await gitOk(cwd, ["add", "-A"]);
+  }
   const cached = await gitOk(cwd, ["diff", "--cached", "--name-only"]);
   if (!cached.trim()) {
-    await gitOk(cwd, ["add", "-A"]);
-    const stagedAfter = await gitOk(cwd, ["diff", "--cached", "--name-only"]);
-    if (!stagedAfter.trim()) return { kind: "nothing-to-commit" };
+    return { kind: "nothing-to-commit" };
   }
   const message = (await generateCommitMessage(projectId)).trim();
   if (!message) throw new GitError("generated commit message was empty");

@@ -10,9 +10,12 @@ import {
   useStageFiles,
   useUnstageFiles,
 } from "~/queries/git";
-import { ChangedFilesList, type FileSelection } from "./ChangedFilesList";
+import {
+  ChangedFilesList,
+  displayPath,
+  type FileSelection,
+} from "./ChangedFilesList";
 import { DiffPane } from "./DiffPane";
-import { CommitBar } from "./CommitBar";
 
 export function GitDiffView({
   projectId,
@@ -96,6 +99,7 @@ export function GitDiffView({
     selection?.path ?? null,
     selection?.staged ?? false,
   );
+  const selectedDisplay = selection ? displayPath(selection.path) : null;
 
   return (
     <div
@@ -119,6 +123,7 @@ export function GitDiffView({
           display: "flex",
           alignItems: "center",
           gap: 10,
+          flexWrap: "wrap",
           padding: "10px 16px",
           borderBottom: "1px solid var(--border)",
           background: "var(--surface-1)",
@@ -136,6 +141,22 @@ export function GitDiffView({
         </Btn>
         <div
           style={{
+            flex: "1 1 180px",
+            minWidth: 0,
+            color: "var(--text-faint)",
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            textAlign: "right",
+          }}
+          title={projectPath}
+        >
+          {projectPath}
+        </div>
+        <div
+          style={{
             display: "flex",
             alignItems: "center",
             gap: 6,
@@ -143,6 +164,7 @@ export function GitDiffView({
             fontFamily: "var(--mono)",
             fontSize: 12,
             minWidth: 0,
+            flexShrink: 1,
           }}
         >
           <Icon name="git-branch" size={12} />
@@ -157,34 +179,6 @@ export function GitDiffView({
           >
             {status?.branch ?? "…"}
           </span>
-        </div>
-        <div
-          style={{
-            color: "var(--text-faint)",
-            fontFamily: "var(--mono)",
-            fontSize: 11,
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {status
-            ? `${status.changedCount} changed · ${stagedFiles.length} staged`
-            : ""}
-        </div>
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            color: "var(--text-faint)",
-            fontFamily: "var(--mono)",
-            fontSize: 11,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            textAlign: "right",
-          }}
-          title={projectPath}
-        >
-          {projectPath}
         </div>
       </div>
 
@@ -217,6 +211,7 @@ export function GitDiffView({
             onUnstageAll={onUnstageAll}
             onDeleteFile={(p) => deleteM.mutate(p)}
             busyPaths={busyPaths}
+            projectId={projectId}
           />
           <div
             style={{
@@ -235,18 +230,57 @@ export function GitDiffView({
                 color: "var(--text-dim)",
                 borderBottom: "1px solid var(--border)",
                 background: "var(--surface-1)",
+                display: "flex",
+                alignItems: "baseline",
+                gap: 6,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
-                textOverflow: "ellipsis",
                 minHeight: 24,
               }}
               title={selection?.path}
             >
-              {selection
-                ? `${selection.path}${selection.staged ? "  ·  staged" : ""}`
-                : isLoading
-                  ? "Loading…"
-                  : "No file selected"}
+              {selection && selectedDisplay ? (
+                <>
+                  <span
+                    style={{
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      flex: "0 1 auto",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {selectedDisplay.basename}
+                  </span>
+                  {selectedDisplay.dir && (
+                    <span
+                      style={{
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        flex: "1 1 auto",
+                        color: "var(--text-faint)",
+                      }}
+                    >
+                      &lt;{selectedDisplay.dir}&gt;
+                    </span>
+                  )}
+                  {selection.staged && (
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        color: "var(--text-faint)",
+                      }}
+                    >
+                      · accepted
+                    </span>
+                  )}
+                </>
+              ) : isLoading ? (
+                "Loading…"
+              ) : (
+                "No file selected"
+              )}
             </div>
             <DiffPane
               diff={diffQuery.data}
@@ -257,8 +291,6 @@ export function GitDiffView({
           </div>
         </div>
       )}
-
-      <CommitBar projectId={projectId} />
     </div>
   );
 }

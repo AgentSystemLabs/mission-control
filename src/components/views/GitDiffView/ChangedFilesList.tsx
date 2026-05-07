@@ -1,12 +1,20 @@
-import { useCallback, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { Icon } from "~/components/ui/Icon";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
+import { useResizablePanel } from "~/lib/use-resizable-panel";
 import type { GitChangedFile, GitFileStatus } from "~/server/services/git";
 
 const ADD = "#6cd07e";
 const MOD = "#e8b94a";
 const DEL = "#e06b6b";
+const MIN_PANEL_WIDTH = 240;
 
 const STATUS_META: Record<GitFileStatus, { letter: string; color: string }> = {
   added: { letter: "A", color: ADD },
@@ -32,6 +40,7 @@ export function ChangedFilesList({
   onUnstageAll,
   onDeleteFile,
   busyPaths,
+  projectId,
 }: {
   staged: GitChangedFile[];
   unstaged: GitChangedFile[];
@@ -43,11 +52,21 @@ export function ChangedFilesList({
   onUnstageAll: () => void;
   onDeleteFile: (path: string) => void;
   busyPaths: Set<string>;
+  projectId: string;
 }) {
+  const [shipError, setShipError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(
     null,
   );
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
+    storageKey: "mc:gitDiffChangedFilesWidth",
+    axis: "x",
+    defaultSize: 300,
+    minSize: MIN_PANEL_WIDTH,
+    maxSize: (vw) => Math.min(520, vw - 360),
+    resizeEdge: "end",
+  });
 
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
@@ -62,24 +81,55 @@ export function ChangedFilesList({
     <div
       style={{
         flexShrink: 0,
-        width: 300,
+        width,
+        minWidth: MIN_PANEL_WIDTH,
         borderRight: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
         background: "var(--surface-0)",
+        position: "relative",
       }}
     >
+      {shipError && (
+        <div
+          style={{
+            padding: "6px 10px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--surface-1)",
+            color: "var(--status-failed)",
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            flexShrink: 0,
+          }}
+          title={shipError}
+        >
+          {shipError}
+        </div>
+      )}
       <div style={{ overflowY: "auto", flex: 1 }}>
         <Section
-          label="Staged Changes"
+          label="Accepted Changes"
           count={staged.length}
-          actionIcon="x"
-          actionTitle="Unstage all"
-          onAction={staged.length > 0 ? onUnstageAll : undefined}
+          tone="staged"
+          extra={
+            <CommitPushButton
+              projectId={projectId}
+              label="Ship Accepted"
+              title="Commit accepted changes only, then push to remote"
+              autoStage={false}
+              showAheadBadge={false}
+              variant="primary"
+              onError={(m) => setShipError(m)}
+              onNotice={() => setShipError(null)}
+            />
+          }
         >
           {staged.length === 0 ? (
-            <Empty text="No staged files" />
+            <Empty text="No accepted files" />
           ) : (
             staged.map((f) => (
               <FileRow
@@ -100,8 +150,9 @@ export function ChangedFilesList({
         <Section
           label="Changes"
           count={unstaged.length}
+          tone="unstaged"
           actionIcon="plus"
-          actionTitle="Stage all"
+          actionTitle="Accept All"
           onAction={unstaged.length > 0 ? onStageAll : undefined}
         >
           {unstaged.length === 0 ? (
@@ -124,6 +175,19 @@ export function ChangedFilesList({
           )}
         </Section>
       </div>
+      <div
+        onMouseDown={onResizeMouseDown}
+        title="Drag to resize"
+        style={{
+          position: "absolute",
+          top: 0,
+          right: -3,
+          bottom: 0,
+          width: 6,
+          cursor: "col-resize",
+          zIndex: 10,
+        }}
+      />
       {menu && (
         <div
           role="menu"
@@ -205,50 +269,56 @@ export function ChangedFilesList({
 function Section({
   label,
   count,
+  tone,
   children,
   actionIcon,
   actionTitle,
   onAction,
+  extra,
 }: {
   label: string;
   count: number;
+  tone: "staged" | "unstaged";
   children: React.ReactNode;
-  actionIcon: "plus" | "x";
-  actionTitle: string;
+  actionIcon?: "plus" | "x";
+  actionTitle?: string;
   onAction?: () => void;
+  extra?: ReactNode;
 }) {
+  const sectionTone = SECTION_TONES[tone];
+
   return (
-    <div>
+    <div style={{ background: sectionTone.panel }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
-          background: "var(--surface-1)",
-          borderTop: "1px solid var(--border)",
-          borderBottom: "1px solid var(--border)",
+          background: sectionTone.header,
+          borderTop: `1px solid ${sectionTone.border}`,
+          borderBottom: `1px solid ${sectionTone.border}`,
           fontFamily: "var(--mono)",
           fontSize: 11,
           fontWeight: 600,
           letterSpacing: "0.04em",
           textTransform: "uppercase",
-          color: "var(--text-dim)",
+          color: sectionTone.text,
           position: "sticky",
           top: 0,
           zIndex: 1,
         }}
       >
-        <span style={{ flex: 1 }}>{label}</span>
         <span
           style={{
-            color: "var(--text-faint)",
+            color: sectionTone.count,
             fontVariantNumeric: "tabular-nums",
           }}
         >
           {count}
         </span>
-        {onAction && (
+        <span style={{ flex: 1 }}>{label}</span>
+        {onAction && actionIcon && actionTitle && (
           <button
             type="button"
             onClick={onAction}
@@ -260,6 +330,7 @@ function Section({
             <span>{actionTitle}</span>
           </button>
         )}
+        {extra}
       </div>
       {children}
     </div>
@@ -312,34 +383,44 @@ function FileRow({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 6,
+            minWidth: 0,
             fontSize: 12,
             color: "var(--text)",
             whiteSpace: "nowrap",
             overflow: "hidden",
-            textOverflow: "ellipsis",
-            direction: "rtl",
             textAlign: "left",
           }}
           title={file.path}
         >
-          {/* `direction: rtl` keeps the file name visible when truncating. */}
-          <span style={{ unicodeBidi: "plaintext" }}>{display.basename}</span>
-        </div>
-        {display.dir && (
-          <div
+          <span
             style={{
-              fontFamily: "var(--mono)",
-              fontSize: 10,
-              color: "var(--text-faint)",
-              whiteSpace: "nowrap",
+              minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
+              flex: "0 1 auto",
             }}
-            title={display.dir}
           >
-            {display.dir}
-          </div>
-        )}
+            {display.basename}
+          </span>
+          {display.dir && (
+            <span
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                flex: "1 1 auto",
+                color: "var(--text-faint)",
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+              }}
+            >
+              &lt;{display.dir}&gt;
+            </span>
+          )}
+        </div>
       </div>
       <span
         title={file.status}
@@ -362,8 +443,8 @@ function FileRow({
           onAction();
         }}
         disabled={isBusy}
-        title={isStaged ? "Unstage" : "Stage"}
-        aria-label={isStaged ? `Unstage ${file.path}` : `Stage ${file.path}`}
+        title={isStaged ? "Unaccept" : "Accept"}
+        aria-label={isStaged ? `Unaccept ${file.path}` : `Accept ${file.path}`}
         style={iconBtnStyle}
       >
         <Icon name={isStaged ? "x" : "plus"} size={11} />
@@ -387,7 +468,7 @@ function Empty({ text }: { text: string }) {
   );
 }
 
-function displayPath(p: string): { basename: string; dir: string } {
+export function displayPath(p: string): { basename: string; dir: string } {
   const idx = p.lastIndexOf("/");
   if (idx < 0) return { basename: p, dir: "" };
   return { basename: p.slice(idx + 1), dir: p.slice(0, idx) };
@@ -410,6 +491,26 @@ const textBtnStyle: CSSProperties = {
   textTransform: "uppercase",
   flexShrink: 0,
 };
+
+const SECTION_TONES = {
+  staged: {
+    panel: "rgba(108, 208, 126, 0.08)",
+    header: "rgba(108, 208, 126, 0.16)",
+    border: "rgba(108, 208, 126, 0.22)",
+    text: "#baf3c3",
+    count: "rgba(186, 243, 195, 0.72)",
+  },
+  unstaged: {
+    panel: "rgba(232, 185, 74, 0.08)",
+    header: "rgba(232, 185, 74, 0.16)",
+    border: "rgba(232, 185, 74, 0.22)",
+    text: "#f3d58a",
+    count: "rgba(243, 213, 138, 0.72)",
+  },
+} satisfies Record<
+  "staged" | "unstaged",
+  { panel: string; header: string; border: string; text: string; count: string }
+>;
 
 const iconBtnStyle: CSSProperties = {
   background: "transparent",

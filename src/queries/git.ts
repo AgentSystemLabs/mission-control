@@ -68,7 +68,7 @@ export function useUnstageFiles(projectId: string) {
 export function useGitCommit(projectId: string) {
   const invalidate = useInvalidateGit(projectId);
   return useMutation({
-    mutationFn: () => api.gitCommit(projectId),
+    mutationFn: (opts?: { autoStage?: boolean }) => api.gitCommit(projectId, opts),
     onSettled: invalidate,
   });
 }
