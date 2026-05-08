@@ -39,6 +39,11 @@ jobs:
             artifact_ext: "AppImage"
 
     runs-on: ${{ matrix.os }}
+    # Cap each platform build so a hung job (notably mac-x64) can't block the
+    # rest of the release. fail-fast: false above keeps siblings running; this
+    # bound makes "stuck" finite so the publish job can proceed with whatever
+    # builds did succeed.
+    timeout-minutes: 15
     steps:
       - name: Resolve ref
         id: ref
@@ -141,6 +146,11 @@ jobs:
   publish:
     name: Publish to academy
     needs: build
+    # Run after build finishes regardless of per-matrix outcome — `needs.build`
+    # rolls up to `failure` if ANY matrix item fails, but we still want to
+    # publish whichever platforms succeeded. Skipped only if the workflow was
+    # cancelled. publish-release.mjs warns + skips missing-platform manifests.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Resolve ref
