@@ -11,7 +11,7 @@ import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { IPC } from "./ipc-channels";
 import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
 import { sendTelemetry } from "./telemetry";
-import { augmentProcessEnv, resolveShell, sanitizedProcessEnv, shellQuote } from "./shell-env";
+import { augmentProcessEnv, resolveCommandOnPath, sanitizedProcessEnv } from "./shell-env";
 
 const isDev = process.env.NODE_ENV === "development";
 const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
@@ -313,22 +313,8 @@ ipcMain.handle(IPC.appGetUserName, () => {
 
 ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
   if (!command) return { ok: false, reason: "empty" };
-  const isWindows = os.platform() === "win32";
-  const probe = isWindows ? "where" : "command";
-  const args = isWindows ? [command] : ["-v", command];
-  // Run inside the user's shell so PATH and shell-defined aliases resolve.
-  const userShell = resolveShell();
-  const cmdline = isWindows
-    ? `${probe} ${shellQuote(command)}`
-    : `${probe} ${args.map(shellQuote).join(" ")}`;
-  const result = spawnSync(userShell, ["-l", "-c", cmdline], {
-    encoding: "utf8",
-    env: sanitizedProcessEnv(),
-    timeout: 4000,
-  });
-  if (result.status === 0 && (result.stdout || "").trim()) {
-    return { ok: true, path: (result.stdout || "").trim().split(/\r?\n/)[0] };
-  }
+  const resolved = resolveCommandOnPath(command, sanitizedProcessEnv());
+  if (resolved) return { ok: true, path: resolved };
   return { ok: false, reason: "not-found" };
 });
 

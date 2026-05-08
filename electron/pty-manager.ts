@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
-import { resolveShell, sanitizedProcessEnv } from "./shell-env";
+import { resolveShell, sanitizedProcessEnv, shellArgsForCommand } from "./shell-env";
 
 function assertCwd(cwd: string): void {
   if (!cwd) throw new Error("cwd is required");
@@ -248,18 +248,13 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       if (opts.mcEnv?.apiUrl) env.MC_API_URL = opts.mcEnv.apiUrl;
       if (opts.mcEnv?.token) env.MC_API_TOKEN = opts.mcEnv.token;
 
-      // If a command was supplied, run it inside a login shell via `-l -c`.
-      // Login shell loads the user's PATH; `-c` forks the command directly so
-      // we don't depend on a 60ms write-after-spawn race for the prompt.
+      // If a command was supplied, run it through the user's shell with
+      // platform-appropriate arguments. This loads the user's PATH and forks the
+      // command directly, so we don't depend on a write-after-spawn prompt race.
       // When the agent CLI exits, the pty exits too — the renderer treats that
       // as the signal to delete the task.
-      let shellArgs: string[];
-      if (opts.command && !isWindows) {
-        const cmd = [opts.command, ...(opts.args ?? [])].join(" ");
-        shellArgs = ["-l", "-c", cmd];
-      } else {
-        shellArgs = isWindows ? [] : ["-l"];
-      }
+      const cmd = opts.command ? [opts.command, ...(opts.args ?? [])].join(" ") : undefined;
+      const shellArgs = shellArgsForCommand(userShell, cmd, isWindows ? "win32" : os.platform());
 
       let proc: import("node-pty").IPty;
       try {
