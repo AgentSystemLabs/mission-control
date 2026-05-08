@@ -25,7 +25,7 @@ jobs:
             platform: mac-arm64
             builder_flags: "--mac --arm64"
             artifact_ext: "dmg"
-          - os: macos-13
+          - os: macos-latest
             platform: mac-x64
             builder_flags: "--mac --x64"
             artifact_ext: "dmg"
