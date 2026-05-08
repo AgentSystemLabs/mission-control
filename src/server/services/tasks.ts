@@ -6,6 +6,7 @@ import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Task } from "~/db/schema";
 import { events } from "../events";
+import { sendTelemetry } from "./telemetry";
 
 function newId() {
   return `t-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
@@ -59,6 +60,7 @@ export function createTask(input: {
   };
   db.insert(tasks).values(row).run();
   events.emit("task:created", { id: row.id, projectId: row.projectId });
+  sendTelemetry("session_started");
   return row;
 }
 

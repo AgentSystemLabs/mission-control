@@ -10,6 +10,7 @@ import { registerPtyHandlers, killAllPtys } from "./pty-manager";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { IPC } from "./ipc-channels";
 import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
+import { sendTelemetry } from "./telemetry";
 import { augmentProcessEnv, resolveShell, sanitizedProcessEnv, shellQuote } from "./shell-env";
 
 const isDev = process.env.NODE_ENV === "development";
@@ -386,6 +387,7 @@ app.on("before-quit", () => {
 
 app.whenReady().then(() => {
   registerProjectImageProtocol();
+  sendTelemetry("app_launch", app.getVersion());
   return createWindow();
 }).catch((err) => {
   console.error("[main] startup failed:", err);
