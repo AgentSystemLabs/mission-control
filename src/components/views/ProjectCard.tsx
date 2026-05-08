@@ -8,16 +8,13 @@ import { ProjectStatusBadge } from "~/components/ui/ProjectStatusBadge";
 import { TASK_STATUSES } from "~/shared/domain";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
-import type { Density } from "~/lib/density";
 
 export function ProjectCard({
   project,
-  density,
   onOpen,
   onTogglePin,
 }: {
   project: ProjectWithCounts;
-  density: Density;
   onOpen: () => void;
   onTogglePin: (id: string) => void;
 }) {
@@ -26,8 +23,6 @@ export function ProjectCard({
   const activity = getProjectActivity(project, runningProjectIds);
   const hasActivity = isProjectActive(activity);
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
-  const isCompact = density === "compact";
-  const isSpacious = density === "spacious";
   const glowRef = useCardGlow<HTMLDivElement>();
 
   return (
@@ -86,23 +81,23 @@ export function ProjectCard({
       )}
       <div
         style={{
-          padding: isCompact ? 12 : isSpacious ? 20 : 16,
+          padding: 16,
           display: "flex",
           flexDirection: "column",
-          gap: isCompact ? 10 : 14,
+          gap: 14,
           position: "relative",
           zIndex: 1,
           pointerEvents: "none",
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-          <ProjectIcon project={project} size={isCompact ? 30 : isSpacious ? 44 : 36} />
+          <ProjectIcon project={project} size={36} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
               <span
                 style={{
                   fontFamily: "var(--mono)",
-                  fontSize: isCompact ? 13 : 14,
+                  fontSize: 14,
                   fontWeight: 600,
                   color: "var(--text)",
                   letterSpacing: "-0.01em",
@@ -147,7 +142,7 @@ export function ProjectCard({
           )}
         </div>
 
-        {!isCompact && hasActivity && project.preview && (
+        {hasActivity && project.preview && (
           <div
             style={{
               fontFamily: "var(--mono)",

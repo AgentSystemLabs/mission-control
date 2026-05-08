@@ -11,8 +11,6 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { ProjectCard } from "~/components/views/ProjectCard";
-import type { Density } from "~/lib/density";
-import { DensityToggle } from "~/components/ui/DensityToggle";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { LaunchKitDialog } from "~/components/views/LaunchKitDialog";
 import { useAddProject } from "~/lib/add-project-store";
@@ -53,7 +51,6 @@ function MissionControlPage() {
     staleTime: 5 * 60_000,
   });
   const [search, setSearch] = useState("");
-  const [density, setDensity] = useState<Density>("regular");
   const [showGroups, setShowGroups] = useState(false);
   const [showLaunchKit, setShowLaunchKit] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -104,12 +101,7 @@ function MissionControlPage() {
   const filteredProjects = projects.filter(filter);
   const { pinned, byGroup, ungrouped } = groupProjects(filteredProjects, groups);
 
-  const gridCols =
-    density === "compact"
-      ? "repeat(auto-fill, minmax(240px, 1fr))"
-      : density === "spacious"
-        ? "repeat(auto-fill, minmax(360px, 1fr))"
-        : "repeat(auto-fill, minmax(300px, 1fr))";
+  const gridCols = "repeat(auto-fill, minmax(300px, 1fr))";
 
   const totalRunning = projects.reduce((a, p) => a + p.taskCounts.running, 0);
   const totalNeeds = projects.reduce((a, p) => a + p.taskCounts["needs-input"], 0);
@@ -291,8 +283,6 @@ function MissionControlPage() {
                 <KbdAction action="search.focus" />
               </div>
 
-              <DensityToggle value={density} onChange={setDensity} />
-
               <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
                 Groups
               </Btn>
@@ -319,7 +309,6 @@ function MissionControlPage() {
                   <ProjectCard
                     key={p.id}
                     project={p}
-                    density={density}
                     onOpen={() => open(p.id)}
                     onTogglePin={togglePin}
                   />
@@ -335,7 +324,6 @@ function MissionControlPage() {
                   <ProjectCard
                     key={p.id}
                     project={p}
-                    density={density}
                     onOpen={() => open(p.id)}
                     onTogglePin={togglePin}
                   />
@@ -351,7 +339,6 @@ function MissionControlPage() {
                   <ProjectCard
                     key={p.id}
                     project={p}
-                    density={density}
                     onOpen={() => open(p.id)}
                     onTogglePin={togglePin}
                   />
