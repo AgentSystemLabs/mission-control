@@ -25,6 +25,7 @@ export type InstallSkillsArgs = {
   projectPath: string;
   harnesses: { claude: boolean; codex: boolean };
   baseUrl?: string;
+  licenseKey?: string;
 };
 
 export type InstallSkillsResult = {
@@ -46,9 +47,10 @@ export type LaunchProcessKillResult = {
 
 export type ElectronBridge = {
   installSkills: {
-    fetchLatest: (
-      baseUrl?: string,
-    ) => Promise<
+    fetchLatest: (opts?: {
+      baseUrl?: string;
+      licenseKey?: string;
+    }) => Promise<
       | { ok: true; manifest: LatestSkillsManifest }
       | { ok: false; error: string }
     >;

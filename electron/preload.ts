@@ -3,12 +3,13 @@ import { IPC } from "./ipc-channels";
 
 const electronAPI = {
   installSkills: {
-    fetchLatest: (baseUrl?: string) =>
-      ipcRenderer.invoke(IPC.installSkillsFetchLatest, baseUrl),
+    fetchLatest: (opts?: { baseUrl?: string; licenseKey?: string }) =>
+      ipcRenderer.invoke(IPC.installSkillsFetchLatest, opts),
     run: (args: {
       projectPath: string;
       harnesses: { claude: boolean; codex: boolean };
       baseUrl?: string;
+      licenseKey?: string;
     }) => ipcRenderer.invoke(IPC.installSkillsRun, args),
   },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),

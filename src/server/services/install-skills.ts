@@ -5,6 +5,7 @@ import * as crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
+import { getLicenseState } from "~/db/settings";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
 
 export type LatestSkillsManifest = {
@@ -28,6 +29,18 @@ export type InstallSkillsResult = {
 
 const ALLOWED_PREFIXES = [".claude/skills/", ".codex/skills/"] as const;
 const VERSION_MANIFEST_PATH = ".agentsystem/skills-version.json";
+
+function readRequiredLicenseKey(): string {
+  const key = getLicenseState().key?.trim();
+  if (!key) {
+    throw new Error("A valid license key is required to install skills.");
+  }
+  return key;
+}
+
+function licenseAuthHeaders(key: string): HeadersInit {
+  return { authorization: `Bearer ${key}` };
+}
 
 function normalizeEntryPath(p: string): string | null {
   let s = p.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -73,8 +86,9 @@ export function readInstalledSkillsVersion(
 }
 
 export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest> {
+  const licenseKey = readRequiredLicenseKey();
   const url = `${ACADEMY_BASE_URL.replace(/\/$/, "")}/api/skills/latest`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: licenseAuthHeaders(licenseKey) });
   if (!res.ok) {
     throw new Error(
       `Failed to fetch latest skills manifest: ${res.status} ${res.statusText}`,
@@ -109,6 +123,7 @@ export async function installProjectSkills(
   }
 
   const manifest = await fetchLatestSkillsManifest();
+  const licenseKey = readRequiredLicenseKey();
 
   const tempFile = path.join(
     os.tmpdir(),
@@ -116,7 +131,9 @@ export async function installProjectSkills(
   );
 
   try {
-    const dlRes = await fetch(manifest.downloadUrl);
+    const dlRes = await fetch(manifest.downloadUrl, {
+      headers: licenseAuthHeaders(licenseKey),
+    });
     if (!dlRes.ok || !dlRes.body) {
       throw new Error(
         `Failed to download skills tarball: ${dlRes.status} ${dlRes.statusText}`,

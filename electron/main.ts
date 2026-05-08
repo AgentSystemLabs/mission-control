@@ -334,14 +334,20 @@ ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
 registerPtyHandlers(ipcMain, () => win);
 registerFileHandlers(ipcMain, () => win);
 
-ipcMain.handle(IPC.installSkillsFetchLatest, async (_evt, baseUrl?: string) => {
-  try {
-    const manifest = await fetchLatestSkillsManifest(baseUrl);
-    return { ok: true as const, manifest };
-  } catch (err) {
-    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
-  }
-});
+ipcMain.handle(
+  IPC.installSkillsFetchLatest,
+  async (_evt, opts?: { baseUrl?: string; licenseKey?: string }) => {
+    try {
+      const manifest = await fetchLatestSkillsManifest(
+        opts?.baseUrl,
+        opts?.licenseKey,
+      );
+      return { ok: true as const, manifest };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
 
 ipcMain.handle(
   IPC.installSkillsRun,
@@ -351,6 +357,7 @@ ipcMain.handle(
       projectPath: string;
       harnesses: { claude: boolean; codex: boolean };
       baseUrl?: string;
+      licenseKey?: string;
     },
   ) => {
     try {

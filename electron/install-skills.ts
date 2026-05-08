@@ -27,6 +27,7 @@ export type InstallSkillsArgs = {
   projectPath: string;
   harnesses: { claude: boolean; codex: boolean };
   baseUrl?: string;
+  licenseKey?: string;
 };
 
 export type InstallSkillsResult = {
@@ -60,9 +61,17 @@ function entryAllowed(
 
 export async function fetchLatestSkillsManifest(
   baseUrl: string = DEFAULT_ACADEMY_BASE_URL,
+  licenseKey?: string,
 ): Promise<LatestSkillsManifest> {
+  const key = licenseKey?.trim();
+  if (!key) {
+    throw new Error("A valid license key is required to install skills.");
+  }
+
   const url = `${baseUrl.replace(/\/$/, "")}/api/skills/latest`;
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${key}` },
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch latest skills manifest: ${res.status} ${res.statusText}`);
   }
@@ -81,6 +90,10 @@ export async function fetchLatestSkillsManifest(
 export async function installSkills(args: InstallSkillsArgs): Promise<InstallSkillsResult> {
   const { projectPath, harnesses } = args;
   const baseUrl = args.baseUrl ?? DEFAULT_ACADEMY_BASE_URL;
+  const licenseKey = args.licenseKey?.trim();
+  if (!licenseKey) {
+    throw new Error("A valid license key is required to install skills.");
+  }
 
   if (!projectPath || typeof projectPath !== "string" || !projectPath.trim()) {
     throw new Error("projectPath is required");
@@ -93,7 +106,7 @@ export async function installSkills(args: InstallSkillsArgs): Promise<InstallSki
     throw new Error(`projectPath is not a directory: ${projectPath}`);
   }
 
-  const manifest = await fetchLatestSkillsManifest(baseUrl);
+  const manifest = await fetchLatestSkillsManifest(baseUrl, licenseKey);
 
   // Download tarball to temp file
   const tempDir = app.getPath("temp");
@@ -103,7 +116,9 @@ export async function installSkills(args: InstallSkillsArgs): Promise<InstallSki
   );
 
   try {
-    const dlRes = await fetch(manifest.downloadUrl);
+    const dlRes = await fetch(manifest.downloadUrl, {
+      headers: { authorization: `Bearer ${licenseKey}` },
+    });
     if (!dlRes.ok || !dlRes.body) {
       throw new Error(
         `Failed to download skills tarball: ${dlRes.status} ${dlRes.statusText}`,
