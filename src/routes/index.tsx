@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
@@ -14,6 +14,7 @@ import { ProjectCard } from "~/components/views/ProjectCard";
 import type { Density } from "~/lib/density";
 import { DensityToggle } from "~/components/ui/DensityToggle";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
+import { LaunchKitDialog } from "~/components/views/LaunchKitDialog";
 import { useAddProject } from "~/lib/add-project-store";
 import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
@@ -23,9 +24,11 @@ import {
   projectsQueryOptions,
   queryKeys,
   useGroups,
+  useLicense,
   useProjects,
 } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
+import { isAcademyTier } from "~/shared/license";
 
 export const Route = createFileRoute("/")({
   loader: ({ context }) =>
@@ -41,9 +44,18 @@ function MissionControlPage() {
   const queryClient = useQueryClient();
   const { data: projects = [] } = useProjects();
   const { data: groups = [] } = useGroups();
+  const { data: license } = useLicense();
+  const launchKitAccess = useQuery({
+    queryKey: ["launch-kit-access", license?.maskedKey ?? null, license?.status ?? null],
+    queryFn: () => api.getLaunchKitAccess(),
+    enabled: !!license?.hasKey && license.status === "active",
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
   const [search, setSearch] = useState("");
   const [density, setDensity] = useState<Density>("regular");
   const [showGroups, setShowGroups] = useState(false);
+  const [showLaunchKit, setShowLaunchKit] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const { setProject: setActiveUserTerminalProject } = useUserTerminals();
   const { open: openAddProject } = useAddProject();
@@ -138,6 +150,8 @@ function MissionControlPage() {
     await api.togglePin(id);
     await invalidateProjects();
   };
+  const canUseLaunchKit =
+    (!!license && isAcademyTier(license)) || !!launchKitAccess.data?.hasAccess;
 
   return (
     <>
@@ -282,6 +296,15 @@ function MissionControlPage() {
               <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
                 Groups
               </Btn>
+              {canUseLaunchKit && (
+                <Btn
+                  variant="accent"
+                  icon="sparkles"
+                  onClick={() => setShowLaunchKit(true)}
+                >
+                  Launch Kit
+                </Btn>
+              )}
               <Btn variant="primary" icon="plus" onClick={openAddProject}>
                 Add project
                 <KbdAction action="agent.new" variant="onPrimary" />
@@ -370,6 +393,15 @@ function MissionControlPage() {
         onRename={async (id, name) => {
           await api.updateGroup(id, { name });
           await invalidateGroups();
+        }}
+      />
+      <LaunchKitDialog
+        open={showLaunchKit}
+        onClose={() => setShowLaunchKit(false)}
+        onCreated={(projectId) => {
+          setShowLaunchKit(false);
+          void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+          void router.navigate({ to: "/projects/$id", params: { id: projectId } });
         }}
       />
     </>

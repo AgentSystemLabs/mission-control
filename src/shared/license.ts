@@ -4,7 +4,7 @@ export type LicensePayload = {
   licenseId: string;
   customerId: string;
   product: "mission-control-pro";
-  tier: "pro";
+  tier: "pro" | "academy" | "full_system";
   expiresAt: string | null;
   maxMachines: number;
   issuedAt: string;
@@ -44,4 +44,11 @@ export function isProTier(
 ): boolean {
   if (!state.hasKey) return false;
   return state.status === "active";
+}
+
+export function isAcademyTier(
+  state: Pick<LicenseState, "hasKey" | "status" | "payload">,
+): boolean {
+  if (!isProTier(state)) return false;
+  return state.payload?.tier === "academy" || state.payload?.tier === "full_system";
 }

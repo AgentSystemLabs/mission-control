@@ -5,6 +5,10 @@ import {
   installProjectSkills,
   readInstalledSkillsVersion,
 } from "./services/install-skills";
+import {
+  createProjectFromLaunchKit,
+  readLaunchKitAccess,
+} from "./services/launch-kit";
 import { listGroups, createGroup, updateGroup, deleteGroup } from "./services/groups";
 import {
   listTasksForProject,
@@ -398,6 +402,25 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           );
         }
         throw e;
+      }
+    }
+
+    if (pathname === "/api/launch-kit/access" && method === "GET") {
+      return json(await readLaunchKitAccess());
+    }
+
+    if (pathname === "/api/launch-kit/projects" && method === "POST") {
+      const body = await readJson<any>(request).catch(() => null);
+      const parentDir = typeof body?.parentDir === "string" ? body.parentDir : "";
+      const projectName = typeof body?.projectName === "string" ? body.projectName : "";
+      try {
+        const result = await createProjectFromLaunchKit({
+          parentDir,
+          projectName,
+        });
+        return json(result, { status: 201 });
+      } catch (e: any) {
+        return jsonError(400, e?.message ?? "Launch Kit import failed");
       }
     }
 

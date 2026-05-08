@@ -70,7 +70,9 @@ function isLicensePayload(value: unknown): value is LicensePayload {
   return (
     !!payload &&
     payload.product === "mission-control-pro" &&
-    payload.tier === "pro" &&
+    (payload.tier === "pro" ||
+      payload.tier === "academy" ||
+      payload.tier === "full_system") &&
     typeof payload.licenseId === "string" &&
     typeof payload.customerId === "string" &&
     (typeof payload.expiresAt === "string" || payload.expiresAt === null) &&

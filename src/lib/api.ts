@@ -77,6 +77,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  createLaunchKitProject: (body: { parentDir: string; projectName: string }) =>
+    req<{ project: Project; version: string }>("/api/launch-kit/projects", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   updateProject: (id: string, body: Record<string, unknown>) =>
     req<{ project: Project }>(`/api/projects/${id}`, {
       method: "PATCH",
@@ -195,6 +200,9 @@ export const api = {
     }),
   removeLicense: () =>
     req<{ license: LicenseState }>("/api/license", { method: "DELETE" }),
+
+  getLaunchKitAccess: () =>
+    req<{ hasAccess: boolean }>("/api/launch-kit/access"),
 
   getSkillsStatus: () =>
     req<{ initializedAt: string | null; dir: string }>("/api/skills"),
