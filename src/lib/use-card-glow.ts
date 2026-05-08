@@ -1,14 +1,20 @@
 import { useCallback, useRef } from "react";
+import { useSettings } from "~/queries";
 
 export function useCardGlow<T extends HTMLElement = HTMLDivElement>() {
   const ref = useRef<T | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const { data: settings } = useSettings();
+  const enabled = !(settings?.mouseGradientDisabled ?? false);
 
   return useCallback((el: T | null) => {
     cleanupRef.current?.();
     cleanupRef.current = null;
     ref.current = el;
     if (!el) return;
+    delete el.dataset.glow;
+    delete document.body.dataset.cardGlow;
+    if (!enabled) return;
 
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
@@ -36,5 +42,5 @@ export function useCardGlow<T extends HTMLElement = HTMLDivElement>() {
       delete el.dataset.glow;
       delete document.body.dataset.cardGlow;
     };
-  }, []);
+  }, [enabled]);
 }

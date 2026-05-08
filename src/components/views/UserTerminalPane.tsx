@@ -5,6 +5,7 @@ import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap
 import {
   createTerminalOptions,
   createTerminalTheme,
+  getCurrentAccentColor,
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
@@ -61,14 +62,22 @@ export function UserTerminalPane({
       ]);
       if (cancelled || !containerRef.current) return;
 
-      const term = new Terminal(createTerminalOptions({ colorScheme: getTerminalColorScheme() }));
+      const term = new Terminal(
+        createTerminalOptions({
+          colorScheme: getTerminalColorScheme(),
+          cursorColor: getCurrentAccentColor(),
+        })
+      );
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(containerRef.current);
       termRef.current = { focus: () => term.focus() };
       term.focus();
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
-        term.options.theme = createTerminalTheme({ colorScheme });
+        term.options.theme = createTerminalTheme({
+          colorScheme,
+          cursorColor: getCurrentAccentColor(),
+        });
       });
       term.registerLinkProvider({
         provideLinks(y, callback) {

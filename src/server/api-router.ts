@@ -315,6 +315,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         apiToken: getOrCreateApiToken(),
         agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
         accentColor: getAccentColorSetting(),
+        mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
+        sessionFinishToastEnabled: getBooleanSetting(
+          "session_finish_toast_enabled",
+          true,
+        ),
+        sessionFinishOsNotificationEnabled: getBooleanSetting(
+          "session_finish_os_notification_enabled",
+          false,
+        ),
       });
       if (method === "GET") {
         return json(settingsPayload());
@@ -331,6 +340,21 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         if (body?.accentColor !== undefined) {
           if (!isAccentColorId(body.accentColor)) return jsonError(400, "invalid accentColor");
           setSetting("accent_color", body.accentColor);
+        }
+        if (typeof body?.mouseGradientDisabled === "boolean") {
+          setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
+        }
+        if (typeof body?.sessionFinishToastEnabled === "boolean") {
+          setBooleanSetting(
+            "session_finish_toast_enabled",
+            body.sessionFinishToastEnabled,
+          );
+        }
+        if (typeof body?.sessionFinishOsNotificationEnabled === "boolean") {
+          setBooleanSetting(
+            "session_finish_os_notification_enabled",
+            body.sessionFinishOsNotificationEnabled,
+          );
         }
         return json(settingsPayload());
       }

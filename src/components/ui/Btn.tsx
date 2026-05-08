@@ -34,9 +34,9 @@ const SIZE_STYLES: Record<Size, CSSProperties> = {
 };
 
 const HOVER_BG: Record<Variant, string> = {
-  primary: "#ff6b33",
+  primary: "var(--accent-hover)",
   ghost: "var(--surface-1)",
-  accent: "rgba(255, 90, 31, 0.26)",
+  accent: "var(--accent-soft-hover)",
   solid: "var(--surface-3)",
   danger: "var(--surface-1)",
 };

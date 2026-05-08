@@ -32,6 +32,8 @@ import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { UsagePanel } from "~/components/views/UsagePanel";
+import { Toaster } from "sonner";
+import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -70,6 +72,7 @@ function RootComponent() {
 function Shell() {
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"settings" | "usage" | null>(null);
+  const [showLaunchOverlay, setShowLaunchOverlay] = useState(true);
   const [settingsInitialPanel, setSettingsInitialPanel] =
     useState<SettingsPanelId>("general");
   const openSettings = (initial: SettingsPanelId = "general") => {
@@ -94,6 +97,7 @@ function Shell() {
   } = userTerminals;
 
   useNavigationSwipe();
+  useSessionFinishNotifications();
 
   const path = router.state.location.pathname;
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
@@ -115,6 +119,11 @@ function Shell() {
   useEffect(() => {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setShowLaunchOverlay(false), 2100);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -262,6 +271,32 @@ function Shell() {
         <SettingsPanel onBack={closePanel} initialPanel={settingsInitialPanel} />
       )}
       {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
+      <Toaster
+        position="bottom-right"
+        theme={theme === "dark" ? "dark" : "light"}
+        richColors
+      />
+      {showLaunchOverlay && <LaunchOverlay />}
+    </div>
+  );
+}
+
+function LaunchOverlay() {
+  return (
+    <div className="launch-overlay" role="status" aria-label="Mission Control loading">
+      <div className="launch-overlay__content">
+        <img
+          className="launch-overlay__robot"
+          src="/robot.png"
+          alt=""
+          aria-hidden="true"
+        />
+        <div className="launch-overlay__label" aria-hidden="true">
+          <span>MISSION</span>
+          <span className="launch-overlay__dot" />
+          <span>CONTROL</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -288,8 +323,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
         justifyContent: "center",
         gap: 12,
         flexWrap: "wrap",
-        background:
-          "linear-gradient(90deg, rgba(255, 90, 31, 0.22), rgba(14, 16, 19, 0.98) 34%, rgba(255, 90, 31, 0.14))",
+        background: "var(--banner-bg)",
         borderBottom: "1px solid var(--border-strong)",
         color: "var(--text)",
         flexShrink: 0,
@@ -307,8 +341,8 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
           width: 24,
           height: 24,
           borderRadius: 6,
-          background: "var(--accent-dim)",
-          color: "var(--accent)",
+          background: "var(--banner-icon-bg)",
+          color: "var(--banner-link)",
           border: "1px solid var(--accent-border)",
           flexShrink: 0,
         }}
@@ -319,7 +353,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
         style={{
           fontSize: 13,
           lineHeight: 1.35,
-          color: "var(--text-dim)",
+          color: "var(--banner-muted)",
           textAlign: "center",
         }}
       >
@@ -330,7 +364,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
           target="_blank"
           rel="noreferrer"
           style={{
-            color: "var(--accent)",
+            color: "var(--banner-link)",
             fontWeight: 600,
             textDecoration: "none",
             ["WebkitAppRegion" as any]: "no-drag",
@@ -344,7 +378,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
           onClick={onOpenSettings}
           style={{
             marginLeft: 8,
-            color: "var(--text-faint)",
+            color: "var(--banner-muted)",
             fontSize: 11.5,
             fontWeight: 500,
             textDecoration: "underline",
@@ -371,8 +405,8 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
           justifyContent: "center",
           borderRadius: 6,
           border: "1px solid var(--border)",
-          background: "rgba(255, 255, 255, 0.03)",
-          color: "var(--text-dim)",
+          background: "var(--surface-1)",
+          color: "var(--banner-muted)",
           cursor: "pointer",
           flexShrink: 0,
           ["WebkitAppRegion" as any]: "no-drag",

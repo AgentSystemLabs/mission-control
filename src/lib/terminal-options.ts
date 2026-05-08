@@ -34,7 +34,6 @@ const TERMINAL_THEMES: Record<TerminalColorScheme, TerminalTheme> = {
     brightCyan: "#06aed4",
     white: "#f1f0eb",
     brightWhite: "#ffffff",
-    selectionBackground: "#ffd8c7",
   },
 };
 
@@ -43,9 +42,30 @@ export function getTerminalColorScheme(): TerminalColorScheme {
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
+export function getCurrentAccentColor(fallback = DEFAULT_CURSOR_COLOR): string {
+  if (typeof document === "undefined" || typeof getComputedStyle === "undefined") {
+    return fallback;
+  }
+  return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || fallback;
+}
+
+function withAlpha(color: string, alpha: number): string {
+  const hex = color.match(/^#([0-9a-f]{6})$/i);
+  if (hex) {
+    const value = hex[1]!;
+    const opacity = Math.round(alpha * 255)
+      .toString(16)
+      .padStart(2, "0");
+    return `#${value}${opacity}`;
+  }
+  const rgb = color.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+  if (rgb) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`;
+  return color;
+}
+
 export function createTerminalTheme({
   colorScheme = "dark",
-  cursorColor = DEFAULT_CURSOR_COLOR,
+  cursorColor = getCurrentAccentColor(),
 }: {
   colorScheme?: TerminalColorScheme;
   cursorColor?: string;
@@ -53,6 +73,10 @@ export function createTerminalTheme({
   return {
     ...TERMINAL_THEMES[colorScheme],
     cursor: cursorColor,
+    selectionBackground: withAlpha(
+      getCurrentAccentColor(),
+      colorScheme === "light" ? 0.26 : 0.22
+    ),
   };
 }
 
@@ -63,22 +87,23 @@ export function watchTerminalColorScheme(
     return () => undefined;
   }
 
-  let previous = getTerminalColorScheme();
+  const currentKey = () => `${getTerminalColorScheme()}:${getCurrentAccentColor()}`;
+  let previous = currentKey();
   const observer = new MutationObserver(() => {
-    const next = getTerminalColorScheme();
+    const next = currentKey();
     if (next === previous) return;
     previous = next;
-    onChange(next);
+    onChange(getTerminalColorScheme());
   });
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme"],
+    attributeFilter: ["data-theme", "style"],
   });
   return () => observer.disconnect();
 }
 
 export function createTerminalOptions({
-  cursorColor = DEFAULT_CURSOR_COLOR,
+  cursorColor = getCurrentAccentColor(),
   colorScheme = "dark",
 }: {
   cursorColor?: string;

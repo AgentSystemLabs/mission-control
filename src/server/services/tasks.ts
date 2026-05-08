@@ -1,7 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { getDb } from "~/db/client";
-import { tasks, terminalLogs } from "~/db/schema";
+import { projects, tasks, terminalLogs } from "~/db/schema";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "~/shared/domain";
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Task } from "~/db/schema";
@@ -89,6 +89,22 @@ export function updateStatus(
     .where(eq(tasks.id, id))
     .run();
   events.emit("task:updated", { id, projectId: existing.projectId });
+  if (
+    patch.status === "finished" &&
+    existing.status !== "finished"
+  ) {
+    const project = db
+      .select({ name: projects.name })
+      .from(projects)
+      .where(eq(projects.id, existing.projectId))
+      .get();
+    events.emit("session:finished", {
+      id,
+      projectId: existing.projectId,
+      projectName: project?.name ?? "Project",
+      taskTitle: existing.title,
+    });
+  }
   return next;
 }
 

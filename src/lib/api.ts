@@ -17,6 +17,9 @@ export type AppSettings = {
   apiToken: string;
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
+  mouseGradientDisabled: boolean;
+  sessionFinishToastEnabled: boolean;
+  sessionFinishOsNotificationEnabled: boolean;
 };
 
 export class ApiError extends Error {
@@ -212,7 +215,18 @@ export const api = {
       { method: "POST" },
     ),
 
-  updateSettings: (body: Partial<Pick<AppSettings, "agentSystemBannerDisabled" | "accentColor">>) =>
+  updateSettings: (
+    body: Partial<
+      Pick<
+        AppSettings,
+        | "agentSystemBannerDisabled"
+        | "accentColor"
+        | "mouseGradientDisabled"
+        | "sessionFinishToastEnabled"
+        | "sessionFinishOsNotificationEnabled"
+      >
+    >,
+  ) =>
     req<AppSettings>("/api/settings", {
       method: "POST",
       body: JSON.stringify(body),

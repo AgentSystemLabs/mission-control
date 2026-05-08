@@ -139,7 +139,7 @@ export function CommitPushButton({
       }}
       onMouseEnter={(e) => {
         if (busy) return;
-        e.currentTarget.style.background = "#ff6b33";
+        e.currentTarget.style.background = "var(--accent-hover)";
       }}
       onMouseLeave={(e) => {
         if (busy) return;

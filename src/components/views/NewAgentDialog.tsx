@@ -20,6 +20,11 @@ export type RememberPatch = {
 
 const AGENT_OPTIONS = UI_AGENTS.map((id) => ({ id, ...AGENT_REGISTRY[id] }));
 
+type MissingCli = {
+  cmd: string;
+  label: string;
+};
+
 export function NewAgentDialog({
   open,
   project,
@@ -43,6 +48,7 @@ export function NewAgentDialog({
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
   const [rememberSettings, setRememberSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missingCli, setMissingCli] = useState<MissingCli | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const persistRememberedSettings = async (
@@ -58,7 +64,12 @@ export function NewAgentDialog({
   };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setError(null);
+      setMissingCli(null);
+      setSubmitting(false);
+      return;
+    }
     const seedAgent: TaskAgent =
       project?.rememberAgentSettings && project?.savedAgent ? project.savedAgent : "claude-code";
     const seedSkip = project?.rememberAgentSettings ? !!project.savedSkipPermissions : false;
@@ -66,6 +77,7 @@ export function NewAgentDialog({
     setDangerouslySkipPermissions(seedSkip);
     setRememberSettings(!!project?.rememberAgentSettings);
     setError(null);
+    setMissingCli(null);
     setSubmitting(false);
     // Seed only when the dialog opens; later refreshes of `project` (e.g. after
     // persisting the remember toggle) must not stomp in-flight form state.
@@ -115,9 +127,7 @@ export function NewAgentDialog({
         const cmd = AGENT_META[agent].cmd;
         const probe = await electron.cliCheck(cmd);
         if (!probe.ok) {
-          setError(
-            `\`${cmd}\` was not found on your PATH. Install ${AGENT_META[agent].label} or pick a different agent.`
-          );
+          setMissingCli({ cmd, label: AGENT_META[agent].label });
           setSubmitting(false);
           return;
         }
@@ -149,7 +159,7 @@ export function NewAgentDialog({
   };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || missingCli) return;
     const onKey = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target)) return;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
@@ -169,28 +179,29 @@ export function NewAgentDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions]);
+  }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions, missingCli]);
 
-  useHotkey("dialog.submit", () => void submit(), { enabled: open });
+  useHotkey("dialog.submit", () => void submit(), { enabled: open && !missingCli });
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Start a new session"
-      width={540}
-      footer={
-        <>
-          <Btn variant="ghost" onClick={onClose}>
-            Cancel
-          </Btn>
-          <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
-            Start session
-            <KbdAction action="dialog.submit" variant="onPrimary" />
-          </Btn>
-        </>
-      }
-    >
+    <>
+      <Modal
+        open={open && !missingCli}
+        onClose={onClose}
+        title="Start a new session"
+        width={540}
+        footer={
+          <>
+            <Btn variant="ghost" onClick={onClose}>
+              Cancel
+            </Btn>
+            <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
+              Start session
+              <KbdAction action="dialog.submit" variant="onPrimary" />
+            </Btn>
+          </>
+        }
+      >
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         <div>
           <label
@@ -377,6 +388,38 @@ export function NewAgentDialog({
           </div>
         )}
       </div>
-    </Modal>
+      </Modal>
+
+      <Modal
+        open={open && !!missingCli}
+        onClose={() => setMissingCli(null)}
+        title="CLI not detected"
+        width={440}
+        footer={
+          <Btn variant="primary" onClick={() => setMissingCli(null)}>
+            OK
+          </Btn>
+        }
+      >
+        {missingCli && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
+              Mission Control could not find{" "}
+              <code style={{ fontFamily: "var(--mono)", color: "var(--text)" }}>
+                {missingCli.cmd}
+              </code>{" "}
+              for {missingCli.label}.
+            </p>
+            <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--text-dim)" }}>
+              Install the ship skill, then make sure{" "}
+              <code style={{ fontFamily: "var(--mono)", color: "var(--text)" }}>
+                {missingCli.cmd}
+              </code>{" "}
+              is available on your PATH before starting this session.
+            </p>
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }

@@ -11,7 +11,14 @@ export type AppEvent =
   | { type: "task:updated"; id: string; projectId: string }
   | { type: "task:archived"; id: string; projectId: string }
   | { type: "task:restored"; id: string; projectId: string }
-  | { type: "task:deleted"; id: string; projectId: string };
+  | { type: "task:deleted"; id: string; projectId: string }
+  | {
+      type: "session:finished";
+      id: string;
+      projectId: string;
+      projectName: string;
+      taskTitle: string;
+    };
 
 class TypedEmitter {
   private inner = new EventEmitter();

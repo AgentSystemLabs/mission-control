@@ -37,7 +37,7 @@ export function UserTerminalPanel() {
       style={{
         height: panelOpen ? height : "auto",
         minHeight: panelOpen ? MIN_HEIGHT : 0,
-        background: "#050607",
+        background: "var(--terminal-bg)",
         borderTop: "1px solid var(--border-strong)",
         display: "flex",
         flexDirection: "column",
@@ -158,15 +158,27 @@ export function UserTerminalPanel() {
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: 12,
-              color: "var(--text-faint)",
+              gap: 14,
+              color: "var(--text-dim)",
               fontFamily: "var(--mono)",
               fontSize: 12,
             }}
           >
             {project ? (
-              <>
-                <div>No terminals yet.</div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "20px 24px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  background: "var(--surface-0)",
+                  boxShadow: "0 12px 28px rgba(0, 0, 0, 0.08)",
+                }}
+              >
+                <div style={{ color: "var(--text)", fontWeight: 500 }}>No terminals yet.</div>
                 <Btn
                   variant="ghost"
                   size="sm"
@@ -177,7 +189,7 @@ export function UserTerminalPanel() {
                   New terminal
                   <Kbd variant="ghost">⌘T</Kbd>
                 </Btn>
-              </>
+              </div>
             ) : (
               "Open a project to use terminals."
             )}

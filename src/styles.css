@@ -33,6 +33,12 @@
   --accent-faint: rgba(255, 90, 31, 0.1);
   --accent-border: rgba(255, 90, 31, 0.38);
   --accent-glow: rgba(255, 90, 31, 0.48);
+  --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
+  --accent-soft-hover: color-mix(in srgb, var(--accent) 26%, transparent);
+  --banner-bg: linear-gradient(90deg, var(--accent-faint), var(--surface-0) 34%, var(--accent-faint));
+  --banner-muted: var(--text-dim);
+  --banner-link: color-mix(in srgb, var(--accent) 84%, white);
+  --banner-icon-bg: var(--accent-dim);
 
   --status-ready: oklch(0.78 0.10 220);
   --status-running: oklch(0.82 0.14 75);
@@ -65,6 +71,15 @@
   --status-interrupted: oklch(0.58 0.17 35);
   --status-done: oklch(0.50 0.14 150);
   --status-idle: rgba(26, 26, 26, 0.3);
+  --banner-bg: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 14%, var(--surface-0)),
+    var(--surface-0) 34%,
+    color-mix(in srgb, var(--accent) 14%, var(--surface-0))
+  );
+  --banner-muted: rgba(26, 26, 26, 0.78);
+  --banner-link: color-mix(in srgb, var(--accent) 62%, black);
+  --banner-icon-bg: color-mix(in srgb, var(--accent) 16%, var(--surface-0));
 }
 
 * {
@@ -144,7 +159,7 @@ button {
 @keyframes pulse-border {
   0%,
   100% {
-    box-shadow: 0 0 0 rgba(255, 90, 31, 0);
+    box-shadow: 0 0 0 transparent;
   }
   50% {
     box-shadow: 0 0 14px var(--accent-glow);
@@ -183,6 +198,61 @@ button {
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+@keyframes launch-overlay-fade {
+  0%,
+  68% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes launch-robot-fly {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  10% {
+    opacity: 1;
+    transform: translate3d(-2px, 1px, 0) rotate(-1.2deg) scale(1);
+  }
+  20% {
+    opacity: 1;
+    transform: translate3d(2px, -1px, 0) rotate(1.1deg) scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: translate3d(-1px, -2px, 0) rotate(-0.8deg) scale(1);
+  }
+  40% {
+    opacity: 1;
+    transform: translate3d(1px, 1px, 0) rotate(0.7deg) scale(1);
+  }
+  62% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+    animation-timing-function: cubic-bezier(0.92, 0, 1, 0.22);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(122vw, -96vh, 0) rotate(32deg) scale(0.52);
+  }
+}
+@keyframes launch-label-settle {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  18%,
+  72% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(14px);
   }
 }
 
@@ -232,7 +302,7 @@ button {
   transition: opacity 400ms ease;
   background: radial-gradient(
     260px circle at var(--x, 50%) var(--y, 50%),
-    rgba(255, 90, 31, 0.08),
+    color-mix(in srgb, var(--accent) 8%, transparent),
     transparent 70%
   );
 }
@@ -241,9 +311,9 @@ button {
 }
 [data-theme="light"] .cursor-glow {
   background: radial-gradient(
-    260px circle at var(--x, 50%) var(--y, 50%),
-    rgba(255, 90, 31, 0.12),
-    transparent 70%
+    220px circle at var(--x, 50%) var(--y, 50%),
+    color-mix(in srgb, var(--accent) 4%, transparent),
+    transparent 74%
   );
 }
 @media (pointer: coarse) {
@@ -253,6 +323,88 @@ button {
 }
 body[data-card-glow] .cursor-glow {
   opacity: 0;
+}
+
+.launch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: all;
+  background:
+    radial-gradient(circle at 46% 40%, rgba(255, 255, 255, 0.18), transparent 16rem),
+    radial-gradient(circle at 22% 26%, color-mix(in srgb, var(--accent) 36%, transparent), transparent 20rem),
+    radial-gradient(circle at 82% 72%, rgba(33, 196, 167, 0.24), transparent 22rem),
+    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(135deg, #090a0d 0%, #171c24 42%, #28150f 100%);
+  background-size: auto, auto, auto, 112px 112px, 112px 112px, auto;
+  background-position: center, center, center, 0 0, 0 0, center;
+  animation: launch-overlay-fade 2s ease-in forwards;
+}
+
+.launch-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.22));
+  opacity: 0.72;
+}
+
+.launch-overlay__content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+}
+
+.launch-overlay__robot {
+  width: min(34vw, 220px);
+  min-width: 124px;
+  height: auto;
+  filter: drop-shadow(0 26px 44px rgba(0, 0, 0, 0.46))
+    drop-shadow(0 0 34px color-mix(in srgb, var(--accent) 32%, transparent));
+  transform-origin: 64% 24%;
+  will-change: opacity, transform;
+  animation: launch-robot-fly 2s linear forwards;
+}
+
+.launch-overlay__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #fff7ec;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-shadow: 0 1px 22px rgba(0, 0, 0, 0.46);
+  animation: launch-label-settle 2s ease forwards;
+}
+
+.launch-overlay__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 18px var(--accent-glow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-overlay__robot {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .launch-overlay__label {
+    gap: 9px;
+    font-size: 13px;
+  }
 }
 
 [data-glow]::before {
@@ -265,7 +417,7 @@ body[data-card-glow] .cursor-glow {
   transition: opacity 200ms ease;
   background: radial-gradient(
     220px circle at var(--gx, 50%) var(--gy, 50%),
-    rgba(255, 90, 31, 0.18),
+    color-mix(in srgb, var(--accent) 18%, transparent),
     transparent 65%
   );
   z-index: 0;
@@ -276,7 +428,7 @@ body[data-card-glow] .cursor-glow {
 [data-theme="light"] [data-glow]::before {
   background: radial-gradient(
     220px circle at var(--gx, 50%) var(--gy, 50%),
-    rgba(255, 90, 31, 0.22),
+    color-mix(in srgb, var(--accent) 10%, transparent),
     transparent 65%
   );
 }
