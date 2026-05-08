@@ -26,11 +26,7 @@ import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
-import { useSettings, useProjects, useLicense, queryKeys } from "~/queries";
-import { useQueryClient } from "@tanstack/react-query";
-import { api } from "~/lib/api";
-import { isGraceExpired } from "~/shared/license";
-import { Banner } from "~/components/ui/Banner";
+import { useSettings, useProjects, useLicense } from "~/queries";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
@@ -83,7 +79,6 @@ function Shell() {
   const { data: settings } = useSettings();
   const { data: projects } = useProjects();
   const { data: license } = useLicense();
-  const queryClient = useQueryClient();
   const { activeFor, close, setPtyId } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
@@ -119,22 +114,6 @@ function Shell() {
   useEffect(() => {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
-
-  // Boot-time license re-validation. Fires once per app boot when a key is
-  // already stored. Server uses the persisted key (client only holds masked).
-  const bootValidatedRef = useRef(false);
-  useEffect(() => {
-    if (bootValidatedRef.current) return;
-    if (!license) return;
-    bootValidatedRef.current = true;
-    if (!license.hasKey) return;
-    void api
-      .revalidateLicense()
-      .then(({ license: next }) => {
-        queryClient.setQueryData(queryKeys.license, next);
-      })
-      .catch(() => undefined);
-  }, [license, queryClient]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -209,26 +188,8 @@ function Shell() {
     });
   }, [userTerminalPanelOpen, focusedUserTerminalId, killUserTerminal]);
 
-  const licenseRevoked = license?.hasKey && license.status === "revoked";
-  const licenseGraceExpired = license ? isGraceExpired(license) : false;
-  const showLicenseBanner = !!(licenseRevoked || licenseGraceExpired);
-
   return (
     <div id="root">
-      {showLicenseBanner && (
-        <Banner
-          variant={licenseRevoked ? "danger" : "warning"}
-          action={
-            <Btn variant="ghost" size="sm" onClick={() => openSettings("license")}>
-              Open License settings
-            </Btn>
-          }
-        >
-          {licenseRevoked
-            ? "Your Mission Control Pro license has been revoked. Pro features are no longer available."
-            : "Couldn't reach the license server in over 14 days. Reconnect or update your license to keep Pro."}
-        </Banner>
-      )}
       <AgentSystemBanner onOpenSettings={() => setActivePanel("settings")} />
       <TopBar
         crumbs={crumbs}

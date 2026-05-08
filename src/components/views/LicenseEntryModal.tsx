@@ -48,12 +48,8 @@ export function LicenseEntryModal({
         onClose();
       } else if (license.status === "invalid") {
         setError("That license key was rejected. Check the value and try again.");
-      } else if (license.status === "revoked") {
-        setError("This license has been revoked. Contact support if this is unexpected.");
       } else {
-        setError(
-          "Couldn't reach the license server. Saved your key — Pro will activate once we can validate.",
-        );
+        setError("That license key was rejected. Check the value and try again.");
       }
     },
     onError: () => {

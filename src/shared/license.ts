@@ -1,4 +1,14 @@
-export type LicenseStatus = "active" | "revoked" | "invalid" | "unknown";
+export type LicenseStatus = "active" | "invalid";
+
+export type LicensePayload = {
+  licenseId: string;
+  customerId: string;
+  product: "mission-control-pro";
+  tier: "pro";
+  expiresAt: string | null;
+  maxMachines: number;
+  issuedAt: string;
+};
 
 export type LicenseState = {
   hasKey: boolean;
@@ -6,31 +16,23 @@ export type LicenseState = {
   status: LicenseStatus | null;
   plan: string | null;
   lastValidatedAt: string | null;
-  graceUntil: string | null;
+  payload: LicensePayload | null;
 };
 
-export const GRACE_WINDOW_DAYS = 14;
-
 export const FREE_PROJECT_CAP = 2;
+
+export function isLicensePayloadExpired(
+  payload: Pick<LicensePayload, "expiresAt">,
+  now: Date = new Date(),
+): boolean {
+  if (!payload.expiresAt) return false;
+  return new Date(payload.expiresAt).getTime() < now.getTime();
+}
 
 export function maskLicenseKey(key: string): string {
   const trimmed = key.trim();
   if (trimmed.length <= 4) return "•".repeat(trimmed.length);
-  return `${"•".repeat(Math.max(4, trimmed.length - 4))}${trimmed.slice(-4)}`;
-}
-
-/**
- * True when the user previously had an active license but the offline grace
- * window has expired without a fresh successful validation.
- */
-export function isGraceExpired(
-  state: Pick<LicenseState, "hasKey" | "status" | "graceUntil">,
-  now: Date = new Date(),
-): boolean {
-  if (!state.hasKey) return false;
-  if (!state.graceUntil) return false;
-  if (state.status === "revoked" || state.status === "invalid") return false;
-  return new Date(state.graceUntil).getTime() < now.getTime();
+  return `${"•".repeat(Math.min(12, Math.max(4, trimmed.length - 4)))}${trimmed.slice(-4)}`;
 }
 
 /**
@@ -38,11 +40,8 @@ export function isGraceExpired(
  * Used by the project-cap gate (UI + server) and the badge/tier UI.
  */
 export function isProTier(
-  state: Pick<LicenseState, "hasKey" | "status" | "graceUntil">,
-  now: Date = new Date(),
+  state: Pick<LicenseState, "hasKey" | "status">,
 ): boolean {
   if (!state.hasKey) return false;
-  if (state.status !== "active") return false;
-  if (isGraceExpired(state, now)) return false;
-  return true;
+  return state.status === "active";
 }

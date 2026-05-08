@@ -2,19 +2,40 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { generateKeyPairSync, sign } from "node:crypto";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
+const keypair = generateKeyPairSync("ed25519");
+process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
+  .export({ type: "spki", format: "pem" })
+  .toString();
 
 const { listProjects, createProject, togglePin, deleteProject, updateProject, ProjectCapExceededError } = await import(
   "../projects"
 );
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings } = await import("~/db/schema");
-const { setLicenseKey, setLicenseValidationResult, clearLicense } = await import(
-  "~/db/settings"
-);
+const { setLicenseKey, clearLicense } = await import("~/db/settings");
 const { FREE_PROJECT_CAP } = await import("~/shared/license");
+
+function signedLicense(overrides: Record<string, unknown> = {}): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      licenseId: "lic_test",
+      customerId: "cus_test",
+      product: "mission-control-pro",
+      tier: "pro",
+      expiresAt: null,
+      maxMachines: 3,
+      issuedAt: "2026-05-07T17:10:17.000Z",
+      ...overrides,
+    }),
+    "utf8",
+  );
+  const signature = sign(null, payload, keypair.privateKey);
+  return `MC-PRO-v1.${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
 
 describe("projects service", () => {
   beforeEach(() => {
@@ -77,8 +98,7 @@ describe("projects service", () => {
     });
 
     it("allows unlimited projects when an active license is on file", () => {
-      setLicenseKey("mc_live_TEST");
-      setLicenseValidationResult("active", "pro");
+      setLicenseKey(signedLicense());
       for (let i = 0; i < FREE_PROJECT_CAP + 2; i++) {
         const p = createProject({ path: mkdir(`pro-${i}`) });
         expect(p.id).toBeTruthy();
@@ -86,32 +106,26 @@ describe("projects service", () => {
       expect(listProjects()).toHaveLength(FREE_PROJECT_CAP + 2);
     });
 
-    it("blocks Pro creation when grace window has expired", () => {
-      setLicenseKey("mc_live_TEST");
-      // active validation, then rewind grace
-      setLicenseValidationResult("active", "pro");
-      const db = getDb();
-      // Force grace into the past:
-      db.insert(appSettings)
-        .values({ key: "license_offline_grace_until", value: "2020-01-01T00:00:00.000Z" })
-        .onConflictDoUpdate({
-          target: appSettings.key,
-          set: { value: "2020-01-01T00:00:00.000Z" },
-        })
-        .run();
+    it("blocks Pro creation when a signed license is expired", () => {
+      setLicenseKey(
+        signedLicense({
+          licenseId: "lic_expired",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          issuedAt: "2019-01-01T00:00:00.000Z",
+        }),
+      );
       for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`grace-${i}`) });
+        createProject({ path: mkdir(`expired-${i}`) });
       }
       expect(() => createProject({ path: mkdir("over") })).toThrow(
         ProjectCapExceededError,
       );
     });
 
-    it("blocks creation when license has been revoked", () => {
+    it("blocks creation when the stored license is unsigned", () => {
       setLicenseKey("mc_live_TEST");
-      setLicenseValidationResult("revoked", null);
       for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`revoked-${i}`) });
+        createProject({ path: mkdir(`unsigned-${i}`) });
       }
       expect(() => createProject({ path: mkdir("over") })).toThrow(
         ProjectCapExceededError,

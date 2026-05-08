@@ -1,19 +1,11 @@
 import { useLicense } from "~/queries";
-import { isGraceExpired, type LicenseState } from "~/shared/license";
+import { type LicenseState } from "~/shared/license";
 
-type Tier = "lite" | "pro" | "pro-warning" | "pro-error";
+type Tier = "lite" | "pro";
 
-// Badge tier is finer-grained than the entitlement gate (`isProTier`); the
-// gate is binary, but the badge surfaces "grace" / "revoked" so the user
-// understands *why* Pro features are degraded.
 function deriveTier(license: LicenseState | undefined): Tier {
   if (!license || !license.hasKey) return "lite";
-  // An "invalid" key never granted Pro — surface as Lite, not "Pro · revoked".
-  // Only "revoked" means the user previously had Pro and lost it.
-  if (license.status === "invalid") return "lite";
-  if (license.status === "revoked") return "pro-error";
-  if (isGraceExpired(license)) return "pro-warning";
-  return "pro";
+  return license.status === "active" ? "pro" : "lite";
 }
 
 const TIER_STYLE: Record<Tier, { label: string; bg: string; border: string; fg: string }> = {
@@ -28,18 +20,6 @@ const TIER_STYLE: Record<Tier, { label: string; bg: string; border: string; fg: 
     bg: "var(--accent-dim)",
     border: "var(--accent)",
     fg: "var(--accent)",
-  },
-  "pro-warning": {
-    label: "Pro · grace",
-    bg: "rgba(234, 179, 8, 0.12)",
-    border: "rgba(234, 179, 8, 0.55)",
-    fg: "rgb(234, 179, 8)",
-  },
-  "pro-error": {
-    label: "Pro · revoked",
-    bg: "rgba(239, 68, 68, 0.12)",
-    border: "rgba(239, 68, 68, 0.55)",
-    fg: "var(--status-failed)",
   },
 };
 

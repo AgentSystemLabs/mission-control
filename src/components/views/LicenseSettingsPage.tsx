@@ -6,20 +6,16 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { LicenseEntryModal } from "./LicenseEntryModal";
 import { api } from "~/lib/api";
 import { queryKeys, useLicense } from "~/queries";
-import { isGraceExpired, type LicenseState, type LicenseStatus } from "~/shared/license";
+import { type LicenseState, type LicenseStatus } from "~/shared/license";
 
 const STATUS_LABEL: Record<LicenseStatus, string> = {
   active: "Active",
-  revoked: "Revoked",
   invalid: "Invalid",
-  unknown: "Unverified",
 };
 
 const STATUS_COLOR: Record<LicenseStatus, string> = {
   active: "var(--accent)",
-  revoked: "var(--status-failed)",
   invalid: "var(--status-failed)",
-  unknown: "var(--text-dim)",
 };
 
 function StatusPill({ license }: { license: LicenseState }) {
@@ -42,7 +38,7 @@ function StatusPill({ license }: { license: LicenseState }) {
       </span>
     );
   }
-  const status = license.status ?? "unknown";
+  const status = license.status ?? "invalid";
   const color = STATUS_COLOR[status];
   return (
     <span
@@ -78,24 +74,14 @@ export function LicenseSettingsPage() {
     },
   });
 
-  const revalidate = useMutation({
-    mutationFn: () => api.revalidateLicense(),
-    onSuccess: ({ license: next }) => {
-      queryClient.setQueryData(queryKeys.license, next);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.license });
-    },
-  });
-
   const safeLicense: LicenseState = license ?? {
     hasKey: false,
     maskedKey: null,
     status: null,
     plan: null,
     lastValidatedAt: null,
-    graceUntil: null,
+    payload: null,
   };
-
-  const graceExpired = isGraceExpired(safeLicense);
 
   return (
     <>
@@ -104,7 +90,7 @@ export function LicenseSettingsPage() {
       </h1>
       <SettingsSection
         title="Mission Control Pro"
-        subtitle="Activate Pro by entering a license key from agentsystem.dev. Lite includes up to 2 projects."
+        subtitle="Unlock Pro by entering a signed license key. Lite includes up to 2 projects."
       >
         <Field label="Status">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -112,11 +98,6 @@ export function LicenseSettingsPage() {
             {safeLicense.plan && (
               <span style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--mono)" }}>
                 {safeLicense.plan}
-              </span>
-            )}
-            {graceExpired && (
-              <span style={{ fontSize: 12, color: "var(--status-failed)", fontFamily: "var(--mono)" }}>
-                offline grace expired
               </span>
             )}
           </div>
@@ -133,20 +114,22 @@ export function LicenseSettingsPage() {
                   border: "1px solid var(--border)",
                   borderRadius: 6,
                   padding: "6px 9px",
-                  display: "inline-block",
+                  display: "block",
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {safeLicense.maskedKey}
               </code>
             </Field>
-            <Field label="Last validated">
+            <Field label={safeLicense.payload?.expiresAt ? "Valid until" : "Offline access"}>
               <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
-                {formatTimestamp(safeLicense.lastValidatedAt)}
-              </span>
-            </Field>
-            <Field label="Offline grace until">
-              <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
-                {formatTimestamp(safeLicense.graceUntil)}
+                {safeLicense.payload?.expiresAt
+                  ? formatTimestamp(safeLicense.payload.expiresAt)
+                  : "Lifetime"}
               </span>
             </Field>
           </>
@@ -156,14 +139,6 @@ export function LicenseSettingsPage() {
             <Btn variant="primary" onClick={() => setModalOpen(true)}>
               {safeLicense.hasKey ? "Change License Key…" : "Enter License Key…"}
             </Btn>
-            {safeLicense.hasKey && (
-              <Btn
-                onClick={() => revalidate.mutate()}
-                disabled={revalidate.isPending}
-              >
-                {revalidate.isPending ? "Verifying…" : "Verify Now"}
-              </Btn>
-            )}
             {safeLicense.hasKey && (
               <Btn
                 variant="danger"

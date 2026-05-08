@@ -6,6 +6,9 @@ import { missionControlApi } from "./src/server/vite-api-plugin";
 import { DEV_SERVER_HOST, DEV_SERVER_PORT } from "./src/shared/dev-server";
 
 export default defineConfig({
+  define: {
+    __MC_LICENSE_PUBLIC_KEY__: JSON.stringify(process.env.MC_LICENSE_PUBLIC_KEY ?? ""),
+  },
   server: {
     port: DEV_SERVER_PORT,
     strictPort: true,

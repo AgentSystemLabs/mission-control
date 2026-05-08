@@ -193,10 +193,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ key }),
     }),
-  revalidateLicense: () =>
-    req<{ license: LicenseState }>("/api/license/revalidate", {
-      method: "POST",
-    }),
   removeLicense: () =>
     req<{ license: LicenseState }>("/api/license", { method: "DELETE" }),
 

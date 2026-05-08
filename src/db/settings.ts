@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "./client";
 import { appSettings } from "./schema";
 import {
-  GRACE_WINDOW_DAYS,
+  type LicensePayload,
   type LicenseStatus,
 } from "~/shared/license";
 
@@ -19,6 +19,11 @@ export function setSetting(key: string, value: string): void {
     .values({ key, value })
     .onConflictDoUpdate({ target: appSettings.key, set: { value } })
     .run();
+}
+
+function deleteSetting(key: string): void {
+  const db = getDb();
+  db.delete(appSettings).where(eq(appSettings.key, key)).run();
 }
 
 export function getBooleanSetting(key: string, defaultValue = false): boolean {
@@ -50,13 +55,11 @@ const LICENSE_KEY_KEY = "license_key";
 const LICENSE_STATUS_KEY = "license_status";
 const LICENSE_PLAN_KEY = "license_plan";
 const LICENSE_LAST_VALIDATED_AT_KEY = "license_last_validated_at";
-const LICENSE_OFFLINE_GRACE_UNTIL_KEY = "license_offline_grace_until";
+const LICENSE_PAYLOAD_KEY = "license_payload";
 
 const LICENSE_STATUS_VALUES: readonly LicenseStatus[] = [
   "active",
-  "revoked",
   "invalid",
-  "unknown",
 ];
 
 function readLicenseStatus(): LicenseStatus | null {
@@ -71,8 +74,18 @@ export type StoredLicenseState = {
   status: LicenseStatus | null;
   plan: string | null;
   lastValidatedAt: string | null;
-  graceUntil: string | null;
+  payload: LicensePayload | null;
 };
+
+function readJsonSetting<T>(key: string): T | null {
+  const raw = getSetting(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
 
 export function getLicenseState(): StoredLicenseState {
   return {
@@ -80,7 +93,7 @@ export function getLicenseState(): StoredLicenseState {
     status: readLicenseStatus(),
     plan: getSetting(LICENSE_PLAN_KEY),
     lastValidatedAt: getSetting(LICENSE_LAST_VALIDATED_AT_KEY),
-    graceUntil: getSetting(LICENSE_OFFLINE_GRACE_UNTIL_KEY),
+    payload: readJsonSetting<LicensePayload>(LICENSE_PAYLOAD_KEY),
   };
 }
 
@@ -89,25 +102,23 @@ export function setLicenseKey(key: string): void {
 }
 
 export function clearLicense(): void {
-  const db = getDb();
   for (const key of [
     LICENSE_KEY_KEY,
     LICENSE_STATUS_KEY,
     LICENSE_PLAN_KEY,
     LICENSE_LAST_VALIDATED_AT_KEY,
-    LICENSE_OFFLINE_GRACE_UNTIL_KEY,
+    LICENSE_PAYLOAD_KEY,
+    "license_offline_grace_until",
+    "license_activation",
   ]) {
-    db.delete(appSettings).where(eq(appSettings.key, key)).run();
+    deleteSetting(key);
   }
 }
 
-/**
- * Persist the result of a license validation attempt.
- * `graceUntil` is only refreshed when the academy returned `active`; other
- * outcomes (including network failures recorded as `unknown`) leave the
- * existing grace window intact so a transient network failure can't
- * accidentally extend Pro access.
- */
+export function setLicensePayload(payload: LicensePayload): void {
+  setSetting(LICENSE_PAYLOAD_KEY, JSON.stringify(payload));
+}
+
 export function setLicenseValidationResult(
   status: LicenseStatus,
   plan: string | null,
@@ -118,12 +129,7 @@ export function setLicenseValidationResult(
   if (plan) {
     setSetting(LICENSE_PLAN_KEY, plan);
   } else {
-    const db = getDb();
-    db.delete(appSettings).where(eq(appSettings.key, LICENSE_PLAN_KEY)).run();
-  }
-  if (status === "active") {
-    const grace = new Date(now.getTime() + GRACE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    setSetting(LICENSE_OFFLINE_GRACE_UNTIL_KEY, grace.toISOString());
+    deleteSetting(LICENSE_PLAN_KEY);
   }
 }
 

@@ -1,7 +1,7 @@
 // Renderer-side wrapper for the install-skills HTTP API.
 // The local mission-control server resolves ACADEMY_BASE_URL itself
-// (localhost:3000 in dev, https://agentsystem.dev in prod) — same pattern
-// the license flow uses, so no env var is required from the user.
+// (localhost:3000 in dev, https://agentsystem.dev in prod), so no env var is
+// required from the user.
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   InstallSkillsResult,

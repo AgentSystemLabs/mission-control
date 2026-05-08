@@ -44,7 +44,6 @@ import { json, jsonError, requireBearerToken } from "./auth";
 import {
   readLicenseState,
   removeLicense,
-  revalidateOnBoot,
   validateLicense,
 } from "./services/license";
 import { generateTitleForTask } from "./services/title-generator";
@@ -347,11 +346,6 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const key = typeof body?.key === "string" ? body.key.trim() : "";
       if (!key) return jsonError(400, "key required");
       const license = await validateLicense(key);
-      return json({ license });
-    }
-
-    if (pathname === "/api/license/revalidate" && method === "POST") {
-      const license = await revalidateOnBoot();
       return json({ license });
     }
 

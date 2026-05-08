@@ -11,6 +11,7 @@ import {
 } from "~/db/settings";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
 import { isProTier } from "~/shared/license";
+import { readLicenseState } from "./license";
 
 export class SkillsBundleError extends Error {
   constructor(
@@ -54,12 +55,7 @@ export async function initializeSkills(): Promise<SkillsInitResult> {
   if (!stored.key) {
     throw new SkillsBundleError("No license key on file.", "no_key");
   }
-  const proState = {
-    hasKey: !!stored.key,
-    status: stored.status,
-    graceUntil: stored.graceUntil,
-  };
-  if (!isProTier(proState)) {
+  if (!isProTier(readLicenseState())) {
     throw new SkillsBundleError(
       "Mission Control Pro is required to download the skills bundle.",
       "not_pro",

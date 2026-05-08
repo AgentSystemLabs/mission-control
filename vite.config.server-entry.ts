@@ -3,6 +3,9 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import path from "node:path";
 
 export default defineConfig({
+  define: {
+    __MC_LICENSE_PUBLIC_KEY__: JSON.stringify(process.env.MC_LICENSE_PUBLIC_KEY ?? ""),
+  },
   resolve: {
     alias: {
       "~": path.resolve(__dirname, "./src"),
