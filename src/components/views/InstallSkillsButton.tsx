@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
 import { InstallSkillsModal } from "./InstallSkillsModal";
+import { LicenseEntryModal } from "./LicenseEntryModal";
+import { useLicense } from "~/queries";
+import { isProTier } from "~/shared/license";
 import {
   fetchInstalledSkillsVersion,
   fetchLatestSkillsManifest,
@@ -9,6 +12,9 @@ import {
 
 export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
   const [open, setOpen] = useState(false);
+  const [paywallOpen, setPaywallOpen] = useState(false);
+  const { data: license } = useLicense();
+  const isPro = !!license && isProTier(license);
 
   // Background check — never block the UI on these. Failures fall back to
   // showing "Install Skills" so the user always has a path forward.
@@ -45,7 +51,7 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
       <Btn
         variant="ghost"
         icon="sparkles"
-        onClick={() => setOpen(true)}
+        onClick={() => (isPro ? setOpen(true) : setPaywallOpen(true))}
         title={title}
       >
         {label}
@@ -57,6 +63,11 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
           void installed.refetch();
         }}
         projectPath={projectPath}
+      />
+      <LicenseEntryModal
+        open={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        reason="paywall"
       />
     </>
   );

@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { InstallSkillsModal } from "./InstallSkillsModal";
+import { LicenseEntryModal } from "./LicenseEntryModal";
+import { useLicense } from "~/queries";
+import { isProTier } from "~/shared/license";
 
 // Always-visible menu entry that opens the Install Skills modal. Unlike
 // InstallSkillsButton, this never hides itself based on freshness — the user
@@ -13,6 +16,9 @@ export function InstallSkillsMenuItem({
   onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [paywallOpen, setPaywallOpen] = useState(false);
+  const { data: license } = useLicense();
+  const isPro = !!license && isProTier(license);
   return (
     <>
       <Btn
@@ -20,7 +26,8 @@ export function InstallSkillsMenuItem({
         icon="sparkles"
         onClick={() => {
           onOpen?.();
-          setOpen(true);
+          if (isPro) setOpen(true);
+          else setPaywallOpen(true);
         }}
         style={{ justifyContent: "flex-start" }}
         title="Install or reinstall AgentSystem skills into this project"
@@ -31,6 +38,11 @@ export function InstallSkillsMenuItem({
         open={open}
         onClose={() => setOpen(false)}
         projectPath={projectPath}
+      />
+      <LicenseEntryModal
+        open={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        reason="paywall"
       />
     </>
   );
