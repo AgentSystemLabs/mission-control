@@ -2,12 +2,18 @@ import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { missionControlApi } from "./src/server/vite-api-plugin";
 import { DEV_SERVER_HOST, DEV_SERVER_PORT } from "./src/shared/dev-server";
+
+const pkg = JSON.parse(
+  readFileSync(path.resolve(__dirname, "package.json"), "utf8"),
+) as { version: string };
 
 export default defineConfig({
   define: {
     __MC_LICENSE_PUBLIC_KEY__: JSON.stringify(process.env.MC_LICENSE_PUBLIC_KEY ?? ""),
+    __MC_VERSION__: JSON.stringify(pkg.version),
   },
   server: {
     port: DEV_SERVER_PORT,

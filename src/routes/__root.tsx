@@ -28,6 +28,7 @@ import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { useSettings, useProjects, useLicense } from "~/queries";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
+import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { UsagePanel } from "~/components/views/UsagePanel";
@@ -197,6 +198,7 @@ function Shell() {
         leading={<LicenseBadge onClick={() => openSettings("license")} />}
         right={
           <>
+            <UpdateAvailableButton />
             {path !== "/" && (
               <Btn variant="ghost" icon="home" onClick={goHome}>
                 Mission Control
