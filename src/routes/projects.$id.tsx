@@ -342,7 +342,6 @@ function ProjectPage() {
       if (openFileRel || showNewAgent || showEdit || confirmRemove) return;
       setFileFinderOpen((v) => !v);
     },
-    { ignoreEditable: true },
   );
 
   const anyBlockingDialogOpen =
