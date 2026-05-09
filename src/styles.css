@@ -113,6 +113,87 @@ button {
   color: inherit;
 }
 
+.install-skills-theme-button {
+  position: relative;
+  isolation: isolate;
+  height: 30px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background:
+    linear-gradient(var(--surface-0), var(--surface-0)) padding-box,
+    conic-gradient(
+      from var(--skills-border-angle),
+      var(--accent),
+      color-mix(in srgb, var(--accent) 24%, var(--surface-3)),
+      var(--border-strong),
+      color-mix(in srgb, var(--accent) 72%, white),
+      var(--accent)
+    )
+    border-box;
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-faint), 0 0 18px color-mix(in srgb, var(--accent-glow) 38%, transparent);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: skills-border-spin 3.6s linear infinite;
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease,
+    color 0.12s ease,
+    transform 0.12s ease;
+}
+
+.install-skills-theme-button:hover {
+  background:
+    linear-gradient(var(--surface-1), var(--surface-1)) padding-box,
+    conic-gradient(
+      from var(--skills-border-angle),
+      color-mix(in srgb, var(--accent) 84%, white),
+      var(--accent),
+      var(--accent-border),
+      color-mix(in srgb, var(--accent) 68%, white),
+      color-mix(in srgb, var(--accent) 84%, white)
+    )
+    border-box;
+  box-shadow: 0 0 0 1px var(--accent-border), 0 0 22px color-mix(in srgb, var(--accent-glow) 48%, transparent);
+  color: color-mix(in srgb, var(--accent) 88%, white);
+  transform: translateY(-1px);
+}
+
+.install-skills-theme-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.install-skills-theme-button:active {
+  transform: translateY(0);
+}
+
+@property --skills-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes skills-border-spin {
+  to {
+    --skills-border-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-skills-theme-button {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

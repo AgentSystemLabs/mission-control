@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
 import { Field, SettingsSection, formatTimestamp } from "~/components/views/SettingsParts";
-import { LicenseEntryModal } from "./LicenseEntryModal";
+import { SkillsUpsellModal } from "./SkillsUpsellModal";
 import { api, ApiError } from "~/lib/api";
 import { queryKeys, useLicense, useSkillsStatus } from "~/queries";
 import { isProTier } from "~/shared/license";
@@ -157,10 +157,9 @@ export function SkillsSettingsPage() {
         </Field>
       </SettingsSection>
 
-      <LicenseEntryModal
+      <SkillsUpsellModal
         open={paywallOpen}
         onClose={() => setPaywallOpen(false)}
-        reason="paywall"
       />
     </>
   );

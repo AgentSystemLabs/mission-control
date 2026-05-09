@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { InstallSkillsModal } from "./InstallSkillsModal";
-import { LicenseEntryModal } from "./LicenseEntryModal";
+import { SkillsUpsellModal } from "./SkillsUpsellModal";
 import { useLicense } from "~/queries";
 import { isProTier } from "~/shared/license";
 
@@ -39,10 +39,9 @@ export function InstallSkillsMenuItem({
         onClose={() => setOpen(false)}
         projectPath={projectPath}
       />
-      <LicenseEntryModal
+      <SkillsUpsellModal
         open={paywallOpen}
         onClose={() => setPaywallOpen(false)}
-        reason="paywall"
       />
     </>
   );

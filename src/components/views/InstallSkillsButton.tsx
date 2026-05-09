@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Btn } from "~/components/ui/Btn";
+import { Icon } from "~/components/ui/Icon";
 import { InstallSkillsModal } from "./InstallSkillsModal";
-import { LicenseEntryModal } from "./LicenseEntryModal";
+import { SkillsUpsellModal } from "./SkillsUpsellModal";
 import { useLicense } from "~/queries";
 import { isProTier } from "~/shared/license";
 import {
@@ -48,14 +48,15 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
 
   return (
     <>
-      <Btn
-        variant="ghost"
-        icon="sparkles"
+      <button
+        type="button"
+        className="install-skills-theme-button"
         onClick={() => (isPro ? setOpen(true) : setPaywallOpen(true))}
         title={title}
       >
+        <Icon name="sparkles" size={13} />
         {label}
-      </Btn>
+      </button>
       <InstallSkillsModal
         open={open}
         onClose={() => {
@@ -64,10 +65,9 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
         }}
         projectPath={projectPath}
       />
-      <LicenseEntryModal
+      <SkillsUpsellModal
         open={paywallOpen}
         onClose={() => setPaywallOpen(false)}
-        reason="paywall"
       />
     </>
   );
