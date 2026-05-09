@@ -144,8 +144,6 @@ export function TaskCard({
                 <Icon name="git-branch" size={10} /> {task.branch}
               </span>
               <span>·</span>
-              <span>+{task.lines} lines</span>
-              <span>·</span>
               <span>{updated}</span>
             </div>
           </div>
