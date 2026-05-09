@@ -18,3 +18,4 @@ release
 dist-electron-out/
 artifacts/
 
+.openai-key

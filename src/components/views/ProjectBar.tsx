@@ -45,7 +45,7 @@ export function ProjectBar() {
         alignItems: "center",
         gap: 8,
         padding: "10px 0",
-        background: "var(--surface-0)",
+        background: "var(--surface-0) url('/project-switcher.png') top center / 56px auto no-repeat",
         borderRight: "1px solid var(--border)",
         overflowX: "hidden",
         overflowY: "auto",

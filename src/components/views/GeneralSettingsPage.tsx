@@ -4,6 +4,10 @@ import { Field, SettingsSection } from "~/components/views/SettingsParts";
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
 import {
+  CURRENT_MC_VERSION,
+  useLatestMissionControlVersion,
+} from "~/queries/mission-control-version";
+import {
   ACCENT_COLORS,
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
@@ -277,7 +281,65 @@ export function GeneralSettingsPage() {
           )}
         </Field>
       </SettingsSection>
+      <AboutSection />
     </>
+  );
+}
+
+function AboutSection() {
+  const { data, isLoading, isError } = useLatestMissionControlVersion();
+  const latest = data?.latestVersion;
+  const updateAvailable = !!data?.isUpdateAvailable;
+
+  let status: string;
+  if (isLoading) status = "Checking for updates…";
+  else if (isError) status = "Couldn't check for updates.";
+  else if (!latest) status = "No release information available.";
+  else if (updateAvailable) status = `New version v${latest} available.`;
+  else status = "You're on the latest version.";
+
+  return (
+    <SettingsSection title="About" subtitle="Version information for Mission Control.">
+      <Field label="Version">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            padding: "12px 14px",
+            background: "var(--surface-0)",
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
+              Installed: v{CURRENT_MC_VERSION}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}>
+              {status}
+            </div>
+          </div>
+          {updateAvailable && data?.downloadUrl && (
+            <a
+              href={data.downloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "var(--accent)",
+                textDecoration: "none",
+                flexShrink: 0,
+              }}
+            >
+              Download →
+            </a>
+          )}
+        </div>
+      </Field>
+    </SettingsSection>
   );
 }
 
