@@ -15,7 +15,7 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <div style={{ marginBottom: 32, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+    <div style={{ marginBottom: 32 }}>
       <div
         style={{
           display: "flex",

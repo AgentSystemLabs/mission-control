@@ -36,6 +36,11 @@ import { Toaster } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import "~/styles.css";
 
+const LAUNCH_OVERLAY_DURATION_MS = 2700;
+const LAUNCH_DOORS_OPEN_MS = 1940;
+const LAUNCH_AIRLOCK_AUDIO_MS = 1440;
+const LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS = 0.1;
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
@@ -150,7 +155,10 @@ function Shell() {
   }, [settings?.accentColor]);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setShowLaunchOverlay(false), 2100);
+    const timeout = window.setTimeout(
+      () => setShowLaunchOverlay(false),
+      LAUNCH_OVERLAY_DURATION_MS,
+    );
     return () => window.clearTimeout(timeout);
   }, []);
 
@@ -235,113 +243,142 @@ function Shell() {
   }, [userTerminalPanelOpen, focusedUserTerminalId, killUserTerminal]);
 
   return (
-    <div id="root">
-      <AgentSystemBanner onOpenSettings={() => setActivePanel("settings")} />
-      <TopBar
-        crumbs={crumbs}
-        onHome={goHome}
-        leading={<LicenseBadge onClick={() => openSettings("license")} />}
-        right={
-          <>
-            <UpdateAvailableButton />
-            {path !== "/" && (
-              <Btn variant="ghost" icon="home" onClick={goHome}>
-                Mission Control
-                <KbdAction action="nav.toggle" />
+    <>
+      <div id="root">
+        <AgentSystemBanner onOpenSettings={() => setActivePanel("settings")} />
+        <TopBar
+          crumbs={crumbs}
+          onHome={goHome}
+          leading={<LicenseBadge onClick={() => openSettings("license")} />}
+          right={
+            <>
+              <UpdateAvailableButton />
+              {path !== "/" && (
+                <Btn variant="ghost" icon="home" onClick={goHome}>
+                  Mission Control
+                  <KbdAction action="nav.toggle" />
+                </Btn>
+              )}
+              <Btn
+                variant="ghost"
+                icon="settings"
+                onClick={() => setActivePanel("settings")}
+              >
+                Settings
               </Btn>
-            )}
-            <Btn
-              variant="ghost"
-              icon="settings"
-              onClick={() => setActivePanel("settings")}
-            >
-              Settings
-            </Btn>
-            <button
-              onClick={toggle}
-              title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+              <button
+                onClick={toggle}
+                title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+                style={{
+                  width: 28,
+                  height: 24,
+                  display: "inline-grid",
+                  placeItems: "center",
+                  color: "var(--text-faint)",
+                  padding: 0,
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  background: "transparent",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name={theme === "dark" ? "sun" : "moon"} size={14} />
+              </button>
+            </>
+          }
+        />
+        <div
+          ref={workspaceRef}
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            minHeight: 0,
+          }}
+        >
+          <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
+            <ProjectBar />
+            <div
               style={{
-                width: 28,
-                height: 24,
-                display: "inline-grid",
-                placeItems: "center",
-                color: "var(--text-faint)",
-                padding: 0,
-                border: "1px solid var(--border)",
-                borderRadius: 4,
-                background: "transparent",
-                cursor: "pointer",
+                flex: 1,
+                display: sessionExpanded ? "none" : "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                minWidth: 0,
               }}
             >
-              <Icon name={theme === "dark" ? "sun" : "moon"} size={14} />
-            </button>
-          </>
-        }
-      />
-      <div
-        ref={workspaceRef}
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          minHeight: 0,
-        }}
-      >
-        <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
-          <ProjectBar />
-          <div
-            style={{
-              flex: 1,
-              display: sessionExpanded ? "none" : "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              minWidth: 0,
-            }}
-          >
-            <Outlet />
+              <Outlet />
+            </div>
+            {projectMatch && (
+              <TerminalPanel
+                active={activeFor(projectMatch[1]!)}
+                onClose={close}
+                onPtyReady={setPtyId}
+                expanded={sessionExpanded}
+                onToggleExpanded={toggleTerminalExpanded}
+              />
+            )}
           </div>
-          {projectMatch && (
-            <TerminalPanel
-              active={activeFor(projectMatch[1]!)}
-              onClose={close}
-              onPtyReady={setPtyId}
-              expanded={sessionExpanded}
-              onToggleExpanded={toggleTerminalExpanded}
-            />
-          )}
+          <UserTerminalPanel />
         </div>
-        <UserTerminalPanel />
+        {activePanel === "settings" && (
+          <SettingsPanel onBack={closePanel} initialPanel={settingsInitialPanel} />
+        )}
+        {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
+        <Toaster
+          position="bottom-right"
+          theme={theme === "dark" ? "dark" : "light"}
+          richColors
+        />
       </div>
-      {activePanel === "settings" && (
-        <SettingsPanel onBack={closePanel} initialPanel={settingsInitialPanel} />
-      )}
-      {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
-      <Toaster
-        position="bottom-right"
-        theme={theme === "dark" ? "dark" : "light"}
-        richColors
-      />
       {showLaunchOverlay && <LaunchOverlay />}
-    </div>
+    </>
   );
 }
 
 function LaunchOverlay() {
+  useEffect(() => {
+    const playAudio = (src: string, startAtSeconds = 0) => {
+      const audio = new Audio(src);
+      audio.preload = "auto";
+      if (startAtSeconds > 0) {
+        audio.currentTime = startAtSeconds;
+      }
+      void audio.play().catch(() => {
+        // Browsers may block startup audio until the first user gesture.
+      });
+    };
+
+    playAudio("/welcome.mp3", LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS);
+
+    const slideTimeout = window.setTimeout(
+      () => playAudio("/slide.ogg"),
+      LAUNCH_AIRLOCK_AUDIO_MS,
+    );
+
+    return () => {
+      window.clearTimeout(slideTimeout);
+    };
+  }, []);
+
   return (
     <div className="launch-overlay" role="status" aria-label="Mission Control loading">
-      <div className="launch-overlay__content">
-        <img
-          className="launch-overlay__robot"
-          src="/robot.png"
-          alt=""
-          aria-hidden="true"
-        />
-        <div className="launch-overlay__label" aria-hidden="true">
-          <span>MISSION</span>
-          <span className="launch-overlay__dot" />
-          <span>CONTROL</span>
+      <div className="launch-overlay__doors" aria-hidden="true">
+        <div className="launch-overlay__door launch-overlay__door--left">
+          <img src="/doors.png" alt="" />
         </div>
+        <div className="launch-overlay__door launch-overlay__door--right">
+          <img src="/doors.png" alt="" />
+        </div>
+      </div>
+      <div className="launch-overlay__fog" aria-hidden="true">
+        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--top launch-overlay__fog-plume--left" />
+        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--top launch-overlay__fog-plume--right" />
+        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--bottom launch-overlay__fog-plume--left" />
+        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--bottom launch-overlay__fog-plume--right" />
+        <span className="launch-overlay__fog-floor launch-overlay__fog-floor--top" />
+        <span className="launch-overlay__fog-floor launch-overlay__fog-floor--bottom" />
       </div>
     </div>
   );
@@ -369,7 +406,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
         justifyContent: "center",
         gap: 12,
         flexWrap: "wrap",
-        background: "var(--banner-bg)",
+        background: "transparent",
         borderBottom: "1px solid var(--border-strong)",
         color: "var(--text)",
         flexShrink: 0,

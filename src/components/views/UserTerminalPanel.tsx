@@ -35,10 +35,16 @@ export function UserTerminalPanel() {
   return (
     <div
       style={{
+        width: "100%",
+        boxSizing: "border-box",
         height: panelOpen ? height : "auto",
         minHeight: panelOpen ? MIN_HEIGHT : 0,
         background: "var(--terminal-bg)",
-        borderTop: "1px solid var(--border-strong)",
+        border: "18px solid transparent",
+        borderImageSource: "url('/square.png')",
+        borderImageSlice: "180 fill",
+        borderImageWidth: "18px",
+        borderImageRepeat: "stretch",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
@@ -149,7 +155,7 @@ export function UserTerminalPanel() {
         </div>
       </button>
       {panelOpen && (
-      <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", gap: 8, padding: 8 }}>
         {sessions.length === 0 ? (
           <div
             style={{

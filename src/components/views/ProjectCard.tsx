@@ -29,22 +29,26 @@ export function ProjectCard({
     <div
       ref={glowRef}
       style={{
+        width: "100%",
+        boxSizing: "border-box",
         background: "var(--surface-1)",
-        border: `1px solid ${hasActivity ? "var(--accent-border)" : "var(--border)"}`,
-        borderRadius: 12,
+        border: "16px solid transparent",
+        borderImageSource: "url('/square.png')",
+        borderImageSlice: "180 fill",
+        borderImageWidth: "16px",
+        borderImageRepeat: "stretch",
         overflow: "hidden",
         cursor: "pointer",
-        transition: "border-color 0.15s, transform 0.15s, background 0.15s",
+        transition: "box-shadow 0.15s, transform 0.15s, background 0.15s",
         display: "flex",
         flexDirection: "column",
         position: "relative",
+        boxShadow: hasActivity ? "0 0 0 1px var(--accent-border)" : "none",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "var(--border-strong)";
         e.currentTarget.style.background = "var(--surface-2)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = hasActivity ? "var(--accent-border)" : "var(--border)";
         e.currentTarget.style.background = "var(--surface-1)";
       }}
     >

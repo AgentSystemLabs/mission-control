@@ -103,9 +103,33 @@ body {
 }
 
 #root {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  position: relative;
+  isolation: isolate;
+  padding: clamp(22px, calc(4vw - 30px), 34px)
+    clamp(16px, calc(1vw + 8px), 22px)
+    clamp(10px, calc(3vw - 30px), 22px);
+}
+
+#root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  border: clamp(44px, 4vw, 64px) solid transparent;
+  border-image-source: url("/shell.png");
+  border-image-slice: 120;
+  border-image-width: 1;
+  border-image-repeat: stretch;
+}
+
+#root > * {
+  position: relative;
+  z-index: 1;
 }
 
 button {
@@ -283,57 +307,89 @@ button {
 }
 @keyframes launch-overlay-fade {
   0%,
-  68% {
+  91% {
     opacity: 1;
   }
   100% {
     opacity: 0;
   }
 }
-@keyframes launch-robot-fly {
+@keyframes launch-doors-zoom {
   0% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+    transform: scale(1);
   }
-  10% {
-    opacity: 1;
-    transform: translate3d(-2px, 1px, 0) rotate(-1.2deg) scale(1);
-  }
-  20% {
-    opacity: 1;
-    transform: translate3d(2px, -1px, 0) rotate(1.1deg) scale(1);
-  }
-  30% {
-    opacity: 1;
-    transform: translate3d(-1px, -2px, 0) rotate(-0.8deg) scale(1);
-  }
-  40% {
-    opacity: 1;
-    transform: translate3d(1px, 1px, 0) rotate(0.7deg) scale(1);
-  }
-  62% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-    animation-timing-function: cubic-bezier(0.92, 0, 1, 0.22);
-  }
+  77.6%,
   100% {
-    opacity: 0;
-    transform: translate3d(122vw, -96vh, 0) rotate(32deg) scale(0.52);
+    transform: scale(1.28);
   }
 }
-@keyframes launch-label-settle {
-  0% {
-    opacity: 0;
-    transform: translateY(8px);
+@keyframes launch-door-left {
+  0%,
+  77.6% {
+    transform: translate3d(0, 0, 0);
   }
-  18%,
+  100% {
+    transform: translate3d(-108%, 0, 0);
+  }
+}
+@keyframes launch-door-right {
+  0%,
+  77.6% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(108%, 0, 0);
+  }
+}
+@keyframes launch-fog-left {
+  0%,
+  66.9% {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0) scale(0.35);
+  }
   72% {
-    opacity: 1;
-    transform: translateY(0);
+    opacity: 0.64;
+  }
+  86% {
+    opacity: 0.5;
   }
   100% {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translate3d(calc(-50% - 15vw), calc(-50% + 12vh), 0) scale(2.05);
+  }
+}
+@keyframes launch-fog-right {
+  0%,
+  66.9% {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0) scale(0.35);
+  }
+  72% {
+    opacity: 0.64;
+  }
+  86% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(-50% + 15vw), calc(-50% + 12vh), 0) scale(2.05);
+  }
+}
+@keyframes launch-fog-floor {
+  0%,
+  66.9% {
+    opacity: 0;
+    transform: translate3d(-50%, 0, 0) scaleX(0.22);
+  }
+  74% {
+    opacity: 0.5;
+  }
+  88% {
+    opacity: 0.38;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-50%, 8vh, 0) scaleX(1.7);
   }
 }
 
@@ -410,81 +466,144 @@ body[data-card-glow] .cursor-glow {
   position: fixed;
   inset: 0;
   z-index: 2147483647;
-  display: grid;
-  place-items: center;
+  contain: layout paint;
+  isolation: isolate;
   overflow: hidden;
   pointer-events: all;
-  background:
-    radial-gradient(circle at 46% 40%, rgba(255, 255, 255, 0.18), transparent 16rem),
-    radial-gradient(circle at 22% 26%, color-mix(in srgb, var(--accent) 36%, transparent), transparent 20rem),
-    radial-gradient(circle at 82% 72%, rgba(33, 196, 167, 0.24), transparent 22rem),
-    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-    linear-gradient(135deg, #090a0d 0%, #171c24 42%, #28150f 100%);
-  background-size: auto, auto, auto, 112px 112px, 112px 112px, auto;
-  background-position: center, center, center, 0 0, 0 0, center;
-  animation: launch-overlay-fade 2s ease-in forwards;
+  background: transparent;
+  animation: launch-overlay-fade 2.7s ease forwards;
 }
 
-.launch-overlay::before {
-  content: "";
+.launch-overlay__doors {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.22));
-  opacity: 0.72;
+  transform-origin: 50% 42%;
+  will-change: transform;
+  animation: launch-doors-zoom 2.5s cubic-bezier(0.22, 0.72, 0.12, 1) forwards;
 }
 
-.launch-overlay__content {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  justify-items: center;
-  gap: 20px;
+.launch-overlay__door {
+  position: absolute;
+  top: 0;
+  width: 50vw;
+  height: 100vh;
+  overflow: hidden;
+  will-change: transform;
+  backface-visibility: hidden;
+  animation-duration: 2.5s;
+  animation-timing-function: cubic-bezier(0.78, 0, 0.18, 1);
+  animation-fill-mode: forwards;
 }
 
-.launch-overlay__robot {
-  width: min(34vw, 220px);
-  min-width: 124px;
-  height: auto;
-  filter: drop-shadow(0 26px 44px rgba(0, 0, 0, 0.46))
-    drop-shadow(0 0 34px color-mix(in srgb, var(--accent) 32%, transparent));
-  transform-origin: 64% 24%;
-  will-change: opacity, transform;
-  animation: launch-robot-fly 2s linear forwards;
+.launch-overlay__door--left {
+  left: 0;
+  animation-name: launch-door-left;
 }
 
-.launch-overlay__label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: #fff7ec;
-  font-family: var(--mono);
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-shadow: 0 1px 22px rgba(0, 0, 0, 0.46);
-  animation: launch-label-settle 2s ease forwards;
+.launch-overlay__door--right {
+  right: 0;
+  animation-name: launch-door-right;
 }
 
-.launch-overlay__dot {
-  width: 7px;
-  height: 7px;
+.launch-overlay__door img {
+  position: absolute;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  object-fit: cover;
+  object-position: center center;
+  user-select: none;
+  pointer-events: none;
+}
+
+.launch-overlay__door--left img {
+  left: 0;
+}
+
+.launch-overlay__door--right img {
+  right: 0;
+}
+
+.launch-overlay__fog {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+  filter: blur(12px);
+  mix-blend-mode: screen;
+}
+
+.launch-overlay__fog-plume {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: clamp(96px, 12vw, 210px);
+  height: clamp(54px, 7vw, 130px);
   border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 18px var(--accent-glow);
+  background:
+    radial-gradient(circle at 48% 42%, rgba(232, 244, 255, 0.56), transparent 34%),
+    radial-gradient(circle at 64% 58%, rgba(151, 183, 200, 0.34), transparent 58%);
+  opacity: 0;
+  will-change: opacity, transform;
+  animation-duration: 2.7s;
+  animation-timing-function: cubic-bezier(0.2, 0.72, 0.12, 1);
+  animation-fill-mode: forwards;
+}
+
+.launch-overlay__fog-plume--left {
+  animation-name: launch-fog-left;
+}
+
+.launch-overlay__fog-plume--right {
+  animation-name: launch-fog-right;
+}
+
+.launch-overlay__fog-plume--top {
+  top: 0;
+}
+
+.launch-overlay__fog-plume--bottom {
+  top: calc(100% - 60px);
+  width: clamp(118px, 15vw, 250px);
+  height: clamp(58px, 8vw, 148px);
+  animation-timing-function: cubic-bezier(0.22, 0.56, 0.14, 1);
+}
+
+.launch-overlay__fog-floor {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: min(54vw, 780px);
+  height: clamp(44px, 7vw, 110px);
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(205, 228, 238, 0.42), transparent 68%);
+  opacity: 0;
+  transform-origin: center;
+  will-change: opacity, transform;
+  animation: launch-fog-floor 2.7s cubic-bezier(0.18, 0.64, 0.12, 1) forwards;
+}
+
+.launch-overlay__fog-floor--top {
+  top: 0;
+}
+
+.launch-overlay__fog-floor--bottom {
+  top: calc(100% - clamp(54px, 8vw, 128px) - 60px);
+  height: clamp(54px, 8vw, 128px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .launch-overlay__robot {
-    animation: none;
+  .launch-overlay {
+    animation-duration: 700ms;
   }
-}
 
-@media (max-width: 480px) {
-  .launch-overlay__label {
-    gap: 9px;
-    font-size: 13px;
+  .launch-overlay__doors,
+  .launch-overlay__door,
+  .launch-overlay__fog-plume,
+  .launch-overlay__fog-floor {
+    animation: none;
   }
 }
 

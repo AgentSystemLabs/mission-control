@@ -47,23 +47,22 @@ export function TaskCard({
         if (onDelete) setMenu({ x: e.clientX, y: e.clientY });
       }}
       style={{
+        width: "100%",
+        boxSizing: "border-box",
         background: selected ? "var(--surface-2)" : "var(--surface-1)",
-        border: `1px solid ${selected ? statusMeta.color : "var(--border)"}`,
-        borderRadius: 10,
+        border: "16px solid transparent",
+        borderImageSource: "url('/square.png')",
+        borderImageSlice: "180 fill",
+        borderImageWidth: "16px",
+        borderImageRepeat: "stretch",
         overflow: "hidden",
         cursor: "pointer",
-        transition: "all 0.15s",
+        transition: "box-shadow 0.15s, background 0.15s",
         position: "relative",
         boxShadow: selected ? `0 0 0 1px ${statusMeta.color}, 0 0 16px ${statusMeta.color}33` : "none",
       }}
-      onMouseEnter={(e) => {
-        setHovered(true);
-        if (!selected) e.currentTarget.style.borderColor = "var(--border-strong)";
-      }}
-      onMouseLeave={(e) => {
-        setHovered(false);
-        if (!selected) e.currentTarget.style.borderColor = "var(--border)";
-      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       <ShimmerBar active={isRunning} color={meta?.color} />
       <button

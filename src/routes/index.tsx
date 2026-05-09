@@ -148,8 +148,20 @@ function MissionControlPage() {
   return (
     <>
       <CursorGlow />
-      <div style={{ flex: 1, overflow: "auto", padding: "28px 32px 80px" }} className="dot-grid-bg">
-        <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: 0 }} className="dot-grid-bg">
+        <div
+          style={{
+            width: "100%",
+            minHeight: "100%",
+            boxSizing: "border-box",
+            padding: 8,
+            border: "18px solid transparent",
+            borderImageSource: "url('/square.png')",
+            borderImageSlice: "180 fill",
+            borderImageWidth: "18px",
+            borderImageRepeat: "stretch",
+          }}
+        >
           <div
             style={{
               display: "flex",
