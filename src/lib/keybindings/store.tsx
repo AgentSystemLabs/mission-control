@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "~/lib/api";
 import { DEFAULT_BINDINGS } from "./defaults";
+function mergeWithDefaults(b: BindingMap | undefined): BindingMap {
+  return { ...DEFAULT_BINDINGS, ...(b ?? {}) };
+}
 import { formatBinding } from "./format";
 import type { Binding, BindingMap, HotkeyAction } from "./types";
 
@@ -20,7 +23,7 @@ export function KeybindingsProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const r = await api.getKeybindings();
-      setBindings(r.bindings);
+      setBindings(mergeWithDefaults(r.bindings));
     } catch {
       // Keep current bindings on transient failure.
     }
@@ -35,15 +38,15 @@ export function KeybindingsProvider({ children }: { children: ReactNode }) {
       refresh,
       async setBinding(action, b) {
         const r = await api.setKeybinding(action, b);
-        setBindings(r.bindings);
+        setBindings(mergeWithDefaults(r.bindings));
       },
       async resetBinding(action) {
         const r = await api.resetKeybinding(action);
-        setBindings(r.bindings);
+        setBindings(mergeWithDefaults(r.bindings));
       },
       async resetAll() {
         const r = await api.resetAllKeybindings();
-        setBindings(r.bindings);
+        setBindings(mergeWithDefaults(r.bindings));
       },
     }),
     [bindings, refresh],
@@ -59,7 +62,7 @@ export function useKeybindings(): Ctx {
 }
 
 export function useBinding(action: HotkeyAction): Binding {
-  return useKeybindings().bindings[action];
+  return useKeybindings().bindings[action] ?? DEFAULT_BINDINGS[action];
 }
 
 export function useFormattedBinding(action: HotkeyAction): string {

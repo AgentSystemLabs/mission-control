@@ -21,10 +21,14 @@ export function TerminalPanel({
   active,
   onClose,
   onPtyReady,
+  expanded = false,
+  onToggleExpanded,
 }: {
   active: OpenTerminal | null;
   onClose: (taskId: string) => Promise<void> | void;
   onPtyReady: (taskId: string, ptyId: string) => void;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }) {
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
@@ -70,8 +74,9 @@ export function TerminalPanel({
   return (
     <div
       style={{
-        width,
-        minWidth: MIN_WIDTH,
+        width: expanded ? "100%" : width,
+        flex: expanded ? 1 : undefined,
+        minWidth: expanded ? 0 : MIN_WIDTH,
         background: "#050607",
         borderLeft: "1px solid var(--border-strong)",
         display: "flex",
@@ -81,19 +86,21 @@ export function TerminalPanel({
         position: "relative",
       }}
     >
-      <div
-        onMouseDown={onResizeMouseDown}
-        title="Drag to resize"
-        style={{
-          position: "absolute",
-          left: -3,
-          top: 0,
-          bottom: 0,
-          width: 6,
-          cursor: "col-resize",
-          zIndex: 10,
-        }}
-      />
+      {!expanded && (
+        <div
+          onMouseDown={onResizeMouseDown}
+          title="Drag to resize"
+          style={{
+            position: "absolute",
+            left: -3,
+            top: 0,
+            bottom: 0,
+            width: 6,
+            cursor: "col-resize",
+            zIndex: 10,
+          }}
+        />
+      )}
       <div
         style={{
           display: "flex",
@@ -119,6 +126,20 @@ export function TerminalPanel({
         <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10.5 }}>
           Hide/show <KbdAction action="terminal.close" variant="ghost" />
         </span>
+        {onToggleExpanded && (
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon={expanded ? "chevron-right" : "chevron-left"}
+            onClick={onToggleExpanded}
+            title={expanded ? "Shrink session panel" : "Expand session panel to fill workspace"}
+            aria-label={expanded ? "Shrink session panel" : "Expand session panel"}
+            aria-pressed={expanded}
+          >
+            {expanded ? "Shrink" : "Expand"}
+            <KbdAction action="terminal.expandToggle" variant="ghost" />
+          </Btn>
+        )}
         <Btn
           variant="ghost"
           size="sm"

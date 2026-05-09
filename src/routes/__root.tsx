@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -101,6 +101,35 @@ function Shell() {
 
   const path = router.state.location.pathname;
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
+  const projectId = projectMatch ? projectMatch[1]! : null;
+
+  const expandedKey = projectId ? `mc:terminalExpanded:${projectId}` : null;
+  const [terminalExpanded, setTerminalExpanded] = useState<boolean>(false);
+  useEffect(() => {
+    if (!expandedKey) {
+      setTerminalExpanded(false);
+      return;
+    }
+    try {
+      setTerminalExpanded(window.localStorage.getItem(expandedKey) === "1");
+    } catch {
+      setTerminalExpanded(false);
+    }
+  }, [expandedKey]);
+  const toggleTerminalExpanded = useCallback(() => {
+    if (!expandedKey) return;
+    setTerminalExpanded((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(expandedKey, next ? "1" : "0");
+      } catch {
+        // ignore quota / privacy-mode errors
+      }
+      return next;
+    });
+  }, [expandedKey]);
+  const sessionExpanded =
+    !!projectId && terminalExpanded && !!activeFor(projectId);
   const crumbs: Crumb[] = projectMatch
     ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} /> }]
     : activePanel === "settings"
@@ -149,6 +178,13 @@ function Shell() {
   }, []);
 
   useHotkey("terminal.toggle", () => togglePanel());
+  useHotkey(
+    "terminal.expandToggle",
+    () => {
+      if (projectId && activeFor(projectId)) toggleTerminalExpanded();
+    },
+    { capture: true },
+  );
   useHotkey("nav.toggle", goHome);
   // Cmd/Ctrl + [ / ] / T are non-rebindable terminal-focused shortcuts.
   useEffect(() => {
@@ -254,7 +290,15 @@ function Shell() {
       >
         <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
           <ProjectBar />
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div
+            style={{
+              flex: 1,
+              display: sessionExpanded ? "none" : "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              minWidth: 0,
+            }}
+          >
             <Outlet />
           </div>
           {projectMatch && (
@@ -262,6 +306,8 @@ function Shell() {
               active={activeFor(projectMatch[1]!)}
               onClose={close}
               onPtyReady={setPtyId}
+              expanded={sessionExpanded}
+              onToggleExpanded={toggleTerminalExpanded}
             />
           )}
         </div>

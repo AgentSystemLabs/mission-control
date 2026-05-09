@@ -13,6 +13,7 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "search.focus": makeBinding({ mod: true, key: "/" }),
   "terminal.toggle": makeBinding({ mod: true, key: "`" }),
   "terminal.close": makeBinding({ mod: true, key: "l" }),
+  "terminal.expandToggle": makeBinding({ mod: true, key: "k" }),
   "dialog.submit": makeBinding({ mod: true, key: "Enter" }),
   "file.finder": makeBinding({ mod: true, key: "p" }),
   "file.save": makeBinding({ mod: true, key: "s" }),
