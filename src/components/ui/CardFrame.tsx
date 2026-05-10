@@ -61,7 +61,9 @@ export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFr
         ...frameBaseStyle,
         ...frameStyle,
         ...style,
-        background: solid ? "rgba(3, 6, 8, 0.98)" : (style?.background ?? "transparent"),
+        background:
+          style?.background ??
+          `linear-gradient(${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}, ${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}), url('/square.png') 39.0625% 39.0625% / 200% 200% no-repeat`,
         borderStyle: "solid",
         borderColor: "transparent",
         borderWidth: frameStyle.borderWidth,
