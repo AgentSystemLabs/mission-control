@@ -2,8 +2,10 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { KbdAction } from "~/components/ui/Kbd";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { groupProjects } from "~/lib/group-projects";
 import { Section } from "~/components/ui/Section";
@@ -149,17 +151,11 @@ function MissionControlPage() {
     <>
       <CursorGlow />
       <div style={{ flex: 1, overflow: "auto", padding: 0 }} className="dot-grid-bg">
-        <div
+        <CardFrame
           style={{
             width: "100%",
             minHeight: "100%",
-            boxSizing: "border-box",
             padding: 8,
-            border: "18px solid transparent",
-            borderImageSource: "url('/square.png')",
-            borderImageSlice: "180 fill",
-            borderImageWidth: "18px",
-            borderImageRepeat: "stretch",
           }}
         >
           <div
@@ -260,14 +256,12 @@ function MissionControlPage() {
 
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <div
+                className="mc-input-frame"
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  background: "var(--surface-1)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 7,
-                  padding: "0 10px",
-                  height: 32,
+                  padding: "0 12px",
+                  height: 36,
                   width: 220,
                 }}
               >
@@ -307,10 +301,11 @@ function MissionControlPage() {
                   Launch Kit
                 </Btn>
               )}
-              <Btn variant="primary" icon="plus" onClick={openAddProject}>
-                Add project
-                <KbdAction action="agent.new" variant="onPrimary" />
-              </Btn>
+              <HotkeyTooltip action="agent.new">
+                <Btn variant="primary" icon="plus" onClick={openAddProject}>
+                  Add project
+                </Btn>
+              </HotkeyTooltip>
             </div>
           </div>
 
@@ -365,15 +360,16 @@ function MissionControlPage() {
               subtitle={search ? "Try a different search." : "Add your first project to start running sessions."}
               action={
                 !search && (
-                  <Btn variant="primary" icon="plus" onClick={openAddProject}>
-                    Add project
-                    <KbdAction action="project.add" variant="onPrimary" />
-                  </Btn>
+                  <HotkeyTooltip action="project.add">
+                    <Btn variant="primary" icon="plus" onClick={openAddProject}>
+                      Add project
+                    </Btn>
+                  </HotkeyTooltip>
                 )
               }
             />
           )}
-        </div>
+        </CardFrame>
       </div>
 
       <GroupsDialog

@@ -54,7 +54,7 @@ export function TaskColumn({
         >
           {tasks.length}
         </span>
-        {headerAction}
+        {headerAction && <div style={{ marginLeft: "auto" }}>{headerAction}</div>}
       </div>
       <div
         style={{

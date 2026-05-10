@@ -4,7 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { KbdAction } from "~/components/ui/Kbd";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ICON_COLORS } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
@@ -16,7 +16,6 @@ export function ProjectDialog({
   groups,
   onClose,
   onSave,
-  onDelete,
 }: {
   open: boolean;
   project: Project | null;
@@ -31,7 +30,6 @@ export function ProjectDialog({
     imagePath?: string | null;
     pendingImage?: { sourcePath: string; extension: string } | null;
   }) => Promise<void> | void;
-  onDelete?: () => Promise<void> | void;
 }) {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
@@ -144,25 +142,24 @@ export function ProjectDialog({
       width={520}
       footer={
         <>
-          {project && onDelete && (
-            <Btn
-              variant="danger"
-              icon="trash"
-              onClick={async () => {
-                await onDelete();
-              }}
-              style={{ marginRight: "auto" }}
-            >
-              Remove project
-            </Btn>
-          )}
           <Btn variant="ghost" onClick={onClose}>
             Cancel
           </Btn>
-          <Btn variant="primary" onClick={submit}>
-            {project ? "Save" : "Add project"}
-            <KbdAction action="dialog.submit" variant="onPrimary" />
-          </Btn>
+          <HotkeyTooltip action="dialog.submit">
+            <Btn
+              variant="primary"
+              onClick={submit}
+              style={{
+                height: 36,
+                ["--mc-btn-height" as any]: "36px",
+                ["--mc-btn-padding-x" as any]: "18px",
+                ["--mc-btn-frame-border" as any]: "14px",
+                minWidth: 80,
+              }}
+            >
+              {project ? "Save" : "Add project"}
+            </Btn>
+          </HotkeyTooltip>
         </>
       }
     >

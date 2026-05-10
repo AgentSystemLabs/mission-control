@@ -1,11 +1,11 @@
 import { useCallback, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
-import { useCardGlow } from "~/lib/use-card-glow";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
@@ -25,7 +25,6 @@ export function TaskCard({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const glowRef = useCardGlow<HTMLDivElement>();
 
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
@@ -39,8 +38,9 @@ export function TaskCard({
   const toggleTask = () => onToggle(task.id);
 
   return (
-    <div
-      ref={glowRef}
+    <CardFrame
+      glow
+      focused={selected || hovered}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -48,18 +48,8 @@ export function TaskCard({
       }}
       style={{
         width: "100%",
-        boxSizing: "border-box",
-        background: selected ? "var(--surface-2)" : "var(--surface-1)",
-        border: "16px solid transparent",
-        borderImageSource: "url('/square.png')",
-        borderImageSlice: "180 fill",
-        borderImageWidth: "16px",
-        borderImageRepeat: "stretch",
-        overflow: "hidden",
         cursor: "pointer",
         transition: "box-shadow 0.15s, background 0.15s",
-        position: "relative",
-        boxShadow: selected ? `0 0 0 1px ${statusMeta.color}, 0 0 16px ${statusMeta.color}33` : "none",
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -148,41 +138,26 @@ export function TaskCard({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {onDelete && (
-              <button
+              <Btn
+                variant="danger"
+                size="sm"
+                icon="trash"
                 aria-label="Delete task"
                 title="Delete task"
                 onClick={(e) => {
                   e.stopPropagation();
                   setConfirmOpen(true);
                 }}
+                tabIndex={showDeleteAction ? 0 : -1}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 20,
-                  height: 20,
-                  border: 0,
-                  borderRadius: 4,
-                  background: "transparent",
-                  color: "var(--text-faint)",
-                  cursor: "pointer",
+                  width: 34,
+                  padding: 0,
                   opacity: showDeleteAction ? 1 : 0,
                   pointerEvents: showDeleteAction ? "auto" : "none",
-                  transition: "opacity 0.12s, color 0.12s, background 0.12s",
                   position: "relative",
                   zIndex: 1,
                 }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--status-failed)";
-                  e.currentTarget.style.background = "var(--surface-2)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--text-faint)";
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                <Icon name="trash" size={12} />
-              </button>
+              />
             )}
           </div>
         </div>
@@ -302,7 +277,7 @@ export function TaskCard({
         </ConfirmDialog>
         </div>
       )}
-    </div>
+    </CardFrame>
   );
 }
 

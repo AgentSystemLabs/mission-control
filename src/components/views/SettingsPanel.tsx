@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
-import { Kbd } from "~/components/ui/Kbd";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { getElectron } from "~/lib/electron";
 import { useHotkey } from "~/lib/use-hotkey";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
@@ -10,9 +11,11 @@ import { KeybindingsPage } from "./KeybindingsPage";
 import { StorageSettingsPage } from "./StorageSettingsPage";
 import { LicenseSettingsPage } from "./LicenseSettingsPage";
 import { SkillsSettingsPage } from "./SkillsSettingsPage";
+import { ThemeSettingsPage } from "./ThemeSettingsPage";
 
 export type SettingsPanelId =
   | "general"
+  | "theme"
   | "license"
   | "skills"
   | "api"
@@ -38,6 +41,7 @@ export function SettingsPanel({
 
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
+    { id: "theme", label: "Theme", icon: "sun" },
     { id: "license", label: "License", icon: "sparkles" },
     { id: "skills", label: "Skills", icon: "sparkles" },
     { id: "api", label: "External API", icon: "terminal" },
@@ -59,100 +63,98 @@ export function SettingsPanel({
         zIndex: 200,
         display: "flex",
         flexDirection: "column",
+        gap: 12,
+        padding: 12,
         overflow: "hidden",
-        background: "var(--surface-0)",
+        background: "var(--bg)",
         boxShadow: "0 0 0 1px var(--border-strong)",
       }}
+      className="dot-grid-bg"
     >
       <div
         style={{
+          flex: 1,
           display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "10px 16px",
-          borderBottom: "1px solid var(--border)",
-          background: "var(--surface-1)",
+          overflow: "hidden",
+          gap: 12,
+          minHeight: 0,
         }}
       >
-        <Btn
-          variant="ghost"
-          size="sm"
-          icon="chevron-left"
-          onClick={onBack}
-          title="Back"
-          aria-label="Back"
-        >
-          Back <Kbd variant="inline">Esc</Kbd>
-        </Btn>
-        <div
+        <CardFrame
+          as="aside"
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            color: "var(--text-dim)",
-            fontFamily: "var(--mono)",
-            fontSize: 12,
-            minWidth: 0,
+            width: 240,
+            flexShrink: 0,
+            padding: "16px 6px",
+            overflow: "auto",
           }}
         >
-          <Icon name="settings" size={12} />
-          <span>Settings</span>
-        </div>
-        <div style={{ flex: 1 }} />
-      </div>
-
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }} className="dot-grid-bg">
-        <aside
-        style={{
-          width: 220,
-          flexShrink: 0,
-          borderRight: "1px solid var(--border)",
-          padding: "28px 12px",
-          background: "var(--surface-0)",
-          overflow: "auto",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "var(--mono)",
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            padding: "0 10px 12px",
-          }}
-        >
-          Settings
-        </div>
-        <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {items.map((item) => (
-            <SettingsNavButton
-              key={item.id}
-              {...item}
-              active={activePanel === item.id}
-              onClick={() => setActivePanel(item.id)}
-            />
-          ))}
-        </nav>
-      </aside>
-        <div style={{ flex: 1, overflow: "auto", padding: "28px 32px 80px" }}>
-          <div style={{ maxWidth: 720, margin: "0 auto" }}>
-            {activePanel === "general" ? (
-              <GeneralSettingsPage />
-            ) : activePanel === "license" ? (
-              <LicenseSettingsPage />
-            ) : activePanel === "skills" ? (
-              <SkillsSettingsPage />
-            ) : activePanel === "api" ? (
-              <ApiSettingsPage />
-            ) : activePanel === "keybindings" ? (
-              <KeybindingsPage />
-            ) : (
-              <StorageSettingsPage />
-            )}
+          <div style={{ padding: "0 10px 14px" }}>
+            <StaticHotkeyTooltip hotkey="Esc" label="Back">
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon="chevron-left"
+                onClick={onBack}
+                aria-label="Back"
+                style={{
+                  width: "100%",
+                  justifyContent: "flex-start",
+                }}
+              >
+                Back
+              </Btn>
+            </StaticHotkeyTooltip>
           </div>
-        </div>
+          <div
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "var(--text-dim)",
+              padding: "0 10px 12px",
+            }}
+          >
+            Settings
+          </div>
+          <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {items.map((item) => (
+              <SettingsNavButton
+                key={item.id}
+                {...item}
+                active={activePanel === item.id}
+                onClick={() => setActivePanel(item.id)}
+              />
+            ))}
+          </nav>
+        </CardFrame>
+        <CardFrame
+          as="section"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: "24px 32px 80px",
+            overflow: "auto",
+          }}
+        >
+          {activePanel === "general" ? (
+            <GeneralSettingsPage />
+          ) : activePanel === "theme" ? (
+            <ThemeSettingsPage />
+          ) : activePanel === "license" ? (
+            <LicenseSettingsPage />
+          ) : activePanel === "skills" ? (
+            <SkillsSettingsPage />
+          ) : activePanel === "api" ? (
+            <ApiSettingsPage />
+          ) : activePanel === "keybindings" ? (
+            <KeybindingsPage />
+          ) : (
+            <StorageSettingsPage />
+          )}
+        </CardFrame>
       </div>
     </div>
   );
@@ -173,14 +175,15 @@ function SettingsNavButton({
         alignItems: "center",
         gap: 10,
         padding: "8px 10px",
-        borderRadius: 7,
+        borderRadius: 6,
         fontFamily: "var(--mono)",
         fontSize: 12,
         color: active ? "var(--text)" : "var(--text-dim)",
-        border: `1px solid ${active ? "var(--border)" : "transparent"}`,
-        background: active ? "var(--surface-1)" : "transparent",
+        border: `1px solid ${active ? "var(--accent-border)" : "transparent"}`,
+        background: active ? "var(--accent-dim)" : "transparent",
         cursor: "pointer",
         textAlign: "left",
+        transition: "background 0.15s, border-color 0.15s, color 0.15s",
       }}
     >
       <Icon name={icon} size={13} />

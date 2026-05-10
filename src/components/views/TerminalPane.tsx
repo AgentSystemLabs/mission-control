@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Icon } from "~/components/ui/Icon";
+import { Btn } from "~/components/ui/Btn";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
@@ -47,6 +47,9 @@ export function TerminalPane({
   project,
   task,
   onClose,
+  onHide,
+  expanded = false,
+  onToggleExpanded,
   isLast,
   descriptor,
   onPtyReady,
@@ -54,6 +57,9 @@ export function TerminalPane({
   project: Project;
   task: Task;
   onClose: () => void;
+  onHide?: () => void;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
   isLast: boolean;
   descriptor: TerminalDescriptor;
   onPtyReady: (ptyId: string) => void;
@@ -321,7 +327,7 @@ export function TerminalPane({
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
-          background: "var(--surface-1)",
+          background: "transparent",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
           userSelect: "none",
@@ -362,23 +368,31 @@ export function TerminalPane({
             <span style={{ color: statusMeta.color }}>{statusMeta.label}</span>
           </div>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          style={{
-            background: "transparent",
-            border: 0,
-            padding: 4,
-            color: "var(--text-faint)",
-            cursor: "pointer",
-            display: "flex",
-          }}
-          title="Close"
-        >
-          <Icon name="x" size={11} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {onToggleExpanded && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon={expanded ? "minimize" : "maximize"}
+              onClick={onToggleExpanded}
+              title={expanded ? "Shrink session panel" : "Expand session panel"}
+              aria-label={expanded ? "Shrink session panel" : "Expand session panel"}
+              aria-pressed={expanded}
+              style={{ width: 34, padding: 0 }}
+            />
+          )}
+          {onHide && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="x"
+              onClick={onHide}
+              title="Hide session panel"
+              aria-label="Hide session panel"
+              style={{ width: 34, padding: 0 }}
+            />
+          )}
+        </div>
       </div>
       <ShimmerBar active={isRunning} color={meta?.color} />
       <div

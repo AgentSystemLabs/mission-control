@@ -1,4 +1,5 @@
-import { useCardGlow } from "~/lib/use-card-glow";
+import { useState } from "react";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
 import { Btn } from "~/components/ui/Btn";
@@ -23,33 +24,19 @@ export function ProjectCard({
   const activity = getProjectActivity(project, runningProjectIds);
   const hasActivity = isProjectActive(activity);
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
-  const glowRef = useCardGlow<HTMLDivElement>();
-
+  const [hovered, setHovered] = useState(false);
   return (
-    <div
-      ref={glowRef}
+    <CardFrame
+      glow
+      focused={hovered}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         width: "100%",
-        boxSizing: "border-box",
-        background: "var(--surface-1)",
-        border: "16px solid transparent",
-        borderImageSource: "url('/square.png')",
-        borderImageSlice: "180 fill",
-        borderImageWidth: "16px",
-        borderImageRepeat: "stretch",
-        overflow: "hidden",
         cursor: "pointer",
-        transition: "box-shadow 0.15s, transform 0.15s, background 0.15s",
+        transition: "box-shadow 0.15s, background 0.15s",
         display: "flex",
         flexDirection: "column",
-        position: "relative",
-        boxShadow: hasActivity ? "0 0 0 1px var(--accent-border)" : "none",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "var(--surface-2)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "var(--surface-1)";
       }}
     >
       <button
@@ -169,6 +156,6 @@ export function ProjectCard({
           </div>
         )}
       </div>
-    </div>
+    </CardFrame>
   );
 }

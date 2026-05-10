@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
 import { api, type AppSettings } from "~/lib/api";
@@ -7,18 +7,12 @@ import {
   CURRENT_MC_VERSION,
   useLatestMissionControlVersion,
 } from "~/queries/mission-control-version";
-import {
-  ACCENT_COLORS,
-  applyAccentColor,
-  DEFAULT_ACCENT_COLOR,
-  type AccentColorId,
-} from "~/lib/accent-colors";
+import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const disabled = settings?.agentSystemBannerDisabled ?? false;
-  const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
   const mouseGradientEnabled = !(settings?.mouseGradientDisabled ?? false);
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
@@ -45,7 +39,6 @@ export function GeneralSettingsPage() {
       Pick<
         AppSettings,
         | "agentSystemBannerDisabled"
-        | "accentColor"
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
@@ -54,7 +47,7 @@ export function GeneralSettingsPage() {
   ): AppSettings => ({
     apiToken: settings?.apiToken ?? "",
     agentSystemBannerDisabled: disabled,
-    accentColor,
+    accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
@@ -67,7 +60,6 @@ export function GeneralSettingsPage() {
       Pick<
         AppSettings,
         | "agentSystemBannerDisabled"
-        | "accentColor"
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
@@ -126,69 +118,13 @@ export function GeneralSettingsPage() {
     });
   };
 
-  const setAccentColor = async (nextAccentColor: AccentColorId) => {
-    applyAccentColor(nextAccentColor);
-    await updateSettings({ accentColor: nextAccentColor });
-  };
-
   return (
     <>
-      <h1 style={{ margin: "0 0 24px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.015em" }}>
-        General
-      </h1>
       <SettingsSection
         title="General"
         subtitle="Control app-wide interface preferences."
+        headingLevel="h1"
       >
-        <Field label="Theme color">
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(142px, 1fr))",
-              gap: 10,
-            }}
-          >
-            {ACCENT_COLORS.map((color) => {
-              const selected = color.id === accentColor;
-              return (
-                <button
-                  key={color.id}
-                  type="button"
-                  onClick={() => setAccentColor(color.id)}
-                  aria-pressed={selected}
-                  title={color.name}
-                  style={{
-                    minHeight: 42,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "9px 10px",
-                    background: selected ? "var(--accent-faint)" : "var(--surface-0)",
-                    border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                    borderRadius: 7,
-                    color: selected ? "var(--text)" : "var(--text-dim)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    boxShadow: selected ? "0 0 0 1px var(--accent-border)" : "none",
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: 999,
-                      background: color.value,
-                      border: "1px solid color-mix(in srgb, var(--text) 26%, transparent)",
-                      boxShadow: selected ? `0 0 14px ${color.value}66` : "none",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{color.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        </Field>
         <Field label="AgentSystem.dev banner">
           <div
             style={{
@@ -358,6 +294,10 @@ function ToggleRow({
   label: string;
   disabled?: boolean;
 }) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const labelId = useId();
+
   return (
     <div
       style={{
@@ -373,10 +313,16 @@ function ToggleRow({
       }}
     >
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
+        <div
+          id={titleId}
+          style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}
+        >
           {title}
         </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}>
+        <div
+          id={descriptionId}
+          style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}
+        >
           {description}
         </div>
       </div>
@@ -395,9 +341,11 @@ function ToggleRow({
           type="checkbox"
           checked={checked}
           disabled={disabled}
+          aria-labelledby={`${titleId} ${labelId}`}
+          aria-describedby={descriptionId}
           onChange={(event) => onChange(event.currentTarget.checked)}
         />
-        {label}
+        <span id={labelId}>{label}</span>
       </label>
     </div>
   );

@@ -2,6 +2,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
@@ -13,8 +14,7 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
-import { Kbd, KbdAction } from "~/components/ui/Kbd";
-import { useFormattedBinding } from "~/lib/keybindings/store";
+import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -109,7 +109,6 @@ function ProjectPage() {
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [confirmClearFinished, setConfirmClearFinished] = useState(false);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
@@ -123,8 +122,6 @@ function ProjectPage() {
   useEffect(() => {
     if (projectError) router.navigate({ to: "/" });
   }, [projectError, router]);
-
-  const editProjectHotkey = useFormattedBinding("project.edit");
 
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement | null>(null);
@@ -348,7 +345,6 @@ function ProjectPage() {
     showNewAgent ||
     showEdit ||
     confirmRemove ||
-    confirmClearAll ||
     fileFinderOpen ||
     openFileRel !== null ||
     showLaunchConfig ||
@@ -561,13 +557,6 @@ function ProjectPage() {
     router.navigate({ to: "/" });
   };
 
-  const clearAll = async () => {
-    setConfirmClearAll(false);
-    await terminals.closeForProject(project.id);
-    await Promise.all(visibleTasks.map((t) => api.deleteTask(t.id).catch(() => undefined)));
-    await refresh();
-  };
-
   const clearFinished = async () => {
     setConfirmClearFinished(false);
     const finished = tasksByStatus.finished;
@@ -612,16 +601,22 @@ function ProjectPage() {
   return (
     <>
       <CursorGlow />
-      <div style={{ flex: 1, overflow: "auto", padding: 0 }} className="dot-grid-bg">
       <div
         style={{
+          flex: 1,
+          overflow: "auto",
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+        }}
+        className="dot-grid-bg"
+      >
+      <CardFrame
+        style={{
           width: "100%",
+          minHeight: "100%",
           boxSizing: "border-box",
-          border: "18px solid transparent",
-          borderImageSource: "url('/square.png')",
-          borderImageSlice: "180 fill",
-          borderImageWidth: "18px",
-          borderImageRepeat: "stretch",
+          padding: 8,
         }}
       >
         <div
@@ -693,37 +688,36 @@ function ProjectPage() {
               />
             </button>
             {overflowOpen && (
-              <div
+              <CardFrame
                 role="menu"
+                solid
                 style={{
                   position: "absolute",
                   top: "calc(100% + 6px)",
                   left: 0,
                   minWidth: 220,
-                  padding: 4,
+                  padding: 8,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "stretch",
                   gap: 2,
-                  background: "var(--surface-3)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                  zIndex: 50,
+                  boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
+                  zIndex: 100,
                 }}
               >
                 {hasRunningLaunch ? (
                   <>
-                    <Btn
-                      variant="ghost"
-                      icon="x"
-                      onClick={stopLaunch}
-                      disabled={stopping}
-                      style={{ justifyContent: "flex-start" }}
-                    >
-                      {stopping ? "Stopping…" : "Stop launch"}
-                      <KbdAction action="project.runToggle" />
-                    </Btn>
+                    <HotkeyTooltip action="project.runToggle">
+                      <Btn
+                        variant="ghost"
+                        icon="x"
+                        onClick={stopLaunch}
+                        disabled={stopping}
+                        style={{ justifyContent: "flex-start" }}
+                      >
+                        {stopping ? "Stopping…" : "Stop launch"}
+                      </Btn>
+                    </HotkeyTooltip>
                     <MenuSeparator />
                   </>
                 ) : null}
@@ -767,33 +761,34 @@ function ProjectPage() {
                     Open GitHub
                   </Btn>
                 )}
-                <Btn
-                  variant="ghost"
-                  icon="git-branch"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    openDiffView();
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                  title={(() => {
-                    const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
-                    if (gitStatus && gitStatus.changedCount > 0) {
-                      return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
-                    }
-                    return `Branch ${b}`;
-                  })()}
-                >
-                  <span style={{ flex: 1, textAlign: "left" }}>
-                    Review Changes
-                    {gitStatus && gitStatus.changedCount > 0 && (
-                      <span style={{ color: "var(--text-dim)" }}>
-                        {" · "}
-                        {gitStatus.changedCount} changed
-                      </span>
-                    )}
-                  </span>
-                  <KbdAction action="git.diff" />
-                </Btn>
+                <HotkeyTooltip action="git.diff">
+                  <Btn
+                    variant="ghost"
+                    icon="git-branch"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      openDiffView();
+                    }}
+                    style={{ justifyContent: "flex-start" }}
+                    title={(() => {
+                      const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
+                      if (gitStatus && gitStatus.changedCount > 0) {
+                        return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
+                      }
+                      return `Branch ${b}`;
+                    })()}
+                  >
+                    <span style={{ flex: 1, textAlign: "left" }}>
+                      Review Changes
+                      {gitStatus && gitStatus.changedCount > 0 && (
+                        <span style={{ color: "var(--text-dim)" }}>
+                          {" · "}
+                          {gitStatus.changedCount} changed
+                        </span>
+                      )}
+                    </span>
+                  </Btn>
+                </HotkeyTooltip>
                 <MenuSeparator />
                 <Btn
                   variant="ghost"
@@ -810,18 +805,19 @@ function ProjectPage() {
                   projectPath={project.path}
                   onOpen={() => setOverflowOpen(false)}
                 />
-                <Btn
-                  variant="ghost"
-                  icon="settings"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    setShowEdit(true);
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  <span style={{ flex: 1, textAlign: "left" }}>Edit project</span>
-                  <Kbd>{editProjectHotkey}</Kbd>
-                </Btn>
+                <HotkeyTooltip action="project.edit">
+                  <Btn
+                    variant="ghost"
+                    icon="settings"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      setShowEdit(true);
+                    }}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    <span style={{ flex: 1, textAlign: "left" }}>Edit project</span>
+                  </Btn>
+                </HotkeyTooltip>
                 <MenuSeparator />
                 <Btn
                   variant="ghost"
@@ -835,7 +831,7 @@ function ProjectPage() {
                 >
                   Remove project
                 </Btn>
-              </div>
+              </CardFrame>
             )}
           </div>
           <RunStatusPill
@@ -854,40 +850,27 @@ function ProjectPage() {
             aria-label="Review changes and commit"
             style={{
               display: "inline-flex",
-              alignItems: "stretch",
-              height: 28,
-              borderRadius: 999,
-              border: "1px solid var(--border)",
-              overflow: "hidden",
+              alignItems: "center",
+              gap: 0,
               maxWidth: 480,
               minWidth: 0,
             }}
           >
             <ProjectGitStatusButton
-              layout="splitLeft"
               branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
               changedCount={gitStatus?.changedCount}
               onClick={openDiffView}
             />
-            <div
-              aria-hidden
-              style={{
-                width: 1,
-                flexShrink: 0,
-                background: "var(--border)",
-              }}
-            />
-            <CommitPushButton projectId={id} splitTrailing />
+            <CommitPushButton projectId={id} size="md" splitTrailing />
           </div>
-          <Btn
-            variant="ghost"
-            icon="search"
-            onClick={() => setFileFinderOpen(true)}
-            title="Find file in project"
-          >
-            Find file
-            <KbdAction action="file.finder" />
-          </Btn>
+          <HotkeyTooltip action="file.finder" label="Find file in project">
+            <Btn
+              variant="ghost"
+              icon="search"
+              onClick={() => setFileFinderOpen(true)}
+              aria-label="Find file in project"
+            />
+          </HotkeyTooltip>
           <div style={{ flex: 1 }} />
           <InstallSkillsButton projectPath={project.path} />
         </div>
@@ -909,6 +892,7 @@ function ProjectPage() {
               justifyContent: "space-between",
               gap: 12,
               marginBottom: 16,
+              boxSizing: "border-box",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -922,14 +906,6 @@ function ProjectPage() {
               >
                 Sessions
               </div>
-              <Btn
-                variant="ghost"
-                icon="trash"
-                onClick={() => setConfirmClearAll(true)}
-                title="Stop and remove all sessions and terminals for this project"
-              >
-                Clear all
-              </Btn>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <NewAgentButton
@@ -941,7 +917,15 @@ function ProjectPage() {
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 28,
+            paddingInline: 12,
+            boxSizing: "border-box",
+          }}
+        >
           {STATUS_DISPLAY_ORDER.map((status) => (
             <TaskColumn
               key={status}
@@ -979,7 +963,7 @@ function ProjectPage() {
             />
           )}
         </div>
-      </div>
+      </CardFrame>
 
       <NewAgentDialog
         open={showNewAgent}
@@ -1005,7 +989,6 @@ function ProjectPage() {
           setShowEdit(false);
           await refresh();
         }}
-        onDelete={remove}
       />
 
       <FileFinderDialog
@@ -1055,9 +1038,11 @@ function ProjectPage() {
         width={420}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setShowLaunchEmpty(false)}>
-              Close <Kbd variant="inline">Esc</Kbd>
-            </Btn>
+            <StaticHotkeyTooltip hotkey="Esc">
+              <Btn variant="ghost" onClick={() => setShowLaunchEmpty(false)}>
+                Close
+              </Btn>
+            </StaticHotkeyTooltip>
             <Btn
               variant="primary"
               icon="settings"
@@ -1076,23 +1061,6 @@ function ProjectPage() {
           modal to add up to 5 commands that will run when you press Launch.
         </p>
       </Modal>
-
-      <ConfirmDialog
-        open={confirmClearAll}
-        onClose={() => setConfirmClearAll(false)}
-        onConfirm={clearAll}
-        title="Clear all sessions"
-        confirmLabel="Clear all"
-        icon="trash"
-        width={460}
-      >
-        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Stop and remove every session and terminal in &ldquo;{project.name}&rdquo;?
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          {visibleTasks.length} session{visibleTasks.length === 1 ? "" : "s"} will be deleted and their terminals killed. This only affects this project.
-        </div>
-      </ConfirmDialog>
 
       <ConfirmDialog
         open={confirmClearFinished}
@@ -1119,12 +1087,10 @@ function ProjectGitStatusButton({
   branch,
   changedCount,
   onClick,
-  layout = "pill",
 }: {
   branch: string;
   changedCount: number | undefined;
   onClick: () => void;
-  layout?: "pill" | "splitLeft";
 }) {
   const changedLabel =
     changedCount === undefined
@@ -1135,55 +1101,26 @@ function ProjectGitStatusButton({
       ? `Open Review Changes · branch ${branch}`
       : `Open Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branch}`;
 
-  const splitLeft = layout === "splitLeft";
-
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        height: splitLeft ? "100%" : 28,
-        minWidth: 0,
-        flex: splitLeft ? 1 : undefined,
-        maxWidth: splitLeft ? undefined : 320,
-        padding: "0 12px",
-        borderRadius: splitLeft ? 0 : 999,
-        border: splitLeft ? "none" : "1px solid var(--border)",
-        background: "var(--surface-0)",
-        color: "var(--text-dim)",
-        fontFamily: "var(--mono)",
-        fontSize: 11.5,
-        fontWeight: 600,
-        cursor: "pointer",
-        transition: "background 0.12s, border-color 0.12s, color 0.12s",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "var(--surface-2)";
-        if (!splitLeft) e.currentTarget.style.borderColor = "var(--border-strong)";
-        e.currentTarget.style.color = "var(--text)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "var(--surface-0)";
-        if (!splitLeft) e.currentTarget.style.borderColor = "var(--border)";
-        e.currentTarget.style.color = "var(--text-dim)";
-      }}
-    >
-      <span
-        style={{
-          color: changedCount && changedCount > 0 ? "var(--accent)" : "var(--text-dim)",
-          flexShrink: 0,
-          fontVariantNumeric: "tabular-nums",
-        }}
+    <HotkeyTooltip action="git.diff" label={title}>
+      <Btn
+        variant="ghost"
+        icon="git-branch"
+        onClick={onClick}
+        aria-label={title}
+        style={{ fontFamily: "var(--mono)", maxWidth: 320, minWidth: 0 }}
       >
-        {changedLabel}
-      </span>
-      <KbdAction action="git.diff" />
-    </button>
+        <span
+          style={{
+            color: changedCount && changedCount > 0 ? "var(--accent)" : "var(--text-dim)",
+            flexShrink: 0,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {changedLabel}
+        </span>
+      </Btn>
+    </HotkeyTooltip>
   );
 }
 
@@ -1228,20 +1165,10 @@ function RunStatusPill({
   const background = tone === "active" ? "var(--accent-faint)" : "var(--surface-0)";
   const fg = tone === "active" ? "var(--accent)" : "var(--text-dim)";
 
-  const segmentBase: CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    height: 28,
-    border: "none",
-    margin: 0,
-    background,
-    color: fg,
+  const activeFrameIconStyle: CSSProperties = {
+    minWidth: 52,
+    paddingInline: 0,
     fontFamily: "var(--mono)",
-    fontSize: 11.5,
-    fontWeight: 600,
-    cursor: "pointer",
-    transition: "background 0.12s, border-color 0.12s, color 0.12s",
   };
 
   const showRunningSplit = running && !busy;
@@ -1253,97 +1180,31 @@ function RunStatusPill({
         aria-label="Project launch"
         style={{
           display: "inline-flex",
-          alignItems: "stretch",
-          height: 28,
-          borderRadius: 999,
-          border: `1px solid ${borderColor}`,
-          background,
-          overflow: "hidden",
-          boxShadow: "0 0 8px var(--accent-glow)",
+          alignItems: "center",
+          gap: 2,
         }}
       >
-        <div
-          style={{
-            ...segmentBase,
-            flex: 1,
-            minWidth: 0,
-            padding: "0 10px 0 12px",
-            cursor: "default",
-            borderTopLeftRadius: 999,
-            borderBottomLeftRadius: 999,
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: dotColor,
-              boxShadow: "0 0 6px var(--accent-glow)",
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ flexShrink: 0 }}>{label}</span>
-        </div>
         {launchUrl ? (
-          <>
-            <div
-              aria-hidden
-              style={{
-                width: 1,
-                alignSelf: "stretch",
-                flexShrink: 0,
-                background: borderColor,
-                opacity: 0.85,
-              }}
-            />
-            <button
-              type="button"
-              onClick={onOpenUrl}
-              title={`Open ${launchUrl}`}
-              aria-label="Open hosted app"
-              style={{
-                ...segmentBase,
-                flexShrink: 0,
-                width: 32,
-                justifyContent: "center",
-                padding: 0,
-              }}
-            >
-              <Icon name="globe" size={12} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
-            </button>
-          </>
+          <Btn
+            variant="frame"
+            size="sm"
+            icon="globe"
+            onClick={onOpenUrl}
+            title={`Open ${launchUrl}`}
+            aria-label="Open hosted app"
+            style={activeFrameIconStyle}
+          />
         ) : null}
-        <div
-          aria-hidden
-          style={{
-            width: 1,
-            alignSelf: "stretch",
-            flexShrink: 0,
-            background: borderColor,
-            opacity: 0.85,
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => onStop()}
-          title="Stop launch commands"
-          aria-label="Stop launch commands"
-          style={{
-            ...segmentBase,
-            flexShrink: 0,
-            padding: "0 10px 0 11px",
-            gap: 6,
-            borderTopRightRadius: 999,
-            borderBottomRightRadius: 999,
-            color: "var(--danger)",
-          }}
-        >
-          <Icon name="x" size={12} style={{ flexShrink: 0 }} />
-          <span>Stop</span>
-          <KbdAction action="project.runToggle" />
-        </button>
+        <HotkeyTooltip action="project.runToggle" label="Stop launch commands">
+          <Btn
+            variant="frame"
+            size="sm"
+            icon="x"
+            onClick={() => onStop()}
+            aria-label="Stop launch commands"
+            style={{ ...activeFrameIconStyle, color: "var(--danger)" }}
+          />
+        </HotkeyTooltip>
       </div>
     );
   }
@@ -1352,113 +1213,57 @@ function RunStatusPill({
 
   if (showOfflineSplit) {
     return (
-      <div
-        role="group"
-        aria-label="Project launch"
-        style={{
-          display: "inline-flex",
-          alignItems: "stretch",
-          height: 28,
-          borderRadius: 999,
-          border: `1px solid ${borderColor}`,
-          background,
-          overflow: "hidden",
-          boxShadow: "none",
-        }}
-      >
-        <div
-          style={{
-            ...segmentBase,
-            flex: 1,
-            minWidth: 0,
-            padding: "0 10px 0 12px",
-            borderTopLeftRadius: 999,
-            borderBottomLeftRadius: 999,
-            cursor: "default",
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: dotColor,
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ flexShrink: 0 }}>{label}</span>
-        </div>
-        <div
-          aria-hidden
-          style={{
-            width: 1,
-            alignSelf: "stretch",
-            flexShrink: 0,
-            background: borderColor,
-            opacity: 0.85,
-          }}
-        />
-        <button
-          type="button"
+      <HotkeyTooltip action="project.runToggle" label={title}>
+        <Btn
+          variant="ghost"
+          icon="play"
           onClick={onStart}
-          title={title}
-          aria-label={`${title} — play`}
-          style={{
-            ...segmentBase,
-            flexShrink: 0,
-            padding: "0 10px 0 11px",
-            gap: 6,
-            borderTopRightRadius: 999,
-            borderBottomRightRadius: 999,
-          }}
-        >
-          <Icon name="play" size={12} style={{ color: "var(--accent)", flexShrink: 0 }} />
-          <KbdAction action="project.runToggle" />
-        </button>
-      </div>
+          aria-label={title}
+          style={{ fontFamily: "var(--mono)" }}
+        />
+      </HotkeyTooltip>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!interactive}
-      title={title}
-      aria-label={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        height: 28,
-        padding: "0 12px",
-        borderRadius: 999,
-        border: `1px solid ${borderColor}`,
-        background,
-        color: fg,
-        fontFamily: "var(--mono)",
-        fontSize: 11.5,
-        fontWeight: 600,
-        cursor: interactive ? "pointer" : "default",
-        opacity: busy ? 0.7 : 1,
-        transition: "background 0.12s, border-color 0.12s, color 0.12s",
-        boxShadow: running ? "0 0 8px var(--accent-glow)" : "none",
-      }}
-    >
-      <span
-        aria-hidden
+    <HotkeyTooltip action="project.runToggle" label={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={!interactive}
+        aria-label={title}
         style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          background: dotColor,
-          boxShadow: running ? "0 0 6px var(--accent-glow)" : "none",
-          animation: launching || stopping ? "pulse-border 1.4s ease-in-out infinite" : "none",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          height: 28,
+          padding: "0 12px",
+          borderRadius: 999,
+          border: `1px solid ${borderColor}`,
+          background,
+          color: fg,
+          fontFamily: "var(--mono)",
+          fontSize: 11.5,
+          fontWeight: 600,
+          cursor: interactive ? "pointer" : "default",
+          opacity: busy ? 0.7 : 1,
+          transition: "background 0.12s, border-color 0.12s, color 0.12s",
+          boxShadow: running ? "0 0 8px var(--accent-glow)" : "none",
         }}
-      />
-      <span>{label}</span>
-      <KbdAction action="project.runToggle" />
-    </button>
+      >
+        <span
+          aria-hidden
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: dotColor,
+            boxShadow: running ? "0 0 6px var(--accent-glow)" : "none",
+            animation: launching || stopping ? "pulse-border 1.4s ease-in-out infinite" : "none",
+          }}
+        />
+        <span>{label}</span>
+      </button>
+    </HotkeyTooltip>
   );
 }

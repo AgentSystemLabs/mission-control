@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { Kbd } from "~/components/ui/Kbd";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import {
   fetchLatestSkillsManifest,
@@ -120,21 +120,22 @@ export function InstallSkillsModal({
           <Btn variant="ghost" onClick={onClose} disabled={isWorking}>
             Cancel
           </Btn>
-          <Btn
-            variant="primary"
-            onClick={() => void submit()}
-            disabled={!canInstall}
-            title={
-              !harnessSelected
-                ? "Select at least one harness"
-                : !projectPath
-                  ? "No project selected"
-                  : undefined
-            }
-          >
-            {isWorking ? phaseLabel ?? "Installing…" : "Install"}
-            <Kbd variant="onPrimary">⌘ Enter</Kbd>
-          </Btn>
+          <StaticHotkeyTooltip hotkey="⌘ Enter" disabled={!canInstall}>
+            <Btn
+              variant="primary"
+              onClick={() => void submit()}
+              disabled={!canInstall}
+              title={
+                !harnessSelected
+                  ? "Select at least one harness"
+                  : !projectPath
+                    ? "No project selected"
+                    : undefined
+              }
+            >
+              {isWorking ? phaseLabel ?? "Installing…" : "Install"}
+            </Btn>
+          </StaticHotkeyTooltip>
         </>
       }
     >

@@ -16,22 +16,23 @@ export function useTheme(): {
 } {
   const [theme, setTheme] = useState<Theme>("dark");
 
-  // After hydration, read the persisted preference and apply it.
+  // Theme is intentionally locked to dark for now.
   useEffect(() => {
     try {
-      const saved = (localStorage.getItem(KEY) as Theme | null) ?? "dark";
-      setTheme(saved);
-      document.documentElement.setAttribute("data-theme", saved);
+      setTheme("dark");
+      document.documentElement.setAttribute("data-theme", "dark");
+      localStorage.setItem(KEY, "dark");
     } catch {
       /* localStorage unavailable */
     }
   }, []);
 
-  const set = (t: Theme) => {
-    setTheme(t);
+  const set = (_t: Theme) => {
+    const next: Theme = "dark";
+    setTheme(next);
     try {
-      document.documentElement.setAttribute("data-theme", t);
-      localStorage.setItem(KEY, t);
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem(KEY, next);
     } catch {
       /* swallow */
     }

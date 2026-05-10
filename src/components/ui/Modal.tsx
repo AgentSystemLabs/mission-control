@@ -1,5 +1,13 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Icon } from "./Icon";
+import { CardFrame } from "./CardFrame";
 import { useHotkey } from "~/lib/use-hotkey";
 
 export function Modal({
@@ -8,14 +16,28 @@ export function Modal({
   title,
   children,
   width = 480,
+  height,
+  maxWidth = "92vw",
+  maxHeight = "85vh",
   footer,
+  placement = "center",
+  zIndex = 9999,
+  contentStyle,
+  footerStyle,
 }: {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title: ReactNode;
   children: ReactNode;
-  width?: number;
+  width?: number | string;
+  height?: number | string;
+  maxWidth?: number | string;
+  maxHeight?: number | string;
   footer?: ReactNode;
+  placement?: "center" | "top";
+  zIndex?: number;
+  contentStyle?: CSSProperties;
+  footerStyle?: CSSProperties;
 }) {
   useHotkey(
     "escape",
@@ -26,7 +48,11 @@ export function Modal({
     { enabled: open, preventDefault: false },
   );
 
-  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const panelRef = useRef<HTMLElement>(null);
+  const setPanelRef = (node: HTMLElement | null) => {
+    panelRef.current = node;
+  };
   useEffect(() => {
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -62,6 +88,86 @@ export function Modal({
   }, [open]);
 
   if (!open) return null;
+
+  const panelStyle: CSSProperties = {
+    width,
+    height,
+    outline: "none",
+    maxWidth,
+    maxHeight,
+    boxShadow:
+      "0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  };
+
+  const content = (
+    <>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "14px 18px",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div
+          id={titleId}
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            minWidth: 0,
+            flex: 1,
+          }}
+        >
+          {title}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close dialog"
+          style={{
+            background: "transparent",
+            border: 0,
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            padding: 4,
+            display: "flex",
+          }}
+        >
+          <Icon name="x" size={13} />
+        </button>
+      </div>
+      <div style={{ padding: 18, overflowY: "auto", flex: 1, ...contentStyle }}>{children}</div>
+      {footer && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            padding: "12px 18px",
+            borderTop: "1px solid var(--border)",
+            ...footerStyle,
+          }}
+        >
+          {footer}
+        </div>
+      )}
+    </>
+  );
+
+  const panelProps = {
+    tabIndex: -1,
+    role: "dialog",
+    "aria-modal": true,
+    "aria-labelledby": titleId,
+    onClick: (e: MouseEvent<HTMLElement>) => e.stopPropagation(),
+  };
+
   return (
     <div
       data-modal-open
@@ -69,85 +175,25 @@ export function Modal({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 9999,
+        zIndex,
         background: "rgba(0,0,0,0.55)",
         backdropFilter: "blur(4px)",
         display: "flex",
-        alignItems: "center",
+        alignItems: placement === "top" ? "flex-start" : "center",
         justifyContent: "center",
+        paddingTop: placement === "top" ? "12vh" : 0,
+        boxSizing: "border-box",
         animation: "fade-up 0.12s ease-out",
       }}
     >
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width,
-          outline: "none",
-          maxWidth: "92vw",
-          maxHeight: "85vh",
-          background: "var(--surface-1)",
-          border: "1px solid var(--border-strong)",
-          borderRadius: 12,
-          boxShadow:
-            "0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
+      <CardFrame
+        as="section"
+        ref={setPanelRef}
+        {...panelProps}
+        style={panelStyle}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "14px 18px",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 12,
-              fontWeight: 600,
-              letterSpacing: "0.02em",
-            }}
-          >
-            {title}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close dialog"
-            style={{
-              background: "transparent",
-              border: 0,
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              padding: 4,
-              display: "flex",
-            }}
-          >
-            <Icon name="x" size={13} />
-          </button>
-        </div>
-        <div style={{ padding: 18, overflowY: "auto", flex: 1 }}>{children}</div>
-        {footer && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 8,
-              padding: "12px 18px",
-              borderTop: "1px solid var(--border)",
-              background: "var(--surface-0)",
-            }}
-          >
-            {footer}
-          </div>
-        )}
-      </div>
+        {content}
+      </CardFrame>
     </div>
   );
 }

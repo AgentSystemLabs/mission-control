@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
-import { Kbd } from "~/components/ui/Kbd";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import {
   useDeleteProjectFile,
@@ -129,16 +129,17 @@ export function GitDiffView({
           background: "var(--surface-1)",
         }}
       >
-        <Btn
-          variant="ghost"
-          size="sm"
-          icon="chevron-left"
-          onClick={onBack}
-          title="Back to project"
-          aria-label="Back to project"
-        >
-          Back <Kbd variant="inline">Esc</Kbd>
-        </Btn>
+        <StaticHotkeyTooltip hotkey="Esc" label="Back to project">
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="chevron-left"
+            onClick={onBack}
+            aria-label="Back to project"
+          >
+            Back
+          </Btn>
+        </StaticHotkeyTooltip>
         <div
           style={{
             flex: "1 1 180px",

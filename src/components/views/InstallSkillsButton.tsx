@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Icon } from "~/components/ui/Icon";
+import { Btn } from "~/components/ui/Btn";
 import { InstallSkillsModal } from "./InstallSkillsModal";
 import { SkillsUpsellModal } from "./SkillsUpsellModal";
 import { useLicense } from "~/queries";
@@ -48,15 +48,14 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
 
   return (
     <>
-      <button
-        type="button"
-        className="install-skills-theme-button"
+      <Btn
+        variant="primary"
+        icon="sparkles"
         onClick={() => (isPro ? setOpen(true) : setPaywallOpen(true))}
         title={title}
       >
-        <Icon name="sparkles" size={13} />
         {label}
-      </button>
+      </Btn>
       <InstallSkillsModal
         open={open}
         onClose={() => {

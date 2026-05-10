@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Kbd } from "~/components/ui/Kbd";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useKeybindings } from "~/lib/keybindings/store";
 import { formatBinding } from "~/lib/keybindings/format";
 import { bindingComboKey, bindingsEqual, eventToBinding, isValidBinding } from "~/lib/keybindings/match";
@@ -252,22 +253,26 @@ function BindingRow({
             {recordError && !pendingConflict && (
               <span style={{ color: "#ff9b9b" }}>{recordError}</span>
             )}
-            <Btn
-              variant="ghost"
-              size="sm"
-              onClick={onCancelRecording}
-              style={{ marginLeft: "auto" }}
-            >
-              Cancel <Kbd variant="inline">Esc</Kbd>
-            </Btn>
-            <Btn
-              variant="primary"
-              size="sm"
-              onClick={onSave}
-              disabled={!pendingBinding || !!pendingConflict || saving}
-            >
-              Save <Kbd variant="onPrimary">↵</Kbd>
-            </Btn>
+            <StaticHotkeyTooltip hotkey="Esc">
+              <Btn
+                variant="ghost"
+                size="sm"
+                onClick={onCancelRecording}
+                style={{ marginLeft: "auto" }}
+              >
+                Cancel
+              </Btn>
+            </StaticHotkeyTooltip>
+            <StaticHotkeyTooltip hotkey="↵">
+              <Btn
+                variant="primary"
+                size="sm"
+                onClick={onSave}
+                disabled={!pendingBinding || !!pendingConflict || saving}
+              >
+                Save
+              </Btn>
+            </StaticHotkeyTooltip>
           </div>
         ) : (
           <>

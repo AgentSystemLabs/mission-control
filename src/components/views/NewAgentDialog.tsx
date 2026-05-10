@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { KbdAction } from "~/components/ui/Kbd";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
@@ -195,10 +195,11 @@ export function NewAgentDialog({
             <Btn variant="ghost" onClick={onClose}>
               Cancel
             </Btn>
-            <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
-              Start session
-              <KbdAction action="dialog.submit" variant="onPrimary" />
-            </Btn>
+            <HotkeyTooltip action="dialog.submit">
+              <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
+                Start session
+              </Btn>
+            </HotkeyTooltip>
           </>
         }
       >

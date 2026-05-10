@@ -1,6 +1,7 @@
 import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
-import { Kbd } from "~/components/ui/Kbd";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { UserTerminalPane } from "./UserTerminalPane";
@@ -33,22 +34,16 @@ export function UserTerminalPanel() {
   if (!project) return null;
 
   return (
-    <div
+    <CardFrame
+      frame="slanted"
       style={{
         width: "100%",
-        boxSizing: "border-box",
         height: panelOpen ? height : "auto",
         minHeight: panelOpen ? MIN_HEIGHT : 0,
-        background: "var(--terminal-bg)",
-        border: "18px solid transparent",
-        borderImageSource: "url('/square.png')",
-        borderImageSlice: "180 fill",
-        borderImageWidth: "18px",
-        borderImageRepeat: "stretch",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
-        position: "relative",
+        overflow: "visible",
       }}
     >
       {panelOpen && (
@@ -59,34 +54,38 @@ export function UserTerminalPanel() {
             position: "absolute",
             left: 0,
             right: 0,
-            top: -3,
-            height: 6,
+            top: -13,
+            height: 16,
             cursor: "row-resize",
             zIndex: 10,
           }}
         />
       )}
-      <button
-        type="button"
-        onClick={() => setPanelOpen(!panelOpen)}
-        title={panelOpen ? "Collapse panel" : "Expand panel"}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 14px",
-          borderBottom: panelOpen ? "1px solid var(--border)" : "none",
-          background: "var(--surface-0)",
-          flexShrink: 0,
-          width: "100%",
-          textAlign: "left",
-          borderTop: 0,
-          borderRight: 0,
-          borderLeft: 0,
-          cursor: "pointer",
-          color: "inherit",
-        }}
+      <StaticHotkeyTooltip
+        hotkey="⌃`"
+        label={panelOpen ? "Collapse panel" : "Expand panel"}
       >
+        <button
+          type="button"
+          onClick={() => setPanelOpen(!panelOpen)}
+          aria-label={panelOpen ? "Collapse panel" : "Expand panel"}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 14px",
+            border: 0,
+            background: "transparent",
+            backgroundColor: "transparent",
+            boxShadow: "none",
+            appearance: "none",
+            flexShrink: 0,
+            width: "100%",
+            textAlign: "left",
+            cursor: "pointer",
+            color: "inherit",
+          }}
+        >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Icon name="terminal" size={13} style={{ color: "var(--accent)" }} />
           <span
@@ -107,10 +106,10 @@ export function UserTerminalPanel() {
               · {project.name}
             </span>
           )}
-          <Kbd variant="ghost">⌃`</Kbd>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <span
+            className="mc-btn mc-btn-ghost mc-btn-sm"
             role="button"
             tabIndex={0}
             onClick={(e) => {
@@ -126,22 +125,12 @@ export function UserTerminalPanel() {
             }}
             aria-disabled={!project}
             title={project ? "New terminal (⌘T)" : "Open a project first"}
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border)",
-              color: project ? "var(--text-dim)" : "var(--text-faint)",
-              padding: "3px 8px",
-              borderRadius: 5,
-              cursor: project ? "pointer" : "not-allowed",
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-            }}
+            style={{ cursor: project ? "pointer" : "not-allowed" }}
           >
-            <Icon name="plus" size={10} /> New
-            <span style={{ color: "var(--text-faint)", marginLeft: 4 }}>⌘T</span>
+            <span className="mc-btn-content">
+              <Icon name="plus" size={10} /> New
+              <span style={{ color: "var(--text-faint)" }}>⌘T</span>
+            </span>
           </span>
           <Icon
             name="chevron-down"
@@ -154,6 +143,7 @@ export function UserTerminalPanel() {
           />
         </div>
       </button>
+      </StaticHotkeyTooltip>
       {panelOpen && (
       <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", gap: 8, padding: 8 }}>
         {sessions.length === 0 ? (
@@ -185,16 +175,16 @@ export function UserTerminalPanel() {
                 }}
               >
                 <div style={{ color: "var(--text)", fontWeight: 500 }}>No terminals yet.</div>
-                <Btn
-                  variant="ghost"
-                  size="sm"
-                  icon="plus"
-                  onClick={() => void createTerminal()}
-                  title="New terminal (⌘T)"
-                >
-                  New terminal
-                  <Kbd variant="ghost">⌘T</Kbd>
-                </Btn>
+                <StaticHotkeyTooltip hotkey="⌘T">
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    icon="plus"
+                    onClick={() => void createTerminal()}
+                  >
+                    New terminal
+                  </Btn>
+                </StaticHotkeyTooltip>
               </div>
             ) : (
               "Open a project to use terminals."
@@ -220,6 +210,6 @@ export function UserTerminalPanel() {
         )}
       </div>
       )}
-    </div>
+    </CardFrame>
   );
 }

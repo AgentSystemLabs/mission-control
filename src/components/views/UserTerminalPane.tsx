@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
@@ -277,21 +278,14 @@ export function UserTerminalPane({
   };
 
   return (
-    <div
+    <CardFrame
+      focused={focused}
       onMouseDown={onFocus}
       style={{
         flex: 1,
         minWidth: 200,
         display: "flex",
         flexDirection: "column",
-        border: "16px solid transparent",
-        borderImageSource: "url('/square.png')",
-        borderImageSlice: "180 fill",
-        borderImageWidth: "16px",
-        borderImageRepeat: "stretch",
-        overflow: "hidden",
-        outline: focused ? "1px solid var(--accent)" : "none",
-        outlineOffset: -1,
       }}
     >
       <div
@@ -300,7 +294,7 @@ export function UserTerminalPane({
           alignItems: "center",
           gap: 8,
           padding: "6px 10px",
-          background: "var(--surface-1)",
+          background: "var(--terminal-bg)",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
         }}
@@ -374,6 +368,6 @@ export function UserTerminalPane({
           <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
         )}
       </div>
-    </div>
+    </CardFrame>
   );
 }

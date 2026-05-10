@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import CodeMirror, { EditorView, type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { Icon } from "~/components/ui/Icon";
-import { Kbd, KbdAction } from "~/components/ui/Kbd";
+import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { languageForFilename } from "~/lib/file-language";
@@ -178,16 +178,6 @@ export function FileEditorDialog({
     void doSave(false);
   }, { enabled: open });
 
-  useHotkey(
-    "escape",
-    (e) => {
-      if (!open) return;
-      e.stopPropagation();
-      requestClose();
-    },
-    { enabled: open, preventDefault: false },
-  );
-
   const requestClose = useCallback(() => {
     if (dirtyRef.current) {
       setConfirmClose(true);
@@ -204,104 +194,107 @@ export function FileEditorDialog({
   ];
 
   return (
-    <div
-      data-modal-open
-      onClick={requestClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(4px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        animation: "fade-up 0.12s ease-out",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "80vw",
-          height: "82vh",
-          maxWidth: 1200,
-          background: "var(--surface-1)",
-          border: "1px solid var(--border-strong)",
-          borderRadius: 12,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+    <>
+      <Modal
+        open={open}
+        onClose={requestClose}
+        width="80vw"
+        height="82vh"
+        maxWidth={1200}
+        zIndex={100}
+        contentStyle={{
+          padding: 0,
           display: "flex",
           flexDirection: "column",
+          minHeight: 0,
           overflow: "hidden",
         }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "12px 16px",
-            borderBottom: "1px solid var(--border)",
-            minWidth: 0,
-          }}
-        >
-          <span
+        footer={
+          <>
+            <span
+              style={{
+                flex: 1,
+                fontFamily: "var(--mono)",
+                fontSize: 10.5,
+                color: "var(--text-faint)",
+              }}
+            >
+              {loaded ? `${content.length.toLocaleString()} chars` : ""}
+            </span>
+            <StaticHotkeyTooltip hotkey="Esc">
+              <Btn variant="ghost" onClick={requestClose}>
+                Close
+              </Btn>
+            </StaticHotkeyTooltip>
+            <HotkeyTooltip action="file.save">
+              <Btn
+                variant="primary"
+                icon="check"
+                onClick={() => doSave(false)}
+                disabled={!loaded || saving || !dirty}
+              >
+                {saving ? "Saving…" : "Save"}
+              </Btn>
+            </HotkeyTooltip>
+          </>
+        }
+        footerStyle={{
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 16px",
+        }}
+        title={
+          <div
             style={{
-              fontFamily: "var(--mono)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: "var(--text)",
-              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 0,
             }}
           >
-            {fileName}
-          </span>
-          {dirPath && (
             <span
               style={{
                 fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--text-faint)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                minWidth: 0,
-                flex: 1,
-              }}
-              title={dirPath}
-            >
-              {dirPath}
-            </span>
-          )}
-          {dirty && (
-            <span
-              title="Unsaved changes"
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: "var(--accent)",
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: "var(--text)",
                 flexShrink: 0,
               }}
-            />
-          )}
-          <button
-            type="button"
-            onClick={requestClose}
-            aria-label="Close"
-            style={{
-              background: "transparent",
-              border: 0,
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              padding: 4,
-              display: "flex",
-              flexShrink: 0,
-            }}
-          >
-            <Icon name="x" size={13} />
-          </button>
-        </div>
-
+            >
+              {fileName}
+            </span>
+            {dirPath && (
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  color: "var(--text-faint)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                  flex: 1,
+                }}
+                title={dirPath}
+              >
+                {dirPath}
+              </span>
+            )}
+            {dirty && (
+              <span
+                title="Unsaved changes"
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: "var(--accent)",
+                  flexShrink: 0,
+                }}
+              />
+            )}
+          </div>
+        }
+      >
         {externalChanged && (
           <div
             style={{
@@ -335,7 +328,7 @@ export function FileEditorDialog({
             <LoadErrorView
               kind={loadError.kind}
               lineCount={loadError.lineCount}
-              onClose={onClose}
+              onClose={requestClose}
             />
           ) : (
             <CodeMirror
@@ -369,42 +362,7 @@ export function FileEditorDialog({
             {saveError}
           </div>
         )}
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            alignItems: "center",
-            gap: 10,
-            padding: "10px 16px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--surface-0)",
-          }}
-        >
-          <span
-            style={{
-              flex: 1,
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              color: "var(--text-faint)",
-            }}
-          >
-            {loaded ? `${content.length.toLocaleString()} chars` : ""}
-          </span>
-          <Btn variant="ghost" onClick={requestClose}>
-            Close <Kbd variant="inline">Esc</Kbd>
-          </Btn>
-          <Btn
-            variant="primary"
-            icon="check"
-            onClick={() => doSave(false)}
-            disabled={!loaded || saving || !dirty}
-          >
-            {saving ? "Saving…" : "Save"}
-            <KbdAction action="file.save" variant="onPrimary" />
-          </Btn>
-        </div>
-      </div>
+      </Modal>
 
       <ConfirmDialog
         open={confirmClose}
@@ -421,7 +379,7 @@ export function FileEditorDialog({
           You have unsaved edits. Closing the editor will discard them.
         </div>
       </ConfirmDialog>
-    </div>
+    </>
   );
 }
 

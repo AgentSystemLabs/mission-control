@@ -23,9 +23,6 @@ export function EmptyState({
         alignItems: "center",
         padding: "60px 20px",
         gap: 14,
-        border: "1px dashed var(--border-strong)",
-        borderRadius: 12,
-        background: "var(--surface-0)",
         position: "relative",
       }}
     >

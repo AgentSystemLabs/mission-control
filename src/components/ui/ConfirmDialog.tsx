@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Btn } from "./Btn";
-import { Kbd } from "./Kbd";
+import { StaticHotkeyTooltip } from "./Tooltip";
 import type { IconName } from "./Icon";
 import { useHotkey } from "~/lib/use-hotkey";
 
@@ -52,18 +52,21 @@ export function ConfirmDialog({
       width={width}
       footer={
         <>
-          <Btn variant="ghost" onClick={onClose} disabled={loading}>
-            {cancelLabel} <Kbd variant="inline">Esc</Kbd>
-          </Btn>
-          <Btn
-            variant={variant}
-            icon={icon}
-            onClick={() => void onConfirm()}
-            disabled={loading}
-          >
-            {loading ? `${confirmLabel}…` : confirmLabel}{" "}
-            <Kbd variant="inline">⌘ Enter</Kbd>
-          </Btn>
+          <StaticHotkeyTooltip hotkey="Esc">
+            <Btn variant="ghost" onClick={onClose} disabled={loading}>
+              {cancelLabel}
+            </Btn>
+          </StaticHotkeyTooltip>
+          <StaticHotkeyTooltip hotkey="⌘ Enter">
+            <Btn
+              variant={variant}
+              icon={icon}
+              onClick={() => void onConfirm()}
+              disabled={loading}
+            >
+              {loading ? `${confirmLabel}…` : confirmLabel}
+            </Btn>
+          </StaticHotkeyTooltip>
         </>
       }
     >

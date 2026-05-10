@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { StatusDot } from "~/components/ui/StatusDot";
-import { KbdAction } from "~/components/ui/Kbd";
-import { useCardGlow } from "~/lib/use-card-glow";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { STATUS_META } from "~/lib/design-meta";
 import { projectPickerSections } from "~/lib/group-projects";
 import type { TaskStatus } from "~/shared/domain";
@@ -68,7 +69,6 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const panelGlowRef = useCardGlow<HTMLDivElement>();
 
   const current = projects?.find((p) => p.id === projectId) ?? null;
   const label = current?.name ?? "Project";
@@ -177,45 +177,32 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
 
   return (
     <div ref={wrapRef} style={{ position: "relative", display: "inline-flex" }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          fontFamily: "var(--mono)",
-          fontSize: 12,
-          color: "var(--text)",
-          background: open ? "var(--surface-1)" : "transparent",
-          border: "1px solid var(--border)",
-          borderRadius: 4,
-          padding: "3px 8px",
-          cursor: "pointer",
-        }}
-        title="Switch project"
-      >
-        {current && <ProjectIcon project={current} size={14} />}
-        <span>{label}</span>
-        {current && <ActivityCounts project={current} />}
-        <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
-        <KbdAction action="project.picker" variant="ghost" style={{ marginLeft: 2 }} />
-      </button>
+      <HotkeyTooltip action="project.picker" label="Switch project">
+        <Btn
+          variant="gray-frame"
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          {current && <ProjectIcon project={current} size={14} />}
+          <span>{label}</span>
+          {current && <ActivityCounts project={current} />}
+          <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
+        </Btn>
+      </HotkeyTooltip>
       {open && (
-        <div
-          ref={panelGlowRef}
+        <CardFrame
+          glow
+          solid
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
             left: 0,
-            minWidth: 320,
-            background: "var(--surface-0)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-            zIndex: 50,
+            minWidth: 360,
+            boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+            zIndex: 100,
             display: "flex",
             flexDirection: "column",
-            overflow: "hidden",
           }}
         >
           <div style={{ padding: 6, borderBottom: "1px solid var(--border)" }}>
@@ -327,7 +314,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
               })()
             )}
           </div>
-        </div>
+        </CardFrame>
       )}
     </div>
   );

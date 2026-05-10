@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Btn } from "./Btn";
 import { Icon } from "./Icon";
 
 export type Crumb = { label: string; onClick?: () => void; node?: ReactNode };
@@ -38,12 +39,17 @@ export function TopBar({
           ["WebkitAppRegion" as any]: "no-drag",
         }}
       >
-        <div onClick={onHome} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+        <Btn
+          variant="gray-frame"
+          onClick={onHome}
+          aria-label="Mission Control home"
+          style={{ ["WebkitAppRegion" as any]: "no-drag" }}
+        >
           <img
             src="/robot.png"
             alt="AgentSystem.dev"
-            width={35}
-            height={35}
+            width={22}
+            height={22}
             style={{ borderRadius: 5, display: "block" }}
           />
           <span
@@ -72,8 +78,18 @@ export function TopBar({
             />
             <span style={{ color: "var(--accent)" }}>Control</span>
           </span>
-        </div>
-        {leading}
+          {leading && (
+            <span
+              aria-hidden
+              style={{
+                width: 1,
+                height: 18,
+                background: "var(--border-strong)",
+              }}
+            />
+          )}
+          {leading}
+        </Btn>
         {crumbs && crumbs.length > 0 && (
           <>
             <Icon name="chevron-right" size={11} style={{ color: "var(--text-faint)" }} />

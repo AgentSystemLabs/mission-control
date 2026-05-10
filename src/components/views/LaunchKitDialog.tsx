@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
-import { KbdAction } from "~/components/ui/Kbd";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -83,10 +83,11 @@ export function LaunchKitDialog({
           <Btn variant="ghost" onClick={onClose} disabled={isWorking}>
             Cancel
           </Btn>
-          <Btn variant="primary" onClick={() => void submit()} disabled={!canSubmit}>
-            {isWorking ? phaseLabel : "Create Project"}
-            <KbdAction action="dialog.submit" variant="onPrimary" />
-          </Btn>
+          <HotkeyTooltip action="dialog.submit">
+            <Btn variant="primary" onClick={() => void submit()} disabled={!canSubmit}>
+              {isWorking ? phaseLabel : "Create Project"}
+            </Btn>
+          </HotkeyTooltip>
         </>
       }
     >

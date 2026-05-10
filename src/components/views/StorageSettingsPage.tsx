@@ -21,15 +21,14 @@ export function StorageSettingsPage() {
 
   return (
     <>
-      <h1 style={{ margin: "0 0 24px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.015em" }}>
-        Storage
-      </h1>
       {!ready ? (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
-          loading…
-        </div>
+        <SettingsSection title="Storage" headingLevel="h1">
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
+            loading…
+          </div>
+        </SettingsSection>
       ) : userData ? (
-        <SettingsSection title="Storage">
+        <SettingsSection title="Storage" headingLevel="h1">
           <Field label="Data directory">
             <CodeBlock
               value={userData}
@@ -39,9 +38,11 @@ export function StorageSettingsPage() {
           </Field>
         </SettingsSection>
       ) : (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
-          Storage details are only available in the desktop app.
-        </div>
+        <SettingsSection title="Storage" headingLevel="h1">
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
+            Storage details are only available in the desktop app.
+          </div>
+        </SettingsSection>
       )}
     </>
   );

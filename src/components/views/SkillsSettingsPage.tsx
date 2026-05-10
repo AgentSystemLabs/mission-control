@@ -52,12 +52,10 @@ export function SkillsSettingsPage() {
 
   return (
     <>
-      <h1 style={{ margin: "0 0 24px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.015em" }}>
-        Skills
-      </h1>
       <SettingsSection
         title="Mission Control Skills Bundle"
         subtitle="Download the curated skill pack from agentsystem.dev into your local Mission Control data directory. Pro license required."
+        headingLevel="h1"
       >
         <Field label="Status">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

@@ -31,12 +31,10 @@ export function ApiSettingsPage() {
 
   return (
     <>
-      <h1 style={{ margin: "0 0 24px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.015em" }}>
-        External API
-      </h1>
       <SettingsSection
         title="External API"
         subtitle="External CLIs (Claude Code / Codex / Cursor CLI) post status updates here."
+        headingLevel="h1"
       >
         <Field label="Endpoint">
           <CodeBlock

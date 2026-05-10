@@ -11,7 +11,6 @@ import { getElectron } from "~/lib/electron";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
-import { KbdAction } from "~/components/ui/Kbd";
 import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
@@ -84,11 +83,11 @@ function Shell() {
     setSettingsInitialPanel(initial);
     setActivePanel("settings");
   };
-  const { theme, toggle } = useTheme();
+  useTheme();
   const { data: settings } = useSettings();
   const { data: projects } = useProjects();
   const { data: license } = useLicense();
-  const { activeFor, close, setPtyId } = useTerminals();
+  const { activeFor, close, deselect, setPtyId } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
   const {
@@ -249,41 +248,19 @@ function Shell() {
         <TopBar
           crumbs={crumbs}
           onHome={goHome}
-          leading={<LicenseBadge onClick={() => openSettings("license")} />}
+          leading={<LicenseBadge />}
           right={
             <>
               <UpdateAvailableButton />
-              {path !== "/" && (
-                <Btn variant="ghost" icon="home" onClick={goHome}>
-                  Mission Control
-                  <KbdAction action="nav.toggle" />
-                </Btn>
-              )}
               <Btn
                 variant="ghost"
                 icon="settings"
-                onClick={() => setActivePanel("settings")}
-              >
-                Settings
-              </Btn>
-              <button
-                onClick={toggle}
-                title={theme === "dark" ? "Switch to light" : "Switch to dark"}
-                style={{
-                  width: 28,
-                  height: 24,
-                  display: "inline-grid",
-                  placeItems: "center",
-                  color: "var(--text-faint)",
-                  padding: 0,
-                  border: "1px solid var(--border)",
-                  borderRadius: 4,
-                  background: "transparent",
-                  cursor: "pointer",
-                }}
-              >
-                <Icon name={theme === "dark" ? "sun" : "moon"} size={14} />
-              </button>
+                onClick={() =>
+                  setActivePanel(activePanel === "settings" ? null : "settings")
+                }
+                aria-label={activePanel === "settings" ? "Close settings" : "Open settings"}
+                title={activePanel === "settings" ? "Close settings" : "Open settings"}
+              />
             </>
           }
         />
@@ -314,6 +291,7 @@ function Shell() {
               <TerminalPanel
                 active={activeFor(projectMatch[1]!)}
                 onClose={close}
+                onHide={() => deselect(projectMatch[1]!)}
                 onPtyReady={setPtyId}
                 expanded={sessionExpanded}
                 onToggleExpanded={toggleTerminalExpanded}
@@ -328,7 +306,7 @@ function Shell() {
         {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
         <Toaster
           position="bottom-right"
-          theme={theme === "dark" ? "dark" : "light"}
+          theme="dark"
           richColors
         />
       </div>

@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Icon } from "~/components/ui/Icon";
-import { Kbd, KbdAction } from "~/components/ui/Kbd";
-import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { getElectron } from "~/lib/electron";
 import { api } from "~/lib/api";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import { DUPLICATE_ACTIVE_SESSION_EVENT } from "~/lib/design-meta";
 import { queryKeys } from "~/queries";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
 import type { Project, Task } from "~/db/schema";
@@ -20,12 +17,14 @@ const MIN_WIDTH = 380;
 export function TerminalPanel({
   active,
   onClose,
+  onHide,
   onPtyReady,
   expanded = false,
   onToggleExpanded,
 }: {
   active: OpenTerminal | null;
   onClose: (taskId: string) => Promise<void> | void;
+  onHide: () => void;
   onPtyReady: (taskId: string, ptyId: string) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
@@ -72,23 +71,17 @@ export function TerminalPanel({
 
   if (!active) return null;
   return (
-    <div
+    <CardFrame
+      focused
       style={{
         width: expanded ? "100%" : width,
         flex: expanded ? 1 : undefined,
         minWidth: expanded ? 0 : MIN_WIDTH,
-        boxSizing: "border-box",
-        background: "var(--terminal-bg)",
-        border: "18px solid transparent",
-        borderImageSource: "url('/square.png')",
-        borderImageSlice: "180 fill",
-        borderImageWidth: "18px",
-        borderImageRepeat: "stretch",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
         animation: "slide-right 0.2s ease-out",
-        position: "relative",
+        overflow: "visible",
       }}
     >
       {!expanded && (
@@ -97,73 +90,15 @@ export function TerminalPanel({
           title="Drag to resize"
           style={{
             position: "absolute",
-            left: -3,
+            left: -9,
             top: 0,
             bottom: 0,
-            width: 6,
+            width: 12,
             cursor: "col-resize",
             zIndex: 10,
           }}
         />
       )}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "10px 14px",
-          borderBottom: "1px solid var(--border)",
-          background: "var(--surface-0)",
-          flexShrink: 0,
-        }}
-      >
-        <Icon name="terminal" size={13} style={{ color: "var(--accent)" }} />
-        <span
-          style={{
-            fontFamily: "var(--mono)",
-            fontSize: 11.5,
-            fontWeight: 600,
-            letterSpacing: "0.02em",
-          }}
-        >
-          Session
-        </span>
-        <span style={{ marginLeft: "auto", color: "var(--text-faint)", fontSize: 10.5 }}>
-          Hide/show <KbdAction action="terminal.close" variant="ghost" />
-        </span>
-        {onToggleExpanded && (
-          <Btn
-            variant="ghost"
-            size="sm"
-            icon={expanded ? "chevron-right" : "chevron-left"}
-            onClick={onToggleExpanded}
-            title={expanded ? "Shrink session panel" : "Expand session panel to fill workspace"}
-            aria-label={expanded ? "Shrink session panel" : "Expand session panel"}
-            aria-pressed={expanded}
-          >
-            {expanded ? "Shrink" : "Expand"}
-            <KbdAction action="terminal.expandToggle" variant="ghost" />
-          </Btn>
-        )}
-        <Btn
-          variant="ghost"
-          size="sm"
-          icon="copy"
-          onClick={() => window.dispatchEvent(new CustomEvent(DUPLICATE_ACTIVE_SESSION_EVENT))}
-          title="Spin off a new session with this session's agent and branch"
-        >
-          Make Similar Session <Kbd variant="ghost">⌘ ⇧ D</Kbd>
-        </Btn>
-        <Btn
-          variant="danger"
-          size="sm"
-          icon="trash"
-          onClick={() => setConfirmDelete(true)}
-          title="Delete this session"
-        >
-          Delete <Kbd variant="ghost">⌘ W</Kbd>
-        </Btn>
-      </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <TerminalPane
           key={active.taskId}
@@ -172,6 +107,9 @@ export function TerminalPanel({
           descriptor={active}
           isLast
           onClose={() => onClose(active.taskId)}
+          onHide={onHide}
+          expanded={expanded}
+          onToggleExpanded={onToggleExpanded}
           onPtyReady={(ptyId) => onPtyReady(active.taskId, ptyId)}
         />
       </div>
@@ -188,6 +126,6 @@ export function TerminalPanel({
         This will permanently delete the session and kill its terminal. This
         cannot be undone.
       </ConfirmDialog>
-    </div>
+    </CardFrame>
   );
 }

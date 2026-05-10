@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { Kbd } from "~/components/ui/Kbd";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Icon } from "~/components/ui/Icon";
 import { useHotkey } from "~/lib/use-hotkey";
 import { getElectron } from "~/lib/electron";
@@ -108,14 +108,15 @@ export function LicenseEntryModal({
               Continue with Lite
             </Btn>
           )}
-          <Btn
-            variant="primary"
-            onClick={submit}
-            disabled={validate.isPending || !key.trim()}
-          >
-            {validate.isPending ? "Activating…" : submitLabel}
-            <Kbd variant="onPrimary">⌘ Enter</Kbd>
-          </Btn>
+          <StaticHotkeyTooltip hotkey="⌘ Enter">
+            <Btn
+              variant="primary"
+              onClick={submit}
+              disabled={validate.isPending || !key.trim()}
+            >
+              {validate.isPending ? "Activating…" : submitLabel}
+            </Btn>
+          </StaticHotkeyTooltip>
         </>
       }
     >

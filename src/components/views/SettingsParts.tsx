@@ -4,36 +4,36 @@ import { Icon } from "~/components/ui/Icon";
 export function SettingsSection({
   title,
   subtitle,
+  headingLevel = "h2",
   children,
 }: {
   title: string;
   subtitle?: string;
+  headingLevel?: "h1" | "h2";
   children: React.ReactNode;
 }) {
+  const Heading = headingLevel;
+
   return (
-    <div
+    <section
       style={{
         marginBottom: 24,
-        padding: 20,
-        background: "var(--surface-1)",
-        border: "1px solid var(--border)",
-        borderRadius: 12,
       }}
     >
       <div style={{ marginBottom: 16 }}>
-        <div
+        <Heading
           style={{
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: headingLevel === "h1" ? 22 : 11,
             fontWeight: 600,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
+            letterSpacing: headingLevel === "h1" ? 0 : "0.08em",
+            textTransform: headingLevel === "h1" ? "none" : "uppercase",
             color: "var(--text)",
-            marginBottom: 4,
+            margin: "0 0 4px",
           }}
         >
           {title}
-        </div>
+        </Heading>
         {subtitle && (
           <div
             style={{
@@ -48,7 +48,7 @@ export function SettingsSection({
         )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>
-    </div>
+    </section>
   );
 }
 

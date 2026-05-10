@@ -5,7 +5,7 @@ import { useProjects, queryKeys } from "~/queries";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { Icon } from "~/components/ui/Icon";
-import { useCardGlow } from "~/lib/use-card-glow";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { api } from "~/lib/api";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -19,7 +19,6 @@ export function ProjectBar() {
   const { data: projects } = useProjects();
   const { runningProjectIds } = useUserTerminals();
   const pinned = (projects ?? []).filter((p) => p.pinned);
-  const glowRef = useCardGlow<HTMLDivElement>();
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
     null
   );
@@ -32,26 +31,18 @@ export function ProjectBar() {
   const modSymbol = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform) ? "⌘" : "Ctrl+";
 
   return (
-    <div
-      ref={glowRef}
+    <CardFrame
+      glow
       role="navigation"
       aria-label="Pinned projects"
       style={{
-        position: "relative",
-        width: 80,
-        boxSizing: "border-box",
+        width: 88,
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         gap: 8,
         padding: "10px 0",
-        background: "var(--surface-0)",
-        border: "18px solid transparent",
-        borderImageSource: "url('/square.png')",
-        borderImageSlice: "180 fill",
-        borderImageWidth: "18px",
-        borderImageRepeat: "stretch",
         overflowX: "hidden",
         overflowY: "auto",
       }}
@@ -214,6 +205,6 @@ export function ProjectBar() {
           </button>
         </div>
       )}
-    </div>
+    </CardFrame>
   );
 }

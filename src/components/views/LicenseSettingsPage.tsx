@@ -85,12 +85,10 @@ export function LicenseSettingsPage() {
 
   return (
     <>
-      <h1 style={{ margin: "0 0 24px", fontSize: 24, fontWeight: 600, letterSpacing: "-0.015em" }}>
-        License
-      </h1>
       <SettingsSection
         title="Mission Control Pro"
         subtitle="Unlock Pro by entering a signed license key. Lite includes up to 2 projects."
+        headingLevel="h1"
       >
         <Field label="Status">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

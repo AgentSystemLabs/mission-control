@@ -2,7 +2,7 @@ import { useUsage } from "~/queries";
 import { UsageView } from "~/components/views/UsageView";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
-import { Kbd } from "~/components/ui/Kbd";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 
 export function UsagePanel({ onBack }: { onBack: () => void }) {
@@ -37,16 +37,17 @@ export function UsagePanel({ onBack }: { onBack: () => void }) {
           background: "var(--surface-1)",
         }}
       >
-        <Btn
-          variant="ghost"
-          size="sm"
-          icon="chevron-left"
-          onClick={onBack}
-          title="Back"
-          aria-label="Back"
-        >
-          Back <Kbd variant="inline">Esc</Kbd>
-        </Btn>
+        <StaticHotkeyTooltip hotkey="Esc" label="Back">
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="chevron-left"
+            onClick={onBack}
+            aria-label="Back"
+          >
+            Back
+          </Btn>
+        </StaticHotkeyTooltip>
         <div
           style={{
             display: "flex",

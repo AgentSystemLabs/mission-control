@@ -110,44 +110,18 @@ export function CommitPushButton({
   );
 
   const primaryButton = splitTrailing ? (
-    <button
-      type="button"
+    <Btn
+      variant={variant}
+      size={size}
+      className="mc-btn-attached-left"
       onClick={() => void onCommitAndPush()}
       disabled={busy}
       title={title ?? label}
       aria-label={title ?? label}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        height: "100%",
-        margin: 0,
-        border: "none",
-        borderTopRightRadius: 999,
-        borderBottomRightRadius: 999,
-        padding: "0 12px",
-        background: "var(--accent)",
-        color: "#0a0b0d",
-        fontFamily: "var(--mono)",
-        fontSize: 11.5,
-        fontWeight: 600,
-        cursor: busy ? "default" : "pointer",
-        opacity: busy ? 0.75 : 1,
-        transition: "background 0.12s, opacity 0.12s",
-        whiteSpace: "nowrap",
-      }}
-      onMouseEnter={(e) => {
-        if (busy) return;
-        e.currentTarget.style.background = "var(--accent-hover)";
-      }}
-      onMouseLeave={(e) => {
-        if (busy) return;
-        e.currentTarget.style.background = "var(--accent)";
-      }}
+      style={{ fontFamily: "var(--mono)" }}
     >
       {busy ? labelBusy : labelIdle}
-    </button>
+    </Btn>
   ) : (
     <Btn
       variant={variant}
