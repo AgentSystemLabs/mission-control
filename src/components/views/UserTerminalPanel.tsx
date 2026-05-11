@@ -1,5 +1,6 @@
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { EmptyState } from "~/components/ui/EmptyState";
 import { Icon } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
@@ -154,38 +155,29 @@ export function UserTerminalPanel() {
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: 14,
               color: "var(--text-dim)",
               fontFamily: "var(--mono)",
               fontSize: 12,
             }}
           >
             {project ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "20px 24px",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  background: "var(--surface-0)",
-                  boxShadow: "0 12px 28px rgba(0, 0, 0, 0.08)",
-                }}
-              >
-                <div style={{ color: "var(--text)", fontWeight: 500 }}>No terminals yet.</div>
-                <StaticHotkeyTooltip hotkey="⌘T">
-                  <Btn
-                    variant="ghost"
-                    size="sm"
-                    icon="plus"
-                    onClick={() => void createTerminal()}
-                  >
-                    New terminal
-                  </Btn>
-                </StaticHotkeyTooltip>
-              </div>
+              <EmptyState
+                icon="terminal"
+                title="No terminals yet"
+                subtitle="Open a terminal to run commands in this project."
+                action={
+                  <StaticHotkeyTooltip hotkey="⌘T">
+                    <Btn
+                      variant="ghost"
+                      size="sm"
+                      icon="plus"
+                      onClick={() => void createTerminal()}
+                    >
+                      New terminal
+                    </Btn>
+                  </StaticHotkeyTooltip>
+                }
+              />
             ) : (
               "Open a project to use terminals."
             )}
