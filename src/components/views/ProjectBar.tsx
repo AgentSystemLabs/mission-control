@@ -28,7 +28,12 @@ export function ProjectBar() {
   if (pinned.length === 0) return null;
 
   const activeId = router.state.location.pathname.match(/^\/projects\/([^/]+)/)?.[1];
+  const activeIndex = pinned.findIndex((p) => p.id === activeId);
   const modSymbol = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform) ? "⌘" : "Ctrl+";
+
+  const ITEM = 40;
+  const GAP = 8;
+  const PAD_TOP = 10;
 
   return (
     <CardFrame
@@ -47,6 +52,26 @@ export function ProjectBar() {
         overflowY: "auto",
       }}
     >
+      {activeIndex >= 0 && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: PAD_TOP,
+            left: "50%",
+            width: ITEM,
+            height: ITEM,
+            marginLeft: -ITEM / 2,
+            borderRadius: 10,
+            border: "2px solid color-mix(in srgb, var(--accent) 88%, black)",
+            background: "transparent",
+            transform: `translateY(${activeIndex * (ITEM + GAP)}px)`,
+            transition: "transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+            pointerEvents: "none",
+            zIndex: 2,
+          }}
+        />
+      )}
       {pinned.map((project, idx) => {
         const hotkey = idx < HOTKEY_LIMIT ? idx + 1 : null;
         const isActive = activeId === project.id;
@@ -83,9 +108,10 @@ export function ProjectBar() {
               flexShrink: 0,
               aspectRatio: "1 / 1",
               padding: 0,
-              border: `1px solid ${isActive ? "var(--accent-border)" : "transparent"}`,
+              border: "1px solid transparent",
               borderRadius: 10,
-              background: isActive ? "var(--accent-dim)" : "transparent",
+              background: "transparent",
+              zIndex: 1,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
