@@ -20,6 +20,7 @@ export type AppSettings = {
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
+  launchAudioDisabled: boolean;
 };
 
 export class ApiError extends Error {
@@ -224,6 +225,7 @@ export const api = {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "launchAudioDisabled"
       >
     >,
   ) =>

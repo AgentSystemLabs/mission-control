@@ -26,6 +26,7 @@ export function ThemeSettingsPage() {
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
+    launchAudioDisabled: settings?.launchAudioDisabled ?? false,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

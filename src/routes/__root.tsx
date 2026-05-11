@@ -320,13 +320,16 @@ function Shell() {
           richColors
         />
       </div>
-      {showLaunchOverlay && <LaunchOverlay />}
+      {showLaunchOverlay && (
+        <LaunchOverlay audioDisabled={settings?.launchAudioDisabled} />
+      )}
     </>
   );
 }
 
-function LaunchOverlay() {
+function LaunchOverlay({ audioDisabled }: { audioDisabled: boolean | undefined }) {
   useEffect(() => {
+    if (audioDisabled !== false) return;
     const playAudio = (src: string, startAtSeconds = 0) => {
       const audio = new Audio(src);
       audio.preload = "auto";
@@ -348,7 +351,7 @@ function LaunchOverlay() {
     return () => {
       window.clearTimeout(slideTimeout);
     };
-  }, []);
+  }, [audioDisabled]);
 
   return (
     <div className="launch-overlay" role="status" aria-label="Mission Control loading">

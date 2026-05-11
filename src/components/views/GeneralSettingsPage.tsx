@@ -17,6 +17,7 @@ export function GeneralSettingsPage() {
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
+  const launchAudioEnabled = !(settings?.launchAudioDisabled ?? false);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
     "default",
   );
@@ -42,6 +43,7 @@ export function GeneralSettingsPage() {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "launchAudioDisabled"
       >
     >,
   ): AppSettings => ({
@@ -51,6 +53,7 @@ export function GeneralSettingsPage() {
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
+    launchAudioDisabled: settings?.launchAudioDisabled ?? false,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });
@@ -63,6 +66,7 @@ export function GeneralSettingsPage() {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "launchAudioDisabled"
       >
     >,
   ) => {
@@ -88,6 +92,10 @@ export function GeneralSettingsPage() {
 
   const setToastEnabled = async (sessionFinishToastEnabled: boolean) => {
     await updateSettings({ sessionFinishToastEnabled });
+  };
+
+  const setLaunchAudioEnabled = async (enabled: boolean) => {
+    await updateSettings({ launchAudioDisabled: !enabled });
   };
 
   const setOsNotificationEnabled = async (enabled: boolean) => {
@@ -172,6 +180,15 @@ export function GeneralSettingsPage() {
             description="Cursor and card gradients follow the pointer across the workspace."
             checked={mouseGradientEnabled}
             onChange={setMouseGradientEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Loading screen sound effects">
+          <ToggleRow
+            title="Play launch sound effects"
+            description="Welcome chime and airlock slide play while the loading screen is visible."
+            checked={launchAudioEnabled}
+            onChange={setLaunchAudioEnabled}
             label="Enable"
           />
         </Field>
