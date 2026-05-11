@@ -20,7 +20,8 @@ async function fetchLatest(): Promise<LatestRelease> {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`mc-releases ${res.status}`);
   const body = (await res.json()) as { releases?: Array<{ version?: string }> };
-  const remote = body.releases?.[0]?.version ?? null;
+  const raw = body.releases?.[0]?.version ?? null;
+  const remote = raw ? raw.replace(/^v/i, "") : null;
   return {
     latestVersion: remote,
     downloadUrl: DOWNLOADS_URL,
