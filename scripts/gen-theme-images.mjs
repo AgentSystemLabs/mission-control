@@ -19,6 +19,7 @@ const BORDERS_DIR = join(ROOT, "public", "borders");
 const SOURCES = [
   { base: "button_filled", mask: "all" },
   { base: "panel_focused", mask: "all" },
+  { base: "square", mask: "all", opacity: 0.15 },
   { base: "shell", mask: "saturation", threshold: 0.15, ramp: 0.1 },
 ];
 
@@ -94,6 +95,7 @@ function tintBuffer(png, themeHex, opts) {
   const mask = opts?.mask ?? "all";
   const threshold = opts?.threshold ?? 0.15;
   const ramp = opts?.ramp ?? 0.1;
+  const opacity = opts?.opacity ?? 1;
   const out = new PNG({ width: png.width, height: png.height });
   for (let i = 0; i < png.data.length; i += 4) {
     const r = png.data[i];
@@ -108,6 +110,7 @@ function tintBuffer(png, themeHex, opts) {
       // Soft ramp around threshold so the transition isn't a hard edge.
       w = Math.max(0, Math.min(1, (s - threshold) / ramp));
     }
+    w *= opacity;
     out.data[i] = Math.round(r * (1 - w) + tinted.r * w);
     out.data[i + 1] = Math.round(g * (1 - w) + tinted.g * w);
     out.data[i + 2] = Math.round(b * (1 - w) + tinted.b * w);

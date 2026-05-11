@@ -83,6 +83,7 @@ function ThemePreviewCard({
 }) {
   const accentRgba = (a: number) => `rgba(${color.rgb}, ${a})`;
   const panelBorder = `url("/borders/panel_focused_${color.id}.png")`;
+  const squareBorder = `url("/borders/square_${color.id}.png")`;
   const buttonBorder = `url("/borders/button_filled_${color.id}.png")`;
   return (
     <button
@@ -99,14 +100,14 @@ function ThemePreviewCard({
         background:
           `linear-gradient(rgba(3, 6, 8, 0.30), rgba(3, 6, 8, 0.30)), ` +
           `radial-gradient(circle at 30% 0%, ${accentRgba(selected ? 0.18 : 0.08)}, transparent 65%), ` +
-          `url('/borders/square.png') 39.0625% 39.0625% / 200% 200% no-repeat`,
+          `${selected ? panelBorder : squareBorder} 39.0625% 39.0625% / 200% 200% no-repeat`,
         backgroundClip: "padding-box",
         borderStyle: "solid",
         borderColor: "transparent",
         borderWidth: 16,
         borderImageSource: selected
           ? panelBorder
-          : "url('/borders/square.png')",
+          : squareBorder,
         borderImageSlice: "48",
         borderImageWidth: "16px",
         borderImageRepeat: "stretch",
