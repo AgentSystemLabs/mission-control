@@ -169,6 +169,14 @@ function Shell() {
       const rect = workspace.getBoundingClientRect();
       document.documentElement.style.setProperty("--mc-workspace-top", `${rect.top}px`);
       document.documentElement.style.setProperty("--mc-workspace-left", `${rect.left}px`);
+      document.documentElement.style.setProperty(
+        "--mc-workspace-right",
+        `${window.innerWidth - rect.right}px`,
+      );
+      document.documentElement.style.setProperty(
+        "--mc-workspace-bottom",
+        `${window.innerHeight - rect.bottom}px`,
+      );
     };
 
     updateWorkspaceBounds();
@@ -181,6 +189,8 @@ function Shell() {
       window.removeEventListener("resize", updateWorkspaceBounds);
       document.documentElement.style.removeProperty("--mc-workspace-top");
       document.documentElement.style.removeProperty("--mc-workspace-left");
+      document.documentElement.style.removeProperty("--mc-workspace-right");
+      document.documentElement.style.removeProperty("--mc-workspace-bottom");
     };
   }, []);
 
