@@ -14,6 +14,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   build:
     name: Build (${{ matrix.platform }})
@@ -208,3 +212,14 @@ jobs:
           RELEASE_VERSION: ${{ steps.ref.outputs.ref }}
           RELEASE_NOTES: ${{ steps.notes.outputs.notes }}
         run: node scripts/publish-release.mjs
+
+      - name: Delete this run's artifacts
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          ids=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate -q '.artifacts[].id')
+          for id in $ids; do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "deleted $id"
+          done
