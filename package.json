@@ -32,6 +32,7 @@
     "native:electron": "electron-rebuild -f -w better-sqlite3 -w node-pty",
     "rebuild": "pnpm native:electron",
     "release:local": "node scripts/release-local.mjs",
+    "gen:theme-images": "node scripts/gen-theme-images.mjs",
     "postinstall": "pnpm native:electron:pty || true"
   },
   "dependencies": {
@@ -65,6 +66,7 @@
     "@tanstack/router-plugin": "^1.167.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.1",
@@ -73,6 +75,7 @@
     "drizzle-kit": "^0.31.10",
     "electron": "^41.0.0",
     "electron-builder": "^25.1.8",
+    "pngjs": "^7.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
     "vite": "^7.0.0",

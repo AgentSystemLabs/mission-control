@@ -33,6 +33,8 @@
   --accent-faint: rgba(255, 90, 31, 0.1);
   --accent-border: rgba(255, 90, 31, 0.38);
   --accent-glow: rgba(255, 90, 31, 0.48);
+  --mc-btn-filled-image: url("/borders/button_filled_deep-orange.png");
+  --mc-panel-focused-image: url("/borders/panel_focused_deep-orange.png");
   --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
   --accent-soft-hover: color-mix(in srgb, var(--accent) 26%, transparent);
   --banner-bg: linear-gradient(90deg, var(--accent-faint), var(--surface-0) 34%, var(--accent-faint));
@@ -261,7 +263,7 @@ button {
   --mc-btn-padding-x: 28px;
   --mc-btn-frame-border: 20px;
   height: var(--mc-btn-height);
-  --mc-btn-slice-image: url("/borders/button_filled.png");
+  --mc-btn-slice-image: var(--mc-btn-filled-image);
   min-width: 136px;
   border: 0;
   border-radius: 0;

@@ -67,7 +67,7 @@ export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFr
         borderStyle: "solid",
         borderColor: "transparent",
         borderWidth: frameStyle.borderWidth,
-        borderImageSource: focused ? "url('/borders/panel_focused.png')" : frameStyle.borderImageSource,
+        borderImageSource: focused ? "var(--mc-panel-focused-image)" : frameStyle.borderImageSource,
         borderImageSlice: frameStyle.borderImageSlice,
         borderImageWidth: frameStyle.borderImageWidth,
         borderImageRepeat: "stretch",
