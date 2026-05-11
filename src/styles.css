@@ -122,7 +122,7 @@ body {
   pointer-events: none;
   z-index: 0;
   border: clamp(44px, 4vw, 64px) solid transparent;
-  border-image-source: url("/shell.png");
+  border-image-source: url("/borders/shell.png");
   border-image-slice: 120;
   border-image-width: 1;
   border-image-repeat: stretch;
@@ -227,7 +227,7 @@ button {
 .mc-btn-ghost,
 .mc-btn-danger,
 .mc-btn-gray-frame {
-  --mc-btn-slice-image: url("/button_gray.png");
+  --mc-btn-slice-image: url("/borders/button_gray.png");
   --mc-btn-frame-border: 14px;
   --mc-btn-frame-slice: 64;
   --mc-btn-height: 36px;
@@ -261,7 +261,7 @@ button {
   --mc-btn-padding-x: 28px;
   --mc-btn-frame-border: 20px;
   height: var(--mc-btn-height);
-  --mc-btn-slice-image: url("/button_filled.png");
+  --mc-btn-slice-image: url("/borders/button_filled.png");
   min-width: 136px;
   border: 0;
   border-radius: 0;
@@ -280,7 +280,7 @@ button {
 }
 
 .mc-btn-frame {
-  --mc-btn-slice-image: url("/button.png");
+  --mc-btn-slice-image: url("/borders/button.png");
   height: 64px;
   color: color-mix(in srgb, var(--accent) 76%, white);
 }
@@ -412,7 +412,7 @@ button {
   inset: 0;
   z-index: 0;
   border: 14px solid transparent;
-  border-image-source: url("/button_gray.png");
+  border-image-source: url("/borders/button_gray.png");
   border-image-slice: 64 fill;
   border-image-width: 14px;
   border-image-repeat: stretch;

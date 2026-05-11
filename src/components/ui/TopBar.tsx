@@ -46,7 +46,7 @@ export function TopBar({
           style={{ ["WebkitAppRegion" as any]: "no-drag" }}
         >
           <img
-            src="/robot.png"
+            src="/images/robot.png"
             alt="AgentSystem.dev"
             width={22}
             height={22}

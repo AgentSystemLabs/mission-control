@@ -328,10 +328,10 @@ function LaunchOverlay() {
       });
     };
 
-    playAudio("/welcome.mp3", LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS);
+    playAudio("/audio/welcome.mp3", LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS);
 
     const slideTimeout = window.setTimeout(
-      () => playAudio("/slide.ogg"),
+      () => playAudio("/audio/slide.ogg"),
       LAUNCH_AIRLOCK_AUDIO_MS,
     );
 
@@ -344,10 +344,10 @@ function LaunchOverlay() {
     <div className="launch-overlay" role="status" aria-label="Mission Control loading">
       <div className="launch-overlay__doors" aria-hidden="true">
         <div className="launch-overlay__door launch-overlay__door--left">
-          <img src="/doors.png" alt="" />
+          <img src="/images/doors.png" alt="" />
         </div>
         <div className="launch-overlay__door launch-overlay__door--right">
-          <img src="/doors.png" alt="" />
+          <img src="/images/doors.png" alt="" />
         </div>
       </div>
       <div className="launch-overlay__fog" aria-hidden="true">

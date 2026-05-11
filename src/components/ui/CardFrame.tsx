@@ -15,13 +15,13 @@ const FRAME_STYLES: Record<
 > = {
   square: {
     borderWidth: 16,
-    borderImageSource: "url('/square.png')",
+    borderImageSource: "url('/borders/square.png')",
     borderImageSlice: "48",
     borderImageWidth: "16px",
   },
   slanted: {
     borderWidth: 16,
-    borderImageSource: "url('/square.png')",
+    borderImageSource: "url('/borders/square.png')",
     borderImageSlice: "48",
     borderImageWidth: "16px",
   },
@@ -63,11 +63,11 @@ export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFr
         ...style,
         background:
           style?.background ??
-          `linear-gradient(${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}, ${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}), url('/square.png') 39.0625% 39.0625% / 200% 200% no-repeat`,
+          `linear-gradient(${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}, ${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}), url('/borders/square.png') 39.0625% 39.0625% / 200% 200% no-repeat`,
         borderStyle: "solid",
         borderColor: "transparent",
         borderWidth: frameStyle.borderWidth,
-        borderImageSource: focused ? "url('/panel_focused.png')" : frameStyle.borderImageSource,
+        borderImageSource: focused ? "url('/borders/panel_focused.png')" : frameStyle.borderImageSource,
         borderImageSlice: frameStyle.borderImageSlice,
         borderImageWidth: frameStyle.borderImageWidth,
         borderImageRepeat: "stretch",
