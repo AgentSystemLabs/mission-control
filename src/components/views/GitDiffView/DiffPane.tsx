@@ -67,7 +67,7 @@ function DiffText({ patch }: { patch: string }) {
         fontFamily: "var(--mono)",
         fontSize: 12,
         lineHeight: 1.5,
-        background: "var(--surface-0)",
+        background: "transparent",
         color: "var(--text)",
         whiteSpace: "pre",
         tabSize: 2,
@@ -123,7 +123,7 @@ function Centered({ children }: { children: React.ReactNode }) {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        background: "var(--surface-0)",
+        background: "transparent",
         padding: 32,
       }}
     >

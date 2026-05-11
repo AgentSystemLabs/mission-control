@@ -87,7 +87,7 @@ export function ChangedFilesList({
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        background: "var(--surface-0)",
+        background: "transparent",
         position: "relative",
       }}
     >
@@ -288,15 +288,14 @@ function Section({
   const sectionTone = SECTION_TONES[tone];
 
   return (
-    <div style={{ background: sectionTone.panel }}>
+    <div>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
-          background: sectionTone.header,
-          borderTop: `1px solid ${sectionTone.border}`,
+          background: "transparent",
           borderBottom: `1px solid ${sectionTone.border}`,
           fontFamily: "var(--mono)",
           fontSize: 11,

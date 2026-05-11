@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -102,20 +103,18 @@ export function GitDiffView({
   const selectedDisplay = selection ? displayPath(selection.path) : null;
 
   return (
-    <div
+    <CardFrame
       data-navigation-swipe-blocker
+      solid
       style={{
         position: "fixed",
         top: "var(--mc-workspace-top, 0px)",
         left: "var(--mc-workspace-left, 0px)",
-        right: 0,
-        bottom: 0,
+        right: "var(--mc-workspace-right, 0px)",
+        bottom: "var(--mc-workspace-bottom, 0px)",
         zIndex: 200,
         display: "flex",
         flexDirection: "column",
-        overflow: "hidden",
-        background: "var(--surface-0)",
-        boxShadow: "0 0 0 1px var(--border-strong)",
       }}
     >
       <div
@@ -126,7 +125,7 @@ export function GitDiffView({
           flexWrap: "wrap",
           padding: "10px 16px",
           borderBottom: "1px solid var(--border)",
-          background: "var(--surface-1)",
+          background: "rgba(3, 6, 8, 0.35)",
         }}
       >
         <StaticHotkeyTooltip hotkey="Esc" label="Back to project">
@@ -230,7 +229,7 @@ export function GitDiffView({
                 fontSize: 11,
                 color: "var(--text-dim)",
                 borderBottom: "1px solid var(--border)",
-                background: "var(--surface-1)",
+                background: "rgba(3, 6, 8, 0.35)",
                 display: "flex",
                 alignItems: "baseline",
                 gap: 6,
@@ -292,6 +291,6 @@ export function GitDiffView({
           </div>
         </div>
       )}
-    </div>
+    </CardFrame>
   );
 }
