@@ -31,13 +31,30 @@ export function SettingsPanel({
   initialPanel?: SettingsPanelId;
 }) {
   const [isElectron, setIsElectron] = useState(false);
-  const [activePanel, setActivePanel] = useState<SettingsPanelId>(initialPanel);
+  const [activePanel, setActivePanel] = useState<SettingsPanelId>(() => {
+    if (typeof window === "undefined") return initialPanel;
+    const stored = window.localStorage.getItem(
+      "mc-settings-active-panel",
+    ) as SettingsPanelId | null;
+    return stored ?? initialPanel;
+  });
+  const [isExiting, setIsExiting] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("mc-settings-active-panel", activePanel);
+  }, [activePanel]);
 
   useEffect(() => {
     setIsElectron(!!getElectron());
   }, []);
 
-  useHotkey("escape", onBack, { preventDefault: false });
+  const handleBack = () => {
+    if (isExiting) return;
+    setIsExiting(true);
+  };
+
+  useHotkey("escape", handleBack, { preventDefault: false });
 
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
@@ -58,25 +75,41 @@ export function SettingsPanel({
         position: "fixed",
         top: "var(--mc-workspace-top, 0px)",
         left: "var(--mc-workspace-left, 0px)",
-        right: 0,
-        bottom: 0,
+        right: "var(--mc-workspace-right, 0px)",
+        bottom: "var(--mc-workspace-bottom, 0px)",
         zIndex: 200,
         display: "flex",
         flexDirection: "column",
         gap: 12,
         padding: 12,
         overflow: "hidden",
-        background: "var(--bg)",
-        boxShadow: "0 0 0 1px var(--border-strong)",
+        background: "transparent",
       }}
-      className="dot-grid-bg"
     >
+      <style>{`
+        @keyframes mc-settings-slide-in-left {
+          from { transform: translateX(-110%); }
+          to { transform: translateX(0); }
+        }
+        @keyframes mc-settings-slide-in-right {
+          from { transform: translateX(110%); }
+          to { transform: translateX(0); }
+        }
+        @keyframes mc-settings-slide-out-left {
+          from { transform: translateX(0); }
+          to { transform: translateX(-110%); }
+        }
+        @keyframes mc-settings-slide-out-right {
+          from { transform: translateX(0); }
+          to { transform: translateX(110%); }
+        }
+      `}</style>
       <div
         style={{
           flex: 1,
           display: "flex",
           overflow: "hidden",
-          gap: 12,
+          gap: 0,
           minHeight: 0,
         }}
       >
@@ -87,6 +120,14 @@ export function SettingsPanel({
             flexShrink: 0,
             padding: "16px 6px",
             overflow: "auto",
+            animation: isExiting
+              ? "mc-settings-slide-out-left 380ms cubic-bezier(0.64, 0, 0.78, 0) both"
+              : "mc-settings-slide-in-left 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
+          }}
+          onAnimationEnd={(e) => {
+            if (isExiting && e.animationName === "mc-settings-slide-out-left") {
+              onBack();
+            }
           }}
         >
           <div style={{ padding: "0 10px 14px" }}>
@@ -95,7 +136,7 @@ export function SettingsPanel({
                 variant="ghost"
                 size="sm"
                 icon="chevron-left"
-                onClick={onBack}
+                onClick={handleBack}
                 aria-label="Back"
                 style={{
                   width: "100%",
@@ -137,6 +178,9 @@ export function SettingsPanel({
             minWidth: 0,
             padding: "24px 32px 80px",
             overflow: "auto",
+            animation: isExiting
+              ? "mc-settings-slide-out-right 380ms cubic-bezier(0.64, 0, 0.78, 0) both"
+              : "mc-settings-slide-in-right 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
           }}
         >
           {activePanel === "general" ? (
