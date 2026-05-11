@@ -36,14 +36,24 @@ export function TopBar({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          ["WebkitAppRegion" as any]: "no-drag",
         }}
       >
-        <Btn
-          variant="gray-frame"
+        <button
+          type="button"
           onClick={onHome}
           aria-label="Mission Control home"
-          style={{ ["WebkitAppRegion" as any]: "no-drag" }}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            margin: 0,
+            cursor: "pointer",
+            color: "inherit",
+            ["WebkitAppRegion" as any]: "no-drag",
+          }}
         >
           <img
             src="/images/robot.png"
@@ -89,7 +99,7 @@ export function TopBar({
             />
           )}
           {leading}
-        </Btn>
+        </button>
         {crumbs && crumbs.length > 0 && (
           <>
             <Icon name="chevron-right" size={11} style={{ color: "var(--text-faint)" }} />
@@ -108,6 +118,7 @@ export function TopBar({
                       fontSize: 12,
                       color: i === crumbs.length - 1 ? "var(--text)" : "var(--text-dim)",
                       cursor: c.onClick ? "pointer" : "default",
+                      ["WebkitAppRegion" as any]: c.onClick ? "no-drag" : undefined,
                     }}
                   >
                     {c.label}
