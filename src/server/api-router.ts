@@ -490,10 +490,27 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         notification_type?: string;
         message?: string;
         title?: string;
+        session_id?: string;
       }>(request);
       const event = payload?.hook_event_name || "";
       const status = mapHookEventToStatus(payload);
       if (!status) return json({ ok: true, ignored: event });
+      // Reject hook events from nested Claude invocations (e.g. plugin Stop
+      // hooks that spawn `claude -p` for classification). They inherit our
+      // MC_TASK_ID env var but run under their own session_id, so they'd
+      // flicker the task running → finished → running → finished and fire
+      // duplicate session-finished notifications.
+      const task = getTask(taskId);
+      if (!task) return jsonError(404, "task not found");
+      const incomingSessionId =
+        typeof payload?.session_id === "string" ? payload.session_id : "";
+      if (
+        task.claudeSessionId &&
+        incomingSessionId &&
+        incomingSessionId !== task.claudeSessionId
+      ) {
+        return json({ ok: true, ignored: "foreign-session" });
+      }
       const t = updateStatus(taskId, { status });
       if (!t) return jsonError(404, "task not found");
       if (event === "UserPromptSubmit" && typeof payload?.prompt === "string" && payload.prompt.trim()) {
