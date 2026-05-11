@@ -35,6 +35,7 @@
   --accent-glow: rgba(255, 90, 31, 0.48);
   --mc-btn-filled-image: url("/borders/button_filled_deep-orange.png");
   --mc-panel-focused-image: url("/borders/panel_focused_deep-orange.png");
+  --mc-shell-image: url("/borders/shell_deep-orange.png");
   --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
   --accent-soft-hover: color-mix(in srgb, var(--accent) 26%, transparent);
   --banner-bg: linear-gradient(90deg, var(--accent-faint), var(--surface-0) 34%, var(--accent-faint));
@@ -124,7 +125,7 @@ body {
   pointer-events: none;
   z-index: 0;
   border: clamp(44px, 4vw, 64px) solid transparent;
-  border-image-source: url("/borders/shell.png");
+  border-image-source: var(--mc-shell-image);
   border-image-slice: 120;
   border-image-width: 1;
   border-image-repeat: stretch;

@@ -61,4 +61,8 @@ export function applyAccentColor(id: string | null | undefined) {
     "--mc-panel-focused-image",
     `url("/borders/panel_focused_${color.id}.png")`,
   );
+  root.style.setProperty(
+    "--mc-shell-image",
+    `url("/borders/shell_${color.id}.png")`,
+  );
 }

@@ -14,7 +14,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const BORDERS_DIR = join(ROOT, "public", "borders");
 
-const SOURCES = ["button_filled", "panel_focused"];
+// Each source: full Color blend across the image, or masked so only saturated
+// pixels (the colored lights) get re-themed and neutral metal stays as-is.
+const SOURCES = [
+  { base: "button_filled", mask: "all" },
+  { base: "panel_focused", mask: "all" },
+  { base: "shell", mask: "saturation", threshold: 0.15, ramp: 0.1 },
+];
 
 // Mirror of src/lib/accent-colors.ts. Kept here so this script has zero TS deps.
 const ACCENT_COLORS = [
@@ -82,42 +88,51 @@ function hslToRgb(h, s, l) {
   return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
 }
 
-function tintBuffer(png, themeHex) {
+function tintBuffer(png, themeHex, opts) {
   const { r: tr, g: tg, b: tb } = hexToRgb(themeHex);
   const { h: th, s: ts } = rgbToHsl(tr, tg, tb);
+  const mask = opts?.mask ?? "all";
+  const threshold = opts?.threshold ?? 0.15;
+  const ramp = opts?.ramp ?? 0.1;
   const out = new PNG({ width: png.width, height: png.height });
   for (let i = 0; i < png.data.length; i += 4) {
     const r = png.data[i];
     const g = png.data[i + 1];
     const b = png.data[i + 2];
     const a = png.data[i + 3];
-    // Use original luminance; replace hue+sat with theme color (Figma "Color" blend).
-    const { l } = rgbToHsl(r, g, b);
-    const out_rgb = hslToRgb(th, ts, l);
-    out.data[i] = out_rgb.r;
-    out.data[i + 1] = out_rgb.g;
-    out.data[i + 2] = out_rgb.b;
+    const { s, l } = rgbToHsl(r, g, b);
+    // Color blend: theme hue+sat at original luminance.
+    const tinted = hslToRgb(th, ts, l);
+    let w = 1;
+    if (mask === "saturation") {
+      // Soft ramp around threshold so the transition isn't a hard edge.
+      w = Math.max(0, Math.min(1, (s - threshold) / ramp));
+    }
+    out.data[i] = Math.round(r * (1 - w) + tinted.r * w);
+    out.data[i + 1] = Math.round(g * (1 - w) + tinted.g * w);
+    out.data[i + 2] = Math.round(b * (1 - w) + tinted.b * w);
     out.data[i + 3] = a;
   }
   return PNG.sync.write(out);
 }
 
-async function processSource(base) {
+async function processSource(source) {
+  const { base, ...opts } = source;
   const srcPath = join(BORDERS_DIR, `${base}.png`);
   const buf = await readFile(srcPath);
   const png = PNG.sync.read(buf);
   for (const { id, hex } of ACCENT_COLORS) {
     const outPath = join(BORDERS_DIR, `${base}_${id}.png`);
-    const tinted = tintBuffer(png, hex);
+    const tinted = tintBuffer(png, hex, opts);
     await writeFile(outPath, tinted);
     console.log(`  wrote ${base}_${id}.png`);
   }
 }
 
 async function main() {
-  for (const base of SOURCES) {
-    console.log(`Tinting ${base}.png …`);
-    await processSource(base);
+  for (const source of SOURCES) {
+    console.log(`Tinting ${source.base}.png (mask=${source.mask ?? "all"}) …`);
+    await processSource(source);
   }
   console.log(`\nGenerated ${SOURCES.length * ACCENT_COLORS.length} themed PNGs.`);
 }
