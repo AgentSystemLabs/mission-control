@@ -293,6 +293,7 @@ function Shell() {
                 flexDirection: "column",
                 overflow: "hidden",
                 minWidth: 0,
+                minHeight: 0,
               }}
             >
               <Outlet />

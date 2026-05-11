@@ -604,6 +604,7 @@ function ProjectPage() {
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           overflow: "auto",
           padding: 0,
           display: "flex",
@@ -615,6 +616,7 @@ function ProjectPage() {
         style={{
           width: "100%",
           minHeight: "100%",
+          flexShrink: 0,
           boxSizing: "border-box",
           padding: 8,
         }}
