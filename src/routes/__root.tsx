@@ -317,7 +317,10 @@ function Shell() {
         <Toaster
           position="bottom-right"
           theme="dark"
-          richColors
+          toastOptions={{
+            unstyled: true,
+            style: { background: "transparent", border: "none", padding: 0, boxShadow: "none" },
+          }}
         />
       </div>
       {showLaunchOverlay && (
