@@ -38,10 +38,31 @@ export function UserTerminalPane({
   isLast: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
   const termRef = useRef<{ focus: () => void } | null>(null);
   const [bridgeMissing, setBridgeMissing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(terminal.name);
+  const [domFocused, setDomFocused] = useState(false);
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const onIn = () => setDomFocused(true);
+    const onOut = () => {
+      requestAnimationFrame(() => {
+        const root = cardRef.current;
+        if (!root) return;
+        setDomFocused(root.contains(document.activeElement));
+      });
+    };
+    el.addEventListener("focusin", onIn);
+    el.addEventListener("focusout", onOut);
+    setDomFocused(el.contains(document.activeElement));
+    return () => {
+      el.removeEventListener("focusin", onIn);
+      el.removeEventListener("focusout", onOut);
+    };
+  }, []);
 
   useEffect(() => setDraftName(terminal.name), [terminal.name]);
 
@@ -279,7 +300,8 @@ export function UserTerminalPane({
 
   return (
     <CardFrame
-      focused={focused}
+      ref={cardRef}
+      focused={focused && domFocused}
       onMouseDown={onFocus}
       style={{
         flex: 1,

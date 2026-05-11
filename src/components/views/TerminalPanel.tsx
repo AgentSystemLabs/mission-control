@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -61,6 +61,28 @@ export function TerminalPanel({
     }
   };
 
+  const rootRef = useRef<HTMLElement | null>(null);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const onFocusIn = () => setFocused(true);
+    const onFocusOut = () => {
+      requestAnimationFrame(() => {
+        const root = rootRef.current;
+        if (!root) return;
+        setFocused(root.contains(document.activeElement));
+      });
+    };
+    el.addEventListener("focusin", onFocusIn);
+    el.addEventListener("focusout", onFocusOut);
+    setFocused(el.contains(document.activeElement));
+    return () => {
+      el.removeEventListener("focusin", onFocusIn);
+      el.removeEventListener("focusout", onFocusOut);
+    };
+  }, [active?.taskId]);
+
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:agentsPanelWidth",
     axis: "x",
@@ -72,7 +94,8 @@ export function TerminalPanel({
   if (!active) return null;
   return (
     <CardFrame
-      focused
+      ref={rootRef}
+      focused={focused}
       style={{
         width: expanded ? "100%" : width,
         flex: expanded ? 1 : undefined,
