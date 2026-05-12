@@ -19,7 +19,6 @@ export function ThemeSettingsPage() {
   const optimisticSettings = (
     patch: Partial<Pick<AppSettings, "accentColor">>,
   ): AppSettings => ({
-    apiToken: settings?.apiToken ?? "",
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,

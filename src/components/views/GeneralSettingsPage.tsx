@@ -47,7 +47,6 @@ export function GeneralSettingsPage() {
       >
     >,
   ): AppSettings => ({
-    apiToken: settings?.apiToken ?? "",
     agentSystemBannerDisabled: disabled,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,

@@ -3,12 +3,11 @@ import { IPC } from "./ipc-channels";
 
 const electronAPI = {
   installSkills: {
-    fetchLatest: (opts?: { baseUrl?: string; licenseKey?: string }) =>
+    fetchLatest: (opts?: { licenseKey?: string }) =>
       ipcRenderer.invoke(IPC.installSkillsFetchLatest, opts),
     run: (args: {
       projectPath: string;
       harnesses: { claude: boolean; codex: boolean };
-      baseUrl?: string;
       licenseKey?: string;
     }) => ipcRenderer.invoke(IPC.installSkillsRun, args),
   },
@@ -28,6 +27,7 @@ const electronAPI = {
   }): Promise<{ filename: string } | { error: string }> =>
     ipcRenderer.invoke(IPC.fileSaveProjectImage, opts),
   getRuntimePort: (): Promise<number | null> => ipcRenderer.invoke(IPC.appGetRuntimePort),
+  getApiToken: (): Promise<string | null> => ipcRenderer.invoke(IPC.appGetApiToken),
   getUserDataDir: (): Promise<string> => ipcRenderer.invoke(IPC.appGetUserDataDir),
   getUserName: (): Promise<{ source: "git" | "os"; fullName: string; firstName: string }> =>
     ipcRenderer.invoke(IPC.appGetUserName),

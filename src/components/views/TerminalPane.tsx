@@ -22,15 +22,15 @@ import type { Project, Task } from "~/db/schema";
 
 async function resolveMcEnv(
   electron: NonNullable<ReturnType<typeof getElectron>>,
-  queryClient: QueryClient
+  _queryClient: QueryClient
 ) {
   try {
-    const [port, settings] = await Promise.all([
+    const [port, token] = await Promise.all([
       electron.getRuntimePort(),
-      queryClient.ensureQueryData(settingsQueryOptions()),
+      electron.getApiToken(),
     ]);
-    if (!port) return undefined;
-    return { apiUrl: `http://127.0.0.1:${port}`, token: settings.apiToken };
+    if (!port || !token) return undefined;
+    return { apiUrl: `http://127.0.0.1:${port}`, token };
   } catch {
     return undefined;
   }
@@ -216,8 +216,9 @@ export function TerminalPane({
             fallbackRunningPosted = true;
             void (async () => {
               try {
-                const settings = await queryClient.ensureQueryData(settingsQueryOptions());
-                await api.updateTaskStatus(descriptor.taskId, { status: "running" }, settings.apiToken);
+                const token = await electron.getApiToken();
+                if (!token) throw new Error("api token unavailable");
+                await api.updateTaskStatus(descriptor.taskId, { status: "running" }, token);
                 await Promise.all([
                   queryClient.invalidateQueries({ queryKey: queryKeys.tasks(project.id) }),
                   queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),

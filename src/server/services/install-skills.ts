@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import { getLicenseState } from "~/db/settings";
-import { ACADEMY_BASE_URL } from "~/shared/academy";
+import { ACADEMY_BASE_URL, isAllowedAcademyDownloadUrl } from "~/shared/academy";
 
 export type LatestSkillsManifest = {
   version: string;
@@ -123,6 +123,9 @@ export async function installProjectSkills(
   }
 
   const manifest = await fetchLatestSkillsManifest();
+  if (!isAllowedAcademyDownloadUrl(manifest.downloadUrl)) {
+    throw new Error(`Refusing to download from untrusted host: ${manifest.downloadUrl}`);
+  }
   const licenseKey = readRequiredLicenseKey();
 
   const tempFile = path.join(

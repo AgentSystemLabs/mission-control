@@ -14,7 +14,6 @@ import type { UsageSummary } from "~/shared/token-usage";
 import type { LicenseState } from "~/shared/license";
 
 export type AppSettings = {
-  apiToken: string;
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
   mouseGradientDisabled: boolean;
@@ -34,21 +33,56 @@ export class ApiError extends Error {
   }
 }
 
+let cachedToken: string | null = null;
+let tokenPromise: Promise<string> | null = null;
+
+async function getApiToken(): Promise<string> {
+  if (cachedToken) return cachedToken;
+  if (tokenPromise) return tokenPromise;
+  tokenPromise = (async () => {
+    if (typeof window === "undefined") {
+      // SSR runs in the same Node process as the API; the bootstrap
+      // module set process.env.MC_API_TOKEN before any handler ran.
+      cachedToken = process.env.MC_API_TOKEN ?? "";
+      return cachedToken;
+    }
+    const bridge = (window as { electronAPI?: { getApiToken?: () => Promise<string | null> } }).electronAPI;
+    const t = await bridge?.getApiToken?.();
+    cachedToken = (t ?? "").trim();
+    return cachedToken;
+  })();
+  return tokenPromise;
+}
+
+export function getCachedApiToken(): string | null {
+  return cachedToken;
+}
+
+export function setApiToken(token: string): void {
+  cachedToken = token;
+  tokenPromise = Promise.resolve(token);
+}
+
+export async function prefetchApiToken(): Promise<void> {
+  await getApiToken();
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  // Node's fetch (used during TanStack Start SSR) rejects relative URLs.
-  // In the browser the page origin is implicit; on the server, prepend the
-  // Vite dev origin so loader prefetches resolve correctly.
   const resolved =
     typeof window === "undefined" && url.startsWith("/")
       ? DEV_SERVER_ORIGIN + url
       : url;
-  const res = await fetch(resolved, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  const incoming = (init?.headers as Record<string, string> | undefined) ?? {};
+  const hasAuth = Object.keys(incoming).some((k) => k.toLowerCase() === "authorization");
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...incoming,
+  };
+  if (!hasAuth) {
+    const token = await getApiToken();
+    if (token) headers.authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(resolved, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let body: unknown = text;
@@ -234,7 +268,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   regenerateToken: () =>
-    req<AppSettings>("/api/settings", {
+    req<AppSettings & { apiToken: string }>("/api/settings", {
       method: "POST",
       body: JSON.stringify({ regenerate: true }),
     }),

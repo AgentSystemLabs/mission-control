@@ -26,7 +26,6 @@ export type LatestSkillsManifest = {
 export type InstallSkillsArgs = {
   projectPath: string;
   harnesses: { claude: boolean; codex: boolean };
-  baseUrl?: string;
   licenseKey?: string;
 };
 
@@ -59,8 +58,34 @@ function entryAllowed(
   return false;
 }
 
+function allowedDownloadHost(downloadUrl: string): boolean {
+  try {
+    const u = new URL(downloadUrl);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    const base = new URL(DEFAULT_ACADEMY_BASE_URL);
+    if (u.hostname === base.hostname) return true;
+    // Allow subdomains of the apex (e.g. cdn.agentsystemlabs.com when
+    // academy is academy.agentsystemlabs.com).
+    const parts = base.hostname.split(".");
+    if (parts.length >= 2) {
+      const apex = parts.slice(-2).join(".");
+      if (u.hostname === apex) return true;
+      if (u.hostname.endsWith(`.${apex}`)) return true;
+    }
+    // Localhost for dev.
+    if (
+      process.env.NODE_ENV === "development" &&
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1")
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchLatestSkillsManifest(
-  baseUrl: string = DEFAULT_ACADEMY_BASE_URL,
   licenseKey?: string,
 ): Promise<LatestSkillsManifest> {
   const key = licenseKey?.trim();
@@ -68,7 +93,7 @@ export async function fetchLatestSkillsManifest(
     throw new Error("A valid license key is required to install skills.");
   }
 
-  const url = `${baseUrl.replace(/\/$/, "")}/api/skills/latest`;
+  const url = `${DEFAULT_ACADEMY_BASE_URL.replace(/\/$/, "")}/api/skills/latest`;
   const res = await fetch(url, {
     headers: { authorization: `Bearer ${key}` },
   });
@@ -89,7 +114,6 @@ export async function fetchLatestSkillsManifest(
 
 export async function installSkills(args: InstallSkillsArgs): Promise<InstallSkillsResult> {
   const { projectPath, harnesses } = args;
-  const baseUrl = args.baseUrl ?? DEFAULT_ACADEMY_BASE_URL;
   const licenseKey = args.licenseKey?.trim();
   if (!licenseKey) {
     throw new Error("A valid license key is required to install skills.");
@@ -106,7 +130,10 @@ export async function installSkills(args: InstallSkillsArgs): Promise<InstallSki
     throw new Error(`projectPath is not a directory: ${projectPath}`);
   }
 
-  const manifest = await fetchLatestSkillsManifest(baseUrl, licenseKey);
+  const manifest = await fetchLatestSkillsManifest(licenseKey);
+  if (!allowedDownloadHost(manifest.downloadUrl)) {
+    throw new Error(`Refusing to download from untrusted host: ${manifest.downloadUrl}`);
+  }
 
   // Download tarball to temp file
   const tempDir = app.getPath("temp");

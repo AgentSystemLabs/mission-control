@@ -24,7 +24,6 @@ export type LatestSkillsManifest = {
 export type InstallSkillsArgs = {
   projectPath: string;
   harnesses: { claude: boolean; codex: boolean };
-  baseUrl?: string;
   licenseKey?: string;
 };
 
@@ -48,7 +47,6 @@ export type LaunchProcessKillResult = {
 export type ElectronBridge = {
   installSkills: {
     fetchLatest: (opts?: {
-      baseUrl?: string;
       licenseKey?: string;
     }) => Promise<
       | { ok: true; manifest: LatestSkillsManifest }
@@ -71,6 +69,7 @@ export type ElectronBridge = {
     extension: string;
   }) => Promise<{ filename: string } | { error: string }>;
   getRuntimePort: () => Promise<number | null>;
+  getApiToken: () => Promise<string | null>;
   getUserDataDir: () => Promise<string>;
   getUserName: () => Promise<{ source: "git" | "os"; fullName: string; firstName: string }>;
   cliCheck: (

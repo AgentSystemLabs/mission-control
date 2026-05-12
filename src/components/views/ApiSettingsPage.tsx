@@ -1,22 +1,19 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
-import { api } from "~/lib/api";
+import { api, setApiToken } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
-import { queryKeys, useSettings } from "~/queries";
 
 export function ApiSettingsPage() {
-  const queryClient = useQueryClient();
-  const { data: settings } = useSettings();
-  const token = settings?.apiToken ?? null;
+  const [token, setToken] = useState<string | null>(null);
   const [port, setPort] = useState<number | null>(null);
   const { copied, copy } = useCopy();
 
   useEffect(() => {
     const electron = getElectron();
     if (electron) {
-      void electron.getRuntimePort().then(setPort);
+      void electron.getRuntimePort().then(setPort).catch(() => {});
+      void electron.getApiToken().then((t) => setToken(t ?? null)).catch(() => {});
     } else {
       setPort(Number(window.location.port) || null);
     }
@@ -24,7 +21,10 @@ export function ApiSettingsPage() {
 
   const regenerate = async () => {
     const r = await api.regenerateToken();
-    queryClient.setQueryData(queryKeys.settings, r);
+    if (r.apiToken) {
+      setApiToken(r.apiToken);
+      setToken(r.apiToken);
+    }
   };
 
   const baseUrl = `http://127.0.0.1:${port ?? "PORT"}`;

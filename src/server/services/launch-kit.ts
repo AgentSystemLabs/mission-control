@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import { getLicenseState } from "~/db/settings";
-import { ACADEMY_BASE_URL } from "~/shared/academy";
+import { ACADEMY_BASE_URL, isAllowedAcademyDownloadUrl } from "~/shared/academy";
 import { isAcademyTier } from "~/shared/license";
 import { createProject } from "./projects";
 import { readLicenseState } from "./license";
@@ -129,6 +129,9 @@ export async function createProjectFromLaunchKit(input: {
   }
 
   const manifest = await fetchLatestLaunchKitManifest();
+  if (!isAllowedAcademyDownloadUrl(manifest.downloadUrl)) {
+    throw new Error(`Refusing to download from untrusted host: ${manifest.downloadUrl}`);
+  }
   const licenseKey = readRequiredAcademyLicenseKey();
   const tempFile = path.join(
     os.tmpdir(),

@@ -9,9 +9,14 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 const { handleApiRequest } = await import("../api-router");
 const { getDb } = await import("~/db/client");
 const { appSettings } = await import("~/db/schema");
+const { ensureApiTokenBootstrap } = await import("../bootstrap");
 
 async function jsonBody(response: Response) {
   return (await response.json()) as Record<string, unknown>;
+}
+
+function authedHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { authorization: `Bearer ${ensureApiTokenBootstrap()}`, ...(extra ?? {}) };
 }
 
 describe("settings API", () => {
@@ -21,7 +26,7 @@ describe("settings API", () => {
 
   it("keeps mouse gradients enabled by default", async () => {
     const response = await handleApiRequest(
-      new Request("http://localhost/api/settings"),
+      new Request("http://localhost/api/settings", { headers: authedHeaders() }),
     );
 
     expect(response?.status).toBe(200);
@@ -34,12 +39,12 @@ describe("settings API", () => {
     const update = await handleApiRequest(
       new Request("http://localhost/api/settings", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authedHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({ mouseGradientDisabled: true }),
       }),
     );
     const read = await handleApiRequest(
-      new Request("http://localhost/api/settings"),
+      new Request("http://localhost/api/settings", { headers: authedHeaders() }),
     );
 
     expect(update?.status).toBe(200);

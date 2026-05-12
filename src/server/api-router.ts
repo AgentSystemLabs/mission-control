@@ -30,7 +30,6 @@ import { events } from "./events";
 import { getUsageSummary, syncTokenUsage } from "./services/token-usage";
 import {
   getBooleanSetting,
-  getOrCreateApiToken,
   getSetting,
   regenerateApiToken,
   setBooleanSetting,
@@ -44,7 +43,8 @@ import {
 import { getBindings, setBinding, resetBinding, resetAllBindings } from "~/db/keybindings";
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
-import { json, jsonError, requireBearerToken } from "./auth";
+import { json, jsonError, requireBearerToken, requireTokenQueryParam } from "./auth";
+import { ensureApiTokenBootstrap, refreshApiTokenAfterRegenerate } from "./bootstrap";
 import {
   readLicenseState,
   removeLicense,
@@ -72,6 +72,22 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   const method = request.method.toUpperCase();
 
   if (!pathname.startsWith("/api/")) return null;
+
+  // Lazy bootstrap so test files that import this module without
+  // triggering a real request don't force DB initialization.
+  ensureApiTokenBootstrap();
+
+  // Top-level auth gate. SSE uses ?t=<token> because EventSource can't set
+  // headers; everything else requires Authorization: Bearer <token>.
+  // Subprocess hooks (`/api/hooks/:slug`, `/api/tasks/:id/status`) attach
+  // the same bearer via env, so this single check covers them too.
+  if (pathname === "/api/events") {
+    const auth = requireTokenQueryParam(url);
+    if (!auth.ok) return auth.response;
+  } else {
+    const auth = requireBearerToken(request);
+    if (!auth.ok) return auth.response;
+  }
 
   try {
     if (pathname === "/api/projects") {
@@ -131,8 +147,6 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const id = decodeURIComponent(projectTasksMatch[1]!);
       if (method === "GET") return json({ tasks: listTasksForProject(id) });
       if (method === "POST") {
-        const auth = requireBearerToken(request);
-        if (!auth.ok) return auth.response;
         const body = await readJson<any>(request);
         if (!body.title || !body.agent) return jsonError(400, "title and agent required");
         const t = createTask({ ...body, projectId: id });
@@ -189,8 +203,6 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^\/]+)\/status$/);
     if (taskStatusMatch && method === "POST") {
-      const auth = requireBearerToken(request);
-      if (!auth.ok) return auth.response;
       const id = decodeURIComponent(taskStatusMatch[1]!);
       const body = await readJson<any>(request);
       const t = updateStatus(id, body);
@@ -312,7 +324,6 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
       };
       const settingsPayload = () => ({
-        apiToken: getOrCreateApiToken(),
         agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
         accentColor: getAccentColorSetting(),
         mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
@@ -333,6 +344,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         const body = await readJson<any>(request).catch(() => ({}));
         if ((body as any)?.regenerate) {
           const apiToken = regenerateApiToken();
+          refreshApiTokenAfterRegenerate(apiToken);
           return json({ ...settingsPayload(), apiToken });
         }
         if (typeof body?.agentSystemBannerDisabled === "boolean") {
@@ -484,8 +496,6 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const agentHookMatch = pathname.match(AGENT_HOOK_PATH);
     if (agentHookMatch && method === "POST") {
-      const auth = requireBearerToken(request);
-      if (!auth.ok) return auth.response;
       const taskId = url.searchParams.get("taskId");
       if (!taskId) return jsonError(400, "taskId required");
       const payload = await readJson<{

@@ -5,6 +5,7 @@ export const IPC = {
   shellOpenPath: "shell:openPath",
   shellOpenExternal: "shell:openExternal",
   appGetRuntimePort: "app:getRuntimePort",
+  appGetApiToken: "app:getApiToken",
   appGetUserDataDir: "app:getUserDataDir",
   appGetUserName: "app:getUserName",
   appIsFullScreen: "app:isFullScreen",

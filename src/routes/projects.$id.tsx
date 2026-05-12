@@ -18,6 +18,7 @@ import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
+import { getElectron } from "~/lib/electron";
 import { api } from "~/lib/api";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
@@ -106,7 +107,12 @@ function ProjectPage() {
   const closeDiffView = useCallback(() => {
     setShowDiffView(false);
   }, []);
-  const apiToken = settings?.apiToken ?? null;
+  const [apiToken, setLocalApiToken] = useState<string | null>(null);
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron) return;
+    void electron.getApiToken().then((t) => setLocalApiToken(t ?? null)).catch(() => {});
+  }, []);
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);

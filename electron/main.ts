@@ -143,7 +143,7 @@ async function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -300,6 +300,40 @@ ipcMain.handle(IPC.shellOpenExternal, async (_evt, url: string) => {
 ipcMain.handle(IPC.appGetRuntimePort, () => runtimePort);
 ipcMain.handle(IPC.appGetUserDataDir, () => app.getPath("userData"));
 
+// Server writes `.api-token` into resolveUserDataDir() (which honors
+// MC_USER_DATA_DIR). In prod, main spawns the server with
+// MC_USER_DATA_DIR=app.getPath("userData") so both sides agree. In dev,
+// vite runs as a sibling process without that env, so it writes to the
+// platform-default path — we probe both.
+function platformDefaultUserDataDir(): string {
+  const home = os.homedir();
+  if (process.platform === "darwin") return path.join(home, "Library/Application Support/MissionControl");
+  if (process.platform === "win32") return path.join(home, "AppData/Roaming/MissionControl");
+  return path.join(home, ".config/MissionControl");
+}
+
+async function readApiTokenWithRetry(): Promise<string | null> {
+  const candidates = [
+    path.join(app.getPath("userData"), ".api-token"),
+    path.join(platformDefaultUserDataDir(), ".api-token"),
+  ];
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    for (const file of candidates) {
+      try {
+        const t = fs.readFileSync(file, "utf8").trim();
+        if (t) return t;
+      } catch {
+        // try next
+      }
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+}
+
+ipcMain.handle(IPC.appGetApiToken, async () => readApiTokenWithRetry());
+
 ipcMain.handle(IPC.appGetUserName, () => {
   try {
     const result = spawnSync("git", ["config", "--global", "user.name"], {
@@ -325,12 +359,9 @@ registerFileHandlers(ipcMain, () => win);
 
 ipcMain.handle(
   IPC.installSkillsFetchLatest,
-  async (_evt, opts?: { baseUrl?: string; licenseKey?: string }) => {
+  async (_evt, opts?: { licenseKey?: string }) => {
     try {
-      const manifest = await fetchLatestSkillsManifest(
-        opts?.baseUrl,
-        opts?.licenseKey,
-      );
+      const manifest = await fetchLatestSkillsManifest(opts?.licenseKey);
       return { ok: true as const, manifest };
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
@@ -345,7 +376,6 @@ ipcMain.handle(
     args: {
       projectPath: string;
       harnesses: { claude: boolean; codex: boolean };
-      baseUrl?: string;
       licenseKey?: string;
     },
   ) => {
