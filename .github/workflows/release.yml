@@ -9,10 +9,6 @@ on:
       tag:
         description: "Tag to (re)publish (e.g. v0.1.0). The tag must already exist on origin."
         required: true
-      platforms:
-        description: "Comma-separated platforms to build (default: all 4). e.g. mac-arm64,win-x64"
-        required: false
-        default: "mac-arm64,mac-x64,win-x64,linux-x64"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -29,7 +25,6 @@ jobs:
     outputs:
       ref: ${{ steps.ref.outputs.ref }}
       notes: ${{ steps.notes.outputs.notes }}
-      platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - id: ref
         run: |
@@ -57,19 +52,6 @@ jobs:
             printf '%s\n' "$notes"
             echo 'NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
-
-      - id: platforms
-        shell: bash
-        run: |
-          # `platforms` narrows which matrix jobs run this time; the release's
-          # canonical expectedPlatforms set is always the full 4. A
-          # workflow_dispatch with a narrowed list rebuilds a single failed
-          # platform without changing what "complete" means for the release.
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "platforms=${{ inputs.platforms }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "platforms=mac-arm64,mac-x64,win-x64,linux-x64" >> "$GITHUB_OUTPUT"
-          fi
 
   prepare:
     name: Prepare release record
@@ -121,11 +103,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Cap each platform build so a hung job (notably mac-x64) can't block the
     # rest. fail-fast: false above keeps siblings running; finalize tolerates
-    # missing platforms by leaving the release as a draft.
+    # missing platforms by leaving the release as a draft. To rebuild a single
+    # failed platform, re-run that matrix job from the Actions UI — asset
+    # upsert is idempotent on (releaseId, platform).
     timeout-minutes: 15
-    # Skip platforms not requested for this run (workflow_dispatch with a
-    # narrowed platforms list lets you rebuild a single failed binary).
-    if: contains(needs.resolve.outputs.platforms, matrix.platform)
     steps:
       - uses: actions/checkout@v4
         with:
