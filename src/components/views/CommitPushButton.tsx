@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
@@ -45,6 +46,25 @@ export function CommitPushButton({
   const { data: status } = useGitStatus(projectId);
   const aheadCount = status?.aheadCount ?? null;
 
+  const retryPushOnly = useCallback(async () => {
+    try {
+      const p = await pushM.mutateAsync();
+      if (p.kind === "pushed") {
+        onNotice?.(p.setUpstream ? "Pushed and set upstream." : "Pushed.");
+      } else {
+        onNotice?.("Nothing to push.");
+      }
+    } catch (e: any) {
+      const msg = e?.message || "Push failed";
+      toast.error(`Push failed: ${msg}`, {
+        action: {
+          label: "Retry push",
+          onClick: () => void retryPushOnly(),
+        },
+      });
+    }
+  }, [pushM, onNotice]);
+
   const onCommitAndPush = useCallback(async () => {
     let committedMessage: string | null = null;
     try {
@@ -52,7 +72,24 @@ export function CommitPushButton({
       if (c.kind === "committed") {
         committedMessage = c.message.split("\n")[0];
       }
-      const p = await pushM.mutateAsync();
+      let p;
+      try {
+        p = await pushM.mutateAsync();
+      } catch (pushErr: any) {
+        // Partial failure: commit landed but push failed. Surface as a toast
+        // with a Retry-push action so the user has to acknowledge before the
+        // button silently re-enables and they double-commit on top.
+        const msg = pushErr?.message || "Push failed";
+        const prefix = committedMessage ? `Committed: ${committedMessage}. ` : "";
+        toast.error(`${prefix}Push failed: ${msg}`, {
+          action: {
+            label: "Retry push",
+            onClick: () => void retryPushOnly(),
+          },
+        });
+        onError?.(`${prefix}Push failed: ${msg}`);
+        return;
+      }
       if (c.kind === "nothing-to-commit" && p.kind === "nothing-to-push") {
         onNotice?.(
           autoStage
@@ -73,7 +110,7 @@ export function CommitPushButton({
       const prefix = committedMessage ? `Committed: ${committedMessage}\n` : "";
       onError?.(prefix + (e?.message || "Commit & push failed"));
     }
-  }, [autoStage, commitM, pushM, onError, onNotice]);
+  }, [autoStage, commitM, pushM, onError, onNotice, retryPushOnly]);
 
   const committing = commitM.isPending;
   const pushing = pushM.isPending;

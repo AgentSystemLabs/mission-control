@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { Field, SettingsSection, formatTimestamp } from "~/components/views/SettingsParts";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -71,6 +72,10 @@ export function LicenseSettingsPage() {
       queryClient.setQueryData(queryKeys.license, next);
       void queryClient.invalidateQueries({ queryKey: queryKeys.license });
       setConfirmRemoveOpen(false);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`Remove license failed: ${message}`);
     },
   });
 

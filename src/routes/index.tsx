@@ -29,6 +29,7 @@ import {
 } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
 import { isAcademyTier } from "~/shared/license";
+import { RouteErrorBoundary } from "~/components/ui/RouteErrorBoundary";
 
 export const Route = createFileRoute("/")({
   loader: ({ context }) =>
@@ -37,6 +38,9 @@ export const Route = createFileRoute("/")({
       context.queryClient.ensureQueryData(groupsQueryOptions()),
     ]),
   component: MissionControlPage,
+  errorComponent: ({ error, reset }) => (
+    <RouteErrorBoundary error={error} reset={reset} />
+  ),
 });
 
 function MissionControlPage() {

@@ -13,10 +13,16 @@ export function StorageSettingsPage() {
       setReady(true);
       return;
     }
-    void electron.getUserDataDir().then((dir) => {
-      setUserData(dir);
-      setReady(true);
-    });
+    void electron
+      .getUserDataDir()
+      .then((dir) => {
+        setUserData(dir);
+        setReady(true);
+      })
+      .catch((err) => {
+        console.warn("[storage-settings] getUserDataDir failed:", err);
+        setReady(true);
+      });
   }, []);
 
   return (

@@ -54,7 +54,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     try {
       const raw = window.localStorage.getItem("mc.userTerminalPanelOpen");
       return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
-    } catch {
+    } catch (err) {
+      console.warn("[user-terminal-store] read panelOpen failed:", err);
       return {};
     }
   });
@@ -65,8 +66,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         "mc.userTerminalPanelOpen",
         JSON.stringify(panelOpenByProject)
       );
-    } catch {
-      /* quota or disabled */
+    } catch (err) {
+      console.warn("[user-terminal-store] persist panelOpen failed:", err);
     }
   }, [panelOpenByProject]);
   const loadedProjectsRef = useRef<Set<string>>(new Set());
@@ -120,7 +121,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
           if (prev[id] !== undefined) return prev;
           return { ...prev, [id]: terminals[0]?.id ?? null };
         });
-      } catch {
+      } catch (err) {
+        console.warn("[user-terminal-store] listUserTerminals failed:", err);
         loadedProjectsRef.current.delete(id);
       }
     })();
@@ -203,12 +205,14 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       });
 
       if (killedPtyId && electron) {
-        await electron.pty.kill(killedPtyId).catch(() => undefined);
+        await electron.pty
+          .kill(killedPtyId)
+          .catch((err) => console.warn("[user-terminal-store] pty.kill failed:", err));
       }
       try {
         await api.deleteUserTerminal(id);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        console.warn("[user-terminal-store] deleteUserTerminal failed:", err);
       }
     },
     []
@@ -229,8 +233,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     });
     try {
       await api.renameUserTerminal(id, trimmed);
-    } catch {
-      /* swallow */
+    } catch (err) {
+      console.warn("[user-terminal-store] renameUserTerminal failed:", err);
     }
   }, []);
 
@@ -244,8 +248,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       );
       try {
         await api.updateProjectLaunchUrl(project.id, normalized);
-      } catch {
-        /* swallow */
+      } catch (err) {
+        console.warn("[user-terminal-store] updateProjectLaunchUrl failed:", err);
       }
     },
     [project]
@@ -281,7 +285,9 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
           commands: [...wanted],
           ports: opts?.ports ?? [],
         })
-        .catch(() => undefined);
+        .catch((err) =>
+          console.warn("[user-terminal-store] killLaunchProcesses failed:", err)
+        );
     },
     [project, sessionsByProject, killTerminal]
   );

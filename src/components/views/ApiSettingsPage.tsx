@@ -16,7 +16,10 @@ export function ApiSettingsPage() {
   useEffect(() => {
     const electron = getElectron();
     if (electron) {
-      void electron.getRuntimePort().then(setPort);
+      void electron
+        .getRuntimePort()
+        .then(setPort)
+        .catch((err) => console.warn("[api-settings] getRuntimePort failed:", err));
     } else {
       setPort(Number(window.location.port) || null);
     }

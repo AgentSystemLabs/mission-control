@@ -40,6 +40,7 @@ import {
 import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
+import { RouteErrorBoundary } from "~/components/ui/RouteErrorBoundary";
 import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
@@ -62,6 +63,9 @@ export const Route = createFileRoute("/projects/$id")({
         .catch(() => null),
     ]),
   component: ProjectPage,
+  errorComponent: ({ error, reset }) => (
+    <RouteErrorBoundary error={error} reset={reset} />
+  ),
 });
 
 function launchUrlPort(raw: string | null): number[] {
