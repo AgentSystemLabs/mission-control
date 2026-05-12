@@ -9,6 +9,10 @@ on:
       tag:
         description: "Tag to (re)publish (e.g. v0.1.0). The tag must already exist on origin."
         required: true
+      platforms:
+        description: "Comma-separated platforms to build (default: all 4). e.g. mac-arm64,win-x64"
+        required: false
+        default: "mac-arm64,mac-x64,win-x64,linux-x64"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -19,8 +23,80 @@ permissions:
   actions: write
 
 jobs:
+  resolve:
+    name: Resolve ref + notes
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+      notes: ${{ steps.notes.outputs.notes }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
+    steps:
+      - id: ref
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 0
+
+      - id: notes
+        shell: bash
+        run: |
+          tag="${{ steps.ref.outputs.ref }}"
+          notes="$(git tag -l --format='%(contents:body)' "$tag" || true)"
+          if [[ -z "$notes" ]]; then
+            notes="$(git tag -l --format='%(contents)' "$tag" || true)"
+          fi
+          {
+            echo 'notes<<NOTES_EOF'
+            printf '%s\n' "$notes"
+            echo 'NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - id: platforms
+        shell: bash
+        run: |
+          # `platforms` narrows which matrix jobs run this time; the release's
+          # canonical expectedPlatforms set is always the full 4. A
+          # workflow_dispatch with a narrowed list rebuilds a single failed
+          # platform without changing what "complete" means for the release.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "platforms=${{ inputs.platforms }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "platforms=mac-arm64,mac-x64,win-x64,linux-x64" >> "$GITHUB_OUTPUT"
+          fi
+
+  prepare:
+    name: Prepare release record
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Create-or-get release on academy
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+          RELEASE_NOTES: ${{ needs.resolve.outputs.notes }}
+          # Canonical full set — never narrowed by workflow_dispatch.platforms,
+          # which only controls *which jobs run this time*.
+          RELEASE_EXPECTED_PLATFORMS: "mac-arm64,mac-x64,win-x64,linux-x64"
+        run: node scripts/publish-release.mjs prepare
+
   build:
-    name: Build (${{ matrix.platform }})
+    name: Build + publish (${{ matrix.platform }})
+    needs: [resolve, prepare]
     strategy:
       fail-fast: false
       matrix:
@@ -44,24 +120,16 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     # Cap each platform build so a hung job (notably mac-x64) can't block the
-    # rest of the release. fail-fast: false above keeps siblings running; this
-    # bound makes "stuck" finite so the publish job can proceed with whatever
-    # builds did succeed.
+    # rest. fail-fast: false above keeps siblings running; finalize tolerates
+    # missing platforms by leaving the release as a draft.
     timeout-minutes: 15
+    # Skip platforms not requested for this run (workflow_dispatch with a
+    # narrowed platforms list lets you rebuild a single failed binary).
+    if: contains(needs.resolve.outputs.platforms, matrix.platform)
     steps:
-      - name: Resolve ref
-        id: ref
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.ref.outputs.ref }}
+          ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
@@ -92,8 +160,6 @@ jobs:
       - name: Run electron-builder
         shell: bash
         run: |
-          # Run electron-builder directly with explicit output dir override so
-          # we don't have to fight pnpm arg-forwarding through chained scripts.
           pnpm exec electron-builder ${{ matrix.builder_flags }} --publish never -c.directories.output=dist-electron-out
 
       - name: List build output (debug)
@@ -104,21 +170,17 @@ jobs:
           echo "--- dist (web bundle) ---"
           ls -la dist/ || true
 
-      - name: Compute checksums
+      - name: Compute manifest + stage artifact
         shell: bash
         run: |
           mkdir -p artifacts
           shopt -s nullglob
-          # Match the platform-specific installer extension.
           files=( dist-electron-out/*.${{ matrix.artifact_ext }} )
           if (( ${#files[@]} == 0 )); then
             echo "No artifacts matched dist-electron-out/*.${{ matrix.artifact_ext }}"
-            echo "Contents of dist-electron-out:"
             ls -la dist-electron-out/ || true
             exit 1
           fi
-          # The glob already excludes .blockmap / .yml metadata files; pick the
-          # first match (typically there's exactly one installer per arch).
           src="${files[0]}"
           name="$(basename "$src")"
           cp "$src" "artifacts/$name"
@@ -128,8 +190,6 @@ jobs:
             sha="$(shasum -a 256 "artifacts/$name" | awk '{print $1}')"
           fi
           size="$(wc -c < "artifacts/$name" | tr -d ' ')"
-          # macOS dmg → application/x-apple-diskimage; Windows exe → application/vnd.microsoft.portable-executable;
-          # Linux AppImage → application/x-executable.
           case "$name" in
             *.dmg) ct="application/x-apple-diskimage" ;;
             *.exe) ct="application/vnd.microsoft.portable-executable" ;;
@@ -147,79 +207,35 @@ jobs:
           EOF
           echo "Built $name ($size bytes, sha256=$sha)"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mc-${{ matrix.platform }}
-          path: artifacts/
-          if-no-files-found: error
-          retention-days: 7
-
-  publish:
-    name: Publish to academy
-    needs: build
-    # Run after build finishes regardless of per-matrix outcome — `needs.build`
-    # rolls up to `failure` if ANY matrix item fails, but we still want to
-    # publish whichever platforms succeeded. Skipped only if the workflow was
-    # cancelled. publish-release.mjs warns + skips missing-platform manifests.
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Resolve ref
-        id: ref
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.ref.outputs.ref }}
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          pattern: mc-*
-          merge-multiple: false
-
-      - name: Extract release notes from tag annotation
-        id: notes
-        shell: bash
-        run: |
-          tag="${{ steps.ref.outputs.ref }}"
-          # Annotated tag bodies (skip the subject line and any PGP signature lines).
-          notes="$(git tag -l --format='%(contents:body)' "$tag" || true)"
-          if [[ -z "$notes" ]]; then
-            notes="$(git tag -l --format='%(contents)' "$tag" || true)"
-          fi
-          # Save multi-line via heredoc.
-          {
-            echo 'notes<<NOTES_EOF'
-            printf '%s\n' "$notes"
-            echo 'NOTES_EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Upload to academy
+      - name: Publish asset to academy
         env:
           MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
           ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
-          RELEASE_VERSION: ${{ steps.ref.outputs.ref }}
-          RELEASE_NOTES: ${{ steps.notes.outputs.notes }}
-        run: node scripts/publish-release.mjs
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+        run: node scripts/publish-release.mjs publish
 
-      - name: Delete this run's artifacts
-        if: success()
+  finalize:
+    name: Finalize release
+    needs: [resolve, build]
+    # Run regardless of per-matrix outcome — partial successes still leave the
+    # asset rows uploaded; finalize will refuse if any expected platform is
+    # missing, which is what we want (release stays a draft, can be completed
+    # by re-running the failed platform job).
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # Don't fail the workflow when finalize can't run (partial release).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Finalize
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          ids=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --paginate -q '.artifacts[].id')
-          for id in $ids; do
-            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "deleted $id"
-          done
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+        run: node scripts/publish-release.mjs finalize
