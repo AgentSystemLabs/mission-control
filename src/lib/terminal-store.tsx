@@ -11,6 +11,7 @@ import { getElectron } from "./electron";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import { buildClaudeCommand, newSessionId } from "./claude-command";
 import { api } from "./api";
+import { useServerEvents } from "./use-events";
 import type { TaskAgent } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 
@@ -110,6 +111,49 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     if (!electron) return;
     await electron.pty.kill(id).catch(() => undefined);
   };
+
+  useServerEvents(
+    useCallback((e) => {
+      if (e.type === "task:deleted") {
+        const taskId = e.id as string;
+        setSessions((prev) => {
+          const target = prev.find((p) => p.taskId === taskId);
+          if (target) void killPty(target.ptyId);
+          return prev.filter((p) => p.taskId !== taskId);
+        });
+        setActiveByProject((prev) => {
+          let changed = false;
+          const next: Record<string, string | null> = {};
+          for (const [pid, tid] of Object.entries(prev)) {
+            if (tid === taskId) {
+              next[pid] = null;
+              changed = true;
+            } else {
+              next[pid] = tid;
+            }
+          }
+          return changed ? next : prev;
+        });
+      } else if (e.type === "project:deleted") {
+        const projectId = e.id as string;
+        const taskIds = new Set((e.taskIds as string[] | undefined) ?? []);
+        setSessions((prev) => {
+          const remaining: OpenTerminal[] = [];
+          for (const t of prev) {
+            if (t.project.id === projectId || taskIds.has(t.taskId)) void killPty(t.ptyId);
+            else remaining.push(t);
+          }
+          return remaining;
+        });
+        setActiveByProject((prev) => {
+          if (!(projectId in prev)) return prev;
+          const next = { ...prev };
+          delete next[projectId];
+          return next;
+        });
+      }
+    }, [])
+  );
 
   const toggle = useCallback(
     (project: Project, task: Task) => {

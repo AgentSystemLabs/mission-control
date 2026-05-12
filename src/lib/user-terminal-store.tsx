@@ -10,6 +10,7 @@ import {
 } from "react";
 import { api } from "./api";
 import { getElectron } from "./electron";
+import { useServerEvents } from "./use-events";
 import type { Project, UserTerminal } from "~/db/schema";
 
 type Session = {
@@ -149,6 +150,64 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const setFocusFor = useCallback((projectId: string, id: string | null) => {
     setFocusedByProject((prev) => ({ ...prev, [projectId]: id }));
   }, []);
+
+  useServerEvents(
+    useCallback((e) => {
+      const electron = getElectron();
+      if (e.type === "user-terminal:deleted") {
+        const terminalId = e.id as string;
+        const snapshot = sessionsByProjectRef.current;
+        let ownerProjectId: string | null = null;
+        let killedPtyId: string | null = null;
+        for (const [pid, list] of Object.entries(snapshot)) {
+          const found = list.find((s) => s.terminal.id === terminalId);
+          if (!found) continue;
+          ownerProjectId = pid;
+          killedPtyId = found.ptyId;
+          break;
+        }
+        if (!ownerProjectId) return;
+        setSessionsByProject((prev) => ({
+          ...prev,
+          [ownerProjectId!]: (prev[ownerProjectId!] ?? []).filter(
+            (s) => s.terminal.id !== terminalId
+          ),
+        }));
+        setFocusedByProject((prev) => {
+          if (prev[ownerProjectId!] !== terminalId) return prev;
+          return { ...prev, [ownerProjectId!]: null };
+        });
+        if (killedPtyId && electron) {
+          void electron.pty.kill(killedPtyId).catch(() => undefined);
+        }
+      } else if (e.type === "project:deleted") {
+        const projectId = e.id as string;
+        const list = sessionsByProjectRef.current[projectId] ?? [];
+        for (const s of list) {
+          if (s.ptyId && electron) void electron.pty.kill(s.ptyId).catch(() => undefined);
+        }
+        setSessionsByProject((prev) => {
+          if (!(projectId in prev)) return prev;
+          const next = { ...prev };
+          delete next[projectId];
+          return next;
+        });
+        setFocusedByProject((prev) => {
+          if (!(projectId in prev)) return prev;
+          const next = { ...prev };
+          delete next[projectId];
+          return next;
+        });
+        setPanelOpenByProject((prev) => {
+          if (!(projectId in prev)) return prev;
+          const next = { ...prev };
+          delete next[projectId];
+          return next;
+        });
+        loadedProjectsRef.current.delete(projectId);
+      }
+    }, [])
+  );
 
   const createTerminal = useCallback(
     async (opts?: { name?: string; startCommand?: string | null }) => {

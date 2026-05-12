@@ -3,7 +3,8 @@ import { EventEmitter } from "node:events";
 export type AppEvent =
   | { type: "project:created"; id: string }
   | { type: "project:updated"; id: string }
-  | { type: "project:deleted"; id: string }
+  | { type: "project:deleted"; id: string; taskIds: string[]; userTerminalIds: string[] }
+  | { type: "user-terminal:deleted"; id: string; projectId: string }
   | { type: "group:created"; id: string }
   | { type: "group:updated"; id: string }
   | { type: "group:deleted"; id: string }
