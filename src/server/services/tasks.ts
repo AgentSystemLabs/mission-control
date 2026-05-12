@@ -1,6 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
-import { getDb } from "~/db/client";
+import { getDb, getSqlite } from "~/db/client";
 import { projects, tasks, terminalLogs } from "~/db/schema";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "~/shared/domain";
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
@@ -70,42 +70,46 @@ export function updateStatus(
 ): Task | null {
   if (patch.status && !isTaskStatus(patch.status)) throw new Error("invalid status");
   const db = getDb();
-  const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
-  if (!existing) return null;
-  const next = {
-    ...existing,
-    status: patch.status ?? existing.status,
-    preview: patch.preview ?? existing.preview,
-    lines: patch.lines ?? existing.lines,
-    updatedAt: Date.now(),
-  };
-  db.update(tasks)
-    .set({
-      status: next.status,
-      preview: next.preview,
-      lines: next.lines,
-      updatedAt: next.updatedAt,
-    })
-    .where(eq(tasks.id, id))
-    .run();
-  events.emit("task:updated", { id, projectId: existing.projectId });
-  if (
-    patch.status === "finished" &&
-    existing.status !== "finished"
-  ) {
+  const setPatch: Partial<Task> & { updatedAt: number } = { updatedAt: Date.now() };
+  if (patch.status !== undefined) setPatch.status = patch.status;
+  if (patch.preview !== undefined) setPatch.preview = patch.preview;
+  if (patch.lines !== undefined) setPatch.lines = patch.lines;
+
+  // Atomically capture the pre-image status and apply the partial update so a
+  // concurrent updateStatus call can't race with us on the finished-transition
+  // check.
+  const result = getSqlite().transaction(() => {
+    const prev = db
+      .select({ status: tasks.status })
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .get();
+    if (!prev) return null;
+    const row = db
+      .update(tasks)
+      .set(setPatch)
+      .where(eq(tasks.id, id))
+      .returning()
+      .get();
+    return row ? { row, prevStatus: prev.status } : null;
+  })();
+  if (!result) return null;
+  const { row: updated, prevStatus } = result;
+  events.emit("task:updated", { id, projectId: updated.projectId });
+  if (patch.status === "finished" && prevStatus !== "finished") {
     const project = db
       .select({ name: projects.name })
       .from(projects)
-      .where(eq(projects.id, existing.projectId))
+      .where(eq(projects.id, updated.projectId))
       .get();
     events.emit("session:finished", {
       id,
-      projectId: existing.projectId,
+      projectId: updated.projectId,
       projectName: project?.name ?? "Project",
-      taskTitle: existing.title,
+      taskTitle: updated.title,
     });
   }
-  return next;
+  return updated;
 }
 
 export function updateTask(
@@ -115,38 +119,41 @@ export function updateTask(
   >
 ): Task | null {
   const db = getDb();
-  const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
-  if (!existing) return null;
-  const next = { ...existing, ...patch, updatedAt: Date.now() };
-  db.update(tasks).set(next).where(eq(tasks.id, id)).run();
-  events.emit("task:updated", { id, projectId: existing.projectId });
-  return next;
+  const updated = db
+    .update(tasks)
+    .set({ ...patch, updatedAt: Date.now() })
+    .where(eq(tasks.id, id))
+    .returning()
+    .get();
+  if (!updated) return null;
+  events.emit("task:updated", { id, projectId: updated.projectId });
+  return updated;
 }
 
 export function archiveTask(id: string): Task | null {
   const db = getDb();
-  const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
-  if (!existing) return null;
-  db.update(tasks)
+  const updated = db
+    .update(tasks)
     .set({ archived: true, updatedAt: Date.now() })
     .where(eq(tasks.id, id))
-    .run();
-  const next = { ...existing, archived: true } as Task;
-  events.emit("task:archived", { id, projectId: existing.projectId });
-  return next;
+    .returning()
+    .get();
+  if (!updated) return null;
+  events.emit("task:archived", { id, projectId: updated.projectId });
+  return updated;
 }
 
 export function restoreTask(id: string): Task | null {
   const db = getDb();
-  const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
-  if (!existing) return null;
-  db.update(tasks)
+  const updated = db
+    .update(tasks)
     .set({ archived: false, updatedAt: Date.now() })
     .where(eq(tasks.id, id))
-    .run();
-  const next = { ...existing, archived: false } as Task;
-  events.emit("task:restored", { id, projectId: existing.projectId });
-  return next;
+    .returning()
+    .get();
+  if (!updated) return null;
+  events.emit("task:restored", { id, projectId: updated.projectId });
+  return updated;
 }
 
 export function deleteTask(id: string): boolean {

@@ -1,3 +1,4 @@
+import { getSqlite } from "~/db/client";
 import {
   clearLicense,
   getLicenseState,
@@ -63,8 +64,18 @@ export async function validateLicense(key: string): Promise<LicenseState> {
   }
 
   const previous = getLicenseState();
-  if (previous.key !== trimmed) clearLicense();
-  persistSignedLicense(trimmed);
+  // No-op when the same signed key is re-validated — avoids a needless
+  // clear/persist round-trip that could briefly expose `hasKey: false`.
+  if (previous.key === trimmed) {
+    return readLicenseState();
+  }
+
+  // Atomic clear + persist so concurrent readers can't observe an empty
+  // license row between the two writes.
+  getSqlite().transaction(() => {
+    clearLicense();
+    persistSignedLicense(trimmed);
+  })();
 
   return readLicenseState();
 }
