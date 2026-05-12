@@ -37,16 +37,16 @@ describe("project-images service", () => {
     db.delete(groups).run();
   });
 
-  it("setProjectImage persists imagePath on the project row", () => {
-    const c = createProject({ name: "img1", path: workdir() });
+  it("setProjectImage persists imagePath on the project row", async () => {
+    const c = await createProject({ name: "img1", path: workdir() });
     const filename = touchImage(c.id);
     const updated = setProjectImage(c.id, filename);
     expect(updated?.imagePath).toBe(filename);
-    expect(getProject(c.id)?.imagePath).toBe(filename);
+    expect((await getProject(c.id))?.imagePath).toBe(filename);
   });
 
-  it("clearProjectImage nulls the column and removes the file", () => {
-    const c = createProject({ name: "img2", path: workdir() });
+  it("clearProjectImage nulls the column and removes the file", async () => {
+    const c = await createProject({ name: "img2", path: workdir() });
     const filename = touchImage(c.id);
     setProjectImage(c.id, filename);
     expect(fs.existsSync(path.join(projectImagesDir(), filename))).toBe(true);
@@ -56,8 +56,8 @@ describe("project-images service", () => {
     expect(fs.existsSync(path.join(projectImagesDir(), filename))).toBe(false);
   });
 
-  it("deleteAllProjectImagesFor sweeps every extension for a project", () => {
-    const c = createProject({ name: "img3", path: workdir() });
+  it("deleteAllProjectImagesFor sweeps every extension for a project", async () => {
+    const c = await createProject({ name: "img3", path: workdir() });
     touchImage(c.id, "png");
     touchImage(c.id, "jpg");
     deleteAllProjectImagesFor(c.id);
@@ -67,16 +67,16 @@ describe("project-images service", () => {
     expect(remaining).toEqual([]);
   });
 
-  it("deleteProject removes the row even when imagePath is set", () => {
-    const c = createProject({ name: "img4", path: workdir() });
+  it("deleteProject removes the row even when imagePath is set", async () => {
+    const c = await createProject({ name: "img4", path: workdir() });
     const filename = touchImage(c.id);
     setProjectImage(c.id, filename);
     expect(deleteProject(c.id)).toBe(true);
-    expect(getProject(c.id)).toBeNull();
+    expect(await getProject(c.id)).toBeNull();
   });
 
-  it("deleteProject synchronously cleans up image files", () => {
-    const c = createProject({ name: "img5", path: workdir() });
+  it("deleteProject synchronously cleans up image files", async () => {
+    const c = await createProject({ name: "img5", path: workdir() });
     touchImage(c.id, "png");
     touchImage(c.id, "jpg");
     deleteProject(c.id);

@@ -92,12 +92,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   try {
     if (pathname === "/api/projects") {
-      if (method === "GET") return json({ projects: listProjects() });
+      if (method === "GET") return json({ projects: await listProjects() });
       if (method === "POST") {
         const body = await readJson<any>(request);
         if (!body.path) return jsonError(400, "path is required");
         try {
-          const p = createProject(body);
+          const p = await createProject(body);
           return json({ project: p }, { status: 201 });
         } catch (e: any) {
           if (e instanceof ProjectCapExceededError) {
@@ -120,9 +120,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (projectMatch) {
       const id = decodeURIComponent(projectMatch[1]!);
       if (method === "GET") {
-        const p = getProject(id);
+        const p = await getProject(id);
         if (!p) return jsonError(404, "not found");
-        refreshBranch(id);
+        await refreshBranch(id);
         return json({ project: p });
       }
       if (method === "PATCH") {

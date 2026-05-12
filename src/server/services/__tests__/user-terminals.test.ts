@@ -17,7 +17,7 @@ const {
 const { getDb } = await import("~/db/client");
 const { projects, tasks, userTerminals } = await import("~/db/schema");
 
-function makeProject() {
+async function makeProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-ut-"));
   return createProject({ name: "p", path: dir });
 }
@@ -30,8 +30,8 @@ describe("user-terminals service", () => {
     db.delete(projects).run();
   });
 
-  it("creates with default name and lists in insertion order", () => {
-    const p = makeProject();
+  it("creates with default name and lists in insertion order", async () => {
+    const p = await makeProject();
     const a = createUserTerminal({ projectId: p.id });
     const b = createUserTerminal({ projectId: p.id });
     expect(a.name).toBe("Terminal 1");
@@ -40,21 +40,21 @@ describe("user-terminals service", () => {
     expect(list.map((t) => t.id)).toEqual([a.id, b.id]);
   });
 
-  it("renames", () => {
-    const p = makeProject();
+  it("renames", async () => {
+    const p = await makeProject();
     const t = createUserTerminal({ projectId: p.id });
     const renamed = renameUserTerminal(t.id, "  dev server  ");
     expect(renamed?.name).toBe("dev server");
   });
 
-  it("rejects empty rename", () => {
-    const p = makeProject();
+  it("rejects empty rename", async () => {
+    const p = await makeProject();
     const t = createUserTerminal({ projectId: p.id });
     expect(() => renameUserTerminal(t.id, "   ")).toThrow();
   });
 
-  it("deletes only the targeted row", () => {
-    const p = makeProject();
+  it("deletes only the targeted row", async () => {
+    const p = await makeProject();
     const a = createUserTerminal({ projectId: p.id });
     const b = createUserTerminal({ projectId: p.id });
     expect(deleteUserTerminal(a.id)).toBe(true);
@@ -62,17 +62,17 @@ describe("user-terminals service", () => {
     expect(remaining.map((t) => t.id)).toEqual([b.id]);
   });
 
-  it("scopes terminals per project", () => {
-    const p1 = makeProject();
-    const p2 = makeProject();
+  it("scopes terminals per project", async () => {
+    const p1 = await makeProject();
+    const p2 = await makeProject();
     createUserTerminal({ projectId: p1.id });
     createUserTerminal({ projectId: p2.id });
     expect(listUserTerminals(p1.id)).toHaveLength(1);
     expect(listUserTerminals(p2.id)).toHaveLength(1);
   });
 
-  it("does not persist launch-created terminals", () => {
-    const p = makeProject();
+  it("does not persist launch-created terminals", async () => {
+    const p = await makeProject();
     const terminal = createUserTerminal({
       projectId: p.id,
       name: "Dev server",
@@ -84,8 +84,8 @@ describe("user-terminals service", () => {
     expect(listUserTerminals(p.id)).toHaveLength(0);
   });
 
-  it("cleans stale launch-created terminals from older app versions", () => {
-    const p = makeProject();
+  it("cleans stale launch-created terminals from older app versions", async () => {
+    const p = await makeProject();
     const db = getDb();
     db.insert(userTerminals)
       .values({
@@ -104,16 +104,16 @@ describe("user-terminals service", () => {
     expect(db.select().from(userTerminals).all()).toHaveLength(0);
   });
 
-  it("cascades on project delete", () => {
-    const p = makeProject();
+  it("cascades on project delete", async () => {
+    const p = await makeProject();
     createUserTerminal({ projectId: p.id });
     const db = getDb();
     db.delete(projects).run();
     expect(listUserTerminals(p.id)).toHaveLength(0);
   });
 
-  it("orders by position before createdAt", () => {
-    const p = makeProject();
+  it("orders by position before createdAt", async () => {
+    const p = await makeProject();
     const a = createUserTerminal({ projectId: p.id });
     const b = createUserTerminal({ projectId: p.id });
     const c = createUserTerminal({ projectId: p.id });
@@ -125,7 +125,7 @@ describe("user-terminals service", () => {
     expect(listUserTerminals(p.id).map((t) => t.id)).toEqual([c.id, b.id, a.id]);
   });
 
-  it("createUserTerminal throws when projectId does not exist", () => {
+  it("createUserTerminal throws when projectId does not exist", async () => {
     expect(() => createUserTerminal({ projectId: "does-not-exist" })).toThrow();
   });
 });
