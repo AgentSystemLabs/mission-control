@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import { getLicenseState } from "~/db/settings";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
+import { logger } from "~/shared/logger";
 
 export type LatestSkillsManifest = {
   version: string;
@@ -218,6 +219,8 @@ export async function installProjectSkills(
       skillCount,
     };
   } finally {
-    await fs.promises.rm(tempFile, { force: true }).catch(() => {});
+    await fs.promises.rm(tempFile, { force: true }).catch((err) => {
+      logger.warn("failed to clean temp tarball", { err, tempFile });
+    });
   }
 }

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { logger } from "./logger";
 
 const MARKER = "_mcManaged";
 
@@ -86,7 +87,13 @@ export function installAgentHooks(agent: string | undefined, cwd: string): void 
   } catch (err) {
     // ENOENT is expected on first install; any other error (parse failure,
     // permission denied) means we should not clobber the file.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") return;
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      logger.warn("skipping hooks install — settings.json unreadable", {
+        err,
+        file,
+      });
+      return;
+    }
   }
 
   const command = buildHookCommand(spec.endpointSlug);

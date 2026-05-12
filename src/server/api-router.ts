@@ -62,6 +62,7 @@ import {
   gitErrorPayload,
   deleteProjectFile,
 } from "./services/git";
+import { logger } from "~/shared/logger";
 
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
 
@@ -225,6 +226,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         await deleteProjectFile(id, filePath);
         return json({ ok: true });
       } catch (e: any) {
+        logger.error("api handler failed", { err: e, route: pathname, method });
         return jsonError(400, e?.message || "delete failed");
       }
     }
@@ -263,6 +265,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         }
         return jsonError(404, "not found");
       } catch (e: any) {
+        logger.error("api handler failed", { err: e, route: pathname, method });
         const payload = gitErrorPayload(e);
         return new Response(
           JSON.stringify({ error: payload.message, stderr: payload.stderr }),
@@ -395,6 +398,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         const manifest = await fetchLatestSkillsManifest();
         return json({ manifest });
       } catch (e: any) {
+        logger.error("api handler failed", { err: e, route: pathname, method });
         return jsonError(502, e?.message ?? "Failed to fetch manifest");
       }
     }
@@ -413,6 +417,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         });
         return json({ result });
       } catch (e: any) {
+        logger.error("api handler failed", { err: e, route: pathname, method });
         return jsonError(400, e?.message ?? "Install failed");
       }
     }
@@ -422,6 +427,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         const result = await initializeSkills();
         return json({ ...result, ...readSkillsStatus() });
       } catch (e: any) {
+        logger.error("api handler failed", { err: e, route: pathname, method });
         if (e instanceof SkillsBundleError) {
           const status = e.code === "not_pro" || e.code === "no_key" ? 402 : 502;
           return new Response(
@@ -448,6 +454,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         });
         return json(result, { status: 201 });
       } catch (e: any) {
+        logger.error("api handler failed", { err: e, route: pathname, method });
         return jsonError(400, e?.message ?? "Launch Kit import failed");
       }
     }
@@ -578,6 +585,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     return jsonError(404, "not found");
   } catch (err: any) {
+    logger.error("api handler failed", { err, route: pathname, method });
     return jsonError(400, err?.message || "bad request");
   }
 }
