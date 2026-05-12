@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import * as crypto from "node:crypto";
+import { logger } from "./logger";
 
 // Pinned contracts. Renderer reads VITE_ACADEMY_BASE_URL via import.meta.env.
 // Main process resolves at runtime; default to prod.
@@ -230,6 +231,8 @@ export async function installSkills(args: InstallSkillsArgs): Promise<InstallSki
       skillCount,
     };
   } finally {
-    await fs.promises.rm(tempFile, { force: true }).catch(() => {});
+    await fs.promises.rm(tempFile, { force: true }).catch((err) => {
+      logger.warn("failed to clean temp tarball", { err, tempFile });
+    });
   }
 }

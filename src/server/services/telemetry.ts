@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
+import { logger } from "~/shared/logger";
 
 export type TelemetryEventType = "app_launch" | "session_started";
 
@@ -62,10 +63,10 @@ export function sendTelemetry(eventType: TelemetryEventType): void {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
-    }).catch(() => {
-      // intentionally swallowed
+    }).catch((err) => {
+      logger.debug("telemetry dispatch failed", { err });
     });
-  } catch {
-    // intentionally swallowed
+  } catch (err) {
+    logger.debug("telemetry dispatch failed", { err });
   }
 }

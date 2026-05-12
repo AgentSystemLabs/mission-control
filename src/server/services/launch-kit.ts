@@ -11,6 +11,7 @@ import { ACADEMY_BASE_URL, isAllowedAcademyDownloadUrl } from "~/shared/academy"
 import { isAcademyTier } from "~/shared/license";
 import { createProject } from "./projects";
 import { readLicenseState } from "./license";
+import { logger } from "~/shared/logger";
 
 export type LatestLaunchKitManifest = {
   version: string;
@@ -207,10 +208,14 @@ export async function createProjectFromLaunchKit(input: {
     return { project, version: manifest.version };
   } catch (err) {
     if (createdTarget) {
-      await fs.promises.rm(targetDir, { recursive: true, force: true }).catch(() => {});
+      await fs.promises.rm(targetDir, { recursive: true, force: true }).catch((rmErr) => {
+        logger.warn("failed to clean temp tarball", { err: rmErr, tempFile: targetDir });
+      });
     }
     throw err;
   } finally {
-    await fs.promises.rm(tempFile, { force: true }).catch(() => {});
+    await fs.promises.rm(tempFile, { force: true }).catch((rmErr) => {
+      logger.warn("failed to clean temp tarball", { err: rmErr, tempFile });
+    });
   }
 }

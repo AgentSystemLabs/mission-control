@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
 import { resolveShell, sanitizedProcessEnv, shellArgsForCommand } from "./shell-env";
+import { logger } from "./logger";
 
 function assertCwd(cwd: string): void {
   if (!cwd) throw new Error("cwd is required");
@@ -179,6 +180,7 @@ async function killPidsListeningOnPort(port: number): Promise<PortKillResult> {
       killed.push(pid);
     } catch (err: any) {
       errors.push(`pid ${pid}: ${err?.message ?? String(err)}`);
+      logger.warn("failed to reap pty", { err, pid, op: "pty.kill" });
     }
   }
 
@@ -276,6 +278,13 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
         }
         throw err;
       }
+
+      logger.info("pty spawned", {
+        pid: proc.pid,
+        cwd: opts.cwd,
+        cols: opts.cols ?? 100,
+        rows: opts.rows ?? 30,
+      });
 
       const id = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const p: Pty = {

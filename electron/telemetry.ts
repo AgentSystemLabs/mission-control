@@ -1,5 +1,6 @@
 import * as os from "node:os";
 import { ensureInstallInfo } from "./install-id";
+import { logger } from "./logger";
 
 const DEFAULT_ACADEMY_BASE_URL =
   process.env.VITE_ACADEMY_BASE_URL ??
@@ -38,10 +39,10 @@ export function sendTelemetry(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
-    }).catch(() => {
-      // intentionally swallowed
+    }).catch((err) => {
+      logger.debug("telemetry dispatch failed", { err });
     });
-  } catch {
-    // intentionally swallowed
+  } catch (err) {
+    logger.debug("telemetry dispatch failed", { err });
   }
 }
