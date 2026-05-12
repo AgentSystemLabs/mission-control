@@ -106,7 +106,7 @@ jobs:
     # missing platforms by leaving the release as a draft. To rebuild a single
     # failed platform, re-run that matrix job from the Actions UI — asset
     # upsert is idempotent on (releaseId, platform).
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
