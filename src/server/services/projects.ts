@@ -25,6 +25,23 @@ export class ProjectCapExceededError extends Error {
   }
 }
 
+export class DuplicateProjectPathError extends Error {
+  constructor(public readonly path: string) {
+    super(`A project for "${path}" already exists.`);
+    this.name = "DuplicateProjectPathError";
+  }
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string };
+  return (
+    e.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    e.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+    (typeof e.message === "string" && /UNIQUE constraint failed/i.test(e.message))
+  );
+}
+
 export type { ProjectWithCounts } from "~/shared/projects";
 
 export function detectGithubUrl(dir: string): string | null {
@@ -118,13 +135,7 @@ export function createProject(input: {
 
   const db = getDb();
 
-  if (!isProTier(readLicenseState())) {
-    const existing = db.select({ id: projects.id }).from(projects).all();
-    if (existing.length >= FREE_PROJECT_CAP) {
-      throw new ProjectCapExceededError(FREE_PROJECT_CAP, existing.length);
-    }
-  }
-
+  const pro = isProTier(readLicenseState());
   const now = Date.now();
   const id = newId("p");
   const branch = detectBranch(input.path);
@@ -147,7 +158,26 @@ export function createProject(input: {
     createdAt: now,
     updatedAt: now,
   };
-  db.insert(projects).values(row).run();
+
+  try {
+    // Cap check + insert must be atomic; otherwise two concurrent
+    // createProject calls can both pass the cap check before either inserts.
+    db.transaction((tx) => {
+      if (!pro) {
+        const existing = tx.select({ id: projects.id }).from(projects).all();
+        if (existing.length >= FREE_PROJECT_CAP) {
+          throw new ProjectCapExceededError(FREE_PROJECT_CAP, existing.length);
+        }
+      }
+      tx.insert(projects).values(row).run();
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new DuplicateProjectPathError(input.path);
+    }
+    throw err;
+  }
+
   events.emit("project:created", { id });
   return row;
 }
@@ -185,7 +215,14 @@ export function updateProject(
       : {}),
     updatedAt: Date.now(),
   };
-  db.update(projects).set(updated).where(eq(projects.id, id)).run();
+  try {
+    db.update(projects).set(updated).where(eq(projects.id, id)).run();
+  } catch (err) {
+    if (isUniqueConstraintError(err) && patch.path !== undefined) {
+      throw new DuplicateProjectPathError(String(patch.path));
+    }
+    throw err;
+  }
   events.emit("project:updated", { id });
   return updated;
 }

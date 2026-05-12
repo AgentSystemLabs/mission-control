@@ -8,6 +8,22 @@ function newId() {
   return `ut-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 }
 
+export class DuplicateUserTerminalNameError extends Error {
+  constructor(public readonly projectId: string, public readonly name: string) {
+    super(`A terminal named "${name}" already exists for this project.`);
+    this.name = "DuplicateUserTerminalNameError";
+  }
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string };
+  return (
+    e.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    (typeof e.message === "string" && /UNIQUE constraint failed/i.test(e.message))
+  );
+}
+
 export function listUserTerminals(projectId: string): UserTerminal[] {
   const db = getDb();
   db.delete(userTerminals)
@@ -48,7 +64,14 @@ export function createUserTerminal(input: {
     updatedAt: now,
   };
   if (row.startCommand) return row;
-  db.insert(userTerminals).values(row).run();
+  try {
+    db.insert(userTerminals).values(row).run();
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new DuplicateUserTerminalNameError(row.projectId, row.name);
+    }
+    throw err;
+  }
   return row;
 }
 
@@ -59,7 +82,14 @@ export function renameUserTerminal(id: string, name: string): UserTerminal | nul
   const existing = db.select().from(userTerminals).where(eq(userTerminals.id, id)).get();
   if (!existing) return null;
   const next = { ...existing, name: trimmed, updatedAt: Date.now() };
-  db.update(userTerminals).set(next).where(eq(userTerminals.id, id)).run();
+  try {
+    db.update(userTerminals).set(next).where(eq(userTerminals.id, id)).run();
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new DuplicateUserTerminalNameError(existing.projectId, trimmed);
+    }
+    throw err;
+  }
   return next;
 }
 

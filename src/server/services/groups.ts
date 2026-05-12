@@ -10,6 +10,22 @@ function newId() {
   return `g-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 }
 
+export class DuplicateGroupNameError extends Error {
+  constructor(public readonly name: string) {
+    super(`A group named "${name}" already exists.`);
+    this.name = "DuplicateGroupNameError";
+  }
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string };
+  return (
+    e.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    (typeof e.message === "string" && /UNIQUE constraint failed/i.test(e.message))
+  );
+}
+
 export function listGroups(): Group[] {
   return getDb().select().from(groups).orderBy(asc(groups.createdAt)).all();
 }
@@ -25,7 +41,12 @@ export function createGroup(input: { name: string; color?: string }): Group {
     color,
     createdAt: Date.now(),
   };
-  db.insert(groups).values(row).run();
+  try {
+    db.insert(groups).values(row).run();
+  } catch (err) {
+    if (isUniqueConstraintError(err)) throw new DuplicateGroupNameError(row.name);
+    throw err;
+  }
   events.emit("group:created", { id: row.id });
   return row;
 }
@@ -35,7 +56,14 @@ export function updateGroup(id: string, patch: Partial<Pick<Group, "name" | "col
   const existing = db.select().from(groups).where(eq(groups.id, id)).get();
   if (!existing) return null;
   const next = { ...existing, ...patch };
-  db.update(groups).set(next).where(eq(groups.id, id)).run();
+  try {
+    db.update(groups).set(next).where(eq(groups.id, id)).run();
+  } catch (err) {
+    if (isUniqueConstraintError(err) && patch.name !== undefined) {
+      throw new DuplicateGroupNameError(String(patch.name));
+    }
+    throw err;
+  }
   events.emit("group:updated", { id });
   return next;
 }
