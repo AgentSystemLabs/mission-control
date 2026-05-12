@@ -1,4 +1,4 @@
-import { eq, asc } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -204,25 +204,29 @@ export function updateProject(
   > & { launchCommands?: LaunchCommand[] | null }
 ): Project | null {
   const db = getDb();
-  const existing = db.select().from(projects).where(eq(projects.id, id)).get();
-  if (!existing) return null;
   const { launchCommands, ...rest } = patch;
-  const updated = {
-    ...existing,
+  const setPatch: Partial<Project> & { updatedAt: number } = {
     ...rest,
     ...(launchCommands !== undefined
       ? { launchCommands: serializeLaunchCommands(launchCommands) }
       : {}),
     updatedAt: Date.now(),
   };
+  let updated: Project | undefined;
   try {
-    db.update(projects).set(updated).where(eq(projects.id, id)).run();
+    updated = db
+      .update(projects)
+      .set(setPatch)
+      .where(eq(projects.id, id))
+      .returning()
+      .get();
   } catch (err) {
     if (isUniqueConstraintError(err) && patch.path !== undefined) {
       throw new DuplicateProjectPathError(String(patch.path));
     }
     throw err;
   }
+  if (!updated) return null;
   events.emit("project:updated", { id });
   return updated;
 }
@@ -247,15 +251,15 @@ function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
 
 export function togglePin(id: string): Project | null {
   const db = getDb();
-  const existing = db.select().from(projects).where(eq(projects.id, id)).get();
-  if (!existing) return null;
-  const next = { ...existing, pinned: !existing.pinned, updatedAt: Date.now() };
-  db.update(projects)
-    .set({ pinned: next.pinned, updatedAt: next.updatedAt })
+  const updated = db
+    .update(projects)
+    .set({ pinned: sql`NOT ${projects.pinned}`, updatedAt: Date.now() })
     .where(eq(projects.id, id))
-    .run();
+    .returning()
+    .get();
+  if (!updated) return null;
   events.emit("project:updated", { id });
-  return next;
+  return updated;
 }
 
 export function deleteProject(id: string): boolean {
@@ -268,12 +272,20 @@ export function deleteProject(id: string): boolean {
 
 export function refreshBranch(id: string): string | null {
   const db = getDb();
-  const p = db.select().from(projects).where(eq(projects.id, id)).get();
+  const p = db
+    .select({ path: projects.path })
+    .from(projects)
+    .where(eq(projects.id, id))
+    .get();
   if (!p) return null;
+  // fs I/O kept outside the DB write
   const branch = detectBranch(p.path);
-  if (branch !== p.branch) {
-    db.update(projects).set({ branch, updatedAt: Date.now() }).where(eq(projects.id, id)).run();
-    events.emit("project:updated", { id });
-  }
+  const updated = db
+    .update(projects)
+    .set({ branch, updatedAt: Date.now() })
+    .where(and(eq(projects.id, id), ne(projects.branch, branch)))
+    .returning({ id: projects.id })
+    .get();
+  if (updated) events.emit("project:updated", { id });
   return branch;
 }
