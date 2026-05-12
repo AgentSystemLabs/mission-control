@@ -20,7 +20,7 @@ export type LatestLaunchKitManifest = {
 };
 
 export type CreateLaunchKitProjectResult = {
-  project: ReturnType<typeof createProject>;
+  project: Awaited<ReturnType<typeof createProject>>;
   version: string;
 };
 
@@ -194,7 +194,7 @@ export async function createProjectFromLaunchKit(input: {
       throw new Error(git.stderr || "git init failed");
     }
 
-    const project = createProject({
+    const project = await createProject({
       name: projectName,
       path: targetDir,
       icon: projectName.slice(0, 2).toUpperCase(),

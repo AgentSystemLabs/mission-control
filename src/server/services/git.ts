@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getProject } from "./projects";
+import { getProjectRow } from "./projects";
 import { runCli } from "./claude-cli";
 
 const GIT_TIMEOUT_MS = 15_000;
@@ -58,7 +58,7 @@ class GitError extends Error {
 }
 
 function projectCwd(projectId: string): string {
-  const p = getProject(projectId);
+  const p = getProjectRow(projectId);
   if (!p) throw new GitError("project not found");
   if (!p.path || !fs.existsSync(p.path)) {
     throw new GitError("project path does not exist on disk");

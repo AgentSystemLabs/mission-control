@@ -1,5 +1,5 @@
 import { eq, gte, sql } from "drizzle-orm";
-import * as fs from "node:fs";
+import { promises as fsp } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getDb, getSqlite } from "~/db/client";
@@ -76,12 +76,12 @@ function claudeProjectsRoot(): string {
  * its log. Claude Code names files `<sessionId>.jsonl` under a per-cwd folder;
  * we read the dir tree once instead of guessing the cwd encoding.
  */
-function buildSessionFileIndex(): Map<string, string> {
+async function buildSessionFileIndex(): Promise<Map<string, string>> {
   const root = claudeProjectsRoot();
   const out = new Map<string, string>();
   let dirs: string[];
   try {
-    dirs = fs.readdirSync(root);
+    dirs = await fsp.readdir(root);
   } catch {
     return out;
   }
@@ -89,7 +89,7 @@ function buildSessionFileIndex(): Map<string, string> {
     const full = path.join(root, d);
     let entries: string[];
     try {
-      entries = fs.readdirSync(full);
+      entries = await fsp.readdir(full);
     } catch {
       continue;
     }
@@ -110,7 +110,7 @@ let inflight: Promise<number> | null = null;
 
 export function syncTokenUsage(): Promise<number> {
   if (inflight) return inflight;
-  const p = Promise.resolve().then(doSync);
+  const p = doSync();
   inflight = p;
   p.finally(() => {
     if (inflight === p) inflight = null;
@@ -118,7 +118,15 @@ export function syncTokenUsage(): Promise<number> {
   return p;
 }
 
-function doSync(): number {
+type PendingSessionWrite = {
+  taskId: string;
+  projectId: string;
+  sessionId: string;
+  text: string;
+  newOffset: number;
+};
+
+async function doSync(): Promise<number> {
   const db = getDb();
   const sqlite = getSqlite();
 
@@ -139,7 +147,56 @@ function doSync(): number {
     offsetRows.map((r) => [r.claudeSessionId, r.byteOffset])
   );
 
-  const fileIndex = buildSessionFileIndex();
+  const fileIndex = await buildSessionFileIndex();
+
+  // Read every session's pending tail off the event loop BEFORE entering the
+  // sync sqlite transaction. better-sqlite3 transactions cannot await, so file
+  // I/O happens here; only DB writes happen inside `tx()`.
+  const pending: PendingSessionWrite[] = [];
+  for (const row of sessionRows) {
+    const sessionId = row.claudeSessionId!;
+    const file = fileIndex.get(sessionId);
+    if (!file) continue;
+    let size: number;
+    try {
+      const stat = await fsp.stat(file);
+      size = stat.size;
+    } catch {
+      continue;
+    }
+    const prev = offsets.get(sessionId) ?? 0;
+    // File rotation / truncation safety: re-read from 0.
+    const start = size < prev ? 0 : prev;
+    if (size === start) continue;
+    let buf: Buffer;
+    try {
+      const fh = await fsp.open(file, "r");
+      try {
+        const length = size - start;
+        buf = Buffer.alloc(length);
+        await fh.read(buf, 0, length, start);
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      continue;
+    }
+    // Trailing partial line guard: only commit through the last newline.
+    const lastNl = buf.lastIndexOf(0x0a);
+    if (lastNl < 0) {
+      // No complete line — try again next sync once more lines arrive.
+      continue;
+    }
+    pending.push({
+      taskId: row.taskId,
+      projectId: row.projectId,
+      sessionId,
+      text: buf.subarray(0, lastNl + 1).toString("utf8"),
+      newOffset: start + lastNl + 1,
+    });
+  }
+
+  if (pending.length === 0) return 0;
 
   const insertUsage = sqlite.prepare(
     `INSERT OR IGNORE INTO token_usage (
@@ -162,49 +219,15 @@ function doSync(): number {
   const now = Date.now();
 
   const tx = sqlite.transaction(() => {
-    for (const row of sessionRows) {
-      const sessionId = row.claudeSessionId!;
-      const file = fileIndex.get(sessionId);
-      if (!file) continue;
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(file);
-      } catch {
-        continue;
-      }
-      const prev = offsets.get(sessionId) ?? 0;
-      // File rotation / truncation safety: re-read from 0.
-      const start = stat.size < prev ? 0 : prev;
-      if (stat.size === start) continue;
-      let buf: Buffer;
-      try {
-        const fd = fs.openSync(file, "r");
-        try {
-          const length = stat.size - start;
-          buf = Buffer.alloc(length);
-          fs.readSync(fd, buf, 0, length, start);
-        } finally {
-          fs.closeSync(fd);
-        }
-      } catch {
-        continue;
-      }
-      // Trailing partial line guard: only commit through the last newline.
-      const lastNl = buf.lastIndexOf(0x0a);
-      if (lastNl < 0) {
-        // No complete line — try again next sync once more lines arrive.
-        continue;
-      }
-      const consumable = buf.subarray(0, lastNl + 1).toString("utf8");
-      const newOffset = start + lastNl + 1;
-      for (const line of consumable.split("\n")) {
+    for (const p of pending) {
+      for (const line of p.text.split("\n")) {
         const parsed = parseUsageLine(line);
         if (!parsed) continue;
         const result = insertUsage.run(
           `tu-${parsed.uuid}`,
-          row.taskId,
-          row.projectId,
-          sessionId,
+          p.taskId,
+          p.projectId,
+          p.sessionId,
           parsed.uuid,
           parsed.model,
           parsed.usage.inputTokens,
@@ -215,7 +238,7 @@ function doSync(): number {
         );
         if (result.changes > 0) inserted += 1;
       }
-      upsertOffset.run(sessionId, row.taskId, row.projectId, newOffset, now);
+      upsertOffset.run(p.sessionId, p.taskId, p.projectId, p.newOffset, now);
     }
   });
   tx();

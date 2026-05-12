@@ -46,40 +46,40 @@ describe("projects service", () => {
     db.delete(appSettings).run();
   });
 
-  it("rejects nonexistent paths", () => {
-    expect(() =>
-      createProject({ name: "no-go", path: "/definitely/not/here/i/promise" })
-    ).toThrow();
+  it("rejects nonexistent paths", async () => {
+    await expect(
+      createProject({ name: "no-go", path: "/definitely/not/here/i/promise" }),
+    ).rejects.toThrow();
   });
 
-  it("creates and lists a project", () => {
+  it("creates and lists a project", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-"));
-    const created = createProject({ name: "alpha", path: dir });
+    const created = await createProject({ name: "alpha", path: dir });
     expect(created.id).toBeTruthy();
 
-    const all = listProjects();
+    const all = await listProjects();
     expect(all.some((p) => p.id === created.id)).toBe(true);
   });
 
-  it("toggles pin and updates fields", () => {
+  it("toggles pin and updates fields", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-"));
-    const c = createProject({ name: "beta", path: dir });
+    const c = await createProject({ name: "beta", path: dir });
     const after = togglePin(c.id);
     expect(after?.pinned).toBe(true);
     const renamed = updateProject(c.id, { name: "beta-2" });
     expect(renamed?.name).toBe("beta-2");
   });
 
-  it("deletes cleanly", () => {
+  it("deletes cleanly", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-"));
-    const c = createProject({ name: "gamma", path: dir });
+    const c = await createProject({ name: "gamma", path: dir });
     expect(deleteProject(c.id)).toBe(true);
-    expect(listProjects().some((p) => p.id === c.id)).toBe(false);
+    expect((await listProjects()).some((p) => p.id === c.id)).toBe(false);
   });
 
-  it("derives name from folder basename when name is omitted", () => {
+  it("derives name from folder basename when name is omitted", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-named-"));
-    const c = createProject({ path: dir });
+    const c = await createProject({ path: dir });
     expect(c.name).toBe(path.basename(dir));
   });
 
@@ -87,26 +87,26 @@ describe("projects service", () => {
     const mkdir = (label: string) =>
       fs.mkdtempSync(path.join(os.tmpdir(), `mc-cap-${label}-`));
 
-    it(`rejects creating a project beyond the cap of ${FREE_PROJECT_CAP} when no license is set`, () => {
+    it(`rejects creating a project beyond the cap of ${FREE_PROJECT_CAP} when no license is set`, async () => {
       clearLicense();
       for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`free-${i}`) });
+        await createProject({ path: mkdir(`free-${i}`) });
       }
-      expect(() => createProject({ path: mkdir("over") })).toThrow(
+      await expect(createProject({ path: mkdir("over") })).rejects.toThrow(
         ProjectCapExceededError,
       );
     });
 
-    it("allows unlimited projects when an active license is on file", () => {
+    it("allows unlimited projects when an active license is on file", async () => {
       setLicenseKey(signedLicense());
       for (let i = 0; i < FREE_PROJECT_CAP + 2; i++) {
-        const p = createProject({ path: mkdir(`pro-${i}`) });
+        const p = await createProject({ path: mkdir(`pro-${i}`) });
         expect(p.id).toBeTruthy();
       }
-      expect(listProjects()).toHaveLength(FREE_PROJECT_CAP + 2);
+      expect(await listProjects()).toHaveLength(FREE_PROJECT_CAP + 2);
     });
 
-    it("blocks Pro creation when a signed license is expired", () => {
+    it("blocks Pro creation when a signed license is expired", async () => {
       setLicenseKey(
         signedLicense({
           licenseId: "lic_expired",
@@ -115,30 +115,30 @@ describe("projects service", () => {
         }),
       );
       for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`expired-${i}`) });
+        await createProject({ path: mkdir(`expired-${i}`) });
       }
-      expect(() => createProject({ path: mkdir("over") })).toThrow(
+      await expect(createProject({ path: mkdir("over") })).rejects.toThrow(
         ProjectCapExceededError,
       );
     });
 
-    it("blocks creation when the stored license is unsigned", () => {
+    it("blocks creation when the stored license is unsigned", async () => {
       setLicenseKey("mc_live_TEST");
       for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`unsigned-${i}`) });
+        await createProject({ path: mkdir(`unsigned-${i}`) });
       }
-      expect(() => createProject({ path: mkdir("over") })).toThrow(
+      await expect(createProject({ path: mkdir("over") })).rejects.toThrow(
         ProjectCapExceededError,
       );
     });
 
-    it("ProjectCapExceededError carries the limit and current count", () => {
+    it("ProjectCapExceededError carries the limit and current count", async () => {
       clearLicense();
       for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`err-${i}`) });
+        await createProject({ path: mkdir(`err-${i}`) });
       }
       try {
-        createProject({ path: mkdir("over") });
+        await createProject({ path: mkdir("over") });
         expect.fail("expected ProjectCapExceededError");
       } catch (e) {
         expect(e).toBeInstanceOf(ProjectCapExceededError);
