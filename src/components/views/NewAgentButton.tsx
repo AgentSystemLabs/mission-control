@@ -26,7 +26,7 @@ export function NewAgentButton({
   }
 
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 0 }}>
       <HotkeyTooltip
         action="agent.new"
         label={`Start ${project.savedAgent} session directly`}
@@ -36,17 +36,19 @@ export function NewAgentButton({
           icon="plus"
           onClick={onPrimary}
           disabled={disabled}
+          className="mc-btn-attached-right"
         >
           New session
         </Btn>
       </HotkeyTooltip>
       <Tooltip content="Change session settings">
         <Btn
-          variant="primary"
+          variant="ghost"
           icon="settings"
           onClick={onConfigure}
           disabled={disabled}
           aria-label="Change session settings"
+          className="mc-btn-attached-left"
           style={{ minWidth: 52, paddingInline: 0 }}
         />
       </Tooltip>

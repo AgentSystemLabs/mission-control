@@ -349,7 +349,8 @@ button {
 }
 
 .mc-btn-primary.mc-btn-attached-left,
-.mc-btn-frame.mc-btn-attached-left {
+.mc-btn-frame.mc-btn-attached-left,
+.mc-btn-ghost.mc-btn-attached-left {
   height: var(--mc-btn-height);
   min-height: 0;
   min-width: 0;
@@ -357,7 +358,8 @@ button {
 }
 
 .mc-btn-primary.mc-btn-attached-left::before,
-.mc-btn-frame.mc-btn-attached-left::before {
+.mc-btn-frame.mc-btn-attached-left::before,
+.mc-btn-ghost.mc-btn-attached-left::before {
   border-left-width: 0;
   border-image-width:
     var(--mc-btn-frame-border)
@@ -367,14 +369,16 @@ button {
 }
 
 .mc-btn-ghost.mc-btn-attached-right,
-.mc-btn-frame.mc-btn-attached-right {
+.mc-btn-frame.mc-btn-attached-right,
+.mc-btn-primary.mc-btn-attached-right {
   height: var(--mc-btn-height);
   min-height: 0;
   min-width: 0;
 }
 
 .mc-btn-ghost.mc-btn-attached-right::before,
-.mc-btn-frame.mc-btn-attached-right::before {
+.mc-btn-frame.mc-btn-attached-right::before,
+.mc-btn-primary.mc-btn-attached-right::before {
   border-right-width: 0;
   border-image-width:
     var(--mc-btn-frame-border)
