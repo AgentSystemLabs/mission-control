@@ -1,6 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
-import { getDb } from "~/db/client";
+import { getDb, getSqlite } from "~/db/client";
 import { projects, tasks, terminalLogs } from "~/db/schema";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "~/shared/domain";
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
@@ -164,24 +164,41 @@ export function deleteTask(id: string): boolean {
 const RING_LIMIT_BYTES = 1_000_000;
 
 export function appendTerminalLog(taskId: string, chunk: string) {
-  const db = getDb();
+  getDb();
+  const sqlite = getSqlite();
   const id = `tl-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-  db.insert(terminalLogs)
-    .values({ id, taskId, chunk, createdAt: Date.now() })
-    .run();
-  // rough FIFO eviction by total length per task
-  const all = db
-    .select()
-    .from(terminalLogs)
-    .where(eq(terminalLogs.taskId, taskId))
-    .orderBy(asc(terminalLogs.createdAt))
-    .all();
-  let total = all.reduce((a, r) => a + r.chunk.length, 0);
-  for (const r of all) {
-    if (total <= RING_LIMIT_BYTES) break;
-    db.delete(terminalLogs).where(eq(terminalLogs.id, r.id)).run();
-    total -= r.chunk.length;
-  }
+  const insert = sqlite.prepare(
+    "INSERT INTO terminal_logs (id, task_id, chunk, created_at) VALUES (?, ?, ?, ?)"
+  );
+  const sumBytes = sqlite.prepare(
+    "SELECT COALESCE(SUM(length(chunk)), 0) AS total, COUNT(*) AS n FROM terminal_logs WHERE task_id = ?"
+  );
+  const evict = sqlite.prepare(
+    `DELETE FROM terminal_logs WHERE id IN (
+       SELECT id FROM terminal_logs WHERE task_id = ?
+       ORDER BY created_at ASC, id ASC LIMIT ?
+     )`
+  );
+
+  const tx = sqlite.transaction((tid: string, c: string) => {
+    insert.run(id, tid, c, Date.now());
+    let stats = sumBytes.get(tid) as { total: number; n: number };
+    // Bounded loop: estimate eviction count from average chunk size; re-check
+    // after each batch since estimate may undershoot for skewed distributions.
+    let guard = 0;
+    while (stats.total > RING_LIMIT_BYTES && stats.n > 1 && guard < 8) {
+      const oversize = stats.total - RING_LIMIT_BYTES;
+      const avg = Math.max(1, Math.floor(stats.total / stats.n));
+      const estimate = Math.min(
+        stats.n - 1,
+        Math.max(1, Math.ceil(oversize / avg))
+      );
+      evict.run(tid, estimate);
+      stats = sumBytes.get(tid) as { total: number; n: number };
+      guard++;
+    }
+  });
+  tx(taskId, chunk);
 }
 
 export function readTerminalLog(taskId: string): string {
