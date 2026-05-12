@@ -1179,29 +1179,47 @@ function RunStatusPill({
     return (
       <div
         role="group"
-        aria-label="Project launch"
+        aria-label="Project launch — running"
         style={{
           display: "inline-flex",
           alignItems: "center",
-          gap: 2,
+          gap: 6,
+          paddingLeft: 10,
+          paddingRight: 2,
+          height: 28,
+          borderRadius: 8,
+          border: "1px solid var(--accent-border)",
+          background: "var(--accent-faint)",
         }}
       >
+        <span
+          aria-hidden
+          title="Launch commands running"
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: "var(--accent)",
+            boxShadow: "0 0 6px var(--accent)",
+            animation: "pulse-dot 1.6s ease-in-out infinite",
+          }}
+        />
         {launchUrl ? (
           <Btn
             variant="frame"
             size="sm"
-            icon="globe"
+            icon="external-link"
             onClick={onOpenUrl}
-            title={`Open ${launchUrl}`}
-            aria-label="Open hosted app"
-            style={activeFrameIconStyle}
+            title={`Open ${launchUrl} in browser`}
+            aria-label={`Open ${launchUrl} in browser`}
+            style={{ ...activeFrameIconStyle, color: "var(--accent)" }}
           />
         ) : null}
         <HotkeyTooltip action="project.runToggle" label="Stop launch commands">
           <Btn
             variant="frame"
             size="sm"
-            icon="x"
+            icon="stop"
             onClick={() => onStop()}
             aria-label="Stop launch commands"
             style={{ ...activeFrameIconStyle, color: "var(--danger)" }}

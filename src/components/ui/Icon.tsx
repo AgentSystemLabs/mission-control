@@ -32,7 +32,9 @@ export type IconName =
   | "github"
   | "chart"
   | "sun"
-  | "moon";
+  | "moon"
+  | "stop"
+  | "external-link";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const common = {
@@ -229,6 +231,20 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       return (
         <svg {...common} viewBox="0 0 16 16" fill="currentColor" stroke="none">
           <path d="M8 .5a7.5 7.5 0 00-2.37 14.62c.37.07.5-.16.5-.36v-1.27c-2.08.45-2.52-1-2.52-1-.34-.87-.83-1.1-.83-1.1-.68-.46.05-.45.05-.45.75.05 1.14.77 1.14.77.67 1.14 1.75.81 2.18.62.07-.48.26-.81.47-1-1.66-.19-3.41-.83-3.41-3.7 0-.82.29-1.49.77-2.01-.08-.19-.33-.95.07-1.99 0 0 .63-.2 2.06.77a7.16 7.16 0 013.75 0c1.43-.97 2.06-.77 2.06-.77.4 1.04.15 1.8.07 1.99.48.52.77 1.19.77 2.01 0 2.88-1.75 3.51-3.42 3.69.27.23.5.68.5 1.37v2.03c0 .2.13.43.5.36A7.5 7.5 0 008 .5z" />
+        </svg>
+      );
+    case "stop":
+      return (
+        <svg {...common} fill="currentColor" stroke="none">
+          <rect x="4" y="4" width="8" height="8" rx="1" />
+        </svg>
+      );
+    case "external-link":
+      return (
+        <svg {...common}>
+          <path d="M9.5 2.5h4v4" />
+          <path d="M13.5 2.5L7.5 8.5" />
+          <path d="M12.5 9.5v3a1 1 0 01-1 1h-8a1 1 0 01-1-1v-8a1 1 0 011-1h3" />
         </svg>
       );
     default:

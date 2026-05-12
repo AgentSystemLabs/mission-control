@@ -186,7 +186,6 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
         >
           {current && <ProjectIcon project={current} size={14} />}
           <span>{label}</span>
-          {current && <ActivityCounts project={current} />}
           <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
         </Btn>
       </HotkeyTooltip>

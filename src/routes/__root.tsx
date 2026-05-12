@@ -254,6 +254,18 @@ function Shell() {
   return (
     <>
       <div id="root">
+        <div
+          aria-hidden
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 20,
+            zIndex: 20,
+            ["WebkitAppRegion" as any]: "drag",
+          }}
+        />
         <AgentSystemBanner onOpenSettings={() => setActivePanel("settings")} />
         <TopBar
           crumbs={crumbs}

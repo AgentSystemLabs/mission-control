@@ -109,7 +109,15 @@ export function TopBar({
                   <Icon name="chevron-right" size={11} style={{ color: "var(--text-faint)" }} />
                 )}
                 {c.node ? (
-                  c.node
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      ["WebkitAppRegion" as any]: "no-drag",
+                    }}
+                  >
+                    {c.node}
+                  </span>
                 ) : (
                   <span
                     onClick={c.onClick}
