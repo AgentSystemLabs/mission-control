@@ -25,6 +25,7 @@ import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
+import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
 import { useSettings, useProjects, useLicense } from "~/queries";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
@@ -62,7 +63,9 @@ function RootComponent() {
           <TerminalProvider>
             <UserTerminalProvider>
               <AddProjectProvider>
-                <Shell />
+                <HeaderActionsProvider>
+                  <Shell />
+                </HeaderActionsProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
           </TerminalProvider>
@@ -271,6 +274,7 @@ function Shell() {
           crumbs={crumbs}
           onHome={goHome}
           leading={<LicenseBadge />}
+          centerActions={<HeaderActionsSlot />}
           right={
             <>
               <UpdateAvailableButton />

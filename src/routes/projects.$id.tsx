@@ -41,6 +41,7 @@ import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
+import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
 import type { Task, TaskStatus } from "~/db/schema";
 import {
@@ -585,10 +586,29 @@ function ProjectPage() {
     });
   };
 
+  const headerActions = (
+    <HeaderActions>
+      <RunStatusPill
+        running={hasRunningLaunch}
+        launching={launching}
+        stopping={stopping}
+        launchUrl={project.launchUrl ?? null}
+        onStart={runLaunch}
+        onOpenUrl={() =>
+          project.launchUrl && window.electronAPI?.openExternal(project.launchUrl)
+        }
+        onStop={stopLaunch}
+      />
+      <span style={{ width: 12 }} aria-hidden />
+      <InstallSkillsButton projectPath={project.path} />
+    </HeaderActions>
+  );
+
   if (showDiffView) {
     return (
       <>
         <CursorGlow />
+        {headerActions}
         <GitDiffView
           projectId={project.id}
           projectPath={project.path}
@@ -676,13 +696,6 @@ function ProjectPage() {
               >
                 {project.name}
               </h1>
-              {project.pinned && (
-                <Icon
-                  name="pin-fill"
-                  size={13}
-                  style={{ color: "var(--accent)", flexShrink: 0 }}
-                />
-              )}
               <Icon
                 name="chevron-down"
                 size={14}
@@ -836,17 +849,7 @@ function ProjectPage() {
               </CardFrame>
             )}
           </div>
-          <RunStatusPill
-            running={hasRunningLaunch}
-            launching={launching}
-            stopping={stopping}
-            launchUrl={project.launchUrl ?? null}
-            onStart={runLaunch}
-            onOpenUrl={() =>
-              project.launchUrl && window.electronAPI?.openExternal(project.launchUrl)
-            }
-            onStop={stopLaunch}
-          />
+          {headerActions}
           <div
             role="group"
             aria-label="Review changes and commit"
@@ -865,6 +868,7 @@ function ProjectPage() {
             />
             <CommitPushButton projectId={id} size="md" splitTrailing />
           </div>
+          <div style={{ flex: 1 }} />
           <HotkeyTooltip action="file.finder" label="Find file in project">
             <Btn
               variant="ghost"
@@ -873,8 +877,6 @@ function ProjectPage() {
               aria-label="Find file in project"
             />
           </HotkeyTooltip>
-          <div style={{ flex: 1 }} />
-          <InstallSkillsButton projectPath={project.path} />
         </div>
 
         <div
@@ -894,6 +896,7 @@ function ProjectPage() {
               justifyContent: "space-between",
               gap: 12,
               marginBottom: 16,
+              paddingInline: 12,
               boxSizing: "border-box",
             }}
           >
@@ -917,6 +920,16 @@ function ProjectPage() {
               />
             </div>
           </div>
+        )}
+        {visibleTasks.length > 0 && (
+          <div
+            aria-hidden
+            style={{
+              height: 1,
+              background: "var(--border)",
+              margin: "0 12px 16px",
+            }}
+          />
         )}
 
         <div
@@ -1110,6 +1123,7 @@ function ProjectGitStatusButton({
         icon="git-branch"
         onClick={onClick}
         aria-label={title}
+        className="mc-btn-attached-right"
         style={{ fontFamily: "var(--mono)", maxWidth: 320, minWidth: 0 }}
       >
         <span
@@ -1180,50 +1194,28 @@ function RunStatusPill({
       <div
         role="group"
         aria-label="Project launch — running"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          paddingLeft: 10,
-          paddingRight: 2,
-          height: 28,
-          borderRadius: 8,
-          border: "1px solid var(--accent-border)",
-          background: "var(--accent-faint)",
-        }}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
       >
-        <span
-          aria-hidden
-          title="Launch commands running"
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: "var(--accent)",
-            boxShadow: "0 0 6px var(--accent)",
-            animation: "pulse-dot 1.6s ease-in-out infinite",
-          }}
-        />
         {launchUrl ? (
           <Btn
-            variant="frame"
-            size="sm"
+            variant="ghost"
             icon="external-link"
             onClick={onOpenUrl}
             title={`Open ${launchUrl} in browser`}
             aria-label={`Open ${launchUrl} in browser`}
-            style={{ ...activeFrameIconStyle, color: "var(--accent)" }}
-          />
+          >
+            Open
+          </Btn>
         ) : null}
         <HotkeyTooltip action="project.runToggle" label="Stop launch commands">
           <Btn
-            variant="frame"
-            size="sm"
+            variant="danger"
             icon="stop"
             onClick={() => onStop()}
             aria-label="Stop launch commands"
-            style={{ ...activeFrameIconStyle, color: "var(--danger)" }}
-          />
+          >
+            Stop
+          </Btn>
         </HotkeyTooltip>
       </div>
     );

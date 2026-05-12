@@ -49,7 +49,7 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
   return (
     <>
       <Btn
-        variant="primary"
+        variant="ghost"
         icon="sparkles"
         onClick={() => (isPro ? setOpen(true) : setPaywallOpen(true))}
         title={title}

@@ -11,6 +11,7 @@ export type IconName =
   | "terminal"
   | "chevron-right"
   | "chevron-down"
+  | "chevron-up"
   | "chevron-left"
   | "maximize"
   | "minimize"
@@ -94,6 +95,8 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       return <svg {...common}><path d="M6 3l5 5-5 5" /></svg>;
     case "chevron-down":
       return <svg {...common}><path d="M3 6l5 5 5-5" /></svg>;
+    case "chevron-up":
+      return <svg {...common}><path d="M3 10l5-5 5 5" /></svg>;
     case "chevron-left":
       return <svg {...common}><path d="M10 3L5 8l5 5" /></svg>;
     case "maximize":

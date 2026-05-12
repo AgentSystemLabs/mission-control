@@ -62,31 +62,17 @@ export function UserTerminalPanel() {
           }}
         />
       )}
-      <StaticHotkeyTooltip
-        hotkey="⌃`"
-        label={panelOpen ? "Collapse panel" : "Expand panel"}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "8px 14px",
+          flexShrink: 0,
+          width: "100%",
+          color: "inherit",
+        }}
       >
-        <button
-          type="button"
-          onClick={() => setPanelOpen(!panelOpen)}
-          aria-label={panelOpen ? "Collapse panel" : "Expand panel"}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "8px 14px",
-            border: 0,
-            background: "transparent",
-            backgroundColor: "transparent",
-            boxShadow: "none",
-            appearance: "none",
-            flexShrink: 0,
-            width: "100%",
-            textAlign: "left",
-            cursor: "pointer",
-            color: "inherit",
-          }}
-        >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Icon name="terminal" size={13} style={{ color: "var(--accent)" }} />
           <span
@@ -109,42 +95,33 @@ export function UserTerminalPanel() {
           )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span
-            className="mc-btn mc-btn-ghost mc-btn-sm"
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (project) void createTerminal();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
+          <StaticHotkeyTooltip hotkey="⌘T" label="New terminal">
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="plus"
+              disabled={!project}
+              onClick={() => {
                 if (project) void createTerminal();
-              }
-            }}
-            aria-disabled={!project}
-            title={project ? "New terminal (⌘T)" : "Open a project first"}
-            style={{ cursor: project ? "pointer" : "not-allowed" }}
+              }}
+            >
+              New
+            </Btn>
+          </StaticHotkeyTooltip>
+          <StaticHotkeyTooltip
+            hotkey="⌃`"
+            label={panelOpen ? "Collapse panel" : "Expand panel"}
           >
-            <span className="mc-btn-content">
-              <Icon name="plus" size={10} /> New
-              <span style={{ color: "var(--text-faint)" }}>⌘T</span>
-            </span>
-          </span>
-          <Icon
-            name="chevron-down"
-            size={12}
-            style={{
-              color: "var(--text-dim)",
-              transform: panelOpen ? "rotate(0deg)" : "rotate(180deg)",
-              transition: "transform 0.15s",
-            }}
-          />
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon={panelOpen ? "chevron-down" : "chevron-up"}
+              aria-label={panelOpen ? "Collapse panel" : "Expand panel"}
+              onClick={() => setPanelOpen(!panelOpen)}
+            />
+          </StaticHotkeyTooltip>
         </div>
-      </button>
-      </StaticHotkeyTooltip>
+      </div>
       {panelOpen && (
       <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", gap: 8, padding: 8 }}>
         {sessions.length === 0 ? (

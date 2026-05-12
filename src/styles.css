@@ -366,6 +366,23 @@ button {
     0;
 }
 
+.mc-btn-ghost.mc-btn-attached-right,
+.mc-btn-frame.mc-btn-attached-right {
+  height: var(--mc-btn-height);
+  min-height: 0;
+  min-width: 0;
+}
+
+.mc-btn-ghost.mc-btn-attached-right::before,
+.mc-btn-frame.mc-btn-attached-right::before {
+  border-right-width: 0;
+  border-image-width:
+    var(--mc-btn-frame-border)
+    0
+    var(--mc-btn-frame-border)
+    var(--mc-btn-frame-border);
+}
+
 .mc-btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
   outline-offset: 3px;

@@ -9,11 +9,13 @@ export function TopBar({
   right,
   onHome,
   leading,
+  centerActions,
 }: {
   crumbs?: Crumb[];
   right?: ReactNode;
   onHome?: () => void;
   leading?: ReactNode;
+  centerActions?: ReactNode;
 }) {
   return (
     <div
@@ -135,6 +137,29 @@ export function TopBar({
               </span>
             ))}
           </>
+        )}
+        {centerActions && (
+          <span
+            aria-hidden
+            style={{
+              width: 1,
+              height: 18,
+              background: "var(--border)",
+              margin: "0 4px",
+            }}
+          />
+        )}
+        {centerActions && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              ["WebkitAppRegion" as any]: "no-drag",
+            }}
+          >
+            {centerActions}
+          </span>
         )}
       </div>
       <div
