@@ -146,6 +146,8 @@ function ensureSchema(sqlite: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS projects_group_idx ON projects(group_id);
     CREATE INDEX IF NOT EXISTS projects_pinned_idx ON projects(pinned);
+    CREATE UNIQUE INDEX IF NOT EXISTS projects_path_unique ON projects(path);
+    CREATE UNIQUE INDEX IF NOT EXISTS groups_name_unique ON groups(name);
 
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
@@ -186,6 +188,7 @@ function ensureSchema(sqlite: Database.Database) {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS user_terminals_project_idx ON user_terminals(project_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS user_terminals_project_name_unique ON user_terminals(project_id, name);
 
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,

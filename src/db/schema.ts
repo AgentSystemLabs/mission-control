@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import {
   DEFAULT_BRANCH,
@@ -16,7 +16,7 @@ import {
 
 export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
-  name: text("name").notNull(),
+  name: text("name").notNull().unique(),
   color: text("color").notNull(),
   createdAt: integer("created_at").notNull(),
 });
@@ -26,7 +26,7 @@ export const projects = sqliteTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
-    path: text("path").notNull(),
+    path: text("path").notNull().unique(),
     icon: text("icon").notNull(),
     iconColor: text("icon_color").notNull(),
     imagePath: text("image_path"),
@@ -112,6 +112,7 @@ export const userTerminals = sqliteTable(
   },
   (t) => ({
     projectIdx: index("user_terminals_project_idx").on(t.projectId),
+    projectNameUnique: uniqueIndex("user_terminals_project_name_unique").on(t.projectId, t.name),
   })
 );
 
