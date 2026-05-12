@@ -166,6 +166,7 @@ function MissionControlPage() {
               marginBottom: 24,
               gap: 24,
               flexWrap: "wrap",
+              paddingInline: 16,
             }}
           >
             <div>

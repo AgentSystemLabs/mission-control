@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { TiPin, TiPinOutline } from "react-icons/ti";
 
 export type IconName =
   | "plus"
@@ -53,13 +54,9 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
     case "plus":
       return <svg {...common}><path d="M8 3v10M3 8h10" /></svg>;
     case "pin":
-      return <svg {...common}><path d="M10 2l4 4-2 1-1 4-3-3-4 4 4-4-3-3 4-1 1-2z" /></svg>;
+      return <TiPinOutline size={size} style={style} />;
     case "pin-fill":
-      return (
-        <svg {...common} fill="currentColor" stroke="none">
-          <path d="M10.5 1.8l3.7 3.7-1.9 1-1.1 3.9-2.8-2.8-4.2 4.2 4.2-4.2-2.8-2.8 3.9-1.1 1-1.9z" />
-        </svg>
-      );
+      return <TiPin size={size} style={style} />;
     case "search":
       return (
         <svg {...common}>
