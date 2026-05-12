@@ -140,6 +140,12 @@ jobs:
 
       - name: Run electron-builder
         shell: bash
+        env:
+          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
         run: |
           pnpm exec electron-builder ${{ matrix.builder_flags }} --publish never -c.directories.output=dist-electron-out
 
