@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
@@ -941,28 +941,35 @@ function ProjectPage() {
             boxSizing: "border-box",
           }}
         >
-          {STATUS_DISPLAY_ORDER.map((status) => (
-            <TaskColumn
-              key={status}
-              title={STATUS_META[status].label}
-              color={STATUS_META[status].color}
-              tasks={tasksByStatus[status]}
-              activeId={activeId}
-              onToggle={toggleTerminal}
-              onDelete={deleteTask}
-              headerAction={
-                status === "finished" && tasksByStatus.finished.length > 0 ? (
-                  <Btn
-                    variant="ghost"
-                    icon="trash"
-                    onClick={() => setConfirmClearFinished(true)}
-                    title="Remove all finished sessions"
-                  >
-                    Clear
-                  </Btn>
-                ) : undefined
-              }
-            />
+          {STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status, idx) => (
+            <Fragment key={status}>
+              {idx > 0 && (
+                <div
+                  aria-hidden
+                  style={{ height: 1, background: "var(--border)" }}
+                />
+              )}
+              <TaskColumn
+                title={STATUS_META[status].label}
+                color={STATUS_META[status].color}
+                tasks={tasksByStatus[status]}
+                activeId={activeId}
+                onToggle={toggleTerminal}
+                onDelete={deleteTask}
+                headerAction={
+                  status === "finished" && tasksByStatus.finished.length > 0 ? (
+                    <Btn
+                      variant="ghost"
+                      icon="trash"
+                      onClick={() => setConfirmClearFinished(true)}
+                      title="Remove all finished sessions"
+                    >
+                      Clear
+                    </Btn>
+                  ) : undefined
+                }
+              />
+            </Fragment>
           ))}
           {visibleTasks.length === 0 && (
             <EmptyState
