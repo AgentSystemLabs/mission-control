@@ -113,8 +113,11 @@ export function ProjectDialog({
     }
   };
 
+  const [submitting, setSubmitting] = useState(false);
   const submit = async () => {
+    if (submitting) return;
     setError(null);
+    setSubmitting(true);
     try {
       const effectiveName =
         name.trim() ||
@@ -129,6 +132,8 @@ export function ProjectDialog({
       });
     } catch (e: any) {
       setError(e?.message || "Save failed");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -149,6 +154,7 @@ export function ProjectDialog({
             <Btn
               variant="primary"
               onClick={submit}
+              disabled={submitting}
               style={{
                 height: 36,
                 ["--mc-btn-height" as any]: "36px",
@@ -157,7 +163,7 @@ export function ProjectDialog({
                 minWidth: 80,
               }}
             >
-              {project ? "Save" : "Add project"}
+              {submitting ? "Saving…" : project ? "Save" : "Add project"}
             </Btn>
           </HotkeyTooltip>
         </>
