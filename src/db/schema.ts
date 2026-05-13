@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  uniqueIndex,
+  primaryKey,
+} from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import {
   DEFAULT_BRANCH,
@@ -45,6 +52,7 @@ export const projects = sqliteTable(
     savedBareSession: integer("saved_bare_session", { mode: "boolean" })
       .notNull()
       .default(false),
+    githubUrl: text("github_url"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -78,6 +86,7 @@ export const tasks = sqliteTable(
     projectIdx: index("tasks_project_idx").on(t.projectId),
     statusIdx: index("tasks_status_idx").on(t.status),
     archivedIdx: index("tasks_archived_idx").on(t.archived),
+    projectStatusIdx: index("tasks_project_status_idx").on(t.projectId, t.status),
   })
 );
 
@@ -145,6 +154,7 @@ export const tokenUsage = sqliteTable(
     projectIdx: index("token_usage_project_idx").on(t.projectId),
     tsIdx: index("token_usage_ts_idx").on(t.ts),
     taskTsIdx: index("token_usage_task_ts_idx").on(t.taskId, t.ts),
+    projectTsIdx: index("token_usage_project_ts_idx").on(t.projectId, t.ts),
   })
 );
 
@@ -161,6 +171,25 @@ export const tokenUsageSessionOffsets = sqliteTable(
     byteOffset: integer("byte_offset").notNull().default(0),
     updatedAt: integer("updated_at").notNull(),
   }
+);
+
+export const tokenUsageDailyRollup = sqliteTable(
+  "token_usage_daily_rollup",
+  {
+    day: text("day").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    requestCount: integer("request_count").notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.day, t.projectId] }),
+    dayIdx: index("token_usage_daily_rollup_day_idx").on(t.day),
+  })
 );
 
 export const groupsRelations = relations(groups, ({ many }) => ({

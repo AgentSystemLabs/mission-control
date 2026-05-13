@@ -7,6 +7,7 @@ import {
   projects,
   tasks,
   tokenUsage,
+  tokenUsageDailyRollup,
   tokenUsageSessionOffsets,
 } from "~/db/schema";
 import type {
@@ -204,6 +205,18 @@ async function doSync(): Promise<number> {
       input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, ts
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
+  const upsertRollup = sqlite.prepare(
+    `INSERT INTO token_usage_daily_rollup (
+       day, project_id, input_tokens, output_tokens,
+       cache_creation_tokens, cache_read_tokens, request_count
+     ) VALUES (?, ?, ?, ?, ?, ?, 1)
+     ON CONFLICT(day, project_id) DO UPDATE SET
+       input_tokens = input_tokens + excluded.input_tokens,
+       output_tokens = output_tokens + excluded.output_tokens,
+       cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+       cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+       request_count = request_count + 1`
+  );
   const upsertOffset = sqlite.prepare(
     `INSERT INTO token_usage_session_offsets
        (claude_session_id, task_id, project_id, byte_offset, updated_at)
@@ -236,7 +249,20 @@ async function doSync(): Promise<number> {
           parsed.usage.cacheReadTokens,
           parsed.ts
         );
-        if (result.changes > 0) inserted += 1;
+        if (result.changes > 0) {
+          inserted += 1;
+          // Maintain the daily rollup incrementally. INSERT OR IGNORE above
+          // guarantees we only fold each message_uuid into the rollup once.
+          const day = formatLocalDay(new Date(parsed.ts));
+          upsertRollup.run(
+            day,
+            p.projectId,
+            parsed.usage.inputTokens,
+            parsed.usage.outputTokens,
+            parsed.usage.cacheCreationTokens,
+            parsed.usage.cacheReadTokens
+          );
+        }
       }
       upsertOffset.run(p.sessionId, p.taskId, p.projectId, p.newOffset, now);
     }
@@ -275,12 +301,29 @@ const sumCols = {
   ),
 };
 
+// Same SUM/COALESCE shape but against the rollup table — used by the three
+// aggregate queries that no longer need row-level granularity.
+const rollupSumCols = {
+  inputTokens: sql<number>`COALESCE(SUM(${tokenUsageDailyRollup.inputTokens}), 0)`.as(
+    "input_tokens"
+  ),
+  outputTokens: sql<number>`COALESCE(SUM(${tokenUsageDailyRollup.outputTokens}), 0)`.as(
+    "output_tokens"
+  ),
+  cacheCreationTokens: sql<number>`COALESCE(SUM(${tokenUsageDailyRollup.cacheCreationTokens}), 0)`.as(
+    "cache_creation_tokens"
+  ),
+  cacheReadTokens: sql<number>`COALESCE(SUM(${tokenUsageDailyRollup.cacheReadTokens}), 0)`.as(
+    "cache_read_tokens"
+  ),
+};
+
 export function getUsageSummary(daysBack: number = 30): UsageSummary {
   const db = getDb();
 
   const totalsRow = db
-    .select(sumCols)
-    .from(tokenUsage)
+    .select(rollupSumCols)
+    .from(tokenUsageDailyRollup)
     .get();
   const totals: TokenTotals = totalsRow
     ? {
@@ -297,10 +340,10 @@ export function getUsageSummary(daysBack: number = 30): UsageSummary {
       name: projects.name,
       icon: projects.icon,
       iconColor: projects.iconColor,
-      ...sumCols,
+      ...rollupSumCols,
     })
-    .from(tokenUsage)
-    .innerJoin(projects, eq(projects.id, tokenUsage.projectId))
+    .from(tokenUsageDailyRollup)
+    .innerJoin(projects, eq(projects.id, tokenUsageDailyRollup.projectId))
     .groupBy(projects.id)
     .all();
   const perProject: ProjectUsage[] = perProjectRows
@@ -316,16 +359,17 @@ export function getUsageSummary(daysBack: number = 30): UsageSummary {
     }))
     .sort((a, b) => totalOf(b) - totalOf(a));
 
-  const sinceMs = startOfLocalDay(Date.now() - (daysBack - 1) * 86_400_000);
-  const dayExpr = sql<string>`strftime('%Y-%m-%d', ${tokenUsage.ts} / 1000, 'unixepoch', 'localtime')`;
+  const sinceDay = formatLocalDay(
+    new Date(Date.now() - (daysBack - 1) * 86_400_000)
+  );
   const perDayRows = db
     .select({
-      day: dayExpr,
-      ...sumCols,
+      day: tokenUsageDailyRollup.day,
+      ...rollupSumCols,
     })
-    .from(tokenUsage)
-    .where(gte(tokenUsage.ts, sinceMs))
-    .groupBy(dayExpr)
+    .from(tokenUsageDailyRollup)
+    .where(gte(tokenUsageDailyRollup.day, sinceDay))
+    .groupBy(tokenUsageDailyRollup.day)
     .all();
   const dayMap = new Map<string, DailyUsage>();
   for (const r of perDayRows) {
@@ -384,12 +428,6 @@ export function getUsageSummary(daysBack: number = 30): UsageSummary {
 
 function totalOf(t: TokenTotals): number {
   return t.inputTokens + t.outputTokens + t.cacheCreationTokens + t.cacheReadTokens;
-}
-
-function startOfLocalDay(ms: number): number {
-  const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
 }
 
 function formatLocalDay(d: Date): string {

@@ -1,4 +1,7 @@
-import { listProjects, createProject, getProject, updateProject, deleteProject, togglePin, refreshBranch, ProjectCapExceededError } from "./services/projects";
+import { z } from "zod";
+import { listProjects, createProject, getProject, updateProject, deleteProject, togglePin, refreshBranch, ProjectCapExceededError, getProjectRow } from "./services/projects";
+import { getErrorMessage } from "./lib/errors";
+import { TASK_AGENTS, TASK_STATUSES } from "~/shared/domain";
 import { initializeSkills, readSkillsStatus, SkillsBundleError } from "./services/skills-bundle";
 import {
   fetchLatestSkillsManifest,
@@ -7,6 +10,7 @@ import {
 } from "./services/install-skills";
 import {
   createProjectFromLaunchKit,
+  LaunchKitAuthorizationError,
   readLaunchKitAccess,
 } from "./services/launch-kit";
 import { listGroups, createGroup, updateGroup, deleteGroup } from "./services/groups";
@@ -44,6 +48,7 @@ import { getBindings, setBinding, resetBinding, resetAllBindings } from "~/db/ke
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, requireBearerToken, requireTokenQueryParam } from "./auth";
+import { clientKeyFromRequest, rateLimit, rateLimitResponse } from "./lib/rate-limit";
 import { ensureApiTokenBootstrap, refreshApiTokenAfterRegenerate } from "./bootstrap";
 import {
   readLicenseState,
@@ -65,6 +70,37 @@ import {
 import { logger } from "~/shared/logger";
 
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
+
+/**
+ * Show a native Electron confirm dialog before regenerating the API token.
+ * Returns true when the user confirms, false when they cancel.
+ * In non-Electron contexts (e.g. unit tests), the dialog module is unavailable
+ * and we fall back to allowing regeneration so existing test flows still work.
+ */
+async function confirmTokenRegeneration(): Promise<boolean> {
+  try {
+    // Dynamic require so this file can still be imported in Node/test contexts
+    // where the `electron` module isn't present.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const electron = require("electron") as typeof import("electron") | undefined;
+    const dialog = electron?.dialog;
+    if (!dialog || typeof dialog.showMessageBox !== "function") {
+      return true;
+    }
+    const result = await dialog.showMessageBox({
+      type: "warning",
+      buttons: ["Cancel", "Regenerate"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Regenerate API token?",
+      message: "Regenerate the Mission Control API token?",
+      detail: "This will invalidate all currently running agent sessions.",
+    });
+    return result.response === 1;
+  } catch {
+    return true;
+  }
+}
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -94,12 +130,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (pathname === "/api/projects") {
       if (method === "GET") return json({ projects: await listProjects() });
       if (method === "POST") {
-        const body = await readJson<any>(request);
-        if (!body.path) return jsonError(400, "path is required");
+        const parsed = await parseBody(request, createProjectBodySchema);
+        if (!parsed.ok) return parsed.response;
         try {
-          const p = await createProject(body);
+          const p = await createProject(parsed.data);
           return json({ project: p }, { status: 201 });
-        } catch (e: any) {
+        } catch (e: unknown) {
           if (e instanceof ProjectCapExceededError) {
             return new Response(
               JSON.stringify({
@@ -126,13 +162,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         return json({ project: p });
       }
       if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        if (body.togglePin === true) {
+        const parsed = await parseBody(request, updateProjectBodySchema);
+        if (!parsed.ok) return parsed.response;
+        if (parsed.data.togglePin === true) {
           const p = togglePin(id);
           if (!p) return jsonError(404, "not found");
           return json({ project: p });
         }
-        const p = updateProject(id, body);
+        const { togglePin: _ignored, ...patch } = parsed.data;
+        const p = updateProject(id, patch);
         if (!p) return jsonError(404, "not found");
         return json({ project: p });
       }
@@ -148,9 +186,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const id = decodeURIComponent(projectTasksMatch[1]!);
       if (method === "GET") return json({ tasks: listTasksForProject(id) });
       if (method === "POST") {
-        const body = await readJson<any>(request);
-        if (!body.title || !body.agent) return jsonError(400, "title and agent required");
-        const t = createTask({ ...body, projectId: id });
+        const parsed = await parseBody(request, createTaskBodySchema);
+        if (!parsed.ok) return parsed.response;
+        const t = createTask({ ...parsed.data, projectId: id });
         return json({ task: t }, { status: 201 });
       }
     }
@@ -158,9 +196,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (pathname === "/api/groups") {
       if (method === "GET") return json({ groups: listGroups() });
       if (method === "POST") {
-        const body = await readJson<any>(request);
-        if (!body.name) return jsonError(400, "name required");
-        const g = createGroup(body);
+        const parsed = await parseBody(request, createGroupBodySchema);
+        if (!parsed.ok) return parsed.response;
+        const g = createGroup(parsed.data);
         return json({ group: g }, { status: 201 });
       }
     }
@@ -169,8 +207,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (groupMatch) {
       const id = decodeURIComponent(groupMatch[1]!);
       if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        const g = updateGroup(id, body);
+        const parsed = await parseBody(request, updateGroupBodySchema);
+        if (!parsed.ok) return parsed.response;
+        const g = updateGroup(id, parsed.data);
         if (!g) return jsonError(404, "not found");
         return json({ group: g });
       }
@@ -190,8 +229,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         return json({ task: t });
       }
       if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        const t = updateTask(id, body);
+        const parsed = await parseBody(request, updateTaskBodySchema);
+        if (!parsed.ok) return parsed.response;
+        const t = updateTask(id, parsed.data);
         if (!t) return jsonError(404, "not found");
         return json({ task: t });
       }
@@ -205,8 +245,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^\/]+)\/status$/);
     if (taskStatusMatch && method === "POST") {
       const id = decodeURIComponent(taskStatusMatch[1]!);
-      const body = await readJson<any>(request);
-      const t = updateStatus(id, body);
+      const parsed = await parseBody(request, taskStatusBodySchema);
+      if (!parsed.ok) return parsed.response;
+      const t = updateStatus(id, parsed.data);
       if (!t) return jsonError(404, "not found");
       return json({ task: t });
     }
@@ -237,9 +278,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       try {
         await deleteProjectFile(id, filePath);
         return json({ ok: true });
-      } catch (e: any) {
+      } catch (e: unknown) {
         logger.error("api handler failed", { err: e, route: pathname, method });
-        return jsonError(400, e?.message || "delete failed");
+        return jsonError(400, getErrorMessage(e) || "delete failed");
       }
     }
 
@@ -276,7 +317,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           return json(await gitPush(id));
         }
         return jsonError(404, "not found");
-      } catch (e: any) {
+      } catch (e: unknown) {
         logger.error("api handler failed", { err: e, route: pathname, method });
         const payload = gitErrorPayload(e);
         return new Response(
@@ -293,12 +334,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const id = decodeURIComponent(projectUserTerminalsMatch[1]!);
       if (method === "GET") return json({ terminals: listUserTerminals(id) });
       if (method === "POST") {
-        const body = await readJson<any>(request);
+        const parsed = await parseBody(request, createUserTerminalBodySchema);
+        if (!parsed.ok) return parsed.response;
         const t = createUserTerminal({
           projectId: id,
-          name: body?.name,
-          cwd: body?.cwd ?? null,
-          startCommand: body?.startCommand ?? null,
+          name: parsed.data.name,
+          cwd: parsed.data.cwd ?? null,
+          startCommand: parsed.data.startCommand ?? null,
         });
         return json({ terminal: t }, { status: 201 });
       }
@@ -308,9 +350,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (userTerminalMatch) {
       const id = decodeURIComponent(userTerminalMatch[1]!);
       if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        if (typeof body?.name !== "string") return jsonError(400, "name required");
-        const t = renameUserTerminal(id, body.name);
+        const parsed = await parseBody(request, renameUserTerminalBodySchema);
+        if (!parsed.ok) return parsed.response;
+        const t = renameUserTerminal(id, parsed.data.name);
         if (!t) return jsonError(404, "not found");
         return json({ terminal: t });
       }
@@ -344,8 +386,19 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         return json(settingsPayload());
       }
       if (method === "POST") {
-        const body = await readJson<any>(request).catch(() => ({}));
-        if ((body as any)?.regenerate) {
+        const parsed = await parseBody(request, settingsBodySchema);
+        if (!parsed.ok) return parsed.response;
+        const body = parsed.data as Record<string, unknown>;
+        if ((body as { regenerate?: unknown }).regenerate === true) {
+          const rl = rateLimit("settings-regenerate", clientKeyFromRequest(request), {
+            max: 3,
+            windowMs: 60 * 60 * 1000,
+          });
+          if (!rl.ok) return rateLimitResponse(rl.retryAfterSec, "Too many token regenerations");
+          const confirmed = await confirmTokenRegeneration();
+          if (!confirmed) {
+            return jsonError(403, "User cancelled token regeneration");
+          }
           const apiToken = regenerateApiToken();
           refreshApiTokenAfterRegenerate(apiToken);
           return json({ ...settingsPayload(), apiToken });
@@ -389,10 +442,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     }
 
     if (pathname === "/api/license/validate" && method === "POST") {
-      const body = await readJson<any>(request).catch(() => null);
-      const key = typeof body?.key === "string" ? body.key.trim() : "";
-      if (!key) return jsonError(400, "key required");
-      const license = await validateLicense(key);
+      const rl = rateLimit("license-validate", clientKeyFromRequest(request), {
+        max: 10,
+        windowMs: 60 * 1000,
+      });
+      if (!rl.ok) return rateLimitResponse(rl.retryAfterSec, "Too many license validation attempts");
+      const parsed = await parseBody(request, licenseValidateBodySchema);
+      if (!parsed.ok) return parsed.response;
+      const license = await validateLicense(parsed.data.key);
       return json({ license });
     }
 
@@ -401,36 +458,48 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     }
 
     if (pathname === "/api/skills/install/installed" && method === "GET") {
-      const projectPath = url.searchParams.get("projectPath") ?? "";
-      return json({ installed: readInstalledSkillsVersion(projectPath) });
+      // Renderer must pass projectId (server-trusted) — we resolve the working
+      // directory ourselves so the renderer can't point this at an arbitrary
+      // path on disk. TODO(renderer): src/lib/install-skills-client.ts still
+      // sends `projectPath` — needs to be updated to send `projectId`.
+      const projectId = url.searchParams.get("projectId");
+      if (!projectId) return jsonError(400, "projectId is required");
+      const project = getProjectRow(projectId);
+      if (!project) return jsonError(400, "unknown projectId");
+      return json({ installed: readInstalledSkillsVersion(project.path) });
     }
 
     if (pathname === "/api/skills/install/latest" && method === "GET") {
       try {
         const manifest = await fetchLatestSkillsManifest();
         return json({ manifest });
-      } catch (e: any) {
+      } catch (e: unknown) {
         logger.error("api handler failed", { err: e, route: pathname, method });
-        return jsonError(502, e?.message ?? "Failed to fetch manifest");
+        return jsonError(502, getErrorMessage(e) || "Failed to fetch manifest");
       }
     }
 
     if (pathname === "/api/skills/install" && method === "POST") {
-      const body = await readJson<any>(request).catch(() => null);
-      const projectPath = typeof body?.projectPath === "string" ? body.projectPath : "";
-      const harnesses = body?.harnesses ?? {};
+      // Caller passes projectId; server resolves the path. Keeps the renderer
+      // from being able to install skills into an arbitrary directory.
+      // TODO(renderer): src/lib/install-skills-client.ts still sends
+      // `projectPath` — needs to be updated to send `projectId`.
+      const parsed = await parseBody(request, installSkillsBodySchema);
+      if (!parsed.ok) return parsed.response;
+      const project = getProjectRow(parsed.data.projectId);
+      if (!project) return jsonError(400, "unknown projectId");
       try {
         const result = await installProjectSkills({
-          projectPath,
+          projectPath: project.path,
           harnesses: {
-            claude: !!harnesses.claude,
-            codex: !!harnesses.codex,
+            claude: !!parsed.data.harnesses.claude,
+            codex: !!parsed.data.harnesses.codex,
           },
         });
         return json({ result });
-      } catch (e: any) {
+      } catch (e: unknown) {
         logger.error("api handler failed", { err: e, route: pathname, method });
-        return jsonError(400, e?.message ?? "Install failed");
+        return jsonError(400, getErrorMessage(e) || "Install failed");
       }
     }
 
@@ -438,7 +507,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       try {
         const result = await initializeSkills();
         return json({ ...result, ...readSkillsStatus() });
-      } catch (e: any) {
+      } catch (e: unknown) {
         logger.error("api handler failed", { err: e, route: pathname, method });
         if (e instanceof SkillsBundleError) {
           const status = e.code === "not_pro" || e.code === "no_key" ? 402 : 502;
@@ -465,31 +534,24 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           projectName,
         });
         return json(result, { status: 201 });
-      } catch (e: any) {
+      } catch (e: unknown) {
+        if (e instanceof LaunchKitAuthorizationError) {
+          return jsonError(403, getErrorMessage(e));
+        }
         logger.error("api handler failed", { err: e, route: pathname, method });
-        return jsonError(400, e?.message ?? "Launch Kit import failed");
+        return jsonError(400, getErrorMessage(e) || "Launch Kit import failed");
       }
     }
 
     if (pathname === "/api/keybindings") {
       if (method === "GET") return json({ bindings: getBindings() });
       if (method === "PUT") {
-        const body = await readJson<any>(request).catch(() => null);
-        const action = body?.action as string | undefined;
-        const binding = body?.binding;
-        if (!action || !(HOTKEY_ACTIONS as readonly string[]).includes(action)) {
-          return jsonError(400, "invalid action");
-        }
-        if (!binding || typeof binding !== "object") return jsonError(400, "binding required");
-        const candidate = {
-          mod: !!binding.mod,
-          shift: !!binding.shift,
-          alt: !!binding.alt,
-          key: typeof binding.key === "string" ? binding.key : "",
-        };
-        const valid = isValidBinding(candidate);
+        const parsed = await parseBody(request, keybindingBodySchema);
+        if (!parsed.ok) return parsed.response;
+        const { action, binding } = parsed.data;
+        const valid = isValidBinding(binding);
         if (!valid.ok) return jsonError(400, valid.reason);
-        return json({ bindings: setBinding(action as HotkeyAction, candidate) });
+        return json({ bindings: setBinding(action, binding) });
       }
       if (method === "DELETE") {
         const action = url.searchParams.get("action");
@@ -503,8 +565,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const agentHookMatch = pathname.match(AGENT_HOOK_PATH);
     if (agentHookMatch && method === "POST") {
+      const slug = agentHookMatch[1]!;
       const taskId = url.searchParams.get("taskId");
       if (!taskId) return jsonError(400, "taskId required");
+      const rl = rateLimit("hooks", `${clientKeyFromRequest(request)}:${taskId}`, {
+        max: 60,
+        windowMs: 60 * 1000,
+      });
+      if (!rl.ok) return rateLimitResponse(rl.retryAfterSec);
       const payload = await readJson<{
         hook_event_name?: string;
         prompt?: string;
@@ -523,6 +591,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       // duplicate session-finished notifications.
       const task = getTask(taskId);
       if (!task) return jsonError(404, "task not found");
+      // Slug must match the task's agent. A claude hook firing for a codex
+      // task (or vice versa) is almost always a nested-shell side effect, not
+      // a real status transition.
+      if (slug === "claude" && task.agent !== "claude-code") {
+        return json({ ok: true, ignored: "agent-mismatch" });
+      }
+      if (slug === "codex" && task.agent !== "codex") {
+        return json({ ok: true, ignored: "agent-mismatch" });
+      }
       const incomingSessionId =
         typeof payload?.session_id === "string" ? payload.session_id : "";
       if (
@@ -594,9 +671,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     }
 
     return jsonError(404, "not found");
-  } catch (err: any) {
+  } catch (err: unknown) {
     logger.error("api handler failed", { err, route: pathname, method });
-    return jsonError(400, err?.message || "bad request");
+    return jsonError(400, getErrorMessage(err) || "bad request");
   }
 }
 
@@ -612,3 +689,151 @@ async function readJson<T>(request: Request): Promise<T> {
     return {} as T;
   }
 }
+
+/**
+ * Validate `request.body` against a zod schema. On success returns the parsed
+ * value; on failure returns a 400 Response with the first zod issue's message.
+ */
+async function parseBody<S extends z.ZodTypeAny>(
+  request: Request,
+  schema: S,
+): Promise<{ ok: true; data: z.infer<S> } | { ok: false; response: Response }> {
+  const raw = await readJson<unknown>(request);
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    const first = result.error.issues[0];
+    const message = first
+      ? `${first.path.length ? first.path.join(".") + ": " : ""}${first.message}`
+      : "invalid body";
+    return { ok: false, response: jsonError(400, message) };
+  }
+  return { ok: true, data: result.data };
+}
+
+// --- Zod schemas for highest-leverage routes (input validation surface) ---
+const createTaskBodySchema = z.object({
+  title: z.string().trim().min(1, "title required"),
+  agent: z.enum(TASK_AGENTS),
+  branch: z.string().optional(),
+  status: z.enum(TASK_STATUSES).optional(),
+  preview: z.string().optional(),
+  claudeSessionId: z.string().nullable().optional(),
+  claudeSkipPermissions: z.boolean().optional(),
+  claudeBareSession: z.boolean().optional(),
+});
+
+const installSkillsBodySchema = z.object({
+  projectId: z.string().min(1, "projectId required"),
+  harnesses: z
+    .object({
+      claude: z.boolean().optional(),
+      codex: z.boolean().optional(),
+    })
+    .default({}),
+});
+
+const licenseValidateBodySchema = z.object({
+  key: z.string().trim().min(1, "key required"),
+});
+
+const settingsRegenerateSchema = z.object({ regenerate: z.literal(true) });
+const settingsUpdateSchema = z
+  .object({
+    agentSystemBannerDisabled: z.boolean().optional(),
+    accentColor: z.string().optional(),
+    mouseGradientDisabled: z.boolean().optional(),
+    sessionFinishToastEnabled: z.boolean().optional(),
+    sessionFinishOsNotificationEnabled: z.boolean().optional(),
+    launchAudioDisabled: z.boolean().optional(),
+  })
+  .passthrough();
+const settingsBodySchema = z.union([settingsRegenerateSchema, settingsUpdateSchema]);
+
+const createProjectBodySchema = z.object({
+  name: z.string().trim().optional(),
+  path: z.string().trim().min(1, "path is required"),
+  icon: z.string().optional(),
+  iconColor: z.string().optional(),
+  groupId: z.string().nullable().optional(),
+});
+
+const launchCommandSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  command: z.string(),
+});
+
+const updateProjectBodySchema = z
+  .object({
+    togglePin: z.boolean().optional(),
+    name: z.string().optional(),
+    path: z.string().optional(),
+    icon: z.string().optional(),
+    iconColor: z.string().optional(),
+    imagePath: z.string().nullable().optional(),
+    groupId: z.string().nullable().optional(),
+    pinned: z.boolean().optional(),
+    branch: z.string().optional(),
+    launchUrl: z.string().nullable().optional(),
+    launchCommands: z.array(launchCommandSchema).nullable().optional(),
+    rememberAgentSettings: z.boolean().optional(),
+    savedAgent: z.enum(TASK_AGENTS).nullable().optional(),
+    savedSkipPermissions: z.boolean().optional(),
+    savedBareSession: z.boolean().optional(),
+  })
+  .strict();
+
+const createGroupBodySchema = z.object({
+  name: z.string().trim().min(1, "name required"),
+  color: z.string().optional(),
+});
+
+const updateGroupBodySchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    color: z.string().optional(),
+  })
+  .strict();
+
+const updateTaskBodySchema = z
+  .object({
+    title: z.string().optional(),
+    branch: z.string().optional(),
+    claudeSessionId: z.string().nullable().optional(),
+    claudeSkipPermissions: z.boolean().optional(),
+    claudeBareSession: z.boolean().optional(),
+  })
+  .strict();
+
+const taskStatusBodySchema = z
+  .object({
+    status: z.enum(TASK_STATUSES).optional(),
+    preview: z.string().optional(),
+    lines: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const createUserTerminalBodySchema = z.object({
+  name: z.string().trim().optional(),
+  cwd: z.string().nullable().optional(),
+  startCommand: z.string().nullable().optional(),
+});
+
+const renameUserTerminalBodySchema = z.object({
+  name: z.string().min(1, "name required"),
+});
+
+const keybindingBodySchema = z.object({
+  action: z.enum(HOTKEY_ACTIONS as readonly [HotkeyAction, ...HotkeyAction[]]),
+  binding: z.object({
+    mod: z.boolean().optional().default(false),
+    shift: z.boolean().optional().default(false),
+    alt: z.boolean().optional().default(false),
+    key: z.string(),
+  }).transform((b) => ({
+    mod: !!b.mod,
+    shift: !!b.shift,
+    alt: !!b.alt,
+    key: b.key,
+  })),
+});

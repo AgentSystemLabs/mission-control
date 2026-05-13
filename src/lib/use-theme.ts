@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { STORAGE_KEYS } from "./storage-keys";
 
 export type Theme = "dark" | "light";
 
-const KEY = "mc.theme";
+const KEY = STORAGE_KEYS.theme;
 
 /**
  * Theme hook that avoids React 19 hydration mismatches by NEVER rendering the

@@ -8,9 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 import { api } from "./api";
 import { getElectron } from "./electron";
+import { STORAGE_KEYS } from "./storage-keys";
 import { useServerEvents } from "./use-events";
+import { killPty, removeKey, useLocalStorageRecord } from "./pty-store-internals";
 import type { Project, UserTerminal } from "~/db/schema";
 
 type Session = {
@@ -50,27 +53,10 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   // the user navigates away and back.
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
   const [focusedByProject, setFocusedByProject] = useState<Record<string, string | null>>({});
-  const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem("mc.userTerminalPanelOpen");
-      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
-    } catch (err) {
-      console.warn("[user-terminal-store] read panelOpen failed:", err);
-      return {};
-    }
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        "mc.userTerminalPanelOpen",
-        JSON.stringify(panelOpenByProject)
-      );
-    } catch (err) {
-      console.warn("[user-terminal-store] persist panelOpen failed:", err);
-    }
-  }, [panelOpenByProject]);
+  const [panelOpenByProject, setPanelOpenByProject] = useLocalStorageRecord<boolean>(
+    STORAGE_KEYS.userTerminalPanelOpen,
+    "user-terminal-store"
+  );
   const loadedProjectsRef = useRef<Set<string>>(new Set());
   // Mirror of sessionsByProject. killTerminal reads this synchronously instead
   // of via a setState updater, since React 18 skips eager-state evaluation
@@ -89,13 +75,13 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       const pid = project.id;
       setPanelOpenByProject((prev) => (prev[pid] === open ? prev : { ...prev, [pid]: open }));
     },
-    [project]
+    [project, setPanelOpenByProject]
   );
   const togglePanel = useCallback(() => {
     if (!project) return;
     const pid = project.id;
     setPanelOpenByProject((prev) => ({ ...prev, [pid]: !(prev[pid] ?? true) }));
-  }, [project]);
+  }, [project, setPanelOpenByProject]);
 
   const setProject = useCallback((next: Project | null) => {
     setProjectState((prev) => (prev?.id === next?.id ? prev : next));
@@ -155,7 +141,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
 
   useServerEvents(
     useCallback((e) => {
-      const electron = getElectron();
       if (e.type === "user-terminal:deleted") {
         const terminalId = e.id as string;
         const snapshot = sessionsByProjectRef.current;
@@ -179,36 +164,17 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
           if (prev[ownerProjectId!] !== terminalId) return prev;
           return { ...prev, [ownerProjectId!]: null };
         });
-        if (killedPtyId && electron) {
-          void electron.pty.kill(killedPtyId).catch(() => undefined);
-        }
+        void killPty(killedPtyId);
       } else if (e.type === "project:deleted") {
         const projectId = e.id as string;
         const list = sessionsByProjectRef.current[projectId] ?? [];
-        for (const s of list) {
-          if (s.ptyId && electron) void electron.pty.kill(s.ptyId).catch(() => undefined);
-        }
-        setSessionsByProject((prev) => {
-          if (!(projectId in prev)) return prev;
-          const next = { ...prev };
-          delete next[projectId];
-          return next;
-        });
-        setFocusedByProject((prev) => {
-          if (!(projectId in prev)) return prev;
-          const next = { ...prev };
-          delete next[projectId];
-          return next;
-        });
-        setPanelOpenByProject((prev) => {
-          if (!(projectId in prev)) return prev;
-          const next = { ...prev };
-          delete next[projectId];
-          return next;
-        });
+        for (const s of list) void killPty(s.ptyId);
+        setSessionsByProject((prev) => removeKey(prev, projectId));
+        setFocusedByProject((prev) => removeKey(prev, projectId));
+        setPanelOpenByProject((prev) => removeKey(prev, projectId));
         loadedProjectsRef.current.delete(projectId);
       }
-    }, [])
+    }, [setPanelOpenByProject])
   );
 
   const createTerminal = useCallback(
@@ -225,12 +191,11 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       setPanelOpen(true);
       return terminal;
     },
-    [project, updateSessions, setFocusFor]
+    [project, updateSessions, setFocusFor, setPanelOpen]
   );
 
   const killTerminal = useCallback(
     async (id: string) => {
-      const electron = getElectron();
       // Resolve owner + neighbor synchronously from the latest snapshot. Doing
       // this inside a setState updater breaks when the fiber has pending lanes
       // (the updater would run lazily, leaving the closure vars null).
@@ -263,15 +228,14 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         return { ...prev, [ownerProjectId!]: neighborId };
       });
 
-      if (killedPtyId && electron) {
-        await electron.pty
-          .kill(killedPtyId)
-          .catch((err) => console.warn("[user-terminal-store] pty.kill failed:", err));
-      }
+      await killPty(killedPtyId);
       try {
         await api.deleteUserTerminal(id);
       } catch (err) {
         console.warn("[user-terminal-store] deleteUserTerminal failed:", err);
+        toast.error("Failed to delete terminal", {
+          description: err instanceof Error ? err.message : String(err),
+        });
       }
     },
     []
@@ -294,6 +258,9 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       await api.renameUserTerminal(id, trimmed);
     } catch (err) {
       console.warn("[user-terminal-store] renameUserTerminal failed:", err);
+      toast.error("Failed to rename terminal", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     }
   }, []);
 
@@ -309,6 +276,9 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         await api.updateProjectLaunchUrl(project.id, normalized);
       } catch (err) {
         console.warn("[user-terminal-store] updateProjectLaunchUrl failed:", err);
+        toast.error("Failed to update launch URL", {
+          description: err instanceof Error ? err.message : String(err),
+        });
       }
     },
     [project]
@@ -402,6 +372,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       setProject,
       panelOpen,
       togglePanel,
+      setPanelOpen,
       sessions,
       runningProjectIds,
       focusedId,

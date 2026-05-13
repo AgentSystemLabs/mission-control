@@ -1,8 +1,7 @@
-import { STATUS_META } from "~/lib/design-meta";
-import type { TaskStatus } from "~/shared/domain";
+import { TASK_STATUS_META, type TaskStatus } from "~/shared/domain";
 
 export function StatusDot({ status, size = 6 }: { status: TaskStatus; size?: number }) {
-  const meta = STATUS_META[status];
+  const meta = TASK_STATUS_META[status];
   if (!meta || !meta.dot) return null;
   return (
     <span
@@ -21,7 +20,7 @@ export function StatusDot({ status, size = 6 }: { status: TaskStatus; size?: num
 }
 
 export function StatusPill({ status, count }: { status: TaskStatus; count?: number }) {
-  const meta = STATUS_META[status];
+  const meta = TASK_STATUS_META[status];
   return (
     <span
       style={{

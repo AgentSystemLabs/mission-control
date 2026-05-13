@@ -26,7 +26,7 @@ function readOverrides(scope: string): Partial<BindingMap> {
   const raw = getSetting(settingKey(scope));
   if (!raw) return {};
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
     const out: Partial<BindingMap> = {};
     for (const [k, v] of Object.entries(parsed)) {

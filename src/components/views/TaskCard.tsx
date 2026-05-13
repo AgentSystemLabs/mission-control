@@ -7,8 +7,14 @@ import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
-import { AGENT_META, STATUS_META } from "~/lib/design-meta";
+import { AGENT_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
+import { TASK_STATUS_META } from "~/shared/domain";
+import {
+  clearTaskSpawnError,
+  requestTaskSpawnRetry,
+  useTaskSpawnError,
+} from "~/lib/task-spawn-error";
 import type { Task } from "~/db/schema";
 
 type TaskCardProps = {
@@ -32,8 +38,9 @@ function TaskCardImpl({
   useDismissableMenu(menu !== null, closeMenu);
 
   const meta = AGENT_META[task.agent];
-  const statusMeta = STATUS_META[task.status];
+  const statusMeta = TASK_STATUS_META[task.status];
   const isRunning = task.status === "running";
+  const spawnError = useTaskSpawnError(task.id);
   const showDeleteAction = hovered && !confirmOpen;
 
   const updated = formatRelative(task.updatedAt);
@@ -239,7 +246,7 @@ function TaskCardImpl({
             </button>
           </div>
         )}
-        {(task.status === "needs-input" || task.status === "interrupted") && (
+        {(task.status === "needs-input" || task.status === "interrupted") && !spawnError && (
           <div style={{ position: "relative", zIndex: 1 }}>
             <Btn
               size="sm"
@@ -252,6 +259,63 @@ function TaskCardImpl({
               style={{ pointerEvents: "auto", position: "relative", zIndex: 1 }}
             >
               Open terminal to reply
+            </Btn>
+          </div>
+        )}
+        {spawnError && (
+          <div
+            role="alert"
+            style={{
+              position: "relative",
+              zIndex: 1,
+              pointerEvents: "auto",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              padding: "8px 10px",
+              background: "var(--surface-0)",
+              border: "1px solid var(--status-needs, #e06c75)",
+              borderRadius: 6,
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              color: "var(--text)",
+            }}
+          >
+            <Icon name="x" size={12} style={{ color: "var(--status-needs, #e06c75)", marginTop: 2 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, color: "var(--status-needs, #e06c75)", marginBottom: 2 }}>
+                Agent failed to start
+              </div>
+              <div
+                style={{
+                  color: "var(--text-dim)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={spawnError.message}
+              >
+                {spawnError.message}
+              </div>
+            </div>
+            <Btn
+              size="sm"
+              variant="ghost"
+              icon="terminal"
+              onClick={(e) => {
+                e.stopPropagation();
+                // The TerminalPane only retries spawn while mounted; ensure it
+                // is selected so the pane mounts (or already-mounted listener
+                // fires) before bumping the retry nonce.
+                if (!selected) toggleTask();
+                requestTaskSpawnRetry(task.id);
+                // Optimistically clear so the error UI hides; if the retry
+                // also fails, TerminalPane will re-record.
+                clearTaskSpawnError(task.id);
+              }}
+              style={{ pointerEvents: "auto" }}
+            >
+              Retry
             </Btn>
           </div>
         )}

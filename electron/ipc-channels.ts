@@ -1,6 +1,7 @@
 export const IPC = {
   dialogBrowseFolder: "dialog:browseFolder",
   dialogPickImage: "dialog:pickImage",
+  dialogPickProjectParentDir: "dialog:pickProjectParentDir",
   fileSaveProjectImage: "file:saveProjectImage",
   shellOpenPath: "shell:openPath",
   shellOpenExternal: "shell:openExternal",
@@ -28,6 +29,7 @@ export const IPC = {
   filesWatch: "files:watch",
   filesUnwatch: "files:unwatch",
   filesChanged: "files:changed",
+  agentHooksInstallFailed: "agent-hooks:install-failed",
   installSkillsFetchLatest: "installSkills:fetchLatest",
   installSkillsRun: "installSkills:run",
 } as const;

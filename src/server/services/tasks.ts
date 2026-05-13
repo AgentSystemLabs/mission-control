@@ -1,5 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
+import type { Statement } from "better-sqlite3";
 import { getDb, getSqlite } from "~/db/client";
 import { projects, tasks, terminalLogs } from "~/db/schema";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "~/shared/domain";
@@ -162,6 +163,7 @@ export function deleteTask(id: string): boolean {
   if (!existing) return false;
   const result = db.delete(tasks).where(eq(tasks.id, id)).run();
   if (result.changes > 0) {
+    taskByteCache.delete(id);
     events.emit("task:deleted", { id, projectId: existing.projectId });
     return true;
   }
@@ -170,26 +172,60 @@ export function deleteTask(id: string): boolean {
 
 const RING_LIMIT_BYTES = 1_000_000;
 
+// Prepare the three statements once per process. Re-preparing per call is the
+// dominant cost on the hot path (every terminal chunk hits this). Statements
+// are lazily initialized so importing this module doesn't force DB init.
+type LogStmts = {
+  // Args are variadic in better-sqlite3's typings; we just need run()/get()
+  // to accept the positional placeholders.
+  insert: Statement<unknown[]>;
+  sumBytes: Statement<unknown[]>;
+  evict: Statement<unknown[]>;
+};
+let _logStmts: LogStmts | null = null;
+function getLogStmts(): LogStmts {
+  if (_logStmts) return _logStmts;
+  const sqlite = getSqlite();
+  _logStmts = {
+    insert: sqlite.prepare(
+      "INSERT INTO terminal_logs (id, task_id, chunk, created_at) VALUES (?, ?, ?, ?)"
+    ),
+    sumBytes: sqlite.prepare(
+      "SELECT COALESCE(SUM(length(chunk)), 0) AS total, COUNT(*) AS n FROM terminal_logs WHERE task_id = ?"
+    ),
+    evict: sqlite.prepare(
+      `DELETE FROM terminal_logs WHERE id IN (
+         SELECT id FROM terminal_logs WHERE task_id = ?
+         ORDER BY created_at ASC, id ASC LIMIT ?
+       )`
+    ),
+  };
+  return _logStmts;
+}
+
+// Per-task byte cache: avoid re-running SUM(length(chunk)) for every chunk.
+// On miss, recompute via SUM; on hit, increment by chunk byte length and only
+// re-sum when an eviction makes the cached count unreliable.
+const taskByteCache = new Map<string, { total: number; n: number }>();
+
 export function appendTerminalLog(taskId: string, chunk: string) {
   getDb();
   const sqlite = getSqlite();
+  const { insert, sumBytes, evict } = getLogStmts();
   const id = `tl-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-  const insert = sqlite.prepare(
-    "INSERT INTO terminal_logs (id, task_id, chunk, created_at) VALUES (?, ?, ?, ?)"
-  );
-  const sumBytes = sqlite.prepare(
-    "SELECT COALESCE(SUM(length(chunk)), 0) AS total, COUNT(*) AS n FROM terminal_logs WHERE task_id = ?"
-  );
-  const evict = sqlite.prepare(
-    `DELETE FROM terminal_logs WHERE id IN (
-       SELECT id FROM terminal_logs WHERE task_id = ?
-       ORDER BY created_at ASC, id ASC LIMIT ?
-     )`
-  );
+  const chunkBytes = Buffer.byteLength(chunk, "utf8");
 
   const tx = sqlite.transaction((tid: string, c: string) => {
     insert.run(id, tid, c, Date.now());
-    let stats = sumBytes.get(tid) as { total: number; n: number };
+    let stats = taskByteCache.get(tid);
+    if (!stats) {
+      stats = sumBytes.get(tid) as { total: number; n: number };
+      taskByteCache.set(tid, stats);
+    } else {
+      // We just inserted; account for it in the cache.
+      stats.total += chunkBytes;
+      stats.n += 1;
+    }
     // Bounded loop: estimate eviction count from average chunk size; re-check
     // after each batch since estimate may undershoot for skewed distributions.
     let guard = 0;
@@ -201,7 +237,10 @@ export function appendTerminalLog(taskId: string, chunk: string) {
         Math.max(1, Math.ceil(oversize / avg))
       );
       evict.run(tid, estimate);
+      // Eviction changes total + n in ways the cache can't predict (each
+      // evicted row has its own byte size); refresh from SQL.
       stats = sumBytes.get(tid) as { total: number; n: number };
+      taskByteCache.set(tid, stats);
       guard++;
     }
   });

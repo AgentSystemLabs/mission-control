@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { STORAGE_KEYS } from "~/lib/storage-keys";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
@@ -34,7 +35,7 @@ export function SettingsPanel({
   const [activePanel, setActivePanel] = useState<SettingsPanelId>(() => {
     if (typeof window === "undefined") return initialPanel;
     const stored = window.localStorage.getItem(
-      "mc-settings-active-panel",
+      STORAGE_KEYS.settingsActivePanel,
     ) as SettingsPanelId | null;
     return stored ?? initialPanel;
   });
@@ -42,7 +43,7 @@ export function SettingsPanel({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem("mc-settings-active-panel", activePanel);
+    window.localStorage.setItem(STORAGE_KEYS.settingsActivePanel, activePanel);
   }, [activePanel]);
 
   useEffect(() => {

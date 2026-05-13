@@ -12,6 +12,7 @@ import {
 import { ACADEMY_BASE_URL } from "~/shared/academy";
 import { isProTier } from "~/shared/license";
 import { readLicenseState } from "./license";
+import { getErrorMessage } from "../lib/errors";
 
 export class SkillsBundleError extends Error {
   constructor(
@@ -69,9 +70,9 @@ export async function initializeSkills(): Promise<SkillsInitResult> {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ key: stored.key }),
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     throw new SkillsBundleError(
-      `Couldn't reach the skills server: ${e?.message ?? "network error"}`,
+      `Couldn't reach the skills server: ${getErrorMessage(e) || "network error"}`,
       "network",
     );
   }
@@ -101,11 +102,11 @@ export async function initializeSkills(): Promise<SkillsInitResult> {
       nodeStream,
       tarExtract({ cwd: dir, strict: true, preservePaths: false }),
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
     throw new SkillsBundleError(
-      `Failed to extract skills bundle: ${e?.message ?? "extract error"}`,
+      `Failed to extract skills bundle: ${getErrorMessage(e) || "extract error"}`,
       "extract_failed",
     );
   }

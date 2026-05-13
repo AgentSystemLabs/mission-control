@@ -13,8 +13,16 @@ const electronAPI = {
   },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),
-  openPath: (path: string): Promise<{ ok: true } | { ok: false; error: string }> =>
-    ipcRenderer.invoke(IPC.shellOpenPath, path),
+  pickProjectParentDir: (): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.dialogPickProjectParentDir),
+  // TODO(renderer): renderer callers must now pass (projectId, relPath) instead
+  // of an absolute path. The main-process handler scopes the resolved path to
+  // the project root.
+  openPath: (
+    projectId: string,
+    relPath: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IPC.shellOpenPath, projectId, relPath),
   openExternal: (url: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IPC.shellOpenExternal, url),
   pickImage: (): Promise<
@@ -78,6 +86,21 @@ const electronAPI = {
     const listener = (_: Electron.IpcRendererEvent, isFullScreen: boolean) => cb(isFullScreen);
     ipcRenderer.on(IPC.appFullScreenChange, listener);
     return () => ipcRenderer.removeListener(IPC.appFullScreenChange, listener);
+  },
+  onAgentHooksInstallFailed: (
+    cb: (msg: {
+      taskId: string;
+      agent: string;
+      reason: "unreadable" | "write-failed";
+      file: string;
+    }) => void,
+  ) => {
+    const listener = (
+      _: Electron.IpcRendererEvent,
+      msg: { taskId: string; agent: string; reason: "unreadable" | "write-failed"; file: string },
+    ) => cb(msg);
+    ipcRenderer.on(IPC.agentHooksInstallFailed, listener);
+    return () => ipcRenderer.removeListener(IPC.agentHooksInstallFailed, listener);
   },
   onCloseIntent: (cb: () => void) => {
     const listener = () => cb();

@@ -99,6 +99,13 @@ export async function fetchLatestSkillsManifest(
     headers: { authorization: `Bearer ${key}` },
   });
   if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    logger.warn("skills manifest fetch failed", {
+      op: "skills.manifest.fetch",
+      status: res.status,
+      statusText: res.statusText,
+      body,
+    });
     throw new Error(`Failed to fetch latest skills manifest: ${res.status} ${res.statusText}`);
   }
   const json = (await res.json()) as Partial<LatestSkillsManifest>;
@@ -114,7 +121,13 @@ export async function fetchLatestSkillsManifest(
 }
 
 export async function installSkills(args: InstallSkillsArgs): Promise<InstallSkillsResult> {
+  const t0 = Date.now();
   const { projectPath, harnesses } = args;
+  logger.info("installSkills starting", {
+    op: "skills.install",
+    projectPath,
+    harnesses,
+  });
   const licenseKey = args.licenseKey?.trim();
   if (!licenseKey) {
     throw new Error("A valid license key is required to install skills.");
@@ -224,12 +237,18 @@ export async function installSkills(args: InstallSkillsArgs): Promise<InstallSki
     if (harnesses.claude) skillCount += skillDirsByHarness.claude.size;
     if (harnesses.codex) skillCount += skillDirsByHarness.codex.size;
 
-    return {
+    const result = {
       version: manifest.version,
       claudeInstalled: harnesses.claude && skillDirsByHarness.claude.size > 0,
       codexInstalled: harnesses.codex && skillDirsByHarness.codex.size > 0,
       skillCount,
     };
+    logger.info("installSkills complete", {
+      op: "skills.install",
+      version: manifest.version,
+      durationMs: Date.now() - t0,
+    });
+    return result;
   } finally {
     await fs.promises.rm(tempFile, { force: true }).catch((err) => {
       logger.warn("failed to clean temp tarball", { err, tempFile });

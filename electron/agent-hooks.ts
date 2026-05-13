@@ -2,6 +2,22 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { logger } from "./logger";
 
+// Per-file single-flight chain. Concurrent ptySpawn calls hitting the same
+// agent config file would otherwise clobber each other's read-mutate-write.
+const fileMutex = new Map<string, Promise<void>>();
+
+function withFileLock(file: string, work: () => Promise<void>): Promise<void> {
+  const prev = fileMutex.get(file) ?? Promise.resolve();
+  const next = prev.then(work, work);
+  fileMutex.set(
+    file,
+    next.catch(() => {
+      // Errors in `work` must not poison subsequent waiters.
+    }),
+  );
+  return next;
+}
+
 const MARKER = "_mcManaged";
 
 type HookEvent = { event: string; matcher?: string };
@@ -72,51 +88,92 @@ function buildManagedGroup(command: string, matcher?: string): HookGroup {
  * entries. Existing user hooks are preserved; we only add, replace, or remove
  * entries tagged with our `_mcManaged` marker.
  */
-export function installAgentHooks(agent: string | undefined, cwd: string): void {
-  if (!agent) return;
+export type AgentHooksFailure = {
+  taskId: string;
+  agent: string;
+  reason: "unreadable" | "write-failed";
+  file: string;
+};
+
+export function installAgentHooks(
+  agent: string | undefined,
+  cwd: string,
+  opts?: { taskId?: string; onFailure?: (info: AgentHooksFailure) => void },
+): Promise<void> {
+  if (!agent) return Promise.resolve();
   const spec = AGENT_HOOKS[agent];
-  if (!spec) return;
+  if (!spec) return Promise.resolve();
 
   const file = path.join(cwd, ...spec.configPath);
   const dir = path.dirname(file);
+  const notify = (reason: AgentHooksFailure["reason"]) => {
+    if (!opts?.onFailure || !opts.taskId) return;
+    try {
+      opts.onFailure({ taskId: opts.taskId, agent, reason, file });
+    } catch {
+      /* never let notification failure mask the original error */
+    }
+  };
 
-  let settings: HooksFile = {};
-  try {
-    const raw = fs.readFileSync(file, "utf8");
-    if (raw.trim()) settings = JSON.parse(raw);
-  } catch (err) {
-    // ENOENT is expected on first install; any other error (parse failure,
-    // permission denied) means we should not clobber the file.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      logger.warn("skipping hooks install — settings.json unreadable", {
+  return withFileLock(file, async () => {
+    let settings: HooksFile = {};
+    try {
+      const raw = await fs.promises.readFile(file, "utf8");
+      if (raw.trim()) {
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          logger.warn("skipping hooks install — settings.json not an object", { file });
+          notify("unreadable");
+          return;
+        }
+        settings = parsed as HooksFile;
+      }
+    } catch (err) {
+      // ENOENT is expected on first install; any other error (parse failure,
+      // permission denied) means we should not clobber the file.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        logger.warn("skipping hooks install — settings.json unreadable", {
+          err,
+          file,
+        });
+        notify("unreadable");
+        return;
+      }
+    }
+
+    const command = buildHookCommand(spec.endpointSlug);
+    const hooks = (settings.hooks ??= {});
+    for (const { event, matcher } of spec.events) {
+      const groups = (hooks[event] ??= []);
+      const filtered = groups.filter((g) => !g[MARKER]);
+      filtered.push(buildManagedGroup(command, matcher));
+      hooks[event] = filtered;
+    }
+
+    for (const event of spec.removeManagedEvents ?? []) {
+      const groups = hooks[event];
+      if (!groups) continue;
+      const filtered = groups.filter((g) => !g[MARKER]);
+      if (filtered.length) hooks[event] = filtered;
+      else delete hooks[event];
+    }
+
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      const tmp = path.join(
+        dir,
+        `${path.basename(file)}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      );
+      await fs.promises.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", "utf8");
+      await fs.promises.rename(tmp, file);
+    } catch (err) {
+      // best-effort - status will simply not update.
+      logger.warn("agent hooks write failed", {
         err,
+        op: "agentHooks.install",
         file,
       });
-      return;
+      notify("write-failed");
     }
-  }
-
-  const command = buildHookCommand(spec.endpointSlug);
-  const hooks = (settings.hooks ??= {});
-  for (const { event, matcher } of spec.events) {
-    const groups = (hooks[event] ??= []);
-    const filtered = groups.filter((g) => !g[MARKER]);
-    filtered.push(buildManagedGroup(command, matcher));
-    hooks[event] = filtered;
-  }
-
-  for (const event of spec.removeManagedEvents ?? []) {
-    const groups = hooks[event];
-    if (!groups) continue;
-    const filtered = groups.filter((g) => !g[MARKER]);
-    if (filtered.length) hooks[event] = filtered;
-    else delete hooks[event];
-  }
-
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
-  } catch {
-    // best-effort - bubble up nothing; status will simply not update.
-  }
+  });
 }

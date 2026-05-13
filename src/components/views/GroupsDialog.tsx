@@ -24,6 +24,9 @@ export function GroupsDialog({
 }) {
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+  const [addPending, setAddPending] = useState(false);
+  const [renamePending, setRenamePending] = useState(false);
+  const [removePendingId, setRemovePendingId] = useState<string | null>(null);
 
   return (
     <Modal
@@ -45,14 +48,19 @@ export function GroupsDialog({
           <Btn
             variant="accent"
             icon="plus"
+            disabled={addPending || !newName.trim()}
             onClick={async () => {
-              if (newName.trim()) {
+              if (!newName.trim() || addPending) return;
+              setAddPending(true);
+              try {
                 await onAdd(newName.trim());
                 setNewName("");
+              } finally {
+                setAddPending(false);
               }
             }}
           >
-            Add
+            {addPending ? "Adding…" : "Add"}
           </Btn>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -90,9 +98,14 @@ export function GroupsDialog({
                         setEditing({ id: g.id, name: e.target.value })
                       }
                       onKeyDown={async (e) => {
-                        if (e.key === "Enter" && editing.name.trim()) {
-                          await onRename(g.id, editing.name.trim());
-                          setEditing(null);
+                        if (e.key === "Enter" && editing.name.trim() && !renamePending) {
+                          setRenamePending(true);
+                          try {
+                            await onRename(g.id, editing.name.trim());
+                            setEditing(null);
+                          } finally {
+                            setRenamePending(false);
+                          }
                         } else if (e.key === "Escape") {
                           setEditing(null);
                         }
@@ -112,18 +125,25 @@ export function GroupsDialog({
                     <Btn
                       size="sm"
                       variant="accent"
+                      disabled={renamePending || !editing.name.trim()}
                       onClick={async () => {
-                        if (editing.name.trim()) {
+                        if (!editing.name.trim() || renamePending) return;
+                        setRenamePending(true);
+                        try {
                           await onRename(g.id, editing.name.trim());
                           setEditing(null);
+                        } finally {
+                          setRenamePending(false);
                         }
                       }}
                     >
-                      Save
+                      {renamePending ? "Saving…" : "Save"}
                     </Btn>
                     <button
+                      type="button"
                       onClick={() => setEditing(null)}
                       title="Cancel"
+                      aria-label="Cancel rename"
                       style={{
                         background: "transparent",
                         border: 0,
@@ -160,8 +180,10 @@ export function GroupsDialog({
                       {count} {count === 1 ? "project" : "projects"}
                     </span>
                     <button
+                      type="button"
                       onClick={() => setEditing({ id: g.id, name: g.name })}
                       title="Rename"
+                      aria-label={`Rename group ${g.name}`}
                       style={{
                         background: "transparent",
                         border: 0,
@@ -174,13 +196,22 @@ export function GroupsDialog({
                       <Icon name="settings" size={12} />
                     </button>
                     <button
+                      type="button"
+                      aria-label={`Remove group ${g.name}`}
+                      disabled={removePendingId === g.id}
                       onClick={async () => {
+                        if (removePendingId) return;
                         if (
                           confirm(
                             `Remove group "${g.name}"?\n\nProjects in this group will become ungrouped — they aren't deleted.`
                           )
                         ) {
-                          await onRemove(g.id);
+                          setRemovePendingId(g.id);
+                          try {
+                            await onRemove(g.id);
+                          } finally {
+                            setRemovePendingId(null);
+                          }
                         }
                       }}
                       title="Remove group"
@@ -188,7 +219,8 @@ export function GroupsDialog({
                         background: "transparent",
                         border: 0,
                         color: "var(--text-faint)",
-                        cursor: "pointer",
+                        cursor: removePendingId === g.id ? "not-allowed" : "pointer",
+                        opacity: removePendingId === g.id ? 0.5 : 1,
                         padding: 4,
                         display: "flex",
                       }}

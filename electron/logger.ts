@@ -15,8 +15,14 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
   error: 40,
 };
 
-const REDACT_KEYS = new Set(["licenseKey", "apiToken", "token"]);
+const REDACT_KEY_RE =
+  /(token|secret|password|authorization|bearer|api[_-]?key|license[_-]?key)/i;
+const BEARER_RE = /Bearer\s+[A-Za-z0-9._\-]+/gi;
 const REDACTED = "[redacted]";
+
+function scrubString(s: string): string {
+  return s.replace(BEARER_RE, "Bearer [REDACTED]");
+}
 
 function envLevel(): LogLevel {
   const raw = (typeof process !== "undefined" ? process.env?.MC_LOG_LEVEL : "")
@@ -40,7 +46,7 @@ function sanitizeFields(
   if (!fields) return undefined;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(fields)) {
-    if (REDACT_KEYS.has(k)) {
+    if (REDACT_KEY_RE.test(k)) {
       out[k] = REDACTED;
       continue;
     }
@@ -48,7 +54,7 @@ function sanitizeFields(
       out[k] = serializeError(v);
       continue;
     }
-    out[k] = v;
+    out[k] = typeof v === "string" ? scrubString(v) : v;
   }
   return out;
 }

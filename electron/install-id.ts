@@ -14,8 +14,13 @@ const FILE = path.join(DIR, "install.json");
 function readFileSafe(): Partial<InstallInfo> | null {
   try {
     const raw = fs.readFileSync(FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") return parsed;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const p = parsed as Record<string, unknown>;
+    const out: Partial<InstallInfo> = {};
+    if (typeof p.installId === "string") out.installId = p.installId;
+    if (typeof p.appVersion === "string") out.appVersion = p.appVersion;
+    return out;
   } catch {
     // missing or unreadable — caller will recreate
   }

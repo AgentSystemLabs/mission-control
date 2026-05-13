@@ -125,15 +125,15 @@ export type LaunchCommand = { id: string; name: string; command: string };
 export function parseLaunchCommands(raw: string | null | undefined): LaunchCommand[] {
   if (!raw) return [];
   try {
-    const v = JSON.parse(raw);
+    const v: unknown = JSON.parse(raw);
     if (!Array.isArray(v)) return [];
-    return v
-      .filter(
-        (c) =>
-          c &&
-          typeof c.id === "string" &&
-          typeof c.name === "string" &&
-          typeof c.command === "string"
+    return (v as unknown[])
+      .filter((c): c is LaunchCommand =>
+        !!c &&
+        typeof c === "object" &&
+        typeof (c as { id?: unknown }).id === "string" &&
+        typeof (c as { name?: unknown }).name === "string" &&
+        typeof (c as { command?: unknown }).command === "string"
       )
       .slice(0, LAUNCH_COMMANDS_MAX);
   } catch {

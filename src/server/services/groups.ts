@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "~/db/client";
 import { groups, projects } from "~/db/schema";
 import type { Group } from "~/db/schema";
-import { GROUP_COLORS } from "~/lib/design-meta";
+import { BRAND_PALETTE } from "~/lib/design-meta";
 import { events } from "../events";
 
 function newId() {
@@ -34,7 +34,7 @@ export function createGroup(input: { name: string; color?: string }): Group {
   if (!input.name?.trim()) throw new Error("Group name is required");
   const db = getDb();
   const existing = listGroups();
-  const color = input.color || GROUP_COLORS[existing.length % GROUP_COLORS.length] || "#ff5a1f";
+  const color = input.color || BRAND_PALETTE[existing.length % BRAND_PALETTE.length] || "#ff5a1f";
   const row: Group = {
     id: newId(),
     name: input.name.trim(),

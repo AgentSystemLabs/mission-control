@@ -173,8 +173,10 @@ export function LaunchCommandsDialog({
               }}
             />
             <button
+              type="button"
               onClick={() => remove(r.id)}
               title="Remove"
+              aria-label="Remove launch command"
               style={{
                 background: "transparent",
                 border: 0,

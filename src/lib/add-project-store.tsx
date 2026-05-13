@@ -17,27 +17,36 @@ type Ctx = {
   open: () => void;
   close: () => void;
   isOpen: boolean;
+  // True while open() is awaiting prereq queries (projects + license). Lets
+  // triggers show a spinner / aria-busy while the gate resolves.
+  opening: boolean;
 };
 
 const AddProjectContext = createContext<Ctx | null>(null);
 
 export function AddProjectProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const queryClient = useQueryClient();
   const { data: groups = [] } = useGroups();
 
   const open = useCallback(async () => {
-    void queryClient.ensureQueryData(groupsQueryOptions());
-    const [latestProjects, latestLicense] = await Promise.all([
-      queryClient.ensureQueryData(projectsQueryOptions()),
-      queryClient.ensureQueryData(licenseQueryOptions()),
-    ]);
-    if (!isProTier(latestLicense) && latestProjects.length >= FREE_PROJECT_CAP) {
-      setPaywallOpen(true);
-      return;
+    setOpening(true);
+    try {
+      void queryClient.ensureQueryData(groupsQueryOptions());
+      const [latestProjects, latestLicense] = await Promise.all([
+        queryClient.ensureQueryData(projectsQueryOptions()),
+        queryClient.ensureQueryData(licenseQueryOptions()),
+      ]);
+      if (!isProTier(latestLicense) && latestProjects.length >= FREE_PROJECT_CAP) {
+        setPaywallOpen(true);
+        return;
+      }
+      setIsOpen(true);
+    } finally {
+      setOpening(false);
     }
-    setIsOpen(true);
   }, [queryClient]);
   const close = useCallback(() => setIsOpen(false), []);
   const closePaywall = useCallback(() => setPaywallOpen(false), []);
@@ -52,7 +61,7 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
   );
 
   return (
-    <AddProjectContext.Provider value={{ open: () => void open(), close, isOpen }}>
+    <AddProjectContext.Provider value={{ open: () => void open(), close, isOpen, opening }}>
       {children}
       <ProjectDialog
         open={isOpen}

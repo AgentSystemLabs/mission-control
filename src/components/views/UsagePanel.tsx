@@ -94,7 +94,7 @@ export function UsagePanel({ onBack }: { onBack: () => void }) {
               color: "var(--text-dim)",
             }}
           >
-            {isLoading ? "loading…" : ""}
+            {isLoading ? "Loading…" : ""}
           </div>
         ) : (
           <div style={{ flex: 1, overflow: "auto" }}>

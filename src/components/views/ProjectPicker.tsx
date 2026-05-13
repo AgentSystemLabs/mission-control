@@ -8,9 +8,8 @@ import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
-import { STATUS_META } from "~/lib/design-meta";
 import { projectPickerSections } from "~/lib/group-projects";
-import type { TaskStatus } from "~/shared/domain";
+import { TASK_STATUS_META, type TaskStatus } from "~/shared/domain";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -19,7 +18,7 @@ import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/s
 
 function DotCount({ status, count, size }: { status: TaskStatus; count: number; size: number }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: STATUS_META[status].color }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: TASK_STATUS_META[status].color }}>
       <StatusDot status={status} size={size} />
       <span>{count}</span>
     </span>

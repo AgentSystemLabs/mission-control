@@ -59,7 +59,8 @@ function parseSignedBlob<T>(blob: string, prefix: string): VerifyResult<T> {
   }
 
   try {
-    return { ok: true, payload: JSON.parse(payloadBytes.toString("utf8")) as T };
+    const parsed: unknown = JSON.parse(payloadBytes.toString("utf8"));
+    return { ok: true, payload: parsed as T };
   } catch {
     return { ok: false, reason: "payload" };
   }

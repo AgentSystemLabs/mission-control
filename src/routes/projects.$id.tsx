@@ -1,23 +1,23 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { toast } from "sonner";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
-import { Icon } from "~/components/ui/Icon";
-import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
-import { FileEditorDialog } from "~/components/views/FileEditorDialog";
+const FileEditorDialog = lazy(() =>
+  import("~/components/views/FileEditorDialog").then((m) => ({ default: m.FileEditorDialog })),
+);
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
-import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
-import { useHotkey } from "~/lib/use-hotkey";
 import { getElectron } from "~/lib/electron";
 import { api } from "~/lib/api";
 import { newSessionId } from "~/lib/claude-command";
@@ -40,17 +40,17 @@ import {
 } from "~/queries";
 import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
-import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { RouteErrorBoundary } from "~/components/ui/RouteErrorBoundary";
 import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
-import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
 import type { Task, TaskStatus } from "~/db/schema";
-import {
-  DUPLICATE_ACTIVE_SESSION_EVENT,
-  pickByPriority,
-  STATUS_META,
-} from "~/lib/design-meta";
+import { pickByPriority } from "~/lib/design-meta";
+import { TASK_STATUS_META } from "~/shared/domain";
+import { isLoopbackHost } from "~/shared/loopback";
+import { ProjectPageHeader } from "~/components/views/ProjectPage/ProjectPageHeader";
+import { RunStatusPill } from "~/components/views/ProjectPage/RunStatusPill";
+import { useDuplicateSessionListener } from "~/components/views/ProjectPage/useDuplicateSessionListener";
+import { useProjectHotkeys } from "~/components/views/ProjectPage/useProjectHotkeys";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: ({ context, params }) =>
@@ -73,24 +73,12 @@ function launchUrlPort(raw: string | null): number[] {
   if (!raw) return [];
   try {
     const url = new URL(raw);
-    if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)) return [];
+    if (!isLoopbackHost(url.hostname)) return [];
     const port = Number(url.port);
     return Number.isInteger(port) && port > 0 ? [port] : [];
   } catch {
     return [];
   }
-}
-
-function MenuSeparator() {
-  return (
-    <div
-      style={{
-        height: 1,
-        background: "var(--border)",
-        margin: "4px 2px",
-      }}
-    />
-  );
 }
 
 function ProjectPage() {
@@ -134,24 +122,6 @@ function ProjectPage() {
     if (projectError) router.navigate({ to: "/" });
   }, [projectError, router]);
 
-  const [overflowOpen, setOverflowOpen] = useState(false);
-  const overflowRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!overflowOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (!overflowRef.current?.contains(e.target as Node)) setOverflowOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOverflowOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [overflowOpen]);
-
   const terminals = useTerminals();
   const {
     setProject: setActiveUserTerminalProject,
@@ -172,7 +142,6 @@ function ProjectPage() {
   );
 
   const stopLaunch = useCallback(async () => {
-    setOverflowOpen(false);
     if (launchCommands.length === 0) return;
     setStopping(true);
     try {
@@ -185,7 +154,6 @@ function ProjectPage() {
   }, [launchCommands, launchPorts, killTerminalsByStartCommand]);
 
   const runLaunch = useCallback(async () => {
-    setOverflowOpen(false);
     if (launchCommands.length === 0) {
       setShowLaunchEmpty(true);
       return;
@@ -265,11 +233,14 @@ function ProjectPage() {
 
   const toggleProjectPin = useCallback(async () => {
     if (!project || pinning) return;
-    setOverflowOpen(false);
     setPinning(true);
     try {
       await api.togglePin(project.id);
       await Promise.all([invalidateProject(), invalidateProjects()]);
+    } catch (err) {
+      toast.error("Failed to toggle pin", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setPinning(false);
     }
@@ -307,12 +278,18 @@ function ProjectPage() {
   const startWithSaved = useCallback(async () => {
     if (!project) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
-    await createSession({
-      agent: project.savedAgent,
-      branch: project.branch || DEFAULT_BRANCH,
-      skipPermissions: !!project.savedSkipPermissions,
-      bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
-    });
+    try {
+      await createSession({
+        agent: project.savedAgent,
+        branch: project.branch || DEFAULT_BRANCH,
+        skipPermissions: !!project.savedSkipPermissions,
+        bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
+      });
+    } catch (err) {
+      toast.error("Failed to start session", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
   }, [project, createSession]);
 
   const onNewAgentPrimary = useCallback(() => {
@@ -323,34 +300,6 @@ function ProjectPage() {
     }
     setShowNewAgent(true);
   }, [project, showNewAgent, showEdit, startWithSaved]);
-
-  useHotkey("agent.new", onNewAgentPrimary, { ignoreEditable: true });
-
-  useHotkey("project.edit", () => {
-    if (showNewAgent) return;
-    setShowEdit((v) => !v);
-  });
-
-  useHotkey(
-    "project.runToggle",
-    () => {
-      if (showNewAgent || showEdit || confirmRemove) return;
-      if (hasRunningLaunch) {
-        if (!stopping) void stopLaunch();
-      } else if (!launching) {
-        void runLaunch();
-      }
-    },
-    { ignoreEditable: true },
-  );
-
-  useHotkey(
-    "file.finder",
-    () => {
-      if (openFileRel || showNewAgent || showEdit || confirmRemove) return;
-      setFileFinderOpen((v) => !v);
-    },
-  );
 
   const anyBlockingDialogOpen =
     showNewAgent ||
@@ -390,13 +339,6 @@ function ProjectPage() {
     [project, tasks, terminals, anyBlockingDialogOpen],
   );
 
-  // Direct window-capture listener (not useHotkey) — xterm's focused textarea
-  // intermittently masks the action-based hook after a focus change. Mirrors
-  // the proven Cmd+[/Cmd+] pattern in __root.tsx. Cmd+Shift+] / Cmd+Shift+[
-  // arrive as e.key="}" / e.key="{" on US layouts, so match by e.code instead.
-  const cycleSessionRef = useRef(cycleSession);
-  cycleSessionRef.current = cycleSession;
-
   const duplicateActiveSession = useCallback(() => {
     if (!project) return;
     if (anyBlockingDialogOpen) return;
@@ -404,54 +346,23 @@ function ProjectPage() {
     if (!active) return;
     const sourceTask = tasks.find((t) => t.id === active.taskId);
     if (!sourceTask) return;
-    void createSession({
-      agent: sourceTask.agent,
-      branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
-      skipPermissions: !!sourceTask.claudeSkipPermissions,
-      bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
-    });
-  }, [project, tasks, terminals, createSession, anyBlockingDialogOpen]);
-  const duplicateActiveSessionRef = useRef(duplicateActiveSession);
-  duplicateActiveSessionRef.current = duplicateActiveSession;
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (!e.shiftKey || e.altKey) return;
-      if (e.code === "BracketRight") {
-        e.preventDefault();
-        e.stopPropagation();
-        cycleSessionRef.current(1);
-      } else if (e.code === "BracketLeft") {
-        e.preventDefault();
-        e.stopPropagation();
-        cycleSessionRef.current(-1);
-      } else if (e.code === "KeyD") {
-        e.preventDefault();
-        e.stopPropagation();
-        duplicateActiveSessionRef.current();
+    void (async () => {
+      try {
+        await createSession({
+          agent: sourceTask.agent,
+          branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
+          skipPermissions: !!sourceTask.claudeSkipPermissions,
+          bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
+        });
+      } catch (err) {
+        toast.error("Failed to start session", {
+          description: err instanceof Error ? err.message : String(err),
+        });
       }
-    };
-    const onDuplicateRequest = () => duplicateActiveSessionRef.current();
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
-    };
-  }, []);
+    })();
+  }, [project, tasks, terminals, createSession, anyBlockingDialogOpen]);
 
-  useHotkey(
-    "git.diff",
-    () => {
-      if (
-        anyBlockingDialogOpen
-      ) return;
-      if (showDiffView) closeDiffView();
-      else openDiffView();
-    },
-    { ignoreEditable: true },
-  );
+  useDuplicateSessionListener(cycleSession, duplicateActiveSession);
 
   const hiddenSession = lastHiddenSessionRef.current;
   const canRestoreHiddenSession =
@@ -466,32 +377,45 @@ function ProjectPage() {
       ? terminals.activeFor(project.id) !== null || canRestoreHiddenSession
       : false;
 
-  // Capture phase so xterm.js (focused terminal) can't swallow the key first.
-  useHotkey(
-    "terminal.close",
-    () => {
-      if (!project) return;
-      const active = terminals.activeFor(project.id);
-      if (active) {
-        lastHiddenSessionRef.current = { projectId: project.id, taskId: active.taskId };
-        terminals.deselect(project.id);
-        return;
-      }
-      const hidden = lastHiddenSessionRef.current;
-      if (!hidden || hidden.projectId !== project.id) return;
-      const sessionStillOpen = terminals.sessions.some(
-        (s) => s.taskId === hidden.taskId && s.project.id === project.id,
-      );
-      if (!sessionStillOpen) return;
-      const task = tasks.find((t) => t.id === hidden.taskId && !t.archived);
-      if (!task) return;
-      terminals.toggle(project, task);
-    },
-    {
-      enabled: closePanelEnabled,
-      capture: true,
-    },
-  );
+  const onTerminalClose = useCallback(() => {
+    if (!project) return;
+    const active = terminals.activeFor(project.id);
+    if (active) {
+      lastHiddenSessionRef.current = { projectId: project.id, taskId: active.taskId };
+      terminals.deselect(project.id);
+      return;
+    }
+    const hidden = lastHiddenSessionRef.current;
+    if (!hidden || hidden.projectId !== project.id) return;
+    const sessionStillOpen = terminals.sessions.some(
+      (s) => s.taskId === hidden.taskId && s.project.id === project.id,
+    );
+    if (!sessionStillOpen) return;
+    const task = tasks.find((t) => t.id === hidden.taskId && !t.archived);
+    if (!task) return;
+    terminals.toggle(project, task);
+  }, [project, terminals, tasks]);
+
+  useProjectHotkeys({
+    onNewAgentPrimary,
+    setShowEdit,
+    showNewAgent,
+    showEdit,
+    confirmRemove,
+    hasRunningLaunch,
+    stopping,
+    launching,
+    runLaunch,
+    stopLaunch,
+    openFileRel,
+    setFileFinderOpen,
+    anyBlockingDialogOpen,
+    showDiffView,
+    openDiffView,
+    closeDiffView,
+    closePanelEnabled,
+    onTerminalClose,
+  });
 
   useServerEvents(
     useCallback(
@@ -554,10 +478,6 @@ function ProjectPage() {
     await terminals.close(taskId);
     await api.deleteTask(taskId);
     await refresh();
-  };
-
-  const remove = () => {
-    setConfirmRemove(true);
   };
 
   const confirmRemoveProject = async () => {
@@ -651,243 +571,21 @@ function ProjectPage() {
           padding: 8,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            rowGap: 10,
-            flexWrap: "wrap",
-            marginBottom: 24,
-          }}
-        >
-          <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto" }}>
-            <button
-              onClick={() => setOverflowOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={overflowOpen}
-              title="Project actions"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "6px 10px 6px 6px",
-                background: "none",
-                border: "1px solid transparent",
-                borderRadius: 10,
-                cursor: "pointer",
-                color: "var(--text)",
-                maxWidth: "100%",
-                minWidth: 0,
-                transition: "background 0.12s, border-color 0.12s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--surface-2)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "none";
-                e.currentTarget.style.borderColor = "transparent";
-              }}
-            >
-              <ProjectIcon project={project} size={32} />
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  letterSpacing: "-0.015em",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  minWidth: 0,
-                }}
-                title={project.name}
-              >
-                {project.name}
-              </h1>
-              <Icon
-                name="chevron-down"
-                size={14}
-                style={{ color: "var(--text-dim)", flexShrink: 0 }}
-              />
-            </button>
-            {overflowOpen && (
-              <CardFrame
-                role="menu"
-                solid
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 6px)",
-                  left: 0,
-                  minWidth: 220,
-                  padding: 8,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "stretch",
-                  gap: 2,
-                  boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-                  zIndex: 100,
-                }}
-              >
-                {hasRunningLaunch ? (
-                  <>
-                    <HotkeyTooltip action="project.runToggle">
-                      <Btn
-                        variant="ghost"
-                        icon="x"
-                        onClick={stopLaunch}
-                        disabled={stopping}
-                        style={{ justifyContent: "flex-start" }}
-                      >
-                        {stopping ? "Stopping…" : "Stop launch"}
-                      </Btn>
-                    </HotkeyTooltip>
-                    <MenuSeparator />
-                  </>
-                ) : null}
-                <Btn
-                  variant="ghost"
-                  icon={project.pinned ? "pin-fill" : "pin"}
-                  onClick={toggleProjectPin}
-                  disabled={pinning}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  {pinning
-                    ? project.pinned
-                      ? "Unpinning..."
-                      : "Pinning..."
-                    : project.pinned
-                      ? "Unpin project"
-                      : "Pin project"}
-                </Btn>
-                <Btn
-                  variant="ghost"
-                  icon="folder"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    window.electronAPI?.openPath(project.path);
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                  title={project.path}
-                >
-                  Reveal in Finder
-                </Btn>
-                {project.githubUrl && (
-                  <Btn
-                    variant="ghost"
-                    icon="github"
-                    onClick={() => {
-                      setOverflowOpen(false);
-                      window.open(project.githubUrl!, "_blank", "noreferrer");
-                    }}
-                    style={{ justifyContent: "flex-start" }}
-                  >
-                    Open GitHub
-                  </Btn>
-                )}
-                <HotkeyTooltip action="git.diff">
-                  <Btn
-                    variant="ghost"
-                    icon="git-branch"
-                    onClick={() => {
-                      setOverflowOpen(false);
-                      openDiffView();
-                    }}
-                    style={{ justifyContent: "flex-start" }}
-                    title={(() => {
-                      const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
-                      if (gitStatus && gitStatus.changedCount > 0) {
-                        return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
-                      }
-                      return `Branch ${b}`;
-                    })()}
-                  >
-                    <span style={{ flex: 1, textAlign: "left" }}>
-                      Review Changes
-                      {gitStatus && gitStatus.changedCount > 0 && (
-                        <span style={{ color: "var(--text-dim)" }}>
-                          {" · "}
-                          {gitStatus.changedCount} changed
-                        </span>
-                      )}
-                    </span>
-                  </Btn>
-                </HotkeyTooltip>
-                <MenuSeparator />
-                <Btn
-                  variant="ghost"
-                  icon="play"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    setShowLaunchConfig(true);
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  Configure launch commands
-                </Btn>
-                <InstallSkillsMenuItem
-                  projectPath={project.path}
-                  onOpen={() => setOverflowOpen(false)}
-                />
-                <HotkeyTooltip action="project.edit">
-                  <Btn
-                    variant="ghost"
-                    icon="settings"
-                    onClick={() => {
-                      setOverflowOpen(false);
-                      setShowEdit(true);
-                    }}
-                    style={{ justifyContent: "flex-start" }}
-                  >
-                    <span style={{ flex: 1, textAlign: "left" }}>Edit project</span>
-                  </Btn>
-                </HotkeyTooltip>
-                <MenuSeparator />
-                <Btn
-                  variant="ghost"
-                  icon="trash"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    setConfirmRemove(true);
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                  title="Remove this project from Mission Control. The folder on disk is not touched."
-                >
-                  Remove project
-                </Btn>
-              </CardFrame>
-            )}
-          </div>
-          {headerActions}
-          <div
-            role="group"
-            aria-label="Review changes and commit"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 0,
-              maxWidth: 480,
-              minWidth: 0,
-            }}
-          >
-            <ProjectGitStatusButton
-              branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
-              changedCount={gitStatus?.changedCount}
-              onClick={openDiffView}
-            />
-            <CommitPushButton projectId={id} size="md" splitTrailing />
-          </div>
-          <div style={{ flex: 1 }} />
-          <HotkeyTooltip action="file.finder" label="Find file in project">
-            <Btn
-              variant="ghost"
-              icon="search"
-              onClick={() => setFileFinderOpen(true)}
-              aria-label="Find file in project"
-            />
-          </HotkeyTooltip>
-        </div>
+        <ProjectPageHeader
+          project={project}
+          gitStatus={gitStatus}
+          hasRunningLaunch={hasRunningLaunch}
+          stopping={stopping}
+          stopLaunch={stopLaunch}
+          pinning={pinning}
+          toggleProjectPin={toggleProjectPin}
+          openDiffView={openDiffView}
+          setShowLaunchConfig={setShowLaunchConfig}
+          setShowEdit={setShowEdit}
+          setConfirmRemove={setConfirmRemove}
+          setFileFinderOpen={setFileFinderOpen}
+          headerActions={headerActions}
+        />
 
         <div
           aria-hidden
@@ -960,8 +658,8 @@ function ProjectPage() {
                 />
               )}
               <TaskColumn
-                title={STATUS_META[status].label}
-                color={STATUS_META[status].color}
+                title={TASK_STATUS_META[status].label}
+                color={TASK_STATUS_META[status].color}
                 tasks={tasksByStatus[status]}
                 activeId={activeId}
                 onToggle={toggleTerminal}
@@ -1030,11 +728,13 @@ function ProjectPage() {
         onPick={(rel) => setOpenFileRel(rel)}
       />
 
-      <FileEditorDialog
-        projectId={project.id}
-        relPath={openFileRel}
-        onClose={() => setOpenFileRel(null)}
-      />
+      <Suspense fallback={null}>
+        <FileEditorDialog
+          projectId={project.id}
+          relPath={openFileRel}
+          onClose={() => setOpenFileRel(null)}
+        />
+      </Suspense>
 
       <ConfirmDialog
         open={confirmRemove}
@@ -1112,187 +812,5 @@ function ProjectPage() {
       </ConfirmDialog>
       </div>
     </>
-  );
-}
-
-function ProjectGitStatusButton({
-  branch,
-  changedCount,
-  onClick,
-}: {
-  branch: string;
-  changedCount: number | undefined;
-  onClick: () => void;
-}) {
-  const changedLabel =
-    changedCount === undefined
-      ? "Checking…"
-      : `${changedCount} ${changedCount === 1 ? "Change" : "Changes"}`;
-  const title =
-    changedCount === undefined
-      ? `Open Review Changes · branch ${branch}`
-      : `Open Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branch}`;
-
-  return (
-    <HotkeyTooltip action="git.diff" label={title}>
-      <Btn
-        variant="ghost"
-        icon="git-branch"
-        onClick={onClick}
-        aria-label={title}
-        className="mc-btn-attached-right"
-        style={{ fontFamily: "var(--mono)", maxWidth: 320, minWidth: 0 }}
-      >
-        <span
-          style={{
-            color: changedCount && changedCount > 0 ? "var(--accent)" : "var(--text-dim)",
-            flexShrink: 0,
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {changedLabel}
-        </span>
-      </Btn>
-    </HotkeyTooltip>
-  );
-}
-
-function RunStatusPill({
-  running,
-  launching,
-  stopping,
-  launchUrl,
-  onStart,
-  onOpenUrl,
-  onStop,
-}: {
-  running: boolean;
-  launching: boolean;
-  stopping: boolean;
-  launchUrl: string | null;
-  onStart: () => void;
-  onOpenUrl: () => void;
-  onStop: () => void;
-}) {
-  const busy = launching || stopping;
-  const label = stopping
-    ? "Stopping…"
-    : launching
-      ? "Starting…"
-      : running
-        ? "Running"
-        : "Offline";
-
-  const interactive = !busy && !running;
-  const onClick = busy ? undefined : running ? undefined : onStart;
-
-  const title = busy
-    ? label
-    : running
-      ? "Running"
-      : "Run launch commands";
-
-  const tone = running || launching ? "active" : "idle";
-  const dotColor = tone === "active" ? "var(--accent)" : "var(--text-faint)";
-  const borderColor = tone === "active" ? "var(--accent-border)" : "var(--border)";
-  const background = tone === "active" ? "var(--accent-faint)" : "var(--surface-0)";
-  const fg = tone === "active" ? "var(--accent)" : "var(--text-dim)";
-
-  const activeFrameIconStyle: CSSProperties = {
-    minWidth: 52,
-    paddingInline: 0,
-    fontFamily: "var(--mono)",
-  };
-
-  const showRunningSplit = running && !busy;
-
-  if (showRunningSplit) {
-    return (
-      <div
-        role="group"
-        aria-label="Project launch — running"
-        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-      >
-        {launchUrl ? (
-          <Btn
-            variant="ghost"
-            icon="external-link"
-            onClick={onOpenUrl}
-            title={`Open ${launchUrl} in browser`}
-            aria-label={`Open ${launchUrl} in browser`}
-          >
-            Open
-          </Btn>
-        ) : null}
-        <HotkeyTooltip action="project.runToggle" label="Stop launch commands">
-          <Btn
-            variant="danger"
-            icon="stop"
-            onClick={() => onStop()}
-            aria-label="Stop launch commands"
-          >
-            Stop
-          </Btn>
-        </HotkeyTooltip>
-      </div>
-    );
-  }
-
-  const showOfflineSplit = !running && !busy;
-
-  if (showOfflineSplit) {
-    return (
-      <HotkeyTooltip action="project.runToggle" label={title}>
-        <Btn
-          variant="ghost"
-          icon="play"
-          onClick={onStart}
-          aria-label={title}
-          style={{ fontFamily: "var(--mono)" }}
-        />
-      </HotkeyTooltip>
-    );
-  }
-
-  return (
-    <HotkeyTooltip action="project.runToggle" label={title}>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={!interactive}
-        aria-label={title}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 8,
-          height: 28,
-          padding: "0 12px",
-          borderRadius: 999,
-          border: `1px solid ${borderColor}`,
-          background,
-          color: fg,
-          fontFamily: "var(--mono)",
-          fontSize: 11.5,
-          fontWeight: 600,
-          cursor: interactive ? "pointer" : "default",
-          opacity: busy ? 0.7 : 1,
-          transition: "background 0.12s, border-color 0.12s, color 0.12s",
-          boxShadow: running ? "0 0 8px var(--accent-glow)" : "none",
-        }}
-      >
-        <span
-          aria-hidden
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: dotColor,
-            boxShadow: running ? "0 0 6px var(--accent-glow)" : "none",
-            animation: launching || stopping ? "pulse-border 1.4s ease-in-out infinite" : "none",
-          }}
-        />
-        <span>{label}</span>
-      </button>
-    </HotkeyTooltip>
   );
 }

@@ -1,6 +1,10 @@
-import type { CSSProperties } from "react";
+import { useMemo, useRef, type CSSProperties } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon } from "~/components/ui/Icon";
 import type { GitDiff } from "~/server/services/git";
+
+// Row height = fontSize (12) * lineHeight (1.5) = 18px for the monospace diff rows.
+const DIFF_ROW_HEIGHT = 18;
 
 export function DiffPane({
   diff,
@@ -56,9 +60,22 @@ export function DiffPane({
 }
 
 function DiffText({ patch }: { patch: string }) {
-  const lines = patch.split("\n");
+  const lines = useMemo(() => patch.split("\n"), [patch]);
+  const parentRef = useRef<HTMLDivElement | null>(null);
+
+  const virtualizer = useVirtualizer({
+    count: lines.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => DIFF_ROW_HEIGHT,
+    overscan: 20,
+  });
+
+  const items = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+
   return (
-    <pre
+    <div
+      ref={parentRef}
       style={{
         flex: 1,
         margin: 0,
@@ -66,29 +83,39 @@ function DiffText({ patch }: { patch: string }) {
         overflow: "auto",
         fontFamily: "var(--mono)",
         fontSize: 12,
-        lineHeight: 1.5,
+        lineHeight: `${DIFF_ROW_HEIGHT}px`,
         background: "transparent",
         color: "var(--text)",
-        whiteSpace: "pre",
         tabSize: 2,
+        contain: "strict",
       }}
     >
-      {lines.map((line, i) => {
-        const style = lineStyle(line);
-        return (
-          <div
-            key={i}
-            style={{
-              display: "block",
-              padding: "0 12px",
-              ...style,
-            }}
-          >
-            {line || " "}
-          </div>
-        );
-      })}
-    </pre>
+      <div style={{ height: totalSize, width: "100%", position: "relative" }}>
+        {items.map((item) => {
+          const line = lines[item.index] ?? "";
+          const style = lineStyle(line);
+          return (
+            <div
+              key={item.key}
+              data-line-index={item.index}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                transform: `translateY(${item.start}px)`,
+                height: DIFF_ROW_HEIGHT,
+                padding: "0 12px",
+                whiteSpace: "pre",
+                ...style,
+              }}
+            >
+              {line || " "}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

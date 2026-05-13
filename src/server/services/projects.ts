@@ -56,19 +56,41 @@ export async function detectGithubUrl(dir: string): Promise<string | null> {
     } catch {
       return null;
     }
-    const m = text.match(/\[remote "origin"\][^\[]*?url\s*=\s*(\S+)/);
-    if (!m) return null;
-    let url = m[1].trim();
-    // git@github.com:owner/repo(.git)
-    const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (ssh) return `https://github.com/${ssh[1]}`;
-    // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
-    const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (https) return `https://github.com/${https[1]}`;
-    return null;
+    return parseGithubUrlFromConfig(text);
   } catch {
     return null;
   }
+}
+
+/** Sync sibling of {@link detectGithubUrl}. Used by updateProject so a path
+ * change can repopulate the cached github_url column without making the whole
+ * call site async. */
+export function detectGithubUrlSync(dir: string): string | null {
+  try {
+    const cfg = path.join(dir, ".git", "config");
+    let text: string;
+    try {
+      text = fs.readFileSync(cfg, "utf8");
+    } catch {
+      return null;
+    }
+    return parseGithubUrlFromConfig(text);
+  } catch {
+    return null;
+  }
+}
+
+function parseGithubUrlFromConfig(text: string): string | null {
+  const m = text.match(/\[remote "origin"\][^\[]*?url\s*=\s*(\S+)/);
+  if (!m) return null;
+  const url = m[1].trim();
+  // git@github.com:owner/repo(.git)
+  const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (ssh) return `https://github.com/${ssh[1]}`;
+  // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
+  const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (https) return `https://github.com/${https[1]}`;
+  return null;
 }
 
 function newId(prefix: string) {
@@ -178,10 +200,8 @@ export async function listProjects(): Promise<ProjectWithCounts[]> {
   const rows = db.select().from(projects).orderBy(asc(projects.createdAt)).all();
   const countsByProject = loadCountsByProject();
   const previewByProject = loadPreviewByProject(rows.map((r) => r.id));
-  return Promise.all(
-    rows.map((p) =>
-      decorateRow(p, countsByProject.get(p.id) ?? emptyCounts(), previewByProject.get(p.id) ?? null),
-    ),
+  return rows.map((p) =>
+    decorateRow(p, countsByProject.get(p.id) ?? emptyCounts(), previewByProject.get(p.id) ?? null),
   );
 }
 
@@ -233,16 +253,19 @@ export function getProjectRow(id: string): Project | null {
   return db.select().from(projects).where(eq(projects.id, id)).get() ?? null;
 }
 
-async function decorateRow(
+function decorateRow(
   p: Project,
   taskCounts: Counts,
   preview: string | null,
-): Promise<ProjectWithCounts> {
+): ProjectWithCounts {
+  // Read cached GitHub URL from the column instead of re-reading .git/config
+  // per project on every list. Lazy backfill: NULL means "not yet detected" —
+  // createProject/updateProject populate it when path is set or changes.
   return {
     ...p,
     taskCounts,
     preview,
-    githubUrl: await detectGithubUrl(p.path),
+    githubUrl: p.githubUrl ?? null,
   };
 }
 
@@ -266,6 +289,7 @@ export async function createProject(input: {
   const now = Date.now();
   const id = newId("p");
   const branch = await detectBranch(input.path);
+  const githubUrl = await detectGithubUrl(input.path);
   const row = {
     id,
     name,
@@ -282,6 +306,7 @@ export async function createProject(input: {
     savedAgent: null,
     savedSkipPermissions: false,
     savedBareSession: false,
+    githubUrl,
     createdAt: now,
     updatedAt: now,
   };
@@ -336,6 +361,11 @@ export function updateProject(
     ...rest,
     ...(launchCommands !== undefined
       ? { launchCommands: serializeLaunchCommands(launchCommands) }
+      : {}),
+    // When path changes, refresh the cached github_url. Sync read keeps this
+    // function's signature simple; the .git/config file is small (~KB).
+    ...(typeof patch.path === "string" && patch.path.trim()
+      ? { githubUrl: detectGithubUrlSync(patch.path) }
       : {}),
     updatedAt: Date.now(),
   };

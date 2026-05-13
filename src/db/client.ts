@@ -48,6 +48,10 @@ export function getDb() {
   // Launch-spawned user terminals are session-only: their PTY died with the
   // previous app process, so the persisted row would respawn the command on
   // next visit and look like the run "survived" the restart. Drop them.
+  // Inline equivalent of services/user-terminals.purgeLaunchSpawnedTerminals().
+  // The service helper exists for explicit callers; we don't import it here
+  // because services already depend on getDb(), and that import cycle would
+  // trip the lazy DB init on module load.
   _sqlite.prepare("DELETE FROM user_terminals WHERE start_command IS NOT NULL").run();
   return _db;
 }
@@ -141,13 +145,15 @@ function ensureSchema(sqlite: Database.Database) {
       saved_agent TEXT,
       saved_skip_permissions INTEGER NOT NULL DEFAULT 0,
       saved_bare_session INTEGER NOT NULL DEFAULT 0,
+      github_url TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS projects_group_idx ON projects(group_id);
     CREATE INDEX IF NOT EXISTS projects_pinned_idx ON projects(pinned);
-    CREATE UNIQUE INDEX IF NOT EXISTS projects_path_unique ON projects(path);
-    CREATE UNIQUE INDEX IF NOT EXISTS groups_name_unique ON groups(name);
+    -- Unique indexes (projects.path, groups.name, user_terminals(project_id,name))
+    -- are owned by migration 0009, which dedupes existing rows first. Creating
+    -- them here would crash on existing DBs that still have duplicates.
 
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
@@ -188,7 +194,6 @@ function ensureSchema(sqlite: Database.Database) {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS user_terminals_project_idx ON user_terminals(project_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS user_terminals_project_name_unique ON user_terminals(project_id, name);
 
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
@@ -212,6 +217,7 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS token_usage_project_idx ON token_usage(project_id);
     CREATE INDEX IF NOT EXISTS token_usage_ts_idx ON token_usage(ts);
     CREATE INDEX IF NOT EXISTS token_usage_task_ts_idx ON token_usage(task_id, ts);
+    CREATE INDEX IF NOT EXISTS token_usage_project_ts_idx ON token_usage(project_id, ts);
 
     CREATE TABLE IF NOT EXISTS token_usage_session_offsets (
       claude_session_id TEXT PRIMARY KEY,
@@ -220,6 +226,18 @@ function ensureSchema(sqlite: Database.Database) {
       byte_offset INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS token_usage_daily_rollup (
+      day TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      request_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, project_id)
+    );
+    CREATE INDEX IF NOT EXISTS token_usage_daily_rollup_day_idx ON token_usage_daily_rollup (day);
   `);
 }
 

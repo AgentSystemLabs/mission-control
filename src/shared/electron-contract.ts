@@ -58,7 +58,11 @@ export type ElectronBridge = {
   };
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;
-  openPath: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  pickProjectParentDir: () => Promise<string | null>;
+  openPath: (
+    projectId: string,
+    relPath: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   openExternal: (url: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   pickImage: () => Promise<
     { sourcePath: string; extension: string } | { error: string } | null
@@ -103,7 +107,17 @@ export type ElectronBridge = {
     replay: (ptyId: string) => Promise<string>;
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
+  isFullScreen: () => Promise<boolean>;
+  onFullScreenChange: (cb: (isFullScreen: boolean) => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
+  onAgentHooksInstallFailed: (
+    cb: (msg: {
+      taskId: string;
+      agent: string;
+      reason: "unreadable" | "write-failed";
+      file: string;
+    }) => void,
+  ) => () => void;
   files: {
     list: (projectId: string) => Promise<FileListResult>;
     read: (projectId: string, relPath: string) => Promise<FileReadResult>;

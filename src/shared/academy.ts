@@ -1,3 +1,5 @@
+import { isLoopbackHost } from "./loopback";
+
 function isProduction(): boolean {
   if (typeof process !== "undefined" && process.env?.NODE_ENV === "production") {
     return true;
@@ -23,7 +25,7 @@ export function isAllowedAcademyDownloadUrl(downloadUrl: string): boolean {
       const apex = parts.slice(-2).join(".");
       if (u.hostname === apex || u.hostname.endsWith(`.${apex}`)) return true;
     }
-    if (!isProduction() && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) {
+    if (!isProduction() && isLoopbackHost(u.hostname)) {
       return true;
     }
     return false;

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
+import { STORAGE_KEYS } from "~/lib/storage-keys";
 import { getElectron } from "~/lib/electron";
 import { api } from "~/lib/api";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -84,7 +85,7 @@ export function TerminalPanel({
   }, [active?.taskId]);
 
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
-    storageKey: "mc:agentsPanelWidth",
+    storageKey: STORAGE_KEYS.agentsPanelWidth,
     axis: "x",
     defaultSize: 560,
     minSize: MIN_WIDTH,

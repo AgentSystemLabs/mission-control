@@ -7,6 +7,34 @@ import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
 import { resolveShell, sanitizedProcessEnv, shellArgsForCommand } from "./shell-env";
 import { logger } from "./logger";
+import { z } from "zod";
+
+// Validate the renderer-supplied spawn payload at the IPC boundary. A
+// compromised or buggy renderer can't slip a non-string command or stuff
+// surprise fields into mcEnv past this gate.
+const ptySpawnOptsSchema = z.object({
+  taskId: z.string().min(1).max(128),
+  projectId: z.string().min(1).max(128),
+  subPath: z.string().max(4096).optional(),
+  command: z.string().max(8192),
+  args: z.array(z.string().max(8192)).max(256).optional(),
+  cols: z.number().int().positive().max(10_000).optional(),
+  rows: z.number().int().positive().max(10_000).optional(),
+  agent: z.string().max(128).optional(),
+  mcEnv: z
+    .object({
+      apiUrl: z.string().max(2048).optional(),
+      token: z.string().max(4096).optional(),
+    })
+    .optional(),
+});
+type PtySpawnOpts = z.infer<typeof ptySpawnOptsSchema>;
+
+// Tail-window for batching pty output. node-pty can fire dozens of small
+// chunks per second during fast output; coalescing into ~16ms frames (~60fps)
+// collapses the per-chunk structured-clone + downstream DB-write overhead into
+// one IPC send per frame without changing the on-the-wire message shape.
+const PTY_FLUSH_INTERVAL_MS = 16;
 
 function assertCwd(cwd: string): void {
   if (!cwd) throw new Error("cwd is required");
@@ -74,21 +102,65 @@ function ensureClaudeShiftEnterBinding(): void {
     const file = path.join(dir, "settings.json");
     let settings: Record<string, unknown> = {};
     if (fs.existsSync(file)) {
-      const raw = fs.readFileSync(file, "utf8");
-      if (raw.trim()) settings = JSON.parse(raw);
+      let raw: string;
+      try {
+        raw = fs.readFileSync(file, "utf8");
+      } catch (err) {
+        // Abort — don't clobber an existing-but-unreadable settings file.
+        logger.warn("ensureClaudeShiftEnterBinding read failed", {
+          err,
+          op: "claude.settings.read",
+          file,
+        });
+        return;
+      }
+      if (raw.trim()) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (err) {
+          logger.warn("ensureClaudeShiftEnterBinding parse failed", {
+            err,
+            op: "claude.settings.parse",
+            file,
+          });
+          return;
+        }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          logger.warn("ensureClaudeShiftEnterBinding parse: not an object", {
+            op: "claude.settings.parse",
+            file,
+          });
+          return;
+        }
+        settings = parsed as Record<string, unknown>;
+      }
     }
     if (settings.shiftEnterKeyBindingInstalled === true) return;
     settings.shiftEnterKeyBindingInstalled = true;
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
-  } catch {
+    const tmp = path.join(
+      dir,
+      `settings.json.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    );
+    fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    fs.renameSync(tmp, file);
+  } catch (err) {
     // best-effort — user can still run `/terminal-setup` manually.
+    logger.warn("ensureClaudeShiftEnterBinding failed", {
+      err,
+      op: "claude.settings.write",
+    });
   }
 }
 
 type Pty = {
   id: string;
   taskId: string;
+  // NOTE: projectId is captured at spawn so per-op handlers (pty:write,
+  // pty:resize, pty:kill, pty:replay) can future-scope by project. Today those
+  // handlers only key on ptyId; this is defense-in-depth for a later change.
+  projectId: string;
   proc: any;
   buffer: string[];
   bufferBytes: number;
@@ -98,6 +170,9 @@ type Pty = {
   mcEnv?: { apiUrl?: string; token?: string };
   scanTail: string;
   lastInterruptAt: number;
+  // Pending coalesced output + tail-window timer. See PTY_FLUSH_INTERVAL_MS.
+  pendingChunks: string[];
+  flushTimer: NodeJS.Timeout | null;
 };
 
 const INTERRUPT_COOLDOWN_MS = 2000;
@@ -134,8 +209,13 @@ async function postSyntheticHook(p: Pty, event: string) {
       },
       body: JSON.stringify({ hook_event_name: event }),
     });
-  } catch {
-    /* swallow — best-effort status sync */
+  } catch (err) {
+    logger.warn("synthetic hook post failed", {
+      err,
+      op: "agent.hook.synthetic",
+      taskId: p.taskId,
+      event,
+    });
   }
 }
 
@@ -243,7 +323,13 @@ async function killPty(p: Pty): Promise<boolean> {
     }
     sub?.dispose?.();
     return true;
-  } catch {
+  } catch (err) {
+    logger.warn("killPty failed", {
+      err,
+      op: "pty.kill",
+      ptyId: p.id,
+      taskId: p.taskId,
+    });
     return false;
   } finally {
     ptys.delete(p.id);
@@ -258,20 +344,16 @@ export function registerPtyHandlers(
   ensureClaudeShiftEnterBinding();
   ipcMain.handle(
       IPC.ptySpawn,
-    async (
-      _evt,
-      opts: {
-        taskId: string;
-        projectId: string;
-        subPath?: string;
-        command: string;
-        args?: string[];
-        cols?: number;
-        rows?: number;
-        agent?: string;
-        mcEnv?: { apiUrl?: string; token?: string };
+    async (_evt, rawOpts: unknown) => {
+      const parsed = ptySpawnOptsSchema.safeParse(rawOpts);
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        const path = issue?.path?.join(".") || "<root>";
+        const msg = `pty:spawn invalid payload (${path}: ${issue?.message ?? "invalid"})`;
+        logger.warn("pty.spawn rejected", { op: "pty.spawn.validate", issues: parsed.error.issues });
+        throw new Error(msg);
       }
-    ) => {
+      const opts: PtySpawnOpts = parsed.data;
       const pty = loadNodePty();
       const isWindows = os.platform() === "win32";
       const userShell = resolveShell();
@@ -280,7 +362,10 @@ export function registerPtyHandlers(
       const cwd = resolveCwdForProject(projectRoot, opts.subPath);
       assertCwd(cwd);
 
-      installAgentHooks(opts.agent, cwd);
+      await installAgentHooks(opts.agent, cwd, {
+        taskId: opts.taskId,
+        onFailure: (info) => send(getWin, IPC.agentHooksInstallFailed, info),
+      });
 
       const env = sanitizeEnv();
       env.MC_TASK_ID = opts.taskId;
@@ -305,6 +390,13 @@ export function registerPtyHandlers(
           env,
         });
       } catch (err: any) {
+        logger.error("pty.spawn failed", {
+          err,
+          op: "pty.spawn",
+          cwd,
+          shell: userShell,
+          taskId: opts.taskId,
+        });
         const msg = err?.message ?? String(err);
         if (msg.includes("posix_spawnp")) {
           throw new Error(
@@ -316,17 +408,21 @@ export function registerPtyHandlers(
         throw err;
       }
 
-      logger.info("pty spawned", {
+      const id = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      logger.info("pty.spawned", {
         pid: proc.pid,
         cwd,
         cols: opts.cols ?? 100,
         rows: opts.rows ?? 30,
+        taskId: opts.taskId,
+        ptyId: id,
+        op: "pty.spawn",
       });
 
-      const id = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const p: Pty = {
         id,
         taskId: opts.taskId,
+        projectId: opts.projectId,
         proc,
         buffer: [],
         bufferBytes: 0,
@@ -336,15 +432,46 @@ export function registerPtyHandlers(
         mcEnv: opts.mcEnv,
         scanTail: "",
         lastInterruptAt: 0,
+        pendingChunks: [],
+        flushTimer: null,
       };
       ptys.set(id, p);
 
+      const flush = () => {
+        if (p.flushTimer) {
+          clearTimeout(p.flushTimer);
+          p.flushTimer = null;
+        }
+        if (p.pendingChunks.length === 0) return;
+        const data = p.pendingChunks.join("");
+        p.pendingChunks = [];
+        send(getWin, IPC.ptyData, { ptyId: id, data });
+      };
+
       proc.onData((data: string) => {
+        // Ring-buffer + interrupt-scan stay per-chunk: replay accuracy and the
+        // interrupt-prompt match window shouldn't depend on the flush cadence.
         appendBuffer(p, data);
         scanForInterrupt(p, data);
-        send(getWin, IPC.ptyData, { ptyId: id, data });
+        // Coalesce IPC sends within a ~16ms tail window so a burst of tiny
+        // node-pty chunks becomes one ptyData message (and one downstream DB
+        // write in the renderer).
+        p.pendingChunks.push(data);
+        if (!p.flushTimer) {
+          p.flushTimer = setTimeout(flush, PTY_FLUSH_INTERVAL_MS);
+        }
       });
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
+        logger.info("pty.exit", {
+          taskId: opts.taskId,
+          ptyId: id,
+          exitCode,
+          signal,
+          op: "pty.exit",
+        });
+        // Drain any buffered output before the exit signal so the renderer
+        // doesn't lose the last frame of the process's output.
+        flush();
         send(getWin, IPC.ptyExit, { ptyId: id, exitCode, signal });
         ptys.delete(id);
       });
@@ -356,7 +483,17 @@ export function registerPtyHandlers(
   ipcMain.handle(IPC.ptyWrite, (_evt, { ptyId, data }: { ptyId: string; data: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
-    p.proc.write(data);
+    // p.projectId is available here for future per-op scoping.
+    try {
+      p.proc.write(data);
+    } catch (err) {
+      logger.warn("pty.write failed", {
+        err,
+        op: "pty.write",
+        ptyId: p.id,
+        taskId: p.taskId,
+      });
+    }
     return true;
   });
 
@@ -377,10 +514,15 @@ export function registerPtyHandlers(
   ipcMain.handle(IPC.ptyKill, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
+    // p.projectId is available here for future per-op scoping.
     try {
       p.proc.kill();
-    } catch {
-      /* swallow */
+    } catch (err) {
+      logger.warn("ptyKill.ipc failed", {
+        err,
+        op: "pty.kill.ipc",
+        ptyId,
+      });
     }
     ptys.delete(ptyId);
     return true;

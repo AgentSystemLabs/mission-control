@@ -75,11 +75,14 @@ export function readInstalledSkillsVersion(
   try {
     const file = path.join(projectPath, ".agentsystem", "skills-version.json");
     const raw = fs.readFileSync(file, "utf8");
-    const parsed = JSON.parse(raw) as { version?: unknown; publishedAt?: unknown };
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return { version: null, publishedAt: null };
+    }
+    const p = parsed as { version?: unknown; publishedAt?: unknown };
     return {
-      version: typeof parsed.version === "string" ? parsed.version : null,
-      publishedAt:
-        typeof parsed.publishedAt === "string" ? parsed.publishedAt : null,
+      version: typeof p.version === "string" ? p.version : null,
+      publishedAt: typeof p.publishedAt === "string" ? p.publishedAt : null,
     };
   } catch {
     return { version: null, publishedAt: null };
@@ -95,16 +98,20 @@ export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest>
       `Failed to fetch latest skills manifest: ${res.status} ${res.statusText}`,
     );
   }
-  const json = (await res.json()) as Partial<LatestSkillsManifest>;
+  const json: unknown = await res.json();
+  if (!json || typeof json !== "object") {
+    throw new Error("Latest skills manifest is malformed");
+  }
+  const m = json as Partial<LatestSkillsManifest>;
   if (
-    typeof json.version !== "string" ||
-    typeof json.downloadUrl !== "string" ||
-    typeof json.sha256 !== "string" ||
-    typeof json.size !== "number"
+    typeof m.version !== "string" ||
+    typeof m.downloadUrl !== "string" ||
+    typeof m.sha256 !== "string" ||
+    typeof m.size !== "number"
   ) {
     throw new Error("Latest skills manifest is malformed");
   }
-  return json as LatestSkillsManifest;
+  return { version: m.version, downloadUrl: m.downloadUrl, sha256: m.sha256, size: m.size };
 }
 
 export async function installProjectSkills(

@@ -38,7 +38,9 @@ export function LaunchKitDialog({
   const browse = async () => {
     const electron = getElectron();
     if (!electron) return;
-    const result = await electron.browseFolder();
+    // Use the security-scoped picker: the path is added to a short-TTL
+    // allowlist that /api/launch-kit/projects verifies before writing.
+    const result = await electron.pickProjectParentDir();
     if (result) setParentDir(result);
   };
 
@@ -116,13 +118,26 @@ export function LaunchKitDialog({
             Working directory
           </label>
           <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <TextField
-                mono
-                value={parentDir}
-                onChange={setParentDir}
-                placeholder="/Users/me/dev"
-              />
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                background: "var(--surface-0)",
+                border: "1px solid var(--border)",
+                borderRadius: 7,
+                padding: "9px 12px",
+                fontFamily: "var(--mono)",
+                fontSize: 13,
+                color: parentDir ? "var(--text)" : "var(--text-dim)",
+                minHeight: 36,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={parentDir || undefined}
+            >
+              {parentDir || "Click Browse to choose a folder"}
             </div>
             <Btn variant="solid" icon="folder" onClick={browse} disabled={isWorking}>
               Browse...

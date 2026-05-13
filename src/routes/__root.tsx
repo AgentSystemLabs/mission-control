@@ -15,6 +15,7 @@ import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { useTheme } from "~/lib/use-theme";
+import { terminalExpandedKey } from "~/lib/storage-keys";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import {
   UserTerminalProvider,
@@ -32,7 +33,7 @@ import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { UsagePanel } from "~/components/views/UsagePanel";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import "~/styles.css";
 
@@ -106,11 +107,32 @@ function Shell() {
   useNavigationSwipe();
   useSessionFinishNotifications();
 
+  // One-shot toast when an agent's hook config couldn't be installed for a
+  // spawned session. Without hooks the session-finished events and status
+  // updates silently never arrive, so the user must know.
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron?.onAgentHooksInstallFailed) return;
+    const shown = new Set<string>();
+    return electron.onAgentHooksInstallFailed((msg) => {
+      if (shown.has(msg.taskId)) return;
+      shown.add(msg.taskId);
+      const detail =
+        msg.reason === "unreadable"
+          ? `Mission Control couldn't read ${msg.file}. Session status and finish notifications won't arrive.`
+          : `Mission Control couldn't write ${msg.file}. Session status and finish notifications won't arrive.`;
+      toast.error(`Agent hooks not installed for ${msg.agent}`, {
+        description: detail,
+        duration: 10_000,
+      });
+    });
+  }, []);
+
   const path = router.state.location.pathname;
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const projectId = projectMatch ? projectMatch[1]! : null;
 
-  const expandedKey = projectId ? `mc:terminalExpanded:${projectId}` : null;
+  const expandedKey = projectId ? terminalExpandedKey(projectId) : null;
   const [terminalExpanded, setTerminalExpanded] = useState<boolean>(false);
   useEffect(() => {
     if (!expandedKey) {
@@ -266,7 +288,7 @@ function Shell() {
             right: 0,
             height: 20,
             zIndex: 20,
-            ["WebkitAppRegion" as any]: "drag",
+            WebkitAppRegion: "drag",
           }}
         />
         <AgentSystemBanner onOpenSettings={() => setActivePanel("settings")} />
@@ -377,10 +399,10 @@ function LaunchOverlay({ audioDisabled }: { audioDisabled: boolean | undefined }
     <div className="launch-overlay" role="status" aria-label="Mission Control loading">
       <div className="launch-overlay__doors" aria-hidden="true">
         <div className="launch-overlay__door launch-overlay__door--left">
-          <img src="/images/doors.png" alt="" />
+          <img src="/images/doors.webp" alt="" />
         </div>
         <div className="launch-overlay__door launch-overlay__door--right">
-          <img src="/images/doors.png" alt="" />
+          <img src="/images/doors.webp" alt="" />
         </div>
       </div>
       <div className="launch-overlay__fog" aria-hidden="true">
@@ -424,7 +446,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
         position: "relative",
         zIndex: 11,
         userSelect: "none",
-        ["WebkitAppRegion" as any]: "drag",
+        WebkitAppRegion: "drag",
       }}
     >
       <div
@@ -461,7 +483,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
             color: "var(--banner-link)",
             fontWeight: 600,
             textDecoration: "none",
-            ["WebkitAppRegion" as any]: "no-drag",
+            WebkitAppRegion: "no-drag",
           }}
         >
           AgentSystem.dev
@@ -481,7 +503,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
             padding: 0,
             background: "transparent",
             cursor: "pointer",
-            ["WebkitAppRegion" as any]: "no-drag",
+            WebkitAppRegion: "no-drag",
           }}
         >
           Disable banner in settings
@@ -503,7 +525,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
           color: "var(--banner-muted)",
           cursor: "pointer",
           flexShrink: 0,
-          ["WebkitAppRegion" as any]: "no-drag",
+          WebkitAppRegion: "no-drag",
         }}
       >
         <Icon name="x" size={13} />

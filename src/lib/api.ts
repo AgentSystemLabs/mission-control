@@ -87,14 +87,15 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     const text = await res.text().catch(() => "");
     let body: unknown = text;
     try {
-      body = JSON.parse(text);
+      body = JSON.parse(text) as unknown;
     } catch {
       // not JSON — keep as text
     }
-    const message =
-      (body && typeof body === "object" && "error" in body && typeof (body as any).error === "string"
-        ? (body as any).error
-        : null) ?? `${res.status} ${res.statusText}: ${text}`;
+    const errFromBody =
+      body && typeof body === "object" && "error" in body && typeof (body as { error?: unknown }).error === "string"
+        ? (body as { error: string }).error
+        : null;
+    const message = errFromBody ?? `${res.status} ${res.statusText}: ${text}`;
     throw new ApiError(message, res.status, body);
   }
   if (res.status === 204) return undefined as T;

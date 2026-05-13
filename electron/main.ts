@@ -7,11 +7,12 @@ import * as nodeNet from "node:net";
 import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
-import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
+import { registerFileHandlers, disposeAllFileWatchers, resolveInsideRoot } from "./file-handlers";
 import { IPC } from "./ipc-channels";
 import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
 import { sendTelemetry } from "./telemetry";
 import { augmentProcessEnv, resolveCommandOnPath, sanitizedProcessEnv } from "./shell-env";
+import { logger } from "./logger";
 
 const isDev = process.env.NODE_ENV === "development";
 const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
@@ -23,6 +24,7 @@ augmentProcessEnv();
 let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let runtimePort: number | null = null;
+let isQuiting = false;
 
 // Cache renderer-supplied projectId → server-stored absolute path with a short
 // TTL. The renderer can't lie about which path belongs to a projectId because
@@ -30,6 +32,7 @@ let runtimePort: number | null = null;
 const PROJECT_PATH_TTL_MS = 30_000;
 type CachedPath = { path: string; expiresAt: number };
 const projectPathCache = new Map<string, CachedPath>();
+const projectPathInFlight = new Map<string, Promise<string | null>>();
 
 function platformDefaultUserDataDir(): string {
   const home = os.homedir();
@@ -62,23 +65,32 @@ export async function getProjectPath(projectId: string): Promise<string | null> 
   const now = Date.now();
   const cached = projectPathCache.get(projectId);
   if (cached && cached.expiresAt > now) return cached.path;
+  const existing = projectPathInFlight.get(projectId);
+  if (existing) return existing;
   if (!runtimePort) return null;
   const token = readApiTokenFromFile();
   if (!token) return null;
-  try {
-    const res = await fetch(
-      `http://${devServerHost}:${runtimePort}/api/projects/${encodeURIComponent(projectId)}`,
-      { headers: { authorization: `Bearer ${token}` } },
-    );
-    if (!res.ok) return null;
-    const body = (await res.json()) as { project?: { path?: string } };
-    const p = body?.project?.path;
-    if (!p || typeof p !== "string") return null;
-    projectPathCache.set(projectId, { path: p, expiresAt: now + PROJECT_PATH_TTL_MS });
-    return p;
-  } catch {
-    return null;
-  }
+  const lookup = (async (): Promise<string | null> => {
+    try {
+      const res = await fetch(
+        `http://${devServerHost}:${runtimePort}/api/projects/${encodeURIComponent(projectId)}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return null;
+      const body = (await res.json()) as { project?: { path?: string } };
+      const p = body?.project?.path;
+      if (!p || typeof p !== "string") return null;
+      projectPathCache.set(projectId, { path: p, expiresAt: Date.now() + PROJECT_PATH_TTL_MS });
+      return p;
+    } catch (err) {
+      logger.warn("getProjectPath failed", { err, op: "project.resolve", projectId });
+      return null;
+    } finally {
+      projectPathInFlight.delete(projectId);
+    }
+  })();
+  projectPathInFlight.set(projectId, lookup);
+  return lookup;
 }
 
 function pickPort(): Promise<number> {
@@ -161,9 +173,9 @@ async function startProductionServer(): Promise<string> {
     stdio: ["ignore", "inherit", "inherit"],
   });
 
-  serverProcess.on("exit", (code) => {
-    console.error(`[server] exited with code ${code}`);
-    if (!(app as any).isQuiting) {
+  serverProcess.on("exit", (code, signal) => {
+    logger.error("server.exit", { code, signal });
+    if (!isQuiting) {
       app.quit();
     }
   });
@@ -285,6 +297,53 @@ function registerProjectImageProtocol() {
 // from copying arbitrary FS paths (e.g. /etc/passwd) into project-images/.
 const ALLOWED_PICKED_PATHS = new Set<string>();
 
+// Sibling allowlist for directories picked via `dialog:pickProjectParentDir`.
+// Persisted as a small JSON file in userData so the spawned server process can
+// also verify the picked directory before writing to it (the server lives in
+// a different process and can't read main's in-memory Set). Entries expire so
+// a stale token can't be reused indefinitely.
+const PICKED_DIRS_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const PICKED_DIRS_FILE = ".allowed-picked-dirs.json";
+
+type PickedDirEntry = { path: string; expiresAt: number };
+
+function pickedDirsFile(): string {
+  return path.join(app.getPath("userData"), PICKED_DIRS_FILE);
+}
+
+function readPickedDirs(): PickedDirEntry[] {
+  try {
+    const raw = fs.readFileSync(pickedDirsFile(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const now = Date.now();
+    return parsed.filter(
+      (e: unknown): e is PickedDirEntry =>
+        !!e &&
+        typeof e === "object" &&
+        typeof (e as PickedDirEntry).path === "string" &&
+        typeof (e as PickedDirEntry).expiresAt === "number" &&
+        (e as PickedDirEntry).expiresAt > now,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function addPickedDir(absPath: string): void {
+  try {
+    const dir = app.getPath("userData");
+    fs.mkdirSync(dir, { recursive: true });
+    const normalized = path.resolve(absPath);
+    const now = Date.now();
+    const entries = readPickedDirs().filter((e) => e.path !== normalized);
+    entries.push({ path: normalized, expiresAt: now + PICKED_DIRS_TTL_MS });
+    fs.writeFileSync(pickedDirsFile(), JSON.stringify(entries), { mode: 0o600 });
+  } catch {
+    // best-effort
+  }
+}
+
 ipcMain.handle(IPC.dialogPickImage, async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
@@ -343,15 +402,66 @@ ipcMain.handle(IPC.dialogBrowseFolder, async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle(IPC.shellOpenPath, async (_evt, p: string) => {
-  if (!p) return { ok: false, error: "empty" };
-  const err = await shell.openPath(p);
-  if (err) return { ok: false, error: err };
-  return { ok: true };
+// Launch-Kit parent-directory picker. The chosen path is added to a short-TTL
+// allowlist that the server-side `/api/launch-kit/projects` handler verifies
+// before writing to disk — so a compromised renderer can't post an arbitrary
+// absolute path and have the server wipe + replant it.
+ipcMain.handle(IPC.dialogPickProjectParentDir, async () => {
+  if (!win) return null;
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  const picked = result.filePaths[0]!;
+  let resolved: string;
+  try {
+    // Resolve symlinks now so the value we hand to the renderer matches what
+    // the server will compare against (the server also realpath's its input).
+    resolved = fs.realpathSync(picked);
+  } catch {
+    resolved = path.resolve(picked);
+  }
+  addPickedDir(resolved);
+  return resolved;
 });
 
+// TODO(renderer): renderer-side callers must be updated to pass (projectId, relPath)
+// instead of an absolute path. The channel now resolves paths inside the project
+// root via the same logic as file-handlers' resolveInsideRoot.
+ipcMain.handle(
+  IPC.shellOpenPath,
+  async (_evt, projectId: string, relPath: string) => {
+    if (!projectId || typeof projectId !== "string") {
+      return { ok: false as const, error: "invalid-project" };
+    }
+    if (!relPath || typeof relPath !== "string") {
+      return { ok: false as const, error: "empty" };
+    }
+    const projectRoot = await getProjectPath(projectId);
+    if (!projectRoot) return { ok: false as const, error: "unknown-project" };
+    const abs = resolveInsideRoot(projectRoot, relPath);
+    if (!abs) return { ok: false as const, error: "invalid-path" };
+    try {
+      const err = await shell.openPath(abs);
+      if (err) {
+        logger.warn("shell.openPath failed", { err, op: "shell.openPath", path: abs });
+        return { ok: false as const, error: err };
+      }
+      return { ok: true as const };
+    } catch (err) {
+      logger.warn("shell.openPath failed", { err, op: "shell.openPath", path: abs });
+      return { ok: false as const, error: String(err) };
+    }
+  },
+);
+
 ipcMain.handle(IPC.shellOpenExternal, async (_evt, url: string) => {
-  return openExternalHttpUrl(url);
+  try {
+    return await openExternalHttpUrl(url);
+  } catch (err) {
+    logger.warn("shell.openPath failed", { err, op: "shell.openExternal", path: url });
+    return { ok: false as const, error: String(err) };
+  }
 });
 
 ipcMain.handle(IPC.appGetProjectPath, async (_evt, projectId: string) => {
@@ -405,6 +515,7 @@ ipcMain.handle(
       const manifest = await fetchLatestSkillsManifest(opts?.licenseKey);
       return { ok: true as const, manifest };
     } catch (err) {
+      logger.warn("installSkills.run failed", { err, op: "skills.install.ipc" });
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
     }
   },
@@ -424,6 +535,7 @@ ipcMain.handle(
       const result = await installSkills(args);
       return { ok: true as const, result };
     } catch (err) {
+      logger.warn("installSkills.run failed", { err, op: "skills.install.ipc" });
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
     }
   },
@@ -438,7 +550,7 @@ app.on("activate", () => {
 });
 
 app.on("before-quit", () => {
-  (app as any).isQuiting = true;
+  isQuiting = true;
   killAllPtys();
   disposeAllFileWatchers();
   if (serverProcess) serverProcess.kill();
@@ -449,6 +561,6 @@ app.whenReady().then(() => {
   sendTelemetry("app_launch", app.getVersion());
   return createWindow();
 }).catch((err) => {
-  console.error("[main] startup failed:", err);
+  logger.error("app.startup failed", { err });
   app.quit();
 });

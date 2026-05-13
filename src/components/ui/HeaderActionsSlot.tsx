@@ -29,7 +29,7 @@ export function HeaderActionsSlot({ style }: { style?: React.CSSProperties }) {
         display: "inline-flex",
         alignItems: "center",
         gap: 8,
-        ["WebkitAppRegion" as any]: "no-drag",
+        WebkitAppRegion: "no-drag",
         ...style,
       }}
     />

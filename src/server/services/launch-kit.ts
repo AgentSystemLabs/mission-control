@@ -7,11 +7,20 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import { getLicenseState } from "~/db/settings";
+import { resolveUserDataDir } from "~/db/client";
 import { ACADEMY_BASE_URL, isAllowedAcademyDownloadUrl } from "~/shared/academy";
 import { isAcademyTier } from "~/shared/license";
+import { isPickedDirAllowed } from "~/shared/picked-dirs";
 import { createProject } from "./projects";
 import { readLicenseState } from "./license";
 import { logger } from "~/shared/logger";
+
+export class LaunchKitAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LaunchKitAuthorizationError";
+  }
+}
 
 export type LatestLaunchKitManifest = {
   version: string;
@@ -120,6 +129,22 @@ export async function createProjectFromLaunchKit(input: {
   const parentStat = await fs.promises.stat(parentDir).catch(() => null);
   if (!parentStat || !parentStat.isDirectory()) {
     throw new Error("Working directory must be an existing directory");
+  }
+
+  // Authorize the parent directory: a renderer-supplied absolute path is only
+  // honored if the Electron main process recently issued it via the native
+  // directory picker (dialog:pickProjectParentDir). Realpath both sides to
+  // defeat symlink trickery.
+  let realParent: string;
+  try {
+    realParent = await fs.promises.realpath(parentDir);
+  } catch {
+    realParent = path.resolve(parentDir);
+  }
+  if (!isPickedDirAllowed(resolveUserDataDir(), realParent)) {
+    throw new LaunchKitAuthorizationError(
+      "Working directory was not selected via the native folder picker. Click Browse to choose a folder.",
+    );
   }
 
   const projectName = validateProjectName(input.projectName);

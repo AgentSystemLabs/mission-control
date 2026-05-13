@@ -5,7 +5,8 @@ import { Btn } from "~/components/ui/Btn";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
-import { AGENT_META, STATUS_META } from "~/lib/design-meta";
+import { AGENT_META } from "~/lib/design-meta";
+import { TASK_STATUS_META } from "~/shared/domain";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
 import {
@@ -17,6 +18,12 @@ import {
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { terminalInputStartsTurn } from "~/lib/task-status-sync";
+import {
+  clearTaskSpawnError,
+  recordTaskSpawnError,
+  subscribeTaskSpawnRetry,
+} from "~/lib/task-spawn-error";
+import { toast } from "sonner";
 import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 
@@ -75,7 +82,7 @@ export function TerminalPane({
     [liveTasks, task]
   );
   const meta = AGENT_META[liveTask.agent];
-  const statusMeta = STATUS_META[liveTask.status];
+  const statusMeta = TASK_STATUS_META[liveTask.status];
   const isRunning = liveTask.status === "running";
 
   useEffect(() => {
@@ -279,12 +286,45 @@ export function TerminalPane({
             task.agent === "claude-code" &&
             descriptor.startCommand.includes("--resume");
           await spawnAndWire(descriptor.startCommand, isResume);
+          clearTaskSpawnError(descriptor.taskId);
         } catch (err: any) {
-          term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
+          const message = err?.message || String(err);
+          term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);
+          const firstOccurrence = recordTaskSpawnError(descriptor.taskId, message);
+          if (firstOccurrence) {
+            toast.error(`Failed to start agent: ${message}`, {
+              description: liveTask.title,
+            });
+          }
+          // Surface the failure on the task card even when the pane is collapsed.
+          void (async () => {
+            try {
+              const token = await electron.getApiToken();
+              if (!token) return;
+              await api.updateTaskStatus(
+                descriptor.taskId,
+                { status: "interrupted" },
+                token
+              );
+              await queryClient.invalidateQueries({
+                queryKey: queryKeys.tasks(project.id),
+              });
+            } catch {
+              /* best effort — local error store still drives the card */
+            }
+          })();
         }
       };
 
       rafHandle = window.requestAnimationFrame(() => ensurePty());
+
+      const unsubscribeRetry = subscribeTaskSpawnRetry(descriptor.taskId, () => {
+        // User clicked Retry on the TaskCard. The previous spawn failed, so
+        // descriptor.ptyId is still null; just re-run ensurePty under the
+        // existing term instance.
+        void ensurePty();
+      });
+      subscriptions.push(unsubscribeRetry);
 
       const ro = new ResizeObserver(() => {
         try {

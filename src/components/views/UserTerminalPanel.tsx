@@ -4,6 +4,7 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { Icon } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
+import { STORAGE_KEYS } from "~/lib/storage-keys";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { UserTerminalPane } from "./UserTerminalPane";
 
@@ -25,7 +26,7 @@ export function UserTerminalPanel() {
   } = useUserTerminals();
 
   const { size: height, onMouseDown: onResizeMouseDown } = useResizablePanel({
-    storageKey: "mc:userTerminalsPanelHeight",
+    storageKey: STORAGE_KEYS.userTerminalsPanelHeight,
     axis: "y",
     defaultSize: 320,
     minSize: MIN_HEIGHT,

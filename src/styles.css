@@ -33,10 +33,10 @@
   --accent-faint: rgba(255, 90, 31, 0.1);
   --accent-border: rgba(255, 90, 31, 0.38);
   --accent-glow: rgba(255, 90, 31, 0.48);
-  --mc-btn-filled-image: url("/borders/button_filled_deep-orange.png");
-  --mc-panel-focused-image: url("/borders/panel_focused_deep-orange.png");
-  --mc-panel-image: url("/borders/square_deep-orange.png");
-  --mc-shell-image: url("/borders/shell_deep-orange.png");
+  --mc-btn-filled-image: url("/borders/button_filled_deep-orange.webp");
+  --mc-panel-focused-image: url("/borders/panel_focused_deep-orange.webp");
+  --mc-panel-image: url("/borders/square_deep-orange.webp");
+  --mc-shell-image: url("/borders/shell_deep-orange.webp");
   --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
   --accent-soft-hover: color-mix(in srgb, var(--accent) 26%, transparent);
   --banner-bg: linear-gradient(90deg, var(--accent-faint), var(--surface-0) 34%, var(--accent-faint));
@@ -231,7 +231,7 @@ button {
 .mc-btn-ghost,
 .mc-btn-danger,
 .mc-btn-gray-frame {
-  --mc-btn-slice-image: url("/borders/button_gray.png");
+  --mc-btn-slice-image: url("/borders/button_gray.webp");
   --mc-btn-frame-border: 14px;
   --mc-btn-frame-slice: 64;
   --mc-btn-height: 36px;
@@ -284,7 +284,7 @@ button {
 }
 
 .mc-btn-frame {
-  --mc-btn-slice-image: url("/borders/button.png");
+  --mc-btn-slice-image: url("/borders/button.webp");
   height: 64px;
   color: color-mix(in srgb, var(--accent) 76%, white);
 }
@@ -437,7 +437,7 @@ button {
   inset: 0;
   z-index: 0;
   border: 14px solid transparent;
-  border-image-source: url("/borders/button_gray.png");
+  border-image-source: url("/borders/button_gray.webp");
   border-image-slice: 64 fill;
   border-image-width: 14px;
   border-image-repeat: stretch;

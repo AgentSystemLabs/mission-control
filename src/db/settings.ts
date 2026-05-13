@@ -77,23 +77,38 @@ export type StoredLicenseState = {
   payload: LicensePayload | null;
 };
 
-function readJsonSetting<T>(key: string): T | null {
+function readJsonSetting(key: string): unknown {
   const raw = getSetting(key);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as T;
+    return JSON.parse(raw) as unknown;
   } catch {
     return null;
   }
 }
 
+function isLicensePayloadShape(v: unknown): v is LicensePayload {
+  if (!v || typeof v !== "object") return false;
+  const p = v as Record<string, unknown>;
+  return (
+    p.product === "mission-control-pro" &&
+    (p.tier === "pro" || p.tier === "academy" || p.tier === "full_system") &&
+    typeof p.licenseId === "string" &&
+    typeof p.customerId === "string" &&
+    (typeof p.expiresAt === "string" || p.expiresAt === null) &&
+    typeof p.maxMachines === "number" &&
+    typeof p.issuedAt === "string"
+  );
+}
+
 export function getLicenseState(): StoredLicenseState {
+  const rawPayload = readJsonSetting(LICENSE_PAYLOAD_KEY);
   return {
     key: getSetting(LICENSE_KEY_KEY),
     status: readLicenseStatus(),
     plan: getSetting(LICENSE_PLAN_KEY),
     lastValidatedAt: getSetting(LICENSE_LAST_VALIDATED_AT_KEY),
-    payload: readJsonSetting<LicensePayload>(LICENSE_PAYLOAD_KEY),
+    payload: isLicensePayloadShape(rawPayload) ? rawPayload : null,
   };
 }
 

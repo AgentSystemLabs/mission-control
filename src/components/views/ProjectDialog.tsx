@@ -6,7 +6,7 @@ import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
-import { ICON_COLORS } from "~/lib/design-meta";
+import { BRAND_PALETTE } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import type { Group, Project } from "~/db/schema";
 
@@ -65,6 +65,10 @@ export function ProjectDialog({
     setError(null);
     const electron = getElectron();
     if (!electron) return;
+    // Capture the project identity at the start: if the dialog is reused for
+    // a different project between awaits we must not write image state into
+    // the wrong project's form.
+    const projectIdAtStart = project?.id;
     const picked = await electron.pickImage();
     if (!picked) return;
     if ("error" in picked) {
@@ -72,7 +76,8 @@ export function ProjectDialog({
       return;
     }
     if (!project) {
-      // Create flow: defer upload until after the project exists.
+      // No further awaits in this branch, so projectIdAtStart is still
+      // accurate — just defer the upload until the project exists.
       setPendingImage(picked);
       return;
     }
@@ -83,6 +88,7 @@ export function ProjectDialog({
         sourcePath: picked.sourcePath,
         extension: picked.extension,
       });
+      if (project?.id !== projectIdAtStart) return;
       if ("error" in result) {
         setError(result.error);
         return;
@@ -157,9 +163,9 @@ export function ProjectDialog({
               disabled={submitting}
               style={{
                 height: 36,
-                ["--mc-btn-height" as any]: "36px",
-                ["--mc-btn-padding-x" as any]: "18px",
-                ["--mc-btn-frame-border" as any]: "14px",
+                "--mc-btn-height": "36px",
+                "--mc-btn-padding-x": "18px",
+                "--mc-btn-frame-border": "14px",
                 minWidth: 80,
               }}
             >
@@ -292,7 +298,7 @@ export function ProjectDialog({
               }}
             />
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {ICON_COLORS.map((c) => (
+              {BRAND_PALETTE.map((c) => (
                 <button
                   key={c}
                   onClick={() => setIconColor(c)}

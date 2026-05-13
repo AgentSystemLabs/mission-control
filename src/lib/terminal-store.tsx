@@ -2,16 +2,22 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-import { getElectron } from "./electron";
+import { STORAGE_KEYS } from "./storage-keys";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import { buildClaudeCommand, newSessionId } from "./claude-command";
 import { api } from "./api";
+import { getElectron } from "./electron";
 import { useServerEvents } from "./use-events";
+import {
+  killPty,
+  nullifyMatchingValues,
+  removeKey,
+  useLocalStorageRecord,
+} from "./pty-store-internals";
 import type { TaskAgent } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 
@@ -80,39 +86,12 @@ export function commandForTask(task: Task): string {
   return buildClaudeCommand({ kind: "new", sessionId: fresh, skipPermissions: skip, bareSession: bare });
 }
 
-const ACTIVE_BY_PROJECT_KEY = "mc.terminalActiveByProject";
-
-function loadActiveByProject(): Record<string, string | null> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(ACTIVE_BY_PROJECT_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, string | null>) : {};
-  } catch {
-    return {};
-  }
-}
-
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<OpenTerminal[]>([]);
-  const [activeByProject, setActiveByProject] = useState<Record<string, string | null>>(
-    loadActiveByProject
+  const [activeByProject, setActiveByProject] = useLocalStorageRecord<string | null>(
+    STORAGE_KEYS.terminalActiveByProject,
+    "terminal-store"
   );
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(ACTIVE_BY_PROJECT_KEY, JSON.stringify(activeByProject));
-    } catch {
-      /* quota or disabled */
-    }
-  }, [activeByProject]);
-
-  const killPty = async (id: string | null) => {
-    if (!id) return;
-    const electron = getElectron();
-    if (!electron) return;
-    await electron.pty.kill(id).catch(() => undefined);
-  };
 
   useServerEvents(
     useCallback((e) => {
@@ -123,19 +102,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           if (target) void killPty(target.ptyId);
           return prev.filter((p) => p.taskId !== taskId);
         });
-        setActiveByProject((prev) => {
-          let changed = false;
-          const next: Record<string, string | null> = {};
-          for (const [pid, tid] of Object.entries(prev)) {
-            if (tid === taskId) {
-              next[pid] = null;
-              changed = true;
-            } else {
-              next[pid] = tid;
-            }
-          }
-          return changed ? next : prev;
-        });
+        setActiveByProject((prev) => nullifyMatchingValues(prev, taskId, null));
       } else if (e.type === "project:deleted") {
         const projectId = e.id as string;
         const taskIds = new Set((e.taskIds as string[] | undefined) ?? []);
@@ -147,14 +114,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           }
           return remaining;
         });
-        setActiveByProject((prev) => {
-          if (!(projectId in prev)) return prev;
-          const next = { ...prev };
-          delete next[projectId];
-          return next;
-        });
+        setActiveByProject((prev) => removeKey(prev, projectId));
       }
-    }, [])
+    }, [setActiveByProject])
   );
 
   const toggle = useCallback(
@@ -176,7 +138,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         return { ...prev, [project.id]: curr === task.id ? null : task.id };
       });
     },
-    []
+    [setActiveByProject]
   );
 
   const rehydrate = useCallback((project: Project, task: Task) => {
@@ -196,49 +158,41 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const deselect = useCallback((projectId: string) => {
-    setActiveByProject((prev) =>
-      prev[projectId] === null ? prev : { ...prev, [projectId]: null }
-    );
-  }, []);
+  const deselect = useCallback(
+    (projectId: string) => {
+      setActiveByProject((prev) =>
+        prev[projectId] === null ? prev : { ...prev, [projectId]: null }
+      );
+    },
+    [setActiveByProject]
+  );
 
-  const close = useCallback(async (taskId: string) => {
-    setSessions((prev) => {
-      const target = prev.find((p) => p.taskId === taskId);
-      if (target) void killPty(target.ptyId);
-      return prev.filter((p) => p.taskId !== taskId);
-    });
-    setActiveByProject((prev) => {
-      const next: Record<string, string | null> = {};
-      let changed = false;
-      for (const [pid, tid] of Object.entries(prev)) {
-        if (tid === taskId) {
-          next[pid] = null;
-          changed = true;
-        } else {
-          next[pid] = tid;
+  const close = useCallback(
+    async (taskId: string) => {
+      setSessions((prev) => {
+        const target = prev.find((p) => p.taskId === taskId);
+        if (target) void killPty(target.ptyId);
+        return prev.filter((p) => p.taskId !== taskId);
+      });
+      setActiveByProject((prev) => nullifyMatchingValues(prev, taskId, null));
+    },
+    [setActiveByProject]
+  );
+
+  const closeForProject = useCallback(
+    async (projectId: string) => {
+      setSessions((prev) => {
+        const remaining: OpenTerminal[] = [];
+        for (const t of prev) {
+          if (t.project.id === projectId) void killPty(t.ptyId);
+          else remaining.push(t);
         }
-      }
-      return changed ? next : prev;
-    });
-  }, []);
-
-  const closeForProject = useCallback(async (projectId: string) => {
-    setSessions((prev) => {
-      const remaining: OpenTerminal[] = [];
-      for (const t of prev) {
-        if (t.project.id === projectId) void killPty(t.ptyId);
-        else remaining.push(t);
-      }
-      return remaining;
-    });
-    setActiveByProject((prev) => {
-      if (!(projectId in prev)) return prev;
-      const next = { ...prev };
-      delete next[projectId];
-      return next;
-    });
-  }, []);
+        return remaining;
+      });
+      setActiveByProject((prev) => removeKey(prev, projectId));
+    },
+    [setActiveByProject]
+  );
 
   const setPtyId = useCallback((taskId: string, ptyId: string) => {
     setSessions((prev) => prev.map((p) => (p.taskId === taskId ? { ...p, ptyId } : p)));

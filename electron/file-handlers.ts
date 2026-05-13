@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
 import { IPC } from "./ipc-channels";
+import { logger } from "./logger";
 
 const HARDCODED_IGNORES = [
   "node_modules",
@@ -35,7 +36,7 @@ type WatchEntry = {
 const watchers = new Map<string, WatchEntry>();
 let nextWatchId = 1;
 
-function resolveInsideRoot(projectRoot: string, relPath: string): string | null {
+export function resolveInsideRoot(projectRoot: string, relPath: string): string | null {
   if (!projectRoot || !relPath) return null;
   if (relPath.includes("\0")) return null;
   const root = path.resolve(projectRoot);
@@ -76,9 +77,14 @@ function loadGitignore(projectRoot: string) {
   return ig;
 }
 
-function listFiles(projectRoot: string): string[] {
+async function listFiles(projectRoot: string): Promise<string[]> {
   const root = path.resolve(projectRoot);
-  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) return [];
+  try {
+    const rootStat = await fs.promises.stat(root);
+    if (!rootStat.isDirectory()) return [];
+  } catch {
+    return [];
+  }
   const ig = loadGitignore(root);
   const out: string[] = [];
   const stack: string[] = [""];
@@ -87,7 +93,7 @@ function listFiles(projectRoot: string): string[] {
     const absDir = path.join(root, relDir);
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(absDir, { withFileTypes: true });
+      entries = await fs.promises.readdir(absDir, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -125,15 +131,34 @@ export function registerFileHandlers(
   resolveProjectPath: (projectId: string) => Promise<string | null>,
 ) {
   ipc.handle(IPC.filesList, async (_evt, projectId: string) => {
+    const startedAt = Date.now();
     if (!projectId || typeof projectId !== "string") {
+      logger.warn("ipc.files.list.err", {
+        durationMs: Date.now() - startedAt,
+        err: "invalid-project",
+      });
       return { ok: false as const, error: "invalid-project" };
     }
     const projectRoot = await resolveProjectPath(projectId);
-    if (!projectRoot) return { ok: false as const, error: "unknown-project" };
+    if (!projectRoot) {
+      logger.warn("ipc.files.list.err", {
+        durationMs: Date.now() - startedAt,
+        err: "unknown-project",
+      });
+      return { ok: false as const, error: "unknown-project" };
+    }
     try {
-      const files = listFiles(projectRoot);
+      const files = await listFiles(projectRoot);
+      logger.info("ipc.files.list", {
+        durationMs: Date.now() - startedAt,
+        fileCount: files.length,
+      });
       return { ok: true as const, files };
     } catch (err) {
+      logger.warn("ipc.files.list.err", {
+        durationMs: Date.now() - startedAt,
+        err,
+      });
       return { ok: false as const, error: String(err) };
     }
   });
@@ -141,18 +166,46 @@ export function registerFileHandlers(
   ipc.handle(
     IPC.filesRead,
     async (_evt, projectId: string, relPath: string) => {
+      const startedAt = Date.now();
       const projectRoot = await resolveProjectPath(projectId);
-      if (!projectRoot) return { ok: false as const, error: "unknown-project" as const };
+      if (!projectRoot) {
+        logger.warn("ipc.files.read.err", {
+          durationMs: Date.now() - startedAt,
+          err: "unknown-project",
+        });
+        return { ok: false as const, error: "unknown-project" as const };
+      }
       const abs = resolveInsideRoot(projectRoot, relPath);
-      if (!abs) return { ok: false as const, error: "invalid-path" as const };
+      if (!abs) {
+        logger.warn("ipc.files.read.err", {
+          durationMs: Date.now() - startedAt,
+          err: "invalid-path",
+        });
+        return { ok: false as const, error: "invalid-path" as const };
+      }
       try {
-        const stat = fs.statSync(abs);
-        if (!stat.isFile()) return { ok: false as const, error: "not-found" as const };
+        const stat = await fs.promises.stat(abs);
+        if (!stat.isFile()) {
+          logger.warn("ipc.files.read.err", {
+            durationMs: Date.now() - startedAt,
+            err: "not-found",
+          });
+          return { ok: false as const, error: "not-found" as const };
+        }
         if (stat.size > MAX_BYTES) {
+          logger.warn("ipc.files.read.err", {
+            durationMs: Date.now() - startedAt,
+            err: "too-large",
+            size: stat.size,
+          });
           return { ok: false as const, error: "too-large" as const, lineCount: -1 };
         }
-        const buf = fs.readFileSync(abs);
+        const buf = await fs.promises.readFile(abs);
         if (isProbablyBinary(buf)) {
+          logger.warn("ipc.files.read.err", {
+            durationMs: Date.now() - startedAt,
+            err: "binary",
+          });
           return { ok: false as const, error: "binary" as const };
         }
         const content = buf.toString("utf8");
@@ -162,8 +215,18 @@ export function registerFileHandlers(
           if (content.charCodeAt(i) === 10) lineCount++;
         }
         if (lineCount > MAX_LINES) {
+          logger.warn("ipc.files.read.err", {
+            durationMs: Date.now() - startedAt,
+            err: "too-large",
+            lineCount,
+          });
           return { ok: false as const, error: "too-large" as const, lineCount };
         }
+        logger.info("ipc.files.read", {
+          durationMs: Date.now() - startedAt,
+          size: stat.size,
+          lineCount,
+        });
         return {
           ok: true as const,
           content,
@@ -171,7 +234,17 @@ export function registerFileHandlers(
           lineCount,
         };
       } catch (err: any) {
-        if (err?.code === "ENOENT") return { ok: false as const, error: "not-found" as const };
+        if (err?.code === "ENOENT") {
+          logger.warn("ipc.files.read.err", {
+            durationMs: Date.now() - startedAt,
+            err: "not-found",
+          });
+          return { ok: false as const, error: "not-found" as const };
+        }
+        logger.warn("ipc.files.read.err", {
+          durationMs: Date.now() - startedAt,
+          err,
+        });
         return { ok: false as const, error: String(err) };
       }
     }
@@ -186,37 +259,81 @@ export function registerFileHandlers(
       content: string,
       expectedMtimeMs: number | null,
     ) => {
+      const startedAt = Date.now();
       const projectRoot = await resolveProjectPath(projectId);
-      if (!projectRoot) return { ok: false as const, error: "unknown-project" as const };
+      if (!projectRoot) {
+        logger.warn("ipc.files.write.err", {
+          durationMs: Date.now() - startedAt,
+          err: "unknown-project",
+        });
+        return { ok: false as const, error: "unknown-project" as const };
+      }
       const abs = resolveInsideRoot(projectRoot, relPath);
-      if (!abs) return { ok: false as const, error: "invalid-path" as const };
-      if (typeof content !== "string") return { ok: false as const, error: "invalid-content" as const };
+      if (!abs) {
+        logger.warn("ipc.files.write.err", {
+          durationMs: Date.now() - startedAt,
+          err: "invalid-path",
+        });
+        return { ok: false as const, error: "invalid-path" as const };
+      }
+      if (typeof content !== "string") {
+        logger.warn("ipc.files.write.err", {
+          durationMs: Date.now() - startedAt,
+          err: "invalid-content",
+        });
+        return { ok: false as const, error: "invalid-content" as const };
+      }
       try {
         if (expectedMtimeMs != null) {
           try {
-            const cur = fs.statSync(abs);
+            const cur = await fs.promises.stat(abs);
             // Allow small skew (1ms); if mtime advanced, treat as stale.
             if (cur.mtimeMs > expectedMtimeMs + 1) {
+              logger.warn("ipc.files.write.err", {
+                durationMs: Date.now() - startedAt,
+                err: "stale",
+              });
               return { ok: false as const, error: "stale" as const, currentMtimeMs: cur.mtimeMs };
             }
           } catch (err: any) {
             if (err?.code !== "ENOENT") throw err;
           }
         }
-        fs.writeFileSync(abs, content, "utf8");
-        const stat = fs.statSync(abs);
+        await fs.promises.writeFile(abs, content, "utf8");
+        const stat = await fs.promises.stat(abs);
+        logger.info("ipc.files.write", {
+          durationMs: Date.now() - startedAt,
+          bytes: content.length,
+        });
         return { ok: true as const, mtimeMs: stat.mtimeMs };
       } catch (err) {
+        logger.warn("ipc.files.write.err", {
+          durationMs: Date.now() - startedAt,
+          err,
+        });
         return { ok: false as const, error: String(err) };
       }
     }
   );
 
   ipc.handle(IPC.filesWatch, async (_evt, projectId: string, relPath: string) => {
+    const startedAt = Date.now();
     const projectRoot = await resolveProjectPath(projectId);
-    if (!projectRoot) return { ok: false as const, error: "unknown-project" as const };
+    if (!projectRoot) {
+      logger.warn("ipc.files.watch.err", {
+        durationMs: Date.now() - startedAt,
+        err: "unknown-project",
+      });
+      return { ok: false as const, error: "unknown-project" as const };
+    }
     const abs = resolveInsideRoot(projectRoot, relPath);
-    if (!abs) return { ok: false as const, error: "invalid-path" as const };
+    if (!abs) {
+      logger.warn("ipc.files.watch.err", {
+        durationMs: Date.now() - startedAt,
+        err: "invalid-path",
+      });
+      return { ok: false as const, error: "invalid-path" as const };
+    }
     try {
       const stat = fs.statSync(abs);
       const watchId = String(nextWatchId++);
@@ -236,19 +353,40 @@ export function registerFileHandlers(
       });
       entry.watcher = watcher;
       watchers.set(watchId, entry);
+      logger.info("ipc.files.watch", {
+        durationMs: Date.now() - startedAt,
+        watchId,
+      });
       return { ok: true as const, watchId };
     } catch (err) {
+      logger.warn("ipc.files.watch.err", {
+        durationMs: Date.now() - startedAt,
+        err,
+      });
       return { ok: false as const, error: String(err) };
     }
   });
 
   ipc.handle(IPC.filesUnwatch, async (_evt, watchId: string) => {
+    const startedAt = Date.now();
     const entry = watchers.get(watchId);
-    if (!entry) return { ok: true as const };
+    if (!entry) {
+      logger.info("ipc.files.unwatch", {
+        durationMs: Date.now() - startedAt,
+        watchId,
+        hit: false,
+      });
+      return { ok: true as const };
+    }
     try {
       entry.watcher.close();
     } catch {}
     watchers.delete(watchId);
+    logger.info("ipc.files.unwatch", {
+      durationMs: Date.now() - startedAt,
+      watchId,
+      hit: true,
+    });
     return { ok: true as const };
   });
 }

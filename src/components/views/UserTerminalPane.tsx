@@ -10,6 +10,9 @@ import {
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
+import { LOOPBACK_URL_RE } from "~/shared/loopback";
+import { recordTaskSpawnError } from "~/lib/task-spawn-error";
+import { toast } from "sonner";
 import type { UserTerminal } from "~/db/schema";
 
 export function UserTerminalPane({
@@ -105,7 +108,9 @@ export function UserTerminalPane({
         provideLinks(y, callback) {
           const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
           const links: any[] = [];
-          const regex = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/[^\s'"<>)\]]*)?/g;
+          // Fresh RegExp per call — LOOPBACK_URL_RE is a /g shared singleton
+          // and we don't want to leak lastIndex across invocations.
+          const regex = new RegExp(LOOPBACK_URL_RE.source, "g");
           let match: RegExpExecArray | null;
           while ((match = regex.exec(line)) !== null) {
             const text = match[0]!;
@@ -181,7 +186,7 @@ export function UserTerminalPane({
           if (!terminal.startCommand || !onLaunchUrlDetected) return;
           const cleaned = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
           const matches = cleaned.matchAll(
-            /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?(?:\/[^\s'"<>)\]]*)?/g
+            new RegExp(LOOPBACK_URL_RE.source, "g")
           );
           for (const match of matches) {
             const url = match[0]!;
@@ -245,7 +250,14 @@ export function UserTerminalPane({
           onPtyReady(newId);
           wireToPty(newId);
         } catch (err: any) {
-          term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
+          const message = err?.message || String(err);
+          term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);
+          const firstOccurrence = recordTaskSpawnError(terminal.id, message);
+          if (firstOccurrence) {
+            toast.error(`Failed to start terminal: ${message}`, {
+              description: terminal.name,
+            });
+          }
         }
       };
 

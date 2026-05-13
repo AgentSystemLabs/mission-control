@@ -82,9 +82,9 @@ function ThemePreviewCard({
   onSelect: () => void;
 }) {
   const accentRgba = (a: number) => `rgba(${color.rgb}, ${a})`;
-  const panelBorder = `url("/borders/panel_focused_${color.id}.png")`;
-  const squareBorder = `url("/borders/square_${color.id}.png")`;
-  const buttonBorder = `url("/borders/button_filled_${color.id}.png")`;
+  const panelBorder = `url("/borders/panel_focused_${color.id}.webp")`;
+  const squareBorder = `url("/borders/square_${color.id}.webp")`;
+  const buttonBorder = `url("/borders/button_filled_${color.id}.webp")`;
   return (
     <button
       type="button"

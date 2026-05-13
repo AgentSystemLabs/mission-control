@@ -1,4 +1,5 @@
 import { Btn } from "./Btn";
+import { getElectron } from "~/lib/electron";
 import { useLatestMissionControlVersion } from "~/queries/mission-control-version";
 
 export function UpdateAvailableButton() {
@@ -6,9 +7,9 @@ export function UpdateAvailableButton() {
   if (!data?.isUpdateAvailable || !data.latestVersion) return null;
 
   const onClick = () => {
-    const api = (window as any).electronAPI;
-    if (api?.openExternal) {
-      void api.openExternal(data.downloadUrl);
+    const electron = getElectron();
+    if (electron?.openExternal) {
+      void electron.openExternal(data.downloadUrl);
     } else {
       window.open(data.downloadUrl, "_blank", "noopener,noreferrer");
     }

@@ -46,18 +46,18 @@ export function InstallSkillsModal({
 
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
+    const controller = new AbortController();
     setManifestError(null);
     fetchLatestSkillsManifest()
       .then((m) => {
-        if (!cancelled) setManifest(m);
+        if (!controller.signal.aborted) setManifest(m);
       })
       .catch((err) => {
-        if (!cancelled)
+        if (!controller.signal.aborted)
           setManifestError(err instanceof Error ? err.message : String(err));
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [open, manifestAttempt]);
 

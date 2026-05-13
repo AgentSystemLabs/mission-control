@@ -55,18 +55,18 @@ export function applyAccentColor(id: string | null | undefined) {
   root.style.setProperty("--accent-glow", `rgba(${color.rgb}, 0.48)`);
   root.style.setProperty(
     "--mc-btn-filled-image",
-    `url("/borders/button_filled_${color.id}.png")`,
+    `url("/borders/button_filled_${color.id}.webp")`,
   );
   root.style.setProperty(
     "--mc-panel-focused-image",
-    `url("/borders/panel_focused_${color.id}.png")`,
+    `url("/borders/panel_focused_${color.id}.webp")`,
   );
   root.style.setProperty(
     "--mc-panel-image",
-    `url("/borders/square_${color.id}.png")`,
+    `url("/borders/square_${color.id}.webp")`,
   );
   root.style.setProperty(
     "--mc-shell-image",
-    `url("/borders/shell_${color.id}.png")`,
+    `url("/borders/shell_${color.id}.webp")`,
   );
 }

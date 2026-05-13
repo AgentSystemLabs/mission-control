@@ -13,6 +13,7 @@ const {
   createUserTerminal,
   renameUserTerminal,
   deleteUserTerminal,
+  purgeLaunchSpawnedTerminals,
 } = await import("../user-terminals");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, userTerminals } = await import("~/db/schema");
@@ -84,7 +85,7 @@ describe("user-terminals service", () => {
     expect(listUserTerminals(p.id)).toHaveLength(0);
   });
 
-  it("cleans stale launch-created terminals from older app versions", async () => {
+  it("purgeLaunchSpawnedTerminals removes stale launch-created rows", async () => {
     const p = await makeProject();
     const db = getDb();
     db.insert(userTerminals)
@@ -100,7 +101,10 @@ describe("user-terminals service", () => {
       })
       .run();
 
+    // listUserTerminals is read-only and already filters out start_command rows.
     expect(listUserTerminals(p.id)).toHaveLength(0);
+    // Explicit purge (what boot now calls) is what actually deletes them.
+    expect(purgeLaunchSpawnedTerminals()).toBeGreaterThanOrEqual(1);
     expect(db.select().from(userTerminals).all()).toHaveLength(0);
   });
 

@@ -5,10 +5,10 @@ import * as path from "node:path";
 import { installAgentHooks } from "../../../electron/agent-hooks";
 
 describe("agent hook installation", () => {
-  it("does not register Claude interrupt hooks", () => {
+  it("does not register Claude interrupt hooks", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
 
-    installAgentHooks("claude-code", cwd);
+    await installAgentHooks("claude-code", cwd);
 
     const raw = fs.readFileSync(
       path.join(cwd, ".claude", "settings.local.json"),
@@ -21,7 +21,7 @@ describe("agent hook installation", () => {
     expect(settings.hooks.UserInterrupt).toBeUndefined();
   });
 
-  it("removes stale managed Claude interrupt hooks", () => {
+  it("removes stale managed Claude interrupt hooks", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
     const file = path.join(cwd, ".claude", "settings.local.json");
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -35,7 +35,7 @@ describe("agent hook installation", () => {
       "utf8"
     );
 
-    installAgentHooks("claude-code", cwd);
+    await installAgentHooks("claude-code", cwd);
 
     const settings = JSON.parse(fs.readFileSync(file, "utf8")) as {
       hooks: Record<string, unknown>;

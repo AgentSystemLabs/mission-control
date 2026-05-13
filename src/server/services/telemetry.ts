@@ -20,16 +20,18 @@ function readInstallInfo(): InstallInfo | null {
   if (cachedInfo !== undefined) return cachedInfo;
   try {
     const raw = fs.readFileSync(INSTALL_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed.installId === "string" &&
-      typeof parsed.appVersion === "string" &&
-      parsed.installId.length > 0 &&
-      parsed.appVersion.length > 0
-    ) {
-      cachedInfo = { installId: parsed.installId, appVersion: parsed.appVersion };
-      return cachedInfo;
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      const p = parsed as { installId?: unknown; appVersion?: unknown };
+      if (
+        typeof p.installId === "string" &&
+        typeof p.appVersion === "string" &&
+        p.installId.length > 0 &&
+        p.appVersion.length > 0
+      ) {
+        cachedInfo = { installId: p.installId, appVersion: p.appVersion };
+        return cachedInfo;
+      }
     }
   } catch {
     // file missing or unreadable

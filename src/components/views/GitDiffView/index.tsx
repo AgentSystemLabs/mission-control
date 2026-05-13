@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
-import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { StaticHotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import {
   useDeleteProjectFile,
@@ -74,15 +74,19 @@ export function GitDiffView({
 
   useHotkey("escape", onBack, { preventDefault: false });
 
+  const stagingMutating = stageM.isPending || unstageM.isPending;
+
   const onStageAll = useCallback(() => {
     if (unstagedFiles.length === 0) return;
+    if (stagingMutating) return;
     stageM.mutate(unstagedFiles.map((f) => f.path));
-  }, [unstagedFiles, stageM]);
+  }, [unstagedFiles, stageM, stagingMutating]);
 
   const onUnstageAll = useCallback(() => {
     if (stagedFiles.length === 0) return;
+    if (stagingMutating) return;
     unstageM.mutate(stagedFiles.map((f) => f.path));
-  }, [stagedFiles, unstageM]);
+  }, [stagedFiles, unstageM, stagingMutating]);
 
   const busyPaths = useMemo(() => {
     const s = new Set<string>();
@@ -180,9 +184,43 @@ export function GitDiffView({
             {status?.branch ?? "…"}
           </span>
         </div>
+        {error && status ? (
+          <Tooltip
+            content={
+              <div style={{ maxWidth: 320 }}>
+                git status unavailable —{" "}
+                {(error as Error).message || "the latest poll failed"}.
+                Showing the last successful result.
+              </div>
+            }
+          >
+            <span
+              role="status"
+              aria-label="git status unavailable"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "1px 6px",
+                borderRadius: 4,
+                border: "1px solid var(--accent-border)",
+                background: "var(--accent-faint)",
+                color: "var(--accent)",
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                lineHeight: "14px",
+                flexShrink: 0,
+                cursor: "help",
+              }}
+            >
+              <span aria-hidden="true">!</span>
+              <span>status stale</span>
+            </span>
+          </Tooltip>
+        ) : null}
       </div>
 
-      {error ? (
+      {error && !status ? (
         <div
           style={{
             flex: 1,
@@ -212,6 +250,7 @@ export function GitDiffView({
             onDeleteFile={(p) => deleteM.mutate(p)}
             busyPaths={busyPaths}
             projectId={projectId}
+            mutating={stagingMutating}
           />
           <div
             aria-busy={diffQuery.isLoading || isLoading}
