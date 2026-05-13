@@ -1,18 +1,6 @@
 /**
- * Centralized unknown-error → string coercion so server catch blocks can
- * type their bindings as `unknown` (per TS strict default) without sprinkling
- * `e: any` everywhere just to read `.message`.
+ * Server-side re-export of the cross-runtime error helper so server modules
+ * can import from a co-located `./lib/errors` path without reaching into
+ * `~/shared`. Logic lives in `src/shared/errors.ts`.
  */
-export function getErrorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
-  if (e && typeof e === "object") {
-    const m = (e as { message?: unknown }).message;
-    if (typeof m === "string") return m;
-  }
-  try {
-    return String(e);
-  } catch {
-    return "Unknown error";
-  }
-}
+export { getErrorMessage } from "~/shared/errors";

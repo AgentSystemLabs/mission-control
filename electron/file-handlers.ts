@@ -4,6 +4,7 @@ import * as path from "node:path";
 import ignore from "ignore";
 import { IPC } from "./ipc-channels";
 import { logger } from "./logger";
+import { getErrorMessage } from "./errors";
 
 const HARDCODED_IGNORES = [
   "node_modules",
@@ -233,8 +234,8 @@ export function registerFileHandlers(
           mtimeMs: stat.mtimeMs,
           lineCount,
         };
-      } catch (err: any) {
-        if (err?.code === "ENOENT") {
+      } catch (err: unknown) {
+        if ((err as { code?: string } | null)?.code === "ENOENT") {
           logger.warn("ipc.files.read.err", {
             durationMs: Date.now() - startedAt,
             err: "not-found",
@@ -243,9 +244,9 @@ export function registerFileHandlers(
         }
         logger.warn("ipc.files.read.err", {
           durationMs: Date.now() - startedAt,
-          err,
+          err: getErrorMessage(err),
         });
-        return { ok: false as const, error: String(err) };
+        return { ok: false as const, error: getErrorMessage(err) };
       }
     }
   );
@@ -295,8 +296,8 @@ export function registerFileHandlers(
               });
               return { ok: false as const, error: "stale" as const, currentMtimeMs: cur.mtimeMs };
             }
-          } catch (err: any) {
-            if (err?.code !== "ENOENT") throw err;
+          } catch (err: unknown) {
+            if ((err as { code?: string } | null)?.code !== "ENOENT") throw err;
           }
         }
         await fs.promises.writeFile(abs, content, "utf8");

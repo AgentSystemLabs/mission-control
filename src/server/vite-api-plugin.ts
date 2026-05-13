@@ -1,5 +1,6 @@
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { getErrorMessage } from "../shared/errors";
 
 /**
  * Vite plugin that mounts the MissionControl `/api/*` Web-fetch handler
@@ -20,10 +21,10 @@ export function missionControlApi(): Plugin {
           const response: Response | null = await (handleApiRequest as any)(request);
           if (!response) return next();
           await writeFetchResponse(response, res);
-        } catch (err: any) {
+        } catch (err: unknown) {
           res.statusCode = 500;
           res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify({ error: err?.message || "internal error" }));
+          res.end(JSON.stringify({ error: getErrorMessage(err) || "internal error" }));
         }
       });
     },

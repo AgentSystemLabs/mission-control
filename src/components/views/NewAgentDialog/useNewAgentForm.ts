@@ -3,6 +3,7 @@ import { AGENT_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
+import { getErrorMessage } from "~/shared/errors";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import type { TaskAgent } from "~/shared/domain";
 import type { Project } from "~/db/schema";
@@ -137,8 +138,8 @@ export function useNewAgentForm({
         dangerouslySkipPermissions: skip,
         bareSession: false,
       });
-    } catch (e: any) {
-      setError(e?.message || "Failed to start session");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e) || "Failed to start session");
     } finally {
       setSubmitting(false);
     }

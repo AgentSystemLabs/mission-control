@@ -14,6 +14,7 @@ import { LOOPBACK_URL_RE } from "~/shared/loopback";
 import { recordTaskSpawnError } from "~/lib/task-spawn-error";
 import { toast } from "sonner";
 import type { UserTerminal } from "~/db/schema";
+import { getErrorMessage } from "~/shared/errors";
 
 export function UserTerminalPane({
   terminal,
@@ -249,8 +250,8 @@ export function UserTerminalPane({
           }
           onPtyReady(newId);
           wireToPty(newId);
-        } catch (err: any) {
-          const message = err?.message || String(err);
+        } catch (err: unknown) {
+          const message = getErrorMessage(err);
           term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);
           const firstOccurrence = recordTaskSpawnError(terminal.id, message);
           if (firstOccurrence) {

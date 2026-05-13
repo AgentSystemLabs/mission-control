@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
+import { getErrorMessage } from "~/shared/errors";
 
 async function resolveMcEnv(
   electron: NonNullable<ReturnType<typeof getElectron>>,
@@ -287,8 +288,8 @@ export function TerminalPane({
             descriptor.startCommand.includes("--resume");
           await spawnAndWire(descriptor.startCommand, isResume);
           clearTaskSpawnError(descriptor.taskId);
-        } catch (err: any) {
-          const message = err?.message || String(err);
+        } catch (err: unknown) {
+          const message = getErrorMessage(err);
           term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);
           const firstOccurrence = recordTaskSpawnError(descriptor.taskId, message);
           if (firstOccurrence) {

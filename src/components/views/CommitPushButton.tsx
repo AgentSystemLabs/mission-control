@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
+import { getErrorMessage } from "~/shared/errors";
 
 export function CommitPushButton({
   projectId,
@@ -40,8 +41,8 @@ export function CommitPushButton({
       } else {
         onNotice?.("Nothing to push.");
       }
-    } catch (e: any) {
-      const msg = e?.message || "Push failed";
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e) || "Push failed";
       toast.error(`Push failed: ${msg}`, {
         action: {
           label: "Retry push",
@@ -61,11 +62,11 @@ export function CommitPushButton({
       let p;
       try {
         p = await pushM.mutateAsync();
-      } catch (pushErr: any) {
+      } catch (pushErr: unknown) {
         // Partial failure: commit landed but push failed. Surface as a toast
         // with a Retry-push action so the user has to acknowledge before the
         // button silently re-enables and they double-commit on top.
-        const msg = pushErr?.message || "Push failed";
+        const msg = getErrorMessage(pushErr) || "Push failed";
         const prefix = committedMessage ? `Committed: ${committedMessage}. ` : "";
         toast.error(`${prefix}Push failed: ${msg}`, {
           action: {
@@ -92,9 +93,9 @@ export function CommitPushButton({
         parts.push("nothing to push");
       }
       onNotice?.(parts.join(" — "));
-    } catch (e: any) {
+    } catch (e: unknown) {
       const prefix = committedMessage ? `Committed: ${committedMessage}\n` : "";
-      onError?.(prefix + (e?.message || "Commit & push failed"));
+      onError?.(prefix + (getErrorMessage(e) || "Commit & push failed"));
     }
   }, [autoStage, commitM, pushM, onError, onNotice, retryPushOnly]);
 

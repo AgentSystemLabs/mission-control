@@ -9,6 +9,7 @@ import { useHotkey } from "~/lib/use-hotkey";
 import { BRAND_PALETTE } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import type { Group, Project } from "~/db/schema";
+import { getErrorMessage } from "~/shared/errors";
 
 export function ProjectDialog({
   open,
@@ -136,8 +137,8 @@ export function ProjectDialog({
         groupId: groupId || null,
         ...(project ? { imagePath } : { pendingImage }),
       });
-    } catch (e: any) {
-      setError(e?.message || "Save failed");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e) || "Save failed");
     } finally {
       setSubmitting(false);
     }
