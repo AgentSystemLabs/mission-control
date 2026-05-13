@@ -15,7 +15,7 @@ import type { UserTerminal } from "~/db/schema";
 export function UserTerminalPane({
   terminal,
   ptyId,
-  cwd,
+  projectId,
   focused,
   onFocus,
   onPtyReady,
@@ -27,7 +27,7 @@ export function UserTerminalPane({
 }: {
   terminal: UserTerminal;
   ptyId: string | null;
-  cwd: string;
+  projectId: string;
   focused: boolean;
   onFocus: () => void;
   onPtyReady: (ptyId: string) => void;
@@ -233,7 +233,7 @@ export function UserTerminalPane({
 
           const { ptyId: newId } = await electron.pty.spawn({
             taskId: terminal.id,
-            cwd,
+            projectId,
             command: terminal.startCommand ?? "",
             cols: term.cols,
             rows: term.rows,

@@ -1,5 +1,5 @@
-export const FILE_READ_ERRORS = ["invalid-path", "not-found", "binary", "too-large"] as const;
-export const FILE_WRITE_ERRORS = ["invalid-path", "invalid-content", "stale"] as const;
+export const FILE_READ_ERRORS = ["invalid-path", "not-found", "binary", "too-large", "unknown-project"] as const;
+export const FILE_WRITE_ERRORS = ["invalid-path", "invalid-content", "stale", "unknown-project"] as const;
 
 export type FileReadError = (typeof FILE_READ_ERRORS)[number];
 export type FileWriteError = (typeof FILE_WRITE_ERRORS)[number];
@@ -75,10 +75,14 @@ export type ElectronBridge = {
   cliCheck: (
     command: string
   ) => Promise<{ ok: true; path: string } | { ok: false; reason: string }>;
+  getProjectPath: (
+    projectId: string,
+  ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
   pty: {
     spawn: (opts: {
       taskId: string;
-      cwd: string;
+      projectId: string;
+      subPath?: string;
       command: string;
       args?: string[];
       cols?: number;
@@ -90,7 +94,7 @@ export type ElectronBridge = {
     resize: (ptyId: string, cols: number, rows: number) => Promise<boolean>;
     kill: (ptyId: string) => Promise<boolean>;
     killLaunchProcesses: (opts: {
-      cwd: string;
+      projectId: string;
       commands: string[];
       ports?: number[];
     }) => Promise<LaunchProcessKillResult>;
@@ -101,16 +105,16 @@ export type ElectronBridge = {
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
   files: {
-    list: (projectRoot: string) => Promise<FileListResult>;
-    read: (projectRoot: string, relPath: string) => Promise<FileReadResult>;
+    list: (projectId: string) => Promise<FileListResult>;
+    read: (projectId: string, relPath: string) => Promise<FileReadResult>;
     write: (
-      projectRoot: string,
+      projectId: string,
       relPath: string,
       content: string,
       expectedMtimeMs: number | null
     ) => Promise<FileWriteResult>;
     watch: (
-      projectRoot: string,
+      projectId: string,
       relPath: string
     ) => Promise<{ ok: true; watchId: string } | { ok: false; error: string }>;
     unwatch: (watchId: string) => Promise<{ ok: true }>;

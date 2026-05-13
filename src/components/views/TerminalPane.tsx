@@ -243,7 +243,7 @@ export function TerminalPane({
         const mcEnv = await resolveMcEnv(electron, queryClient);
         const { ptyId } = await electron.pty.spawn({
           taskId: descriptor.taskId,
-          cwd: descriptor.cwd,
+          projectId: project.id,
           command,
           cols: term.cols,
           rows: term.rows,

@@ -33,10 +33,15 @@ const electronAPI = {
     ipcRenderer.invoke(IPC.appGetUserName),
   cliCheck: (command: string): Promise<{ ok: true; path: string } | { ok: false; reason: string }> =>
     ipcRenderer.invoke(IPC.cliCheck, command),
+  getProjectPath: (
+    projectId: string,
+  ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IPC.appGetProjectPath, projectId),
   pty: {
     spawn: (opts: {
       taskId: string;
-      cwd: string;
+      projectId: string;
+      subPath?: string;
       command: string;
       args?: string[];
       cols?: number;
@@ -48,7 +53,7 @@ const electronAPI = {
     resize: (ptyId: string, cols: number, rows: number) =>
       ipcRenderer.invoke(IPC.ptyResize, { ptyId, cols, rows }),
     kill: (ptyId: string) => ipcRenderer.invoke(IPC.ptyKill, { ptyId }),
-    killLaunchProcesses: (opts: { cwd: string; commands: string[]; ports?: number[] }) =>
+    killLaunchProcesses: (opts: { projectId: string; commands: string[]; ports?: number[] }) =>
       ipcRenderer.invoke(IPC.ptyKillLaunchProcesses, opts),
     onData: (cb: (msg: { ptyId: string; data: string }) => void) => {
       const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; data: string }) => cb(msg);
@@ -80,29 +85,29 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC.appCloseIntent, listener);
   },
   files: {
-    list: (projectRoot: string): Promise<{ ok: true; files: string[] } | { ok: false; error: string }> =>
-      ipcRenderer.invoke(IPC.filesList, projectRoot),
+    list: (projectId: string): Promise<{ ok: true; files: string[] } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.filesList, projectId),
     read: (
-      projectRoot: string,
+      projectId: string,
       relPath: string,
     ): Promise<
       | { ok: true; content: string; mtimeMs: number; lineCount: number }
-      | { ok: false; error: "invalid-path" | "not-found" | "binary" | "too-large" | string; lineCount?: number }
-    > => ipcRenderer.invoke(IPC.filesRead, projectRoot, relPath),
+      | { ok: false; error: "invalid-path" | "not-found" | "binary" | "too-large" | "unknown-project" | string; lineCount?: number }
+    > => ipcRenderer.invoke(IPC.filesRead, projectId, relPath),
     write: (
-      projectRoot: string,
+      projectId: string,
       relPath: string,
       content: string,
       expectedMtimeMs: number | null,
     ): Promise<
       | { ok: true; mtimeMs: number }
-      | { ok: false; error: "invalid-path" | "invalid-content" | "stale" | string; currentMtimeMs?: number }
-    > => ipcRenderer.invoke(IPC.filesWrite, projectRoot, relPath, content, expectedMtimeMs),
+      | { ok: false; error: "invalid-path" | "invalid-content" | "stale" | "unknown-project" | string; currentMtimeMs?: number }
+    > => ipcRenderer.invoke(IPC.filesWrite, projectId, relPath, content, expectedMtimeMs),
     watch: (
-      projectRoot: string,
+      projectId: string,
       relPath: string,
     ): Promise<{ ok: true; watchId: string } | { ok: false; error: string }> =>
-      ipcRenderer.invoke(IPC.filesWatch, projectRoot, relPath),
+      ipcRenderer.invoke(IPC.filesWatch, projectId, relPath),
     unwatch: (watchId: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC.filesUnwatch, watchId),
     onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) => {

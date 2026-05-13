@@ -24,6 +24,35 @@ function assertCwd(cwd: string): void {
   }
 }
 
+/**
+ * Resolve a renderer-supplied (projectId, subPath?) into an absolute cwd that
+ * provably lives inside the project root the server has on file. Rejects path
+ * traversal, symlink escapes, and unknown project ids — a compromised renderer
+ * can't spawn a pty in /etc by passing `cwd: "/"` anymore because there is no
+ * cwd field; only a projectId we look up server-side.
+ */
+function resolveCwdForProject(projectRoot: string, subPath: string | undefined): string {
+  const root = path.resolve(projectRoot);
+  if (!subPath) {
+    // Realpath the root itself — protects against the server-stored path being
+    // a symlink that resolves outside its declared parent.
+    return fs.realpathSync(root);
+  }
+  if (subPath.includes("\0")) throw new Error("invalid subPath");
+  const abs = path.resolve(root, subPath);
+  const rel = path.relative(root, abs);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("subPath escapes project root");
+  }
+  const realRoot = fs.realpathSync(root);
+  const realAbs = fs.realpathSync(abs);
+  const realRel = path.relative(realRoot, realAbs);
+  if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
+    throw new Error("subPath symlinks outside project root");
+  }
+  return realAbs;
+}
+
 function sanitizeEnv(): Record<string, string> {
   const out = sanitizedProcessEnv();
   // The PTY is xterm.js, not whichever terminal launched Electron. Leaking
@@ -221,15 +250,20 @@ async function killPty(p: Pty): Promise<boolean> {
   }
 }
 
-export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindow | null) {
+export function registerPtyHandlers(
+  ipcMain: IpcMain,
+  getWin: () => BrowserWindow | null,
+  resolveProjectPath: (projectId: string) => Promise<string | null>,
+) {
   ensureClaudeShiftEnterBinding();
   ipcMain.handle(
       IPC.ptySpawn,
-    (
+    async (
       _evt,
       opts: {
         taskId: string;
-        cwd: string;
+        projectId: string;
+        subPath?: string;
         command: string;
         args?: string[];
         cols?: number;
@@ -241,9 +275,12 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       const pty = loadNodePty();
       const isWindows = os.platform() === "win32";
       const userShell = resolveShell();
-      assertCwd(opts.cwd);
+      const projectRoot = await resolveProjectPath(opts.projectId);
+      if (!projectRoot) throw new Error(`unknown projectId: ${opts.projectId}`);
+      const cwd = resolveCwdForProject(projectRoot, opts.subPath);
+      assertCwd(cwd);
 
-      installAgentHooks(opts.agent, opts.cwd);
+      installAgentHooks(opts.agent, cwd);
 
       const env = sanitizeEnv();
       env.MC_TASK_ID = opts.taskId;
@@ -264,14 +301,14 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
           name: "xterm-256color",
           cols: opts.cols ?? 100,
           rows: opts.rows ?? 30,
-          cwd: opts.cwd,
+          cwd,
           env,
         });
       } catch (err: any) {
         const msg = err?.message ?? String(err);
         if (msg.includes("posix_spawnp")) {
           throw new Error(
-            `posix_spawnp failed for shell="${userShell}" cwd="${opts.cwd}". ` +
+            `posix_spawnp failed for shell="${userShell}" cwd="${cwd}". ` +
               `Verify the shell exists and the cwd is a readable directory. ` +
               `Original: ${msg}`
           );
@@ -293,7 +330,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
         proc,
         buffer: [],
         bufferBytes: 0,
-        cwd: opts.cwd,
+        cwd,
         command: opts.command,
         agent: opts.agent,
         mcEnv: opts.mcEnv,
@@ -353,11 +390,19 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
     IPC.ptyKillLaunchProcesses,
     async (
       _evt,
-      opts: { cwd: string; commands: string[]; ports?: number[] }
+      opts: { projectId: string; commands: string[]; ports?: number[] }
     ): Promise<{ ptyCount: number; ports: PortKillResult[] }> => {
+      const projectRoot = await resolveProjectPath(opts.projectId);
+      if (!projectRoot) return { ptyCount: 0, ports: [] };
+      let cwd: string;
+      try {
+        cwd = resolveCwdForProject(projectRoot, undefined);
+      } catch {
+        return { ptyCount: 0, ports: [] };
+      }
       const wanted = new Set((opts.commands ?? []).map(normalizedCommand).filter(Boolean));
       const targets = [...ptys.values()].filter(
-        (p) => p.cwd === opts.cwd && wanted.has(normalizedCommand(p.command))
+        (p) => p.cwd === cwd && wanted.has(normalizedCommand(p.command))
       );
       await Promise.all(targets.map((p) => killPty(p)));
 

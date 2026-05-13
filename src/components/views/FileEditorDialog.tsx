@@ -17,11 +17,11 @@ type LoadedFile = {
 type LoadError = FileReadError | string;
 
 export function FileEditorDialog({
-  projectRoot,
+  projectId,
   relPath,
   onClose,
 }: {
-  projectRoot: string;
+  projectId: string;
   relPath: string | null;
   onClose: () => void;
 }) {
@@ -56,7 +56,7 @@ export function FileEditorDialog({
     setExternalChanged(false);
     setSaveError(null);
     void (async () => {
-      const r = await window.electronAPI!.files.read(projectRoot, relPath);
+      const r = await window.electronAPI!.files.read(projectId, relPath);
       if (cancelled) return;
       if (r.ok) {
         setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
@@ -69,7 +69,7 @@ export function FileEditorDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, projectRoot, relPath]);
+  }, [open, projectId, relPath]);
 
   // Mount file watcher once per open file. The watcher fires on every external
   // mtime advance and we read the current mtime via ref, so saves don't tear it down.
@@ -79,7 +79,7 @@ export function FileEditorDialog({
     let active = true;
     let unsub: (() => void) | undefined;
     void (async () => {
-      const r = await window.electronAPI!.files.watch(projectRoot, relPath);
+      const r = await window.electronAPI!.files.watch(projectId, relPath);
       if (!active) {
         if (r.ok) void window.electronAPI!.files.unwatch(r.watchId);
         return;
@@ -100,14 +100,14 @@ export function FileEditorDialog({
       if (id) void window.electronAPI?.files.unwatch(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, projectRoot, relPath, hasLoaded]);
+  }, [open, projectId, relPath, hasLoaded]);
 
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
   const handleExternalChange = useCallback(async () => {
     if (!relPath || !window.electronAPI) return;
-    const r = await window.electronAPI.files.read(projectRoot, relPath);
+    const r = await window.electronAPI.files.read(projectId, relPath);
     if (!r.ok) return;
     if (dirtyRef.current) {
       setLoaded((prev) => (prev ? { ...prev, mtimeMs: r.mtimeMs } : prev));
@@ -133,7 +133,7 @@ export function FileEditorDialog({
         }
       }
     });
-  }, [projectRoot, relPath]);
+  }, [projectId, relPath]);
 
   const doSave = useCallback(
     async (forceOverwrite: boolean) => {
@@ -141,7 +141,7 @@ export function FileEditorDialog({
       setSaving(true);
       setSaveError(null);
       const r = await window.electronAPI.files.write(
-        projectRoot,
+        projectId,
         relPath,
         content,
         forceOverwrite ? null : loaded.mtimeMs,
@@ -159,18 +159,18 @@ export function FileEditorDialog({
       }
       setSaveError(r.error);
     },
-    [projectRoot, relPath, loaded, content],
+    [projectId, relPath, loaded, content],
   );
 
   const discardAndReload = useCallback(async () => {
     if (!relPath || !window.electronAPI) return;
-    const r = await window.electronAPI.files.read(projectRoot, relPath);
+    const r = await window.electronAPI.files.read(projectId, relPath);
     if (!r.ok) return;
     setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
     setContent(r.content);
     setExternalChanged(false);
     setSaveError(null);
-  }, [projectRoot, relPath]);
+  }, [projectId, relPath]);
 
   useHotkey("file.save", (e) => {
     if (!open) return;
