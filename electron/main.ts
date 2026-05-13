@@ -30,22 +30,28 @@ let runtimePort: number | null = null;
 const PROJECT_PATH_TTL_MS = 30_000;
 type CachedPath = { path: string; expiresAt: number };
 const projectPathCache = new Map<string, CachedPath>();
-let cachedApiToken: { value: string; expiresAt: number } | null = null;
 
-async function fetchApiToken(): Promise<string | null> {
-  const now = Date.now();
-  if (cachedApiToken && cachedApiToken.expiresAt > now) return cachedApiToken.value;
-  if (!runtimePort) return null;
-  try {
-    const res = await fetch(`http://${devServerHost}:${runtimePort}/api/settings`);
-    if (!res.ok) return null;
-    const body = (await res.json()) as { apiToken?: string };
-    if (!body?.apiToken) return null;
-    cachedApiToken = { value: body.apiToken, expiresAt: now + PROJECT_PATH_TTL_MS };
-    return body.apiToken;
-  } catch {
-    return null;
+function platformDefaultUserDataDir(): string {
+  const home = os.homedir();
+  if (process.platform === "darwin") return path.join(home, "Library/Application Support/MissionControl");
+  if (process.platform === "win32") return path.join(home, "AppData/Roaming/MissionControl");
+  return path.join(home, ".config/MissionControl");
+}
+
+function readApiTokenFromFile(): string | null {
+  const candidates = [
+    path.join(app.getPath("userData"), ".api-token"),
+    path.join(platformDefaultUserDataDir(), ".api-token"),
+  ];
+  for (const file of candidates) {
+    try {
+      const t = fs.readFileSync(file, "utf8").trim();
+      if (t) return t;
+    } catch {
+      // try next
+    }
   }
+  return null;
 }
 
 export async function getProjectPath(projectId: string): Promise<string | null> {
@@ -57,11 +63,12 @@ export async function getProjectPath(projectId: string): Promise<string | null> 
   const cached = projectPathCache.get(projectId);
   if (cached && cached.expiresAt > now) return cached.path;
   if (!runtimePort) return null;
-  const token = await fetchApiToken();
+  const token = readApiTokenFromFile();
+  if (!token) return null;
   try {
     const res = await fetch(
       `http://${devServerHost}:${runtimePort}/api/projects/${encodeURIComponent(projectId)}`,
-      token ? { headers: { authorization: `Bearer ${token}` } } : undefined,
+      { headers: { authorization: `Bearer ${token}` } },
     );
     if (!res.ok) return null;
     const body = (await res.json()) as { project?: { path?: string } };
@@ -356,33 +363,11 @@ ipcMain.handle(IPC.appGetProjectPath, async (_evt, projectId: string) => {
 ipcMain.handle(IPC.appGetRuntimePort, () => runtimePort);
 ipcMain.handle(IPC.appGetUserDataDir, () => app.getPath("userData"));
 
-// Server writes `.api-token` into resolveUserDataDir() (which honors
-// MC_USER_DATA_DIR). In prod, main spawns the server with
-// MC_USER_DATA_DIR=app.getPath("userData") so both sides agree. In dev,
-// vite runs as a sibling process without that env, so it writes to the
-// platform-default path — we probe both.
-function platformDefaultUserDataDir(): string {
-  const home = os.homedir();
-  if (process.platform === "darwin") return path.join(home, "Library/Application Support/MissionControl");
-  if (process.platform === "win32") return path.join(home, "AppData/Roaming/MissionControl");
-  return path.join(home, ".config/MissionControl");
-}
-
 async function readApiTokenWithRetry(): Promise<string | null> {
-  const candidates = [
-    path.join(app.getPath("userData"), ".api-token"),
-    path.join(platformDefaultUserDataDir(), ".api-token"),
-  ];
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    for (const file of candidates) {
-      try {
-        const t = fs.readFileSync(file, "utf8").trim();
-        if (t) return t;
-      } catch {
-        // try next
-      }
-    }
+    const t = readApiTokenFromFile();
+    if (t) return t;
     await new Promise((r) => setTimeout(r, 100));
   }
   return null;

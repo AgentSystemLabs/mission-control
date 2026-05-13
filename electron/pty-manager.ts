@@ -318,7 +318,7 @@ export function registerPtyHandlers(
 
       logger.info("pty spawned", {
         pid: proc.pid,
-        cwd: opts.cwd,
+        cwd,
         cols: opts.cols ?? 100,
         rows: opts.rows ?? 30,
       });
