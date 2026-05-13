@@ -12,11 +12,15 @@ import { IPC } from "./ipc-channels";
 import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
 import { sendTelemetry } from "./telemetry";
 import { augmentProcessEnv, resolveCommandOnPath, sanitizedProcessEnv } from "./shell-env";
+import { env, serverEnv } from "../src/shared/env";
 
-const isDev = process.env.NODE_ENV === "development";
-const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
-const devServerPort = Number(process.env.MC_DEV_PORT ?? 5173);
-const devUrl = process.env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPort}`;
+// Boot-time validation: fail fast on misconfig before anything else runs.
+serverEnv();
+
+const isDev = env.NODE_ENV === "development";
+const devServerHost = env.MC_DEV_HOST ?? "127.0.0.1";
+const devServerPort = env.MC_DEV_PORT ?? 5173;
+const devUrl = env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPort}`;
 
 augmentProcessEnv();
 
