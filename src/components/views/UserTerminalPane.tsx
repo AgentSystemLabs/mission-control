@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
-import { getElectron } from "~/lib/electron";
-import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
-import {
-  createTerminalOptions,
-  createTerminalTheme,
-  getCurrentAccentColor,
-  getTerminalColorScheme,
-  watchTerminalColorScheme,
-} from "~/lib/terminal-options";
+import { getCurrentAccentColor } from "~/lib/terminal-options";
+import { useXtermPty } from "~/lib/use-xterm-pty";
+import { XtermSurface } from "~/components/views/XtermSurface";
 import { LOOPBACK_URL_RE } from "~/shared/loopback";
 import { recordTaskSpawnError } from "~/lib/task-spawn-error";
 import { toast } from "sonner";
@@ -27,7 +21,7 @@ export function UserTerminalPane({
   onLaunchUrlDetected,
   onKill,
   onRename,
-  isLast,
+  isLast: _isLast,
 }: {
   terminal: UserTerminal;
   ptyId: string | null;
@@ -41,13 +35,23 @@ export function UserTerminalPane({
   onRename: (name: string) => void;
   isLast: boolean;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement | null>(null);
-  const termRef = useRef<{ focus: () => void } | null>(null);
-  const [bridgeMissing, setBridgeMissing] = useState(false);
+  const termFocusRef = useRef<(() => void) | null>(null);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(terminal.name);
   const [domFocused, setDomFocused] = useState(false);
+
+  // Latch latest values so the stable onTerm closure always reads fresh
+  // props (terminal id changes re-run the hook; the rest are mutable).
+  const onFocusRef = useRef(onFocus);
+  onFocusRef.current = onFocus;
+  const onLaunchUrlDetectedRef = useRef(onLaunchUrlDetected);
+  onLaunchUrlDetectedRef.current = onLaunchUrlDetected;
+  const onPtyReadyRef = useRef(onPtyReady);
+  onPtyReadyRef.current = onPtyReady;
+  const onPtyExitRef = useRef(onPtyExit);
+  onPtyExitRef.current = onPtyExit;
+
   useEffect(() => {
     const el = cardRef.current;
     if (!el) return;
@@ -70,41 +74,12 @@ export function UserTerminalPane({
 
   useEffect(() => setDraftName(terminal.name), [terminal.name]);
 
-  useEffect(() => {
-    const electron = getElectron();
-    if (!electron) {
-      setBridgeMissing(true);
-      return;
-    }
-    if (!containerRef.current) return;
+  const { containerRef, bridgeMissing } = useXtermPty({
+    key: terminal.id,
+    cursorColor: () => getCurrentAccentColor(),
+    onTerm: ({ term, fit, electron, setActivePtyId, isCancelled }) => {
+      termFocusRef.current = () => term.focus();
 
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    void (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import("@xterm/xterm"),
-        import("@xterm/addon-fit"),
-      ]);
-      if (cancelled || !containerRef.current) return;
-
-      const term = new Terminal(
-        createTerminalOptions({
-          colorScheme: getTerminalColorScheme(),
-          cursorColor: getCurrentAccentColor(),
-        })
-      );
-      const fit = new FitAddon();
-      term.loadAddon(fit);
-      term.open(containerRef.current);
-      termRef.current = { focus: () => term.focus() };
-      term.focus();
-      const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
-        term.options.theme = createTerminalTheme({
-          colorScheme,
-          cursorColor: getCurrentAccentColor(),
-        });
-      });
       term.registerLinkProvider({
         provideLinks(y, callback) {
           const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
@@ -131,60 +106,18 @@ export function UserTerminalPane({
           callback(links);
         },
       });
-      const onFocusIn = () => onFocus();
-      const focusEl = containerRef.current;
-      focusEl.addEventListener("focusin", onFocusIn);
 
-      // Dropped files paste their paths into the PTY, matching iTerm/Terminal.app.
-      const onDragOver = (e: DragEvent) => {
-        if (e.dataTransfer?.types.includes("Files")) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }
-      };
-      const onDrop = (e: DragEvent) => {
-        const files = Array.from(e.dataTransfer?.files ?? []);
-        if (!files.length) return;
-        e.preventDefault();
-        if (!activePtyId) return;
-        const paths = files
-          .map((f) => electron.getPathForFile(f))
-          .filter(Boolean)
-          .map((p) => (/[\s"'\\]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p));
-        if (!paths.length) return;
-        electron.pty.write(activePtyId, paths.join(" ") + " ");
-        term.focus();
-      };
-      focusEl.addEventListener("dragover", onDragOver);
-      focusEl.addEventListener("drop", onDrop);
+      const focusEl = containerRef.current;
+      const onFocusIn = () => onFocusRef.current();
+      focusEl?.addEventListener("focusin", onFocusIn);
 
       const subscriptions: Array<() => void> = [];
-      let rafHandle = 0;
-      let activePtyId: string | null = null;
-
-      // Shift+Enter must insert a newline in Claude Code's prompt; xterm.js
-      // otherwise emits plain CR. Send ESC+CR (the same sequence
-      // `claude /terminal-setup` wires up for iTerm2/Terminal.app).
-      // preventDefault is required: returning false makes xterm.js bail
-      // before its own preventDefault, so the hidden textarea would also
-      // insert `\n` and xterm's input handler would write it to the PTY.
-      term.attachCustomKeyEventHandler((e) => {
-        const bytes = mapTerminalKey(e);
-        if (bytes === null) {
-          if (!shouldSuppressTerminalKey(e)) return true;
-          e.preventDefault();
-          return false;
-        }
-        e.preventDefault();
-        if (activePtyId) electron.pty.write(activePtyId, bytes);
-        return false;
-      });
 
       const wireToPty = (id: string) => {
-        activePtyId = id;
+        setActivePtyId(id);
         const seenLaunchUrls = new Set<string>();
         const detectLaunchUrl = (data: string) => {
-          if (!terminal.startCommand || !onLaunchUrlDetected) return;
+          if (!terminal.startCommand || !onLaunchUrlDetectedRef.current) return;
           const cleaned = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
           const matches = cleaned.matchAll(
             new RegExp(LOOPBACK_URL_RE.source, "g")
@@ -193,7 +126,7 @@ export function UserTerminalPane({
             const url = match[0]!;
             if (seenLaunchUrls.has(url)) continue;
             seenLaunchUrls.add(url);
-            onLaunchUrlDetected(url);
+            onLaunchUrlDetectedRef.current(url);
             return;
           }
         };
@@ -206,10 +139,10 @@ export function UserTerminalPane({
           }),
           electron.pty.onExit((msg) => {
             if (msg.ptyId === id) {
-              activePtyId = null;
+              setActivePtyId(null);
               term.writeln("");
               term.writeln(`\x1b[2m[process exited (code=${msg.exitCode})]\x1b[0m`);
-              onPtyExit();
+              onPtyExitRef.current();
             }
           })
         );
@@ -222,7 +155,7 @@ export function UserTerminalPane({
       };
 
       const ensurePty = async () => {
-        if (cancelled) return;
+        if (isCancelled()) return;
         try {
           try {
             fit.fit();
@@ -233,7 +166,7 @@ export function UserTerminalPane({
           if (ptyId) {
             wireToPty(ptyId);
             const buf = await electron.pty.replay(ptyId);
-            if (!cancelled && buf) term.write(buf);
+            if (!isCancelled() && buf) term.write(buf);
             return;
           }
 
@@ -244,11 +177,11 @@ export function UserTerminalPane({
             cols: term.cols,
             rows: term.rows,
           });
-          if (cancelled) {
+          if (isCancelled()) {
             await electron.pty.kill(newId).catch(() => undefined);
             return;
           }
-          onPtyReady(newId);
+          onPtyReadyRef.current(newId);
           wireToPty(newId);
         } catch (err: unknown) {
           const message = getErrorMessage(err);
@@ -262,43 +195,25 @@ export function UserTerminalPane({
         }
       };
 
-      rafHandle = window.requestAnimationFrame(() => ensurePty());
-
-      const ro = new ResizeObserver(() => {
-        try {
-          fit.fit();
-        } catch {
-          /* swallow */
-        }
+      const rafHandle = window.requestAnimationFrame(() => {
+        void ensurePty();
       });
-      ro.observe(containerRef.current);
 
-      cleanup = () => {
+      return () => {
         cancelAnimationFrame(rafHandle);
-        focusEl.removeEventListener("focusin", onFocusIn);
-        focusEl.removeEventListener("dragover", onDragOver);
-        focusEl.removeEventListener("drop", onDrop);
-        stopWatchingColorScheme();
+        focusEl?.removeEventListener("focusin", onFocusIn);
         for (const off of subscriptions) off();
-        ro.disconnect();
-        term.dispose();
-        termRef.current = null;
+        termFocusRef.current = null;
       };
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminal.id]);
+    },
+  });
 
   // Bring focus to the xterm when this pane becomes focused via cycling or
   // after a sibling pane is closed. Defer to the next frame so the focus call
   // lands after Chromium has finished settling focus from the unmounted pane.
   useEffect(() => {
     if (!focused) return;
-    const raf = requestAnimationFrame(() => termRef.current?.focus());
+    const raf = requestAnimationFrame(() => termFocusRef.current?.());
     return () => cancelAnimationFrame(raf);
   }, [focused]);
 
@@ -394,15 +309,7 @@ export function UserTerminalPane({
           <Icon name="x" size={11} />
         </button>
       </div>
-      <div style={{ flex: 1, position: "relative", background: "var(--terminal-bg)" }}>
-        {bridgeMissing ? (
-          <div style={{ padding: 16, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
-            Terminals require the Electron runtime.
-          </div>
-        ) : (
-          <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-        )}
-      </div>
+      <XtermSurface containerRef={containerRef} bridgeMissing={bridgeMissing} />
     </CardFrame>
   );
 }
