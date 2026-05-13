@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as schema from "./schema";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS } from "~/shared/domain";
+import { serverEnv } from "~/shared/env";
 
 const migrationFiles = import.meta.glob("./migrations/*.sql", {
   eager: true,
@@ -16,7 +17,8 @@ let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let _sqlite: Database.Database | null = null;
 
 export function resolveUserDataDir(): string {
-  if (process.env.MC_USER_DATA_DIR) return process.env.MC_USER_DATA_DIR;
+  const override = serverEnv().MC_USER_DATA_DIR;
+  if (override) return override;
   const platform = process.platform;
   const home = os.homedir();
   if (platform === "darwin") return path.join(home, "Library/Application Support/MissionControl");

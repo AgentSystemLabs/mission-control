@@ -3,6 +3,7 @@ import {
   isLicensePayloadExpired,
   type LicensePayload,
 } from "~/shared/license";
+import { serverEnv } from "~/shared/env";
 
 declare const __MC_LICENSE_PUBLIC_KEY__: string | undefined;
 
@@ -15,7 +16,7 @@ type VerifyResult<T> =
   | { ok: false; reason: "format" | "signature" | "payload" | "expired" };
 
 function configuredPublicKey(): string | null {
-  const runtime = process.env.MC_LICENSE_PUBLIC_KEY;
+  const runtime = serverEnv().MC_LICENSE_PUBLIC_KEY;
   if (runtime) return runtime.replace(/\\n/g, "\n");
   if (typeof __MC_LICENSE_PUBLIC_KEY__ !== "undefined" && __MC_LICENSE_PUBLIC_KEY__) {
     return __MC_LICENSE_PUBLIC_KEY__.replace(/\\n/g, "\n");
