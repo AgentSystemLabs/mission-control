@@ -27,13 +27,22 @@ export function runCli(
 ): Promise<string> {
   const { cwd, input, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
   return new Promise((resolve, reject) => {
+    // POSIX single-quote escaping is wrong for cmd.exe / PowerShell; on
+    // Windows skip the login shell and spawn the binary directly with
+    // argv array (no shell interpolation, no quoting needed).
+    const isWindows = process.platform === "win32";
     const userShell = process.env.SHELL || "/bin/sh";
-    const line = [cmd, ...args].map(shellQuote).join(" ");
-    const child = spawn(userShell, ["-l", "-c", line], {
-      cwd,
-      env: process.env,
-      stdio: [input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
-    });
+    const child = isWindows
+      ? spawn(cmd, args, {
+          cwd,
+          env: process.env,
+          stdio: [input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
+        })
+      : spawn(userShell, ["-l", "-c", [cmd, ...args].map(shellQuote).join(" ")], {
+          cwd,
+          env: process.env,
+          stdio: [input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
+        });
     let out = "";
     let err = "";
     const timer = setTimeout(() => {
