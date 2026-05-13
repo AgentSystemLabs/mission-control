@@ -45,6 +45,7 @@ import { getBindings, setBinding, resetBinding, resetAllBindings } from "~/db/ke
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, requireBearerToken } from "./auth";
+import { verifyTaskToken } from "./services/task-token";
 import {
   readLicenseState,
   removeLicense,
@@ -64,6 +65,35 @@ import {
 } from "./services/git";
 
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
+
+/**
+ * Accept either the global API token (renderer / main process) or a per-task
+ * capability token whose embedded taskId matches `requiredTaskId`. Used for
+ * the two endpoints a spawned agent shell needs to reach.
+ */
+function requireTaskAuth(
+  request: Request,
+  requiredTaskId: string,
+): { ok: true } | { ok: false; response: Response } {
+  const auth = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  const token = auth.replace(/^Bearer\s+/i, "").trim();
+  // Task-scoped tokens carry the `v1.` prefix — try those first so we never
+  // need to read the renderer's global token just to validate a hook callback.
+  if (token.startsWith("v1.")) {
+    const result = verifyTaskToken(token, requiredTaskId);
+    if (result.ok) return { ok: true };
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+    };
+  }
+  // Fall back to the global API token so the renderer / main process continue
+  // to work unchanged.
+  return requireBearerToken(request);
+}
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -189,9 +219,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^\/]+)\/status$/);
     if (taskStatusMatch && method === "POST") {
-      const auth = requireBearerToken(request);
-      if (!auth.ok) return auth.response;
       const id = decodeURIComponent(taskStatusMatch[1]!);
+      const auth = requireTaskAuth(request, id);
+      if (!auth.ok) return auth.response;
       const body = await readJson<any>(request);
       const t = updateStatus(id, body);
       if (!t) return jsonError(404, "not found");
@@ -484,10 +514,10 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const agentHookMatch = pathname.match(AGENT_HOOK_PATH);
     if (agentHookMatch && method === "POST") {
-      const auth = requireBearerToken(request);
-      if (!auth.ok) return auth.response;
       const taskId = url.searchParams.get("taskId");
       if (!taskId) return jsonError(400, "taskId required");
+      const auth = requireTaskAuth(request, taskId);
+      if (!auth.ok) return auth.response;
       const payload = await readJson<{
         hook_event_name?: string;
         prompt?: string;

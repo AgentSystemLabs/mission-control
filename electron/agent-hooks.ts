@@ -48,9 +48,9 @@ function buildHookCommand(endpointSlug: string): string {
   // Read stdin (the agent's hook payload JSON) and forward to Mission Control.
   // Fail-soft: never block the user's session if MC is down.
   return (
-    'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
+    'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ] || [ -z "$MC_TASK_TOKEN" ]; then exit 0; fi; ' +
     "curl -sS -m 3 -X POST " +
-    '-H "Authorization: Bearer $MC_API_TOKEN" ' +
+    '-H "Authorization: Bearer $MC_TASK_TOKEN" ' +
     '-H "Content-Type: application/json" ' +
     "--data-binary @- " +
     `"$MC_API_URL/api/hooks/${endpointSlug}?taskId=$MC_TASK_ID" ` +
