@@ -588,6 +588,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const agentHookMatch = pathname.match(AGENT_HOOK_PATH);
     if (agentHookMatch && method === "POST") {
+      const slug = agentHookMatch[1]!;
       const taskId = url.searchParams.get("taskId");
       if (!taskId) return jsonError(400, "taskId required");
       const auth = requireTaskAuth(request, taskId);
