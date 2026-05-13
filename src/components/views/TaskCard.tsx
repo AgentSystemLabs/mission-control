@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
@@ -11,17 +11,19 @@ import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
 import type { Task } from "~/db/schema";
 
-export function TaskCard({
-  task,
-  selected,
-  onToggle,
-  onDelete,
-}: {
+type TaskCardProps = {
   task: Task;
   selected: boolean;
   onToggle: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
-}) {
+};
+
+function TaskCardImpl({
+  task,
+  selected,
+  onToggle,
+  onDelete,
+}: TaskCardProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -280,6 +282,24 @@ export function TaskCard({
     </CardFrame>
   );
 }
+
+export const TaskCard = memo(TaskCardImpl, (prev, next) => {
+  if (prev.selected !== next.selected) return false;
+  if (prev.onToggle !== next.onToggle) return false;
+  if (prev.onDelete !== next.onDelete) return false;
+  const a = prev.task;
+  const b = next.task;
+  if (a === b) return true;
+  return (
+    a.id === b.id &&
+    a.title === b.title &&
+    a.status === b.status &&
+    a.agent === b.agent &&
+    a.branch === b.branch &&
+    a.preview === b.preview &&
+    a.updatedAt === b.updatedAt
+  );
+});
 
 function formatRelative(ts: number): string {
   const diff = Date.now() - ts;

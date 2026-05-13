@@ -65,7 +65,7 @@ export function UsagePanel({ onBack }: { onBack: () => void }) {
         <div style={{ flex: 1 }} />
       </div>
 
-      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }} aria-busy={isLoading}>
         {error ? (
           <div
             style={{

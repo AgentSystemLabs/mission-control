@@ -157,7 +157,7 @@ export function FileFinderDialog({
         color: "var(--text-faint)",
       }}
     >
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div style={{ flex: 1, overflowY: "auto" }} aria-busy={isLoading}>
         {error ? (
           <Status>Error: {String((error as Error).message)}</Status>
         ) : isLoading && !data ? (

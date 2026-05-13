@@ -1,21 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
-import { Icon } from "~/components/ui/Icon";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
-
-function Spinner() {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        animation: "spin 0.8s linear infinite",
-      }}
-    >
-      <Icon name="refresh" size={11} />
-    </span>
-  );
-}
 
 export function CommitPushButton({
   projectId,
@@ -116,12 +102,7 @@ export function CommitPushButton({
   const pushing = pushM.isPending;
   const busy = committing || pushing;
 
-  const labelBusy = (
-    <>
-      <Spinner />
-      {committing ? "Committing…" : "Pushing…"}
-    </>
-  );
+  const labelBusy = <>{committing ? "Committing…" : "Pushing…"}</>;
   const labelIdle = (
     <>
       {label}

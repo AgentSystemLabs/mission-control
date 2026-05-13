@@ -214,6 +214,7 @@ export function GitDiffView({
             projectId={projectId}
           />
           <div
+            aria-busy={diffQuery.isLoading || isLoading}
             style={{
               flex: 1,
               display: "flex",

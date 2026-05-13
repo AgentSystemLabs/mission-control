@@ -144,6 +144,7 @@ export const tokenUsage = sqliteTable(
     taskIdx: index("token_usage_task_idx").on(t.taskId),
     projectIdx: index("token_usage_project_idx").on(t.projectId),
     tsIdx: index("token_usage_ts_idx").on(t.ts),
+    taskTsIdx: index("token_usage_task_ts_idx").on(t.taskId, t.ts),
   })
 );
 

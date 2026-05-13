@@ -211,6 +211,7 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS token_usage_task_idx ON token_usage(task_id);
     CREATE INDEX IF NOT EXISTS token_usage_project_idx ON token_usage(project_id);
     CREATE INDEX IF NOT EXISTS token_usage_ts_idx ON token_usage(ts);
+    CREATE INDEX IF NOT EXISTS token_usage_task_ts_idx ON token_usage(task_id, ts);
 
     CREATE TABLE IF NOT EXISTS token_usage_session_offsets (
       claude_session_id TEXT PRIMARY KEY,

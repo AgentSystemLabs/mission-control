@@ -456,7 +456,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
         <a
           href="https://agentsystem.dev"
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           style={{
             color: "var(--banner-link)",
             fontWeight: 600,

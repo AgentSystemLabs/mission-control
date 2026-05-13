@@ -153,7 +153,7 @@ export function LicenseEntryModal({
             <a
               href={PURCHASE_URL}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               onClick={openPurchase}
               style={{
                 fontSize: 12.5,

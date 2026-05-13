@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
@@ -70,7 +70,10 @@ export function TerminalPane({
   const queryClient = useQueryClient();
 
   const { data: liveTasks } = useTasks(project.id);
-  const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
+  const liveTask = useMemo(
+    () => liveTasks?.find((t) => t.id === task.id) ?? task,
+    [liveTasks, task]
+  );
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
   const isRunning = liveTask.status === "running";
