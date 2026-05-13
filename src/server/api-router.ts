@@ -50,6 +50,7 @@ import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, requireBearerToken, requireTokenQueryParam } from "./auth";
 import { clientKeyFromRequest, rateLimit, rateLimitResponse } from "./lib/rate-limit";
 import { ensureApiTokenBootstrap, refreshApiTokenAfterRegenerate } from "./bootstrap";
+import { verifyTaskToken } from "./services/task-token";
 import {
   readLicenseState,
   removeLicense,
@@ -73,14 +74,9 @@ const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
 
 /**
  * Show a native Electron confirm dialog before regenerating the API token.
- * Returns true when the user confirms, false when they cancel.
- * In non-Electron contexts (e.g. unit tests), the dialog module is unavailable
- * and we fall back to allowing regeneration so existing test flows still work.
  */
 async function confirmTokenRegeneration(): Promise<boolean> {
   try {
-    // Dynamic require so this file can still be imported in Node/test contexts
-    // where the `electron` module isn't present.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const electron = require("electron") as typeof import("electron") | undefined;
     const dialog = electron?.dialog;
@@ -100,6 +96,31 @@ async function confirmTokenRegeneration(): Promise<boolean> {
   } catch {
     return true;
   }
+}
+
+/**
+ * Accept either the global API token or a per-task capability token whose
+ * embedded taskId matches `requiredTaskId`. Used for endpoints a spawned
+ * agent shell needs to reach.
+ */
+function requireTaskAuth(
+  request: Request,
+  requiredTaskId: string,
+): { ok: true } | { ok: false; response: Response } {
+  const auth = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  const token = auth.replace(/^Bearer\s+/i, "").trim();
+  if (token.startsWith("v1.")) {
+    const result = verifyTaskToken(token, requiredTaskId);
+    if (result.ok) return { ok: true };
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+    };
+  }
+  return requireBearerToken(request);
 }
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
@@ -245,6 +266,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^\/]+)\/status$/);
     if (taskStatusMatch && method === "POST") {
       const id = decodeURIComponent(taskStatusMatch[1]!);
+      const auth = requireTaskAuth(request, id);
+      if (!auth.ok) return auth.response;
       const parsed = await parseBody(request, taskStatusBodySchema);
       if (!parsed.ok) return parsed.response;
       const t = updateStatus(id, parsed.data);
@@ -565,9 +588,10 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const agentHookMatch = pathname.match(AGENT_HOOK_PATH);
     if (agentHookMatch && method === "POST") {
-      const slug = agentHookMatch[1]!;
       const taskId = url.searchParams.get("taskId");
       if (!taskId) return jsonError(400, "taskId required");
+      const auth = requireTaskAuth(request, taskId);
+      if (!auth.ok) return auth.response;
       const rl = rateLimit("hooks", `${clientKeyFromRequest(request)}:${taskId}`, {
         max: 60,
         windowMs: 60 * 1000,

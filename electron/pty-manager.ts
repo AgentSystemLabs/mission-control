@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
 import { resolveShell, sanitizedProcessEnv, shellArgsForCommand } from "./shell-env";
@@ -176,6 +177,22 @@ type Pty = {
 };
 
 const INTERRUPT_COOLDOWN_MS = 2000;
+const TASK_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Issue a per-task capability token whose only authority is the two routes a
+ * spawned agent shell needs: POST /api/hooks/:slug and POST /api/tasks/:id/status.
+ * Format mirrors src/server/services/task-token.ts — the global API token is
+ * used as the shared HMAC secret (it never leaves the main/server boundary;
+ * the spawned child receives only the per-task HMAC).
+ */
+function issueTaskToken(taskId: string, secret: string, ttlMs = TASK_TOKEN_TTL_MS): string {
+  const expiry = Date.now() + ttlMs;
+  const sig = createHmac("sha256", secret)
+    .update(`${taskId}|${expiry}`)
+    .digest("base64url");
+  return `v1.${taskId}.${expiry}.${sig}`;
+}
 const SCAN_TAIL_MAX = 256;
 
 export function hasClaudeInterruptPrompt(text: string): boolean {
@@ -370,7 +387,13 @@ export function registerPtyHandlers(
       const env = sanitizeEnv();
       env.MC_TASK_ID = opts.taskId;
       if (opts.mcEnv?.apiUrl) env.MC_API_URL = opts.mcEnv.apiUrl;
-      if (opts.mcEnv?.token) env.MC_API_TOKEN = opts.mcEnv.token;
+      // Per-task scoped capability token. The global API token deliberately is
+      // NOT injected — any child process the agent spawns (npm postinstall,
+      // etc.) would otherwise have full API authority via its env. The HMAC
+      // here only authenticates the two routes a spawned shell needs.
+      if (opts.mcEnv?.token) {
+        env.MC_TASK_TOKEN = issueTaskToken(opts.taskId, opts.mcEnv.token);
+      }
 
       // If a command was supplied, run it through the user's shell with
       // platform-appropriate arguments. This loads the user's PATH and forks the
