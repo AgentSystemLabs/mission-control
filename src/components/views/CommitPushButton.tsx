@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
+import { getErrorMessage } from "~/shared/errors";
 
 function Spinner() {
   return (
@@ -69,9 +70,9 @@ export function CommitPushButton({
         parts.push("nothing to push");
       }
       onNotice?.(parts.join(" — "));
-    } catch (e: any) {
+    } catch (e: unknown) {
       const prefix = committedMessage ? `Committed: ${committedMessage}\n` : "";
-      onError?.(prefix + (e?.message || "Commit & push failed"));
+      onError?.(prefix + (getErrorMessage(e) || "Commit & push failed"));
     }
   }, [autoStage, commitM, pushM, onError, onNotice]);
 

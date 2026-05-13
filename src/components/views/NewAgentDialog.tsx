@@ -10,6 +10,7 @@ import { AGENT_REGISTRY, UI_AGENTS, agentSupportsSkipPermissions } from "~/share
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import type { TaskAgent } from "~/shared/domain";
 import type { Project } from "~/db/schema";
+import { getErrorMessage } from "~/shared/errors";
 
 export type RememberPatch = {
   rememberAgentSettings: boolean;
@@ -151,8 +152,8 @@ export function NewAgentDialog({
         dangerouslySkipPermissions: skip,
         bareSession: false,
       });
-    } catch (e: any) {
-      setError(e?.message || "Failed to start session");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e) || "Failed to start session");
     } finally {
       setSubmitting(false);
     }

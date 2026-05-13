@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
 import { IPC } from "./ipc-channels";
+import { getErrorMessage } from "./errors";
 
 const HARDCODED_IGNORES = [
   "node_modules",
@@ -162,9 +163,9 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
           mtimeMs: stat.mtimeMs,
           lineCount,
         };
-      } catch (err: any) {
-        if (err?.code === "ENOENT") return { ok: false as const, error: "not-found" as const };
-        return { ok: false as const, error: String(err) };
+      } catch (err: unknown) {
+        if ((err as { code?: string } | null)?.code === "ENOENT") return { ok: false as const, error: "not-found" as const };
+        return { ok: false as const, error: getErrorMessage(err) };
       }
     }
   );
@@ -189,8 +190,8 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
             if (cur.mtimeMs > expectedMtimeMs + 1) {
               return { ok: false as const, error: "stale" as const, currentMtimeMs: cur.mtimeMs };
             }
-          } catch (err: any) {
-            if (err?.code !== "ENOENT") throw err;
+          } catch (err: unknown) {
+            if ((err as { code?: string } | null)?.code !== "ENOENT") throw err;
           }
         }
         fs.writeFileSync(abs, content, "utf8");

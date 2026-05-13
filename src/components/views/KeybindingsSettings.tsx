@@ -7,6 +7,7 @@ import { formatBinding } from "~/lib/keybindings/format";
 import { bindingComboKey, bindingsEqual, eventToBinding, isValidBinding } from "~/lib/keybindings/match";
 import { DEFAULT_BINDINGS } from "~/lib/keybindings/defaults";
 import { ACTION_META, HOTKEY_ACTIONS, type Binding, type HotkeyAction } from "~/lib/keybindings/types";
+import { getErrorMessage } from "~/shared/errors";
 
 export function KeybindingsSettings() {
   const { bindings, setBinding, resetBinding, resetAll } = useKeybindings();
@@ -60,8 +61,8 @@ export function KeybindingsSettings() {
     try {
       await setBinding(recordingFor, pendingBinding);
       cancelRecording();
-    } catch (e: any) {
-      setRecordError(e?.message || "Failed to save");
+    } catch (e: unknown) {
+      setRecordError(getErrorMessage(e) || "Failed to save");
     } finally {
       setSaving(false);
     }

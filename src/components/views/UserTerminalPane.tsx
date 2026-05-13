@@ -11,6 +11,7 @@ import {
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
 import type { UserTerminal } from "~/db/schema";
+import { getErrorMessage } from "~/shared/errors";
 
 export function UserTerminalPane({
   terminal,
@@ -244,8 +245,8 @@ export function UserTerminalPane({
           }
           onPtyReady(newId);
           wireToPty(newId);
-        } catch (err: any) {
-          term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
+        } catch (err: unknown) {
+          term.writeln(`\x1b[31m[failed to start pty: ${getErrorMessage(err)}]\x1b[0m`);
         }
       };
 

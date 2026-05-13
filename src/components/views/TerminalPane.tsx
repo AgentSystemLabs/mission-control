@@ -19,6 +19,7 @@ import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { terminalInputStartsTurn } from "~/lib/task-status-sync";
 import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
+import { getErrorMessage } from "~/shared/errors";
 
 async function resolveMcEnv(
   electron: NonNullable<ReturnType<typeof getElectron>>,
@@ -275,8 +276,8 @@ export function TerminalPane({
             task.agent === "claude-code" &&
             descriptor.startCommand.includes("--resume");
           await spawnAndWire(descriptor.startCommand, isResume);
-        } catch (err: any) {
-          term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
+        } catch (err: unknown) {
+          term.writeln(`\x1b[31m[failed to start pty: ${getErrorMessage(err)}]\x1b[0m`);
         }
       };
 

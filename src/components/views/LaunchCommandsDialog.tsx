@@ -4,6 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { LAUNCH_COMMANDS_MAX, parseLaunchCommands, type LaunchCommand } from "~/shared/domain";
 import type { Project } from "~/db/schema";
+import { getErrorMessage } from "~/shared/errors";
 
 function newRowId() {
   return `lc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -62,8 +63,8 @@ export function LaunchCommandsDialog({
       setSaving(true);
       await onSave(cleaned);
       onClose();
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to save");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e) || "Failed to save");
     } finally {
       setSaving(false);
     }

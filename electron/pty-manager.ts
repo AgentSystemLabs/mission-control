@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
 import { resolveShell, sanitizedProcessEnv, shellArgsForCommand } from "./shell-env";
+import { getErrorMessage } from "./errors";
 
 function assertCwd(cwd: string): void {
   if (!cwd) throw new Error("cwd is required");
@@ -177,8 +178,8 @@ async function killPidsListeningOnPort(port: number): Promise<PortKillResult> {
     try {
       process.kill(pid, "SIGTERM");
       killed.push(pid);
-    } catch (err: any) {
-      errors.push(`pid ${pid}: ${err?.message ?? String(err)}`);
+    } catch (err: unknown) {
+      errors.push(`pid ${pid}: ${getErrorMessage(err)}`);
     }
   }
 
@@ -265,8 +266,8 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
           cwd: opts.cwd,
           env,
         });
-      } catch (err: any) {
-        const msg = err?.message ?? String(err);
+      } catch (err: unknown) {
+        const msg = getErrorMessage(err);
         if (msg.includes("posix_spawnp")) {
           throw new Error(
             `posix_spawnp failed for shell="${userShell}" cwd="${opts.cwd}". ` +
