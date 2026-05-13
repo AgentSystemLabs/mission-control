@@ -106,14 +106,19 @@ export function NewAgentDialog({
   const selectAgent = (nextAgent: TaskAgent) => {
     setAgent(nextAgent);
     if (rememberSettings) {
-      void persistRememberedSettings(nextAgent, dangerouslySkipPermissions);
+      void persistRememberedSettings(nextAgent, dangerouslySkipPermissions).catch(
+        (err) =>
+          console.warn("[new-agent-dialog] persist remembered (agent) failed:", err)
+      );
     }
   };
 
   const setSkipPermissions = (nextSkipPermissions: boolean) => {
     setDangerouslySkipPermissions(nextSkipPermissions);
     if (rememberSettings) {
-      void persistRememberedSettings(agent, nextSkipPermissions);
+      void persistRememberedSettings(agent, nextSkipPermissions).catch((err) =>
+        console.warn("[new-agent-dialog] persist remembered (skip) failed:", err)
+      );
     }
   };
 

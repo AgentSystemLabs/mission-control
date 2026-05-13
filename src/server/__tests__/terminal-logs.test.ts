@@ -18,13 +18,13 @@ const RING_LIMIT_BYTES = 1_000_000;
 describe("appendTerminalLog ring eviction", () => {
   let taskId: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const db = getDb();
     db.delete(terminalLogs).run();
     db.delete(tasks).run();
     db.delete(projects).run();
     const dir = fs.mkdtempSync(path.join(tmpRoot, "proj-"));
-    const project = createProject({ name: "ring", path: dir });
+    const project = await createProject({ name: "ring", path: dir });
     const task = createTask({
       projectId: project.id,
       title: "t",

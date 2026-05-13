@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
@@ -30,6 +30,8 @@ export function InstallSkillsModal({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [manifestAttempt, setManifestAttempt] = useState(0);
+
   useEffect(() => {
     if (!open) return;
     setInstallClaude(true);
@@ -39,7 +41,13 @@ export function InstallSkillsModal({
     setPhase("idle");
     setError(null);
     setNotice(null);
+    setManifestAttempt(0);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     let cancelled = false;
+    setManifestError(null);
     fetchLatestSkillsManifest()
       .then((m) => {
         if (!cancelled) setManifest(m);
@@ -51,7 +59,13 @@ export function InstallSkillsModal({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, manifestAttempt]);
+
+  const retryManifest = useCallback(() => {
+    setManifest(null);
+    setManifestError(null);
+    setManifestAttempt((n) => n + 1);
+  }, []);
 
   const isWorking = phase === "downloading" || phase === "extracting";
   const harnessSelected = installClaude || installCodex;
@@ -174,7 +188,20 @@ export function InstallSkillsModal({
           {manifest
             ? `Latest: v${manifest.version}`
             : manifestError
-              ? `Could not reach academy: ${manifestError}`
+              ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <span>Could not reach academy: {manifestError}</span>
+                    <Btn
+                      variant="ghost"
+                      size="sm"
+                      icon="refresh"
+                      onClick={retryManifest}
+                      disabled={isWorking}
+                    >
+                      Retry
+                    </Btn>
+                  </span>
+                )
               : "Checking latest version…"}
         </div>
 

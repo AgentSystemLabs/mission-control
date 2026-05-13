@@ -12,8 +12,14 @@ export function ApiSettingsPage() {
   useEffect(() => {
     const electron = getElectron();
     if (electron) {
-      void electron.getRuntimePort().then(setPort).catch(() => {});
-      void electron.getApiToken().then((t) => setToken(t ?? null)).catch(() => {});
+      void electron
+        .getRuntimePort()
+        .then(setPort)
+        .catch((err) => console.warn("[api-settings] getRuntimePort failed:", err));
+      void electron
+        .getApiToken()
+        .then((t) => setToken(t ?? null))
+        .catch((err) => console.warn("[api-settings] getApiToken failed:", err));
     } else {
       setPort(Number(window.location.port) || null);
     }

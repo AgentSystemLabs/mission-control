@@ -74,7 +74,9 @@ export function commandForTask(task: Task): string {
     return buildClaudeCommand({ kind: "resume", sessionId, skipPermissions: skip, bareSession: bare });
   }
   const fresh = newSessionId();
-  void api.updateTask(task.id, { claudeSessionId: fresh }).catch(() => undefined);
+  void api
+    .updateTask(task.id, { claudeSessionId: fresh })
+    .catch((err) => console.warn("[terminal-store] updateTask claudeSessionId failed:", err));
   return buildClaudeCommand({ kind: "new", sessionId: fresh, skipPermissions: skip, bareSession: bare });
 }
 
