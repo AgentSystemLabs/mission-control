@@ -1015,13 +1015,13 @@ function ProjectPage() {
 
       <FileFinderDialog
         open={fileFinderOpen}
-        projectRoot={project.path}
+        projectId={project.id}
         onClose={() => setFileFinderOpen(false)}
         onPick={(rel) => setOpenFileRel(rel)}
       />
 
       <FileEditorDialog
-        projectRoot={project.path}
+        projectId={project.id}
         relPath={openFileRel}
         onClose={() => setOpenFileRel(null)}
       />

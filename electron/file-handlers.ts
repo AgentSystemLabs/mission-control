@@ -119,11 +119,17 @@ function isProbablyBinary(buf: Buffer): boolean {
   return false;
 }
 
-export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow | null) {
-  ipc.handle(IPC.filesList, async (_evt, projectRoot: string) => {
-    if (!projectRoot || typeof projectRoot !== "string") {
-      return { ok: false as const, error: "invalid root" };
+export function registerFileHandlers(
+  ipc: IpcMain,
+  getWin: () => BrowserWindow | null,
+  resolveProjectPath: (projectId: string) => Promise<string | null>,
+) {
+  ipc.handle(IPC.filesList, async (_evt, projectId: string) => {
+    if (!projectId || typeof projectId !== "string") {
+      return { ok: false as const, error: "invalid-project" };
     }
+    const projectRoot = await resolveProjectPath(projectId);
+    if (!projectRoot) return { ok: false as const, error: "unknown-project" };
     try {
       const files = listFiles(projectRoot);
       return { ok: true as const, files };
@@ -134,7 +140,9 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
 
   ipc.handle(
     IPC.filesRead,
-    async (_evt, projectRoot: string, relPath: string) => {
+    async (_evt, projectId: string, relPath: string) => {
+      const projectRoot = await resolveProjectPath(projectId);
+      if (!projectRoot) return { ok: false as const, error: "unknown-project" as const };
       const abs = resolveInsideRoot(projectRoot, relPath);
       if (!abs) return { ok: false as const, error: "invalid-path" as const };
       try {
@@ -173,11 +181,13 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
       IPC.filesWrite,
     async (
       _evt,
-      projectRoot: string,
+      projectId: string,
       relPath: string,
       content: string,
       expectedMtimeMs: number | null,
     ) => {
+      const projectRoot = await resolveProjectPath(projectId);
+      if (!projectRoot) return { ok: false as const, error: "unknown-project" as const };
       const abs = resolveInsideRoot(projectRoot, relPath);
       if (!abs) return { ok: false as const, error: "invalid-path" as const };
       if (typeof content !== "string") return { ok: false as const, error: "invalid-content" as const };
@@ -202,7 +212,9 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
     }
   );
 
-  ipc.handle(IPC.filesWatch, async (_evt, projectRoot: string, relPath: string) => {
+  ipc.handle(IPC.filesWatch, async (_evt, projectId: string, relPath: string) => {
+    const projectRoot = await resolveProjectPath(projectId);
+    if (!projectRoot) return { ok: false as const, error: "unknown-project" as const };
     const abs = resolveInsideRoot(projectRoot, relPath);
     if (!abs) return { ok: false as const, error: "invalid-path" as const };
     try {

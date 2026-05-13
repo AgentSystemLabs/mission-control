@@ -24,6 +24,56 @@ let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let runtimePort: number | null = null;
 
+// Cache renderer-supplied projectId → server-stored absolute path with a short
+// TTL. The renderer can't lie about which path belongs to a projectId because
+// resolution happens against the SQLite-backed API, not against renderer input.
+const PROJECT_PATH_TTL_MS = 30_000;
+type CachedPath = { path: string; expiresAt: number };
+const projectPathCache = new Map<string, CachedPath>();
+let cachedApiToken: { value: string; expiresAt: number } | null = null;
+
+async function fetchApiToken(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedApiToken && cachedApiToken.expiresAt > now) return cachedApiToken.value;
+  if (!runtimePort) return null;
+  try {
+    const res = await fetch(`http://${devServerHost}:${runtimePort}/api/settings`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { apiToken?: string };
+    if (!body?.apiToken) return null;
+    cachedApiToken = { value: body.apiToken, expiresAt: now + PROJECT_PATH_TTL_MS };
+    return body.apiToken;
+  } catch {
+    return null;
+  }
+}
+
+export async function getProjectPath(projectId: string): Promise<string | null> {
+  if (!projectId || typeof projectId !== "string") return null;
+  // Defense in depth: the path will still be symlink-real-path-checked by the
+  // callers; this only guards against the projectId itself being garbage.
+  if (!/^[A-Za-z0-9_-]+$/.test(projectId)) return null;
+  const now = Date.now();
+  const cached = projectPathCache.get(projectId);
+  if (cached && cached.expiresAt > now) return cached.path;
+  if (!runtimePort) return null;
+  const token = await fetchApiToken();
+  try {
+    const res = await fetch(
+      `http://${devServerHost}:${runtimePort}/api/projects/${encodeURIComponent(projectId)}`,
+      token ? { headers: { authorization: `Bearer ${token}` } } : undefined,
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { project?: { path?: string } };
+    const p = body?.project?.path;
+    if (!p || typeof p !== "string") return null;
+    projectPathCache.set(projectId, { path: p, expiresAt: now + PROJECT_PATH_TTL_MS });
+    return p;
+  } catch {
+    return null;
+  }
+}
+
 function pickPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = nodeNet.createServer();
@@ -297,6 +347,12 @@ ipcMain.handle(IPC.shellOpenExternal, async (_evt, url: string) => {
   return openExternalHttpUrl(url);
 });
 
+ipcMain.handle(IPC.appGetProjectPath, async (_evt, projectId: string) => {
+  const p = await getProjectPath(projectId);
+  if (!p) return { ok: false as const, error: "unknown-project" as const };
+  return { ok: true as const, path: p };
+});
+
 ipcMain.handle(IPC.appGetRuntimePort, () => runtimePort);
 ipcMain.handle(IPC.appGetUserDataDir, () => app.getPath("userData"));
 
@@ -320,8 +376,8 @@ ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
   return { ok: false, reason: "not-found" };
 });
 
-registerPtyHandlers(ipcMain, () => win);
-registerFileHandlers(ipcMain, () => win);
+registerPtyHandlers(ipcMain, () => win, getProjectPath);
+registerFileHandlers(ipcMain, () => win, getProjectPath);
 
 ipcMain.handle(
   IPC.installSkillsFetchLatest,

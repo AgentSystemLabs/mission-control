@@ -165,7 +165,7 @@ export function UserTerminalPanel() {
               key={s.terminal.id}
               terminal={s.terminal}
               ptyId={s.ptyId}
-              cwd={s.terminal.cwd || project?.path || ""}
+              projectId={s.terminal.projectId}
               focused={focusedId === s.terminal.id}
               onFocus={() => focusTerminal(s.terminal.id)}
               onPtyReady={(ptyId) => setPtyId(s.terminal.id, ptyId)}

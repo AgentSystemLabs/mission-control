@@ -9,12 +9,12 @@ const VISIBLE_LIMIT = 200;
 
 export function FileFinderDialog({
   open,
-  projectRoot,
+  projectId,
   onClose,
   onPick,
 }: {
   open: boolean;
-  projectRoot: string;
+  projectId: string;
   onClose: () => void;
   onPick: (relPath: string) => void;
 }) {
@@ -25,14 +25,14 @@ export function FileFinderDialog({
 
   // Lazy: only fetch the file list when the dialog is opened.
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["files:list", projectRoot],
+    queryKey: ["files:list", projectId],
     queryFn: async () => {
       if (!window.electronAPI) throw new Error("Not running in Electron");
-      const r = await window.electronAPI.files.list(projectRoot);
+      const r = await window.electronAPI.files.list(projectId);
       if (!r.ok) throw new Error(r.error);
       return r.files;
     },
-    enabled: open && !!projectRoot,
+    enabled: open && !!projectId,
     staleTime: 30_000,
   });
 

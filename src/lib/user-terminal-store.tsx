@@ -277,7 +277,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       await Promise.all(targets.map((s) => killTerminal(s.terminal.id)));
       await electron?.pty
         .killLaunchProcesses({
-          cwd: project.path,
+          projectId: project.id,
           commands: [...wanted],
           ports: opts?.ports ?? [],
         })
