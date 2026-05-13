@@ -119,7 +119,7 @@ let _serverEnv: Readonly<ServerEnv> | null = null;
 
 export function serverEnv(): Readonly<ServerEnv> {
   if (_serverEnv) return _serverEnv;
-  if (typeof window !== "undefined") {
+  if (typeof globalThis !== "undefined" && "window" in globalThis) {
     throw new Error(
       "serverEnv() called from a browser context — server-only env must not be imported into renderer code.",
     );

@@ -6,16 +6,14 @@ import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import * as crypto from "node:crypto";
 import { logger } from "./logger";
-import { serverEnv } from "../src/shared/env";
 
 // Pinned contracts. Renderer reads VITE_ACADEMY_BASE_URL via import.meta.env.
 // Main process resolves at runtime; default to prod.
 // TODO: confirm final prod URL with operations.
-const _srv = serverEnv();
 export const DEFAULT_ACADEMY_BASE_URL =
-  _srv.VITE_ACADEMY_BASE_URL ??
-  _srv.ACADEMY_BASE_URL ??
-  (_srv.NODE_ENV === "development"
+  process.env.VITE_ACADEMY_BASE_URL ??
+  process.env.ACADEMY_BASE_URL ??
+  (process.env.NODE_ENV === "development"
     ? "http://localhost:3000"
     : "https://academy.agentsystemlabs.com");
 
