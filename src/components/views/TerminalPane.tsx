@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
+import { useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -7,17 +6,12 @@ import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
-import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
-import {
-  createTerminalOptions,
-  createTerminalTheme,
-  getTerminalColorScheme,
-  watchTerminalColorScheme,
-} from "~/lib/terminal-options";
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { terminalInputStartsTurn } from "~/lib/task-status-sync";
+import { useXtermPty } from "~/lib/use-xterm-pty";
 import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
+import { XtermSurface } from "~/components/views/XtermSurface";
 import type { Project, Task } from "~/db/schema";
 
 async function resolveMcEnv(
@@ -64,9 +58,6 @@ export function TerminalPane({
   descriptor: TerminalDescriptor;
   onPtyReady: (ptyId: string) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const fitRef = useRef<XFitAddon | null>(null);
-  const [bridgeMissing, setBridgeMissing] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: liveTasks } = useTasks(project.id);
@@ -75,87 +66,12 @@ export function TerminalPane({
   const statusMeta = STATUS_META[liveTask.status];
   const isRunning = liveTask.status === "running";
 
-  useEffect(() => {
-    const electron = getElectron();
-    if (!electron) {
-      setBridgeMissing(true);
-      return;
-    }
-    if (!containerRef.current) return;
-
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    void (async () => {
-      // Defer xterm to client-side dynamic import so SSR doesn't try to load
-      // its CommonJS UMD bundle.
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import("@xterm/xterm"),
-        import("@xterm/addon-fit"),
-      ]);
-      if (cancelled || !containerRef.current) return;
-
-      const cursorColor = meta?.color;
-      const term = new Terminal(
-        createTerminalOptions({ cursorColor, colorScheme: getTerminalColorScheme() })
-      );
-      const fit = new FitAddon();
-      fitRef.current = fit;
-      term.loadAddon(fit);
-      term.open(containerRef.current);
-      term.focus();
-
-      const host = containerRef.current;
+  const { containerRef, bridgeMissing } = useXtermPty({
+    key: descriptor.taskId,
+    cursorColor: meta?.color,
+    onTerm: ({ term, fit, electron, setActivePtyId, isCancelled }) => {
       const subscriptions: Array<() => void> = [];
-      let rafHandle = 0;
-      let activePtyId: string | null = null;
       let fallbackRunningPosted = false;
-      const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
-        term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
-      });
-
-      // Dropping a file from Finder pastes its path into the PTY, matching
-      // iTerm/Terminal.app behavior. Claude Code reads images by path.
-      const onDragOver = (e: DragEvent) => {
-        if (e.dataTransfer?.types.includes("Files")) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }
-      };
-      const onDrop = (e: DragEvent) => {
-        const files = Array.from(e.dataTransfer?.files ?? []);
-        if (!files.length) return;
-        e.preventDefault();
-        if (!activePtyId) return;
-        const paths = files
-          .map((f) => electron.getPathForFile(f))
-          .filter(Boolean)
-          .map((p) => (/[\s"'\\]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p));
-        if (!paths.length) return;
-        electron.pty.write(activePtyId, paths.join(" ") + " ");
-        term.focus();
-      };
-      host.addEventListener("dragover", onDragOver);
-      host.addEventListener("drop", onDrop);
-
-      // Shift+Enter must insert a literal newline in Claude Code's prompt;
-      // xterm.js otherwise emits plain CR for both Enter and Shift+Enter,
-      // which Claude treats as submit. Send ESC+CR (alt-enter), the same
-      // sequence `claude /terminal-setup` registers for iTerm2/Terminal.app.
-      // preventDefault is required: returning false makes xterm.js bail
-      // before its own preventDefault, so the hidden textarea would also
-      // insert `\n` and xterm's input handler would write it to the PTY.
-      term.attachCustomKeyEventHandler((e) => {
-        const bytes = mapTerminalKey(e);
-        if (bytes === null) {
-          if (!shouldSuppressTerminalKey(e)) return true;
-          e.preventDefault();
-          return false;
-        }
-        e.preventDefault();
-        if (activePtyId) electron.pty.write(activePtyId, bytes);
-        return false;
-      });
 
       // If a `claude --resume <uuid>` spawn dies almost immediately, the
       // session file is gone or unreadable. Per the persistence design we
@@ -165,7 +81,7 @@ export function TerminalPane({
       let spawnedAsResume = false;
 
       const wireToPty = (ptyId: string) => {
-        activePtyId = ptyId;
+        setActivePtyId(ptyId);
         subscriptions.push(
           electron.pty.onData((msg) => {
             if (msg.ptyId === ptyId) term.write(msg.data);
@@ -249,66 +165,49 @@ export function TerminalPane({
         spawnAt = Date.now();
         spawnedAsResume = isResume;
         onPtyReady(ptyId);
-        if (cancelled) return;
+        if (isCancelled()) return;
         wireToPty(ptyId);
       };
 
       const ensurePty = async () => {
-        if (cancelled) return;
-        try {
-          try {
-            fit.fit();
-          } catch {
-            /* container not measured yet */
-          }
-
-          if (descriptor.ptyId) {
-            // Re-attach to a live PTY: subscribe BEFORE replay so any chunk
-            // emitted between the calls is queued, not lost.
-            wireToPty(descriptor.ptyId);
-            const buf = await electron.pty.replay(descriptor.ptyId);
-            if (!cancelled && buf) term.write(buf);
-            return;
-          }
-
-          const isResume =
-            task.agent === "claude-code" &&
-            descriptor.startCommand.includes("--resume");
-          await spawnAndWire(descriptor.startCommand, isResume);
-        } catch (err: any) {
-          term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
-        }
-      };
-
-      rafHandle = window.requestAnimationFrame(() => ensurePty());
-
-      const ro = new ResizeObserver(() => {
+        if (isCancelled()) return;
         try {
           fit.fit();
         } catch {
-          /* swallow */
+          /* container not measured yet */
         }
-      });
-      ro.observe(containerRef.current);
 
-      cleanup = () => {
+        if (descriptor.ptyId) {
+          // Re-attach to a live PTY: subscribe BEFORE replay so any chunk
+          // emitted between the calls is queued, not lost.
+          wireToPty(descriptor.ptyId);
+          const buf = await electron.pty.replay(descriptor.ptyId);
+          if (!isCancelled() && buf) term.write(buf);
+          return;
+        }
+
+        const isResume =
+          task.agent === "claude-code" &&
+          descriptor.startCommand.includes("--resume");
+        await spawnAndWire(descriptor.startCommand, isResume);
+      };
+
+      const rafHandle = window.requestAnimationFrame(() => {
+        void ensurePty().catch((err: any) => {
+          try {
+            term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
+          } catch {
+            /* terminal may be disposed */
+          }
+        });
+      });
+
+      return () => {
         cancelAnimationFrame(rafHandle);
         for (const off of subscriptions) off();
-        stopWatchingColorScheme();
-        host.removeEventListener("dragover", onDragOver);
-        host.removeEventListener("drop", onDrop);
-        ro.disconnect();
-        fitRef.current = null;
-        term.dispose();
       };
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [descriptor.taskId]);
+    },
+  });
 
   return (
     <div
@@ -395,29 +294,16 @@ export function TerminalPane({
         </div>
       </div>
       <ShimmerBar active={isRunning} color={meta?.color} />
-      <div
-        style={{
-          flex: 1,
-          position: "relative",
-          background: "var(--terminal-bg)",
-        }}
-      >
-        {bridgeMissing ? (
-          <div
-            style={{
-              padding: 16,
-              fontFamily: "var(--mono)",
-              fontSize: 12,
-              color: "var(--text-dim)",
-            }}
-          >
+      <XtermSurface
+        containerRef={containerRef}
+        bridgeMissing={bridgeMissing}
+        bridgeMissingMessage={
+          <>
             Terminals require the Electron runtime. Open MissionControl through{" "}
             <code style={{ color: "var(--accent)" }}>pnpm dev</code>.
-          </div>
-        ) : (
-          <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-        )}
-      </div>
+          </>
+        }
+      />
     </div>
   );
 }
