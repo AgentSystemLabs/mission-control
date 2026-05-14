@@ -1,20 +1,22 @@
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
-import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import { promises as fsp } from "node:fs";
 import * as path from "node:path";
-import { getDb } from "~/db/client";
-import { projects, tasks } from "~/db/schema";
-import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } from "~/shared/domain";
-import type { LaunchCommand, TaskStatus } from "~/shared/domain";
+import { getRepositories } from "../repositories";
+import { RepositoryProjectCapExceededError, type UserScope } from "../repositories/types";
+import { isUniqueConstraintError as isSqliteUniqueConstraintError } from "../repositories/sqlite";
+import { isUniqueConstraintError as isPostgresUniqueConstraintError } from "../repositories/postgres";
+import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, type LaunchCommand } from "~/shared/domain";
 import type { Project } from "~/db/schema";
 import type { ProjectWithCounts } from "~/shared/projects";
-import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
+import { isProTier } from "~/shared/license";
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
+import { normalizeProjectImageDataUrl } from "../lib/project-image-data";
 import { readLicenseState } from "./license";
-import { listTasksForProject } from "./tasks";
-import { listUserTerminals } from "./user-terminals";
+import { deleteDaytonaSandboxById } from "../runtime/daytona-cleanup";
+import { serverEnv } from "~/shared/env";
+
+const ALLOWED_CLOUD_GIT_HOSTS = new Set(["github.com", "gitlab.com", "bitbucket.org"]);
 
 export class ProjectCapExceededError extends Error {
   constructor(
@@ -29,20 +31,24 @@ export class ProjectCapExceededError extends Error {
 }
 
 export class DuplicateProjectPathError extends Error {
-  constructor(public readonly path: string) {
-    super(`A project for "${path}" already exists.`);
+  constructor(
+    public readonly path: string,
+    targetDescription = "this working directory",
+  ) {
+    super(`A project for ${targetDescription} already exists.`);
     this.name = "DuplicateProjectPathError";
   }
 }
 
+export class ProjectValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectValidationError";
+  }
+}
+
 function isUniqueConstraintError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: string; message?: string };
-  return (
-    e.code === "SQLITE_CONSTRAINT_UNIQUE" ||
-    e.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
-    (typeof e.message === "string" && /UNIQUE constraint failed/i.test(e.message))
-  );
+  return isSqliteUniqueConstraintError(err) || isPostgresUniqueConstraintError(err);
 }
 
 export type { ProjectWithCounts } from "~/shared/projects";
@@ -81,7 +87,7 @@ export function detectGithubUrlSync(dir: string): string | null {
 }
 
 function parseGithubUrlFromConfig(text: string): string | null {
-  const m = text.match(/\[remote "origin"\][^\[]*?url\s*=\s*(\S+)/);
+  const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
   if (!m) return null;
   const url = m[1].trim();
   // git@github.com:owner/repo(.git)
@@ -93,11 +99,65 @@ function parseGithubUrlFromConfig(text: string): string | null {
   return null;
 }
 
-function newId(prefix: string) {
-  return `${prefix}-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+export function normalizeGitRepositoryUrl(input: string | null | undefined): string | null {
+  const value = input?.trim();
+  if (!value) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ProjectValidationError("Git repository URL must be a valid HTTPS URL");
+  }
+  if (url.protocol !== "https:") {
+    throw new ProjectValidationError("Git repository URL must use HTTPS");
+  }
+  if (url.port && url.port !== "443") {
+    throw new ProjectValidationError("Git repository URL must use the default HTTPS port");
+  }
+  if (!ALLOWED_CLOUD_GIT_HOSTS.has(url.hostname.toLowerCase())) {
+    throw new ProjectValidationError("Git repository host is not supported in cloud mode");
+  }
+  if (url.username || url.password) {
+    throw new ProjectValidationError("Git repository URL must not include credentials");
+  }
+  if (url.search || url.hash) {
+    throw new ProjectValidationError("Git repository URL must not include query parameters or fragments");
+  }
+  const pathname = url.pathname.replace(/\/+$/, "");
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts.length === 0 || parts.some((part) => part === "." || part === "..")) {
+    throw new ProjectValidationError("Git repository URL must include a repository path");
+  }
+  return `${url.origin}${pathname}`;
 }
 
-export async function detectBranch(dir: string): Promise<string> {
+function slugPart(value: string): string {
+  return (
+    value
+      .replace(/\.git$/i, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "repo"
+  );
+}
+
+const DEFAULT_DAYTONA_WORKSPACE_ROOT = "workspace";
+
+export function deriveCloudWorkspacePath(repoUrl: string): string {
+  const url = new URL(repoUrl);
+  const parts = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+  const slug = parts.slice(-2).map(slugPart).join("-");
+  const root = serverEnv().DAYTONA_WORKSPACE_PATH ?? DEFAULT_DAYTONA_WORKSPACE_ROOT;
+  return path.posix.join(root, slug || "repo");
+}
+
+function deriveCloudProjectName(repoUrl: string): string {
+  const url = new URL(repoUrl);
+  const name = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean).pop();
+  return name ? slugPart(name) : "project";
+}
+
+async function detectBranch(dir: string): Promise<string> {
   try {
     const headFile = path.join(dir, ".git", "HEAD");
     let content: string;
@@ -113,134 +173,12 @@ export async function detectBranch(dir: string): Promise<string> {
   }
 }
 
-type Counts = Record<TaskStatus, number> & { total: number; activeNonDone: number };
-
-function emptyCounts(): Counts {
-  const c = TASK_STATUSES.reduce(
-    (acc, s) => {
-      acc[s] = 0;
-      return acc;
-    },
-    {} as Record<TaskStatus, number>,
-  ) as Counts;
-  c.total = 0;
-  c.activeNonDone = 0;
-  return c;
-}
-
-/**
- * Aggregated task counts per project, computed in SQL to avoid loading every
- * task row into JS for the list view. Only non-archived tasks contribute to
- * the active counts and total (matches legacy `decorate()` behavior).
- */
-function loadCountsByProject(): Map<string, Counts> {
-  const db = getDb();
-  const rows = db
-    .select({
-      projectId: tasks.projectId,
-      status: tasks.status,
-      archived: tasks.archived,
-      count: sql<number>`count(*)`,
-    })
-    .from(tasks)
-    .groupBy(tasks.projectId, tasks.status, tasks.archived)
-    .all();
-
-  const out = new Map<string, Counts>();
-  for (const r of rows) {
-    if (r.archived) continue;
-    let c = out.get(r.projectId);
-    if (!c) {
-      c = emptyCounts();
-      out.set(r.projectId, c);
-    }
-    const status = r.status as TaskStatus;
-    const n = Number(r.count) || 0;
-    c[status] = (c[status] ?? 0) + n;
-    c.total += n;
-    if (isActiveStatus(status) && status !== "finished") c.activeNonDone += n;
-  }
-  return out;
-}
-
-/**
- * Pull a preview snippet for each project's most-relevant active task
- * (running, else needs-input). Fetches just the columns we need for the
- * projects we're showing — not every task row.
- */
-function loadPreviewByProject(projectIds: string[]): Map<string, string | null> {
-  const out = new Map<string, string | null>();
-  if (projectIds.length === 0) return out;
-  const db = getDb();
-  const rows = db
-    .select({
-      projectId: tasks.projectId,
-      status: tasks.status,
-      preview: tasks.preview,
-    })
-    .from(tasks)
-    .where(
-      sql`${tasks.archived} = 0 AND ${tasks.status} IN ('running','needs-input') AND ${inArray(tasks.projectId, projectIds)}`,
-    )
-    .all();
-  // running wins over needs-input
-  for (const r of rows) {
-    const existing = out.get(r.projectId);
-    if (r.status === "running") {
-      out.set(r.projectId, r.preview ?? null);
-    } else if (!existing) {
-      out.set(r.projectId, r.preview ?? null);
-    }
-  }
-  return out;
-}
-
-export async function listProjects(): Promise<ProjectWithCounts[]> {
-  const db = getDb();
-  const rows = db.select().from(projects).orderBy(asc(projects.createdAt)).all();
-  const countsByProject = loadCountsByProject();
-  const previewByProject = loadPreviewByProject(rows.map((r) => r.id));
-  return rows.map((p) =>
-    decorateRow(p, countsByProject.get(p.id) ?? emptyCounts(), previewByProject.get(p.id) ?? null),
-  );
+export async function listProjects(ownerUserId?: string | null): Promise<ProjectWithCounts[]> {
+  return getRepositories().projects.list({ userId: ownerUserId });
 }
 
 export async function getProject(id: string): Promise<ProjectWithCounts | null> {
-  const db = getDb();
-  const p = db.select().from(projects).where(eq(projects.id, id)).get();
-  if (!p) return null;
-
-  const countRows = db
-    .select({
-      status: tasks.status,
-      archived: tasks.archived,
-      count: sql<number>`count(*)`,
-    })
-    .from(tasks)
-    .where(eq(tasks.projectId, id))
-    .groupBy(tasks.status, tasks.archived)
-    .all();
-  const counts = emptyCounts();
-  for (const r of countRows) {
-    if (r.archived) continue;
-    const status = r.status as TaskStatus;
-    const n = Number(r.count) || 0;
-    counts[status] = (counts[status] ?? 0) + n;
-    counts.total += n;
-    if (isActiveStatus(status) && status !== "finished") counts.activeNonDone += n;
-  }
-
-  const previewRow = db
-    .select({ status: tasks.status, preview: tasks.preview })
-    .from(tasks)
-    .where(
-      sql`${tasks.projectId} = ${id} AND ${tasks.archived} = 0 AND ${tasks.status} IN ('running','needs-input')`,
-    )
-    .all();
-  const previewSource =
-    previewRow.find((t) => t.status === "running") ??
-    previewRow.find((t) => t.status === "needs-input");
-  return decorateRow(p, counts, previewSource?.preview ?? null);
+  return getRepositories().projects.get(id);
 }
 
 /**
@@ -248,93 +186,81 @@ export async function getProject(id: string): Promise<ProjectWithCounts | null> 
  * (e.g. resolving a project's working directory) — avoids the async fs hop
  * detectGithubUrl now triggers.
  */
-export function getProjectRow(id: string): Project | null {
-  const db = getDb();
-  return db.select().from(projects).where(eq(projects.id, id)).get() ?? null;
-}
-
-function decorateRow(
-  p: Project,
-  taskCounts: Counts,
-  preview: string | null,
-): ProjectWithCounts {
-  // Read cached GitHub URL from the column instead of re-reading .git/config
-  // per project on every list. Lazy backfill: NULL means "not yet detected" —
-  // createProject/updateProject populate it when path is set or changes.
-  return {
-    ...p,
-    taskCounts,
-    preview,
-    githubUrl: p.githubUrl ?? null,
-  };
+export async function getProjectRow(id: string): Promise<Project | null> {
+  return getRepositories().projects.getRow(id);
 }
 
 export async function createProject(input: {
   name?: string;
-  path: string;
+  path?: string;
   icon?: string;
   iconColor?: string;
+  imageDataUrl?: string | null;
   groupId?: string | null;
+  runtimeKind?: string;
+  ownerUserId?: string | null;
+  sandboxId?: string | null;
+  workspacePath?: string | null;
+  repoUrl?: string | null;
+  sandboxState?: string | null;
 }): Promise<Project> {
-  if (!input.path?.trim()) throw new Error("Working directory is required");
-  if (!fs.existsSync(input.path)) throw new Error("Working directory does not exist");
-  const stat = fs.statSync(input.path);
-  if (!stat.isDirectory()) throw new Error("Working directory must be a directory");
-
-  const name = input.name?.trim() || path.basename(input.path) || "project";
-
-  const db = getDb();
-
-  const pro = isProTier(readLicenseState());
-  const now = Date.now();
-  const id = newId("p");
-  const branch = await detectBranch(input.path);
-  const githubUrl = await detectGithubUrl(input.path);
-  const row = {
-    id,
-    name,
-    path: input.path,
-    icon: (input.icon || name.slice(0, 2)).toUpperCase().slice(0, 2),
-    iconColor: input.iconColor || "#ff5a1f",
-    imagePath: null,
-    groupId: input.groupId ?? null,
-    pinned: false,
-    branch,
-    launchCommands: null,
-    launchUrl: null,
-    rememberAgentSettings: false,
-    savedAgent: null,
-    savedSkipPermissions: false,
-    savedBareSession: false,
-    githubUrl,
-    createdAt: now,
-    updatedAt: now,
-  };
-
+  const runtimeKind = input.runtimeKind ?? "local";
+  const repoUrl = normalizeGitRepositoryUrl(input.repoUrl);
+  if (runtimeKind !== "local" && !repoUrl) {
+    throw new Error("Git repository URL is required in cloud mode");
+  }
+  const projectPath =
+    runtimeKind === "local"
+      ? (input.path?.trim() ?? "")
+      : deriveCloudWorkspacePath(repoUrl!);
+  if (runtimeKind === "local") {
+    if (!projectPath) throw new ProjectValidationError("Working directory is required");
+    if (!fs.existsSync(projectPath)) {
+      throw new ProjectValidationError("Working directory does not exist");
+    }
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(projectPath);
+    } catch {
+      throw new ProjectValidationError("Working directory is not accessible");
+    }
+    if (!stat.isDirectory()) {
+      throw new ProjectValidationError("Working directory must be a directory");
+    }
+  }
+  const projectName =
+    input.name?.trim() || (runtimeKind === "local" ? undefined : deriveCloudProjectName(repoUrl!));
   try {
-    // Cap check + insert must be atomic; otherwise two concurrent
-    // createProject calls can both pass the cap check before either inserts.
-    db.transaction((tx) => {
-      if (!pro) {
-        const existing = tx.select({ id: projects.id }).from(projects).all();
-        if (existing.length >= FREE_PROJECT_CAP) {
-          throw new ProjectCapExceededError(FREE_PROJECT_CAP, existing.length);
-        }
-      }
-      tx.insert(projects).values(row).run();
+    const row = await getRepositories().projects.create({
+      ...input,
+      imageDataUrl:
+        input.imageDataUrl !== undefined
+          ? normalizeProjectImageDataUrl(input.imageDataUrl)
+          : undefined,
+      name: projectName,
+      path: projectPath,
+      workspacePath: input.workspacePath ?? (runtimeKind === "local" ? input.workspacePath : projectPath),
+      repoUrl,
+      runtimeKind,
+      pro: isProTier(await readLicenseState(input.ownerUserId ?? undefined)),
     });
+    events.emit("project:created", { id: row.id });
+    return row;
   } catch (err) {
+    if (err instanceof RepositoryProjectCapExceededError) {
+      throw new ProjectCapExceededError(err.limit, err.current);
+    }
     if (isUniqueConstraintError(err)) {
-      throw new DuplicateProjectPathError(input.path);
+      throw new DuplicateProjectPathError(
+        projectPath,
+        runtimeKind === "local" ? "this working directory" : "this Git repository",
+      );
     }
     throw err;
   }
-
-  events.emit("project:created", { id });
-  return row;
 }
 
-export function updateProject(
+export async function updateProject(
   id: string,
   patch: Partial<
     Pick<
@@ -344,48 +270,53 @@ export function updateProject(
       | "icon"
       | "iconColor"
       | "imagePath"
+      | "imageDataUrl"
       | "groupId"
       | "pinned"
       | "branch"
       | "launchUrl"
+      | "runtimeKind"
+      | "ownerUserId"
+      | "sandboxId"
+      | "workspacePath"
+      | "repoUrl"
+      | "sandboxState"
       | "rememberAgentSettings"
       | "savedAgent"
       | "savedSkipPermissions"
       | "savedBareSession"
     >
-  > & { launchCommands?: LaunchCommand[] | null }
-): Project | null {
-  const db = getDb();
-  const { launchCommands, ...rest } = patch;
-  const setPatch: Partial<Project> & { updatedAt: number } = {
-    ...rest,
-    ...(launchCommands !== undefined
-      ? { launchCommands: serializeLaunchCommands(launchCommands) }
-      : {}),
-    // When path changes, refresh the cached github_url. Sync read keeps this
-    // function's signature simple; the .git/config file is small (~KB).
-    ...(typeof patch.path === "string" && patch.path.trim()
-      ? { githubUrl: detectGithubUrlSync(patch.path) }
-      : {}),
-    updatedAt: Date.now(),
-  };
-  let updated: Project | undefined;
+  > & { launchCommands?: LaunchCommand[] | null },
+  scope?: UserScope,
+): Promise<Project | null> {
   try {
-    updated = db
-      .update(projects)
-      .set(setPatch)
-      .where(eq(projects.id, id))
-      .returning()
-      .get();
+    const imageDataUrl =
+      patch.imageDataUrl !== undefined
+        ? normalizeProjectImageDataUrl(patch.imageDataUrl)
+        : undefined;
+    const imagePath = patch.imagePath === "" ? null : patch.imagePath;
+    if (imagePath && imageDataUrl) {
+      throw new Error("Choose either a local image path or image data URL");
+    }
+    const normalizedPatch = {
+      ...patch,
+      ...(patch.imagePath !== undefined ? { imagePath } : {}),
+      ...(patch.imageDataUrl !== undefined ? { imageDataUrl } : {}),
+      ...(imageDataUrl ? { imagePath: null } : {}),
+      ...(imagePath ? { imageDataUrl: null } : {}),
+      ...(imagePath === null && patch.imageDataUrl === undefined
+        ? { imageDataUrl: null }
+        : {}),
+    };
+    const updated = await getRepositories().projects.update(id, normalizedPatch, scope);
+    if (updated) events.emit("project:updated", { id });
+    return updated;
   } catch (err) {
     if (isUniqueConstraintError(err) && patch.path !== undefined) {
       throw new DuplicateProjectPathError(String(patch.path));
     }
     throw err;
   }
-  if (!updated) return null;
-  events.emit("project:updated", { id });
-  return updated;
 }
 
 function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
@@ -406,50 +337,40 @@ function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
   return cleaned.length === 0 ? null : JSON.stringify(cleaned);
 }
 
-export function togglePin(id: string): Project | null {
-  const db = getDb();
-  const updated = db
-    .update(projects)
-    .set({ pinned: sql`NOT ${projects.pinned}`, updatedAt: Date.now() })
-    .where(eq(projects.id, id))
-    .returning()
-    .get();
+export async function togglePin(id: string): Promise<Project | null> {
+  const updated = await getRepositories().projects.togglePin(id);
   if (!updated) return null;
   events.emit("project:updated", { id });
   return updated;
 }
 
-export function deleteProject(id: string): boolean {
-  const db = getDb();
-  const taskIds = listTasksForProject(id).map((t) => t.id);
-  const userTerminalIds = listUserTerminals(id).map((t) => t.id);
-  const result = db.delete(projects).where(eq(projects.id, id)).run();
-  if (result.changes > 0) {
+export async function deleteProject(id: string): Promise<boolean> {
+  const result = await getRepositories().projects.delete(id);
+  if (result.deleted) {
+    const { existing, taskIds, userTerminalIds } = result;
+    if (existing?.sandboxId) void deleteDaytonaSandboxById(existing.sandboxId);
     deleteAllProjectImagesFor(id);
     for (const tid of taskIds) events.emit("task:deleted", { id: tid, projectId: id });
     for (const utid of userTerminalIds)
       events.emit("user-terminal:deleted", { id: utid, projectId: id });
   }
-  events.emit("project:deleted", { id, taskIds, userTerminalIds });
-  return result.changes > 0;
+  events.emit("project:deleted", {
+    id,
+    taskIds: result.taskIds,
+    userTerminalIds: result.userTerminalIds,
+  });
+  return result.deleted;
 }
 
 export async function refreshBranch(id: string): Promise<string | null> {
-  const db = getDb();
-  const p = db
-    .select({ path: projects.path })
-    .from(projects)
-    .where(eq(projects.id, id))
-    .get();
+  const p = await getRepositories().projects.getRow(id);
   if (!p) return null;
+  if (p.runtimeKind !== "local") return p.branch;
   // fs I/O kept outside the DB write
   const branch = await detectBranch(p.path);
-  const updated = db
-    .update(projects)
-    .set({ branch, updatedAt: Date.now() })
-    .where(and(eq(projects.id, id), ne(projects.branch, branch)))
-    .returning({ id: projects.id })
-    .get();
-  if (updated) events.emit("project:updated", { id });
+  if (p.branch !== branch) {
+    await getRepositories().projects.refreshBranch(id, branch);
+    events.emit("project:updated", { id });
+  }
   return branch;
 }

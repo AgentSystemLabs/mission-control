@@ -75,7 +75,15 @@ describe("license service", () => {
 
   it("rejects a tampered signed license without contacting academy", async () => {
     const key = signedLicense();
-    const tampered = key.replace(/.$/, key.endsWith("A") ? "B" : "A");
+    const [prefix, encodedPayload, encodedSignature] = key.split(".");
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    const tamperedPayload = Buffer.from(
+      JSON.stringify({ ...payload, licenseId: "lic_tampered" }),
+      "utf8",
+    ).toString("base64url");
+    const tampered = `${prefix}.${tamperedPayload}.${encodedSignature}`;
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 
@@ -86,7 +94,7 @@ describe("license service", () => {
     expect(license.hasKey).toBe(false);
   });
 
-  it("treats an expired signed license as invalid on read", () => {
+  it("treats an expired signed license as invalid on read", async () => {
     const payload = {
       licenseId: "lic_expired",
       customerId: "cus_test",
@@ -100,7 +108,7 @@ describe("license service", () => {
     setLicensePayload(payload);
     setLicenseValidationResult("active", "pro");
 
-    const license = readLicenseState();
+    const license = await readLicenseState();
 
     expect(license.hasKey).toBe(false);
     expect(license.status).toBe("invalid");

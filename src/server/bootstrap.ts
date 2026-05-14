@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getOrCreateApiToken } from "~/db/settings";
 import { resolveUserDataDir } from "~/db/client";
+import { serverEnv } from "~/shared/env";
 
 let cached: string | null = null;
 
@@ -22,6 +23,14 @@ export function ensureApiTokenBootstrap(): string {
   process.env.MC_API_TOKEN = token;
   writeTokenFile(token);
   return token;
+}
+
+export function ensureLocalApiTokenBootstrap(): string | null {
+  const cloudMode = serverEnv().MC_CLOUD_MODE;
+  if (cloudMode === "1" || cloudMode === "true" || cloudMode === "yes") {
+    return null;
+  }
+  return ensureApiTokenBootstrap();
 }
 
 export function refreshApiTokenAfterRegenerate(token: string): void {

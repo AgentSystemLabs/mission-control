@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 
 export function StorageSettingsPage() {
   const [userData, setUserData] = useState<string | null>(null);
@@ -8,7 +8,7 @@ export function StorageSettingsPage() {
   const { copied, copy } = useCopy();
 
   useEffect(() => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (!electron) {
       setReady(true);
       return;

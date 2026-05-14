@@ -1,10 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { eq } from "drizzle-orm";
-import { getDb, resolveUserDataDir } from "~/db/client";
-import { projects } from "~/db/schema";
-import { updateProject } from "./projects";
+import { resolveUserDataDir } from "~/db/client";
+import { getProjectRow, updateProject } from "./projects";
 import type { Project } from "~/db/schema";
+export {
+  MAX_PROJECT_IMAGE_DATA_BYTES,
+  MAX_PROJECT_IMAGE_DATA_URL_LENGTH,
+  normalizeProjectImageDataUrl,
+} from "../lib/project-image-data";
 
 export const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"] as const;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -19,16 +22,15 @@ export function projectImageAbsolutePath(filename: string): string {
   return path.join(projectImagesDir(), safe);
 }
 
-export function setProjectImage(projectId: string, filename: string): Project | null {
-  return updateProject(projectId, { imagePath: filename });
+export async function setProjectImage(projectId: string, filename: string): Promise<Project | null> {
+  return updateProject(projectId, { imagePath: filename, imageDataUrl: null });
 }
 
-export function clearProjectImage(projectId: string): Project | null {
-  const db = getDb();
-  const existing = db.select().from(projects).where(eq(projects.id, projectId)).get();
+export async function clearProjectImage(projectId: string): Promise<Project | null> {
+  const existing = await getProjectRow(projectId);
   if (!existing) return null;
   if (existing.imagePath) deleteProjectImageFile(existing.imagePath);
-  return updateProject(projectId, { imagePath: null });
+  return updateProject(projectId, { imagePath: null, imageDataUrl: null });
 }
 
 export function deleteProjectImageFile(filename: string): void {

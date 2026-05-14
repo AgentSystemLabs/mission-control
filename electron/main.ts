@@ -42,10 +42,12 @@ function platformDefaultUserDataDir(): string {
 }
 
 function readApiTokenFromFile(): string | null {
-  const candidates = [
-    path.join(app.getPath("userData"), ".api-token"),
-    path.join(platformDefaultUserDataDir(), ".api-token"),
-  ];
+  const appUserDataToken = path.join(app.getPath("userData"), ".api-token");
+  const platformDefaultToken = path.join(platformDefaultUserDataDir(), ".api-token");
+  const candidates = (isDev
+    ? [platformDefaultToken, appUserDataToken]
+    : [appUserDataToken, platformDefaultToken]
+  ).filter((file, index, all) => all.indexOf(file) === index);
   for (const file of candidates) {
     try {
       const t = fs.readFileSync(file, "utf8").trim();
@@ -212,7 +214,10 @@ async function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      // The compiled preload imports local Electron-side modules such as
+      // ./ipc-channels. Electron's sandboxed preload cannot load those files,
+      // which leaves window.electronAPI undefined and disables PTYs.
+      sandbox: false,
     },
   });
 
@@ -244,9 +249,15 @@ async function createWindow() {
   });
 
   // A file dropped outside any drop target would otherwise navigate the
-  // window to its file:// URL, blowing away the app shell.
+  // window to its file:// URL, blowing away the app shell. Same-origin
+  // navigations are legitimate SPA hard refreshes/deep links.
+  const appOrigin = new URL(url).origin;
   win.webContents.on("will-navigate", (event, navUrl) => {
-    if (navUrl !== url) event.preventDefault();
+    try {
+      if (new URL(navUrl).origin !== appOrigin) event.preventDefault();
+    } catch {
+      event.preventDefault();
+    }
   });
 
   await win.loadURL(url);
@@ -383,7 +394,9 @@ ipcMain.handle(
       if (name.split(".")[0] === projectId) {
         try {
           fs.unlinkSync(path.join(dir, name));
-        } catch {}
+        } catch {
+          // Best-effort cleanup; the new image write below is the source of truth.
+        }
       }
     }
     const filename = `${projectId}.${ext}`;
@@ -425,9 +438,8 @@ ipcMain.handle(IPC.dialogPickProjectParentDir, async () => {
   return resolved;
 });
 
-// TODO(renderer): renderer-side callers must be updated to pass (projectId, relPath)
-// instead of an absolute path. The channel now resolves paths inside the project
-// root via the same logic as file-handlers' resolveInsideRoot.
+// Resolve project-scoped paths in the main process so renderer input cannot
+// point shell.openPath at arbitrary absolute paths.
 ipcMain.handle(
   IPC.shellOpenPath,
   async (_evt, projectId: string, relPath: string) => {
@@ -493,7 +505,9 @@ ipcMain.handle(IPC.appGetUserName, () => {
     });
     const gitName = (result.stdout || "").trim();
     if (gitName) return { source: "git" as const, fullName: gitName, firstName: gitName.split(/\s+/)[0] };
-  } catch {}
+  } catch {
+    // Fall back to the OS account name when git config is unavailable.
+  }
   const username = os.userInfo().username;
   return { source: "os" as const, fullName: username, firstName: username };
 });
@@ -526,13 +540,21 @@ ipcMain.handle(
   async (
     _evt,
     args: {
-      projectPath: string;
+      projectId: string;
       harnesses: { claude: boolean; codex: boolean };
       licenseKey?: string;
     },
   ) => {
     try {
-      const result = await installSkills(args);
+      const projectPath = await getProjectPath(args.projectId);
+      if (!projectPath) {
+        return { ok: false as const, error: "unknown projectId" };
+      }
+      const result = await installSkills({
+        projectPath,
+        harnesses: args.harnesses,
+        licenseKey: args.licenseKey,
+      });
       return { ok: true as const, result };
     } catch (err) {
       logger.warn("installSkills.run failed", { err, op: "skills.install.ipc" });

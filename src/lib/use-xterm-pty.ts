@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
-import { getElectron } from "~/lib/electron";
-import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
+import { getRuntime } from "~/lib/runtime";
+import {
+  keyEventToTerminalInput,
+  mapTerminalKey,
+  shouldSuppressTerminalKey,
+} from "~/lib/terminal-keymap";
 import {
   createTerminalOptions,
   createTerminalTheme,
@@ -11,7 +15,7 @@ import {
 } from "~/lib/terminal-options";
 import { getErrorMessage } from "~/shared/errors";
 
-type Electron = NonNullable<ReturnType<typeof getElectron>>;
+type Runtime = NonNullable<ReturnType<typeof getRuntime>>;
 
 /**
  * Context handed to the consumer's `onTerm` callback once xterm.js has
@@ -21,7 +25,7 @@ type Electron = NonNullable<ReturnType<typeof getElectron>>;
 export type XtermPtyContext = {
   term: XTerm;
   fit: XFitAddon;
-  electron: Electron;
+  electron: Runtime;
   /** Read the currently-attached PTY id, kept in sync via setActivePtyId. */
   getActivePtyId: () => string | null;
   /**
@@ -43,6 +47,10 @@ export type UseXtermPtyOptions = {
   key: string;
   /** Cursor color forwarded to xterm theme. */
   cursorColor?: string | (() => string | undefined);
+  /** Project id for cloud PTY writes that need to reconnect server-side. */
+  projectId?: string;
+  /** Bypass xterm's textarea input path and send keydown bytes directly. */
+  directKeyboardInput?: boolean;
   /**
    * Main lifecycle body. Called once xterm + FitAddon are mounted; receives
    * the context and may return a cleanup function for any subscriptions it
@@ -86,9 +94,13 @@ export function useXtermPty(options: UseXtermPtyOptions): UseXtermPtyResult {
   const cursorColorOption = options.cursorColor;
   const cursorColorRef = useRef(cursorColorOption);
   cursorColorRef.current = cursorColorOption;
+  const projectIdRef = useRef(options.projectId);
+  projectIdRef.current = options.projectId;
+  const directKeyboardInputRef = useRef(options.directKeyboardInput);
+  directKeyboardInputRef.current = options.directKeyboardInput;
 
   useEffect(() => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (!electron) {
       setBridgeMissing(true);
       return;
@@ -155,11 +167,38 @@ export function useXtermPty(options: UseXtermPtyOptions): UseXtermPtyResult {
           .filter(Boolean)
           .map((p) => (/[\s"'\\]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p));
         if (!paths.length) return;
-        electron.pty.write(activePtyId, paths.join(" ") + " ");
+        electron.pty.write(activePtyId, paths.join(" ") + " ", projectIdRef.current);
+        term.focus();
+      };
+      const onPointerDown = () => {
         term.focus();
       };
       host.addEventListener("dragover", onDragOver);
       host.addEventListener("drop", onDrop);
+      host.addEventListener("pointerdown", onPointerDown);
+
+      let directKeyboardFailureShown = false;
+      const onDirectKeyDown = (e: KeyboardEvent) => {
+        if (!directKeyboardInputRef.current && electron.hostKind !== "cloud") return;
+        if (!activePtyId) return;
+        let data = keyEventToTerminalInput(e);
+        if (data === null) return;
+        // Daytona's PTY examples send LF for Enter. Local node-pty accepts CR,
+        // but the cloud websocket path is happier with LF line endings.
+        if (electron.hostKind === "cloud" && data === "\r") data = "\n";
+        e.preventDefault();
+        e.stopPropagation();
+        void electron.pty.write(activePtyId, data, projectIdRef.current).then((ok) => {
+          if (ok || directKeyboardFailureShown) return;
+          directKeyboardFailureShown = true;
+          term.writeln("\r\n\x1b[31m[terminal input failed: PTY is not connected]\x1b[0m");
+        }).catch((err: unknown) => {
+          if (directKeyboardFailureShown) return;
+          directKeyboardFailureShown = true;
+          term.writeln(`\r\n\x1b[31m[terminal input failed: ${getErrorMessage(err)}]\x1b[0m`);
+        });
+      };
+      host.addEventListener("keydown", onDirectKeyDown, { capture: true });
 
       // Shift+Enter must insert a literal newline in Claude Code's prompt;
       // xterm.js otherwise emits plain CR for both Enter and Shift+Enter,
@@ -176,7 +215,7 @@ export function useXtermPty(options: UseXtermPtyOptions): UseXtermPtyResult {
           return false;
         }
         e.preventDefault();
-        if (activePtyId) electron.pty.write(activePtyId, bytes);
+        if (activePtyId) electron.pty.write(activePtyId, bytes, projectIdRef.current);
         return false;
       });
 
@@ -190,6 +229,21 @@ export function useXtermPty(options: UseXtermPtyOptions): UseXtermPtyResult {
       ro.observe(host);
 
       let consumerCleanup: (() => void) | undefined;
+      let disposed = false;
+      const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        consumerCleanup?.();
+        stopWatchingColorScheme();
+        host.removeEventListener("dragover", onDragOver);
+        host.removeEventListener("drop", onDrop);
+        host.removeEventListener("pointerdown", onPointerDown);
+        host.removeEventListener("keydown", onDirectKeyDown, { capture: true });
+        ro.disconnect();
+        term.dispose();
+      };
+      cleanup = dispose;
+
       try {
         const result = await onTermRef.current({
           term,
@@ -199,7 +253,10 @@ export function useXtermPty(options: UseXtermPtyOptions): UseXtermPtyResult {
           setActivePtyId,
           isCancelled: () => cancelled,
         });
-        if (typeof result === "function") consumerCleanup = result;
+        if (typeof result === "function") {
+          if (disposed || cancelled) result();
+          else consumerCleanup = result;
+        }
       } catch (err: unknown) {
         try {
           const message = getErrorMessage(err);
@@ -208,22 +265,13 @@ export function useXtermPty(options: UseXtermPtyOptions): UseXtermPtyResult {
           /* terminal may already be disposed */
         }
       }
-
-      cleanup = () => {
-        consumerCleanup?.();
-        stopWatchingColorScheme();
-        host.removeEventListener("dragover", onDragOver);
-        host.removeEventListener("drop", onDrop);
-        ro.disconnect();
-        term.dispose();
-      };
     })();
 
     return () => {
       cancelled = true;
       cleanup?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [key]);
 
   return { containerRef, bridgeMissing };

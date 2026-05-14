@@ -1,4 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
@@ -8,12 +19,16 @@ import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
+import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
 import { projectPickerSections } from "~/lib/group-projects";
-import { TASK_STATUS_META, type TaskStatus } from "~/shared/domain";
+import { getRuntime } from "~/lib/runtime";
+import { DEFAULT_BRANCH, TASK_STATUS_META, type TaskStatus } from "~/shared/domain";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys, useGroups, useProjects } from "~/queries";
+import type { Project } from "~/db/schema";
+import type { GitStatus } from "~/server/services/git";
 import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
 
 function DotCount({ status, count, size }: { status: TaskStatus; count: number; size: number }) {
@@ -56,9 +71,69 @@ function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; siz
   );
 }
 
+function MenuSeparator() {
+  return (
+    <div
+      style={{
+        height: 1,
+        background: "var(--border)",
+        margin: "4px 6px",
+      }}
+    />
+  );
+}
+
+type ProjectPickerActions = {
+  project: Project;
+  gitStatus: GitStatus | undefined;
+  gitAvailable: boolean;
+  hasRunningLaunch: boolean;
+  stopping: boolean;
+  stopLaunch: () => Promise<void> | void;
+  pinning: boolean;
+  toggleProjectPin: () => Promise<void> | void;
+  openDiffView: () => void;
+  setShowLaunchConfig: (v: boolean) => void;
+  setShowEdit: (v: boolean) => void;
+  setConfirmRemove: (v: boolean) => void;
+};
+
+type ProjectPickerActionsContextValue = {
+  actions: ProjectPickerActions | null;
+  setActions: Dispatch<SetStateAction<ProjectPickerActions | null>>;
+};
+
+const ProjectPickerActionsContext = createContext<ProjectPickerActionsContextValue>({
+  actions: null,
+  setActions: () => {},
+});
+
+export function ProjectPickerActionsProvider({ children }: { children: ReactNode }) {
+  const [actions, setActions] = useState<ProjectPickerActions | null>(null);
+  return (
+    <ProjectPickerActionsContext.Provider value={{ actions, setActions }}>
+      {children}
+    </ProjectPickerActionsContext.Provider>
+  );
+}
+
+export function useProjectPickerActions(actions: ProjectPickerActions | null) {
+  const { setActions } = useContext(ProjectPickerActionsContext);
+
+  useEffect(() => {
+    setActions(actions);
+    return () => {
+      setActions((current) =>
+        current?.project.id === actions?.project.id ? null : current
+      );
+    };
+  }, [actions, setActions]);
+}
+
 export function ProjectPicker({ projectId }: { projectId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { actions } = useContext(ProjectPickerActionsContext);
   const { runningProjectIds } = useUserTerminals();
   const [open, setOpen] = useState(false);
   const { data: projects } = useProjects();
@@ -66,11 +141,14 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const current = projects?.find((p) => p.id === projectId) ?? null;
   const label = current?.name ?? "Project";
+  const currentActions =
+    current && actions?.project.id === current.id ? actions : null;
 
   const filtered = useMemo<ProjectWithCounts[]>(() => {
     if (!projects) return [];
@@ -104,6 +182,14 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
     setQuery("");
     if (id !== projectId) router.navigate({ to: "/projects/$id", params: { id } });
   };
+
+  const closeAndFocusTrigger = useCallback(() => {
+    setOpen(false);
+    window.setTimeout(() => {
+      const trigger = wrapRef.current?.querySelector("button");
+      if (trigger instanceof HTMLButtonElement) trigger.focus();
+    }, 0);
+  }, []);
 
   useHotkey(
     "project.picker",
@@ -150,7 +236,8 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      setOpen(false);
+      e.stopPropagation();
+      closeAndFocusTrigger();
       return;
     }
     if (e.key === "ArrowDown") {
@@ -180,8 +267,9 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
         <Btn
           variant="gray-frame"
           onClick={() => setOpen((o) => !o)}
-          aria-haspopup="listbox"
+          aria-haspopup="dialog"
           aria-expanded={open}
+          title={currentActions ? "Switch project or manage project" : "Switch project"}
         >
           {current && <ProjectIcon project={current} size={14} />}
           <span>{label}</span>
@@ -190,6 +278,37 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
       </HotkeyTooltip>
       {open && (
         <CardFrame
+          role="dialog"
+          aria-label={
+            currentActions ? "Switch project or manage project" : "Switch project"
+          }
+          ref={dialogRef}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              closeAndFocusTrigger();
+              return;
+            }
+            if (e.key === "Tab") {
+              const focusables = dialogRef.current
+                ? Array.from(
+                    dialogRef.current.querySelectorAll<HTMLElement>(
+                      'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+                    ),
+                  ).filter((node) => node.offsetParent !== null)
+                : [];
+              if (focusables.length === 0) return;
+              const first = focusables[0]!;
+              const last = focusables[focusables.length - 1]!;
+              if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+              } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+              }
+            }
+          }}
           glow
           solid
           style={{
@@ -312,6 +431,182 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
               })()
             )}
           </div>
+          {currentActions && (
+            <>
+              <MenuSeparator />
+              <div
+                style={{
+                  padding: "2px 12px 4px",
+                  fontFamily: "var(--mono)",
+                  fontSize: 10,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: "var(--text-faint)",
+                }}
+              >
+                Project actions
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                  gap: 2,
+                  padding: "0 4px 6px",
+                }}
+              >
+                {currentActions.hasRunningLaunch ? (
+                  <>
+                    <HotkeyTooltip action="project.runToggle">
+                      <Btn
+                        variant="ghost"
+                        icon="x"
+                        onClick={() => {
+                          setOpen(false);
+                          void currentActions.stopLaunch();
+                        }}
+                        disabled={currentActions.stopping}
+                        style={{ justifyContent: "flex-start" }}
+                      >
+                        {currentActions.stopping ? "Stopping..." : "Stop launch"}
+                      </Btn>
+                    </HotkeyTooltip>
+                    <MenuSeparator />
+                  </>
+                ) : null}
+                <Btn
+                  variant="ghost"
+                  icon={currentActions.project.pinned ? "pin-fill" : "pin"}
+                  onClick={() => {
+                    setOpen(false);
+                    void currentActions.toggleProjectPin();
+                  }}
+                  disabled={currentActions.pinning}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  {currentActions.pinning
+                    ? currentActions.project.pinned
+                      ? "Unpinning..."
+                      : "Pinning..."
+                    : currentActions.project.pinned
+                      ? "Unpin project"
+                      : "Pin project"}
+                </Btn>
+                {currentActions.project.runtimeKind === "local" ? (
+                  <Btn
+                    variant="ghost"
+                    icon="folder"
+                    onClick={() => {
+                      setOpen(false);
+                      void getRuntime()?.openPath(currentActions.project.id, ".");
+                    }}
+                    style={{ justifyContent: "flex-start" }}
+                    title={currentActions.project.path}
+                  >
+                    Reveal in Finder
+                  </Btn>
+                ) : null}
+                {(currentActions.project.githubUrl || currentActions.project.repoUrl) && (
+                  <Btn
+                    variant="ghost"
+                    icon="github"
+                    onClick={() => {
+                      setOpen(false);
+                      window.open(
+                        (currentActions.project.githubUrl || currentActions.project.repoUrl)!,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    Open repository
+                  </Btn>
+                )}
+                {currentActions.gitAvailable ? (
+                  <HotkeyTooltip action="git.diff">
+                    <Btn
+                      variant="ghost"
+                      icon="git-branch"
+                      onClick={() => {
+                        setOpen(false);
+                        currentActions.openDiffView();
+                      }}
+                      style={{ justifyContent: "flex-start" }}
+                      title={(() => {
+                        const branch =
+                          currentActions.gitStatus?.branch ??
+                          currentActions.project.branch ??
+                          DEFAULT_BRANCH;
+                        if (
+                          currentActions.gitStatus &&
+                          currentActions.gitStatus.changedCount > 0
+                        ) {
+                          return `Branch ${branch} · ${currentActions.gitStatus.changedCount} changed file${
+                            currentActions.gitStatus.changedCount === 1 ? "" : "s"
+                          }`;
+                        }
+                        return `Branch ${branch}`;
+                      })()}
+                    >
+                      <span style={{ flex: 1, textAlign: "left" }}>
+                        Review Changes
+                        {currentActions.gitStatus &&
+                          currentActions.gitStatus.changedCount > 0 && (
+                            <span style={{ color: "var(--text-dim)" }}>
+                              {" · "}
+                              {currentActions.gitStatus.changedCount} changed
+                            </span>
+                          )}
+                      </span>
+                    </Btn>
+                  </HotkeyTooltip>
+                ) : null}
+                <MenuSeparator />
+                <Btn
+                  variant="ghost"
+                  icon="play"
+                  onClick={() => {
+                    setOpen(false);
+                    currentActions.setShowLaunchConfig(true);
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  Configure launch commands
+                </Btn>
+                <InstallSkillsMenuItem
+                  projectId={currentActions.project.id}
+                  onOpen={() => setOpen(false)}
+                />
+                <HotkeyTooltip action="project.edit">
+                  <Btn
+                    variant="ghost"
+                    icon="settings"
+                    onClick={() => {
+                      setOpen(false);
+                      currentActions.setShowEdit(true);
+                    }}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    <span style={{ flex: 1, textAlign: "left" }}>Edit project</span>
+                  </Btn>
+                </HotkeyTooltip>
+                <MenuSeparator />
+                <Btn
+                  variant="ghost"
+                  icon="trash"
+                  onClick={() => {
+                    setOpen(false);
+                    currentActions.setConfirmRemove(true);
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                  title="Remove this project from Mission Control. The folder on disk is not touched."
+                >
+                  Remove project
+                </Btn>
+              </div>
+            </>
+          )}
         </CardFrame>
       )}
     </div>

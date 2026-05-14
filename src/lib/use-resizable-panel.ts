@@ -29,7 +29,9 @@ export function useResizablePanel(opts: {
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, String(size));
-    } catch {}
+    } catch {
+      // Ignore storage failures in private windows or restricted webviews.
+    }
   }, [storageKey, size]);
 
   const dragRef = useRef<{ start: number; startSize: number } | null>(null);

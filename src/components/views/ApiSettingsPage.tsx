@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
 import { api, setApiToken } from "~/lib/api";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 
 export function ApiSettingsPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -10,7 +10,7 @@ export function ApiSettingsPage() {
   const { copied, copy } = useCopy();
 
   useEffect(() => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (electron) {
       void electron
         .getRuntimePort()
@@ -33,7 +33,11 @@ export function ApiSettingsPage() {
     }
   };
 
-  const baseUrl = `http://127.0.0.1:${port ?? "PORT"}`;
+  const baseUrl = port
+    ? `http://127.0.0.1:${port}`
+    : typeof window === "undefined"
+      ? "https://YOUR-MISSION-CONTROL-HOST"
+      : window.location.origin;
 
   return (
     <>

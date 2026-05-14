@@ -167,6 +167,7 @@ export function UserTerminalPanel() {
               terminal={s.terminal}
               ptyId={s.ptyId}
               projectId={s.terminal.projectId}
+              directKeyboardInput={project.runtimeKind !== "local"}
               focused={focusedId === s.terminal.id}
               onFocus={() => focusTerminal(s.terminal.id)}
               onPtyReady={(ptyId) => setPtyId(s.terminal.id, ptyId)}

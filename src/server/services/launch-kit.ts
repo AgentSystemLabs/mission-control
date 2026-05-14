@@ -6,13 +6,13 @@ import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
-import { getLicenseState } from "~/db/settings";
 import { resolveUserDataDir } from "~/db/client";
 import { ACADEMY_BASE_URL, isAllowedAcademyDownloadUrl } from "~/shared/academy";
 import { isAcademyTier } from "~/shared/license";
 import { isPickedDirAllowed } from "~/shared/picked-dirs";
 import { createProject } from "./projects";
 import { readLicenseState } from "./license";
+import { getSetting } from "./settings";
 import { logger } from "~/shared/logger";
 
 export class LaunchKitAuthorizationError extends Error {
@@ -34,12 +34,12 @@ export type CreateLaunchKitProjectResult = {
   version: string;
 };
 
-function readRequiredAcademyLicenseKey(): string {
-  const state = readLicenseState();
+async function readRequiredAcademyLicenseKey(userId?: string | null): Promise<string> {
+  const state = await readLicenseState(userId);
   if (!isAcademyTier(state)) {
     throw new Error("Academy access is required to download the Launch Kit.");
   }
-  const key = getLicenseState().key?.trim();
+  const key = (await getSetting("license_key", { userId }))?.trim();
   if (!key) {
     throw new Error("A valid Academy license key is required.");
   }
@@ -50,11 +50,11 @@ function licenseAuthHeaders(key: string): HeadersInit {
   return { authorization: `Bearer ${key}` };
 }
 
-export async function readLaunchKitAccess(): Promise<{ hasAccess: boolean }> {
-  const state = readLicenseState();
+export async function readLaunchKitAccess(userId?: string | null): Promise<{ hasAccess: boolean }> {
+  const state = await readLicenseState(userId);
   if (isAcademyTier(state)) return { hasAccess: true };
 
-  const key = getLicenseState().key?.trim();
+  const key = (await getSetting("license_key", { userId }))?.trim();
   if (!key || state.status !== "active") return { hasAccess: false };
 
   try {
@@ -99,8 +99,8 @@ function isSafeTarEntry(entry: { path: string; type?: string }): boolean {
   return normalizeEntryPath(entry.path) !== null;
 }
 
-export async function fetchLatestLaunchKitManifest(): Promise<LatestLaunchKitManifest> {
-  const licenseKey = readRequiredAcademyLicenseKey();
+export async function fetchLatestLaunchKitManifest(userId?: string | null): Promise<LatestLaunchKitManifest> {
+  const licenseKey = await readRequiredAcademyLicenseKey(userId);
   const url = `${ACADEMY_BASE_URL.replace(/\/$/, "")}/api/launch-kit/latest`;
   const res = await fetch(url, { headers: licenseAuthHeaders(licenseKey) });
   if (!res.ok) {
@@ -123,6 +123,7 @@ export async function fetchLatestLaunchKitManifest(): Promise<LatestLaunchKitMan
 export async function createProjectFromLaunchKit(input: {
   parentDir: string;
   projectName: string;
+  ownerUserId?: string | null;
 }): Promise<CreateLaunchKitProjectResult> {
   const parentDir = input.parentDir.trim();
   if (!parentDir) throw new Error("Working directory is required");
@@ -154,11 +155,11 @@ export async function createProjectFromLaunchKit(input: {
     throw new Error("A file or folder already exists at the project path");
   }
 
-  const manifest = await fetchLatestLaunchKitManifest();
+  const manifest = await fetchLatestLaunchKitManifest(input.ownerUserId);
   if (!isAllowedAcademyDownloadUrl(manifest.downloadUrl)) {
     throw new Error(`Refusing to download from untrusted host: ${manifest.downloadUrl}`);
   }
-  const licenseKey = readRequiredAcademyLicenseKey();
+  const licenseKey = await readRequiredAcademyLicenseKey(input.ownerUserId);
   const tempFile = path.join(
     os.tmpdir(),
     `mc-launch-kit-${manifest.version}-${crypto.randomBytes(6).toString("hex")}.tar.gz`,
@@ -228,6 +229,7 @@ export async function createProjectFromLaunchKit(input: {
       path: targetDir,
       icon: projectName.slice(0, 2).toUpperCase(),
       iconColor: "#ff5a1f",
+      ownerUserId: input.ownerUserId ?? null,
     });
 
     return { project, version: manifest.version };

@@ -1,6 +1,9 @@
 import { Btn } from "./Btn";
 import { CardFrame } from "./CardFrame";
 import { Icon } from "./Icon";
+import { ApiError } from "~/lib/api";
+
+const GENERIC_ROUTE_ERROR = "Something went wrong loading this view.";
 
 /**
  * Friendly error UI shown by route-level `errorComponent` and the router's
@@ -15,12 +18,7 @@ export function RouteErrorBoundary({
   error: unknown;
   reset?: () => void;
 }) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "Something went wrong loading this view.";
+  const message = error instanceof ApiError ? error.message : GENERIC_ROUTE_ERROR;
 
   return (
     <div

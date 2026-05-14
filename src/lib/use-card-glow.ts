@@ -16,14 +16,18 @@ export function useCardGlow<T extends HTMLElement = HTMLDivElement>() {
     delete document.body.dataset.cardGlow;
     if (!enabled) return;
 
-    const onMove = (e: PointerEvent) => {
+    const updatePosition = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
       const r = el.getBoundingClientRect();
       el.style.setProperty("--gx", `${e.clientX - r.left}px`);
       el.style.setProperty("--gy", `${e.clientY - r.top}px`);
     };
+    const onMove = (e: PointerEvent) => {
+      updatePosition(e);
+    };
     const onEnter = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
+      updatePosition(e);
       el.dataset.glow = "1";
       document.body.dataset.cardGlow = "1";
     };

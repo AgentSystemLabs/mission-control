@@ -419,7 +419,8 @@ export function registerPtyHandlers(
           throw new Error(
             `posix_spawnp failed for shell="${userShell}" cwd="${cwd}". ` +
               `Verify the shell exists and the cwd is a readable directory. ` +
-              `Original: ${msg}`
+              `Original: ${msg}`,
+            { cause: err },
           );
         }
         throw err;

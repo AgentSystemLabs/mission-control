@@ -1,20 +1,14 @@
-// Thin client-side wrapper for the Electron preload bridge.
+// Compatibility wrapper. New shared UI code should import from ~/lib/runtime.
 
-import type { ElectronBridge } from "~/shared/electron-contract";
+import { getRuntime } from "./runtime";
+import type { RuntimeBridge } from "~/shared/runtime-contract";
 
-export type { ElectronBridge } from "~/shared/electron-contract";
+export type { RuntimeBridge as ElectronBridge } from "~/shared/runtime-contract";
 
-declare global {
-  interface Window {
-    electronAPI?: ElectronBridge;
-  }
-}
-
-export function getElectron(): ElectronBridge | null {
-  if (typeof window === "undefined") return null;
-  return window.electronAPI ?? null;
+export function getElectron(): RuntimeBridge | null {
+  return getRuntime();
 }
 
 export function isElectron(): boolean {
-  return getElectron() !== null;
+  return getRuntime()?.hostKind === "desktop";
 }

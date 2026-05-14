@@ -4,7 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { useHotkey } from "~/lib/use-hotkey";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { ApiSettingsPage } from "./ApiSettingsPage";
@@ -13,6 +13,7 @@ import { StorageSettingsPage } from "./StorageSettingsPage";
 import { LicenseSettingsPage } from "./LicenseSettingsPage";
 import { SkillsSettingsPage } from "./SkillsSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
+import { AccountSettingsPage } from "./AccountSettingsPage";
 
 export type SettingsPanelId =
   | "general"
@@ -21,7 +22,8 @@ export type SettingsPanelId =
   | "skills"
   | "api"
   | "keybindings"
-  | "storage";
+  | "storage"
+  | "account";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
 export function SettingsPanel({
@@ -32,6 +34,7 @@ export function SettingsPanel({
   initialPanel?: SettingsPanelId;
 }) {
   const [isElectron, setIsElectron] = useState(false);
+  const [cloudMode, setCloudMode] = useState<boolean | null>(null);
   const [activePanel, setActivePanel] = useState<SettingsPanelId>(() => {
     if (typeof window === "undefined") return initialPanel;
     const stored = window.localStorage.getItem(
@@ -47,8 +50,29 @@ export function SettingsPanel({
   }, [activePanel]);
 
   useEffect(() => {
-    setIsElectron(!!getElectron());
+    setIsElectron(getRuntime()?.hostKind === "desktop");
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/runtime/mode")
+      .then((res) => res.json() as Promise<{ cloudMode?: boolean }>)
+      .then((body) => {
+        if (!cancelled) setCloudMode(body.cloudMode === true);
+      })
+      .catch(() => {
+        if (!cancelled) setCloudMode(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (cloudMode === false && activePanel === "account") {
+      setActivePanel("general");
+    }
+  }, [activePanel, cloudMode]);
 
   const handleBack = () => {
     if (isExiting) return;
@@ -68,6 +92,11 @@ export function SettingsPanel({
       ? ([{ id: "storage", label: "Storage", icon: "folder" }] as NavItem[])
       : []),
   ];
+  const accountItem: NavItem = { id: "account", label: "Account", icon: "globe" };
+  const accountAvailable = cloudMode === true;
+  const isResolvingAccountPanel = activePanel === "account" && cloudMode === null;
+  const resolvedActivePanel =
+    activePanel === "account" && cloudMode === false ? "general" : activePanel;
 
   return (
     <div
@@ -121,6 +150,8 @@ export function SettingsPanel({
             flexShrink: 0,
             padding: "16px 6px",
             overflow: "auto",
+            display: "flex",
+            flexDirection: "column",
             animation: isExiting
               ? "mc-settings-slide-out-left 380ms cubic-bezier(0.64, 0, 0.78, 0) both"
               : "mc-settings-slide-in-left 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
@@ -161,15 +192,36 @@ export function SettingsPanel({
           >
             Settings
           </div>
-          <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {items.map((item) => (
-              <SettingsNavButton
-                key={item.id}
-                {...item}
-                active={activePanel === item.id}
-                onClick={() => setActivePanel(item.id)}
-              />
-            ))}
+          <nav
+            aria-label="Settings sections"
+            style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minHeight: 0 }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {items.map((item) => (
+                <SettingsNavButton
+                  key={item.id}
+                  {...item}
+                  active={resolvedActivePanel === item.id}
+                  onClick={() => setActivePanel(item.id)}
+                />
+              ))}
+            </div>
+            {accountAvailable && (
+              <div style={{ marginTop: "auto", paddingTop: 12 }}>
+                <hr
+                  style={{
+                    border: 0,
+                    borderTop: "1px solid var(--border)",
+                    margin: "0 10px 10px",
+                  }}
+                />
+                <SettingsNavButton
+                  {...accountItem}
+                  active={resolvedActivePanel === accountItem.id}
+                  onClick={() => setActivePanel(accountItem.id)}
+                />
+              </div>
+            )}
           </nav>
         </CardFrame>
         <CardFrame
@@ -184,24 +236,58 @@ export function SettingsPanel({
               : "mc-settings-slide-in-right 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
           }}
         >
-          {activePanel === "general" ? (
+          {isResolvingAccountPanel ? (
+            <AccountSettingsLoading />
+          ) : resolvedActivePanel === "general" ? (
             <GeneralSettingsPage />
-          ) : activePanel === "theme" ? (
+          ) : resolvedActivePanel === "theme" ? (
             <ThemeSettingsPage />
-          ) : activePanel === "license" ? (
+          ) : resolvedActivePanel === "license" ? (
             <LicenseSettingsPage />
-          ) : activePanel === "skills" ? (
+          ) : resolvedActivePanel === "skills" ? (
             <SkillsSettingsPage />
-          ) : activePanel === "api" ? (
+          ) : resolvedActivePanel === "api" ? (
             <ApiSettingsPage />
-          ) : activePanel === "keybindings" ? (
+          ) : resolvedActivePanel === "keybindings" ? (
             <KeybindingsPage />
-          ) : (
+          ) : resolvedActivePanel === "storage" ? (
             <StorageSettingsPage />
+          ) : (
+            <AccountSettingsPage />
           )}
         </CardFrame>
       </div>
     </div>
+  );
+}
+
+function AccountSettingsLoading() {
+  return (
+    <section>
+      <div style={{ marginBottom: 16 }}>
+        <h1
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 22,
+            fontWeight: 600,
+            color: "var(--text)",
+            margin: "0 0 4px",
+          }}
+        >
+          Account
+        </h1>
+        <div
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 11.5,
+            color: "var(--text-dim)",
+            lineHeight: 1.5,
+          }}
+        >
+          Loading your account settings.
+        </div>
+      </div>
+    </section>
   );
 }
 

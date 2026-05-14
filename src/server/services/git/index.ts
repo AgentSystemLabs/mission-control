@@ -1,7 +1,7 @@
 // Public surface of the git service. Re-exports preserve the original
 // `~/server/services/git` import path after the file was split by responsibility.
 
-export { GitError, gitErrorPayload } from "./exec";
+export { GitError } from "./exec";
 export {
   parsePorcelainZ,
   getGitStatus,

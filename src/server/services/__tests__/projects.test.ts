@@ -11,13 +11,14 @@ process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
   .export({ type: "spki", format: "pem" })
   .toString();
 
-const { listProjects, createProject, togglePin, deleteProject, updateProject, ProjectCapExceededError } = await import(
-  "../projects"
-);
+const { listProjects, createProject, togglePin, deleteProject, updateProject, ProjectCapExceededError } =
+  await import("../projects");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings } = await import("~/db/schema");
 const { setLicenseKey, clearLicense } = await import("~/db/settings");
 const { FREE_PROJECT_CAP } = await import("~/shared/license");
+
+const pngDataUrl = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64")}`;
 
 function signedLicense(overrides: Record<string, unknown> = {}): string {
   const payload = Buffer.from(
@@ -64,16 +65,49 @@ describe("projects service", () => {
   it("toggles pin and updates fields", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-"));
     const c = await createProject({ name: "beta", path: dir });
-    const after = togglePin(c.id);
+    const after = await togglePin(c.id);
     expect(after?.pinned).toBe(true);
-    const renamed = updateProject(c.id, { name: "beta-2" });
+    const renamed = await updateProject(c.id, { name: "beta-2" });
     expect(renamed?.name).toBe("beta-2");
+  });
+
+  it("persists and clears a project image data URL", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-img-data-"));
+    const c = await createProject({ name: "image-data", path: dir, imageDataUrl: pngDataUrl });
+    expect(c.imageDataUrl).toBe(pngDataUrl);
+    expect((await listProjects()).find((p) => p.id === c.id)?.imageDataUrl).toBe(pngDataUrl);
+
+    const cleared = await updateProject(c.id, { imageDataUrl: null });
+    expect(cleared?.imageDataUrl).toBeNull();
+  });
+
+  it("keeps project image path and data URL mutually exclusive in service updates", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-img-exclusive-"));
+    const c = await createProject({ name: "image-exclusive", path: dir });
+
+    const withDataUrl = await updateProject(c.id, { imageDataUrl: pngDataUrl });
+    expect(withDataUrl?.imageDataUrl).toBe(pngDataUrl);
+    expect(withDataUrl?.imagePath).toBeNull();
+
+    const withImagePath = await updateProject(c.id, { imagePath: "local.png" });
+    expect(withImagePath?.imageDataUrl).toBeNull();
+    expect(withImagePath?.imagePath).toBe("local.png");
+
+    const clearedEmptyPath = await updateProject(c.id, { imageDataUrl: pngDataUrl });
+    expect(clearedEmptyPath?.imageDataUrl).toBe(pngDataUrl);
+    const emptyImagePath = await updateProject(c.id, { imagePath: "" });
+    expect(emptyImagePath?.imageDataUrl).toBeNull();
+    expect(emptyImagePath?.imagePath).toBeNull();
+
+    await expect(
+      updateProject(c.id, { imagePath: "local.png", imageDataUrl: pngDataUrl }),
+    ).rejects.toThrow("Choose either");
   });
 
   it("deletes cleanly", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-"));
     const c = await createProject({ name: "gamma", path: dir });
-    expect(deleteProject(c.id)).toBe(true);
+    expect(await deleteProject(c.id)).toBe(true);
     expect((await listProjects()).some((p) => p.id === c.id)).toBe(false);
   });
 
@@ -81,6 +115,39 @@ describe("projects service", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-named-"));
     const c = await createProject({ path: dir });
     expect(c.name).toBe(path.basename(dir));
+  });
+
+  it("derives cloud project metadata from the git repository URL", async () => {
+    const c = await createProject({
+      runtimeKind: "daytona",
+      ownerUserId: "user-1",
+      repoUrl: "https://github.com/AgentSystemLabs/mission-control.git",
+    });
+    expect(c.name).toBe("mission-control");
+    expect(c.path).toBe("workspace/agentsystemlabs-mission-control");
+    expect(c.workspacePath).toBe("workspace/agentsystemlabs-mission-control");
+    expect(c.repoUrl).toBe("https://github.com/AgentSystemLabs/mission-control.git");
+    expect(c.githubUrl).toBe("https://github.com/AgentSystemLabs/mission-control.git");
+  });
+
+  it("rejects cloud projects without a safe HTTPS git repository URL", async () => {
+    await expect(
+      createProject({ runtimeKind: "daytona", ownerUserId: "user-1" }),
+    ).rejects.toThrow("Git repository URL is required in cloud mode");
+    await expect(
+      createProject({
+        runtimeKind: "daytona",
+        ownerUserId: "user-1",
+        repoUrl: "https://token@github.com/AgentSystemLabs/mission-control.git",
+      }),
+    ).rejects.toThrow("Git repository URL must not include credentials");
+    await expect(
+      createProject({
+        runtimeKind: "daytona",
+        ownerUserId: "user-1",
+        repoUrl: "https://example.internal/AgentSystemLabs/mission-control.git",
+      }),
+    ).rejects.toThrow("Git repository host is not supported in cloud mode");
   });
 
   describe("free-tier project cap", () => {

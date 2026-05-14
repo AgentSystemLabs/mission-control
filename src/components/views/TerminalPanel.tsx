@@ -4,7 +4,7 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { STORAGE_KEYS } from "~/lib/storage-keys";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { api } from "~/lib/api";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
@@ -40,7 +40,7 @@ export function TerminalPanel({
   // terminal is focused; otherwise, when an agent session panel is open, we
   // open the delete-confirm dialog.
   useEffect(() => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (!electron || !active) return;
     return electron.onCloseIntent(() => {
       if (userTerminals.panelOpen && userTerminals.focusedId) return;

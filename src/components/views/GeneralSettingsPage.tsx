@@ -133,45 +133,13 @@ export function GeneralSettingsPage() {
         headingLevel="h1"
       >
         <Field label="AgentSystem.dev banner">
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 16,
-              padding: "12px 14px",
-              background: "var(--surface-0)",
-              border: "1px solid var(--border)",
-              borderRadius: 7,
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
-                Show promotional banner
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}>
-                Dismissing the banner only hides it until the app reloads.
-              </div>
-            </div>
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: 12,
-                color: "var(--text-dim)",
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={!disabled}
-                onChange={(event) => setBannerDisabled(!event.currentTarget.checked)}
-              />
-              Show banner
-            </label>
-          </div>
+          <ToggleRow
+            title="Show promotional banner"
+            description="Dismissing the banner only hides it until the app reloads."
+            checked={!disabled}
+            onChange={(enabled) => void setBannerDisabled(!enabled)}
+            label="Show banner"
+          />
         </Field>
         <Field label="Mouse gradient">
           <ToggleRow
@@ -313,6 +281,7 @@ function ToggleRow({
   const titleId = useId();
   const descriptionId = useId();
   const labelId = useId();
+  const [focused, setFocused] = useState(false);
 
   return (
     <div
@@ -342,27 +311,62 @@ function ToggleRow({
           {description}
         </div>
       </div>
-      <label
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        aria-labelledby={`${titleId} ${labelId}`}
+        aria-describedby={descriptionId}
+        onClick={() => onChange(!checked)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         style={{
           display: "inline-flex",
           alignItems: "center",
           gap: 8,
           fontSize: 12,
           color: "var(--text-dim)",
+          background: "transparent",
+          border: 0,
+          padding: 0,
           cursor: disabled ? "not-allowed" : "pointer",
           flexShrink: 0,
         }}
       >
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          aria-labelledby={`${titleId} ${labelId}`}
-          aria-describedby={descriptionId}
-          onChange={(event) => onChange(event.currentTarget.checked)}
-        />
+        <span
+          aria-hidden="true"
+          style={{
+            position: "relative",
+            display: "inline-flex",
+            width: 34,
+            height: 20,
+            padding: 2,
+            border: `1px solid ${checked ? "var(--accent-border)" : "var(--border-strong)"}`,
+            borderRadius: 999,
+            background: checked ? "var(--accent-dim)" : "var(--surface-2)",
+            opacity: disabled ? 0.7 : 1,
+            boxShadow: focused ? "0 0 0 2px var(--accent-glow)" : "none",
+            transition:
+              "background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease",
+          }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 3,
+              left: checked ? 17 : 3,
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              background: checked ? "var(--accent)" : "var(--text-faint)",
+              boxShadow: checked ? "0 0 8px var(--accent-glow)" : "none",
+              transition: "left 0.15s ease, background 0.15s ease, box-shadow 0.15s ease",
+            }}
+          />
+        </span>
         <span id={labelId}>{label}</span>
-      </label>
+      </button>
     </div>
   );
 }

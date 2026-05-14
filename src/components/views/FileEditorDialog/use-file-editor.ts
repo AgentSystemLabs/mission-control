@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import { getRuntime } from "~/lib/runtime";
 import type { LoadError } from "./load-error-view";
 
 type LoadedFile = {
@@ -36,7 +37,8 @@ export function useFileEditor({
 
   // Load on open / relPath change.
   useEffect(() => {
-    if (!open || !relPath || !window.electronAPI) return;
+    const runtime = getRuntime();
+    if (!open || !relPath || !runtime) return;
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
@@ -45,15 +47,22 @@ export function useFileEditor({
     setExternalChanged(false);
     setSaveError(null);
     void (async () => {
-      const r = await window.electronAPI!.files.read(projectId, relPath);
-      if (cancelled) return;
-      if (r.ok) {
-        setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
-        setContent(r.content);
-      } else {
-        setLoadError({ kind: r.error, lineCount: r.lineCount });
+      try {
+        const r = await runtime.files.read(projectId, relPath);
+        if (cancelled) return;
+        if (r.ok) {
+          setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
+          setContent(r.content);
+        } else {
+          setLoadError({ kind: r.error, lineCount: r.lineCount });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError({ kind: err instanceof Error ? err.message : String(err) });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -61,8 +70,13 @@ export function useFileEditor({
   }, [open, projectId, relPath]);
 
   const handleExternalChange = useCallback(async () => {
-    if (!relPath || !window.electronAPI) return;
-    const r = await window.electronAPI.files.read(projectId, relPath);
+    const runtime = getRuntime();
+    if (!relPath || !runtime) return;
+    const r = await runtime.files.read(projectId, relPath).catch((err) => {
+      setSaveError(err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    if (!r) return;
     if (!r.ok) return;
     if (dirtyRef.current) {
       setLoaded((prev) => (prev ? { ...prev, mtimeMs: r.mtimeMs } : prev));
@@ -94,18 +108,20 @@ export function useFileEditor({
   // mtime advance and we read the current mtime via ref, so saves don't tear it down.
   const hasLoaded = loaded !== null;
   useEffect(() => {
-    if (!open || !relPath || !hasLoaded || !window.electronAPI) return;
+    const runtime = getRuntime();
+    if (!open || !relPath || !hasLoaded || !runtime) return;
     let active = true;
     let unsub: (() => void) | undefined;
     void (async () => {
-      const r = await window.electronAPI!.files.watch(projectId, relPath);
+      const r = await runtime.files.watch(projectId, relPath).catch(() => null);
+      if (!r) return;
       if (!active) {
-        if (r.ok) void window.electronAPI!.files.unwatch(r.watchId);
+        if (r.ok) void runtime.files.unwatch(r.watchId);
         return;
       }
       if (!r.ok) return;
       watchIdRef.current = r.watchId;
-      unsub = window.electronAPI!.files.onChanged((msg) => {
+      unsub = runtime.files.onChanged((msg) => {
         if (msg.watchId !== r.watchId) return;
         if (msg.mtimeMs <= mtimeRef.current) return;
         void handleExternalChange();
@@ -116,41 +132,52 @@ export function useFileEditor({
       unsub?.();
       const id = watchIdRef.current;
       watchIdRef.current = null;
-      if (id) void window.electronAPI?.files.unwatch(id);
+      if (id) void runtime.files.unwatch(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectId, relPath, hasLoaded]);
 
   const doSave = useCallback(
     async (forceOverwrite: boolean) => {
-      if (!relPath || !window.electronAPI || !loaded) return;
+      const runtime = getRuntime();
+      if (!relPath || !runtime || !loaded) return;
       setSaving(true);
       setSaveError(null);
-      const r = await window.electronAPI.files.write(
-        projectId,
-        relPath,
-        content,
-        forceOverwrite ? null : loaded.mtimeMs,
-      );
-      setSaving(false);
-      if (r.ok) {
-        setLoaded({ content, mtimeMs: r.mtimeMs });
-        setExternalChanged(false);
-        return;
+      try {
+        const r = await runtime.files.write(
+          projectId,
+          relPath,
+          content,
+          forceOverwrite ? null : loaded.mtimeMs,
+        );
+        if (r.ok) {
+          setLoaded({ content, mtimeMs: r.mtimeMs });
+          setExternalChanged(false);
+          return;
+        }
+        if (r.error === "stale") {
+          setExternalChanged(true);
+          setSaveError("File changed on disk. Discard your edits and reload, or overwrite anyway.");
+          return;
+        }
+        setSaveError(r.error);
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSaving(false);
       }
-      if (r.error === "stale") {
-        setExternalChanged(true);
-        setSaveError("File changed on disk. Discard your edits and reload, or overwrite anyway.");
-        return;
-      }
-      setSaveError(r.error);
     },
     [projectId, relPath, loaded, content],
   );
 
   const discardAndReload = useCallback(async () => {
-    if (!relPath || !window.electronAPI) return;
-    const r = await window.electronAPI.files.read(projectId, relPath);
+    const runtime = getRuntime();
+    if (!relPath || !runtime) return;
+    const r = await runtime.files.read(projectId, relPath).catch((err) => {
+      setSaveError(err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    if (!r) return;
     if (!r.ok) return;
     setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
     setContent(r.content);

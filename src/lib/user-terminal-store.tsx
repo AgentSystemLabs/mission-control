@@ -10,7 +10,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { api } from "./api";
-import { getElectron } from "./electron";
+import { getRuntime } from "./runtime";
 import { STORAGE_KEYS } from "./storage-keys";
 import { useServerEvents } from "./use-events";
 import { killPty, removeKey, useLocalStorageRecord } from "./pty-store-internals";
@@ -181,15 +181,23 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     async (opts?: { name?: string; startCommand?: string | null }) => {
       if (!project) return null;
       const projectId = project.id;
-      const { terminal } = await api.createUserTerminal(projectId, {
-        cwd: project.path,
-        name: opts?.name,
-        startCommand: opts?.startCommand ?? null,
-      });
-      updateSessions(projectId, (prev) => [...prev, { terminal, ptyId: null }]);
-      setFocusFor(projectId, terminal.id);
-      setPanelOpen(true);
-      return terminal;
+      try {
+        const { terminal } = await api.createUserTerminal(projectId, {
+          cwd: project.path,
+          name: opts?.name,
+          startCommand: opts?.startCommand ?? null,
+        });
+        updateSessions(projectId, (prev) => [...prev, { terminal, ptyId: null }]);
+        setFocusFor(projectId, terminal.id);
+        setPanelOpen(true);
+        return terminal;
+      } catch (err) {
+        console.warn("[user-terminal-store] createUserTerminal failed:", err);
+        toast.error("Failed to create terminal", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }
     },
     [project, updateSessions, setFocusFor, setPanelOpen]
   );
@@ -300,7 +308,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const killTerminalsByStartCommand = useCallback(
     async (commands: string[], opts?: { ports?: number[] }) => {
       if (!project) return;
-      const electron = getElectron();
+      const electron = getRuntime();
       const list = sessionsByProject[project.id] ?? [];
       const wanted = new Set(commands.map((c) => c.trim()).filter(Boolean));
       if (wanted.size === 0) return;

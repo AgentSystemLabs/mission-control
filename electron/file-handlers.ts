@@ -381,7 +381,9 @@ export function registerFileHandlers(
     }
     try {
       entry.watcher.close();
-    } catch {}
+    } catch {
+      // Ignore watcher shutdown races; the entry is removed either way.
+    }
     watchers.delete(watchId);
     logger.info("ipc.files.unwatch", {
       durationMs: Date.now() - startedAt,
@@ -396,7 +398,9 @@ export function disposeAllFileWatchers() {
   for (const e of watchers.values()) {
     try {
       e.watcher.close();
-    } catch {}
+    } catch {
+      // Ignore watcher shutdown races during app teardown.
+    }
   }
   watchers.clear();
 }

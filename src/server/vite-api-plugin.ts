@@ -1,6 +1,6 @@
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { getErrorMessage } from "../shared/errors";
+import { logger } from "../shared/logger";
 
 /**
  * Vite plugin that mounts the MissionControl `/api/*` Web-fetch handler
@@ -22,13 +22,27 @@ export function missionControlApi(): Plugin {
           if (!response) return next();
           await writeFetchResponse(response, res);
         } catch (err: unknown) {
+          logger.error("vite api middleware failed", {
+            err,
+            route: pathnameFromRequestUrl(req.url),
+            method: req.method,
+          });
           res.statusCode = 500;
           res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify({ error: getErrorMessage(err) || "internal error" }));
+          res.end(JSON.stringify({ error: "Internal server error", code: "internal_error" }));
         }
       });
     },
   };
+}
+
+function pathnameFromRequestUrl(value: string | undefined): string {
+  if (!value) return "";
+  try {
+    return new URL(value, "http://localhost").pathname;
+  } catch {
+    return "";
+  }
 }
 
 async function nodeRequestToFetch(req: IncomingMessage): Promise<Request> {
@@ -80,7 +94,7 @@ async function writeFetchResponse(response: Response, res: ServerResponse) {
 
   res.on("close", () => reader.cancel().catch(() => undefined));
 
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;

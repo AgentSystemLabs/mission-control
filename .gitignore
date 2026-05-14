@@ -18,5 +18,5 @@ release
 .env.release
 dist-electron-out/
 artifacts/
-
+.cursor
 .openai-key

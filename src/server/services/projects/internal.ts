@@ -20,7 +20,7 @@ export class ProjectCapExceededError extends Error {
 
 export class DuplicateProjectPathError extends Error {
   constructor(public readonly path: string) {
-    super(`A project for "${path}" already exists.`);
+    super("A project for this working directory already exists.");
     this.name = "DuplicateProjectPathError";
   }
 }
@@ -44,9 +44,9 @@ export async function detectGithubUrl(dir: string): Promise<string | null> {
     } catch {
       return null;
     }
-    const m = text.match(/\[remote "origin"\][^\[]*?url\s*=\s*(\S+)/);
+    const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
     if (!m) return null;
-    let url = m[1].trim();
+    const url = m[1].trim();
     // git@github.com:owner/repo(.git)
     const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
     if (ssh) return `https://github.com/${ssh[1]}`;

@@ -5,6 +5,7 @@ import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
+import { getRuntime } from "~/lib/runtime";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import type { Project } from "~/db/schema";
 import type { GitStatus } from "~/server/services/git";
@@ -24,6 +25,7 @@ function MenuSeparator() {
 export function ProjectMenus({
   project,
   gitStatus,
+  gitAvailable,
   hasRunningLaunch,
   stopping,
   stopLaunch,
@@ -36,6 +38,7 @@ export function ProjectMenus({
 }: {
   project: Project;
   gitStatus: GitStatus | undefined;
+  gitAvailable: boolean;
   hasRunningLaunch: boolean;
   stopping: boolean;
   stopLaunch: () => Promise<void> | void;
@@ -172,61 +175,64 @@ export function ProjectMenus({
                 ? "Unpin project"
                 : "Pin project"}
           </Btn>
-          <Btn
-            variant="ghost"
-            icon="folder"
-            onClick={() => {
-              setOverflowOpen(false);
-              // openPath is project-scoped now: ("", ".") opens the
-              // project root in Finder.
-              void window.electronAPI?.openPath(project.id, "");
-            }}
-            style={{ justifyContent: "flex-start" }}
-            title={project.path}
-          >
-            Reveal in Finder
-          </Btn>
+          {project.runtimeKind === "local" ? (
+            <Btn
+              variant="ghost"
+              icon="folder"
+              onClick={() => {
+                setOverflowOpen(false);
+                // openPath is project-scoped; "." opens the project root.
+                void getRuntime()?.openPath(project.id, ".");
+              }}
+              style={{ justifyContent: "flex-start" }}
+              title={project.path}
+            >
+              Reveal in Finder
+            </Btn>
+          ) : null}
           {project.githubUrl && (
             <Btn
               variant="ghost"
               icon="github"
               onClick={() => {
                 setOverflowOpen(false);
-                window.open(project.githubUrl!, "_blank", "noreferrer");
+                window.open(project.githubUrl!, "_blank", "noopener,noreferrer");
               }}
               style={{ justifyContent: "flex-start" }}
             >
               Open GitHub
             </Btn>
           )}
-          <HotkeyTooltip action="git.diff">
-            <Btn
-              variant="ghost"
-              icon="git-branch"
-              onClick={() => {
-                setOverflowOpen(false);
-                openDiffView();
-              }}
-              style={{ justifyContent: "flex-start" }}
-              title={(() => {
-                const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
-                if (gitStatus && gitStatus.changedCount > 0) {
-                  return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
-                }
-                return `Branch ${b}`;
-              })()}
-            >
-              <span style={{ flex: 1, textAlign: "left" }}>
-                Review Changes
-                {gitStatus && gitStatus.changedCount > 0 && (
-                  <span style={{ color: "var(--text-dim)" }}>
-                    {" · "}
-                    {gitStatus.changedCount} changed
-                  </span>
-                )}
-              </span>
-            </Btn>
-          </HotkeyTooltip>
+          {gitAvailable ? (
+            <HotkeyTooltip action="git.diff">
+              <Btn
+                variant="ghost"
+                icon="git-branch"
+                onClick={() => {
+                  setOverflowOpen(false);
+                  openDiffView();
+                }}
+                style={{ justifyContent: "flex-start" }}
+                title={(() => {
+                  const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
+                  if (gitStatus && gitStatus.changedCount > 0) {
+                    return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
+                  }
+                  return `Branch ${b}`;
+                })()}
+              >
+                <span style={{ flex: 1, textAlign: "left" }}>
+                  Review Changes
+                  {gitStatus && gitStatus.changedCount > 0 && (
+                    <span style={{ color: "var(--text-dim)" }}>
+                      {" · "}
+                      {gitStatus.changedCount} changed
+                    </span>
+                  )}
+                </span>
+              </Btn>
+            </HotkeyTooltip>
+          ) : null}
           <MenuSeparator />
           <Btn
             variant="ghost"
@@ -239,10 +245,12 @@ export function ProjectMenus({
           >
             Configure launch commands
           </Btn>
-          <InstallSkillsMenuItem
-            projectPath={project.path}
-            onOpen={() => setOverflowOpen(false)}
-          />
+          {project.runtimeKind === "local" ? (
+            <InstallSkillsMenuItem
+              projectId={project.id}
+              onOpen={() => setOverflowOpen(false)}
+            />
+          ) : null}
           <HotkeyTooltip action="project.edit">
             <Btn
               variant="ghost"

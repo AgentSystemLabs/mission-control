@@ -22,6 +22,7 @@ export function UserTerminalPane({
   onKill,
   onRename,
   isLast: _isLast,
+  directKeyboardInput = false,
 }: {
   terminal: UserTerminal;
   ptyId: string | null;
@@ -34,6 +35,7 @@ export function UserTerminalPane({
   onKill: () => void;
   onRename: (name: string) => void;
   isLast: boolean;
+  directKeyboardInput?: boolean;
 }) {
   const cardRef = useRef<HTMLElement | null>(null);
   const termFocusRef = useRef<(() => void) | null>(null);
@@ -76,6 +78,8 @@ export function UserTerminalPane({
 
   const { containerRef, bridgeMissing } = useXtermPty({
     key: terminal.id,
+    projectId,
+    directKeyboardInput,
     cursorColor: () => getCurrentAccentColor(),
     onTerm: ({ term, fit, electron, setActivePtyId, isCancelled }) => {
       termFocusRef.current = () => term.focus();
@@ -115,10 +119,27 @@ export function UserTerminalPane({
 
       const wireToPty = (id: string) => {
         setActivePtyId(id);
+        let writeFailureShown = false;
+        const writeInput = (data: string) => {
+          const input = electron.hostKind === "cloud" && data === "\r" ? "\n" : data;
+          void electron.pty.write(id, input, projectId).then((ok) => {
+            if (ok || writeFailureShown) return;
+            writeFailureShown = true;
+            term.writeln("\r\n\x1b[31m[terminal input failed: PTY is not connected]\x1b[0m");
+          }).catch((err: unknown) => {
+            if (writeFailureShown) return;
+            writeFailureShown = true;
+            term.writeln(`\r\n\x1b[31m[terminal input failed: ${getErrorMessage(err)}]\x1b[0m`);
+          });
+        };
         const seenLaunchUrls = new Set<string>();
+        const ansiEscapeRe = new RegExp(
+          `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`,
+          "g",
+        );
         const detectLaunchUrl = (data: string) => {
           if (!terminal.startCommand || !onLaunchUrlDetectedRef.current) return;
-          const cleaned = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+          const cleaned = data.replace(ansiEscapeRe, "");
           const matches = cleaned.matchAll(
             new RegExp(LOOPBACK_URL_RE.source, "g")
           );
@@ -147,7 +168,7 @@ export function UserTerminalPane({
           })
         );
         term.onData((data) => {
-          electron.pty.write(id, data);
+          writeInput(data);
         });
         term.onResize(({ cols, rows }) => {
           electron.pty.resize(id, cols, rows);
@@ -183,6 +204,8 @@ export function UserTerminalPane({
           }
           onPtyReadyRef.current(newId);
           wireToPty(newId);
+          const buf = await electron.pty.replay(newId);
+          if (!isCancelled() && buf) term.write(buf);
         } catch (err: unknown) {
           const message = getErrorMessage(err);
           term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);
@@ -253,6 +276,7 @@ export function UserTerminalPane({
         {editing ? (
           <input
             autoFocus
+            aria-label="Terminal name"
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             onBlur={commitRename}
@@ -276,11 +300,19 @@ export function UserTerminalPane({
             }}
           />
         ) : (
-          <span
+          <button
+            type="button"
+            aria-label={`Rename terminal ${terminal.name}`}
             onDoubleClick={() => setEditing(true)}
-            title="Double-click to rename"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === "F2") setEditing(true);
+            }}
+            title="Double-click, press Enter, or press F2 to rename"
             style={{
               flex: 1,
+              border: 0,
+              background: "transparent",
+              padding: 0,
               fontFamily: "var(--mono)",
               fontSize: 11.5,
               fontWeight: 500,
@@ -289,14 +321,16 @@ export function UserTerminalPane({
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               cursor: "text",
+              textAlign: "left",
             }}
           >
             {terminal.name}
-          </span>
+          </button>
         )}
         <button
           onClick={onKill}
           title="Kill terminal"
+          aria-label="Kill terminal"
           style={{
             background: "transparent",
             border: 0,

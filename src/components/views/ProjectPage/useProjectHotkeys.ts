@@ -17,6 +17,7 @@ export function useProjectHotkeys(params: {
   showDiffView: boolean;
   openDiffView: () => void;
   closeDiffView: () => void;
+  gitAvailable: boolean;
   closePanelEnabled: boolean;
   onTerminalClose: () => void;
 }) {
@@ -37,6 +38,7 @@ export function useProjectHotkeys(params: {
     showDiffView,
     openDiffView,
     closeDiffView,
+    gitAvailable,
     closePanelEnabled,
     onTerminalClose,
   } = params;
@@ -72,6 +74,7 @@ export function useProjectHotkeys(params: {
   useHotkey(
     "git.diff",
     () => {
+      if (!gitAvailable) return;
       if (anyBlockingDialogOpen) return;
       if (showDiffView) closeDiffView();
       else openDiffView();

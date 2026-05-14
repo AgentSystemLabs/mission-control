@@ -4,14 +4,11 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { extract as tarExtract } from "tar";
 import { resolveSkillsDir } from "~/db/client";
-import {
-  getLicenseState,
-  getSkillsInitializedAt,
-  setSkillsInitializedAt,
-} from "~/db/settings";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
 import { isProTier } from "~/shared/license";
+import { serverEnv } from "~/shared/env";
 import { readLicenseState } from "./license";
+import { getSetting, setSetting } from "./settings";
 import { getErrorMessage } from "../lib/errors";
 
 export class SkillsBundleError extends Error {
@@ -39,11 +36,16 @@ export type SkillsStatus = {
   dir: string;
 };
 
-export function readSkillsStatus(): SkillsStatus {
+export async function readSkillsStatus(userId?: string | null): Promise<SkillsStatus> {
   return {
-    initializedAt: getSkillsInitializedAt(),
-    dir: resolveSkillsDir(),
+    initializedAt: await getSetting("skills_initialized_at", { userId }),
+    dir: isCloudMode() ? "" : resolveSkillsDir(),
   };
+}
+
+function isCloudMode(): boolean {
+  const value = serverEnv().MC_CLOUD_MODE;
+  return value === "1" || value === "true" || value === "yes";
 }
 
 /**
@@ -51,12 +53,12 @@ export function readSkillsStatus(): SkillsStatus {
  * wipe-and-extract into the user-data skills directory, and persist the
  * timestamp. Idempotent — re-running overwrites the previous extraction.
  */
-export async function initializeSkills(): Promise<SkillsInitResult> {
-  const stored = getLicenseState();
-  if (!stored.key) {
+export async function initializeSkills(userId?: string | null): Promise<SkillsInitResult> {
+  const key = (await getSetting("license_key", { userId }))?.trim();
+  if (!key) {
     throw new SkillsBundleError("No license key on file.", "no_key");
   }
-  if (!isProTier(readLicenseState())) {
+  if (!isProTier(await readLicenseState(userId))) {
     throw new SkillsBundleError(
       "Mission Control Pro is required to download the skills bundle.",
       "not_pro",
@@ -68,7 +70,7 @@ export async function initializeSkills(): Promise<SkillsInitResult> {
     res = await fetch(`${ACADEMY_BASE_URL}/api/licenses/skills-bundle`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ key: stored.key }),
+      body: JSON.stringify({ key }),
     });
   } catch (e: unknown) {
     throw new SkillsBundleError(
@@ -112,7 +114,7 @@ export async function initializeSkills(): Promise<SkillsInitResult> {
   }
 
   const initializedAt = new Date().toISOString();
-  setSkillsInitializedAt(initializedAt);
+  await setSetting("skills_initialized_at", initializedAt, { userId });
 
   return { initializedAt, fileCount: countFiles(dir) };
 }

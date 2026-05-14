@@ -17,7 +17,7 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 
 const REDACT_KEY_RE =
   /(token|secret|password|authorization|bearer|api[_-]?key|license[_-]?key)/i;
-const BEARER_RE = /Bearer\s+[A-Za-z0-9._\-]+/gi;
+const BEARER_RE = /Bearer\s+[A-Za-z0-9._-]+/gi;
 const REDACTED = "[redacted]";
 
 function scrubString(s: string): string {
@@ -87,7 +87,7 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>) {
   if (typeof process !== "undefined" && process.stderr?.write) {
     process.stderr.write(line + "\n");
   } else {
-    // eslint-disable-next-line no-console
+     
     console.error(line);
   }
 }

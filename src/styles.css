@@ -33,10 +33,11 @@
   --accent-faint: rgba(255, 90, 31, 0.1);
   --accent-border: rgba(255, 90, 31, 0.38);
   --accent-glow: rgba(255, 90, 31, 0.48);
-  --mc-btn-filled-image: url("/borders/button_filled_deep-orange.webp");
-  --mc-panel-focused-image: url("/borders/panel_focused_deep-orange.webp");
-  --mc-panel-image: url("/borders/square_deep-orange.webp");
-  --mc-shell-image: url("/borders/shell_deep-orange.webp");
+  --mc-theme-filter: grayscale(1) sepia(1) saturate(5.6) hue-rotate(-20deg) brightness(1.08);
+  --mc-btn-filled-image: url("/borders/button_filled.webp");
+  --mc-panel-focused-image: url("/borders/panel_focused.webp");
+  --mc-panel-image: url("/borders/square.webp");
+  --mc-shell-image: url("/borders/shell.webp");
   --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
   --accent-soft-hover: color-mix(in srgb, var(--accent) 26%, transparent);
   --banner-bg: linear-gradient(90deg, var(--accent-faint), var(--surface-0) 34%, var(--accent-faint));
@@ -130,9 +131,10 @@ body {
   border-image-slice: 120;
   border-image-width: 1;
   border-image-repeat: stretch;
+  filter: var(--mc-theme-filter);
 }
 
-#root > * {
+#root > :not(.cursor-glow) {
   position: relative;
   z-index: 1;
 }
@@ -143,6 +145,7 @@ button {
 }
 
 .mc-btn {
+  --mc-btn-frame-filter: ;
   --mc-btn-gap: 6px;
   --mc-btn-height: 30px;
   --mc-btn-padding-x: 12px;
@@ -275,6 +278,7 @@ button {
 }
 
 .mc-btn-primary {
+  --mc-btn-frame-filter: var(--mc-theme-filter);
   --mc-btn-height: 36px;
   --mc-btn-padding-x: 18px;
   --mc-btn-frame-border: 14px;
@@ -337,7 +341,7 @@ button {
 .mc-btn-ghost:hover::before,
 .mc-btn-danger:hover::before,
 .mc-btn-gray-frame:hover::before {
-  filter: brightness(1.08) saturate(1.08);
+  filter: var(--mc-btn-frame-filter) brightness(1.08) saturate(1.08);
 }
 
 .mc-btn-primary:active::before,
@@ -405,7 +409,7 @@ button {
 .mc-btn-ghost:focus-visible::before,
 .mc-btn-danger:focus-visible::before,
 .mc-btn-gray-frame:focus-visible::before {
-  filter: brightness(1.18) saturate(1.15)
+  filter: var(--mc-btn-frame-filter) brightness(1.18) saturate(1.15)
     drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 90%, white));
 }
 
@@ -419,7 +423,107 @@ button {
 .mc-btn-ghost:disabled::before,
 .mc-btn-danger:disabled::before,
 .mc-btn-gray-frame:disabled::before {
-  filter: saturate(0.75);
+  filter: var(--mc-btn-frame-filter) saturate(0.75);
+}
+
+.mc-btn-primary::before {
+  filter: var(--mc-btn-frame-filter);
+}
+
+.mc-card-frame {
+  --mc-card-frame-bg-color: rgba(3, 6, 8, 0.94);
+  --mc-card-frame-bg-image:
+    linear-gradient(rgba(3, 6, 8, 0.1), rgba(3, 6, 8, 0.1)),
+    var(--mc-panel-image);
+  --mc-card-frame-bg-position: 0 0, 39.0625% 39.0625%;
+  --mc-card-frame-bg-repeat: repeat, no-repeat;
+  --mc-card-frame-bg-size: auto, 200% 200%;
+  --mc-card-frame-border-image: var(--mc-panel-image);
+  --mc-card-frame-border-width: 16px;
+  --mc-card-frame-border-slice: 48;
+  position: relative;
+  isolation: isolate;
+}
+
+.mc-card-frame-layer {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  box-sizing: border-box;
+  border: var(--mc-card-frame-border-width) solid transparent;
+  border-image-source: var(--mc-card-frame-border-image);
+  border-image-slice: var(--mc-card-frame-border-slice);
+  border-image-width: var(--mc-card-frame-border-width);
+  border-image-repeat: stretch;
+  background-color: var(--mc-card-frame-bg-color);
+  background-image: var(--mc-card-frame-bg-image);
+  background-position: var(--mc-card-frame-bg-position);
+  background-repeat: var(--mc-card-frame-bg-repeat);
+  background-size: var(--mc-card-frame-bg-size);
+  background-clip: padding-box;
+  filter: var(--mc-theme-filter);
+  pointer-events: none;
+}
+
+.mc-card-frame > * {
+  position: relative;
+  z-index: 1;
+}
+
+.mc-card-frame > .mc-card-frame-layer {
+  position: absolute;
+  z-index: 0;
+}
+
+.theme-preview-card {
+  isolation: isolate;
+}
+
+.theme-preview-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  box-sizing: border-box;
+  border: 16px solid transparent;
+  border-image-source: var(--theme-preview-frame-image);
+  border-image-slice: 48;
+  border-image-width: 16px;
+  border-image-repeat: stretch;
+  background-image:
+    linear-gradient(rgba(3, 6, 8, 0.3), rgba(3, 6, 8, 0.3)),
+    radial-gradient(circle at 30% 0%, var(--theme-preview-accent-glow), transparent 65%),
+    var(--theme-preview-frame-image);
+  background-position: 0 0, 0 0, 39.0625% 39.0625%;
+  background-repeat: repeat, repeat, no-repeat;
+  background-size: auto, auto, 200% 200%;
+  background-clip: padding-box;
+  filter: var(--theme-preview-filter);
+  pointer-events: none;
+}
+
+.theme-preview-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.theme-preview-action {
+  isolation: isolate;
+}
+
+.theme-preview-action::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  border: 12px solid transparent;
+  border-image-source: url("/borders/button_filled.webp");
+  border-image-slice: 48;
+  border-image-width: 12px;
+  border-image-repeat: stretch;
+  filter: var(--theme-preview-filter);
+  pointer-events: none;
 }
 
 .mc-input-frame {
@@ -745,27 +849,25 @@ button {
 
 .cursor-glow {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 9;
   opacity: 0;
+  mix-blend-mode: screen;
   transition: opacity 400ms ease;
   background: radial-gradient(
-    260px circle at var(--x, 50%) var(--y, 50%),
-    color-mix(in srgb, var(--accent) 8%, transparent),
-    transparent 70%
+    340px circle at var(--x, 50%) var(--y, 50%),
+    color-mix(in srgb, var(--accent) 12%, transparent),
+    transparent 72%
   );
 }
 .cursor-glow[data-active] {
-  opacity: 1;
+  opacity: 0.9;
 }
 [data-theme="light"] .cursor-glow {
   background: radial-gradient(
-    220px circle at var(--x, 50%) var(--y, 50%),
-    color-mix(in srgb, var(--accent) 4%, transparent),
+    300px circle at var(--x, 50%) var(--y, 50%),
+    color-mix(in srgb, var(--accent) 7%, transparent),
     transparent 74%
   );
 }
@@ -774,10 +876,6 @@ button {
     display: none;
   }
 }
-body[data-card-glow] .cursor-glow {
-  opacity: 0;
-}
-
 .launch-overlay {
   position: fixed;
   inset: 0;
@@ -926,13 +1024,16 @@ body[data-card-glow] .cursor-glow {
 [data-glow]::before {
   content: "";
   position: absolute;
-  inset: 0;
+  --glow-bleed: 260px;
+  inset: calc(var(--glow-bleed) * -1);
   pointer-events: none;
   border-radius: inherit;
   opacity: 0;
   transition: opacity 200ms ease;
   background: radial-gradient(
-    220px circle at var(--gx, 50%) var(--gy, 50%),
+    220px circle at
+      calc(var(--gx, calc(50% - var(--glow-bleed))) + var(--glow-bleed))
+      calc(var(--gy, calc(50% - var(--glow-bleed))) + var(--glow-bleed)),
     color-mix(in srgb, var(--accent) 18%, transparent),
     transparent 65%
   );
@@ -943,7 +1044,9 @@ body[data-card-glow] .cursor-glow {
 }
 [data-theme="light"] [data-glow]::before {
   background: radial-gradient(
-    220px circle at var(--gx, 50%) var(--gy, 50%),
+    220px circle at
+      calc(var(--gx, calc(50% - var(--glow-bleed))) + var(--glow-bleed))
+      calc(var(--gy, calc(50% - var(--glow-bleed))) + var(--glow-bleed)),
     color-mix(in srgb, var(--accent) 10%, transparent),
     transparent 65%
   );

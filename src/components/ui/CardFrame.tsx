@@ -11,17 +11,15 @@ type CardFrameProps = HTMLAttributes<HTMLElement> & {
 
 const FRAME_STYLES: Record<
   NonNullable<CardFrameProps["frame"]>,
-  Pick<CSSProperties, "borderWidth" | "borderImageSource" | "borderImageSlice" | "borderImageWidth">
+  Pick<CSSProperties, "borderWidth" | "borderImageSlice" | "borderImageWidth">
 > = {
   square: {
     borderWidth: 16,
-    borderImageSource: "var(--mc-panel-image)",
     borderImageSlice: "48",
     borderImageWidth: "16px",
   },
   slanted: {
     borderWidth: 16,
-    borderImageSource: "var(--mc-panel-image)",
     borderImageSlice: "48",
     borderImageWidth: "16px",
   },
@@ -29,22 +27,42 @@ const FRAME_STYLES: Record<
 
 const frameBaseStyle: CSSProperties = {
   boxSizing: "border-box",
-  background: "rgba(3, 6, 8, 0.94)",
-  backgroundClip: "padding-box",
   borderStyle: "solid",
   borderColor: "transparent",
-  borderImageSlice: "180",
-  borderImageRepeat: "stretch",
   overflow: "hidden",
   position: "relative",
 };
 
+type FrameStyle = CSSProperties & Record<`--${string}`, string | number>;
+
 export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFrame(
-  { as: Component = "div", frame = "square", glow = false, focused = false, solid = false, style, ...props },
+  {
+    as: Component = "div",
+    frame = "square",
+    glow = false,
+    focused = false,
+    solid = false,
+    className,
+    style,
+    children,
+    ...props
+  },
   forwardedRef
 ) {
   const glowRef = useCardGlow<HTMLElement>();
   const frameStyle = FRAME_STYLES[frame];
+  const {
+    background,
+    backgroundClip,
+    backgroundImage,
+    backgroundPosition,
+    backgroundRepeat,
+    backgroundSize,
+    ...restStyle
+  } = style ?? {};
+  const hasCustomBackground = background != null || backgroundImage != null;
+  const frameImage = focused ? "var(--mc-panel-focused-image)" : "var(--mc-panel-image)";
+  const frameClassName = ["mc-card-frame", className ?? ""].filter(Boolean).join(" ");
   const setRef = useCallback(
     (node: HTMLElement | null) => {
       glowRef(glow ? node : null);
@@ -57,22 +75,43 @@ export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFr
     <Component
       {...props}
       ref={setRef}
+      className={frameClassName}
       style={{
         ...frameBaseStyle,
         ...frameStyle,
-        ...style,
-        background:
-          style?.background ??
-          `linear-gradient(${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}, ${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}), ${focused ? "var(--mc-panel-focused-image)" : "var(--mc-panel-image)"} 39.0625% 39.0625% / 200% 200% no-repeat`,
+        ...restStyle,
+        "--mc-card-frame-bg-color": hasCustomBackground ? "transparent" : "rgba(3, 6, 8, 0.94)",
+        "--mc-card-frame-bg-image": hasCustomBackground
+          ? "none"
+          : `linear-gradient(${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}, ${
+              solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"
+            }), ${frameImage}`,
+        "--mc-card-frame-bg-position": hasCustomBackground ? "0 0" : "0 0, 39.0625% 39.0625%",
+        "--mc-card-frame-bg-repeat": hasCustomBackground ? "repeat" : "repeat, no-repeat",
+        "--mc-card-frame-bg-size": hasCustomBackground ? "auto" : "auto, 200% 200%",
+        "--mc-card-frame-border-image": frameImage,
+        "--mc-card-frame-border-width": frameStyle.borderImageWidth,
+        "--mc-card-frame-border-slice": frameStyle.borderImageSlice,
+        ...(hasCustomBackground
+          ? {
+              background,
+              backgroundClip,
+              backgroundImage,
+              backgroundPosition,
+              backgroundRepeat,
+              backgroundSize,
+            }
+          : {
+              background: "transparent",
+            }),
         borderStyle: "solid",
         borderColor: "transparent",
         borderWidth: frameStyle.borderWidth,
-        borderImageSource: focused ? "var(--mc-panel-focused-image)" : "var(--mc-panel-image)",
-        borderImageSlice: frameStyle.borderImageSlice,
-        borderImageWidth: frameStyle.borderImageWidth,
-        borderImageRepeat: "stretch",
-      }}
-    />
+      } as FrameStyle}
+    >
+      <span aria-hidden className="mc-card-frame-layer" />
+      {children}
+    </Component>
   );
 });
 

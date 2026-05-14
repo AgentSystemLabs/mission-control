@@ -25,11 +25,18 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 
 const REDACT_KEY_RE =
   /(token|secret|password|authorization|bearer|api[_-]?key|license[_-]?key)/i;
-const BEARER_RE = /Bearer\s+[A-Za-z0-9._\-]+/gi;
+const BEARER_RE = /Bearer\s+[A-Za-z0-9._-]+/gi;
+const SECRET_ASSIGNMENT_RE =
+  /\b(token|secret|password|api[_-]?key|license[_-]?key)\b\s*[:=]\s*[^,\s;]+/gi;
+const SECRET_PHRASE_RE =
+  /\b(token|secret|password|api[_-]?key|license[_-]?key)\b(?:\s+[^,\s;:]+){1,4}/gi;
 const REDACTED = "[redacted]";
 
 function scrubString(s: string): string {
-  return s.replace(BEARER_RE, "Bearer [REDACTED]");
+  return s
+    .replace(BEARER_RE, "Bearer [REDACTED]")
+    .replace(SECRET_ASSIGNMENT_RE, "$1=[REDACTED]")
+    .replace(SECRET_PHRASE_RE, "$1 [REDACTED]");
 }
 
 function envLevel(): LogLevel {
@@ -43,9 +50,29 @@ function envLevel(): LogLevel {
 
 function serializeError(err: unknown): unknown {
   if (err instanceof Error) {
-    return { message: err.message, stack: err.stack, name: err.name };
+    return {
+      message: scrubString(err.message),
+      stack: err.stack ? scrubString(err.stack) : undefined,
+      name: err.name,
+    };
   }
   return err;
+}
+
+function sanitizeValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (typeof value === "string") return scrubString(value);
+  if (!value || typeof value !== "object") return value;
+  if (seen.has(value)) return "[circular]";
+  seen.add(value);
+
+  if (value instanceof Error) return serializeError(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeValue(item, seen));
+
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = REDACT_KEY_RE.test(key) ? REDACTED : sanitizeValue(nested, seen);
+  }
+  return out;
 }
 
 function sanitizeFields(
@@ -53,6 +80,7 @@ function sanitizeFields(
 ): Record<string, unknown> | undefined {
   if (!fields) return undefined;
   const out: Record<string, unknown> = {};
+  const seen = new WeakSet<object>();
   for (const [k, v] of Object.entries(fields)) {
     if (REDACT_KEY_RE.test(k)) {
       out[k] = REDACTED;
@@ -62,7 +90,7 @@ function sanitizeFields(
       out[k] = serializeError(v);
       continue;
     }
-    out[k] = typeof v === "string" ? scrubString(v) : v;
+    out[k] = sanitizeValue(v, seen);
   }
   return out;
 }
@@ -96,7 +124,7 @@ function emit(level: LogLevel, msg: string, fields?: Record<string, unknown>) {
   if (typeof process !== "undefined" && process.stderr?.write) {
     process.stderr.write(line + "\n");
   } else {
-    // eslint-disable-next-line no-console
+     
     console.error(line);
   }
 }

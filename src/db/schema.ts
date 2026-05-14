@@ -37,11 +37,18 @@ export const projects = sqliteTable(
     icon: text("icon").notNull(),
     iconColor: text("icon_color").notNull(),
     imagePath: text("image_path"),
+    imageDataUrl: text("image_data_url"),
     groupId: text("group_id").references(() => groups.id, { onDelete: "set null" }),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     branch: text("branch").notNull().default(DEFAULT_BRANCH),
     launchCommands: text("launch_commands"),
     launchUrl: text("launch_url"),
+    runtimeKind: text("runtime_kind").notNull().default("local"),
+    ownerUserId: text("owner_user_id"),
+    sandboxId: text("sandbox_id"),
+    workspacePath: text("workspace_path"),
+    repoUrl: text("repo_url"),
+    sandboxState: text("sandbox_state"),
     rememberAgentSettings: integer("remember_agent_settings", { mode: "boolean" })
       .notNull()
       .default(false),
@@ -59,6 +66,8 @@ export const projects = sqliteTable(
   (t) => ({
     groupIdx: index("projects_group_idx").on(t.groupId),
     pinnedIdx: index("projects_pinned_idx").on(t.pinned),
+    ownerIdx: index("projects_owner_idx").on(t.ownerUserId),
+    sandboxIdx: uniqueIndex("projects_sandbox_unique").on(t.sandboxId),
   })
 );
 

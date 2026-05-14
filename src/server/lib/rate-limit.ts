@@ -1,3 +1,5 @@
+import { jsonError } from "./api-response";
+
 /**
  * Minimal in-memory rate limiter (fixed-window) for protecting sensitive
  * endpoints from accidental hammering. Map-based, no deps. Sufficient for a
@@ -90,16 +92,10 @@ export function rateLimitResponse(
   retryAfterSec: number,
   message = "Too many requests",
 ): Response {
-  return new Response(
-    JSON.stringify({ error: message, code: "rate_limited" }),
-    {
-      status: 429,
-      headers: {
-        "content-type": "application/json",
-        "retry-after": String(retryAfterSec),
-      },
-    },
-  );
+  return jsonError(429, message, {
+    code: "rate_limited",
+    headers: { "retry-after": String(retryAfterSec) },
+  });
 }
 
 /** Test-only: clear all buckets. */

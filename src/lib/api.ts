@@ -12,6 +12,7 @@ import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types"
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { LicenseState } from "~/shared/license";
+import { apiErrorCode, isApiErrorEnvelope } from "~/shared/api-errors";
 
 export type AppSettings = {
   agentSystemBannerDisabled: boolean;
@@ -27,6 +28,8 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly body: unknown,
+    public readonly code: string | null = apiErrorCode(body),
+    public readonly details: unknown = isApiErrorEnvelope(body) ? body.details : null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -36,21 +39,70 @@ export class ApiError extends Error {
 let cachedToken: string | null = null;
 let tokenPromise: Promise<string> | null = null;
 
-async function getApiToken(): Promise<string> {
+function rememberApiToken(token: string | null | undefined): string {
+  const trimmed = (token ?? "").trim();
+  if (!trimmed) {
+    cachedToken = null;
+    return "";
+  }
+  cachedToken = trimmed;
+  return trimmed;
+}
+
+function clearApiTokenCache(): void {
+  cachedToken = null;
+  tokenPromise = null;
+}
+
+function serverEnvValue(parts: string[]): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  return process.env?.[parts.join("_")];
+}
+
+async function fetchRuntimeClientToken(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/runtime/client-token", {
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => ({}))) as { token?: unknown };
+    return typeof body.token === "string" && body.token.trim()
+      ? body.token.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getApiToken(): Promise<string> {
   if (cachedToken) return cachedToken;
   if (tokenPromise) return tokenPromise;
   tokenPromise = (async () => {
     if (typeof window === "undefined") {
-      // SSR runs in the same Node process as the API; the bootstrap
-      // module set process.env.MC_API_TOKEN before any handler ran.
-      cachedToken = process.env.MC_API_TOKEN ?? "";
-      return cachedToken;
+      // SSR runs in the same Node process as the API; server entrypoints
+      // bootstrap the local bearer before route loaders self-fetch.
+      const cloudMode = serverEnvValue(["MC", "CLOUD", "MODE"]);
+      cachedToken =
+        cloudMode === "1" || cloudMode === "true" || cloudMode === "yes"
+          ? ""
+          : serverEnvValue(["MC", "API", "TOKEN"]) ?? "";
+      return rememberApiToken(cachedToken);
     }
-    const bridge = (window as { electronAPI?: { getApiToken?: () => Promise<string | null> } }).electronAPI;
-    const t = await bridge?.getApiToken?.();
-    cachedToken = (t ?? "").trim();
-    return cachedToken;
-  })();
+    const { getRuntime } = await import("~/lib/runtime");
+    const runtime = getRuntime();
+    const t = runtime ? await runtime.getApiToken?.() : await fetchRuntimeClientToken();
+    return rememberApiToken(t);
+  })().then(
+    (token) => {
+      if (!token) tokenPromise = null;
+      return token;
+    },
+    (err) => {
+      tokenPromise = null;
+      throw err;
+    },
+  );
   return tokenPromise;
 }
 
@@ -74,28 +126,41 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
       : url;
   const incoming = (init?.headers as Record<string, string> | undefined) ?? {};
   const hasAuth = Object.keys(incoming).some((k) => k.toLowerCase() === "authorization");
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    ...incoming,
-  };
-  if (!hasAuth) {
-    const token = await getApiToken();
+  const makeHeaders = async () => {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...incoming,
+    };
+    const token = hasAuth ? "" : await getApiToken();
     if (token) headers.authorization = `Bearer ${token}`;
+    return { headers, token };
+  };
+
+  const initial = await makeHeaders();
+  let headers = initial.headers;
+  const token = initial.token;
+  let res = await fetch(resolved, { ...init, headers });
+  if (res.status === 401 && !hasAuth) {
+    clearApiTokenCache();
+    const retryToken = await getApiToken();
+    if (retryToken && retryToken !== token) {
+      headers = {
+        "content-type": "application/json",
+        ...incoming,
+        authorization: `Bearer ${retryToken}`,
+      };
+      res = await fetch(resolved, { ...init, headers });
+    }
   }
-  const res = await fetch(resolved, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    let body: unknown = text;
+    let body: unknown;
     try {
       body = JSON.parse(text) as unknown;
     } catch {
-      // not JSON — keep as text
+      body = text ? { error: "Request failed" } : null;
     }
-    const errFromBody =
-      body && typeof body === "object" && "error" in body && typeof (body as { error?: unknown }).error === "string"
-        ? (body as { error: string }).error
-        : null;
-    const message = errFromBody ?? `${res.status} ${res.statusText}: ${text}`;
+    const message = isApiErrorEnvelope(body) ? body.error : "Request failed";
     throw new ApiError(message, res.status, body);
   }
   if (res.status === 204) return undefined as T;
@@ -107,10 +172,12 @@ export const api = {
   getProject: (id: string) => req<{ project: ProjectWithCounts }>(`/api/projects/${id}`),
   createProject: (body: {
     name?: string;
-    path: string;
+    path?: string;
     icon?: string;
     iconColor?: string;
+    imageDataUrl?: string | null;
     groupId?: string | null;
+    repoUrl?: string | null;
   }) =>
     req<{ project: Project }>("/api/projects", {
       method: "POST",
@@ -159,11 +226,11 @@ export const api = {
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/restore`, { method: "POST" }),
-  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number }, token: string) =>
+  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number }, token?: string | null) =>
     req<{ task: Task }>(`/api/tasks/${id}/status`, {
       method: "POST",
       body: JSON.stringify(body),
-      headers: { authorization: `Bearer ${token}` },
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
     }),
   createTaskInternal: (
     projectId: string,
@@ -175,12 +242,12 @@ export const api = {
       claudeSkipPermissions?: boolean;
       claudeBareSession?: boolean;
     },
-    token: string
+    token?: string | null
   ) =>
     req<{ task: Task }>(`/api/projects/${projectId}/tasks`, {
       method: "POST",
       body: JSON.stringify(body),
-      headers: { authorization: `Bearer ${token}` },
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
     }),
   updateTask: (
     id: string,

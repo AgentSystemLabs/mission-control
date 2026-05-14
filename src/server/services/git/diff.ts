@@ -1,13 +1,11 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { getErrorMessage } from "../../lib/errors";
 import {
   DIFF_MAX_BYTES,
   DIFF_MAX_LINES,
   GitError,
+  getGitWorkspace,
   gitOk,
-  projectCwd,
-  runGit,
+  type GitWorkspace,
 } from "./exec";
 
 export type GitDiff =
@@ -26,21 +24,21 @@ export async function getGitDiff(
   file: string,
   staged: boolean,
 ): Promise<GitDiff> {
-  const cwd = projectCwd(projectId);
+  const workspace = await getGitWorkspace(projectId);
 
   // Untracked files have no index entry — `git diff` emits nothing. Synthesize
   // a unified-diff-style payload so the UI can render +lines for new files.
   if (!staged) {
-    const statusOut = await gitOk(cwd, ["status", "--porcelain=v1", "-z", "--", file]);
+    const statusOut = await gitOk(workspace, ["status", "--porcelain=v1", "-z", "--", file]);
     if (statusOut.startsWith("??")) {
-      return readUntrackedAsDiff(cwd, file);
+      return readUntrackedAsDiff(workspace, file);
     }
   }
 
   const args = staged
     ? ["diff", "--cached", "--", file]
     : ["diff", "--", file];
-  const r = await runGit(cwd, args);
+  const r = await workspace.runGit(args);
   if (r.code !== 0) {
     throw new GitError("git diff failed", r.stderr.trim() || `exit ${r.code}`);
   }
@@ -61,20 +59,12 @@ export async function getGitDiff(
 }
 
 /** Render an untracked file as a unified-diff-style patch (all lines as additions). */
-function readUntrackedAsDiff(cwd: string, file: string): GitDiff {
+async function readUntrackedAsDiff(workspace: GitWorkspace, file: string): Promise<GitDiff> {
   try {
-    const root = path.resolve(cwd);
-    const abs = path.resolve(root, file);
-    // Defense-in-depth: even though `git status` already gates this branch,
-    // refuse to read anything outside the repo root.
-    if (abs !== root && !abs.startsWith(root + path.sep)) {
-      throw new GitError("path escapes project root");
+    const buf = await workspace.readFile(file);
+    if (buf.byteLength > DIFF_MAX_BYTES) {
+      return { kind: "too-large", lines: 0, bytes: buf.byteLength };
     }
-    const stat = fs.statSync(abs);
-    if (stat.size > DIFF_MAX_BYTES) {
-      return { kind: "too-large", lines: 0, bytes: stat.size };
-    }
-    const buf = fs.readFileSync(abs);
     // Cheap binary sniff: any NUL in the first 8KB.
     const sniff = buf.subarray(0, Math.min(buf.length, 8192));
     for (let i = 0; i < sniff.length; i++) {
@@ -83,7 +73,7 @@ function readUntrackedAsDiff(cwd: string, file: string): GitDiff {
     const text = buf.toString("utf8");
     const lines = text.split("\n");
     if (lines.length > DIFF_MAX_LINES) {
-      return { kind: "too-large", lines: lines.length, bytes: stat.size };
+      return { kind: "too-large", lines: lines.length, bytes: buf.byteLength };
     }
     const header =
       `diff --git a/${file} b/${file}\n` +

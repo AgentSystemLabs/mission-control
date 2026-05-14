@@ -6,7 +6,7 @@ import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { AGENT_META } from "~/lib/design-meta";
 import { TASK_STATUS_META } from "~/shared/domain";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { terminalInputStartsTurn } from "~/lib/task-status-sync";
@@ -23,16 +23,16 @@ import type { Project, Task } from "~/db/schema";
 import { getErrorMessage } from "~/shared/errors";
 
 async function resolveMcEnv(
-  electron: NonNullable<ReturnType<typeof getElectron>>,
+  electron: NonNullable<ReturnType<typeof getRuntime>>,
   _queryClient: QueryClient
 ) {
   try {
-    const [port, token] = await Promise.all([
-      electron.getRuntimePort(),
+    const [apiUrl, token] = await Promise.all([
+      electron.getApiBaseUrl(),
       electron.getApiToken(),
     ]);
-    if (!port || !token) return undefined;
-    return { apiUrl: `http://127.0.0.1:${port}`, token };
+    if (!apiUrl || !token) return undefined;
+    return { apiUrl, token };
   } catch {
     return undefined;
   }
@@ -79,6 +79,8 @@ export function TerminalPane({
 
   const { containerRef, bridgeMissing } = useXtermPty({
     key: descriptor.taskId,
+    projectId: project.id,
+    directKeyboardInput: project.runtimeKind !== "local",
     cursorColor: meta?.color,
     onTerm: ({ term, fit, electron, setActivePtyId, isCancelled }) => {
       const subscriptions: Array<() => void> = [];
@@ -93,6 +95,19 @@ export function TerminalPane({
 
       const wireToPty = (ptyId: string) => {
         setActivePtyId(ptyId);
+        let writeFailureShown = false;
+        const writeInput = (data: string) => {
+          const input = electron.hostKind === "cloud" && data === "\r" ? "\n" : data;
+          void electron.pty.write(ptyId, input, project.id).then((ok) => {
+            if (ok || writeFailureShown) return;
+            writeFailureShown = true;
+            term.writeln("\r\n\x1b[31m[terminal input failed: PTY is not connected]\x1b[0m");
+          }).catch((err: unknown) => {
+            if (writeFailureShown) return;
+            writeFailureShown = true;
+            term.writeln(`\r\n\x1b[31m[terminal input failed: ${getErrorMessage(err)}]\x1b[0m`);
+          });
+        };
         subscriptions.push(
           electron.pty.onData((msg) => {
             if (msg.ptyId === ptyId) term.write(msg.data);
@@ -156,7 +171,7 @@ export function TerminalPane({
               }
             })();
           }
-          electron.pty.write(ptyId, data);
+          writeInput(data);
         });
         term.onResize(({ cols, rows }) => {
           electron.pty.resize(ptyId, cols, rows);
@@ -179,6 +194,8 @@ export function TerminalPane({
         onPtyReady(ptyId);
         if (isCancelled()) return;
         wireToPty(ptyId);
+        const buf = await electron.pty.replay(ptyId);
+        if (!isCancelled() && buf) term.write(buf);
       };
 
       const ensurePty = async () => {

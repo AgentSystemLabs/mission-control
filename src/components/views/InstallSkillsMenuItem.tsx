@@ -9,10 +9,10 @@ import { isProTier } from "~/shared/license";
 // InstallSkillsButton, this never hides itself based on freshness — the user
 // might want to reinstall over a current version.
 export function InstallSkillsMenuItem({
-  projectPath,
+  projectId,
   onOpen,
 }: {
-  projectPath: string;
+  projectId: string;
   onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -37,7 +37,7 @@ export function InstallSkillsMenuItem({
       <InstallSkillsModal
         open={open}
         onClose={() => setOpen(false)}
-        projectPath={projectPath}
+        projectId={projectId}
       />
       <SkillsUpsellModal
         open={paywallOpen}

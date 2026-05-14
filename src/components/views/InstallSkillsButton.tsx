@@ -10,7 +10,7 @@ import {
   fetchLatestSkillsManifest,
 } from "~/lib/install-skills-client";
 
-export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
+export function InstallSkillsButton({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const { data: license } = useLicense();
@@ -19,9 +19,9 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
   // Background check — never block the UI on these. Failures fall back to
   // showing "Install Skills" so the user always has a path forward.
   const installed = useQuery({
-    queryKey: ["skills-installed", projectPath],
-    queryFn: () => fetchInstalledSkillsVersion(projectPath),
-    enabled: !!projectPath,
+    queryKey: ["skills-installed", projectId],
+    queryFn: () => fetchInstalledSkillsVersion(projectId),
+    enabled: !!projectId,
     retry: false,
     staleTime: 60_000,
   });
@@ -62,7 +62,7 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
           setOpen(false);
           void installed.refetch();
         }}
-        projectPath={projectPath}
+        projectId={projectId}
       />
       <SkillsUpsellModal
         open={paywallOpen}

@@ -6,6 +6,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { CardFrame } from "./CardFrame";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -88,6 +89,8 @@ export function Modal({
   }, [open]);
 
   if (!open) return null;
+  const portalTarget = typeof document === "undefined" ? null : document.body;
+  if (!portalTarget) return null;
 
   const panelStyle: CSSProperties = {
     width,
@@ -168,7 +171,7 @@ export function Modal({
     onClick: (e: MouseEvent<HTMLElement>) => e.stopPropagation(),
   };
 
-  return (
+  return createPortal(
     <div
       data-modal-open
       onClick={onClose}
@@ -194,6 +197,7 @@ export function Modal({
       >
         {content}
       </CardFrame>
-    </div>
+    </div>,
+    portalTarget,
   );
 }

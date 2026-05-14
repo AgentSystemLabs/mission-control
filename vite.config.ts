@@ -33,10 +33,10 @@ export default defineConfig({
     }),
   ],
   optimizeDeps: {
-    exclude: ["better-sqlite3", "node-pty"],
+    exclude: ["better-sqlite3", "node-pty", "postgres"],
   },
   ssr: {
-    external: ["better-sqlite3", "node-pty"],
+    external: ["better-sqlite3", "node-pty", "postgres", "better-auth", "@better-auth/drizzle-adapter"],
     noExternal: ["@xterm/xterm", "@xterm/addon-fit"],
   },
 });

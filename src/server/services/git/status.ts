@@ -1,4 +1,4 @@
-import { gitOk, projectCwd, runGit } from "./exec";
+import { getGitWorkspace, gitOk, type GitWorkspace } from "./exec";
 
 export type GitFileStatus =
   | "added"
@@ -91,11 +91,11 @@ export function parsePorcelainZ(stdout: string): { staged: GitChangedFile[]; uns
 }
 
 export async function getGitStatus(projectId: string): Promise<GitStatus> {
-  const cwd = projectCwd(projectId);
+  const workspace = await getGitWorkspace(projectId);
   const [statusOut, branchOut, aheadCount] = await Promise.all([
-    gitOk(cwd, ["status", "--porcelain=v1", "-uall", "-z"]),
-    gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "HEAD\n"),
-    countAhead(cwd),
+    gitOk(workspace, ["status", "--porcelain=v1", "-uall", "-z"]),
+    gitOk(workspace, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "HEAD\n"),
+    countAhead(workspace),
   ]);
   const { staged, unstaged } = parsePorcelainZ(statusOut);
   const seen = new Set<string>();
@@ -110,9 +110,9 @@ export async function getGitStatus(projectId: string): Promise<GitStatus> {
   };
 }
 
-async function countAhead(cwd: string): Promise<number | null> {
+async function countAhead(workspace: GitWorkspace): Promise<number | null> {
   for (const target of ["@{u}", "origin/main", "main"]) {
-    const r = await runGit(cwd, ["rev-list", "--count", `${target}..HEAD`]);
+    const r = await workspace.runGit(["rev-list", "--count", `${target}..HEAD`]);
     if (r.code === 0) {
       const n = parseInt(r.stdout.trim(), 10);
       if (Number.isFinite(n)) return n;

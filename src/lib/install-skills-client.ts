@@ -3,6 +3,7 @@
 // (localhost:3000 in dev, https://agentsystem.dev in prod), so no env var is
 // required from the user.
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
+import { getApiToken } from "~/lib/api";
 import type {
   InstallSkillsResult,
   LatestSkillsManifest,
@@ -13,19 +14,28 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     typeof window === "undefined" && url.startsWith("/")
       ? DEV_SERVER_ORIGIN + url
       : url;
+  const incoming = (init?.headers as Record<string, string> | undefined) ?? {};
+  const hasAuth = Object.keys(incoming).some((key) => key.toLowerCase() === "authorization");
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...incoming,
+  };
+  if (!hasAuth) {
+    const token = await getApiToken();
+    if (token) headers.authorization = `Bearer ${token}`;
+  }
   const res = await fetch(resolved, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
-    } catch {}
+    } catch {
+      // Keep the HTTP status fallback when the response is not JSON.
+    }
     throw new Error(message);
   }
   return (await res.json()) as T;
@@ -37,10 +47,10 @@ export type InstalledSkillsVersion = {
 };
 
 export async function fetchInstalledSkillsVersion(
-  projectPath: string,
+  projectId: string,
 ): Promise<InstalledSkillsVersion> {
   const { installed } = await req<{ installed: InstalledSkillsVersion }>(
-    `/api/skills/install/installed?projectPath=${encodeURIComponent(projectPath)}`,
+    `/api/skills/install/installed?projectId=${encodeURIComponent(projectId)}`,
   );
   return installed;
 }
@@ -53,7 +63,7 @@ export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest>
 }
 
 export async function runInstallSkills(args: {
-  projectPath: string;
+  projectId: string;
   harnesses: { claude: boolean; codex: boolean };
 }): Promise<InstallSkillsResult> {
   const { result } = await req<{ result: InstallSkillsResult }>(

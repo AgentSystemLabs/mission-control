@@ -20,7 +20,7 @@ function sanitizeTitle(raw: string): string {
 }
 
 export async function generateTitleForTask(taskId: string, prompt: string): Promise<void> {
-  const task = getTask(taskId);
+  const task = await getTask(taskId);
   if (!task) return;
   if (!isSentinelTitle(task.title)) return; // user has set a manual title
   if (!prompt.trim()) return;
@@ -30,23 +30,23 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
 
   // Move from "Waiting" → "Generating".
   if (task.title === TITLE_WAITING) {
-    updateTask(taskId, { title: TITLE_GENERATING });
+    await updateTask(taskId, { title: TITLE_GENERATING });
   }
 
   try {
     const raw = await runCli(invocation.cmd, invocation.args);
     const title = sanitizeTitle(raw);
-    const fresh = getTask(taskId);
+    const fresh = await getTask(taskId);
     if (!fresh || !isSentinelTitle(fresh.title)) return; // user edited mid-flight
     if (title) {
-      updateTask(taskId, { title });
+      await updateTask(taskId, { title });
     } else {
-      updateTask(taskId, { title: fallbackTitle(prompt) });
+      await updateTask(taskId, { title: fallbackTitle(prompt) });
     }
   } catch {
-    const fresh = getTask(taskId);
+    const fresh = await getTask(taskId);
     if (fresh && isSentinelTitle(fresh.title)) {
-      updateTask(taskId, { title: fallbackTitle(prompt) });
+      await updateTask(taskId, { title: fallbackTitle(prompt) });
     }
   }
 }

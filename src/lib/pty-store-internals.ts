@@ -15,12 +15,12 @@
  * common pieces so they don't drift.
  */
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { getElectron } from "./electron";
+import { getRuntime } from "./runtime";
 
-/** Best-effort kill of a PTY id. No-ops when not in Electron or id is null. */
+/** Best-effort kill of a PTY id. No-ops when no runtime is available or id is null. */
 export async function killPty(ptyId: string | null): Promise<void> {
   if (!ptyId) return;
-  const electron = getElectron();
+  const electron = getRuntime();
   if (!electron) return;
   await electron.pty.kill(ptyId).catch(() => undefined);
 }

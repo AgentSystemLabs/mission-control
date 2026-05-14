@@ -4,6 +4,7 @@ type ProjectLike = {
   icon: string;
   iconColor: string;
   imagePath?: string | null;
+  imageDataUrl?: string | null;
   updatedAt?: number;
 };
 
@@ -12,13 +13,14 @@ export function ProjectIcon({ project, size = 36 }: { project: ProjectLike; size
 
   useEffect(() => {
     setImgFailed(false);
-  }, [project.imagePath, project.updatedAt]);
+  }, [project.imageDataUrl, project.imagePath, project.updatedAt]);
 
-  if (project.imagePath && !imgFailed) {
+  if ((project.imageDataUrl || project.imagePath) && !imgFailed) {
     const v = project.updatedAt ?? 0;
+    const src = project.imageDataUrl ?? `app://project-image/${project.imagePath}?v=${v}`;
     return (
       <img
-        src={`app://project-image/${project.imagePath}?v=${v}`}
+        src={src}
         alt=""
         onError={() => setImgFailed(true)}
         style={{
@@ -35,6 +37,7 @@ export function ProjectIcon({ project, size = 36 }: { project: ProjectLike; size
 
   return (
     <div
+      aria-hidden="true"
       style={{
         width: size,
         height: size,

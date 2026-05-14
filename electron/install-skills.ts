@@ -41,7 +41,7 @@ const ALLOWED_PREFIXES = [".claude/skills/", ".codex/skills/"] as const;
 
 function normalizeEntryPath(p: string): string | null {
   // Strip any leading "./" and convert backslashes
-  let s = p.replace(/\\/g, "/").replace(/^\.\//, "");
+  const s = p.replace(/\\/g, "/").replace(/^\.\//, "");
   // Strip leading slashes (absolute paths not allowed)
   if (s.startsWith("/")) return null;
   // Reject path traversal
@@ -62,7 +62,12 @@ function entryAllowed(
 function allowedDownloadHost(downloadUrl: string): boolean {
   try {
     const u = new URL(downloadUrl);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    const isDevLoopback =
+      process.env.NODE_ENV === "development" &&
+      u.protocol === "http:" &&
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "::1");
+    if (isDevLoopback) return true;
+    if (u.protocol !== "https:") return false;
     const base = new URL(DEFAULT_ACADEMY_BASE_URL);
     if (u.hostname === base.hostname) return true;
     // Allow subdomains of the apex (e.g. cdn.agentsystemlabs.com when
@@ -72,13 +77,6 @@ function allowedDownloadHost(downloadUrl: string): boolean {
       const apex = parts.slice(-2).join(".");
       if (u.hostname === apex) return true;
       if (u.hostname.endsWith(`.${apex}`)) return true;
-    }
-    // Localhost for dev.
-    if (
-      process.env.NODE_ENV === "development" &&
-      (u.hostname === "localhost" || u.hostname === "127.0.0.1")
-    ) {
-      return true;
     }
     return false;
   } catch {

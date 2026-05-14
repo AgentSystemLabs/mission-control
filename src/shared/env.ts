@@ -109,8 +109,33 @@ const ServerEnvSchema = z.object({
   // academy skills bundle base URL (server-side override)
   ACADEMY_BASE_URL: optionalUrl,
   VITE_ACADEMY_BASE_URL: optionalUrl,
+  // cloud runtime
+  MC_CLOUD_MODE: optionalNonEmpty,
+  MC_CLOUD_AUTH_SECRET: optionalNonEmpty,
+  DATABASE_URL: optionalUrl,
+  BETTER_AUTH_SECRET: optionalNonEmpty,
+  BETTER_AUTH_URL: optionalUrl,
+  BETTER_AUTH_TRUSTED_ORIGINS: optionalNonEmpty,
+  DAYTONA_API_KEY: optionalNonEmpty,
+  DAYTONA_DEFAULT_LANGUAGE: optionalNonEmpty,
+  DAYTONA_WORKSPACE_PATH: optionalPath,
   // node runtime
   NODE_ENV: optionalNonEmpty,
+}).superRefine((env, ctx) => {
+  const cloudMode =
+    env.MC_CLOUD_MODE === "1" ||
+    env.MC_CLOUD_MODE === "true" ||
+    env.MC_CLOUD_MODE === "yes";
+  if (!cloudMode) return;
+  for (const key of ["DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"] as const) {
+    if (!env[key]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `${key} is required when MC_CLOUD_MODE is enabled`,
+      });
+    }
+  }
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;
@@ -130,6 +155,15 @@ export function serverEnv(): Readonly<ServerEnv> {
     MC_USER_DATA_DIR: src.MC_USER_DATA_DIR,
     ACADEMY_BASE_URL: src.ACADEMY_BASE_URL,
     VITE_ACADEMY_BASE_URL: src.VITE_ACADEMY_BASE_URL,
+    MC_CLOUD_MODE: src.MC_CLOUD_MODE,
+    MC_CLOUD_AUTH_SECRET: src.MC_CLOUD_AUTH_SECRET,
+    DATABASE_URL: src.DATABASE_URL,
+    BETTER_AUTH_SECRET: src.BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: src.BETTER_AUTH_URL,
+    BETTER_AUTH_TRUSTED_ORIGINS: src.BETTER_AUTH_TRUSTED_ORIGINS,
+    DAYTONA_API_KEY: src.DAYTONA_API_KEY,
+    DAYTONA_DEFAULT_LANGUAGE: src.DAYTONA_DEFAULT_LANGUAGE,
+    DAYTONA_WORKSPACE_PATH: src.DAYTONA_WORKSPACE_PATH,
     NODE_ENV: src.NODE_ENV,
   });
   if (!parsed.success) {

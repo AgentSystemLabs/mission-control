@@ -18,6 +18,7 @@ import type {
   UsageSummary,
 } from "~/shared/token-usage";
 import { EMPTY_TOTALS } from "~/shared/token-usage";
+import { getRepositories } from "../repositories";
 
 /**
  * Parse one JSONL line. Returns null for lines that don't carry token usage
@@ -110,6 +111,7 @@ async function buildSessionFileIndex(): Promise<Map<string, string>> {
 let inflight: Promise<number> | null = null;
 
 export function syncTokenUsage(): Promise<number> {
+  if (getRepositories().mode === "postgres") return Promise.resolve(0);
   if (inflight) return inflight;
   const p = doSync();
   inflight = p;
@@ -318,7 +320,11 @@ const rollupSumCols = {
   ),
 };
 
-export function getUsageSummary(daysBack: number = 30): UsageSummary {
+export async function getUsageSummary(daysBack: number = 30, userId?: string | null): Promise<UsageSummary> {
+  const repos = getRepositories();
+  if (repos.mode === "postgres") {
+    return repos.usage.getUsageSummary(daysBack, { userId });
+  }
   const db = getDb();
 
   const totalsRow = db
@@ -440,4 +446,5 @@ function formatLocalDay(d: Date): string {
 /** Test seam: clear the in-flight singleton between tests. */
 export function _resetSyncSingleton() {
   inflight = null;
+  getRepositories().usage.resetSyncSingleton();
 }

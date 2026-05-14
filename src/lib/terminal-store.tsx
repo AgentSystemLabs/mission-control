@@ -10,7 +10,7 @@ import { STORAGE_KEYS } from "./storage-keys";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import { buildClaudeCommand, newSessionId } from "./claude-command";
 import { api } from "./api";
-import { getElectron } from "./electron";
+import { getRuntime } from "./runtime";
 import { useServerEvents } from "./use-events";
 import {
   killPty,
@@ -195,22 +195,38 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   );
 
   const setPtyId = useCallback((taskId: string, ptyId: string) => {
-    setSessions((prev) => prev.map((p) => (p.taskId === taskId ? { ...p, ptyId } : p)));
+    setSessions((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        if (p.taskId !== taskId) return p;
+        if (p.ptyId === ptyId) return p;
+        changed = true;
+        return { ...p, ptyId };
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const syncTask = useCallback((task: Task) => {
-    setSessions((prev) =>
-      prev.map((p) => (p.taskId === task.id ? { ...p, task } : p))
-    );
+    setSessions((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        if (p.taskId !== task.id) return p;
+        if (p.task === task) return p;
+        changed = true;
+        return { ...p, task };
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const runIn = useCallback(
     async (taskId: string, command: string) => {
-      const electron = getElectron();
+      const electron = getRuntime();
       if (!electron) return;
       const target = sessions.find((p) => p.taskId === taskId);
       if (!target?.ptyId) return;
-      await electron.pty.write(target.ptyId, command + "\r");
+      await electron.pty.write(target.ptyId, command + "\r", target.project.id);
     },
     [sessions]
   );

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 
 const AGENTSYSTEM_URL = "https://agentsystem.dev";
 
@@ -14,7 +14,7 @@ export function SkillsUpsellModal({
   onClose: () => void;
 }) {
   const openAgentsystem = () => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (electron?.openExternal) {
       void electron.openExternal(AGENTSYSTEM_URL);
       return;

@@ -30,6 +30,49 @@ export function shouldSuppressTerminalKey(e: KeyboardEvent): boolean {
   return e.type === "keypress" && isShiftEnter(e);
 }
 
+export function keyEventToTerminalInput(e: KeyboardEvent): string | null {
+  const mapped = mapTerminalKey(e);
+  if (mapped !== null) return mapped;
+
+  if (e.metaKey) return null;
+  if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.length === 1) {
+    const code = e.key.toUpperCase().charCodeAt(0);
+    if (code >= 64 && code <= 95) return String.fromCharCode(code - 64);
+  }
+
+  switch (e.key) {
+    case "Enter":
+      return "\r";
+    case "Backspace":
+      return "\x7f";
+    case "Tab":
+      return "\t";
+    case "Escape":
+      return "\x1b";
+    case "ArrowUp":
+      return "\x1b[A";
+    case "ArrowDown":
+      return "\x1b[B";
+    case "ArrowRight":
+      return "\x1b[C";
+    case "ArrowLeft":
+      return "\x1b[D";
+    case "Delete":
+      return "\x1b[3~";
+    case "Home":
+      return "\x1b[H";
+    case "End":
+      return "\x1b[F";
+    case "PageUp":
+      return "\x1b[5~";
+    case "PageDown":
+      return "\x1b[6~";
+  }
+
+  if (!e.ctrlKey && !e.altKey && e.key.length === 1) return e.key;
+  return null;
+}
+
 function isShiftEnter(e: KeyboardEvent): boolean {
   return e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
 }

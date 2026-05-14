@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
-import { useCardGlow } from "~/lib/use-card-glow";
 
 export function EmptyState({
   title,
@@ -13,10 +12,8 @@ export function EmptyState({
   action?: ReactNode;
   icon?: IconName;
 }) {
-  const glowRef = useCardGlow<HTMLDivElement>();
   return (
     <div
-      ref={glowRef}
       style={{
         display: "flex",
         flexDirection: "column",

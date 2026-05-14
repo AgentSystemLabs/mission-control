@@ -2,11 +2,12 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { IPC } from "./ipc-channels";
 
 const electronAPI = {
+  hostKind: "desktop" as const,
   installSkills: {
     fetchLatest: (opts?: { licenseKey?: string }) =>
       ipcRenderer.invoke(IPC.installSkillsFetchLatest, opts),
     run: (args: {
-      projectPath: string;
+      projectId: string;
       harnesses: { claude: boolean; codex: boolean };
       licenseKey?: string;
     }) => ipcRenderer.invoke(IPC.installSkillsRun, args),
@@ -15,9 +16,7 @@ const electronAPI = {
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),
   pickProjectParentDir: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC.dialogPickProjectParentDir),
-  // TODO(renderer): renderer callers must now pass (projectId, relPath) instead
-  // of an absolute path. The main-process handler scopes the resolved path to
-  // the project root.
+  // Main scopes the relative path to the trusted project root.
   openPath: (
     projectId: string,
     relPath: string,
@@ -35,6 +34,10 @@ const electronAPI = {
   }): Promise<{ filename: string } | { error: string }> =>
     ipcRenderer.invoke(IPC.fileSaveProjectImage, opts),
   getRuntimePort: (): Promise<number | null> => ipcRenderer.invoke(IPC.appGetRuntimePort),
+  getApiBaseUrl: async (): Promise<string | null> => {
+    const port = await ipcRenderer.invoke(IPC.appGetRuntimePort);
+    return typeof port === "number" && port > 0 ? `http://127.0.0.1:${port}` : null;
+  },
   getApiToken: (): Promise<string | null> => ipcRenderer.invoke(IPC.appGetApiToken),
   getUserDataDir: (): Promise<string> => ipcRenderer.invoke(IPC.appGetUserDataDir),
   getUserName: (): Promise<{ source: "git" | "os"; fullName: string; firstName: string }> =>
@@ -57,7 +60,8 @@ const electronAPI = {
       agent?: string;
       mcEnv?: { apiUrl?: string; token?: string };
     }) => ipcRenderer.invoke(IPC.ptySpawn, opts) as Promise<{ ptyId: string }>,
-    write: (ptyId: string, data: string) => ipcRenderer.invoke(IPC.ptyWrite, { ptyId, data }),
+    write: (ptyId: string, data: string, _projectId?: string) =>
+      ipcRenderer.invoke(IPC.ptyWrite, { ptyId, data }),
     resize: (ptyId: string, cols: number, rows: number) =>
       ipcRenderer.invoke(IPC.ptyResize, { ptyId, cols, rows }),
     kill: (ptyId: string) => ipcRenderer.invoke(IPC.ptyKill, { ptyId }),

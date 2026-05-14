@@ -10,6 +10,7 @@ import type { ProjectWithCounts } from "~/shared/projects";
 import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
 import { events } from "../../events";
 import { readLicenseState } from "../license";
+import { normalizeProjectImageDataUrl } from "../../lib/project-image-data";
 import {
   DuplicateProjectPathError,
   ProjectCapExceededError,
@@ -86,21 +87,31 @@ export async function createProject(input: {
   path: string;
   icon?: string;
   iconColor?: string;
+  imageDataUrl?: string | null;
   groupId?: string | null;
+  runtimeKind?: string;
+  ownerUserId?: string | null;
+  sandboxId?: string | null;
+  workspacePath?: string | null;
+  repoUrl?: string | null;
+  sandboxState?: string | null;
 }): Promise<Project> {
   if (!input.path?.trim()) throw new Error("Working directory is required");
-  if (!fs.existsSync(input.path)) throw new Error("Working directory does not exist");
-  const stat = fs.statSync(input.path);
-  if (!stat.isDirectory()) throw new Error("Working directory must be a directory");
+  const runtimeKind = input.runtimeKind ?? "local";
+  if (runtimeKind === "local") {
+    if (!fs.existsSync(input.path)) throw new Error("Working directory does not exist");
+    const stat = fs.statSync(input.path);
+    if (!stat.isDirectory()) throw new Error("Working directory must be a directory");
+  }
 
   const name = input.name?.trim() || path.basename(input.path) || "project";
 
   const db = getDb();
 
-  const pro = isProTier(readLicenseState());
+  const pro = isProTier(await readLicenseState());
   const now = Date.now();
   const id = newId("p");
-  const branch = await detectBranch(input.path);
+  const branch = runtimeKind === "local" ? await detectBranch(input.path) : "main";
   const row = {
     id,
     name,
@@ -108,11 +119,21 @@ export async function createProject(input: {
     icon: (input.icon || name.slice(0, 2)).toUpperCase().slice(0, 2),
     iconColor: input.iconColor || "#ff5a1f",
     imagePath: null,
+    imageDataUrl:
+      input.imageDataUrl !== undefined
+        ? normalizeProjectImageDataUrl(input.imageDataUrl)
+        : null,
     groupId: input.groupId ?? null,
     pinned: false,
     branch,
     launchCommands: null,
     launchUrl: null,
+    runtimeKind,
+    ownerUserId: input.ownerUserId ?? null,
+    sandboxId: input.sandboxId ?? null,
+    workspacePath: input.workspacePath ?? input.path,
+    repoUrl: input.repoUrl ?? null,
+    sandboxState: input.sandboxState ?? null,
     rememberAgentSettings: false,
     savedAgent: null,
     savedSkipPermissions: false,
@@ -155,10 +176,17 @@ export function updateProject(
       | "icon"
       | "iconColor"
       | "imagePath"
+      | "imageDataUrl"
       | "groupId"
       | "pinned"
       | "branch"
       | "launchUrl"
+      | "runtimeKind"
+      | "ownerUserId"
+      | "sandboxId"
+      | "workspacePath"
+      | "repoUrl"
+      | "sandboxState"
       | "rememberAgentSettings"
       | "savedAgent"
       | "savedSkipPermissions"
@@ -168,8 +196,23 @@ export function updateProject(
 ): Project | null {
   const db = getDb();
   const { launchCommands, ...rest } = patch;
+  const imageDataUrl =
+    patch.imageDataUrl !== undefined
+      ? normalizeProjectImageDataUrl(patch.imageDataUrl)
+      : undefined;
+  const imagePath = patch.imagePath === "" ? null : patch.imagePath;
+  if (imagePath && imageDataUrl) {
+    throw new Error("Choose either a local image path or image data URL");
+  }
   const setPatch: Partial<Project> & { updatedAt: number } = {
     ...rest,
+    ...(patch.imagePath !== undefined ? { imagePath } : {}),
+    ...(patch.imageDataUrl !== undefined ? { imageDataUrl } : {}),
+    ...(imageDataUrl ? { imagePath: null } : {}),
+    ...(imagePath ? { imageDataUrl: null } : {}),
+    ...(imagePath === null && patch.imageDataUrl === undefined
+      ? { imageDataUrl: null }
+      : {}),
     ...(launchCommands !== undefined
       ? { launchCommands: serializeLaunchCommands(launchCommands) }
       : {}),

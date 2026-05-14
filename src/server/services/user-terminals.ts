@@ -1,13 +1,8 @@
-import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
-import { randomBytes } from "node:crypto";
-import { getDb } from "~/db/client";
-import { projects, userTerminals } from "~/db/schema";
 import type { UserTerminal } from "~/db/schema";
 import { events } from "../events";
-
-function newId() {
-  return `ut-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-}
+import { getRepositories } from "../repositories";
+import { isUniqueConstraintError as isSqliteUniqueConstraintError } from "../repositories/sqlite";
+import { isUniqueConstraintError as isPostgresUniqueConstraintError } from "../repositories/postgres";
 
 export class DuplicateUserTerminalNameError extends Error {
   constructor(public readonly projectId: string, public readonly name: string) {
@@ -16,25 +11,16 @@ export class DuplicateUserTerminalNameError extends Error {
   }
 }
 
+const transientTerminalProjectIds = new Map<string, string>();
+
 function isUniqueConstraintError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: string; message?: string };
-  return (
-    e.code === "SQLITE_CONSTRAINT_UNIQUE" ||
-    (typeof e.message === "string" && /UNIQUE constraint failed/i.test(e.message))
-  );
+  return isSqliteUniqueConstraintError(err) || isPostgresUniqueConstraintError(err);
 }
 
 /** Read-only listing. Use {@link purgeLaunchSpawnedTerminals} for the cleanup
  * side effect that used to live here. */
-export function listUserTerminals(projectId: string): UserTerminal[] {
-  const db = getDb();
-  return db
-    .select()
-    .from(userTerminals)
-    .where(and(eq(userTerminals.projectId, projectId), isNull(userTerminals.startCommand)))
-    .orderBy(asc(userTerminals.position), asc(userTerminals.createdAt))
-    .all();
+export async function listUserTerminals(projectId: string): Promise<UserTerminal[]> {
+  return getRepositories().userTerminals.list(projectId);
 }
 
 /**
@@ -43,127 +29,73 @@ export function listUserTerminals(projectId: string): UserTerminal[] {
  * restart. Pass a project id to scope, or omit to purge across all projects
  * (used at app boot).
  */
-export function purgeLaunchSpawnedTerminals(projectId?: string): number {
-  const db = getDb();
-  const where = projectId
-    ? and(eq(userTerminals.projectId, projectId), isNotNull(userTerminals.startCommand))
-    : isNotNull(userTerminals.startCommand);
-  const result = db.delete(userTerminals).where(where).run();
-  return result.changes ?? 0;
+export async function purgeLaunchSpawnedTerminals(projectId?: string): Promise<number> {
+  for (const [id, ownerProjectId] of transientTerminalProjectIds) {
+    if (!projectId || ownerProjectId === projectId) transientTerminalProjectIds.delete(id);
+  }
+  return getRepositories().userTerminals.purgeLaunchSpawned(projectId);
 }
 
-export function createUserTerminal(input: {
+export async function createUserTerminal(input: {
   projectId: string;
   name?: string;
   cwd?: string | null;
   startCommand?: string | null;
-}): UserTerminal {
-  const db = getDb();
-  const projectExists = db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.id, input.projectId))
-    .get();
-  if (!projectExists) throw new Error("Project does not exist");
-
-  const now = Date.now();
-  const startCommand = input.startCommand?.trim() || null;
-  const trimmedName = input.name?.trim();
-  const id = newId();
-
-  // For session-only launch-spawned terminals, no row is persisted — the PTY
-  // owns its own lifecycle. Return a synthetic row so the caller can wire up
-  // the terminal without polluting the DB.
-  if (startCommand) {
-    return {
-      id,
-      projectId: input.projectId,
-      name: trimmedName || "Terminal",
-      cwd: input.cwd ?? null,
-      startCommand,
-      position: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-  }
-
-  // Atomic INSERT with position computed from a subquery — no read-then-write
-  // race with concurrent createUserTerminal calls for the same project.
-  const positionExpr = sql<number>`COALESCE((SELECT MAX(${userTerminals.position}) + 1 FROM ${userTerminals} WHERE ${userTerminals.projectId} = ${input.projectId}), 0)`;
-
-  let name = trimmedName;
-  if (!name) {
-    // Default name is "Terminal N" where N is the next position+1; cheap
-    // single-statement count to derive a friendly default.
-    const countRow = db
-      .select({ n: sql<number>`COUNT(*)` })
-      .from(userTerminals)
-      .where(eq(userTerminals.projectId, input.projectId))
-      .get();
-    name = `Terminal ${(countRow?.n ?? 0) + 1}`;
-  }
-
+}): Promise<UserTerminal> {
+  const hasExplicitName = !!input.name?.trim();
   try {
-    const inserted = db
-      .insert(userTerminals)
-      .values({
-        id,
-        projectId: input.projectId,
-        name,
-        cwd: input.cwd ?? null,
-        startCommand: null,
-        position: positionExpr as unknown as number,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    return inserted;
+    const terminal = await getRepositories().userTerminals.create(input);
+    if (input.startCommand?.trim()) {
+      transientTerminalProjectIds.set(terminal.id, terminal.projectId);
+    }
+    return terminal;
   } catch (err) {
     if (isUniqueConstraintError(err)) {
-      throw new DuplicateUserTerminalNameError(input.projectId, name);
+      if (!hasExplicitName) {
+        for (let i = 1; i <= 100; i++) {
+          try {
+            return await getRepositories().userTerminals.create({
+              ...input,
+              name: `Terminal ${i}`,
+            });
+          } catch (retryErr) {
+            if (!isUniqueConstraintError(retryErr)) throw retryErr;
+          }
+        }
+      }
+      throw new DuplicateUserTerminalNameError(input.projectId, input.name?.trim() || "Terminal");
     }
     throw err;
   }
 }
 
-export function renameUserTerminal(id: string, name: string): UserTerminal | null {
+export async function renameUserTerminal(id: string, name: string): Promise<UserTerminal | null> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name is required");
-  const db = getDb();
   try {
-    const updated = db
-      .update(userTerminals)
-      .set({ name: trimmed, updatedAt: Date.now() })
-      .where(eq(userTerminals.id, id))
-      .returning()
-      .get();
-    return updated ?? null;
+    return await getRepositories().userTerminals.rename(id, trimmed);
   } catch (err) {
     if (isUniqueConstraintError(err)) {
-      // Look up projectId only on the failure path.
-      const existing = db.select().from(userTerminals).where(eq(userTerminals.id, id)).get();
-      throw new DuplicateUserTerminalNameError(existing?.projectId ?? "", trimmed);
+      throw new DuplicateUserTerminalNameError("", trimmed);
     }
     throw err;
   }
 }
 
-export function deleteUserTerminal(id: string): boolean {
-  const db = getDb();
-  const existing = db
-    .select({ projectId: userTerminals.projectId })
-    .from(userTerminals)
-    .where(eq(userTerminals.id, id))
-    .get();
-  const result = db.delete(userTerminals).where(eq(userTerminals.id, id)).run();
-  if (result.changes > 0) {
+export async function deleteUserTerminal(id: string): Promise<boolean> {
+  const hadTransientTerminal = transientTerminalProjectIds.delete(id);
+  const result = await getRepositories().userTerminals.delete(id);
+  if (result.deleted) {
     // Emit so the live PTY shuts down — mirrors deleteProject's per-terminal emit.
     events.emit("user-terminal:deleted", {
       id,
-      projectId: existing?.projectId ?? "",
+      projectId: result.projectId ?? "",
     });
     return true;
   }
-  return false;
+  return hadTransientTerminal;
+}
+
+export async function getUserTerminalProjectId(id: string): Promise<string | null> {
+  return (await getRepositories().userTerminals.getProjectId(id)) ?? transientTerminalProjectIds.get(id) ?? null;
 }

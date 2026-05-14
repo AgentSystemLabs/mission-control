@@ -4,6 +4,7 @@ import { Modal } from "~/components/ui/Modal";
 import { Icon } from "~/components/ui/Icon";
 import { Kbd } from "~/components/ui/Kbd";
 import { rankFiles } from "~/lib/file-fuzzy";
+import { getRuntime } from "~/lib/runtime";
 
 const VISIBLE_LIMIT = 200;
 
@@ -27,8 +28,9 @@ export function FileFinderDialog({
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["files:list", projectId],
     queryFn: async () => {
-      if (!window.electronAPI) throw new Error("Not running in Electron");
-      const r = await window.electronAPI.files.list(projectId);
+      const runtime = getRuntime();
+      if (!runtime) throw new Error("Runtime unavailable");
+      const r = await runtime.files.list(projectId);
       if (!r.ok) throw new Error(r.error);
       return r.files;
     },

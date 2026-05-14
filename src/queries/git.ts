@@ -22,10 +22,11 @@ export const gitKeys = {
     ["projects", projectId, "git", "diff", file, staged ? "staged" : "unstaged"] as const,
 };
 
-export const gitStatusQueryOptions = (projectId: string) =>
+export const gitStatusQueryOptions = (projectId: string, enabled = true) =>
   queryOptions({
     queryKey: gitKeys.status(projectId),
     queryFn: () => api.getGitStatus(projectId),
+    enabled,
     refetchInterval: 3000,
     refetchIntervalInBackground: false,
   });
@@ -43,8 +44,8 @@ export const gitDiffQueryOptions = (
     enabled: !!file,
   });
 
-export const useGitStatus = (projectId: string) =>
-  useQuery(gitStatusQueryOptions(projectId));
+export const useGitStatus = (projectId: string, enabled = true) =>
+  useQuery(gitStatusQueryOptions(projectId, enabled));
 
 export const useGitDiff = (
   projectId: string,

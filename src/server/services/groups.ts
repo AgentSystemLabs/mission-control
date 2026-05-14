@@ -1,14 +1,8 @@
-import { eq, asc } from "drizzle-orm";
-import { randomBytes } from "node:crypto";
-import { getDb } from "~/db/client";
-import { groups, projects } from "~/db/schema";
 import type { Group } from "~/db/schema";
-import { BRAND_PALETTE } from "~/lib/design-meta";
 import { events } from "../events";
-
-function newId() {
-  return `g-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-}
+import { getRepositories } from "../repositories";
+import { isUniqueConstraintError as isSqliteUniqueConstraintError } from "../repositories/sqlite";
+import { isUniqueConstraintError as isPostgresUniqueConstraintError } from "../repositories/postgres";
 
 export class DuplicateGroupNameError extends Error {
   constructor(public readonly name: string) {
@@ -18,61 +12,44 @@ export class DuplicateGroupNameError extends Error {
 }
 
 function isUniqueConstraintError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: string; message?: string };
-  return (
-    e.code === "SQLITE_CONSTRAINT_UNIQUE" ||
-    (typeof e.message === "string" && /UNIQUE constraint failed/i.test(e.message))
-  );
+  return isSqliteUniqueConstraintError(err) || isPostgresUniqueConstraintError(err);
 }
 
-export function listGroups(): Group[] {
-  return getDb().select().from(groups).orderBy(asc(groups.createdAt)).all();
+export async function listGroups(ownerUserId?: string | null): Promise<Group[]> {
+  return getRepositories().groups.list({ userId: ownerUserId });
 }
 
-export function createGroup(input: { name: string; color?: string }): Group {
+export async function createGroup(input: { name: string; color?: string; ownerUserId?: string | null }): Promise<Group> {
   if (!input.name?.trim()) throw new Error("Group name is required");
-  const db = getDb();
-  const existing = listGroups();
-  const color = input.color || BRAND_PALETTE[existing.length % BRAND_PALETTE.length] || "#ff5a1f";
-  const row: Group = {
-    id: newId(),
-    name: input.name.trim(),
-    color,
-    createdAt: Date.now(),
-  };
   try {
-    db.insert(groups).values(row).run();
+    const row = await getRepositories().groups.create(input);
+    events.emit("group:created", { id: row.id });
+    return row;
   } catch (err) {
-    if (isUniqueConstraintError(err)) throw new DuplicateGroupNameError(row.name);
+    if (isUniqueConstraintError(err)) throw new DuplicateGroupNameError(input.name.trim());
     throw err;
   }
-  events.emit("group:created", { id: row.id });
-  return row;
 }
 
-export function updateGroup(id: string, patch: Partial<Pick<Group, "name" | "color">>): Group | null {
-  const db = getDb();
-  const existing = db.select().from(groups).where(eq(groups.id, id)).get();
-  if (!existing) return null;
-  const next = { ...existing, ...patch };
+export async function updateGroup(
+  id: string,
+  patch: Partial<Pick<Group, "name" | "color">>,
+  ownerUserId?: string | null,
+): Promise<Group | null> {
   try {
-    db.update(groups).set(next).where(eq(groups.id, id)).run();
+    const next = await getRepositories().groups.update(id, patch, { userId: ownerUserId });
+    if (next) events.emit("group:updated", { id });
+    return next;
   } catch (err) {
     if (isUniqueConstraintError(err) && patch.name !== undefined) {
       throw new DuplicateGroupNameError(String(patch.name));
     }
     throw err;
   }
-  events.emit("group:updated", { id });
-  return next;
 }
 
-export function deleteGroup(id: string): boolean {
-  const db = getDb();
-  // orphan projects to ungrouped
-  db.update(projects).set({ groupId: null }).where(eq(projects.groupId, id)).run();
-  const result = db.delete(groups).where(eq(groups.id, id)).run();
+export async function deleteGroup(id: string, ownerUserId?: string | null): Promise<boolean> {
+  const result = await getRepositories().groups.delete(id, { userId: ownerUserId });
   events.emit("group:deleted", { id });
-  return result.changes > 0;
+  return result;
 }

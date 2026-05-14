@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useRouter } from "@tanstack/react-router";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 
 type RouterLike = ReturnType<typeof useRouter>;
 
@@ -50,7 +50,7 @@ export function useNavigationSwipe() {
 
     window.addEventListener("wheel", onWheel, { passive: true });
 
-    const offSwipe = getElectron()?.onSwipe((dir) => {
+    const offSwipe = getRuntime()?.onSwipe((dir) => {
       if (isNavigationBlocked()) return;
       if (dir === "left") dispatch("back");
       else if (dir === "right") dispatch("forward");

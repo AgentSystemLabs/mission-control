@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AGENT_META } from "~/lib/design-meta";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import { getErrorMessage } from "~/shared/errors";
@@ -109,7 +109,7 @@ export function useNewAgentForm({
     setSubmitting(true);
     setError(null);
     if (agent !== "shell") {
-      const electron = getElectron();
+      const electron = getRuntime();
       if (electron) {
         const cmd = AGENT_META[agent].cmd;
         const probe = await electron.cliCheck(cmd);

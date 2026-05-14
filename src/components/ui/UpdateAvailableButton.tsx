@@ -1,5 +1,5 @@
 import { Btn } from "./Btn";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { useLatestMissionControlVersion } from "~/queries/mission-control-version";
 
 export function UpdateAvailableButton() {
@@ -7,7 +7,7 @@ export function UpdateAvailableButton() {
   if (!data?.isUpdateAvailable || !data.latestVersion) return null;
 
   const onClick = () => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (electron?.openExternal) {
       void electron.openExternal(data.downloadUrl);
     } else {

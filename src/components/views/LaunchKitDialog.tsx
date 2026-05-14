@@ -4,7 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { api } from "~/lib/api";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { useHotkey } from "~/lib/use-hotkey";
 
 type Phase = "idle" | "downloading" | "extracting" | "done";
@@ -36,7 +36,7 @@ export function LaunchKitDialog({
   const canSubmit = open && !isWorking && !!parentDir.trim() && !!projectName.trim();
 
   const browse = async () => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (!electron) return;
     // Use the security-scoped picker: the path is added to a short-TTL
     // allowlist that /api/launch-kit/projects verifies before writing.
@@ -48,18 +48,20 @@ export function LaunchKitDialog({
     if (!canSubmit) return;
     setError(null);
     setPhase("downloading");
+    let extractTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const extractTimer = setTimeout(() => setPhase("extracting"), 700);
+      extractTimer = setTimeout(() => setPhase("extracting"), 700);
       const result = await api.createLaunchKitProject({
         parentDir,
         projectName,
       });
-      clearTimeout(extractTimer);
       setPhase("done");
       onCreated(result.project.id);
     } catch (err) {
       setPhase("idle");
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (extractTimer) clearTimeout(extractTimer);
     }
   };
 

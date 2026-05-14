@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: mission-control-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mission_control
+      POSTGRES_USER: mission_control
+      POSTGRES_PASSWORD: mission_control
+    ports:
+      - "5432:5432"
+    volumes:
+      - mission-control-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mission_control -d mission_control"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mission-control-postgres:

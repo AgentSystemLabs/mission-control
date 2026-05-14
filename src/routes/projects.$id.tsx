@@ -14,12 +14,11 @@ const FileEditorDialog = lazy(() =>
 );
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
-import { CursorGlow } from "~/components/ui/CursorGlow";
-import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
-import { getElectron } from "~/lib/electron";
-import { api } from "~/lib/api";
+import { getRuntime } from "~/lib/runtime";
+import { ApiError, api } from "~/lib/api";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
@@ -38,31 +37,37 @@ import {
   useSettings,
   useTasks,
 } from "~/queries";
-import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
+import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { RouteErrorBoundary } from "~/components/ui/RouteErrorBoundary";
 import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
+import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import type { Task, TaskStatus } from "~/db/schema";
+import type { ProjectWithCounts } from "~/shared/projects";
 import { pickByPriority } from "~/lib/design-meta";
 import { TASK_STATUS_META } from "~/shared/domain";
 import { isLoopbackHost } from "~/shared/loopback";
-import { ProjectPageHeader } from "~/components/views/ProjectPage/ProjectPageHeader";
+import { ProjectGitStatusButton } from "~/components/views/ProjectPage/ProjectGitStatusButton";
+import { useProjectPickerActions } from "~/components/views/ProjectPicker";
 import { RunStatusPill } from "~/components/views/ProjectPage/RunStatusPill";
 import { useDuplicateSessionListener } from "~/components/views/ProjectPage/useDuplicateSessionListener";
 import { useProjectHotkeys } from "~/components/views/ProjectPage/useProjectHotkeys";
 
 export const Route = createFileRoute("/projects/$id")({
-  loader: ({ context, params }) =>
-    Promise.all([
-      context.queryClient.ensureQueryData(projectQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(tasksQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(groupsQueryOptions()),
-      context.queryClient.ensureQueryData(settingsQueryOptions()),
-      context.queryClient
-        .ensureQueryData(gitStatusQueryOptions(params.id))
-        .catch(() => null),
-    ]),
+  loader: async ({ context, params }) => {
+    try {
+      await Promise.all([
+        context.queryClient.ensureQueryData(projectQueryOptions(params.id)),
+        context.queryClient.ensureQueryData(tasksQueryOptions(params.id)),
+        context.queryClient.ensureQueryData(groupsQueryOptions()),
+        context.queryClient.ensureQueryData(settingsQueryOptions()),
+      ]);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) return;
+      throw error;
+    }
+  },
   component: ProjectPage,
   errorComponent: ({ error, reset }) => (
     <RouteErrorBoundary error={error} reset={reset} />
@@ -89,21 +94,17 @@ function ProjectPage() {
   const { data: tasks = [] } = useTasks(id);
   const { data: groups = [] } = useGroups();
   const { data: settings } = useSettings();
-  const { data: gitStatus } = useGitStatus(id);
+  const gitAvailable = !!project;
+  const { data: gitStatus } = useGitStatus(id, gitAvailable);
   const [showDiffView, setShowDiffView] = useState(false);
 
   const openDiffView = useCallback(() => {
+    if (!gitAvailable) return;
     setShowDiffView(true);
-  }, []);
+  }, [gitAvailable]);
 
   const closeDiffView = useCallback(() => {
     setShowDiffView(false);
-  }, []);
-  const [apiToken, setLocalApiToken] = useState<string | null>(null);
-  useEffect(() => {
-    const electron = getElectron();
-    if (!electron) return;
-    void electron.getApiToken().then((t) => setLocalApiToken(t ?? null)).catch(() => {});
   }, []);
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -116,13 +117,17 @@ function ProjectPage() {
   const [launching, setLaunching] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [pinning, setPinning] = useState(false);
-  const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
+  const launchCommands = useMemo(
+    () => parseLaunchCommands(project?.launchCommands ?? null),
+    [project?.launchCommands],
+  );
 
   useEffect(() => {
     if (projectError) router.navigate({ to: "/" });
   }, [projectError, router]);
 
   const terminals = useTerminals();
+  const syncTerminalTask = terminals.syncTask;
   const {
     setProject: setActiveUserTerminalProject,
     createTerminal,
@@ -130,8 +135,9 @@ function ProjectPage() {
     setPanelOpen,
     sessions: userTerminalSessions,
   } = useUserTerminals();
-  const launchCommandSet = new Set(
-    launchCommands.map((c) => c.command.trim()).filter(Boolean)
+  const launchCommandSet = useMemo(
+    () => new Set(launchCommands.map((c) => c.command.trim()).filter(Boolean)),
+    [launchCommands],
   );
   const hasRunningLaunch = userTerminalSessions.some(
     (s) => s.ptyId && s.terminal.startCommand && launchCommandSet.has(s.terminal.startCommand.trim())
@@ -140,24 +146,30 @@ function ProjectPage() {
     () => launchUrlPort(project?.launchUrl ?? null),
     [project?.launchUrl]
   );
+  const launchInFlightRef = useRef(false);
+  const stopInFlightRef = useRef(false);
 
   const stopLaunch = useCallback(async () => {
-    if (launchCommands.length === 0) return;
+    if (launchCommands.length === 0 || stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
     setStopping(true);
     try {
       await killTerminalsByStartCommand(launchCommands.map((c) => c.command), {
         ports: launchPorts,
       });
     } finally {
+      stopInFlightRef.current = false;
       setStopping(false);
     }
   }, [launchCommands, launchPorts, killTerminalsByStartCommand]);
 
   const runLaunch = useCallback(async () => {
+    if (launchInFlightRef.current) return;
     if (launchCommands.length === 0) {
       setShowLaunchEmpty(true);
       return;
     }
+    launchInFlightRef.current = true;
     setLaunching(true);
     try {
       await killTerminalsByStartCommand(launchCommands.map((c) => c.command), {
@@ -168,6 +180,7 @@ function ProjectPage() {
       }
       setPanelOpen(true);
     } finally {
+      launchInFlightRef.current = false;
       setLaunching(false);
     }
   }, [launchCommands, launchPorts, killTerminalsByStartCommand, createTerminal, setPanelOpen]);
@@ -177,8 +190,8 @@ function ProjectPage() {
   }, [project, setActiveUserTerminalProject]);
 
   useEffect(() => {
-    for (const task of tasks) terminals.syncTask(task);
-  }, [tasks, terminals.syncTask]);
+    for (const task of tasks) syncTerminalTask(task);
+  }, [tasks, syncTerminalTask]);
 
   // When the active session is deleted/archived, jump to the next
   // highest-priority card. Plain deselect (Cmd+L, X) leaves the panel closed.
@@ -246,6 +259,41 @@ function ProjectPage() {
     }
   }, [project, pinning, invalidateProject, invalidateProjects]);
 
+  const projectPickerActions = useMemo(
+    () =>
+      project
+        ? {
+            project,
+            gitStatus,
+            gitAvailable,
+            hasRunningLaunch,
+            stopping,
+            stopLaunch,
+            pinning,
+            toggleProjectPin,
+            openDiffView,
+            setShowLaunchConfig,
+            setShowEdit,
+            setConfirmRemove,
+          }
+        : null,
+    [
+      project,
+      gitStatus,
+      gitAvailable,
+      hasRunningLaunch,
+      stopping,
+      stopLaunch,
+      pinning,
+      toggleProjectPin,
+      openDiffView,
+      setShowLaunchConfig,
+      setShowEdit,
+      setConfirmRemove,
+    ],
+  );
+  useProjectPickerActions(projectPickerActions);
+
   const createSession = useCallback(
     async (payload: {
       agent: Task["agent"];
@@ -253,7 +301,7 @@ function ProjectPage() {
       skipPermissions: boolean;
       bareSession: boolean;
     }) => {
-      if (!project || !apiToken) return;
+      if (!project) return;
       const isClaude = payload.agent === "claude-code";
       const created = await api.createTaskInternal(
         project.id,
@@ -266,18 +314,19 @@ function ProjectPage() {
           claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
             ? payload.skipPermissions
             : undefined,
-        },
-        apiToken
+        }
       );
       terminals.toggle(project, created.task);
       await refresh();
     },
-    [project, apiToken, refresh, terminals]
+    [project, refresh, terminals]
   );
 
+  const startingSessionRef = useRef(false);
   const startWithSaved = useCallback(async () => {
-    if (!project) return;
+    if (!project || startingSessionRef.current) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
+    startingSessionRef.current = true;
     try {
       await createSession({
         agent: project.savedAgent,
@@ -289,6 +338,8 @@ function ProjectPage() {
       toast.error("Failed to start session", {
         description: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      startingSessionRef.current = false;
     }
   }, [project, createSession]);
 
@@ -413,6 +464,7 @@ function ProjectPage() {
     showDiffView,
     openDiffView,
     closeDiffView,
+    gitAvailable,
     closePanelEnabled,
     onTerminalClose,
   });
@@ -518,6 +570,50 @@ function ProjectPage() {
 
   const headerActions = (
     <HeaderActions>
+      <HotkeyTooltip action="file.finder" label="Find file in project">
+        <Btn
+          variant="ghost"
+          icon="search"
+          onClick={() => setFileFinderOpen(true)}
+          aria-label="Find file in project"
+          title="Find file in project"
+        />
+      </HotkeyTooltip>
+      <div
+        role="group"
+        aria-label="Review changes and commit"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0,
+          maxWidth: 360,
+          minWidth: 0,
+        }}
+      >
+        {gitAvailable ? (
+          <>
+            <ProjectGitStatusButton
+              branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
+              changedCount={gitStatus?.changedCount}
+              onClick={openDiffView}
+            />
+            <CommitPushButton projectId={project.id} size="md" splitTrailing />
+          </>
+        ) : (
+          <Btn
+            variant="ghost"
+            icon="git-branch"
+            disabled
+            aria-label="Git diff is only available for local projects"
+            title="Git diff is only available for local projects right now"
+            style={{ fontFamily: "var(--mono)", maxWidth: 320, minWidth: 0 }}
+          >
+            <span style={{ color: "var(--text-dim)", flexShrink: 0 }}>
+              Git unavailable
+            </span>
+          </Btn>
+        )}
+      </div>
       <RunStatusPill
         running={hasRunningLaunch}
         launching={launching}
@@ -525,19 +621,18 @@ function ProjectPage() {
         launchUrl={project.launchUrl ?? null}
         onStart={runLaunch}
         onOpenUrl={() =>
-          project.launchUrl && window.electronAPI?.openExternal(project.launchUrl)
+          project.launchUrl && getRuntime()?.openExternal(project.launchUrl)
         }
         onStop={stopLaunch}
       />
       <span style={{ width: 12 }} aria-hidden />
-      <InstallSkillsButton projectPath={project.path} />
+      <InstallSkillsButton projectId={project.id} />
     </HeaderActions>
   );
 
-  if (showDiffView) {
+  if (showDiffView && gitAvailable) {
     return (
       <>
-        <CursorGlow />
         {headerActions}
         <GitDiffView
           projectId={project.id}
@@ -550,7 +645,6 @@ function ProjectPage() {
 
   return (
     <>
-      <CursorGlow />
       <div
         style={{
           flex: 1,
@@ -571,30 +665,7 @@ function ProjectPage() {
           padding: 8,
         }}
       >
-        <ProjectPageHeader
-          project={project}
-          gitStatus={gitStatus}
-          hasRunningLaunch={hasRunningLaunch}
-          stopping={stopping}
-          stopLaunch={stopLaunch}
-          pinning={pinning}
-          toggleProjectPin={toggleProjectPin}
-          openDiffView={openDiffView}
-          setShowLaunchConfig={setShowLaunchConfig}
-          setShowEdit={setShowEdit}
-          setConfirmRemove={setConfirmRemove}
-          setFileFinderOpen={setFileFinderOpen}
-          headerActions={headerActions}
-        />
-
-        <div
-          aria-hidden
-          style={{
-            height: 1,
-            background: "var(--border)",
-            margin: "0 0 22px",
-          }}
-        />
+        {headerActions}
 
         {visibleTasks.length > 0 && (
           <div
@@ -715,7 +786,13 @@ function ProjectPage() {
         groups={groups}
         onClose={() => setShowEdit(false)}
         onSave={async (data) => {
-          await api.updateProject(project.id, data);
+          const { project: updatedProject } = await api.updateProject(project.id, data);
+          queryClient.setQueryData<ProjectWithCounts>(queryKeys.project(project.id), (current) =>
+            current ? { ...current, ...updatedProject } : current,
+          );
+          queryClient.setQueryData<ProjectWithCounts[]>(queryKeys.projects, (current) =>
+            current?.map((item) => (item.id === project.id ? { ...item, ...updatedProject } : item)),
+          );
           setShowEdit(false);
           await refresh();
         }}

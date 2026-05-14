@@ -17,7 +17,10 @@ export const ACADEMY_BASE_URL = isProduction()
 export function isAllowedAcademyDownloadUrl(downloadUrl: string): boolean {
   try {
     const u = new URL(downloadUrl);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    if (!isProduction() && u.protocol === "http:" && isLoopbackHost(u.hostname)) {
+      return true;
+    }
+    if (u.protocol !== "https:") return false;
     const base = new URL(ACADEMY_BASE_URL);
     if (u.hostname === base.hostname) return true;
     const parts = base.hostname.split(".");

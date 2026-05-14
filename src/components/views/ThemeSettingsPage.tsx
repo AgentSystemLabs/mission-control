@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import type { CSSProperties } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
 import {
@@ -10,6 +11,8 @@ import {
 } from "~/lib/accent-colors";
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
+
+type ThemePreviewStyle = CSSProperties & Record<`--${string}`, string | number>;
 
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
@@ -82,39 +85,31 @@ function ThemePreviewCard({
   onSelect: () => void;
 }) {
   const accentRgba = (a: number) => `rgba(${color.rgb}, ${a})`;
-  const panelBorder = `url("/borders/panel_focused_${color.id}.webp")`;
-  const squareBorder = `url("/borders/square_${color.id}.webp")`;
-  const buttonBorder = `url("/borders/button_filled_${color.id}.webp")`;
+  const frameImage = selected ? `url("/borders/panel_focused.webp")` : `url("/borders/square.webp")`;
   return (
     <button
       type="button"
+      className="theme-preview-card"
       onClick={onSelect}
       aria-pressed={selected}
       title={color.name}
       style={{
+        "--theme-preview-accent-glow": accentRgba(selected ? 0.18 : 0.08),
+        "--theme-preview-filter": color.filter,
+        "--theme-preview-frame-image": frameImage,
         position: "relative",
         boxSizing: "border-box",
         padding: 0,
         cursor: "pointer",
         textAlign: "left",
-        background:
-          `linear-gradient(rgba(3, 6, 8, 0.30), rgba(3, 6, 8, 0.30)), ` +
-          `radial-gradient(circle at 30% 0%, ${accentRgba(selected ? 0.18 : 0.08)}, transparent 65%), ` +
-          `${selected ? panelBorder : squareBorder} 39.0625% 39.0625% / 200% 200% no-repeat`,
-        backgroundClip: "padding-box",
+        background: "transparent",
         borderStyle: "solid",
         borderColor: "transparent",
         borderWidth: 16,
-        borderImageSource: selected
-          ? panelBorder
-          : squareBorder,
-        borderImageSlice: "48",
-        borderImageWidth: "16px",
-        borderImageRepeat: "stretch",
         boxShadow: selected ? `0 0 22px ${accentRgba(0.35)}` : "none",
         transition: "box-shadow 0.15s",
         overflow: "hidden",
-      }}
+      } as ThemePreviewStyle}
     >
       {selected && (
         <span
@@ -178,7 +173,9 @@ function ThemePreviewCard({
         >
           <span
             aria-hidden
+            className="theme-preview-action"
             style={{
+              "--theme-preview-filter": color.filter,
               boxSizing: "border-box",
               display: "inline-flex",
               alignItems: "center",
@@ -191,14 +188,11 @@ function ThemePreviewCard({
               borderStyle: "solid",
               borderColor: "transparent",
               borderWidth: 12,
-              borderImageSource: buttonBorder,
-              borderImageSlice: "48",
-              borderImageWidth: "12px",
-              borderImageRepeat: "stretch",
-              background: accentRgba(0.18),
+              position: "relative",
+              backgroundColor: accentRgba(0.18),
               backgroundClip: "padding-box",
               textShadow: `0 0 8px ${accentRgba(0.6)}`,
-            }}
+            } as ThemePreviewStyle}
           >
             Action
           </span>

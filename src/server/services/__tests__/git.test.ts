@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parsePorcelainZ } from "../git";
+import { parseDaytonaGitResponse } from "../git/exec";
 
 /** Build a porcelain-z stream from {x, y, path} entries. Renamed/copied entries
  *  carry an extra `from` field that emits a paired NUL-terminated path. */
@@ -72,5 +73,22 @@ describe("parsePorcelainZ", () => {
       buildPorcelain([{ x: "M", y: " ", path: "a.ts" }]) + "\0\0",
     );
     expect(r.staged).toHaveLength(1);
+  });
+});
+
+describe("parseDaytonaGitResponse", () => {
+  it("decodes stdout and stderr separately", () => {
+    const stdout = Buffer.from("M\0file.ts\0", "utf8").toString("base64");
+    const stderr = Buffer.from("fatal: nope", "utf8").toString("base64");
+
+    expect(
+      parseDaytonaGitResponse(
+        `__MC_GIT_CODE__7\n__MC_GIT_STDOUT_B64__\n${stdout}\n__MC_GIT_STDERR_B64__\n${stderr}\n__MC_GIT_END__\n`,
+      ),
+    ).toEqual({
+      code: 7,
+      stdout: "M\0file.ts\0",
+      stderr: "fatal: nope",
+    });
   });
 });

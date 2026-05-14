@@ -23,7 +23,7 @@ export default defineConfig({
     }),
   ],
   ssr: {
-    external: ["better-sqlite3", "node-pty"],
+    external: ["better-sqlite3", "node-pty", "postgres", "better-auth", "@better-auth/drizzle-adapter"],
   },
   build: {
     target: "node22",

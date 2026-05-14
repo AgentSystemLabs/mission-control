@@ -5,7 +5,7 @@ import { Btn } from "~/components/ui/Btn";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Icon } from "~/components/ui/Icon";
 import { useHotkey } from "~/lib/use-hotkey";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { api } from "~/lib/api";
 import { queryKeys } from "~/queries";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
@@ -83,7 +83,7 @@ export function LicenseEntryModal({
   };
 
   const openPurchase = (e: React.MouseEvent) => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (electron?.openExternal) {
       e.preventDefault();
       void electron.openExternal(PURCHASE_URL);

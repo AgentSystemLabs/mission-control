@@ -15,11 +15,11 @@ type Phase = "idle" | "downloading" | "extracting" | "done";
 export function InstallSkillsModal({
   open,
   onClose,
-  projectPath,
+  projectId,
 }: {
   open: boolean;
   onClose: () => void;
-  projectPath: string;
+  projectId: string;
 }) {
   const queryClient = useQueryClient();
   const [installClaude, setInstallClaude] = useState(true);
@@ -69,26 +69,26 @@ export function InstallSkillsModal({
 
   const isWorking = phase === "downloading" || phase === "extracting";
   const harnessSelected = installClaude || installCodex;
-  const canInstall = open && !isWorking && harnessSelected && !!projectPath;
+  const canInstall = open && !isWorking && harnessSelected && !!projectId;
 
   const submit = async () => {
     if (!canInstall) return;
     setError(null);
     setNotice(null);
     setPhase("downloading");
+    let extractTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       // The main process does fetch-then-extract in one IPC; simulate the
       // two-state UX by flipping to "extracting" after a brief delay so
       // users see motion. Real progress events would require streaming IPC.
-      const extractTimer = setTimeout(() => setPhase("extracting"), 600);
+      extractTimer = setTimeout(() => setPhase("extracting"), 600);
       const result = await runInstallSkills({
-        projectPath,
+        projectId,
         harnesses: { claude: installClaude, codex: installCodex },
       });
-      clearTimeout(extractTimer);
       // Refresh the freshness check so the InstallSkillsButton can hide /
       // relabel itself immediately after a successful install.
-      void queryClient.invalidateQueries({ queryKey: ["skills-installed", projectPath] });
+      void queryClient.invalidateQueries({ queryKey: ["skills-installed", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["skills-latest"] });
       setPhase("done");
       setNotice(
@@ -101,6 +101,8 @@ export function InstallSkillsModal({
     } catch (err) {
       setPhase("idle");
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (extractTimer) clearTimeout(extractTimer);
     }
   };
 
@@ -142,7 +144,7 @@ export function InstallSkillsModal({
               title={
                 !harnessSelected
                   ? "Select at least one harness"
-                  : !projectPath
+                  : !projectId
                     ? "No project selected"
                     : undefined
               }

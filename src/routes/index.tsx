@@ -11,12 +11,12 @@ import { groupProjects } from "~/lib/group-projects";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { StatusDot } from "~/components/ui/StatusDot";
-import { CursorGlow } from "~/components/ui/CursorGlow";
 import { ProjectCard } from "~/components/views/ProjectCard";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { LaunchKitDialog } from "~/components/views/LaunchKitDialog";
 import { useAddProject } from "~/lib/add-project-store";
-import { api } from "~/lib/api";
+import { ApiError, api } from "~/lib/api";
+import { getRuntime } from "~/lib/runtime";
 import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import {
@@ -32,11 +32,17 @@ import { isAcademyTier } from "~/shared/license";
 import { RouteErrorBoundary } from "~/components/ui/RouteErrorBoundary";
 
 export const Route = createFileRoute("/")({
-  loader: ({ context }) =>
-    Promise.all([
-      context.queryClient.ensureQueryData(projectsQueryOptions()),
-      context.queryClient.ensureQueryData(groupsQueryOptions()),
-    ]),
+  loader: async ({ context }) => {
+    try {
+      await Promise.all([
+        context.queryClient.ensureQueryData(projectsQueryOptions()),
+        context.queryClient.ensureQueryData(groupsQueryOptions()),
+      ]);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) return;
+      throw error;
+    }
+  },
   component: MissionControlPage,
   errorComponent: ({ error, reset }) => (
     <RouteErrorBoundary error={error} reset={reset} />
@@ -116,9 +122,10 @@ function MissionControlPage() {
 
   const [firstName, setFirstName] = useState<string | null>(null);
   useEffect(() => {
-    if (!window.electronAPI?.getUserName) return;
+    const runtime = getRuntime();
+    if (!runtime) return;
     let cancelled = false;
-    void window.electronAPI.getUserName().then((r) => {
+    void runtime.getUserName().then((r) => {
       if (!cancelled) setFirstName(r.firstName);
     });
     return () => {
@@ -153,7 +160,6 @@ function MissionControlPage() {
 
   return (
     <>
-      <CursorGlow />
       <div style={{ flex: 1, overflow: "auto", padding: 0 }} className="dot-grid-bg">
         <CardFrame
           style={{

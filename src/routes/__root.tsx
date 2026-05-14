@@ -7,7 +7,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { getElectron } from "~/lib/electron";
+import { getRuntime } from "~/lib/runtime";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
@@ -23,7 +23,10 @@ import {
 } from "~/lib/user-terminal-store";
 import { TerminalPanel } from "~/components/views/TerminalPanel";
 import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
-import { ProjectPicker } from "~/components/views/ProjectPicker";
+import {
+  ProjectPicker,
+  ProjectPickerActionsProvider,
+} from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
@@ -33,6 +36,8 @@ import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { UsagePanel } from "~/components/views/UsagePanel";
+import { CloudAuthGate } from "~/components/views/CloudAuthGate";
+import { CursorGlow } from "~/components/ui/CursorGlow";
 import { Toaster, toast } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import "~/styles.css";
@@ -60,17 +65,21 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body>
-        <KeybindingsProvider>
-          <TerminalProvider>
-            <UserTerminalProvider>
-              <AddProjectProvider>
-                <HeaderActionsProvider>
-                  <Shell />
-                </HeaderActionsProvider>
-              </AddProjectProvider>
-            </UserTerminalProvider>
-          </TerminalProvider>
-        </KeybindingsProvider>
+        <CloudAuthGate>
+          <KeybindingsProvider>
+            <TerminalProvider>
+              <UserTerminalProvider>
+                <AddProjectProvider>
+                  <ProjectPickerActionsProvider>
+                    <HeaderActionsProvider>
+                      <Shell />
+                    </HeaderActionsProvider>
+                  </ProjectPickerActionsProvider>
+                </AddProjectProvider>
+              </UserTerminalProvider>
+            </TerminalProvider>
+          </KeybindingsProvider>
+        </CloudAuthGate>
         <Scripts />
       </body>
     </html>
@@ -111,7 +120,7 @@ function Shell() {
   // spawned session. Without hooks the session-finished events and status
   // updates silently never arrive, so the user must know.
   useEffect(() => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (!electron?.onAgentHooksInstallFailed) return;
     const shown = new Set<string>();
     return electron.onAgentHooksInstallFailed((msg) => {
@@ -267,7 +276,7 @@ function Shell() {
   // renderer handler runs). The main process forwards an `app:close-intent`
   // event; we close the focused user terminal if the panel is open.
   useEffect(() => {
-    const electron = getElectron();
+    const electron = getRuntime();
     if (!electron) return;
     return electron.onCloseIntent(() => {
       if (userTerminalPanelOpen && focusedUserTerminalId) {
@@ -279,6 +288,7 @@ function Shell() {
   return (
     <>
       <div id="root">
+        <CursorGlow />
         <div
           aria-hidden
           style={{

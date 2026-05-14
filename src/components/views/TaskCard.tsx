@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
@@ -33,9 +33,15 @@ function TaskCardImpl({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const hoveredRef = useRef(false);
 
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
+  const setHoveredIfChanged = useCallback((nextHovered: boolean) => {
+    if (hoveredRef.current === nextHovered) return;
+    hoveredRef.current = nextHovered;
+    setHovered(nextHovered);
+  }, []);
 
   const meta = AGENT_META[task.agent];
   const statusMeta = TASK_STATUS_META[task.status];
@@ -60,8 +66,8 @@ function TaskCardImpl({
         cursor: "pointer",
         transition: "box-shadow 0.15s, background 0.15s",
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => setHoveredIfChanged(true)}
+      onMouseLeave={() => setHoveredIfChanged(false)}
     >
       <ShimmerBar active={isRunning} color={meta?.color} />
       <button
