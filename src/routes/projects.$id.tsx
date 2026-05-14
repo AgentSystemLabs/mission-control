@@ -41,6 +41,7 @@ import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
+import { featureFlags } from "~/shared/feature-flags";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
 import type { Task, TaskStatus } from "~/db/schema";
@@ -599,8 +600,12 @@ function ProjectPage() {
         }
         onStop={stopLaunch}
       />
-      <span style={{ width: 12 }} aria-hidden />
-      <InstallSkillsButton projectPath={project.path} />
+      {featureFlags.installSkillsButton && (
+        <>
+          <span style={{ width: 12 }} aria-hidden />
+          <InstallSkillsButton projectPath={project.path} />
+        </>
+      )}
     </HeaderActions>
   );
 
@@ -651,33 +656,16 @@ function ProjectPage() {
             marginBottom: 24,
           }}
         >
-          <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto" }}>
-            <button
-              onClick={() => setOverflowOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={overflowOpen}
-              title="Project actions"
+          <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <div
               style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 12,
-                padding: "6px 10px 6px 6px",
-                background: "none",
-                border: "1px solid transparent",
-                borderRadius: 10,
-                cursor: "pointer",
+                padding: "6px 4px 6px 6px",
                 color: "var(--text)",
                 maxWidth: "100%",
                 minWidth: 0,
-                transition: "background 0.12s, border-color 0.12s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--surface-2)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "none";
-                e.currentTarget.style.borderColor = "transparent";
               }}
             >
               <ProjectIcon project={project} size={32} />
@@ -696,12 +684,21 @@ function ProjectPage() {
               >
                 {project.name}
               </h1>
+            </div>
+            <Btn
+              onClick={() => setOverflowOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={overflowOpen}
+              aria-label="Project actions"
+              title="Project actions"
+              icon="settings"
+            >
               <Icon
                 name="chevron-down"
-                size={14}
-                style={{ color: "var(--text-dim)", flexShrink: 0 }}
+                size={12}
+                style={{ color: "var(--text-dim)" }}
               />
-            </button>
+            </Btn>
             {overflowOpen && (
               <CardFrame
                 role="menu"
@@ -816,10 +813,12 @@ function ProjectPage() {
                 >
                   Configure launch commands
                 </Btn>
-                <InstallSkillsMenuItem
-                  projectPath={project.path}
-                  onOpen={() => setOverflowOpen(false)}
-                />
+                {featureFlags.installSkillsButton && (
+                  <InstallSkillsMenuItem
+                    projectPath={project.path}
+                    onOpen={() => setOverflowOpen(false)}
+                  />
+                )}
                 <HotkeyTooltip action="project.edit">
                   <Btn
                     variant="ghost"
