@@ -12,6 +12,7 @@ const baseTask = {
   id: "task-1",
   projectId: "project-1",
   title: "Task",
+  icon: null,
   status: "ready",
   branch: "main",
   preview: "",

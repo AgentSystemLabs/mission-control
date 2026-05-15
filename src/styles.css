@@ -625,9 +625,13 @@ button {
   0%,
   91% {
     opacity: 1;
+    visibility: visible;
+    pointer-events: all;
   }
   100% {
     opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 }
 @keyframes launch-doors-zoom {
@@ -1013,20 +1017,25 @@ body[data-card-glow] .cursor-glow {
    ===================================================================== */
 
 [data-minimal="true"] {
-  /* Cool, neutral dark slate — barely-perceptible cool undertone (245°),
-     keeps the stack quiet without reading as warm/tan. */
-  --bg: oklch(0.135 0.005 245);
-  --surface-0: oklch(0.18 0.006 245);
-  --surface-1: oklch(0.215 0.007 245);
-  --surface-2: oklch(0.255 0.008 245);
-  --surface-3: oklch(0.305 0.010 245);
-  --border: oklch(0.62 0.010 245 / 0.14);
-  --border-strong: oklch(0.72 0.016 245 / 0.24);
+  /* Near-black neutral ground with a barely-perceptible cool undertone (245°).
+     Cards (which sit on /card.png) need to read clearly as objects against
+     the page, so the page itself sits well below them. */
+  --bg: oklch(0.08 0.003 245);
+  --surface-0: oklch(0.115 0.004 245);
+  --surface-1: oklch(0.145 0.005 245);
+  --surface-2: oklch(0.185 0.006 245);
+  --surface-3: oklch(0.235 0.008 245);
+  --border: oklch(0.62 0.010 245 / 0.16);
+  --border-strong: oklch(0.72 0.016 245 / 0.26);
+  /* Terminal canvas: same near-black ground, lifted 5% toward the accent
+     so the running terminal carries a barely-there hint of the active theme. */
+  --terminal-bg: color-mix(in srgb, var(--accent) 5%, oklch(0.07 0.003 245));
 
-  /* Minimal-only design tokens */
-  --mm-radius-sm: 0px;
-  --mm-radius: 0px;
-  --mm-radius-lg: 0px;
+  /* Minimal-only design tokens. Subtle rounded chrome matches the reference
+     aesthetic — small radii read as considered, not playful. */
+  --mm-radius-sm: 5px;
+  --mm-radius: 6px;
+  --mm-radius-lg: 8px;
   --mm-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --mm-dur: 140ms;
   --mm-ring:
@@ -1051,34 +1060,52 @@ body[data-card-glow] .cursor-glow {
   display: none !important;
 }
 
-/* Cards: clear lift above the page bg, square corners, halo focus state.
-   Surface sits a real step above --bg (0.135 → 0.245) so cards read as
-   discrete objects rather than dissolving into a same-color panel. */
+/* Cards: textured surface that picks up the active accent color.
+   Three-layer background composited with background-blend-mode:
+     1. Top: dark gradient overlay (normal) — keeps text legible across the card
+     2. Middle: /card.png texture (overlay) — its bright highlights/waves
+        blend with the accent below, so the texture is recolored by the theme
+     3. Bottom: solid var(--accent) — the canvas the texture is tinted against
+   With `overlay`, dark parts of card.png stay dark while light parts pick up
+   the accent — producing subtle theme-colored highlights along the card edge
+   without any extra layers or filter chains per-accent. */
+/* Cards: textured surface tinted ~12% by the active accent. The base layer
+   mixes only 12% accent into the dark ground, so the overlay-blended card.png
+   highlights pick up a hint of theme color — never a wash. Adjust the
+   `--mm-card-tint` value at the top of [data-minimal] to dial intensity. */
 [data-minimal="true"] .mc-card-frame {
-  border: 1px solid oklch(0.62 0.010 245 / 0.22) !important;
+  border: 1px solid oklch(0.62 0.010 245 / 0.24) !important;
   border-image: none !important;
   border-radius: var(--mm-radius) !important;
-  background: oklch(0.245 0.008 245) !important;
+  background:
+    url("/card.png") center / cover no-repeat,
+    color-mix(in srgb, var(--accent) 12%, oklch(0.14 0.005 245)) !important;
+  background-blend-mode: overlay, normal !important;
   box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.06) inset,
-    0 1px 2px oklch(0 0 0 / 0.30),
-    0 6px 18px oklch(0 0 0 / 0.18) !important;
+    0 1px 0 oklch(1 0 0 / 0.05) inset,
+    0 1px 2px oklch(0 0 0 / 0.40),
+    0 8px 22px oklch(0 0 0 / 0.30) !important;
   transition:
-    background-color var(--mm-dur) var(--mm-ease),
     border-color var(--mm-dur) var(--mm-ease),
     box-shadow var(--mm-dur) var(--mm-ease) !important;
 }
 [data-minimal="true"] .mc-card-frame[data-solid="true"] {
-  background: oklch(0.275 0.010 245) !important;
+  background:
+    url("/card.png") center / cover no-repeat,
+    color-mix(in srgb, var(--accent) 12%, oklch(0.17 0.006 245)) !important;
+  background-blend-mode: overlay, normal !important;
 }
 [data-minimal="true"] .mc-card-frame[data-focused="true"] {
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent) !important;
-  background: color-mix(in srgb, var(--accent) 5%, oklch(0.265 0.010 245)) !important;
+  border-color: color-mix(in srgb, var(--accent) 56%, transparent) !important;
+  background:
+    url("/card.png") center / cover no-repeat,
+    color-mix(in srgb, var(--accent) 18%, oklch(0.15 0.005 245)) !important;
+  background-blend-mode: overlay, normal !important;
   box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.08) inset,
-    0 1px 2px oklch(0 0 0 / 0.34),
-    0 10px 24px oklch(0 0 0 / 0.22),
-    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent) !important;
+    0 1px 0 oklch(1 0 0 / 0.07) inset,
+    0 1px 2px oklch(0 0 0 / 0.40),
+    0 10px 26px oklch(0 0 0 / 0.30),
+    0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent) !important;
 }
 
 /* Dashboard page wrapper: dissolve in minimal — the outer frame would
@@ -1144,17 +1171,12 @@ body[data-card-glow] .cursor-glow {
 }
 
 [data-minimal="true"] .mc-btn-primary {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent) 100%, white 5%),
-    var(--accent)
-  );
-  border-color: color-mix(in srgb, var(--accent) 78%, black);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 90%, black);
   color: var(--mm-on-accent);
   box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.20) inset,
-    0 1px 2px oklch(0 0 0 / 0.40),
-    0 4px 14px color-mix(in srgb, var(--accent) 22%, transparent);
+    0 1px 0 oklch(1 0 0 / 0.14) inset,
+    0 1px 2px oklch(0 0 0 / 0.30);
 }
 [data-minimal="true"] .mc-btn-frame {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
@@ -1179,15 +1201,10 @@ body[data-card-glow] .cursor-glow {
 
 /* Hover */
 [data-minimal="true"] .mc-btn-primary:hover {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent) 100%, white 10%),
-    color-mix(in srgb, var(--accent) 100%, white 2%)
-  );
+  background: color-mix(in srgb, var(--accent) 100%, white 8%);
   box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.24) inset,
-    0 2px 4px oklch(0 0 0 / 0.45),
-    0 8px 20px color-mix(in srgb, var(--accent) 30%, transparent);
+    0 1px 0 oklch(1 0 0 / 0.18) inset,
+    0 2px 6px oklch(0 0 0 / 0.32);
 }
 [data-minimal="true"] .mc-btn-frame:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -1233,14 +1250,30 @@ body[data-card-glow] .cursor-glow {
   outline: none;
   box-shadow: var(--mm-ring);
 }
-/* Primary keeps its depth shadow under the halo */
+/* Primary keeps its inset highlight under the halo */
 [data-minimal="true"] .mc-btn-primary:focus-visible {
   outline: none;
   box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.20) inset,
-    0 1px 2px oklch(0 0 0 / 0.40),
-    0 4px 14px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 1px 0 oklch(1 0 0 / 0.14) inset,
+    0 1px 2px oklch(0 0 0 / 0.30),
     var(--mm-ring);
+}
+
+/* New session button: outline style in minimal theme only.
+   Transparent fill, accent border + accent text/icon. */
+[data-minimal="true"] .mc-btn-primary.mc-btn-new-session {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  color: var(--accent);
+  box-shadow: none;
+}
+[data-minimal="true"] .mc-btn-primary.mc-btn-new-session:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 64%, transparent);
+  box-shadow: none;
+}
+[data-minimal="true"] .mc-btn-primary.mc-btn-new-session:focus-visible {
+  box-shadow: var(--mm-ring);
 }
 
 /* Inputs: subtle inset depth, halo on focus */

@@ -48,6 +48,7 @@ const useThemeLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function readCachedMinimal(): boolean {
+  if (typeof window === "undefined") return false;
   try {
     return window.localStorage.getItem(MINIMAL_CACHE_KEY) === "1";
   } catch {
@@ -128,9 +129,7 @@ function RootComponent() {
 function Shell() {
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"settings" | "usage" | null>(null);
-  const [showLaunchOverlay, setShowLaunchOverlay] = useState(
-    () => !readCachedMinimal(),
-  );
+  const [showLaunchOverlay, setShowLaunchOverlay] = useState(false);
   const [settingsInitialPanel, setSettingsInitialPanel] =
     useState<SettingsPanelId>("general");
   const openSettings = (initial: SettingsPanelId = "general") => {
@@ -141,6 +140,8 @@ function Shell() {
   const { data: settings } = useSettings();
   const { data: projects } = useProjects();
   const { data: license } = useLicense();
+  const resolvedInitialMinimalTheme = useRef(false);
+  const lastResolvedMinimalTheme = useRef<boolean | null>(null);
   const { activeFor, close, deselect, setPtyId } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
@@ -220,13 +221,28 @@ function Shell() {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
 
+  useThemeLayoutEffect(() => {
+    setShowLaunchOverlay(!readCachedMinimal());
+  }, []);
+
   const minimalTheme = settings?.minimalTheme;
+  const isSwitchingFromMinimalToPainted =
+    minimalTheme === false && lastResolvedMinimalTheme.current === true;
+  const shouldRenderLaunchOverlay =
+    showLaunchOverlay && !isSwitchingFromMinimalToPainted;
+
   useThemeLayoutEffect(() => {
     if (typeof minimalTheme !== "boolean") return;
+    const isInitialThemeResolution = !resolvedInitialMinimalTheme.current;
+    resolvedInitialMinimalTheme.current = true;
+    lastResolvedMinimalTheme.current = minimalTheme;
     try {
       window.localStorage.setItem(MINIMAL_CACHE_KEY, minimalTheme ? "1" : "0");
     } catch {
       // ignore quota / privacy-mode errors
+    }
+    if (!isInitialThemeResolution || minimalTheme) {
+      setShowLaunchOverlay(false);
     }
     if (minimalTheme) {
       document.documentElement.setAttribute("data-minimal", "true");
@@ -242,8 +258,7 @@ function Shell() {
       LAUNCH_OVERLAY_DURATION_MS,
     );
     return () => window.clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [showLaunchOverlay]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -431,8 +446,11 @@ function Shell() {
           }}
         />
       </div>
-      {showLaunchOverlay && (
-        <LaunchOverlay audioDisabled={settings?.launchAudioDisabled} />
+      {shouldRenderLaunchOverlay && (
+        <LaunchOverlay
+          audioDisabled={settings?.launchAudioDisabled}
+          onDone={() => setShowLaunchOverlay(false)}
+        />
       )}
       <ConfirmDialog
         open={!!closeIntentTarget}
@@ -457,7 +475,13 @@ function Shell() {
   );
 }
 
-function LaunchOverlay({ audioDisabled }: { audioDisabled: boolean | undefined }) {
+function LaunchOverlay({
+  audioDisabled,
+  onDone,
+}: {
+  audioDisabled: boolean | undefined;
+  onDone: () => void;
+}) {
   useEffect(() => {
     if (audioDisabled !== false) return;
     const playAudio = (src: string, volume: number, startAtSeconds = 0) => {
@@ -485,7 +509,14 @@ function LaunchOverlay({ audioDisabled }: { audioDisabled: boolean | undefined }
   }, [audioDisabled]);
 
   return (
-    <div className="launch-overlay" role="status" aria-label="Mission Control loading">
+    <div
+      className="launch-overlay"
+      role="status"
+      aria-label="Mission Control loading"
+      onAnimationEnd={(event) => {
+        if (event.currentTarget === event.target) onDone();
+      }}
+    >
       <div className="launch-overlay__doors" aria-hidden="true">
         <div className="launch-overlay__door launch-overlay__door--left">
           <img src="/images/doors.png" alt="" />

@@ -18,7 +18,13 @@ export function NewAgentButton({
   if (!remembered) {
     return (
       <HotkeyTooltip action="agent.new">
-        <Btn variant="primary" icon="plus" onClick={onPrimary} disabled={disabled}>
+        <Btn
+          variant="primary"
+          icon="plus"
+          onClick={onPrimary}
+          disabled={disabled}
+          className="mc-btn-new-session"
+        >
           New session
         </Btn>
       </HotkeyTooltip>
@@ -36,7 +42,7 @@ export function NewAgentButton({
           icon="plus"
           onClick={onPrimary}
           disabled={disabled}
-          className="mc-btn-attached-right"
+          className="mc-btn-attached-right mc-btn-new-session"
         >
           New session
         </Btn>

@@ -4,6 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
+import { AgentLogo } from "~/components/ui/AgentLogo";
 import { getElectron } from "~/lib/electron";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { AGENT_REGISTRY, UI_AGENTS, agentSupportsSkipPermissions } from "~/shared/agents";
@@ -258,9 +259,10 @@ export function NewAgentDialog({
                       color: meta.color,
                       fontSize: 15,
                       fontFamily: "var(--mono)",
+                      flexShrink: 0,
                     }}
                   >
-                    {meta.glyph}
+                    <AgentLogo agent={a.id} size={20} title={a.label} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{a.label}</div>

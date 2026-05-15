@@ -1,5 +1,7 @@
 import {
   useCallback,
+  useEffect,
+  useMemo,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -15,6 +17,7 @@ const ADD = "#6cd07e";
 const MOD = "#e8b94a";
 const DEL = "#e06b6b";
 const MIN_PANEL_WIDTH = 240;
+const VIEW_STORAGE_KEY = "mc:gitDiffChangedFilesView";
 
 const STATUS_META: Record<GitFileStatus, { letter: string; color: string }> = {
   added: { letter: "A", color: ADD },
@@ -28,6 +31,14 @@ const STATUS_META: Record<GitFileStatus, { letter: string; color: string }> = {
 };
 
 export type FileSelection = { path: string; staged: boolean } | null;
+type FileListView = "list" | "tree";
+type MutableTreeDir = {
+  name: string;
+  path: string;
+  fileCount: number;
+  dirs: Map<string, MutableTreeDir>;
+  files: GitChangedFile[];
+};
 
 export function ChangedFilesList({
   staged,
@@ -59,6 +70,12 @@ export function ChangedFilesList({
     null,
   );
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<FileListView>(() =>
+    readSavedFileListView(),
+  );
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
+    () => new Set(),
+  );
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:gitDiffChangedFilesWidth",
     axis: "x",
@@ -70,6 +87,23 @@ export function ChangedFilesList({
 
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, viewMode);
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, [viewMode]);
+
+  const toggleFolder = useCallback((path: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
 
   const openMenu = (e: React.MouseEvent, path: string) => {
     e.preventDefault();
@@ -110,6 +144,11 @@ export function ChangedFilesList({
           {shipError}
         </div>
       )}
+      <FilesToolbar
+        total={staged.length + unstaged.length}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      />
       <div style={{ overflowY: "auto", flex: 1 }}>
         <Section
           label="Accepted Changes"
@@ -130,6 +169,19 @@ export function ChangedFilesList({
         >
           {staged.length === 0 ? (
             <Empty text="No accepted files" />
+          ) : viewMode === "tree" ? (
+            <FileTreeRows
+              files={staged}
+              sectionKey="staged"
+              isStaged
+              selection={selection}
+              busyPaths={busyPaths}
+              collapsedFolders={collapsedFolders}
+              onToggleFolder={toggleFolder}
+              onSelect={(file) => onSelect({ path: file.path, staged: true })}
+              onAction={(file) => onUnstage([file.path])}
+              onContextMenu={(e, file) => openMenu(e, file.path)}
+            />
           ) : (
             staged.map((f) => (
               <FileRow
@@ -157,6 +209,19 @@ export function ChangedFilesList({
         >
           {unstaged.length === 0 ? (
             <Empty text="No changes" />
+          ) : viewMode === "tree" ? (
+            <FileTreeRows
+              files={unstaged}
+              sectionKey="unstaged"
+              isStaged={false}
+              selection={selection}
+              busyPaths={busyPaths}
+              collapsedFolders={collapsedFolders}
+              onToggleFolder={toggleFolder}
+              onSelect={(file) => onSelect({ path: file.path, staged: false })}
+              onAction={(file) => onStage([file.path])}
+              onContextMenu={(e, file) => openMenu(e, file.path)}
+            />
           ) : (
             unstaged.map((f) => (
               <FileRow
@@ -266,6 +331,110 @@ export function ChangedFilesList({
   );
 }
 
+function FilesToolbar({
+  total,
+  viewMode,
+  onViewModeChange,
+}: {
+  total: number;
+  viewMode: FileListView;
+  onViewModeChange: (mode: FileListView) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "7px 10px",
+        borderBottom: "1px solid var(--border)",
+        background: "rgba(3, 6, 8, 0.22)",
+        flexShrink: 0,
+      }}
+    >
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          alignItems: "baseline",
+          gap: 6,
+          fontFamily: "var(--mono)",
+          fontSize: 11,
+          color: "var(--text-dim)",
+        }}
+      >
+        <span style={{ color: "var(--text)", fontWeight: 600 }}>Files</span>
+        <span style={{ color: "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>
+          {total}
+        </span>
+      </div>
+      <div
+        role="group"
+        aria-label="Changed files layout"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          padding: 2,
+          border: "1px solid var(--border)",
+          borderRadius: 5,
+          background: "var(--surface-1)",
+        }}
+      >
+        <ViewModeButton
+          icon="list"
+          label="List view"
+          active={viewMode === "list"}
+          onClick={() => onViewModeChange("list")}
+        />
+        <ViewModeButton
+          icon="folder"
+          label="Tree view"
+          active={viewMode === "tree"}
+          onClick={() => onViewModeChange("tree")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ViewModeButton({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: "list" | "folder";
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      onClick={onClick}
+      style={{
+        width: 24,
+        height: 22,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        border: 0,
+        borderRadius: 4,
+        background: active ? "var(--surface-3)" : "transparent",
+        color: active ? "var(--text)" : "var(--text-dim)",
+        cursor: "pointer",
+        padding: 0,
+      }}
+    >
+      <Icon name={icon} size={12} />
+    </button>
+  );
+}
+
 function Section({
   label,
   count,
@@ -336,11 +505,193 @@ function Section({
   );
 }
 
+type FileTreeNode =
+  | {
+      kind: "dir";
+      name: string;
+      path: string;
+      fileCount: number;
+      children: FileTreeNode[];
+    }
+  | {
+      kind: "file";
+      name: string;
+      path: string;
+      file: GitChangedFile;
+    };
+
+function FileTreeRows({
+  files,
+  sectionKey,
+  isStaged,
+  selection,
+  busyPaths,
+  collapsedFolders,
+  onToggleFolder,
+  onSelect,
+  onAction,
+  onContextMenu,
+}: {
+  files: GitChangedFile[];
+  sectionKey: "staged" | "unstaged";
+  isStaged: boolean;
+  selection: FileSelection;
+  busyPaths: Set<string>;
+  collapsedFolders: Set<string>;
+  onToggleFolder: (path: string) => void;
+  onSelect: (file: GitChangedFile) => void;
+  onAction: (file: GitChangedFile) => void;
+  onContextMenu: (e: React.MouseEvent, file: GitChangedFile) => void;
+}) {
+  const nodes = useMemo(() => buildFileTree(files), [files]);
+
+  return (
+    <>
+      {nodes.map((node) => (
+        <TreeNodeRow
+          key={node.path}
+          node={node}
+          depth={0}
+          sectionKey={sectionKey}
+          isStaged={isStaged}
+          selection={selection}
+          busyPaths={busyPaths}
+          collapsedFolders={collapsedFolders}
+          onToggleFolder={onToggleFolder}
+          onSelect={onSelect}
+          onAction={onAction}
+          onContextMenu={onContextMenu}
+        />
+      ))}
+    </>
+  );
+}
+
+function TreeNodeRow({
+  node,
+  depth,
+  sectionKey,
+  isStaged,
+  selection,
+  busyPaths,
+  collapsedFolders,
+  onToggleFolder,
+  onSelect,
+  onAction,
+  onContextMenu,
+}: {
+  node: FileTreeNode;
+  depth: number;
+  sectionKey: "staged" | "unstaged";
+  isStaged: boolean;
+  selection: FileSelection;
+  busyPaths: Set<string>;
+  collapsedFolders: Set<string>;
+  onToggleFolder: (path: string) => void;
+  onSelect: (file: GitChangedFile) => void;
+  onAction: (file: GitChangedFile) => void;
+  onContextMenu: (e: React.MouseEvent, file: GitChangedFile) => void;
+}) {
+  if (node.kind === "dir") {
+    const collapseKey = `${sectionKey}:${node.path}`;
+    const collapsed = collapsedFolders.has(collapseKey);
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => onToggleFolder(collapseKey)}
+          aria-expanded={!collapsed}
+          title={node.path}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: `5px 10px 5px ${12 + depth * 14}px`,
+            border: 0,
+            background: "transparent",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            textAlign: "left",
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+          }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.background = "var(--surface-1)")
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.background = "transparent")
+          }
+        >
+          <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={10} />
+          <Icon name="folder" size={12} />
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: "var(--text)",
+            }}
+          >
+            {node.name}
+          </span>
+          <span
+            style={{
+              flexShrink: 0,
+              color: "var(--text-faint)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {node.fileCount}
+          </span>
+        </button>
+        {!collapsed &&
+          node.children.map((child) => (
+            <TreeNodeRow
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              sectionKey={sectionKey}
+              isStaged={isStaged}
+              selection={selection}
+              busyPaths={busyPaths}
+              collapsedFolders={collapsedFolders}
+              onToggleFolder={onToggleFolder}
+              onSelect={onSelect}
+              onAction={onAction}
+              onContextMenu={onContextMenu}
+            />
+          ))}
+      </>
+    );
+  }
+
+  return (
+    <FileRow
+      file={node.file}
+      isStaged={isStaged}
+      isSelected={selection?.staged === isStaged && selection.path === node.path}
+      isBusy={busyPaths.has(node.path)}
+      depth={depth}
+      showFileIcon
+      showDir={false}
+      onSelect={() => onSelect(node.file)}
+      onAction={() => onAction(node.file)}
+      onContextMenu={(e) => onContextMenu(e, node.file)}
+    />
+  );
+}
+
 function FileRow({
   file,
   isStaged,
   isSelected,
   isBusy,
+  depth = 0,
+  showFileIcon = false,
+  showDir = true,
   onSelect,
   onAction,
   onContextMenu,
@@ -349,6 +700,9 @@ function FileRow({
   isStaged: boolean;
   isSelected: boolean;
   isBusy: boolean;
+  depth?: number;
+  showFileIcon?: boolean;
+  showDir?: boolean;
   onSelect: () => void;
   onAction: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -365,7 +719,7 @@ function FileRow({
         display: "flex",
         alignItems: "center",
         gap: 6,
-        padding: "5px 10px 5px 12px",
+        padding: `5px 10px 5px ${12 + depth * 14}px`,
         cursor: "pointer",
         background: isSelected ? "var(--surface-2)" : "transparent",
         opacity: isBusy ? 0.5 : 1,
@@ -379,6 +733,16 @@ function FileRow({
         if (!isSelected) e.currentTarget.style.background = "transparent";
       }}
     >
+      {showFileIcon && (
+        <>
+          <span style={{ width: 10, flexShrink: 0 }} />
+          <Icon
+            name="file"
+            size={12}
+            style={{ color: "var(--text-faint)", flexShrink: 0 }}
+          />
+        </>
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
@@ -404,7 +768,7 @@ function FileRow({
           >
             {display.basename}
           </span>
-          {display.dir && (
+          {showDir && display.dir && (
             <span
               style={{
                 minWidth: 0,
@@ -465,6 +829,81 @@ function Empty({ text }: { text: string }) {
       {text}
     </div>
   );
+}
+
+function buildFileTree(files: GitChangedFile[]): FileTreeNode[] {
+  const root: MutableTreeDir = {
+    name: "",
+    path: "",
+    fileCount: 0,
+    dirs: new Map(),
+    files: [],
+  };
+
+  for (const file of files) {
+    const parts = file.path.split("/").filter(Boolean);
+    if (parts.length <= 1) {
+      root.files.push(file);
+      continue;
+    }
+
+    let current = root;
+    current.fileCount += 1;
+    for (const part of parts.slice(0, -1)) {
+      const path = current.path ? `${current.path}/${part}` : part;
+      let dir = current.dirs.get(part);
+      if (!dir) {
+        dir = {
+          name: part,
+          path,
+          fileCount: 0,
+          dirs: new Map(),
+          files: [],
+        };
+        current.dirs.set(part, dir);
+      }
+      dir.fileCount += 1;
+      current = dir;
+    }
+    current.files.push(file);
+  }
+
+  return dirChildren(root);
+}
+
+function dirChildren(dir: MutableTreeDir): FileTreeNode[] {
+  const dirs: FileTreeNode[] = Array.from(dir.dirs.values())
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((child) => ({
+      kind: "dir" as const,
+      name: child.name,
+      path: child.path,
+      fileCount: child.fileCount,
+      children: dirChildren(child),
+    }));
+
+  const files: FileTreeNode[] = dir.files
+    .slice()
+    .sort((a, b) =>
+      displayPath(a.path).basename.localeCompare(displayPath(b.path).basename),
+    )
+    .map((file) => ({
+      kind: "file" as const,
+      name: displayPath(file.path).basename,
+      path: file.path,
+      file,
+    }));
+
+  return [...dirs, ...files];
+}
+
+function readSavedFileListView(): FileListView {
+  try {
+    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    return raw === "tree" ? "tree" : "list";
+  } catch {
+    return "list";
+  }
 }
 
 export function displayPath(p: string): { basename: string; dir: string } {

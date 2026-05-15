@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
@@ -666,7 +666,8 @@ function ProjectPage() {
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            marginBottom: settings?.minimalTheme ? 10 : 24,
+            marginBottom: settings?.minimalTheme ? 30 : 40,
+            paddingBlock: 5,
           }}
         >
           <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -891,15 +892,6 @@ function ProjectPage() {
           </HotkeyTooltip>
         </div>
 
-        <div
-          aria-hidden
-          style={{
-            height: 1,
-            background: "var(--border)",
-            margin: "0 0 22px",
-          }}
-        />
-
         {visibleTasks.length > 0 && (
           <div
             style={{
@@ -907,7 +899,7 @@ function ProjectPage() {
               alignItems: "center",
               justifyContent: "space-between",
               gap: 12,
-              marginBottom: 16,
+              marginBottom: 34,
               paddingInline: 12,
               boxSizing: "border-box",
             }}
@@ -933,64 +925,47 @@ function ProjectPage() {
             </div>
           </div>
         )}
-        {visibleTasks.length > 0 && (
-          <div
-            aria-hidden
-            style={{
-              height: 1,
-              background: "var(--border)",
-              margin: "0 12px 16px",
-            }}
-          />
-        )}
 
         <div
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: 28,
+            gap: 48,
             paddingInline: 12,
             boxSizing: "border-box",
           }}
         >
-          {STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status, idx) => (
-            <Fragment key={status}>
-              {idx > 0 && (
-                <div
-                  aria-hidden
-                  style={{ height: 1, background: "var(--border)" }}
-                />
-              )}
-              <TaskColumn
-                title={STATUS_META[status].label}
-                color={STATUS_META[status].color}
-                tasks={tasksByStatus[status]}
-                activeId={activeId}
-                onToggle={toggleTerminal}
-                onDelete={deleteTask}
-                headerAction={
-                  status === "finished" && tasksByStatus.finished.length > 0 ? (
-                    <Btn
-                      variant="ghost"
-                      icon="trash"
-                      onClick={() => setConfirmClearFinished(true)}
-                      title="Remove all finished sessions"
-                    >
-                      Clear all
-                    </Btn>
-                  ) : status === "disconnected" && tasksByStatus.disconnected.length > 0 ? (
-                    <Btn
-                      variant="ghost"
-                      icon="trash"
-                      onClick={() => setConfirmClearDisconnected(true)}
-                      title="Remove all disconnected sessions"
-                    >
-                      Clear all
-                    </Btn>
-                  ) : undefined
-                }
-              />
-            </Fragment>
+          {STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status) => (
+            <TaskColumn
+              key={status}
+              title={STATUS_META[status].label}
+              color={STATUS_META[status].color}
+              tasks={tasksByStatus[status]}
+              activeId={activeId}
+              onToggle={toggleTerminal}
+              onDelete={deleteTask}
+              headerAction={
+                status === "finished" && tasksByStatus.finished.length > 0 ? (
+                  <Btn
+                    variant="ghost"
+                    icon="trash"
+                    onClick={() => setConfirmClearFinished(true)}
+                    title="Remove all finished sessions"
+                  >
+                    Clear all
+                  </Btn>
+                ) : status === "disconnected" && tasksByStatus.disconnected.length > 0 ? (
+                  <Btn
+                    variant="ghost"
+                    icon="trash"
+                    onClick={() => setConfirmClearDisconnected(true)}
+                    title="Remove all disconnected sessions"
+                  >
+                    Clear all
+                  </Btn>
+                ) : undefined
+              }
+            />
           ))}
           {visibleTasks.length === 0 && (
             <EmptyState

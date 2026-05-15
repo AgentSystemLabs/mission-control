@@ -62,6 +62,7 @@ export const tasks = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    icon: text("icon"),
     agent: text("agent").$type<TaskAgent>().notNull(),
     status: text("status").$type<TaskStatus>().notNull().default(DEFAULT_TASK_STATUS),
     branch: text("branch").notNull().default(DEFAULT_BRANCH),

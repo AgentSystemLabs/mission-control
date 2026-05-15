@@ -49,6 +49,34 @@ export function getCurrentAccentColor(fallback = DEFAULT_CURSOR_COLOR): string {
   return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || fallback;
 }
 
+// Resolve a CSS value (incl. color-mix, var()) to an rgb()/rgba() string the
+// xterm.js canvas renderer can use. xterm doesn't accept var() or color-mix()
+// directly — its theme.background sets the canvas clear color, which must be
+// a concrete color value.
+function resolveCssColor(cssValue: string, fallback: string): string {
+  if (typeof document === "undefined" || !cssValue) return fallback;
+  const probe = document.createElement("div");
+  probe.style.position = "absolute";
+  probe.style.left = "-9999px";
+  probe.style.pointerEvents = "none";
+  probe.style.color = cssValue;
+  document.body.appendChild(probe);
+  const resolved = getComputedStyle(probe).color;
+  document.body.removeChild(probe);
+  return resolved || fallback;
+}
+
+function getCurrentTerminalBackground(fallback: string): string {
+  if (typeof document === "undefined" || typeof getComputedStyle === "undefined") {
+    return fallback;
+  }
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--terminal-bg")
+    .trim();
+  if (!raw) return fallback;
+  return resolveCssColor(raw, fallback);
+}
+
 function withAlpha(color: string, alpha: number): string {
   const hex = color.match(/^#([0-9a-f]{6})$/i);
   if (hex) {
@@ -70,8 +98,13 @@ export function createTerminalTheme({
   colorScheme?: TerminalColorScheme;
   cursorColor?: string;
 } = {}): TerminalTheme {
+  const base = TERMINAL_THEMES[colorScheme];
+  // Honor --terminal-bg from CSS — minimal mode mixes the accent into the
+  // ground at 10%, so the terminal carries a hint of the active theme.
+  const background = getCurrentTerminalBackground(base.background ?? "#050607");
   return {
-    ...TERMINAL_THEMES[colorScheme],
+    ...base,
+    background,
     cursor: cursorColor,
     selectionBackground: withAlpha(
       getCurrentAccentColor(),
@@ -87,7 +120,10 @@ export function watchTerminalColorScheme(
     return () => undefined;
   }
 
-  const currentKey = () => `${getTerminalColorScheme()}:${getCurrentAccentColor()}`;
+  const minimalFlag = () =>
+    document.documentElement.getAttribute("data-minimal") === "true" ? "1" : "0";
+  const currentKey = () =>
+    `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${minimalFlag()}`;
   let previous = currentKey();
   const observer = new MutationObserver(() => {
     const next = currentKey();
@@ -97,7 +133,7 @@ export function watchTerminalColorScheme(
   });
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme", "style"],
+    attributeFilter: ["data-theme", "data-minimal", "style"],
   });
   return () => observer.disconnect();
 }

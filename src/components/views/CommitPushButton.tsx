@@ -113,6 +113,7 @@ export function CommitPushButton({
     <Btn
       variant={variant}
       size={size}
+      icon={busy ? undefined : "upload"}
       className="mc-btn-attached-left"
       onClick={() => void onCommitAndPush()}
       disabled={busy}
@@ -126,7 +127,7 @@ export function CommitPushButton({
     <Btn
       variant={variant}
       size={size}
-      icon={undefined}
+      icon={busy ? undefined : "upload"}
       onClick={onCommitAndPush}
       disabled={busy}
       title={title ?? label}

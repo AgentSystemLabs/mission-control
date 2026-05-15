@@ -2,9 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
-import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { ShimmerBar } from "~/components/ui/ShimmerBar";
-import { StatusDot } from "~/components/ui/StatusDot";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
@@ -73,7 +70,6 @@ export function TerminalPane({
   const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
-  const isRunning = liveTask.status === "running";
 
   useEffect(() => {
     const electron = getElectron();
@@ -333,8 +329,6 @@ export function TerminalPane({
           userSelect: "none",
         }}
       >
-        <StatusDot status={liveTask.status} size={7} />
-        <ProjectIcon project={project} size={20} />
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
           <div
             style={{
@@ -352,19 +346,11 @@ export function TerminalPane({
           <div
             style={{
               display: "flex",
-              gap: 8,
               fontFamily: "var(--mono)",
               fontSize: 10,
-              color: "var(--text-faint)",
               marginTop: 1,
             }}
           >
-            <span style={{ color: meta?.color }}>
-              {meta?.glyph} {meta?.label}
-            </span>
-            <span>·</span>
-            <span>{project.name}</span>
-            <span>·</span>
             <span style={{ color: statusMeta.color }}>{statusMeta.label}</span>
           </div>
         </div>
@@ -394,7 +380,6 @@ export function TerminalPane({
           )}
         </div>
       </div>
-      <ShimmerBar active={isRunning} color={meta?.color} />
       <div
         style={{
           flex: 1,

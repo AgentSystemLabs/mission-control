@@ -9,6 +9,7 @@ export type IconName =
   | "grid"
   | "list"
   | "folder"
+  | "file"
   | "terminal"
   | "chevron-right"
   | "chevron-down"
@@ -80,6 +81,13 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       return (
         <svg {...common}>
           <path d="M2 4.5c0-.5.4-1 1-1h3l1.5 1.5H13c.5 0 1 .5 1 1V12c0 .5-.5 1-1 1H3c-.5 0-1-.5-1-1V4.5z" />
+        </svg>
+      );
+    case "file":
+      return (
+        <svg {...common}>
+          <path d="M4 2.5h5l3 3V13c0 .5-.5 1-1 1H4c-.5 0-1-.5-1-1V3.5c0-.5.5-1 1-1z" />
+          <path d="M9 2.5V6h3" />
         </svg>
       );
     case "terminal":

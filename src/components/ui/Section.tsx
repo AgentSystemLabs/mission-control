@@ -6,24 +6,30 @@ export function Section({
   count,
   icon,
   dot,
+  divider = true,
+  marginBottom = 32,
+  labelSize = 11,
   children,
 }: {
   label: string;
   count: number;
   icon?: IconName;
   dot?: string;
+  divider?: boolean;
+  marginBottom?: number;
+  labelSize?: number;
   children: ReactNode;
 }) {
   return (
-    <div style={{ marginBottom: 32 }}>
+    <div style={{ marginBottom }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 8,
           marginBottom: 14,
-          paddingBottom: 8,
-          borderBottom: "1px solid var(--border)",
+          paddingBottom: divider ? 8 : 0,
+          borderBottom: divider ? "1px solid var(--border)" : undefined,
         }}
       >
         {dot && (
@@ -41,7 +47,7 @@ export function Section({
         <span
           style={{
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: labelSize,
             fontWeight: 600,
             letterSpacing: "0.08em",
             textTransform: "uppercase",
@@ -53,7 +59,7 @@ export function Section({
         <span
           style={{
             fontFamily: "var(--mono)",
-            fontSize: 11,
+            fontSize: Math.max(11, labelSize - 1),
             color: "var(--text-faint)",
             fontVariantNumeric: "tabular-nums",
           }}

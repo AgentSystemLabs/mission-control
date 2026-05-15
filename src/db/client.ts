@@ -151,6 +151,7 @@ function ensureSchema(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
+      icon TEXT,
       agent TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT '${DEFAULT_TASK_STATUS}',
       branch TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH}',

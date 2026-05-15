@@ -2,13 +2,14 @@ import { useCallback, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
-import { StatusDot } from "~/components/ui/StatusDot";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
-import { AgentGlyph } from "~/components/ui/AgentGlyph";
+import { AgentLogo } from "~/components/ui/AgentLogo";
+import { SessionIcon } from "~/components/ui/SessionIcon";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
+import { DEFAULT_SESSION_ICON, isSessionIcon } from "~/lib/session-icons";
 import type { Task } from "~/db/schema";
 
 export function TaskCard({
@@ -32,10 +33,14 @@ export function TaskCard({
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
   const isRunning = task.status === "running";
-  const showDeleteAction = hovered && !confirmOpen;
 
+  const sentinel = isSentinelTitle(task.title);
+  const sessionIcon = isSessionIcon(task.icon) ? task.icon : DEFAULT_SESSION_ICON;
   const updated = formatRelative(task.updatedAt);
   const toggleTask = () => onToggle(task.id);
+
+  // Subtitle: prefer the live preview line, otherwise a status hint.
+  const subtitle = task.preview?.trim() || statusMeta.label;
 
   return (
     <CardFrame
@@ -72,110 +77,104 @@ export function TaskCard({
           borderRadius: "inherit",
         }}
       />
+
+      {/* Agent brand watermark — faint, right side, decorative only. */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          right: -10,
+          top: "50%",
+          transform: "translateY(-50%)",
+          color: meta?.color ?? "var(--text)",
+          opacity: 0.09,
+          pointerEvents: "none",
+          zIndex: 0,
+          lineHeight: 0,
+        }}
+      >
+        <AgentLogo agent={task.agent} size={140} />
+      </div>
+
       <div
         style={{
           padding: 14,
           display: "flex",
-          flexDirection: "column",
-          gap: 10,
+          alignItems: "stretch",
+          gap: 14,
           position: "relative",
           zIndex: 2,
           pointerEvents: "none",
         }}
       >
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <StatusDot status={task.status} size={7} />
-              <span
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 10.5,
-                  fontWeight: 500,
-                  color: statusMeta.color,
-                  letterSpacing: "0.05em",
-                  textTransform: "uppercase",
-                }}
-              >
-                {statusMeta.label}
-              </span>
-              <span style={{ color: "var(--text-faint)", fontSize: 10, fontFamily: "var(--mono)" }}>·</span>
-              <AgentGlyph agent={task.agent} showLabel size={10.5} />
-            </div>
-            {(() => {
-              const sentinel = isSentinelTitle(task.title);
-              return (
-                <div
-                  style={{
-                    fontSize: 13.5,
-                    fontWeight: 500,
-                    lineHeight: 1.35,
-                    color: sentinel ? "var(--text-dim)" : "var(--text)",
-                    fontStyle: sentinel ? "italic" : "normal",
-                    marginBottom: 4,
-                  }}
-                >
-                  {task.title}
-                </div>
-              );
-            })()}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                fontFamily: "var(--mono)",
-                fontSize: 10.5,
-                color: "var(--text-faint)",
-              }}
-            >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <Icon name="git-branch" size={10} /> {task.branch}
-              </span>
-              <span>·</span>
-              <span>{updated}</span>
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {onDelete && (
-              <Btn
-                variant="danger"
-                size="sm"
-                icon="trash"
-                aria-label="Delete task"
-                title="Delete task"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmOpen(true);
-                }}
-                tabIndex={showDeleteAction ? 0 : -1}
-                style={{
-                  width: 34,
-                  padding: 0,
-                  opacity: showDeleteAction ? 1 : 0,
-                  pointerEvents: showDeleteAction ? "auto" : "none",
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              />
-            )}
-          </div>
-        </div>
-        {task.preview && (
+        {/* Left icon tile + status dot */}
+        <div style={{ position: "relative", flexShrink: 0 }}>
           <div
             style={{
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              color: "var(--text-dim)",
-              background: "var(--surface-0)",
+              width: 56,
+              height: 56,
+              borderRadius: 14,
+              background: "linear-gradient(180deg, var(--surface-2), var(--surface-1))",
               border: "1px solid var(--border)",
-              borderRadius: 6,
-              padding: "8px 10px",
-              lineHeight: 1.45,
+              boxShadow:
+                "inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.35)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--text-dim)",
             }}
           >
-            {task.preview}
-            {isRunning && (
+            <SessionIcon name={sessionIcon} size={26} strokeWidth={1.5} />
+          </div>
+          {statusMeta.dot && (
+            <span
+              style={{
+                position: "absolute",
+                top: -3,
+                left: -3,
+                width: 12,
+                height: 12,
+                borderRadius: "50%",
+                background: statusMeta.color,
+                border: "2px solid var(--surface-0)",
+                boxShadow: isRunning ? `0 0 8px ${statusMeta.color}` : "none",
+                animation: isRunning ? "pulse-dot 1.6s ease-in-out infinite" : "none",
+              }}
+            />
+          )}
+        </div>
+
+        {/* Right: title / subtitle / meta row */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+          <div
+            style={{
+              fontSize: 14.5,
+              fontWeight: 600,
+              lineHeight: 1.3,
+              color: sentinel ? "var(--text-dim)" : "var(--text)",
+              fontStyle: sentinel ? "italic" : "normal",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              paddingRight: 36,
+            }}
+          >
+            {task.title}
+          </div>
+
+          <div
+            style={{
+              fontSize: 12.5,
+              color: "var(--text-dim)",
+              lineHeight: 1.4,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontStyle: !task.preview?.trim() ? "italic" : "normal",
+            }}
+          >
+            {subtitle}
+            {isRunning && task.preview?.trim() && (
               <span
                 style={{
                   marginLeft: 2,
@@ -187,7 +186,80 @@ export function TaskCard({
               </span>
             )}
           </div>
+
+          <div
+            style={{
+              marginTop: 4,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              color: "var(--text-faint)",
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Icon name="git-branch" size={11} /> {task.branch}
+            </span>
+            <span>·</span>
+            <span>{updated}</span>
+          </div>
+        </div>
+
+        {/* Top-right kebab actions */}
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            pointerEvents: "auto",
+            zIndex: 3,
+          }}
+        >
+          {onDelete && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="more"
+              aria-label="Task actions"
+              title="Task actions"
+              onClick={(e) => {
+                e.stopPropagation();
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setMenu({ x: r.right, y: r.bottom + 4 });
+              }}
+              style={{ width: 30, height: 30, padding: 0 }}
+            />
+          )}
+        </div>
+
+        {(task.status === "needs-input" || task.status === "interrupted") && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 10,
+              right: 10,
+              pointerEvents: "auto",
+              zIndex: 3,
+            }}
+          >
+            <Btn
+              size="sm"
+              variant="accent"
+              icon="terminal"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTask();
+              }}
+            >
+              Reply
+            </Btn>
+          </div>
         )}
+
         {menu && onDelete && (
           <div
             role="menu"
@@ -197,6 +269,7 @@ export function TaskCard({
               position: "fixed",
               top: menu.y,
               left: menu.x,
+              transform: "translateX(-100%)",
               zIndex: 1000,
               background: "var(--surface-2)",
               border: "1px solid var(--border)",
@@ -237,44 +310,29 @@ export function TaskCard({
             </button>
           </div>
         )}
-        {(task.status === "needs-input" || task.status === "interrupted") && (
-          <div style={{ position: "relative", zIndex: 1 }}>
-            <Btn
-              size="sm"
-              variant="accent"
-              icon="terminal"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleTask();
-              }}
-              style={{ pointerEvents: "auto", position: "relative", zIndex: 1 }}
-            >
-              Open terminal to reply
-            </Btn>
-          </div>
-        )}
       </div>
+
       {onDelete && (
         <div onClick={(e) => e.stopPropagation()}>
-        <ConfirmDialog
-          open={confirmOpen}
-          onClose={() => setConfirmOpen(false)}
-          onConfirm={() => {
-            onDelete(task.id);
-            setConfirmOpen(false);
-          }}
-          title="Delete task"
-          confirmLabel="Delete"
-          icon="trash"
-          width={420}
-        >
-          <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
-            Delete &ldquo;{task.title}&rdquo;?
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-            This task and its worktree will be removed. This cannot be undone.
-          </div>
-        </ConfirmDialog>
+          <ConfirmDialog
+            open={confirmOpen}
+            onClose={() => setConfirmOpen(false)}
+            onConfirm={() => {
+              onDelete(task.id);
+              setConfirmOpen(false);
+            }}
+            title="Delete task"
+            confirmLabel="Delete"
+            icon="trash"
+            width={420}
+          >
+            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+              Delete &ldquo;{task.title}&rdquo;?
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              This task and its worktree will be removed. This cannot be undone.
+            </div>
+          </ConfirmDialog>
         </div>
       )}
     </CardFrame>

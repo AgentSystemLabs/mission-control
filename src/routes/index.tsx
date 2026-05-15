@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
@@ -10,7 +10,6 @@ import { useHotkey } from "~/lib/use-hotkey";
 import { groupProjects } from "~/lib/group-projects";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
-import { StatusDot } from "~/components/ui/StatusDot";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { ProjectCard } from "~/components/views/ProjectCard";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
@@ -39,6 +38,69 @@ export const Route = createFileRoute("/")({
   component: MissionControlPage,
 });
 
+const DASHBOARD_QUOTES = [
+  "Let's build something awesome today.",
+  "Let's ship one clean win today.",
+  "Time to make the work real.",
+  "Let's turn ideas into motion.",
+  "Build the next useful thing.",
+  "Let's make progress visible.",
+  "Start sharp and keep moving.",
+  "One focused pass changes everything.",
+  "Let's make today count.",
+  "Small steps still ship products.",
+  "Turn the plan into proof.",
+  "Let's build with intent today.",
+  "Make the next version better.",
+  "Pick the thread and pull.",
+  "Let's clear the path forward.",
+  "Good work starts with one move.",
+  "Shape the system with care.",
+  "Let's solve the right problem.",
+  "Make the useful thing obvious.",
+  "Today's build starts here.",
+  "Let's bring the idea closer.",
+  "Steady hands, sharp output.",
+  "Move the product forward.",
+  "Let's turn focus into leverage.",
+  "Build the thing worth opening.",
+  "Let's make the interface earn trust.",
+  "Commit to the next clear action.",
+  "Make the work easier to use.",
+  "Let's give the project momentum.",
+  "The next improvement is waiting.",
+  "Build what future you needs.",
+  "Let's reduce friction today.",
+  "Put another piece in place.",
+  "Make the complex feel simple.",
+  "Let's keep the machine honest.",
+  "Create something worth returning to.",
+  "Let's make the rough edge smooth.",
+  "Turn attention into progress.",
+  "Build calmly and ship clearly.",
+  "Let's make one thing unmistakably better.",
+  "The product moves when you do.",
+  "Make today's work durable.",
+  "Let's tighten the loop.",
+  "Solve it cleanly, then ship it.",
+  "Build the path users expect.",
+  "Let's make the next click matter.",
+  "Bring order to the workbench.",
+  "Let's turn possibility into behavior.",
+  "Make the dashboard earn its keep.",
+  "Build with taste and precision.",
+  "Let's make the work feel lighter.",
+  "One good decision compounds.",
+  "Turn the backlog into motion.",
+  "Let's polish the part that matters.",
+  "Make the system easier to trust.",
+  "Build the next honest improvement.",
+  "Let's move from intent to artifact.",
+  "Give the project a clean push.",
+  "Make something useful before lunch.",
+  "Let's build the future in increments.",
+];
+
 function MissionControlPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -55,6 +117,7 @@ function MissionControlPage() {
   const [search, setSearch] = useState("");
   const [showGroups, setShowGroups] = useState(false);
   const [showLaunchKit, setShowLaunchKit] = useState(false);
+  const [dashboardQuote, setDashboardQuote] = useState(DASHBOARD_QUOTES[0]);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const { setProject: setActiveUserTerminalProject } = useUserTerminals();
   const { open: openAddProject } = useAddProject();
@@ -64,6 +127,10 @@ function MissionControlPage() {
   useEffect(() => {
     setActiveUserTerminalProject(null);
   }, [setActiveUserTerminalProject]);
+
+  useEffect(() => {
+    setDashboardQuote(DASHBOARD_QUOTES[Math.floor(Math.random() * DASHBOARD_QUOTES.length)]);
+  }, []);
 
   useHotkey("search.focus", () => {
     searchRef.current?.focus();
@@ -105,40 +172,6 @@ function MissionControlPage() {
 
   const gridCols = "repeat(auto-fill, minmax(300px, 1fr))";
 
-  const totalRunning = projects.reduce((a, p) => a + p.taskCounts.running, 0);
-  const totalNeeds = projects.reduce((a, p) => a + p.taskCounts["needs-input"], 0);
-  const totalInterrupted = projects.reduce((a, p) => a + p.taskCounts.interrupted, 0);
-  const totalDone = projects.reduce((a, p) => a + p.taskCounts.finished, 0);
-
-  const [firstName, setFirstName] = useState<string | null>(null);
-  useEffect(() => {
-    if (!window.electronAPI?.getUserName) return;
-    let cancelled = false;
-    void window.electronAPI.getUserName().then((r) => {
-      if (!cancelled) setFirstName(r.firstName);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 12) return "Good morning";
-    if (h < 18) return "Good afternoon";
-    return "Good evening";
-  }, []);
-
-  const dateLabel = useMemo(
-    () =>
-      new Date().toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-      }),
-    []
-  );
-
   const open = (id: string) => router.navigate({ to: "/projects/$id", params: { id } });
   const togglePin = async (id: string) => {
     await api.togglePin(id);
@@ -172,88 +205,11 @@ function MissionControlPage() {
             }}
           >
             <div>
-              <div
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 11,
-                  color: "var(--text-faint)",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  marginBottom: 6,
-                }}
-              >
-                ✦ {dateLabel}
-              </div>
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: "-0.02em" }}>
-                <span style={{ color: "var(--accent)" }}>{greeting}</span>
-                {firstName ? `, ${firstName}` : ""}
+                <span style={{ color: "var(--accent)" }}>Welcome back</span>, Commander
               </h1>
               <div style={{ marginTop: 4, fontSize: 14, color: "var(--text-dim)" }}>
-                Here's what's running today.
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 16,
-                  marginTop: 10,
-                  fontFamily: "var(--mono)",
-                  fontSize: 12,
-                  color: "var(--text-dim)",
-                }}
-              >
-                <span>
-                  <StatusDot status="running" />{" "}
-                  <span
-                    style={{
-                      color: "var(--text)",
-                      marginLeft: 6,
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {totalRunning}
-                  </span>{" "}
-                  running
-                </span>
-                <span>
-                  <StatusDot status="interrupted" />{" "}
-                  <span
-                    style={{
-                      color: "var(--text)",
-                      marginLeft: 6,
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {totalInterrupted}
-                  </span>{" "}
-                  interrupted
-                </span>
-                <span>
-                  <StatusDot status="needs-input" />{" "}
-                  <span
-                    style={{
-                      color: "var(--text)",
-                      marginLeft: 6,
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {totalNeeds}
-                  </span>{" "}
-                  awaiting input
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: 3,
-                      background: "var(--status-done)",
-                    }}
-                  />
-                  <span style={{ color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
-                    {totalDone}
-                  </span>{" "}
-                  ready
-                </span>
+                "{dashboardQuote}"
               </div>
             </div>
 
@@ -313,7 +269,14 @@ function MissionControlPage() {
           </div>
 
           {pinned.length > 0 && (
-            <Section label="Pinned" count={pinned.length} icon="pin-fill">
+            <Section
+              label="Pinned"
+              count={pinned.length}
+              icon="pin-fill"
+              divider={false}
+              marginBottom={48}
+              labelSize={13}
+            >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
                 {pinned.map((p) => (
                   <ProjectCard
@@ -328,7 +291,15 @@ function MissionControlPage() {
           )}
 
           {byGroup.map(({ group, projects: gp }) => (
-            <Section key={group.id} label={group.name} count={gp.length} dot={group.color}>
+            <Section
+              key={group.id}
+              label={group.name}
+              count={gp.length}
+              dot={group.color}
+              divider={false}
+              marginBottom={48}
+              labelSize={13}
+            >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
                 {gp.map((p) => (
                   <ProjectCard
@@ -343,7 +314,13 @@ function MissionControlPage() {
           ))}
 
           {ungrouped.length > 0 && (
-            <Section label="Ungrouped" count={ungrouped.length}>
+            <Section
+              label="Ungrouped"
+              count={ungrouped.length}
+              divider={false}
+              marginBottom={48}
+              labelSize={13}
+            >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
                 {ungrouped.map((p) => (
                   <ProjectCard

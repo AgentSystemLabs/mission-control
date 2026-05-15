@@ -22,7 +22,7 @@ export function TaskColumn({
   if (tasks.length === 0) return null;
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
         <span
           style={{
             width: 7,

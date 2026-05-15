@@ -46,6 +46,7 @@ export function createTask(input: {
     id: newId(),
     projectId: input.projectId,
     title: input.title.trim(),
+    icon: null,
     agent: input.agent,
     status: input.status ?? DEFAULT_TASK_STATUS,
     branch: input.branch || DEFAULT_BRANCH,
@@ -111,7 +112,7 @@ export function updateStatus(
 export function updateTask(
   id: string,
   patch: Partial<
-    Pick<Task, "title" | "branch" | "claudeSessionId" | "claudeSkipPermissions" | "claudeBareSession">
+    Pick<Task, "title" | "icon" | "branch" | "claudeSessionId" | "claudeSkipPermissions" | "claudeBareSession">
   >
 ): Task | null {
   const db = getDb();
