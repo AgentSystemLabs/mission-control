@@ -44,6 +44,10 @@ export function isAccentColorId(value: unknown): value is AccentColorId {
   return typeof value === "string" && ACCENT_COLORS.some((color) => color.id === value);
 }
 
+// Cache key shared with the pre-hydration script in __root.tsx so the next
+// launch can paint the user's accent before React mounts (no orange flash).
+export const ACCENT_CACHE_KEY = "mc:accent";
+
 export function applyAccentColor(id: string | null | undefined) {
   if (typeof document === "undefined") return;
   const color = getAccentColor(id);
@@ -69,4 +73,9 @@ export function applyAccentColor(id: string | null | undefined) {
     "--mc-shell-image",
     `url("/borders/shell_${color.id}.png")`,
   );
+  try {
+    window.localStorage.setItem(ACCENT_CACHE_KEY, color.id);
+  } catch {
+    /* localStorage unavailable */
+  }
 }

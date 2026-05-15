@@ -10,12 +10,14 @@ export function TopBar({
   onHome,
   leading,
   centerActions,
+  leadingInset,
 }: {
   crumbs?: Crumb[];
   right?: ReactNode;
   onHome?: () => void;
   leading?: ReactNode;
   centerActions?: ReactNode;
+  leadingInset?: number;
 }) {
   return (
     <div
@@ -24,7 +26,7 @@ export function TopBar({
         alignItems: "center",
         justifyContent: "space-between",
         height: 48,
-        padding: "0 20px 0 24px",
+        padding: `0 20px 0 ${leadingInset ?? 24}px`,
         background: "transparent",
         borderBottom: "1px solid var(--border)",
         flexShrink: 0,

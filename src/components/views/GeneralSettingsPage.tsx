@@ -50,6 +50,7 @@ export function GeneralSettingsPage() {
     apiToken: settings?.apiToken ?? "",
     agentSystemBannerDisabled: disabled,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
+    minimalTheme: settings?.minimalTheme ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,

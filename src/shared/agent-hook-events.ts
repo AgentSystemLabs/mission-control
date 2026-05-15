@@ -7,6 +7,9 @@ export const AGENT_HOOK_EVENTS = {
   permissionRequest: "PermissionRequest",
   notification: "Notification",
   permissionPrompt: "permission_prompt",
+  cursorBeforeSubmitPrompt: "beforeSubmitPrompt",
+  cursorStop: "stop",
+  cursorAfterAgentResponse: "afterAgentResponse",
 } as const;
 
 export type AgentHookPayload = {
@@ -19,8 +22,11 @@ export type AgentHookPayload = {
 export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | null {
   switch (payload.hook_event_name || "") {
     case AGENT_HOOK_EVENTS.userPromptSubmit:
+    case AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt:
       return "running";
     case AGENT_HOOK_EVENTS.stop:
+    case AGENT_HOOK_EVENTS.cursorStop:
+    case AGENT_HOOK_EVENTS.cursorAfterAgentResponse:
       return "finished";
     case AGENT_HOOK_EVENTS.userInterrupt:
       return "interrupted";

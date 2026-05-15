@@ -134,10 +134,10 @@ describe("Electron shell environment helpers", () => {
   });
 
   it("keeps login shell execution on POSIX platforms", () => {
-    expect(shellArgsForCommand("/bin/zsh", "codex --enable codex_hooks", "darwin")).toEqual([
+    expect(shellArgsForCommand("/bin/zsh", "codex --enable hooks", "darwin")).toEqual([
       "-l",
       "-c",
-      "codex --enable codex_hooks",
+      "codex --enable hooks",
     ]);
   });
 });

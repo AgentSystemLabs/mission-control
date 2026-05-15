@@ -19,10 +19,14 @@ export function UserTerminalPanel() {
     focusTerminal,
     createTerminal,
     killTerminal,
+    hiddenIds,
+    toggleHidden,
     renameTerminal,
     updateLaunchUrl,
     setPtyId,
   } = useUserTerminals();
+
+  const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.terminal.id));
 
   const { size: height, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:userTerminalsPanelHeight",
@@ -85,13 +89,76 @@ export function UserTerminalPanel() {
           >
             Project Terminals
           </span>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-faint)" }}>
-            {sessions.length}
-          </span>
-          {project && (
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-faint)" }}>
-              · {project.name}
-            </span>
+          {panelOpen && sessions.length > 0 && (
+            <span
+              style={{
+                width: 1,
+                height: 14,
+                background: "var(--border)",
+                marginLeft: 4,
+              }}
+            />
+          )}
+          {panelOpen && sessions.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 4,
+                marginLeft: 8,
+                alignItems: "center",
+              }}
+            >
+              {sessions.map((s) => {
+                const hidden = hiddenIds.has(s.terminal.id);
+                const active = !hidden && focusedId === s.terminal.id;
+                return (
+                  <button
+                    key={s.terminal.id}
+                    onClick={() => {
+                      if (hidden) {
+                        toggleHidden(s.terminal.id);
+                        focusTerminal(s.terminal.id);
+                      } else if (active) {
+                        toggleHidden(s.terminal.id);
+                      } else {
+                        focusTerminal(s.terminal.id);
+                      }
+                    }}
+                    title={hidden ? "Show terminal" : active ? "Hide terminal" : "Focus terminal"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "3px 9px",
+                      background: active ? "var(--surface-1)" : "transparent",
+                      border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                      borderRadius: 4,
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      color: hidden ? "var(--text-faint)" : "var(--text)",
+                      opacity: hidden ? 0.6 : 1,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Icon name="terminal" size={10} style={{ color: "var(--text-faint)" }} />
+                    <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {s.terminal.name}
+                    </span>
+                    {s.ptyId && (
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: "var(--accent)",
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -124,7 +191,7 @@ export function UserTerminalPanel() {
       </div>
       {panelOpen && (
       <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", gap: 8, padding: 8 }}>
-        {sessions.length === 0 ? (
+        {visibleSessions.length === 0 ? (
           <div
             style={{
               flex: 1,
@@ -140,8 +207,12 @@ export function UserTerminalPanel() {
             {project ? (
               <EmptyState
                 icon="terminal"
-                title="No terminals yet"
-                subtitle="Open a terminal to run commands in this project."
+                title={sessions.length === 0 ? "No terminals yet" : "All terminals hidden"}
+                subtitle={
+                  sessions.length === 0
+                    ? "Open a terminal to run commands in this project."
+                    : "Click a tab above to bring a terminal back into view."
+                }
                 action={
                   <StaticHotkeyTooltip hotkey="⌘T">
                     <Btn
@@ -160,7 +231,7 @@ export function UserTerminalPanel() {
             )}
           </div>
         ) : (
-          sessions.map((s, i) => (
+          visibleSessions.map((s, i) => (
             <UserTerminalPane
               key={s.terminal.id}
               terminal={s.terminal}
@@ -171,9 +242,10 @@ export function UserTerminalPanel() {
               onPtyReady={(ptyId) => setPtyId(s.terminal.id, ptyId)}
               onPtyExit={() => setPtyId(s.terminal.id, null)}
               onLaunchUrlDetected={updateLaunchUrl}
-              onKill={() => void killTerminal(s.terminal.id)}
+              onHide={() => toggleHidden(s.terminal.id)}
+              onDelete={() => void killTerminal(s.terminal.id)}
               onRename={(name) => void renameTerminal(s.terminal.id, name)}
-              isLast={i === sessions.length - 1}
+              isLast={i === visibleSessions.length - 1}
             />
           ))
         )}

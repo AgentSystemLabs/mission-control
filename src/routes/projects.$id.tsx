@@ -112,6 +112,7 @@ function ProjectPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmClearFinished, setConfirmClearFinished] = useState(false);
+  const [confirmClearDisconnected, setConfirmClearDisconnected] = useState(false);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
@@ -571,6 +572,18 @@ function ProjectPage() {
     await refresh();
   };
 
+  const clearDisconnected = async () => {
+    setConfirmClearDisconnected(false);
+    const disconnected = tasksByStatus.disconnected;
+    await Promise.all(
+      disconnected.map(async (t) => {
+        await terminals.close(t.id).catch(() => undefined);
+        await api.deleteTask(t.id).catch(() => undefined);
+      })
+    );
+    await refresh();
+  };
+
   const startAgent = async (data: {
     agent: Task["agent"];
     title: string;
@@ -653,7 +666,7 @@ function ProjectPage() {
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            marginBottom: 24,
+            marginBottom: settings?.minimalTheme ? 10 : 24,
           }}
         >
           <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -963,7 +976,16 @@ function ProjectPage() {
                       onClick={() => setConfirmClearFinished(true)}
                       title="Remove all finished sessions"
                     >
-                      Clear
+                      Clear all
+                    </Btn>
+                  ) : status === "disconnected" && tasksByStatus.disconnected.length > 0 ? (
+                    <Btn
+                      variant="ghost"
+                      icon="trash"
+                      onClick={() => setConfirmClearDisconnected(true)}
+                      title="Remove all disconnected sessions"
+                    >
+                      Clear all
                     </Btn>
                   ) : undefined
                 }
@@ -1088,7 +1110,7 @@ function ProjectPage() {
         onClose={() => setConfirmClearFinished(false)}
         onConfirm={clearFinished}
         title="Clear finished sessions"
-        confirmLabel="Clear"
+        confirmLabel="Clear all"
         icon="trash"
         width={460}
       >
@@ -1097,6 +1119,23 @@ function ProjectPage() {
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           {tasksByStatus.finished.length} finished session{tasksByStatus.finished.length === 1 ? "" : "s"} will be deleted. Other sessions are unaffected.
+        </div>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmClearDisconnected}
+        onClose={() => setConfirmClearDisconnected(false)}
+        onConfirm={clearDisconnected}
+        title="Clear disconnected sessions"
+        confirmLabel="Clear all"
+        icon="trash"
+        width={460}
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+          Remove all disconnected sessions in &ldquo;{project.name}&rdquo;?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          {tasksByStatus.disconnected.length} disconnected session{tasksByStatus.disconnected.length === 1 ? "" : "s"} will be deleted. Other sessions are unaffected.
         </div>
       </ConfirmDialog>
       </div>

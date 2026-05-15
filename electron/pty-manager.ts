@@ -81,11 +81,23 @@ export function hasClaudeInterruptPrompt(text: string): boolean {
   );
 }
 
-function scanForInterrupt(p: Pty, chunk: string) {
-  if (p.agent !== "claude-code") return;
-  if (!p.mcEnv?.apiUrl || !p.mcEnv?.token) return;
+export function hasCodexHookReviewPrompt(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").toLowerCase();
+  return (
+    normalized.includes("hooks need review before they can run") ||
+    normalized.includes("open /hooks to review")
+  );
+}
+
+function scanTail(p: Pty, chunk: string): string {
   const haystack = (p.scanTail + chunk).slice(-SCAN_TAIL_MAX - chunk.length);
   p.scanTail = haystack.slice(-SCAN_TAIL_MAX);
+  return haystack;
+}
+
+function scanForInterrupt(p: Pty, haystack: string) {
+  if (p.agent !== "claude-code") return;
+  if (!p.mcEnv?.apiUrl || !p.mcEnv?.token) return;
   if (!hasClaudeInterruptPrompt(haystack)) return;
   const now = Date.now();
   if (now - p.lastInterruptAt < INTERRUPT_COOLDOWN_MS) return;
@@ -93,9 +105,23 @@ function scanForInterrupt(p: Pty, chunk: string) {
   void postSyntheticHook(p, "UserInterrupt");
 }
 
+function scanForCodexHookReview(p: Pty, haystack: string) {
+  if (p.agent !== "codex") return;
+  if (!p.mcEnv?.apiUrl || !p.mcEnv?.token) return;
+  if (!hasCodexHookReviewPrompt(haystack)) return;
+  void postSyntheticHook(p, "PermissionRequest");
+}
+
+function hookEndpointSlug(agent: string | undefined): string {
+  if (agent === "codex") return "codex";
+  if (agent === "cursor-cli") return "cursor";
+  return "claude";
+}
+
 async function postSyntheticHook(p: Pty, event: string) {
   try {
-    const url = `${p.mcEnv!.apiUrl}/api/hooks/claude?taskId=${encodeURIComponent(p.taskId)}`;
+    const slug = hookEndpointSlug(p.agent);
+    const url = `${p.mcEnv!.apiUrl}/api/hooks/${slug}?taskId=${encodeURIComponent(p.taskId)}`;
     await fetch(url, {
       method: "POST",
       headers: {
@@ -295,7 +321,9 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
 
       proc.onData((data: string) => {
         appendBuffer(p, data);
-        scanForInterrupt(p, data);
+        const haystack = scanTail(p, data);
+        scanForInterrupt(p, haystack);
+        scanForCodexHookReview(p, haystack);
         send(getWin, IPC.ptyData, { ptyId: id, data });
       });
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {

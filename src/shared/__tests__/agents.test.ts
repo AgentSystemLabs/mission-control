@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { AGENT_REGISTRY, UI_AGENTS } from "../agents";
 
 describe("agent registry", () => {
+  it("launches Codex with current hook support enabled", () => {
+    expect(AGENT_REGISTRY.codex.startCommand()).toBe("codex --enable hooks");
+    expect(AGENT_REGISTRY.codex.startCommand({ skipPermissions: true })).toBe(
+      "codex --enable hooks --yolo"
+    );
+  });
+
   it("exposes Cursor CLI as a selectable agent", () => {
     expect(UI_AGENTS).toContain("cursor-cli");
     expect(AGENT_REGISTRY["cursor-cli"]).toMatchObject({

@@ -17,6 +17,7 @@ export type AppSettings = {
   apiToken: string;
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
+  minimalTheme: boolean;
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
@@ -222,6 +223,7 @@ export const api = {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "accentColor"
+        | "minimalTheme"
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"

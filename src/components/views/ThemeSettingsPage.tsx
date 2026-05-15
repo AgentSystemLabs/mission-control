@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
@@ -15,13 +16,15 @@ export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
+  const minimalTheme = settings?.minimalTheme ?? false;
 
   const optimisticSettings = (
-    patch: Partial<Pick<AppSettings, "accentColor">>,
+    patch: Partial<Pick<AppSettings, "accentColor" | "minimalTheme">>,
   ): AppSettings => ({
     apiToken: settings?.apiToken ?? "",
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor,
+    minimalTheme,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
@@ -45,13 +48,29 @@ export function ThemeSettingsPage() {
     }
   };
 
+  const setMinimalTheme = async (next: boolean) => {
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    const optimistic = optimisticSettings({ minimalTheme: next });
+    queryClient.setQueryData(queryKeys.settings, optimistic);
+    try {
+      const updated = await api.updateSettings({ minimalTheme: next });
+      queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
+    } catch (error) {
+      if (previous) queryClient.setQueryData(queryKeys.settings, previous);
+      throw error;
+    }
+  };
+
   return (
     <SettingsSection
       title="Theme"
-      subtitle="Control the app accent color."
+      subtitle="Choose between the pixel-art chrome and a clean, minimal look."
       headingLevel="h1"
     >
-      <Field label="Theme color">
+      <Field label="Theme style">
+        <ThemeModeToggle minimal={minimalTheme} onChange={setMinimalTheme} />
+      </Field>
+      <Field label="Accent color">
         <div
           style={{
             display: "grid",
@@ -59,17 +78,238 @@ export function ThemeSettingsPage() {
             gap: 14,
           }}
         >
-          {ACCENT_COLORS.map((color) => (
-            <ThemePreviewCard
-              key={color.id}
-              color={color}
-              selected={color.id === accentColor}
-              onSelect={() => setAccentColor(color.id)}
-            />
-          ))}
+          {ACCENT_COLORS.map((color) =>
+            minimalTheme ? (
+              <MinimalThemeCard
+                key={color.id}
+                color={color}
+                selected={color.id === accentColor}
+                onSelect={() => setAccentColor(color.id)}
+              />
+            ) : (
+              <ThemePreviewCard
+                key={color.id}
+                color={color}
+                selected={color.id === accentColor}
+                onSelect={() => setAccentColor(color.id)}
+              />
+            ),
+          )}
         </div>
       </Field>
     </SettingsSection>
+  );
+}
+
+function ThemeModeToggle({
+  minimal,
+  onChange,
+}: {
+  minimal: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 16,
+        padding: "12px 14px",
+        background: "var(--surface-0)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--mm-radius, 7px)",
+      }}
+    >
+      <div>
+        <div
+          id={titleId}
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text)",
+            marginBottom: 3,
+          }}
+        >
+          Minimal theme
+        </div>
+        <div
+          id={descriptionId}
+          style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}
+        >
+          Replace the painted borders and shell imagery with clean CSS borders.
+          Lighter on the eyes, faster to render.
+        </div>
+      </div>
+      <div
+        role="radiogroup"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        style={{
+          display: "inline-flex",
+          padding: 2,
+          background: "var(--surface-1)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--mm-radius, 7px)",
+          flexShrink: 0,
+        }}
+      >
+        <ModeOption
+          label="Painted"
+          selected={!minimal}
+          onSelect={() => onChange(false)}
+        />
+        <ModeOption
+          label="Minimal"
+          selected={minimal}
+          onSelect={() => onChange(true)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ModeOption({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      style={{
+        padding: "6px 12px",
+        fontFamily: "var(--mono)",
+        fontSize: 11.5,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+        border: 0,
+        borderRadius: "var(--mm-radius-sm, 5px)",
+        cursor: "pointer",
+        background: selected ? "var(--accent-dim)" : "transparent",
+        color: selected ? "var(--accent)" : "var(--text-dim)",
+        transition: "background 0.12s ease, color 0.12s ease",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function MinimalThemeCard({
+  color,
+  selected,
+  onSelect,
+}: {
+  color: AccentColor;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const accentRgba = (a: number) => `rgba(${color.rgb}, ${a})`;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      title={color.name}
+      style={{
+        position: "relative",
+        boxSizing: "border-box",
+        padding: 14,
+        cursor: "pointer",
+        textAlign: "left",
+        background: "var(--surface-1)",
+        border: `1px solid ${selected ? color.value : "var(--border)"}`,
+        borderRadius: "var(--mm-radius-lg, 10px)",
+        boxShadow: selected ? `0 0 0 1px ${color.value} inset` : "none",
+        transition: "border-color 0.15s, box-shadow 0.15s",
+      }}
+    >
+      {selected && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            width: 18,
+            height: 18,
+            borderRadius: 999,
+            background: color.value,
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Icon name="check" size={11} />
+        </span>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: 999,
+              background: color.value,
+              border: "1px solid rgba(255, 255, 255, 0.15)",
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: selected ? "var(--text)" : "var(--text-dim)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {color.name}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            aria-hidden
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 12px",
+              fontFamily: "var(--mono)",
+              fontSize: 10.5,
+              fontWeight: 600,
+              color: "#fff",
+              borderRadius: "var(--mm-radius-sm, 5px)",
+              background: color.value,
+            }}
+          >
+            Action
+          </span>
+          <span
+            aria-hidden
+            style={{
+              flex: 1,
+              height: 4,
+              borderRadius: "var(--mm-radius-sm, 2px)",
+              background: `linear-gradient(90deg, ${color.value}, ${accentRgba(0)})`,
+              opacity: selected ? 1 : 0.6,
+            }}
+          />
+        </div>
+      </div>
+    </button>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -10,6 +10,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { getElectron } from "~/lib/electron";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
@@ -29,7 +30,12 @@ import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/Header
 import { useSettings, useProjects, useLicense } from "~/queries";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
-import { applyAccentColor, DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
+import {
+  ACCENT_CACHE_KEY,
+  ACCENT_COLORS,
+  applyAccentColor,
+  DEFAULT_ACCENT_COLOR,
+} from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { UsagePanel } from "~/components/views/UsagePanel";
 import { Toaster } from "sonner";
@@ -37,6 +43,45 @@ import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifica
 import "~/styles.css";
 
 const LAUNCH_OVERLAY_DURATION_MS = 2700;
+const MINIMAL_CACHE_KEY = "mc:minimal";
+const useThemeLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+function readCachedMinimal(): boolean {
+  try {
+    return window.localStorage.getItem(MINIMAL_CACHE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Pre-hydration script: runs synchronously in <head> before first paint so
+// theme state (`data-minimal` + accent CSS vars) is in place before any CSS
+// layout. Without this, the SSR'd HTML paints with default (painted+orange)
+// theme for one frame — the launch overlay's door/fog flashes and every
+// accent-tinted surface flashes orange before React/useSettings hydrate.
+// Mirrors `applyAccentColor` (src/lib/accent-colors.ts); keep them in sync.
+const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
+var d=document.documentElement;
+if(localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"){d.setAttribute("data-minimal","true");}
+var t=${JSON.stringify(
+  Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),
+)};
+var a=localStorage.getItem(${JSON.stringify(ACCENT_CACHE_KEY)});
+var c=a&&t[a]?t[a]:t[${JSON.stringify(DEFAULT_ACCENT_COLOR)}];
+if(c&&a&&a!==${JSON.stringify(DEFAULT_ACCENT_COLOR)}){
+  var s=d.style;
+  s.setProperty("--accent",c.v);
+  s.setProperty("--accent-dim","rgba("+c.r+", 0.18)");
+  s.setProperty("--accent-faint","rgba("+c.r+", 0.1)");
+  s.setProperty("--accent-border","rgba("+c.r+", 0.38)");
+  s.setProperty("--accent-glow","rgba("+c.r+", 0.48)");
+  s.setProperty("--mc-btn-filled-image",'url("/borders/button_filled_'+a+'.png")');
+  s.setProperty("--mc-panel-focused-image",'url("/borders/panel_focused_'+a+'.png")');
+  s.setProperty("--mc-panel-image",'url("/borders/square_'+a+'.png")');
+  s.setProperty("--mc-shell-image",'url("/borders/shell_'+a+'.png")');
+}
+}catch(e){}})();`;
 const LAUNCH_DOORS_OPEN_MS = 1940;
 const LAUNCH_AIRLOCK_AUDIO_MS = 1440;
 const LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS = 0.1;
@@ -56,6 +101,10 @@ function RootComponent() {
   return (
     <html>
       <head>
+        <script
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: PRE_HYDRATION_THEME_SCRIPT }}
+        />
         <HeadContent />
       </head>
       <body>
@@ -79,7 +128,9 @@ function RootComponent() {
 function Shell() {
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"settings" | "usage" | null>(null);
-  const [showLaunchOverlay, setShowLaunchOverlay] = useState(true);
+  const [showLaunchOverlay, setShowLaunchOverlay] = useState(
+    () => !readCachedMinimal(),
+  );
   const [settingsInitialPanel, setSettingsInitialPanel] =
     useState<SettingsPanelId>("general");
   const openSettings = (initial: SettingsPanelId = "general") => {
@@ -101,7 +152,20 @@ function Shell() {
     panelOpen: userTerminalPanelOpen,
     focusedId: focusedUserTerminalId,
     killTerminal: killUserTerminal,
+    sessions: userTerminalSessions,
   } = userTerminals;
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  useEffect(() => {
+    if (settings?.agentSystemBannerDisabled) setBannerDismissed(false);
+  }, [settings?.agentSystemBannerDisabled]);
+  const bannerHidden =
+    !!settings?.agentSystemBannerDisabled || bannerDismissed;
+  const topBarLeadingInset =
+    settings?.minimalTheme && bannerHidden ? 130 : undefined;
+  const [closeIntentTargetId, setCloseIntentTargetId] = useState<string | null>(null);
+  const closeIntentTarget = closeIntentTargetId
+    ? userTerminalSessions.find((s) => s.terminal.id === closeIntentTargetId)?.terminal ?? null
+    : null;
 
   useNavigationSwipe();
   useSessionFinishNotifications();
@@ -156,12 +220,29 @@ function Shell() {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
 
+  const minimalTheme = settings?.minimalTheme;
+  useThemeLayoutEffect(() => {
+    if (typeof minimalTheme !== "boolean") return;
+    try {
+      window.localStorage.setItem(MINIMAL_CACHE_KEY, minimalTheme ? "1" : "0");
+    } catch {
+      // ignore quota / privacy-mode errors
+    }
+    if (minimalTheme) {
+      document.documentElement.setAttribute("data-minimal", "true");
+    } else {
+      document.documentElement.removeAttribute("data-minimal");
+    }
+  }, [minimalTheme]);
+
   useEffect(() => {
+    if (!showLaunchOverlay) return;
     const timeout = window.setTimeout(
       () => setShowLaunchOverlay(false),
       LAUNCH_OVERLAY_DURATION_MS,
     );
     return () => window.clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -207,21 +288,25 @@ function Shell() {
   );
   useHotkey("nav.toggle", goHome);
   // Cmd/Ctrl + [ / ] / T are non-rebindable terminal-focused shortcuts.
+  // Capture phase: a focused xterm textarea swallows these on bubble.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       if ((e.key === "t" || e.key === "T") && !e.shiftKey && !e.altKey) {
         e.preventDefault();
+        e.stopPropagation();
         void createTerminal();
         return;
       }
       if (e.key === "[" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
+        e.stopPropagation();
         cyclePrev();
         return;
       }
       if (e.key === "]" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
+        e.stopPropagation();
         cycleNext();
         return;
       }
@@ -231,13 +316,14 @@ function Shell() {
         const target = pinned[idx];
         if (target) {
           e.preventDefault();
+          e.stopPropagation();
           router.navigate({ to: "/projects/$id", params: { id: target.id } });
         }
         return;
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [createTerminal, cycleNext, cyclePrev, projects, router]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
@@ -249,10 +335,10 @@ function Shell() {
     if (!electron) return;
     return electron.onCloseIntent(() => {
       if (userTerminalPanelOpen && focusedUserTerminalId) {
-        void killUserTerminal(focusedUserTerminalId);
+        setCloseIntentTargetId(focusedUserTerminalId);
       }
     });
-  }, [userTerminalPanelOpen, focusedUserTerminalId, killUserTerminal]);
+  }, [userTerminalPanelOpen, focusedUserTerminalId]);
 
   return (
     <>
@@ -269,12 +355,17 @@ function Shell() {
             ["WebkitAppRegion" as any]: "drag",
           }}
         />
-        <AgentSystemBanner onOpenSettings={() => setActivePanel("settings")} />
+        <AgentSystemBanner
+          dismissed={bannerDismissed}
+          onDismiss={() => setBannerDismissed(true)}
+          onOpenSettings={() => setActivePanel("settings")}
+        />
         <TopBar
           crumbs={crumbs}
           onHome={goHome}
           leading={<LicenseBadge />}
           centerActions={<HeaderActionsSlot />}
+          leadingInset={topBarLeadingInset}
           right={
             <>
               <UpdateAvailableButton />
@@ -343,6 +434,25 @@ function Shell() {
       {showLaunchOverlay && (
         <LaunchOverlay audioDisabled={settings?.launchAudioDisabled} />
       )}
+      <ConfirmDialog
+        open={!!closeIntentTarget}
+        onClose={() => setCloseIntentTargetId(null)}
+        onConfirm={() => {
+          const id = closeIntentTargetId;
+          setCloseIntentTargetId(null);
+          if (id) void killUserTerminal(id);
+        }}
+        title={
+          closeIntentTarget
+            ? `Delete terminal "${closeIntentTarget.name}"?`
+            : "Delete terminal?"
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        icon="trash"
+      >
+        This will kill the running process and remove the terminal. This can&apos;t be undone.
+      </ConfirmDialog>
     </>
   );
 }
@@ -350,9 +460,10 @@ function Shell() {
 function LaunchOverlay({ audioDisabled }: { audioDisabled: boolean | undefined }) {
   useEffect(() => {
     if (audioDisabled !== false) return;
-    const playAudio = (src: string, startAtSeconds = 0) => {
+    const playAudio = (src: string, volume: number, startAtSeconds = 0) => {
       const audio = new Audio(src);
       audio.preload = "auto";
+      audio.volume = volume;
       if (startAtSeconds > 0) {
         audio.currentTime = startAtSeconds;
       }
@@ -361,10 +472,10 @@ function LaunchOverlay({ audioDisabled }: { audioDisabled: boolean | undefined }
       });
     };
 
-    playAudio("/audio/welcome.mp3", LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS);
+    playAudio("/audio/welcome.mp3", 0.2, LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS);
 
     const slideTimeout = window.setTimeout(
-      () => playAudio("/audio/slide.ogg"),
+      () => playAudio("/audio/slide.ogg", 0.2),
       LAUNCH_AIRLOCK_AUDIO_MS,
     );
 
@@ -395,13 +506,16 @@ function LaunchOverlay({ audioDisabled }: { audioDisabled: boolean | undefined }
   );
 }
 
-function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const [dismissed, setDismissed] = useState(false);
+function AgentSystemBanner({
+  dismissed,
+  onDismiss,
+  onOpenSettings,
+}: {
+  dismissed: boolean;
+  onDismiss: () => void;
+  onOpenSettings: () => void;
+}) {
   const { data: settings } = useSettings();
-
-  useEffect(() => {
-    if (settings?.agentSystemBannerDisabled) setDismissed(false);
-  }, [settings?.agentSystemBannerDisabled]);
 
   if (settings?.agentSystemBannerDisabled || dismissed) return null;
 
@@ -490,7 +604,7 @@ function AgentSystemBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
       <button
         type="button"
         aria-label="Dismiss AgentSystem.dev banner"
-        onClick={() => setDismissed(true)}
+        onClick={onDismiss}
         style={{
           width: 28,
           height: 28,

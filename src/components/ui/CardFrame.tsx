@@ -40,7 +40,7 @@ const frameBaseStyle: CSSProperties = {
 };
 
 export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFrame(
-  { as: Component = "div", frame = "square", glow = false, focused = false, solid = false, style, ...props },
+  { as: Component = "div", frame = "square", glow = false, focused = false, solid = false, style, className, ...props },
   forwardedRef
 ) {
   const glowRef = useCardGlow<HTMLElement>();
@@ -52,11 +52,15 @@ export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFr
     },
     [forwardedRef, glow, glowRef]
   );
+  const mergedClassName = ["mc-card-frame", className].filter(Boolean).join(" ");
 
   return (
     <Component
       {...props}
       ref={setRef}
+      className={mergedClassName}
+      data-focused={focused ? "true" : undefined}
+      data-solid={solid ? "true" : undefined}
       style={{
         ...frameBaseStyle,
         ...frameStyle,

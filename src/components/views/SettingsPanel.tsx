@@ -12,6 +12,7 @@ import { StorageSettingsPage } from "./StorageSettingsPage";
 import { LicenseSettingsPage } from "./LicenseSettingsPage";
 import { SkillsSettingsPage } from "./SkillsSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
+import { TermsSettingsPage } from "./TermsSettingsPage";
 
 export type SettingsPanelId =
   | "general"
@@ -20,7 +21,8 @@ export type SettingsPanelId =
   | "skills"
   | "api"
   | "keybindings"
-  | "storage";
+  | "storage"
+  | "terms";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
 export function SettingsPanel({
@@ -170,6 +172,34 @@ export function SettingsPanel({
               />
             ))}
           </nav>
+          <div
+            style={{
+              marginTop: 16,
+              paddingTop: 12,
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)",
+                padding: "0 10px 8px",
+              }}
+            >
+              Legal
+            </div>
+            <SettingsNavButton
+              id="terms"
+              label="Terms of Service"
+              icon="shield"
+              active={activePanel === "terms"}
+              onClick={() => setActivePanel("terms")}
+            />
+          </div>
         </CardFrame>
         <CardFrame
           as="section"
@@ -195,6 +225,8 @@ export function SettingsPanel({
             <ApiSettingsPage />
           ) : activePanel === "keybindings" ? (
             <KeybindingsPage />
+          ) : activePanel === "terms" ? (
+            <TermsSettingsPage />
           ) : (
             <StorageSettingsPage />
           )}

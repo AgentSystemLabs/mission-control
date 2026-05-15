@@ -5,7 +5,9 @@ const MARKER = "_mcManaged";
 
 type HookEvent = { event: string; matcher?: string };
 type HookEntry = { type: "command"; command: string };
-type HookGroup = { matcher?: string; hooks: HookEntry[]; [MARKER]?: boolean };
+type ClaudeHookGroup = { matcher?: string; hooks: HookEntry[]; [MARKER]?: boolean };
+type CursorHookGroup = { command: string; [MARKER]?: boolean };
+type HookGroup = ClaudeHookGroup | CursorHookGroup;
 type HooksFile = {
   hooks?: Record<string, HookGroup[]>;
   [k: string]: unknown;
@@ -15,6 +17,7 @@ type AgentHookSpec = {
   configPath: string[];
   endpointSlug: string;
   events: HookEvent[];
+  style?: "claude" | "cursor";
   removeManagedEvents?: string[];
 };
 
@@ -42,23 +45,56 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
       { event: "PermissionRequest" },
     ],
   },
+  "cursor-cli": {
+    configPath: [".cursor", "hooks.json"],
+    endpointSlug: "cursor",
+    style: "cursor",
+    events: [
+      { event: "beforeSubmitPrompt" },
+      { event: "stop" },
+      { event: "afterAgentResponse" },
+    ],
+  },
 };
 
-function buildHookCommand(endpointSlug: string): string {
+function buildHookCommand(endpointSlug: string, event: string, style: "claude" | "cursor"): string {
   // Read stdin (the agent's hook payload JSON) and forward to Mission Control.
   // Fail-soft: never block the user's session if MC is down.
+  const url = `"$MC_API_URL/api/hooks/${endpointSlug}?taskId=$MC_TASK_ID&hookEvent=${encodeURIComponent(event)}"`;
+  if (style === "cursor") {
+    return (
+      'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then printf \'{"continue":true}\\n\'; exit 0; fi; ' +
+      "payload=$(cat); " +
+      "curl -sS -m 3 -X POST " +
+      '-H "Authorization: Bearer $MC_API_TOKEN" ' +
+      '-H "Content-Type: application/json" ' +
+      "--data-binary \"$payload\" " +
+      `${url} >/dev/null 2>&1 || true; ` +
+      "printf '{\"continue\":true}\\n'"
+    );
+  }
   return (
     'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
     "curl -sS -m 3 -X POST " +
     '-H "Authorization: Bearer $MC_API_TOKEN" ' +
     '-H "Content-Type: application/json" ' +
     "--data-binary @- " +
-    `"$MC_API_URL/api/hooks/${endpointSlug}?taskId=$MC_TASK_ID" ` +
+    `${url} ` +
     ">/dev/null 2>&1 || true"
   );
 }
 
-function buildManagedGroup(command: string, matcher?: string): HookGroup {
+function buildManagedGroup(
+  command: string,
+  style: "claude" | "cursor",
+  matcher?: string
+): HookGroup {
+  if (style === "cursor") {
+    return {
+      command,
+      [MARKER]: true,
+    };
+  }
   return {
     ...(matcher === undefined ? {} : { matcher }),
     hooks: [{ type: "command", command }],
@@ -89,12 +125,16 @@ export function installAgentHooks(agent: string | undefined, cwd: string): void 
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") return;
   }
 
-  const command = buildHookCommand(spec.endpointSlug);
+  const style = spec.style ?? "claude";
+  if (style === "cursor") {
+    settings.version = 1;
+  }
   const hooks = (settings.hooks ??= {});
   for (const { event, matcher } of spec.events) {
+    const command = buildHookCommand(spec.endpointSlug, event, style);
     const groups = (hooks[event] ??= []);
     const filtered = groups.filter((g) => !g[MARKER]);
-    filtered.push(buildManagedGroup(command, matcher));
+    filtered.push(buildManagedGroup(command, style, matcher));
     hooks[event] = filtered;
   }
 

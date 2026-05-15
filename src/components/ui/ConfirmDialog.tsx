@@ -44,6 +44,16 @@ export function ConfirmDialog({
     { enabled: open && !loading }
   );
 
+  useHotkey(
+    "enter",
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void onConfirm();
+    },
+    { enabled: open && !loading }
+  );
+
   return (
     <Modal
       open={open}

@@ -59,7 +59,7 @@ sh -c 'curl -sS -m 3 -X POST \
 
 Each managed Codex hook entry is the same shape, but posts to
 `$MC_API_URL/api/hooks/codex?taskId=$MC_TASK_ID`. Codex is launched with
-`--enable codex_hooks` so project-local hooks are active for the session.
+`--enable hooks` so project-local hooks are active for the session.
 
 The agent pipes the hook payload (`hook_event_name`, `session_id`, `cwd`,
 `transcript_path`, …) on stdin; we forward it as the request body. The
@@ -83,10 +83,19 @@ is waiting for revised instructions after an explicit user interruption.
 
 ## Other agents
 
-`cursor-cli` and `shell` don't have an equivalent hook surface. For those we
-mark the task `running` when the user submits a line in the terminal. More
-specific states still require explicit status updates. The hook path is opt-in
-by agent type.
+`shell` doesn't have an equivalent hook surface, so it relies on explicit status
+updates. Mission Control installs Cursor's `.cursor/hooks.json` entries for
+`beforeSubmitPrompt`, `stop`, and `afterAgentResponse`. Cursor CLI requires
+`"version": 1` in `.cursor/hooks.json`; without it, the CLI silently ignores the
+file.
+
+## Codex Hook Review
+
+Codex may refuse to run newly installed project hooks until the user reviews
+them with `/hooks`. When that prompt appears, the Electron PTY manager posts a
+synthetic `PermissionRequest` to the Codex hook endpoint so the task moves to
+`needs-input` instead of staying `running`. Once the user approves the Mission
+Control hooks, Codex's real `UserPromptSubmit` and `Stop` hooks drive status.
 
 ## What about a custom MCP?
 

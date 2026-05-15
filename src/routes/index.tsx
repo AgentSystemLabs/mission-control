@@ -152,6 +152,7 @@ function MissionControlPage() {
       <CursorGlow />
       <div style={{ flex: 1, overflow: "auto", padding: 0 }} className="dot-grid-bg">
         <CardFrame
+          className="mc-dashboard-frame"
           style={{
             width: "100%",
             minHeight: "100%",
@@ -159,6 +160,7 @@ function MissionControlPage() {
           }}
         >
           <div
+            className="mc-dashboard-header"
             style={{
               display: "flex",
               alignItems: "flex-end",

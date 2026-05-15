@@ -315,6 +315,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         apiToken: getOrCreateApiToken(),
         agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
         accentColor: getAccentColorSetting(),
+        minimalTheme: getBooleanSetting("minimal_theme"),
         mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
         sessionFinishToastEnabled: getBooleanSetting(
           "session_finish_toast_enabled",
@@ -341,6 +342,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         if (body?.accentColor !== undefined) {
           if (!isAccentColorId(body.accentColor)) return jsonError(400, "invalid accentColor");
           setSetting("accent_color", body.accentColor);
+        }
+        if (typeof body?.minimalTheme === "boolean") {
+          setBooleanSetting("minimal_theme", body.minimalTheme);
         }
         if (typeof body?.mouseGradientDisabled === "boolean") {
           setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
@@ -496,8 +500,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         title?: string;
         session_id?: string;
       }>(request);
-      const event = payload?.hook_event_name || "";
-      const status = mapHookEventToStatus(payload);
+      const event = payload?.hook_event_name || url.searchParams.get("hookEvent") || "";
+      const status = mapHookEventToStatus({ ...payload, hook_event_name: event });
       if (!status) return json({ ok: true, ignored: event });
       // Reject hook events from nested Claude invocations (e.g. plugin Stop
       // hooks that spawn `claude -p` for classification). They inherit our
@@ -513,7 +517,17 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         incomingSessionId &&
         incomingSessionId !== task.claudeSessionId
       ) {
-        return json({ ok: true, ignored: "foreign-session" });
+        // UserPromptSubmit only fires from the primary interactive Claude
+        // session — never from nested `claude -p` invocations. When Claude
+        // resumes via `--resume <uuid>`, it forks to a fresh session_id; we
+        // adopt that as the new canonical session id so subsequent Stop /
+        // PermissionRequest hooks (which the foreign-session check is meant to
+        // filter) line up with reality.
+        if (event === "UserPromptSubmit") {
+          updateTask(taskId, { claudeSessionId: incomingSessionId });
+        } else {
+          return json({ ok: true, ignored: "foreign-session" });
+        }
       }
       const t = updateStatus(taskId, { status });
       if (!t) return jsonError(404, "task not found");

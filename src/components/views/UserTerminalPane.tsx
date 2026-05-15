@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { getElectron } from "~/lib/electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
@@ -21,7 +22,8 @@ export function UserTerminalPane({
   onPtyReady,
   onPtyExit,
   onLaunchUrlDetected,
-  onKill,
+  onHide,
+  onDelete,
   onRename,
   isLast,
 }: {
@@ -33,7 +35,8 @@ export function UserTerminalPane({
   onPtyReady: (ptyId: string) => void;
   onPtyExit: () => void;
   onLaunchUrlDetected?: (url: string) => void;
-  onKill: () => void;
+  onHide: () => void;
+  onDelete: () => void;
   onRename: (name: string) => void;
   isLast: boolean;
 }) {
@@ -42,6 +45,7 @@ export function UserTerminalPane({
   const termRef = useRef<{ focus: () => void } | null>(null);
   const [bridgeMissing, setBridgeMissing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [draftName, setDraftName] = useState(terminal.name);
   const [domFocused, setDomFocused] = useState(false);
   useEffect(() => {
@@ -367,8 +371,22 @@ export function UserTerminalPane({
           </span>
         )}
         <button
-          onClick={onKill}
-          title="Kill terminal"
+          onClick={() => setConfirmDelete(true)}
+          title="Delete terminal (kills the process)"
+          style={{
+            background: "transparent",
+            border: 0,
+            padding: 4,
+            color: "var(--text-faint)",
+            cursor: "pointer",
+            display: "flex",
+          }}
+        >
+          <Icon name="trash" size={11} />
+        </button>
+        <button
+          onClick={onHide}
+          title="Hide terminal (keeps it running)"
           style={{
             background: "transparent",
             border: 0,
@@ -381,6 +399,20 @@ export function UserTerminalPane({
           <Icon name="x" size={11} />
         </button>
       </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          onDelete();
+        }}
+        title={`Delete terminal "${terminal.name}"?`}
+        confirmLabel="Delete"
+        variant="danger"
+        icon="trash"
+      >
+        This will kill the running process and remove the terminal. This can&apos;t be undone.
+      </ConfirmDialog>
       <div style={{ flex: 1, position: "relative", background: "var(--terminal-bg)" }}>
         {bridgeMissing ? (
           <div style={{ padding: 16, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>

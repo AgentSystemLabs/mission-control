@@ -1004,3 +1004,304 @@ body[data-card-glow] .cursor-glow {
 .xterm .xterm-screen {
   background-color: var(--terminal-bg);
 }
+
+/* =====================================================================
+   Minimal theme – considered, modern, restrained.
+   Warm brand-tinted neutrals, hairline elevation, halo focus rings,
+   squared chrome, and single-source motion tokens. No painted chrome.
+   Activated by `<html data-minimal="true">`.
+   ===================================================================== */
+
+[data-minimal="true"] {
+  /* Cool, neutral dark slate — barely-perceptible cool undertone (245°),
+     keeps the stack quiet without reading as warm/tan. */
+  --bg: oklch(0.135 0.005 245);
+  --surface-0: oklch(0.18 0.006 245);
+  --surface-1: oklch(0.215 0.007 245);
+  --surface-2: oklch(0.255 0.008 245);
+  --surface-3: oklch(0.305 0.010 245);
+  --border: oklch(0.62 0.010 245 / 0.14);
+  --border-strong: oklch(0.72 0.016 245 / 0.24);
+
+  /* Minimal-only design tokens */
+  --mm-radius-sm: 0px;
+  --mm-radius: 0px;
+  --mm-radius-lg: 0px;
+  --mm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mm-dur: 140ms;
+  --mm-ring:
+    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 75%, transparent);
+  --mm-elev-1:
+    0 1px 0 oklch(1 0 0 / 0.04) inset,
+    0 1px 2px oklch(0 0 0 / 0.30);
+  --mm-elev-2:
+    0 1px 0 oklch(1 0 0 / 0.05) inset,
+    0 1px 3px oklch(0 0 0 / 0.34),
+    0 6px 18px oklch(0 0 0 / 0.22);
+  --mm-on-accent: oklch(0.985 0.008 60);
+}
+
+/* Hide the painted shell frame around the app and reclaim the gutter
+   it reserved — minimal goes edge-to-edge. */
+[data-minimal="true"] #root {
+  padding: 0 !important;
+}
+[data-minimal="true"] #root::before {
+  display: none !important;
+}
+
+/* Cards: clear lift above the page bg, square corners, halo focus state.
+   Surface sits a real step above --bg (0.135 → 0.245) so cards read as
+   discrete objects rather than dissolving into a same-color panel. */
+[data-minimal="true"] .mc-card-frame {
+  border: 1px solid oklch(0.62 0.010 245 / 0.22) !important;
+  border-image: none !important;
+  border-radius: var(--mm-radius) !important;
+  background: oklch(0.245 0.008 245) !important;
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.06) inset,
+    0 1px 2px oklch(0 0 0 / 0.30),
+    0 6px 18px oklch(0 0 0 / 0.18) !important;
+  transition:
+    background-color var(--mm-dur) var(--mm-ease),
+    border-color var(--mm-dur) var(--mm-ease),
+    box-shadow var(--mm-dur) var(--mm-ease) !important;
+}
+[data-minimal="true"] .mc-card-frame[data-solid="true"] {
+  background: oklch(0.275 0.010 245) !important;
+}
+[data-minimal="true"] .mc-card-frame[data-focused="true"] {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent) !important;
+  background: color-mix(in srgb, var(--accent) 5%, oklch(0.265 0.010 245)) !important;
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.08) inset,
+    0 1px 2px oklch(0 0 0 / 0.34),
+    0 10px 24px oklch(0 0 0 / 0.22),
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent) !important;
+}
+
+/* Dashboard page wrapper: dissolve in minimal — the outer frame would
+   otherwise share the card surface and wash the contrast away. Reclaim
+   the missing border-width as real inline padding so cards aren't flush
+   against the sidebar. */
+[data-minimal="true"] .mc-dashboard-frame {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-inline: 32px !important;
+  padding-block: 24px !important;
+}
+[data-minimal="true"] .mc-dashboard-header {
+  padding-inline: 0 !important;
+}
+
+/* Buttons: single 28/32/40 grid, squared considered surfaces */
+[data-minimal="true"] .mc-btn-primary,
+[data-minimal="true"] .mc-btn-frame,
+[data-minimal="true"] .mc-btn-ghost,
+[data-minimal="true"] .mc-btn-danger,
+[data-minimal="true"] .mc-btn-gray-frame {
+  --mc-btn-height: 32px;
+  --mc-btn-padding-x: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--mm-radius);
+  background: var(--surface-2);
+  color: var(--text);
+  height: var(--mc-btn-height);
+  min-height: var(--mc-btn-height);
+  min-width: 0;
+  padding: 0 var(--mc-btn-padding-x);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  filter: none;
+  transition:
+    background-color var(--mm-dur) var(--mm-ease),
+    border-color var(--mm-dur) var(--mm-ease),
+    color var(--mm-dur) var(--mm-ease),
+    box-shadow var(--mm-dur) var(--mm-ease),
+    transform var(--mm-dur) var(--mm-ease);
+}
+[data-minimal="true"] .mc-btn-primary.mc-btn-sm,
+[data-minimal="true"] .mc-btn-frame.mc-btn-sm,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-sm,
+[data-minimal="true"] .mc-btn-danger.mc-btn-sm,
+[data-minimal="true"] .mc-btn-gray-frame.mc-btn-sm {
+  --mc-btn-height: 28px;
+  --mc-btn-padding-x: 10px;
+  --mc-btn-font-size: 12px;
+  border-radius: var(--mm-radius-sm);
+}
+[data-minimal="true"] .mc-btn-primary.mc-btn-lg,
+[data-minimal="true"] .mc-btn-frame.mc-btn-lg,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-lg,
+[data-minimal="true"] .mc-btn-danger.mc-btn-lg,
+[data-minimal="true"] .mc-btn-gray-frame.mc-btn-lg {
+  --mc-btn-height: 40px;
+  --mc-btn-padding-x: 18px;
+  --mc-btn-font-size: 13px;
+}
+
+[data-minimal="true"] .mc-btn-primary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 100%, white 5%),
+    var(--accent)
+  );
+  border-color: color-mix(in srgb, var(--accent) 78%, black);
+  color: var(--mm-on-accent);
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.20) inset,
+    0 1px 2px oklch(0 0 0 / 0.40),
+    0 4px 14px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+[data-minimal="true"] .mc-btn-frame {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: color-mix(in srgb, var(--accent) 72%, white);
+}
+[data-minimal="true"] .mc-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+[data-minimal="true"] .mc-btn-gray-frame {
+  background: var(--surface-1);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+[data-minimal="true"] .mc-btn-danger {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--status-failed) 38%, transparent);
+  color: var(--status-failed);
+}
+
+/* Hover */
+[data-minimal="true"] .mc-btn-primary:hover {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 100%, white 10%),
+    color-mix(in srgb, var(--accent) 100%, white 2%)
+  );
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.24) inset,
+    0 2px 4px oklch(0 0 0 / 0.45),
+    0 8px 20px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-minimal="true"] .mc-btn-frame:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 54%, transparent);
+}
+[data-minimal="true"] .mc-btn-ghost:hover {
+  background: var(--surface-1);
+  color: var(--text);
+}
+[data-minimal="true"] .mc-btn-gray-frame:hover {
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--text-dim) 30%, var(--border-strong));
+}
+[data-minimal="true"] .mc-btn-danger:hover {
+  background: color-mix(in srgb, var(--status-failed) 12%, transparent);
+  border-color: color-mix(in srgb, var(--status-failed) 58%, transparent);
+}
+
+/* Press: 0.5px micro-translate, faster ease-out to feel tactile */
+[data-minimal="true"] .mc-btn-primary:active,
+[data-minimal="true"] .mc-btn-frame:active,
+[data-minimal="true"] .mc-btn-ghost:active,
+[data-minimal="true"] .mc-btn-gray-frame:active,
+[data-minimal="true"] .mc-btn-danger:active {
+  transform: translateY(0.5px);
+  transition-duration: 60ms;
+}
+
+/* Disable border-image overlay */
+[data-minimal="true"] .mc-btn-primary::before,
+[data-minimal="true"] .mc-btn-frame::before,
+[data-minimal="true"] .mc-btn-ghost::before,
+[data-minimal="true"] .mc-btn-danger::before,
+[data-minimal="true"] .mc-btn-gray-frame::before {
+  display: none !important;
+}
+
+/* Focus: soft brand-tinted halo, no hard outline */
+[data-minimal="true"] .mc-btn-frame:focus-visible,
+[data-minimal="true"] .mc-btn-ghost:focus-visible,
+[data-minimal="true"] .mc-btn-danger:focus-visible,
+[data-minimal="true"] .mc-btn-gray-frame:focus-visible {
+  outline: none;
+  box-shadow: var(--mm-ring);
+}
+/* Primary keeps its depth shadow under the halo */
+[data-minimal="true"] .mc-btn-primary:focus-visible {
+  outline: none;
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.20) inset,
+    0 1px 2px oklch(0 0 0 / 0.40),
+    0 4px 14px color-mix(in srgb, var(--accent) 22%, transparent),
+    var(--mm-ring);
+}
+
+/* Inputs: subtle inset depth, halo on focus */
+[data-minimal="true"] .mc-input-frame {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--mm-radius) !important;
+  background: var(--surface-0) !important;
+  filter: none !important;
+  box-shadow: 0 1px 0 oklch(0 0 0 / 0.10) inset !important;
+  transition:
+    background-color var(--mm-dur) var(--mm-ease),
+    border-color var(--mm-dur) var(--mm-ease),
+    box-shadow var(--mm-dur) var(--mm-ease) !important;
+}
+[data-minimal="true"] .mc-input-frame::before {
+  display: none !important;
+}
+[data-minimal="true"] .mc-input-frame:hover {
+  border-color: var(--border-strong) !important;
+}
+[data-minimal="true"] .mc-input-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent) !important;
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface-0)) !important;
+  box-shadow:
+    0 1px 0 oklch(0 0 0 / 0.10) inset,
+    var(--mm-ring) !important;
+}
+
+/* Launch overlay: not played in minimal. The pre-hydration script sets
+   `data-minimal` before first paint, so this rule suppresses the SSR'd
+   overlay JSX during the brief window before React hydrates and removes it. */
+[data-minimal="true"] .launch-overlay {
+  display: none !important;
+}
+
+/* No decorative cursor glow or dot grid in minimal */
+[data-minimal="true"] .cursor-glow {
+  display: none !important;
+}
+[data-minimal="true"] .dot-grid-bg {
+  background-image: none;
+}
+
+/* Install-skills CTA: quietly modern — hairline accent ring + soft glow */
+[data-minimal="true"] .install-skills-theme-button {
+  background: var(--surface-1) !important;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 34%, transparent) !important;
+  box-shadow:
+    var(--mm-elev-1),
+    0 0 18px color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  animation: none !important;
+  transition:
+    background-color var(--mm-dur) var(--mm-ease),
+    border-color var(--mm-dur) var(--mm-ease),
+    box-shadow var(--mm-dur) var(--mm-ease) !important;
+}
+[data-minimal="true"] .install-skills-theme-button:hover {
+  background: var(--surface-2) !important;
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
+  box-shadow:
+    var(--mm-elev-2),
+    0 0 28px color-mix(in srgb, var(--accent) 18%, transparent) !important;
+}

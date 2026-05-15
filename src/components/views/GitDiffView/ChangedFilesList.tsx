@@ -295,7 +295,7 @@ function Section({
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
-          background: "transparent",
+          background: sectionTone.header,
           borderBottom: `1px solid ${sectionTone.border}`,
           fontFamily: "var(--mono)",
           fontSize: 11,
@@ -494,14 +494,14 @@ const textBtnStyle: CSSProperties = {
 const SECTION_TONES = {
   staged: {
     panel: "rgba(108, 208, 126, 0.08)",
-    header: "rgba(108, 208, 126, 0.16)",
+    header: "#1d3a27",
     border: "rgba(108, 208, 126, 0.22)",
     text: "#baf3c3",
     count: "rgba(186, 243, 195, 0.72)",
   },
   unstaged: {
     panel: "rgba(232, 185, 74, 0.08)",
-    header: "rgba(232, 185, 74, 0.16)",
+    header: "#3a2f14",
     border: "rgba(232, 185, 74, 0.22)",
     text: "#f3d58a",
     count: "rgba(243, 213, 138, 0.72)",

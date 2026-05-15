@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useProjects, queryKeys } from "~/queries";
+import { useProjects, useSettings, queryKeys } from "~/queries";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ProjectRunningDot } from "~/components/ui/ProjectRunningDot";
 import { Icon } from "~/components/ui/Icon";
@@ -17,6 +17,8 @@ export function ProjectBar() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: projects } = useProjects();
+  const { data: settings } = useSettings();
+  const minimal = settings?.minimalTheme ?? false;
   const { runningProjectIds } = useUserTerminals();
   const pinned = (projects ?? []).filter((p) => p.pinned);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
@@ -33,7 +35,13 @@ export function ProjectBar() {
 
   const ITEM = 40;
   const GAP = 8;
-  const PAD_TOP = 10;
+  const PAD_TOP = minimal ? 16 : 10;
+  const BAR_WIDTH = minimal ? 64 : 88;
+  const ITEM_RADIUS = minimal ? 0 : 10;
+  const RUNNING_BADGE_RADIUS = minimal ? 0 : 7;
+  const HOTKEY_BADGE_RADIUS = minimal ? 0 : 4;
+  const MENU_RADIUS = minimal ? 0 : 6;
+  const MENU_ITEM_RADIUS = minimal ? 0 : 4;
 
   return (
     <CardFrame
@@ -41,13 +49,13 @@ export function ProjectBar() {
       role="navigation"
       aria-label="Pinned projects"
       style={{
-        width: 88,
+        width: BAR_WIDTH,
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 8,
-        padding: "10px 0",
+        gap: GAP,
+        padding: `${PAD_TOP}px 0`,
         overflowX: "hidden",
         overflowY: "auto",
       }}
@@ -62,7 +70,7 @@ export function ProjectBar() {
             width: ITEM,
             height: ITEM,
             marginLeft: -ITEM / 2,
-            borderRadius: 10,
+            borderRadius: ITEM_RADIUS,
             border: "2px solid color-mix(in srgb, var(--accent) 88%, black)",
             background: "transparent",
             transform: `translateY(${activeIndex * (ITEM + GAP)}px)`,
@@ -109,7 +117,7 @@ export function ProjectBar() {
               aspectRatio: "1 / 1",
               padding: 0,
               border: "1px solid transparent",
-              borderRadius: 10,
+              borderRadius: ITEM_RADIUS,
               background: "transparent",
               zIndex: 1,
               cursor: "pointer",
@@ -138,7 +146,7 @@ export function ProjectBar() {
                   gap: 3,
                   height: 14,
                   padding: "0 4px",
-                  borderRadius: 7,
+                  borderRadius: RUNNING_BADGE_RADIUS,
                   background: "var(--surface-3, var(--surface-2))",
                   border: "1px solid var(--border)",
                   color: "var(--text)",
@@ -162,7 +170,7 @@ export function ProjectBar() {
                   minWidth: 14,
                   height: 14,
                   padding: "0 3px",
-                  borderRadius: 4,
+                  borderRadius: HOTKEY_BADGE_RADIUS,
                   background: "var(--surface-3, var(--surface-2))",
                   border: "1px solid var(--border)",
                   color: "var(--text-faint)",
@@ -192,7 +200,7 @@ export function ProjectBar() {
             zIndex: 1000,
             background: "var(--surface-2)",
             border: "1px solid var(--border)",
-            borderRadius: 6,
+            borderRadius: MENU_RADIUS,
             padding: 4,
             minWidth: 140,
             boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
@@ -217,7 +225,7 @@ export function ProjectBar() {
               padding: "7px 10px",
               background: "transparent",
               border: 0,
-              borderRadius: 4,
+              borderRadius: MENU_ITEM_RADIUS,
               cursor: "pointer",
               color: "var(--text)",
               fontSize: 12,

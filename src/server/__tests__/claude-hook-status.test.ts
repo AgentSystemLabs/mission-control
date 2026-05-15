@@ -8,6 +8,12 @@ describe("agent hook status mapping", () => {
     expect(mapHookEventToStatus({ hook_event_name: "UserInterrupt" })).toBe("interrupted");
   });
 
+  it("maps Cursor hook lifecycle events", () => {
+    expect(mapHookEventToStatus({ hook_event_name: "beforeSubmitPrompt" })).toBe("running");
+    expect(mapHookEventToStatus({ hook_event_name: "stop" })).toBe("finished");
+    expect(mapHookEventToStatus({ hook_event_name: "afterAgentResponse" })).toBe("finished");
+  });
+
   it("maps permission requests to needs-input", () => {
     expect(mapHookEventToStatus({ hook_event_name: "PermissionRequest" })).toBe(
       "needs-input"

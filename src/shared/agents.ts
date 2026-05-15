@@ -38,8 +38,8 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
     skipPermissionsFlag: "--yolo",
     startCommand: (opts) =>
       opts?.skipPermissions
-        ? "codex --enable codex_hooks --yolo"
-        : "codex --enable codex_hooks",
+        ? "codex --enable hooks --yolo"
+        : "codex --enable hooks",
     titleInvocation: (input) => ({ cmd: "codex", args: ["exec", input] }),
   },
   "cursor-cli": {

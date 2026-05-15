@@ -33,6 +33,8 @@ type Ctx = {
     opts?: { ports?: number[] }
   ) => Promise<void>;
   killTerminal: (id: string) => Promise<void>;
+  hiddenIds: Set<string>;
+  toggleHidden: (id: string) => void;
   renameTerminal: (id: string, name: string) => Promise<void>;
   updateLaunchUrl: (url: string) => Promise<void>;
   setPtyId: (terminalId: string, ptyId: string | null) => void;
@@ -49,6 +51,26 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   // the user navigates away and back.
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
   const [focusedByProject, setFocusedByProject] = useState<Record<string, string | null>>({});
+  const [hiddenIdsByProject, setHiddenIdsByProject] = useState<Record<string, string[]>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("mc.userTerminalHiddenIds");
+      return raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        "mc.userTerminalHiddenIds",
+        JSON.stringify(hiddenIdsByProject)
+      );
+    } catch {
+      /* quota or disabled */
+    }
+  }, [hiddenIdsByProject]);
   const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -138,6 +160,22 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     return ids;
   }, [sessionsByProject]);
   const focusedId = project ? (focusedByProject[project.id] ?? null) : null;
+  const hiddenIds = useMemo<Set<string>>(
+    () => new Set(project ? (hiddenIdsByProject[project.id] ?? []) : []),
+    [project, hiddenIdsByProject]
+  );
+  const toggleHidden = useCallback(
+    (id: string) => {
+      if (!project) return;
+      const pid = project.id;
+      setHiddenIdsByProject((prev) => {
+        const cur = prev[pid] ?? [];
+        const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+        return { ...prev, [pid]: next };
+      });
+    },
+    [project]
+  );
 
   const updateSessions = useCallback(
     (projectId: string, fn: (prev: Session[]) => Session[]) => {
@@ -200,6 +238,11 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       setFocusedByProject((prev) => {
         if (prev[ownerProjectId!] !== id) return prev;
         return { ...prev, [ownerProjectId!]: neighborId };
+      });
+      setHiddenIdsByProject((prev) => {
+        const cur = prev[ownerProjectId!];
+        if (!cur || !cur.includes(id)) return prev;
+        return { ...prev, [ownerProjectId!]: cur.filter((x) => x !== id) };
       });
 
       if (killedPtyId && electron) {
@@ -325,6 +368,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusTerminal,
       createTerminal,
       killTerminal,
+      hiddenIds,
+      toggleHidden,
       killTerminalsByStartCommand,
       renameTerminal,
       updateLaunchUrl,
@@ -343,6 +388,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusTerminal,
       createTerminal,
       killTerminal,
+      hiddenIds,
+      toggleHidden,
       killTerminalsByStartCommand,
       renameTerminal,
       updateLaunchUrl,
