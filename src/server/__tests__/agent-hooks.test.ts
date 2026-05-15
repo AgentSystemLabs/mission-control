@@ -43,6 +43,35 @@ describe("agent hook installation", () => {
     expect(settings.hooks.UserInterrupt).toBeUndefined();
   });
 
+  it("registers Claude hooks as PowerShell commands on Windows", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd, "win32");
+
+    const raw = fs.readFileSync(
+      path.join(cwd, ".claude", "settings.local.json"),
+      "utf8"
+    );
+    const settings = JSON.parse(raw) as {
+      hooks: Record<
+        string,
+        Array<{
+          hooks?: Array<{ type?: string; command?: string; shell?: string }>;
+          _mcManaged?: boolean;
+        }>
+      >;
+    };
+    const hook = settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0];
+
+    expect(hook).toMatchObject({
+      type: "command",
+      shell: "powershell",
+    });
+    expect(hook?.command).toContain("Invoke-RestMethod");
+    expect(hook?.command).toContain("$env:MC_API_URL");
+    expect(hook?.command).not.toContain("if [");
+  });
+
   it("registers Codex lifecycle hooks in Codex's matcher-group format", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
 

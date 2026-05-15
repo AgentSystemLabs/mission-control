@@ -4,7 +4,11 @@ import * as path from "node:path";
 const MARKER = "_mcManaged";
 
 type HookEvent = { event: string; matcher?: string };
-type HookEntry = { type: "command"; command: string };
+type HookEntry = {
+  type: "command";
+  command: string;
+  shell?: "bash" | "powershell";
+};
 type ClaudeHookGroup = { matcher?: string; hooks: HookEntry[]; [MARKER]?: boolean };
 type CursorHookGroup = { command: string; [MARKER]?: boolean };
 type HookGroup = ClaudeHookGroup | CursorHookGroup;
@@ -19,6 +23,11 @@ type AgentHookSpec = {
   events: HookEvent[];
   style?: "claude" | "cursor";
   removeManagedEvents?: string[];
+};
+
+type HookCommand = {
+  command: string;
+  shell?: "powershell";
 };
 
 const AGENT_HOOKS: Record<string, AgentHookSpec> = {
@@ -57,7 +66,11 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
   },
 };
 
-function buildHookCommand(endpointSlug: string, event: string, style: "claude" | "cursor"): string {
+function buildPosixHookCommand(
+  endpointSlug: string,
+  event: string,
+  style: "claude" | "cursor"
+): string {
   // Read stdin (the agent's hook payload JSON) and forward to Mission Control.
   // Fail-soft: never block the user's session if MC is down.
   const url = `"$MC_API_URL/api/hooks/${endpointSlug}?taskId=$MC_TASK_ID&hookEvent=${encodeURIComponent(event)}"`;
@@ -84,20 +97,65 @@ function buildHookCommand(endpointSlug: string, event: string, style: "claude" |
   );
 }
 
+function buildPowerShellHookCommand(
+  endpointSlug: string,
+  event: string,
+  style: "claude" | "cursor"
+): string {
+  const eventParam = encodeURIComponent(event);
+  const missingEnv =
+    style === "cursor"
+      ? 'if (-not $env:MC_TASK_ID -or -not $env:MC_API_URL) { Write-Output \'{"continue":true}\'; exit 0 }'
+      : "if (-not $env:MC_TASK_ID -or -not $env:MC_API_URL) { exit 0 }";
+  const continueOutput =
+    style === "cursor" ? '; Write-Output \'{"continue":true}\'' : "";
+
+  return [
+    missingEnv,
+    "$payload = [Console]::In.ReadToEnd()",
+    "$taskId = [System.Uri]::EscapeDataString($env:MC_TASK_ID)",
+    `$url = "$($env:MC_API_URL)/api/hooks/${endpointSlug}?taskId=$taskId&hookEvent=${eventParam}"`,
+    '$headers = @{ Authorization = "Bearer $($env:MC_API_TOKEN)" }',
+    'try { Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop | Out-Null } catch {}' +
+      continueOutput,
+  ].join("; ");
+}
+
+function buildHookCommand(
+  endpointSlug: string,
+  event: string,
+  style: "claude" | "cursor",
+  platform: NodeJS.Platform
+): HookCommand {
+  if (platform === "win32" && style === "claude") {
+    return {
+      command: buildPowerShellHookCommand(endpointSlug, event, style),
+      shell: "powershell",
+    };
+  }
+  return { command: buildPosixHookCommand(endpointSlug, event, style) };
+}
+
 function buildManagedGroup(
-  command: string,
+  hookCommand: HookCommand,
   style: "claude" | "cursor",
   matcher?: string
 ): HookGroup {
   if (style === "cursor") {
     return {
-      command,
+      command: hookCommand.command,
       [MARKER]: true,
     };
   }
   return {
     ...(matcher === undefined ? {} : { matcher }),
-    hooks: [{ type: "command", command }],
+    hooks: [
+      {
+        type: "command",
+        command: hookCommand.command,
+        ...(hookCommand.shell ? { shell: hookCommand.shell } : {}),
+      },
+    ],
     [MARKER]: true,
   };
 }
@@ -107,7 +165,11 @@ function buildManagedGroup(
  * entries. Existing user hooks are preserved; we only add, replace, or remove
  * entries tagged with our `_mcManaged` marker.
  */
-export function installAgentHooks(agent: string | undefined, cwd: string): void {
+export function installAgentHooks(
+  agent: string | undefined,
+  cwd: string,
+  platform: NodeJS.Platform = process.platform
+): void {
   if (!agent) return;
   const spec = AGENT_HOOKS[agent];
   if (!spec) return;
@@ -131,7 +193,7 @@ export function installAgentHooks(agent: string | undefined, cwd: string): void 
   }
   const hooks = (settings.hooks ??= {});
   for (const { event, matcher } of spec.events) {
-    const command = buildHookCommand(spec.endpointSlug, event, style);
+    const command = buildHookCommand(spec.endpointSlug, event, style, platform);
     const groups = (hooks[event] ??= []);
     const filtered = groups.filter((g) => !g[MARKER]);
     filtered.push(buildManagedGroup(command, style, matcher));
