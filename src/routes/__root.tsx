@@ -43,26 +43,16 @@ import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifica
 import { useWarmCliAvailability } from "~/lib/cli-availability";
 import "~/styles.css";
 
-const LAUNCH_OVERLAY_DURATION_MS = 2700;
 const MINIMAL_CACHE_KEY = "mc:minimal";
 const useThemeLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-function readCachedMinimal(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(MINIMAL_CACHE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 // Pre-hydration script: runs synchronously in <head> before first paint so
 // theme state (`data-minimal` + accent CSS vars) is in place before any CSS
 // layout. Without this, the SSR'd HTML paints with default (painted+orange)
-// theme for one frame — the launch overlay's door/fog flashes and every
-// accent-tinted surface flashes orange before React/useSettings hydrate.
-// Mirrors `applyAccentColor` (src/lib/accent-colors.ts); keep them in sync.
+// theme for one frame — every accent-tinted surface flashes orange before
+// React/useSettings hydrate. Mirrors `applyAccentColor`
+// (src/lib/accent-colors.ts); keep them in sync.
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
 var d=document.documentElement;
 if(localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"){d.setAttribute("data-minimal","true");}
@@ -84,9 +74,6 @@ if(c&&a&&a!==${JSON.stringify(DEFAULT_ACCENT_COLOR)}){
   s.setProperty("--mc-shell-image",'url("/borders/shell_'+a+'.png")');
 }
 }catch(e){}})();`;
-const LAUNCH_DOORS_OPEN_MS = 1940;
-const LAUNCH_AIRLOCK_AUDIO_MS = 1440;
-const LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS = 0.1;
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
@@ -130,7 +117,6 @@ function RootComponent() {
 function Shell() {
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"settings" | "usage" | null>(null);
-  const [showLaunchOverlay, setShowLaunchOverlay] = useState(false);
   const [settingsInitialPanel, setSettingsInitialPanel] =
     useState<SettingsPanelId>("general");
   const openSettings = (initial: SettingsPanelId = "general") => {
@@ -141,8 +127,6 @@ function Shell() {
   const { data: settings } = useSettings();
   const { data: projects } = useProjects();
   const { data: license } = useLicense();
-  const resolvedInitialMinimalTheme = useRef(false);
-  const lastResolvedMinimalTheme = useRef<boolean | null>(null);
   const { activeFor, close, deselect, setPtyId } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
@@ -223,28 +207,14 @@ function Shell() {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
 
-  useThemeLayoutEffect(() => {
-    setShowLaunchOverlay(!readCachedMinimal());
-  }, []);
-
   const minimalTheme = settings?.minimalTheme;
-  const isSwitchingFromMinimalToPainted =
-    minimalTheme === false && lastResolvedMinimalTheme.current === true;
-  const shouldRenderLaunchOverlay =
-    showLaunchOverlay && !isSwitchingFromMinimalToPainted;
 
   useThemeLayoutEffect(() => {
     if (typeof minimalTheme !== "boolean") return;
-    const isInitialThemeResolution = !resolvedInitialMinimalTheme.current;
-    resolvedInitialMinimalTheme.current = true;
-    lastResolvedMinimalTheme.current = minimalTheme;
     try {
       window.localStorage.setItem(MINIMAL_CACHE_KEY, minimalTheme ? "1" : "0");
     } catch {
       // ignore quota / privacy-mode errors
-    }
-    if (!isInitialThemeResolution || minimalTheme) {
-      setShowLaunchOverlay(false);
     }
     if (minimalTheme) {
       document.documentElement.setAttribute("data-minimal", "true");
@@ -252,15 +222,6 @@ function Shell() {
       document.documentElement.removeAttribute("data-minimal");
     }
   }, [minimalTheme]);
-
-  useEffect(() => {
-    if (!showLaunchOverlay) return;
-    const timeout = window.setTimeout(
-      () => setShowLaunchOverlay(false),
-      LAUNCH_OVERLAY_DURATION_MS,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [showLaunchOverlay]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -448,12 +409,6 @@ function Shell() {
           }}
         />
       </div>
-      {shouldRenderLaunchOverlay && (
-        <LaunchOverlay
-          audioDisabled={settings?.launchAudioDisabled}
-          onDone={() => setShowLaunchOverlay(false)}
-        />
-      )}
       <ConfirmDialog
         open={!!closeIntentTarget}
         onClose={() => setCloseIntentTargetId(null)}
@@ -474,68 +429,6 @@ function Shell() {
         This will kill the running process and remove the terminal. This can&apos;t be undone.
       </ConfirmDialog>
     </>
-  );
-}
-
-function LaunchOverlay({
-  audioDisabled,
-  onDone,
-}: {
-  audioDisabled: boolean | undefined;
-  onDone: () => void;
-}) {
-  useEffect(() => {
-    if (audioDisabled !== false) return;
-    const playAudio = (src: string, volume: number, startAtSeconds = 0) => {
-      const audio = new Audio(src);
-      audio.preload = "auto";
-      audio.volume = volume;
-      if (startAtSeconds > 0) {
-        audio.currentTime = startAtSeconds;
-      }
-      void audio.play().catch(() => {
-        // Browsers may block startup audio until the first user gesture.
-      });
-    };
-
-    playAudio("/audio/welcome.mp3", 0.2, LAUNCH_WELCOME_AUDIO_OFFSET_SECONDS);
-
-    const slideTimeout = window.setTimeout(
-      () => playAudio("/audio/slide.ogg", 0.2),
-      LAUNCH_AIRLOCK_AUDIO_MS,
-    );
-
-    return () => {
-      window.clearTimeout(slideTimeout);
-    };
-  }, [audioDisabled]);
-
-  return (
-    <div
-      className="launch-overlay"
-      role="status"
-      aria-label="Mission Control loading"
-      onAnimationEnd={(event) => {
-        if (event.currentTarget === event.target) onDone();
-      }}
-    >
-      <div className="launch-overlay__doors" aria-hidden="true">
-        <div className="launch-overlay__door launch-overlay__door--left">
-          <img src="/images/doors.png" alt="" />
-        </div>
-        <div className="launch-overlay__door launch-overlay__door--right">
-          <img src="/images/doors.png" alt="" />
-        </div>
-      </div>
-      <div className="launch-overlay__fog" aria-hidden="true">
-        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--top launch-overlay__fog-plume--left" />
-        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--top launch-overlay__fog-plume--right" />
-        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--bottom launch-overlay__fog-plume--left" />
-        <span className="launch-overlay__fog-plume launch-overlay__fog-plume--bottom launch-overlay__fog-plume--right" />
-        <span className="launch-overlay__fog-floor launch-overlay__fog-floor--top" />
-        <span className="launch-overlay__fog-floor launch-overlay__fog-floor--bottom" />
-      </div>
-    </div>
   );
 }
 

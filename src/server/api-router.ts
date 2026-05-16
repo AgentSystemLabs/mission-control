@@ -352,7 +352,6 @@ async function handleApiRequestInner(
           "session_finish_os_notification_enabled",
           false,
         ),
-        launchAudioDisabled: getBooleanSetting("launch_audio_disabled"),
       });
       if (method === "GET") {
         return json(settingsPayload());
@@ -387,9 +386,6 @@ async function handleApiRequestInner(
             "session_finish_os_notification_enabled",
             body.sessionFinishOsNotificationEnabled,
           );
-        }
-        if (typeof body?.launchAudioDisabled === "boolean") {
-          setBooleanSetting("launch_audio_disabled", body.launchAudioDisabled);
         }
         return json(settingsPayload());
       }
