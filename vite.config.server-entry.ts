@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 
@@ -18,6 +19,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    tailwindcss(),
     tanstackStart({
       srcDirectory: "src",
     }),

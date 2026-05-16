@@ -1,0 +1,12 @@
+savePrefix: ""
+
+overrides:
+  "@esbuild-kit/core-utils@3.3.2>esbuild": 0.25.12
+
+allowBuilds:
+  better-sqlite3: true
+  electron: true
+  electron-winstaller: false
+  esbuild: true
+  node-pty: true
+  puppeteer: true

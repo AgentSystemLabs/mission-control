@@ -10,8 +10,29 @@ type BuildUserPathOptions = {
   pathExists?: (entry: string) => boolean;
 };
 
-function envPathValue(env: NodeJS.ProcessEnv): string {
+function pathEnvKey(platform: NodeJS.Platform = os.platform()): "PATH" | "Path" {
+  return platform === "win32" ? "Path" : "PATH";
+}
+
+function envPathValue(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = os.platform()
+): string {
+  if (platform === "win32") return env.Path ?? env.PATH ?? env.path ?? "";
   return env.PATH ?? env.Path ?? env.path ?? "";
+}
+
+export function setCanonicalPathEnv(
+  env: Record<string, string>,
+  value: string,
+  platform: NodeJS.Platform = os.platform()
+): Record<string, string> {
+  const key = pathEnvKey(platform);
+  for (const variant of ["PATH", "Path", "path"] as const) {
+    if (variant !== key) delete env[variant];
+  }
+  env[key] = value;
+  return env;
 }
 
 function userShellFromDirectoryService(): string | null {
@@ -161,7 +182,7 @@ function posixPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
 }
 
 export function buildUserPath(
-  basePath = process.env.PATH ?? "",
+  basePath = envPathValue(process.env),
   options: BuildUserPathOptions = {}
 ): string {
   const platform = options.platform ?? os.platform();
@@ -185,7 +206,11 @@ export function buildUserPath(
 }
 
 export function augmentProcessEnv(): void {
-  process.env.PATH = buildUserPath(envPathValue(process.env));
+  setCanonicalPathEnv(
+    process.env as Record<string, string>,
+    buildUserPath(envPathValue(process.env)),
+    os.platform()
+  );
   process.env.SHELL = resolveShell();
 }
 
@@ -194,7 +219,7 @@ export function sanitizedProcessEnv(): Record<string, string> {
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v === "string") out[k] = v;
   }
-  out.PATH = buildUserPath(envPathValue(out));
+  setCanonicalPathEnv(out, buildUserPath(envPathValue(out)), os.platform());
   out.SHELL = resolveShell();
   return out;
 }
@@ -237,7 +262,7 @@ export function resolveCommandOnPath(
     return null;
   }
 
-  const pathValue = env.PATH ?? "";
+  const pathValue = envPathValue(env, platform);
   const delimiter = platform === "win32" ? ";" : path.delimiter;
   for (const dir of pathValue.split(delimiter).filter(Boolean)) {
     for (const name of names) {

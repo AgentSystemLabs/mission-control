@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { AppLogEntry } from "~/shared/logging";
 
 export type AppEvent =
   | { type: "project:created"; id: string }
@@ -7,6 +8,7 @@ export type AppEvent =
   | { type: "group:created"; id: string }
   | { type: "group:updated"; id: string }
   | { type: "group:deleted"; id: string }
+  | { type: "log:created"; entry: AppLogEntry }
   | { type: "task:created"; id: string; projectId: string }
   | { type: "task:updated"; id: string; projectId: string }
   | { type: "task:archived"; id: string; projectId: string }

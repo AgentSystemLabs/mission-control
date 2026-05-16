@@ -44,6 +44,7 @@ import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
 import { featureFlags } from "~/shared/feature-flags";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
+import { agentCanLaunch, useCliAvailability } from "~/lib/cli-availability";
 import type { Task, TaskStatus } from "~/db/schema";
 import {
   DUPLICATE_ACTIVE_SESSION_EVENT,
@@ -121,6 +122,7 @@ function ProjectPage() {
   const [stopping, setStopping] = useState(false);
   const [pinning, setPinning] = useState(false);
   const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
+  const cliAvailability = useCliAvailability();
 
   useEffect(() => {
     if (projectError) router.navigate({ to: "/" });
@@ -275,6 +277,10 @@ function ProjectPage() {
       bareSession: boolean;
     }) => {
       if (!project || !apiToken) return;
+      if (!agentCanLaunch(cliAvailability, payload.agent)) {
+        setShowNewAgent(true);
+        return;
+      }
       const isClaude = payload.agent === "claude-code";
       const created = await api.createTaskInternal(
         project.id,
@@ -293,19 +299,23 @@ function ProjectPage() {
       terminals.toggle(project, created.task);
       await refresh();
     },
-    [project, apiToken, refresh, terminals]
+    [project, apiToken, refresh, terminals, cliAvailability]
   );
 
   const startWithSaved = useCallback(async () => {
     if (!project) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
+    if (!agentCanLaunch(cliAvailability, project.savedAgent)) {
+      setShowNewAgent(true);
+      return;
+    }
     await createSession({
       agent: project.savedAgent,
       branch: project.branch || DEFAULT_BRANCH,
       skipPermissions: !!project.savedSkipPermissions,
       bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
     });
-  }, [project, createSession]);
+  }, [project, createSession, cliAvailability]);
 
   const onNewAgentPrimary = useCallback(() => {
     if (showNewAgent || showEdit) return;

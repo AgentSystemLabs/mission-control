@@ -31,6 +31,8 @@ const electronAPI = {
   getUserDataDir: (): Promise<string> => ipcRenderer.invoke(IPC.appGetUserDataDir),
   getUserName: (): Promise<{ source: "git" | "os"; fullName: string; firstName: string }> =>
     ipcRenderer.invoke(IPC.appGetUserName),
+  reload: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IPC.appReload),
   cliCheck: (command: string): Promise<{ ok: true; path: string } | { ok: false; reason: string }> =>
     ipcRenderer.invoke(IPC.cliCheck, command),
   pty: {

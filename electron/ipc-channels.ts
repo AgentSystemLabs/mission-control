@@ -7,6 +7,7 @@ export const IPC = {
   appGetRuntimePort: "app:getRuntimePort",
   appGetUserDataDir: "app:getUserDataDir",
   appGetUserName: "app:getUserName",
+  appReload: "app:reload",
   appIsFullScreen: "app:isFullScreen",
   appFullScreenChange: "app:fullscreen-change",
   appCloseIntent: "app:close-intent",

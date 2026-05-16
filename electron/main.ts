@@ -313,6 +313,15 @@ ipcMain.handle(IPC.appGetUserName, () => {
   return { source: "os" as const, fullName: username, firstName: username };
 });
 
+ipcMain.handle(IPC.appReload, (event) => {
+  const target = BrowserWindow.fromWebContents(event.sender) ?? win;
+  if (!target || target.isDestroyed()) {
+    return { ok: false as const, error: "window-unavailable" };
+  }
+  target.reload();
+  return { ok: true as const };
+});
+
 ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
   if (!command) return { ok: false, reason: "empty" };
   const resolved = resolveCommandOnPath(command, sanitizedProcessEnv());

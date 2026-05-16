@@ -5,6 +5,7 @@ import * as path from "node:path";
 import {
   buildUserPath,
   resolveCommandOnPath,
+  setCanonicalPathEnv,
   shellArgsForCommand,
 } from "../../../electron/shell-env";
 
@@ -119,6 +120,37 @@ describe("Electron shell environment helpers", () => {
 
     expect(resolveCommandOnPath("claude", env, "win32")).toBe(path.join(nativeBin, "claude.exe"));
     expect(resolveCommandOnPath("codex", env, "win32")).toBe(path.join(npmBin, "codex.cmd"));
+  });
+
+  it("resolves Windows commands from canonical Path casing", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-cli-path-case-"));
+    const nativeBin = path.join(root, "User", ".local", "bin");
+    const npmBin = path.join(root, "AppData", "Roaming", "npm");
+
+    touch(path.join(nativeBin, "claude.exe"));
+    touch(path.join(npmBin, "codex.cmd"));
+
+    const env = {
+      Path: [nativeBin, npmBin].join(";"),
+      PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    };
+
+    expect(resolveCommandOnPath("claude", env, "win32")).toBe(path.join(nativeBin, "claude.exe"));
+    expect(resolveCommandOnPath("codex", env, "win32")).toBe(path.join(npmBin, "codex.cmd"));
+  });
+
+  it("canonicalizes Windows PATH casing before passing env to child shells", () => {
+    const env = {
+      PATH: "C:\\PackagedApp",
+      Path: "C:\\Windows\\System32",
+      path: "C:\\Ignored",
+    };
+
+    setCanonicalPathEnv(env, "C:\\Users\\me\\.local\\bin;C:\\Windows\\System32", "win32");
+
+    expect(env).toEqual({
+      Path: "C:\\Users\\me\\.local\\bin;C:\\Windows\\System32",
+    });
   });
 
   it("uses PowerShell-compatible arguments on Windows instead of POSIX login-shell flags", () => {

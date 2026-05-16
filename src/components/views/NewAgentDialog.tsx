@@ -6,6 +6,12 @@ import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { getElectron } from "~/lib/electron";
+import {
+  agentCanLaunch,
+  availabilityFor,
+  firstAvailableAgent,
+  useCliAvailability,
+} from "~/lib/cli-availability";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { AGENT_REGISTRY, UI_AGENTS, agentSupportsSkipPermissions } from "~/shared/agents";
 import { DEFAULT_BRANCH } from "~/shared/domain";
@@ -20,11 +26,6 @@ export type RememberPatch = {
 };
 
 const AGENT_OPTIONS = UI_AGENTS.map((id) => ({ id, ...AGENT_REGISTRY[id] }));
-
-type MissingCli = {
-  cmd: string;
-  label: string;
-};
 
 export function NewAgentDialog({
   open,
@@ -49,8 +50,8 @@ export function NewAgentDialog({
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
   const [rememberSettings, setRememberSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [missingCli, setMissingCli] = useState<MissingCli | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const cliAvailability = useCliAvailability();
 
   const persistRememberedSettings = async (
     nextAgent: TaskAgent,
@@ -67,7 +68,6 @@ export function NewAgentDialog({
   useEffect(() => {
     if (!open) {
       setError(null);
-      setMissingCli(null);
       setSubmitting(false);
       return;
     }
@@ -78,7 +78,6 @@ export function NewAgentDialog({
     setDangerouslySkipPermissions(seedSkip);
     setRememberSettings(!!project?.rememberAgentSettings);
     setError(null);
-    setMissingCli(null);
     setSubmitting(false);
     // Seed only when the dialog opens; later refreshes of `project` (e.g. after
     // persisting the remember toggle) must not stomp in-flight form state.
@@ -105,6 +104,7 @@ export function NewAgentDialog({
   };
 
   const selectAgent = (nextAgent: TaskAgent) => {
+    if (!agentCanLaunch(cliAvailability, nextAgent)) return;
     setAgent(nextAgent);
     if (rememberSettings) {
       void persistRememberedSettings(nextAgent, dangerouslySkipPermissions);
@@ -120,6 +120,18 @@ export function NewAgentDialog({
 
   const submit = async () => {
     if (submitting) return;
+    const selectedAvailability = availabilityFor(cliAvailability, agent);
+    if (!agentCanLaunch(cliAvailability, agent)) {
+      const checking =
+        selectedAvailability.status === "checking" ||
+        selectedAvailability.status === "unknown";
+      setError(
+        checking
+          ? `${AGENT_REGISTRY[agent].label} availability is still being checked.`
+          : `${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`,
+      );
+      return;
+    }
     setSubmitting(true);
     setError(null);
     if (agent !== "shell") {
@@ -128,7 +140,7 @@ export function NewAgentDialog({
         const cmd = AGENT_META[agent].cmd;
         const probe = await electron.cliCheck(cmd);
         if (!probe.ok) {
-          setMissingCli({ cmd, label: AGENT_META[agent].label });
+          setError(`${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`);
           setSubmitting(false);
           return;
         }
@@ -160,17 +172,26 @@ export function NewAgentDialog({
   };
 
   useEffect(() => {
-    if (!open || missingCli) return;
+    if (!open) return;
+    if (availabilityFor(cliAvailability, agent).status !== "missing") return;
+    const next = firstAvailableAgent(cliAvailability);
+    if (next && next !== agent) setAgent(next);
+  }, [open, agent, cliAvailability]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target)) return;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
-        const ids = AGENT_OPTIONS.filter((a) => !a.disabled).map((a) => a.id);
+        const ids = AGENT_OPTIONS
+          .filter((a) => agentCanLaunch(cliAvailability, a.id))
+          .map((a) => a.id);
         const idx = ids.indexOf(agent);
         const next = e.key === "ArrowDown"
           ? Math.min(ids.length - 1, idx + 1)
           : Math.max(0, idx - 1);
-        if (next !== idx) setAgent(ids[next]);
+        if (next !== idx && ids[next]) setAgent(ids[next]);
         return;
       }
       if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
@@ -180,14 +201,19 @@ export function NewAgentDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions, missingCli]);
+  }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions, cliAvailability]);
 
-  useHotkey("dialog.submit", () => void submit(), { enabled: open && !missingCli });
+  const selectedAvailability = availabilityFor(cliAvailability, agent);
+  const startDisabled =
+    submitting ||
+    !agentCanLaunch(cliAvailability, agent);
+
+  useHotkey("dialog.submit", () => void submit(), { enabled: open && !startDisabled });
 
   return (
     <>
       <Modal
-        open={open && !missingCli}
+        open={open}
         onClose={onClose}
         title="Start a new session"
         width={540}
@@ -197,7 +223,7 @@ export function NewAgentDialog({
               Cancel
             </Btn>
             <HotkeyTooltip action="dialog.submit">
-              <Btn variant="primary" icon="play" onClick={submit} disabled={submitting}>
+              <Btn variant="primary" icon="play" onClick={submit} disabled={startDisabled}>
                 Start session
               </Btn>
             </HotkeyTooltip>
@@ -224,13 +250,27 @@ export function NewAgentDialog({
             {AGENT_OPTIONS.map((a) => {
               const meta = AGENT_META[a.id];
               const selected = agent === a.id;
+              const availability = availabilityFor(cliAvailability, a.id);
+              const cliChecking =
+                availability.status === "checking" ||
+                (availability.status === "unknown" && !!getElectron());
+              const cliMissing = availability.status === "missing";
+              const disabled = !agentCanLaunch(cliAvailability, a.id);
               return (
                 <button
                   key={a.id}
-                  onClick={() => !a.disabled && selectAgent(a.id)}
-                  disabled={a.disabled}
-                  aria-disabled={a.disabled}
-                  title={a.disabled ? "Coming soon" : undefined}
+                  onClick={() => !disabled && selectAgent(a.id)}
+                  disabled={disabled}
+                  aria-disabled={disabled}
+                  title={
+                    a.disabled
+                      ? "Coming soon"
+                      : cliMissing
+                        ? `${a.command} was not found on PATH`
+                        : cliChecking
+                          ? `Checking for ${a.command}`
+                        : undefined
+                  }
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -240,10 +280,10 @@ export function NewAgentDialog({
                     background: selected ? "var(--surface-2)" : "var(--surface-0)",
                     border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
                     borderRadius: 8,
-                    cursor: a.disabled ? "not-allowed" : "pointer",
+                    cursor: disabled ? "not-allowed" : "pointer",
                     color: "var(--text)",
                     boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
-                    opacity: a.disabled ? 0.5 : 1,
+                    opacity: disabled ? 0.56 : 1,
                   }}
                 >
                   <div
@@ -276,6 +316,19 @@ export function NewAgentDialog({
                     >
                     {a.description}
                     </div>
+                    {(cliChecking || cliMissing) && (
+                      <div
+                        style={{
+                          marginTop: 5,
+                          fontFamily: "var(--mono)",
+                          fontSize: 10.5,
+                          color: cliMissing ? "var(--status-failed)" : "var(--text-faint)",
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        {cliMissing ? "CLI not found on PATH." : "Checking PATH..."}
+                      </div>
+                    )}
                   </div>
                   <code
                     style={{
@@ -286,11 +339,17 @@ export function NewAgentDialog({
                       padding: "3px 7px",
                       border: "1px solid var(--border)",
                       borderRadius: 4,
-                      textTransform: a.disabled ? "uppercase" : "none",
-                      letterSpacing: a.disabled ? "0.05em" : "normal",
+                      textTransform: disabled ? "uppercase" : "none",
+                      letterSpacing: disabled ? "0.05em" : "normal",
                     }}
                   >
-                    {a.disabled ? "Coming soon" : `$${a.command}`}
+                    {a.disabled
+                      ? "Coming soon"
+                      : cliMissing
+                        ? "Missing"
+                        : cliChecking
+                          ? "Checking"
+                          : `$${a.command}`}
                   </code>
                 </button>
               );
@@ -391,37 +450,6 @@ export function NewAgentDialog({
           </div>
         )}
       </div>
-      </Modal>
-
-      <Modal
-        open={open && !!missingCli}
-        onClose={() => setMissingCli(null)}
-        title="CLI not detected"
-        width={440}
-        footer={
-          <Btn variant="primary" onClick={() => setMissingCli(null)}>
-            OK
-          </Btn>
-        }
-      >
-        {missingCli && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
-              Mission Control could not find{" "}
-              <code style={{ fontFamily: "var(--mono)", color: "var(--text)" }}>
-                {missingCli.cmd}
-              </code>{" "}
-              for {missingCli.label}.
-            </p>
-            <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--text-dim)" }}>
-              Install the ship skill, then make sure{" "}
-              <code style={{ fontFamily: "var(--mono)", color: "var(--text)" }}>
-                {missingCli.cmd}
-              </code>{" "}
-              is available on your PATH before starting this session.
-            </p>
-          </div>
-        )}
       </Modal>
     </>
   );

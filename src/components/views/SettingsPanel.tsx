@@ -13,6 +13,7 @@ import { LicenseSettingsPage } from "./LicenseSettingsPage";
 import { SkillsSettingsPage } from "./SkillsSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
+import { LogsSettingsPage } from "./LogsSettingsPage";
 
 export type SettingsPanelId =
   | "general"
@@ -20,6 +21,7 @@ export type SettingsPanelId =
   | "license"
   | "skills"
   | "api"
+  | "logs"
   | "keybindings"
   | "storage"
   | "terms";
@@ -64,6 +66,7 @@ export function SettingsPanel({
     { id: "license", label: "License", icon: "sparkles" },
     { id: "skills", label: "Skills", icon: "sparkles" },
     { id: "api", label: "External API", icon: "terminal" },
+    { id: "logs", label: "Logs", icon: "list" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
     ...(isElectron
       ? ([{ id: "storage", label: "Storage", icon: "folder" }] as NavItem[])
@@ -223,6 +226,8 @@ export function SettingsPanel({
             <SkillsSettingsPage />
           ) : activePanel === "api" ? (
             <ApiSettingsPage />
+          ) : activePanel === "logs" ? (
+            <LogsSettingsPage />
           ) : activePanel === "keybindings" ? (
             <KeybindingsPage />
           ) : activePanel === "terms" ? (

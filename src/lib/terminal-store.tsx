@@ -55,7 +55,7 @@ function commandFor(agent: TaskAgent): string {
 
 /**
  * Compute the start command for a task. For claude-code, embeds either
- * --session-id (first launch) or --resume (subsequent launches) so the
+ * --session-id (first launch) or --resume (later launches) so the
  * conversation survives app restarts. Side effect: generates and persists
  * a session ID if one is missing on a claude-code task (defensive — task
  * creation should have populated it).
@@ -70,7 +70,12 @@ export function commandForTask(task: Task): string {
   const bare = !!task.claudeBareSession;
   const sessionId = task.claudeSessionId;
   if (sessionId) {
-    return buildClaudeCommand({ kind: "resume", sessionId, skipPermissions: skip, bareSession: bare });
+    return buildClaudeCommand({
+      kind: task.status === "ready" ? "new" : "resume",
+      sessionId,
+      skipPermissions: skip,
+      bareSession: bare,
+    });
   }
   const fresh = newSessionId();
   void api.updateTask(task.id, { claudeSessionId: fresh }).catch(() => undefined);

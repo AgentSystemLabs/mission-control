@@ -1,6 +1,8 @@
 import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Btn } from "~/components/ui/Btn";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
+import { getElectron } from "~/lib/electron";
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
 import {
@@ -236,6 +238,7 @@ export function GeneralSettingsPage() {
         </Field>
       </SettingsSection>
       <AboutSection />
+      <ReloadSection />
     </>
   );
 }
@@ -291,6 +294,49 @@ function AboutSection() {
               Download →
             </a>
           )}
+        </div>
+      </Field>
+    </SettingsSection>
+  );
+}
+
+function ReloadSection() {
+  const reload = () => {
+    const electron = getElectron();
+    if (electron) {
+      void electron.reload();
+      return;
+    }
+    if (typeof window === "undefined") return;
+    window.location.reload();
+  };
+
+  return (
+    <SettingsSection title="Reload" subtitle="Refresh the current Mission Control window.">
+      <Field label="Window">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            padding: "12px 14px",
+            background: "var(--surface-0)",
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
+              Reload app
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}>
+              Applies fresh frontend code and reconnects to the local server.
+            </div>
+          </div>
+          <Btn type="button" variant="solid" size="sm" icon="refresh" onClick={reload}>
+            Reload
+          </Btn>
         </div>
       </Field>
     </SettingsSection>

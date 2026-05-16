@@ -40,6 +40,7 @@ import { SettingsPanel, type SettingsPanelId } from "~/components/views/Settings
 import { UsagePanel } from "~/components/views/UsagePanel";
 import { Toaster } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
+import { useWarmCliAvailability } from "~/lib/cli-availability";
 import "~/styles.css";
 
 const LAUNCH_OVERLAY_DURATION_MS = 2700;
@@ -170,6 +171,7 @@ function Shell() {
 
   useNavigationSwipe();
   useSessionFinishNotifications();
+  useWarmCliAvailability();
 
   const path = router.state.location.pathname;
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
