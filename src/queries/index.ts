@@ -7,9 +7,7 @@ export const queryKeys = {
   groups: ["groups"] as const,
   tasks: (projectId: string) => ["projects", projectId, "tasks"] as const,
   settings: ["settings"] as const,
-  logs: ["logs"] as const,
   license: ["license"] as const,
-  skills: ["skills"] as const,
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
     ["projects", projectId, "user-terminals"] as const,
@@ -46,23 +44,10 @@ export const settingsQueryOptions = () =>
     queryFn: async () => api.getSettings(),
   });
 
-export const logsQueryOptions = () =>
-  queryOptions({
-    queryKey: queryKeys.logs,
-    queryFn: async () => (await api.getLogs()).logs,
-    staleTime: 5_000,
-  });
-
 export const licenseQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.license,
     queryFn: async () => (await api.getLicense()).license,
-  });
-
-export const skillsQueryOptions = () =>
-  queryOptions({
-    queryKey: queryKeys.skills,
-    queryFn: async () => api.getSkillsStatus(),
   });
 
 export const userTerminalsQueryOptions = (projectId: string) =>
@@ -84,9 +69,7 @@ export const useGroups = () => useQuery(groupsQueryOptions());
 export const useTasks = (projectId: string) =>
   useQuery(tasksQueryOptions(projectId));
 export const useSettings = () => useQuery(settingsQueryOptions());
-export const useLogs = () => useQuery(logsQueryOptions());
 export const useLicense = () => useQuery(licenseQueryOptions());
-export const useSkillsStatus = () => useQuery(skillsQueryOptions());
 export const useUserTerminalsQuery = (projectId: string) =>
   useQuery(userTerminalsQueryOptions(projectId));
 export const useUsage = (days: number = 30) => useQuery(usageQueryOptions(days));

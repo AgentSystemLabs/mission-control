@@ -3,7 +3,6 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "~/db/client";
 import { projects, userTerminals } from "~/db/schema";
 import type { UserTerminal } from "~/db/schema";
-import { appLogger } from "./logger";
 
 function newId() {
   return `ut-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
@@ -49,20 +48,9 @@ export function createUserTerminal(input: {
     updatedAt: now,
   };
   if (row.startCommand) {
-    appLogger.event("session", "Launch terminal session created", {
-      terminalId: row.id,
-      projectId: row.projectId,
-      name: row.name,
-      launchCommand: true,
-    });
     return row;
   }
   db.insert(userTerminals).values(row).run();
-  appLogger.event("session", "Terminal session created", {
-    terminalId: row.id,
-    projectId: row.projectId,
-    name: row.name,
-  });
   return row;
 }
 

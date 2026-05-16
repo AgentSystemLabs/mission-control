@@ -3,27 +3,18 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
-import { getElectron } from "~/lib/electron";
 import { useHotkey } from "~/lib/use-hotkey";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
-import { ApiSettingsPage } from "./ApiSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
-import { StorageSettingsPage } from "./StorageSettingsPage";
 import { LicenseSettingsPage } from "./LicenseSettingsPage";
-import { SkillsSettingsPage } from "./SkillsSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
-import { LogsSettingsPage } from "./LogsSettingsPage";
 
 export type SettingsPanelId =
   | "general"
   | "theme"
   | "license"
-  | "skills"
-  | "api"
-  | "logs"
   | "keybindings"
-  | "storage"
   | "terms";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
@@ -34,7 +25,6 @@ export function SettingsPanel({
   onBack: () => void;
   initialPanel?: SettingsPanelId;
 }) {
-  const [isElectron, setIsElectron] = useState(false);
   const [activePanel, setActivePanel] = useState<SettingsPanelId>(() => {
     if (typeof window === "undefined") return initialPanel;
     const stored = window.localStorage.getItem(
@@ -49,10 +39,6 @@ export function SettingsPanel({
     window.localStorage.setItem("mc-settings-active-panel", activePanel);
   }, [activePanel]);
 
-  useEffect(() => {
-    setIsElectron(!!getElectron());
-  }, []);
-
   const handleBack = () => {
     if (isExiting) return;
     setIsExiting(true);
@@ -64,13 +50,7 @@ export function SettingsPanel({
     { id: "general", label: "General", icon: "settings" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "license", label: "License", icon: "sparkles" },
-    { id: "skills", label: "Skills", icon: "sparkles" },
-    { id: "api", label: "External API", icon: "terminal" },
-    { id: "logs", label: "Logs", icon: "list" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
-    ...(isElectron
-      ? ([{ id: "storage", label: "Storage", icon: "folder" }] as NavItem[])
-      : []),
   ];
 
   return (
@@ -222,18 +202,10 @@ export function SettingsPanel({
             <ThemeSettingsPage />
           ) : activePanel === "license" ? (
             <LicenseSettingsPage />
-          ) : activePanel === "skills" ? (
-            <SkillsSettingsPage />
-          ) : activePanel === "api" ? (
-            <ApiSettingsPage />
-          ) : activePanel === "logs" ? (
-            <LogsSettingsPage />
           ) : activePanel === "keybindings" ? (
             <KeybindingsPage />
-          ) : activePanel === "terms" ? (
-            <TermsSettingsPage />
           ) : (
-            <StorageSettingsPage />
+            <TermsSettingsPage />
           )}
         </CardFrame>
       </div>

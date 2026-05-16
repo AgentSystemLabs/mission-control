@@ -12,7 +12,6 @@ import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types"
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { LicenseState } from "~/shared/license";
-import type { AppLogEntry } from "~/shared/logging";
 
 export type AppSettings = {
   apiToken: string;
@@ -196,8 +195,6 @@ export const api = {
     req<{ bindings: BindingMap }>("/api/keybindings", { method: "DELETE" }),
 
   getSettings: () => req<AppSettings>("/api/settings"),
-  getLogs: (limit: number = 1000) =>
-    req<{ logs: AppLogEntry[] }>(`/api/logs?limit=${limit}`),
 
   getLicense: () => req<{ license: LicenseState }>("/api/license"),
   validateLicense: (key: string) =>
@@ -210,14 +207,6 @@ export const api = {
 
   getLaunchKitAccess: () =>
     req<{ hasAccess: boolean }>("/api/launch-kit/access"),
-
-  getSkillsStatus: () =>
-    req<{ initializedAt: string | null; dir: string }>("/api/skills"),
-  initializeSkills: () =>
-    req<{ initializedAt: string; dir: string; fileCount: number }>(
-      "/api/skills/initialize",
-      { method: "POST" },
-    ),
 
   updateSettings: (
     body: Partial<

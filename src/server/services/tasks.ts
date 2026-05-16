@@ -7,7 +7,6 @@ import type { TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Task } from "~/db/schema";
 import { events } from "../events";
 import { sendTelemetry } from "./telemetry";
-import { appLogger } from "./logger";
 
 function newId() {
   return `t-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
@@ -61,13 +60,6 @@ export function createTask(input: {
     updatedAt: now,
   };
   db.insert(tasks).values(row).run();
-  appLogger.event("session", "Session created", {
-    taskId: row.id,
-    projectId: row.projectId,
-    agent: row.agent,
-    branch: row.branch,
-    hasClaudeSessionId: !!row.claudeSessionId,
-  });
   events.emit("task:created", { id: row.id, projectId: row.projectId });
   sendTelemetry("session_started");
   return row;
@@ -112,10 +104,6 @@ export function updateStatus(
       projectId: existing.projectId,
       projectName: project?.name ?? "Project",
       taskTitle: existing.title,
-    });
-    appLogger.success("session", "Session finished", {
-      taskId: id,
-      projectId: existing.projectId,
     });
   }
   return next;

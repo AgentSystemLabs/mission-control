@@ -1,5 +1,4 @@
 import { listProjects, createProject, getProject, updateProject, deleteProject, togglePin, refreshBranch, ProjectCapExceededError } from "./services/projects";
-import { initializeSkills, readSkillsStatus, SkillsBundleError } from "./services/skills-bundle";
 import {
   fetchLatestSkillsManifest,
   installProjectSkills,
@@ -62,10 +61,7 @@ import {
   gitErrorPayload,
   deleteProjectFile,
 } from "./services/git";
-import { listLogs, recordLog } from "./services/logger";
-
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
-const API_LOG_EXCLUDED_PATHS = new Set(["/api/events", "/api/logs"]);
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -75,14 +71,10 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   if (!pathname.startsWith("/api/")) return null;
 
-  const startedAt = Date.now();
   try {
-    const response = await handleApiRequestInner(request, url, method, pathname);
-    if (response) await recordApiInvocation(method, pathname, startedAt, response);
-    return response;
+    return await handleApiRequestInner(request, url, method, pathname);
   } catch (err: any) {
     const message = err?.message || "bad request";
-    recordApiException(method, pathname, startedAt, message);
     return jsonError(400, message);
   }
 }
@@ -93,14 +85,6 @@ async function handleApiRequestInner(
   method: string,
   pathname: string,
 ): Promise<Response | null> {
-    if (pathname === "/api/logs") {
-      if (method === "GET") {
-        const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
-        const limit = Number.isFinite(limitParam) ? limitParam : undefined;
-        return json({ logs: listLogs(limit) });
-      }
-    }
-
     if (pathname === "/api/projects") {
       if (method === "GET") return json({ projects: listProjects() });
       if (method === "POST") {
@@ -408,10 +392,6 @@ async function handleApiRequestInner(
       return json({ license });
     }
 
-    if (pathname === "/api/skills") {
-      if (method === "GET") return json(readSkillsStatus());
-    }
-
     if (pathname === "/api/skills/install/installed" && method === "GET") {
       const projectPath = url.searchParams.get("projectPath") ?? "";
       return json({ installed: readInstalledSkillsVersion(projectPath) });
@@ -441,22 +421,6 @@ async function handleApiRequestInner(
         return json({ result });
       } catch (e: any) {
         return jsonError(400, e?.message ?? "Install failed");
-      }
-    }
-
-    if (pathname === "/api/skills/initialize" && method === "POST") {
-      try {
-        const result = await initializeSkills();
-        return json({ ...result, ...readSkillsStatus() });
-      } catch (e: any) {
-        if (e instanceof SkillsBundleError) {
-          const status = e.code === "not_pro" || e.code === "no_key" ? 402 : 502;
-          return new Response(
-            JSON.stringify({ error: e.message, code: e.code }),
-            { status, headers: { "content-type": "application/json" } },
-          );
-        }
-        throw e;
       }
     }
 
@@ -617,86 +581,6 @@ async function handleApiRequestInner(
 }
 
 export { mapHookEventToStatus } from "~/shared/agent-hook-events";
-
-async function recordApiInvocation(
-  method: string,
-  pathname: string,
-  startedAt: number,
-  response: Response,
-) {
-  if (API_LOG_EXCLUDED_PATHS.has(pathname)) return;
-  try {
-    const durationMs = Date.now() - startedAt;
-    const status = response.status;
-    const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
-    const metadata: Record<string, string | number | boolean | null> = {
-      method,
-      path: pathname,
-      status,
-      durationMs,
-    };
-
-    if (status >= 400) {
-      const error = await readResponseError(response);
-      if (error) metadata.error = error;
-    }
-
-    recordLog({
-      level,
-      category: "api",
-      message:
-        status >= 400
-          ? `${method} ${pathname} failed`
-          : `${method} ${pathname} completed`,
-      metadata,
-    });
-  } catch {
-    /* logging must never break an API response */
-  }
-}
-
-function recordApiException(
-  method: string,
-  pathname: string,
-  startedAt: number,
-  message: string,
-) {
-  if (API_LOG_EXCLUDED_PATHS.has(pathname)) return;
-  recordLog({
-    level: "error",
-    category: "api",
-    message: `${method} ${pathname} threw`,
-    metadata: {
-      method,
-      path: pathname,
-      status: 400,
-      durationMs: Date.now() - startedAt,
-      error: message,
-    },
-  });
-}
-
-async function readResponseError(response: Response): Promise<string | null> {
-  try {
-    const body = await response.clone().json();
-    if (
-      body &&
-      typeof body === "object" &&
-      "error" in body &&
-      typeof (body as { error?: unknown }).error === "string"
-    ) {
-      return (body as { error: string }).error;
-    }
-  } catch {
-    /* fall through */
-  }
-  try {
-    const text = await response.clone().text();
-    return text.slice(0, 500) || null;
-  } catch {
-    return null;
-  }
-}
 
 async function readJson<T>(request: Request): Promise<T> {
   if (!request.body) return {} as T;
