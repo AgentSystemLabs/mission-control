@@ -5,7 +5,7 @@ import {
   setLicensePayload,
   setLicenseValidationResult,
   type StoredLicenseState,
-} from "~/db/settings";
+} from "./license-storage";
 import {
   isLicensePayloadExpired,
   maskLicenseKey,

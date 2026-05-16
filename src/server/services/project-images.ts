@@ -1,8 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { eq } from "drizzle-orm";
-import { getDb, resolveUserDataDir } from "~/db/client";
-import { projects } from "~/db/schema";
+import { resolveUserDataDir } from "~/db/client";
+import { findProjectById } from "../repositories/projects.repo";
 import { updateProject } from "./projects";
 import type { Project } from "~/db/schema";
 
@@ -24,8 +23,7 @@ export function setProjectImage(projectId: string, filename: string): Project | 
 }
 
 export function clearProjectImage(projectId: string): Project | null {
-  const db = getDb();
-  const existing = db.select().from(projects).where(eq(projects.id, projectId)).get();
+  const existing = findProjectById(projectId);
   if (!existing) return null;
   if (existing.imagePath) deleteProjectImageFile(existing.imagePath);
   return updateProject(projectId, { imagePath: null });

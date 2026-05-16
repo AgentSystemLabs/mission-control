@@ -1,67 +1,35 @@
-import { listProjects, createProject, getProject, updateProject, deleteProject, togglePin, refreshBranch, ProjectCapExceededError } from "./services/projects";
-import {
-  fetchLatestSkillsManifest,
-  installProjectSkills,
-  readInstalledSkillsVersion,
-} from "./services/install-skills";
-import {
-  createProjectFromLaunchKit,
-  readLaunchKitAccess,
-} from "./services/launch-kit";
-import { listGroups, createGroup, updateGroup, deleteGroup } from "./services/groups";
-import {
-  listTasksForProject,
-  createTask,
-  updateStatus,
-  archiveTask,
-  restoreTask,
-  updateTask,
-  deleteTask,
-  getTask,
-} from "./services/tasks";
-import {
-  listUserTerminals,
-  createUserTerminal,
-  renameUserTerminal,
-  deleteUserTerminal,
-} from "./services/user-terminals";
-import { events } from "./events";
-import { getUsageSummary, syncTokenUsage } from "./services/token-usage";
-import {
-  getBooleanSetting,
-  getOrCreateApiToken,
-  getSetting,
-  regenerateApiToken,
-  setBooleanSetting,
-  setSetting,
-} from "~/db/settings";
-import {
-  DEFAULT_ACCENT_COLOR,
-  isAccentColorId,
-  type AccentColorId,
-} from "~/lib/accent-colors";
-import { getBindings, setBinding, resetBinding, resetAllBindings } from "~/db/keybindings";
-import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
-import { isValidBinding } from "~/lib/keybindings/match";
-import { json, jsonError, requireBearerToken } from "./auth";
-import {
-  readLicenseState,
-  removeLicense,
-  validateLicense,
-} from "./services/license";
-import { generateTitleForTask } from "./services/title-generator";
-import { mapHookEventToStatus } from "~/shared/agent-hook-events";
-import {
-  getGitStatus,
-  getGitDiff,
-  stageFiles,
-  unstageFiles,
-  commit as gitCommit,
-  push as gitPush,
-  gitErrorPayload,
-  deleteProjectFile,
-} from "./services/git";
+import { jsonError, requireLocalOrigin } from "./auth";
+import * as projectsController from "./controllers/projects.controller";
+import * as tasksController from "./controllers/tasks.controller";
+import * as groupsController from "./controllers/groups.controller";
+import * as userTerminalsController from "./controllers/user-terminals.controller";
+import * as settingsController from "./controllers/settings.controller";
+import * as licenseController from "./controllers/license.controller";
+import * as keybindingsController from "./controllers/keybindings.controller";
+import * as skillsController from "./controllers/skills.controller";
+import * as launchKitController from "./controllers/launch-kit.controller";
+import * as hooksController from "./controllers/hooks.controller";
+import * as usageController from "./controllers/usage.controller";
+import * as eventsController from "./controllers/events.controller";
+import * as gitController from "./controllers/git.controller";
+import * as projectFileController from "./controllers/project-file.controller";
+
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
+const PROJECT_PATH = /^\/api\/projects\/([^\/]+)$/;
+const PROJECT_TASKS_PATH = /^\/api\/projects\/([^\/]+)\/tasks$/;
+const PROJECT_FILE_PATH = /^\/api\/projects\/([^\/]+)\/file$/;
+const PROJECT_GIT_PATH = /^\/api\/projects\/([^\/]+)\/git\/([a-z-]+)$/;
+const PROJECT_USER_TERMINALS_PATH = /^\/api\/projects\/([^\/]+)\/user-terminals$/;
+const GROUP_PATH = /^\/api\/groups\/([^\/]+)$/;
+const TASK_PATH = /^\/api\/tasks\/([^\/]+)$/;
+const TASK_STATUS_PATH = /^\/api\/tasks\/([^\/]+)\/status$/;
+const TASK_ARCHIVE_PATH = /^\/api\/tasks\/([^\/]+)\/archive$/;
+const TASK_RESTORE_PATH = /^\/api\/tasks\/([^\/]+)\/restore$/;
+const USER_TERMINAL_PATH = /^\/api\/user-terminals\/([^\/]+)$/;
+
+function decode(segment: string | undefined): string {
+  return decodeURIComponent(segment ?? "");
+}
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -71,524 +39,148 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   if (!pathname.startsWith("/api/")) return null;
 
+  const origin = requireLocalOrigin(request);
+  if (!origin.ok) return origin.response;
+
   try {
-    return await handleApiRequestInner(request, url, method, pathname);
+    return await dispatch(request, url, method, pathname);
   } catch (err: any) {
     const message = err?.message || "bad request";
     return jsonError(400, message);
   }
 }
 
-async function handleApiRequestInner(
+async function dispatch(
   request: Request,
   url: URL,
   method: string,
   pathname: string,
-): Promise<Response | null> {
-    if (pathname === "/api/projects") {
-      if (method === "GET") return json({ projects: listProjects() });
-      if (method === "POST") {
-        const body = await readJson<any>(request);
-        if (!body.path) return jsonError(400, "path is required");
-        try {
-          const p = createProject(body);
-          return json({ project: p }, { status: 201 });
-        } catch (e: any) {
-          if (e instanceof ProjectCapExceededError) {
-            return new Response(
-              JSON.stringify({
-                error: e.message,
-                code: "free_tier_project_cap",
-                limit: e.limit,
-                current: e.current,
-              }),
-              { status: 402, headers: { "content-type": "application/json" } },
-            );
-          }
-          throw e;
-        }
-      }
-    }
+): Promise<Response> {
+  // Projects
+  if (pathname === "/api/projects") {
+    if (method === "GET") return projectsController.list();
+    if (method === "POST") return projectsController.create(request);
+  }
+  let m = pathname.match(PROJECT_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return projectsController.getOne(id);
+    if (method === "PATCH") return projectsController.update(id, request);
+    if (method === "DELETE") return projectsController.remove(id);
+  }
+  m = pathname.match(PROJECT_TASKS_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return tasksController.listForProject(id);
+    if (method === "POST") return tasksController.create(id, request);
+  }
+  m = pathname.match(PROJECT_FILE_PATH);
+  if (m && method === "DELETE") {
+    return projectFileController.remove(decode(m[1]), url);
+  }
+  m = pathname.match(PROJECT_GIT_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    const action = m[2]!;
+    if (action === "status" && method === "GET") return gitController.status(id);
+    if (action === "diff" && method === "GET") return gitController.diff(id, url);
+    if (action === "stage" && method === "POST") return gitController.stage(id, request);
+    if (action === "unstage" && method === "POST") return gitController.unstage(id, request);
+    if (action === "commit" && method === "POST") return gitController.commit(id, request);
+    if (action === "push" && method === "POST") return gitController.push(id);
+  }
+  m = pathname.match(PROJECT_USER_TERMINALS_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return userTerminalsController.listForProject(id);
+    if (method === "POST") return userTerminalsController.create(id, request);
+  }
 
-    const projectMatch = pathname.match(/^\/api\/projects\/([^\/]+)$/);
-    if (projectMatch) {
-      const id = decodeURIComponent(projectMatch[1]!);
-      if (method === "GET") {
-        const p = getProject(id);
-        if (!p) return jsonError(404, "not found");
-        refreshBranch(id);
-        return json({ project: p });
-      }
-      if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        if (body.togglePin === true) {
-          const p = togglePin(id);
-          if (!p) return jsonError(404, "not found");
-          return json({ project: p });
-        }
-        const p = updateProject(id, body);
-        if (!p) return jsonError(404, "not found");
-        return json({ project: p });
-      }
-      if (method === "DELETE") {
-        const ok = deleteProject(id);
-        if (!ok) return jsonError(404, "not found");
-        return new Response(null, { status: 204 });
-      }
-    }
+  // Groups
+  if (pathname === "/api/groups") {
+    if (method === "GET") return groupsController.list();
+    if (method === "POST") return groupsController.create(request);
+  }
+  m = pathname.match(GROUP_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "PATCH") return groupsController.update(id, request);
+    if (method === "DELETE") return groupsController.remove(id);
+  }
 
-    const projectTasksMatch = pathname.match(/^\/api\/projects\/([^\/]+)\/tasks$/);
-    if (projectTasksMatch) {
-      const id = decodeURIComponent(projectTasksMatch[1]!);
-      if (method === "GET") return json({ tasks: listTasksForProject(id) });
-      if (method === "POST") {
-        const auth = requireBearerToken(request);
-        if (!auth.ok) return auth.response;
-        const body = await readJson<any>(request);
-        if (!body.title || !body.agent) return jsonError(400, "title and agent required");
-        const t = createTask({ ...body, projectId: id });
-        return json({ task: t }, { status: 201 });
-      }
-    }
+  // Tasks
+  m = pathname.match(TASK_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return tasksController.getOne(id);
+    if (method === "PATCH") return tasksController.update(id, request);
+    if (method === "DELETE") return tasksController.remove(id);
+  }
+  m = pathname.match(TASK_STATUS_PATH);
+  if (m && method === "POST") return tasksController.setStatus(decode(m[1]), request);
+  m = pathname.match(TASK_ARCHIVE_PATH);
+  if (m && method === "POST") return tasksController.archive(decode(m[1]));
+  m = pathname.match(TASK_RESTORE_PATH);
+  if (m && method === "POST") return tasksController.restore(decode(m[1]));
 
-    if (pathname === "/api/groups") {
-      if (method === "GET") return json({ groups: listGroups() });
-      if (method === "POST") {
-        const body = await readJson<any>(request);
-        if (!body.name) return jsonError(400, "name required");
-        const g = createGroup(body);
-        return json({ group: g }, { status: 201 });
-      }
-    }
+  // User terminals
+  m = pathname.match(USER_TERMINAL_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "PATCH") return userTerminalsController.rename(id, request);
+    if (method === "DELETE") return userTerminalsController.remove(id);
+  }
 
-    const groupMatch = pathname.match(/^\/api\/groups\/([^\/]+)$/);
-    if (groupMatch) {
-      const id = decodeURIComponent(groupMatch[1]!);
-      if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        const g = updateGroup(id, body);
-        if (!g) return jsonError(404, "not found");
-        return json({ group: g });
-      }
-      if (method === "DELETE") {
-        const ok = deleteGroup(id);
-        if (!ok) return jsonError(404, "not found");
-        return new Response(null, { status: 204 });
-      }
-    }
+  // Settings
+  if (pathname === "/api/settings") {
+    if (method === "GET") return settingsController.read();
+    if (method === "POST") return settingsController.update(request);
+  }
 
-    const taskMatch = pathname.match(/^\/api\/tasks\/([^\/]+)$/);
-    if (taskMatch) {
-      const id = decodeURIComponent(taskMatch[1]!);
-      if (method === "GET") {
-        const t = getTask(id);
-        if (!t) return jsonError(404, "not found");
-        return json({ task: t });
-      }
-      if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        const t = updateTask(id, body);
-        if (!t) return jsonError(404, "not found");
-        return json({ task: t });
-      }
-      if (method === "DELETE") {
-        const ok = deleteTask(id);
-        if (!ok) return jsonError(404, "not found");
-        return new Response(null, { status: 204 });
-      }
-    }
+  // License
+  if (pathname === "/api/license") {
+    if (method === "GET") return licenseController.read();
+    if (method === "DELETE") return licenseController.remove();
+  }
+  if (pathname === "/api/license/validate" && method === "POST") {
+    return licenseController.validate(request);
+  }
 
-    const taskStatusMatch = pathname.match(/^\/api\/tasks\/([^\/]+)\/status$/);
-    if (taskStatusMatch && method === "POST") {
-      const auth = requireBearerToken(request);
-      if (!auth.ok) return auth.response;
-      const id = decodeURIComponent(taskStatusMatch[1]!);
-      const body = await readJson<any>(request);
-      const t = updateStatus(id, body);
-      if (!t) return jsonError(404, "not found");
-      return json({ task: t });
-    }
+  // Skills
+  if (pathname === "/api/skills/install/installed" && method === "GET") {
+    return skillsController.installed(url);
+  }
+  if (pathname === "/api/skills/install/latest" && method === "GET") {
+    return skillsController.latest();
+  }
+  if (pathname === "/api/skills/install" && method === "POST") {
+    return skillsController.install(request);
+  }
 
-    const taskArchiveMatch = pathname.match(/^\/api\/tasks\/([^\/]+)\/archive$/);
-    if (taskArchiveMatch && method === "POST") {
-      const id = decodeURIComponent(taskArchiveMatch[1]!);
-      const t = archiveTask(id);
-      if (!t) return jsonError(404, "not found");
-      return json({ task: t });
-    }
+  // Launch Kit
+  if (pathname === "/api/launch-kit/access" && method === "GET") {
+    return launchKitController.access();
+  }
+  if (pathname === "/api/launch-kit/projects" && method === "POST") {
+    return launchKitController.create(request);
+  }
 
-    const taskRestoreMatch = pathname.match(/^\/api\/tasks\/([^\/]+)\/restore$/);
-    if (taskRestoreMatch && method === "POST") {
-      const id = decodeURIComponent(taskRestoreMatch[1]!);
-      const t = restoreTask(id);
-      if (!t) return jsonError(404, "not found");
-      return json({ task: t });
-    }
+  // Keybindings
+  if (pathname === "/api/keybindings") {
+    if (method === "GET") return keybindingsController.list();
+    if (method === "PUT") return keybindingsController.set(request);
+    if (method === "DELETE") return keybindingsController.reset(url);
+  }
 
-    const projectFileMatch = pathname.match(
-      /^\/api\/projects\/([^\/]+)\/file$/
-    );
-    if (projectFileMatch && method === "DELETE") {
-      const id = decodeURIComponent(projectFileMatch[1]!);
-      const filePath = url.searchParams.get("path");
-      if (!filePath) return jsonError(400, "path is required");
-      try {
-        await deleteProjectFile(id, filePath);
-        return json({ ok: true });
-      } catch (e: any) {
-        return jsonError(400, e?.message || "delete failed");
-      }
-    }
+  // Agent hooks
+  m = pathname.match(AGENT_HOOK_PATH);
+  if (m && method === "POST") return hooksController.receive(url, request);
 
-    const gitMatch = pathname.match(/^\/api\/projects\/([^\/]+)\/git\/([a-z-]+)$/);
-    if (gitMatch) {
-      const id = decodeURIComponent(gitMatch[1]!);
-      const action = gitMatch[2]!;
-      try {
-        if (action === "status" && method === "GET") {
-          return json(await getGitStatus(id));
-        }
-        if (action === "diff" && method === "GET") {
-          const file = url.searchParams.get("file");
-          if (!file) return jsonError(400, "file is required");
-          const stagedParam = url.searchParams.get("staged");
-          const staged = stagedParam === "1" || stagedParam === "true";
-          return json(await getGitDiff(id, file, staged));
-        }
-        if (action === "stage" && method === "POST") {
-          const body = await readJson<{ files?: string[] }>(request);
-          await stageFiles(id, body.files ?? []);
-          return json({ ok: true });
-        }
-        if (action === "unstage" && method === "POST") {
-          const body = await readJson<{ files?: string[] }>(request);
-          await unstageFiles(id, body.files ?? []);
-          return json({ ok: true });
-        }
-        if (action === "commit" && method === "POST") {
-          const body = await readJson<{ autoStage?: boolean }>(request);
-          return json(await gitCommit(id, { autoStage: body.autoStage }));
-        }
-        if (action === "push" && method === "POST") {
-          return json(await gitPush(id));
-        }
-        return jsonError(404, "not found");
-      } catch (e: any) {
-        const payload = gitErrorPayload(e);
-        return new Response(
-          JSON.stringify({ error: payload.message, stderr: payload.stderr }),
-          { status: 400, headers: { "content-type": "application/json" } },
-        );
-      }
-    }
+  // Usage + events
+  if (pathname === "/api/usage" && method === "GET") return usageController.read(url);
+  if (pathname === "/api/events" && method === "GET") return eventsController.stream();
 
-    const projectUserTerminalsMatch = pathname.match(
-      /^\/api\/projects\/([^\/]+)\/user-terminals$/
-    );
-    if (projectUserTerminalsMatch) {
-      const id = decodeURIComponent(projectUserTerminalsMatch[1]!);
-      if (method === "GET") return json({ terminals: listUserTerminals(id) });
-      if (method === "POST") {
-        const body = await readJson<any>(request);
-        const t = createUserTerminal({
-          projectId: id,
-          name: body?.name,
-          cwd: body?.cwd ?? null,
-          startCommand: body?.startCommand ?? null,
-        });
-        return json({ terminal: t }, { status: 201 });
-      }
-    }
-
-    const userTerminalMatch = pathname.match(/^\/api\/user-terminals\/([^\/]+)$/);
-    if (userTerminalMatch) {
-      const id = decodeURIComponent(userTerminalMatch[1]!);
-      if (method === "PATCH") {
-        const body = await readJson<any>(request);
-        if (typeof body?.name !== "string") return jsonError(400, "name required");
-        const t = renameUserTerminal(id, body.name);
-        if (!t) return jsonError(404, "not found");
-        return json({ terminal: t });
-      }
-      if (method === "DELETE") {
-        const ok = deleteUserTerminal(id);
-        if (!ok) return jsonError(404, "not found");
-        return new Response(null, { status: 204 });
-      }
-    }
-
-    if (pathname === "/api/settings") {
-      const getAccentColorSetting = (): AccentColorId => {
-        const value = getSetting("accent_color");
-        return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
-      };
-      const settingsPayload = () => ({
-        apiToken: getOrCreateApiToken(),
-        agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
-        accentColor: getAccentColorSetting(),
-        minimalTheme: getBooleanSetting("minimal_theme"),
-        mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
-        sessionFinishToastEnabled: getBooleanSetting(
-          "session_finish_toast_enabled",
-          true,
-        ),
-        sessionFinishOsNotificationEnabled: getBooleanSetting(
-          "session_finish_os_notification_enabled",
-          false,
-        ),
-      });
-      if (method === "GET") {
-        return json(settingsPayload());
-      }
-      if (method === "POST") {
-        const body = await readJson<any>(request).catch(() => ({}));
-        if ((body as any)?.regenerate) {
-          const apiToken = regenerateApiToken();
-          return json({ ...settingsPayload(), apiToken });
-        }
-        if (typeof body?.agentSystemBannerDisabled === "boolean") {
-          setBooleanSetting("agent_system_banner_disabled", body.agentSystemBannerDisabled);
-        }
-        if (body?.accentColor !== undefined) {
-          if (!isAccentColorId(body.accentColor)) return jsonError(400, "invalid accentColor");
-          setSetting("accent_color", body.accentColor);
-        }
-        if (typeof body?.minimalTheme === "boolean") {
-          setBooleanSetting("minimal_theme", body.minimalTheme);
-        }
-        if (typeof body?.mouseGradientDisabled === "boolean") {
-          setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
-        }
-        if (typeof body?.sessionFinishToastEnabled === "boolean") {
-          setBooleanSetting(
-            "session_finish_toast_enabled",
-            body.sessionFinishToastEnabled,
-          );
-        }
-        if (typeof body?.sessionFinishOsNotificationEnabled === "boolean") {
-          setBooleanSetting(
-            "session_finish_os_notification_enabled",
-            body.sessionFinishOsNotificationEnabled,
-          );
-        }
-        return json(settingsPayload());
-      }
-    }
-
-    if (pathname === "/api/license") {
-      if (method === "GET") {
-        return json({ license: readLicenseState() });
-      }
-      if (method === "DELETE") {
-        return json({ license: removeLicense() });
-      }
-    }
-
-    if (pathname === "/api/license/validate" && method === "POST") {
-      const body = await readJson<any>(request).catch(() => null);
-      const key = typeof body?.key === "string" ? body.key.trim() : "";
-      if (!key) return jsonError(400, "key required");
-      const license = await validateLicense(key);
-      return json({ license });
-    }
-
-    if (pathname === "/api/skills/install/installed" && method === "GET") {
-      const projectPath = url.searchParams.get("projectPath") ?? "";
-      return json({ installed: readInstalledSkillsVersion(projectPath) });
-    }
-
-    if (pathname === "/api/skills/install/latest" && method === "GET") {
-      try {
-        const manifest = await fetchLatestSkillsManifest();
-        return json({ manifest });
-      } catch (e: any) {
-        return jsonError(502, e?.message ?? "Failed to fetch manifest");
-      }
-    }
-
-    if (pathname === "/api/skills/install" && method === "POST") {
-      const body = await readJson<any>(request).catch(() => null);
-      const projectPath = typeof body?.projectPath === "string" ? body.projectPath : "";
-      const harnesses = body?.harnesses ?? {};
-      try {
-        const result = await installProjectSkills({
-          projectPath,
-          harnesses: {
-            claude: !!harnesses.claude,
-            codex: !!harnesses.codex,
-          },
-        });
-        return json({ result });
-      } catch (e: any) {
-        return jsonError(400, e?.message ?? "Install failed");
-      }
-    }
-
-    if (pathname === "/api/launch-kit/access" && method === "GET") {
-      return json(await readLaunchKitAccess());
-    }
-
-    if (pathname === "/api/launch-kit/projects" && method === "POST") {
-      const body = await readJson<any>(request).catch(() => null);
-      const parentDir = typeof body?.parentDir === "string" ? body.parentDir : "";
-      const projectName = typeof body?.projectName === "string" ? body.projectName : "";
-      try {
-        const result = await createProjectFromLaunchKit({
-          parentDir,
-          projectName,
-        });
-        return json(result, { status: 201 });
-      } catch (e: any) {
-        return jsonError(400, e?.message ?? "Launch Kit import failed");
-      }
-    }
-
-    if (pathname === "/api/keybindings") {
-      if (method === "GET") return json({ bindings: getBindings() });
-      if (method === "PUT") {
-        const body = await readJson<any>(request).catch(() => null);
-        const action = body?.action as string | undefined;
-        const binding = body?.binding;
-        if (!action || !(HOTKEY_ACTIONS as readonly string[]).includes(action)) {
-          return jsonError(400, "invalid action");
-        }
-        if (!binding || typeof binding !== "object") return jsonError(400, "binding required");
-        const candidate = {
-          mod: !!binding.mod,
-          shift: !!binding.shift,
-          alt: !!binding.alt,
-          key: typeof binding.key === "string" ? binding.key : "",
-        };
-        const valid = isValidBinding(candidate);
-        if (!valid.ok) return jsonError(400, valid.reason);
-        return json({ bindings: setBinding(action as HotkeyAction, candidate) });
-      }
-      if (method === "DELETE") {
-        const action = url.searchParams.get("action");
-        if (action === null) return json({ bindings: resetAllBindings() });
-        if (!(HOTKEY_ACTIONS as readonly string[]).includes(action)) {
-          return jsonError(400, "invalid action");
-        }
-        return json({ bindings: resetBinding(action as HotkeyAction) });
-      }
-    }
-
-    const agentHookMatch = pathname.match(AGENT_HOOK_PATH);
-    if (agentHookMatch && method === "POST") {
-      const auth = requireBearerToken(request);
-      if (!auth.ok) return auth.response;
-      const taskId = url.searchParams.get("taskId");
-      if (!taskId) return jsonError(400, "taskId required");
-      const payload = await readJson<{
-        hook_event_name?: string;
-        prompt?: string;
-        notification_type?: string;
-        message?: string;
-        title?: string;
-        session_id?: string;
-      }>(request);
-      const event = payload?.hook_event_name || url.searchParams.get("hookEvent") || "";
-      const status = mapHookEventToStatus({ ...payload, hook_event_name: event });
-      if (!status) return json({ ok: true, ignored: event });
-      // Reject hook events from nested Claude invocations (e.g. plugin Stop
-      // hooks that spawn `claude -p` for classification). They inherit our
-      // MC_TASK_ID env var but run under their own session_id, so they'd
-      // flicker the task running → finished → running → finished and fire
-      // duplicate session-finished notifications.
-      const task = getTask(taskId);
-      if (!task) return jsonError(404, "task not found");
-      const incomingSessionId =
-        typeof payload?.session_id === "string" ? payload.session_id : "";
-      if (
-        task.claudeSessionId &&
-        incomingSessionId &&
-        incomingSessionId !== task.claudeSessionId
-      ) {
-        // UserPromptSubmit only fires from the primary interactive Claude
-        // session — never from nested `claude -p` invocations. When Claude
-        // resumes via `--resume <uuid>`, it forks to a fresh session_id; we
-        // adopt that as the new canonical session id so subsequent Stop /
-        // PermissionRequest hooks (which the foreign-session check is meant to
-        // filter) line up with reality.
-        if (event === "UserPromptSubmit") {
-          updateTask(taskId, { claudeSessionId: incomingSessionId });
-        } else {
-          return json({ ok: true, ignored: "foreign-session" });
-        }
-      }
-      const t = updateStatus(taskId, { status });
-      if (!t) return jsonError(404, "task not found");
-      if (event === "UserPromptSubmit" && typeof payload?.prompt === "string" && payload.prompt.trim()) {
-        // Fire-and-forget: don't block the hook response on CLI generation.
-        void generateTitleForTask(taskId, payload.prompt);
-      }
-      return json({ ok: true, status });
-    }
-
-    if (pathname === "/api/usage" && method === "GET") {
-      const daysParam = url.searchParams.get("days");
-      const days = Math.max(
-        1,
-        Math.min(365, Number.parseInt(daysParam ?? "30", 10) || 30)
-      );
-      const skipSync = url.searchParams.get("sync") === "0";
-      const ingested = skipSync ? 0 : await syncTokenUsage();
-      const summary = getUsageSummary(days);
-      return json({ ...summary, ingested });
-    }
-
-    if (pathname === "/api/events" && method === "GET") {
-      const stream = new ReadableStream({
-        start(controller) {
-          const enc = new TextEncoder();
-          const send = (data: unknown) => {
-            try {
-              controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`));
-            } catch {
-              /* swallow */
-            }
-          };
-          send({ type: "hello", at: Date.now() });
-          const off = events.onAny((e) => send(e));
-          const heartbeat = setInterval(() => {
-            try {
-              controller.enqueue(enc.encode(": ping\n\n"));
-            } catch {
-              /* swallow */
-            }
-          }, 15_000);
-          (controller as any)._mc_cleanup = () => {
-            clearInterval(heartbeat);
-            off();
-          };
-        },
-        cancel() {
-          const cleanup = (this as any)._mc_cleanup as undefined | (() => void);
-          cleanup?.();
-        },
-      });
-      return new Response(stream, {
-        status: 200,
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache, no-transform",
-          connection: "keep-alive",
-        },
-      });
-    }
-
-    return jsonError(404, "not found");
+  return jsonError(404, "not found");
 }
 
 export { mapHookEventToStatus } from "~/shared/agent-hook-events";
-
-async function readJson<T>(request: Request): Promise<T> {
-  if (!request.body) return {} as T;
-  const text = await request.text();
-  if (!text) return {} as T;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return {} as T;
-  }
-}

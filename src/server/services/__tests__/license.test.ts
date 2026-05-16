@@ -15,7 +15,7 @@ const { readLicenseState, validateLicense } = await import("../license");
 const { getDb } = await import("~/db/client");
 const { appSettings } = await import("~/db/schema");
 const { setLicenseKey, setLicensePayload, setLicenseValidationResult } =
-  await import("~/db/settings");
+  await import("../license-storage");
 
 function signedLicense(overrides: Record<string, unknown> = {}): string {
   const payload = Buffer.from(

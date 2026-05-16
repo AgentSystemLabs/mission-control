@@ -16,7 +16,7 @@ const { listProjects, createProject, togglePin, deleteProject, updateProject, Pr
 );
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings } = await import("~/db/schema");
-const { setLicenseKey, clearLicense } = await import("~/db/settings");
+const { setLicenseKey, clearLicense } = await import("../license-storage");
 const { FREE_PROJECT_CAP } = await import("~/shared/license");
 
 function signedLicense(overrides: Record<string, unknown> = {}): string {

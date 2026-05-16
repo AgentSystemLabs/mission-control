@@ -1,15 +1,21 @@
-import { eq, asc } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getDb } from "~/db/client";
-import { projects, tasks } from "~/db/schema";
 import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } from "~/shared/domain";
 import type { LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectWithCounts } from "~/shared/projects";
 import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
 import { events } from "../events";
+import {
+  deleteProjectRow,
+  findAllProjects,
+  findProjectById,
+  findProjectIds,
+  insertProject,
+  updateProjectRow,
+} from "../repositories/projects.repo";
+import { findAllTasks, findTasksByProjectId } from "../repositories/tasks.repo";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { readLicenseState } from "./license";
 
@@ -64,18 +70,15 @@ export function detectBranch(dir: string): string {
 }
 
 export function listProjects(): ProjectWithCounts[] {
-  const db = getDb();
-  const rows = db.select().from(projects).orderBy(asc(projects.createdAt)).all();
-  const allTasks = db.select().from(tasks).all();
+  const rows = findAllProjects();
+  const allTasks = findAllTasks();
   return rows.map((p) => decorate(p, allTasks.filter((t) => t.projectId === p.id)));
 }
 
 export function getProject(id: string): ProjectWithCounts | null {
-  const db = getDb();
-  const p = db.select().from(projects).where(eq(projects.id, id)).get();
+  const p = findProjectById(id);
   if (!p) return null;
-  const ts = db.select().from(tasks).where(eq(tasks.projectId, id)).all();
-  return decorate(p, ts);
+  return decorate(p, findTasksByProjectId(id));
 }
 
 function decorate(p: Project, ts: Task[]): ProjectWithCounts {
@@ -116,10 +119,8 @@ export function createProject(input: {
 
   const name = input.name?.trim() || path.basename(input.path) || "project";
 
-  const db = getDb();
-
   if (!isProTier(readLicenseState())) {
-    const existing = db.select({ id: projects.id }).from(projects).all();
+    const existing = findProjectIds();
     if (existing.length >= FREE_PROJECT_CAP) {
       throw new ProjectCapExceededError(FREE_PROJECT_CAP, existing.length);
     }
@@ -147,7 +148,7 @@ export function createProject(input: {
     createdAt: now,
     updatedAt: now,
   };
-  db.insert(projects).values(row).run();
+  insertProject(row);
   events.emit("project:created", { id });
   return row;
 }
@@ -173,8 +174,7 @@ export function updateProject(
     >
   > & { launchCommands?: LaunchCommand[] | null }
 ): Project | null {
-  const db = getDb();
-  const existing = db.select().from(projects).where(eq(projects.id, id)).get();
+  const existing = findProjectById(id);
   if (!existing) return null;
   const { launchCommands, ...rest } = patch;
   const updated = {
@@ -185,7 +185,7 @@ export function updateProject(
       : {}),
     updatedAt: Date.now(),
   };
-  db.update(projects).set(updated).where(eq(projects.id, id)).run();
+  updateProjectRow(id, updated);
   events.emit("project:updated", { id });
   return updated;
 }
@@ -209,33 +209,27 @@ function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
 }
 
 export function togglePin(id: string): Project | null {
-  const db = getDb();
-  const existing = db.select().from(projects).where(eq(projects.id, id)).get();
+  const existing = findProjectById(id);
   if (!existing) return null;
   const next = { ...existing, pinned: !existing.pinned, updatedAt: Date.now() };
-  db.update(projects)
-    .set({ pinned: next.pinned, updatedAt: next.updatedAt })
-    .where(eq(projects.id, id))
-    .run();
+  updateProjectRow(id, { pinned: next.pinned, updatedAt: next.updatedAt });
   events.emit("project:updated", { id });
   return next;
 }
 
 export function deleteProject(id: string): boolean {
-  const db = getDb();
-  const result = db.delete(projects).where(eq(projects.id, id)).run();
-  if (result.changes > 0) deleteAllProjectImagesFor(id);
+  const changes = deleteProjectRow(id);
+  if (changes > 0) deleteAllProjectImagesFor(id);
   events.emit("project:deleted", { id });
-  return result.changes > 0;
+  return changes > 0;
 }
 
 export function refreshBranch(id: string): string | null {
-  const db = getDb();
-  const p = db.select().from(projects).where(eq(projects.id, id)).get();
+  const p = findProjectById(id);
   if (!p) return null;
   const branch = detectBranch(p.path);
   if (branch !== p.branch) {
-    db.update(projects).set({ branch, updatedAt: Date.now() }).where(eq(projects.id, id)).run();
+    updateProjectRow(id, { branch, updatedAt: Date.now() });
     events.emit("project:updated", { id });
   }
   return branch;

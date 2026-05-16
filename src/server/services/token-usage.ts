@@ -1,14 +1,6 @@
-import { eq, gte, sql } from "drizzle-orm";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getDb, getSqlite } from "~/db/client";
-import {
-  projects,
-  tasks,
-  tokenUsage,
-  tokenUsageSessionOffsets,
-} from "~/db/schema";
 import type {
   DailyUsage,
   ProjectUsage,
@@ -17,6 +9,17 @@ import type {
   UsageSummary,
 } from "~/shared/token-usage";
 import { EMPTY_TOTALS } from "~/shared/token-usage";
+import {
+  findAllSessionOffsets,
+  getTokenUsageLastSyncedAt,
+  ingestTokenUsageTx,
+  selectTotals,
+  selectTotalsPerDaySince,
+  selectTotalsPerProject,
+  selectTotalsPerSession,
+  type TokenUsageIngestRow,
+} from "../repositories/token-usage.repo";
+import { findTasksWithClaudeSessionId } from "../repositories/tasks.repo";
 
 /**
  * Parse one JSONL line. Returns null for lines that don't carry token usage
@@ -119,51 +122,18 @@ export function syncTokenUsage(): Promise<number> {
 }
 
 function doSync(): number {
-  const db = getDb();
-  const sqlite = getSqlite();
-
-  const sessionRows = db
-    .select({
-      taskId: tasks.id,
-      projectId: tasks.projectId,
-      claudeSessionId: tasks.claudeSessionId,
-    })
-    .from(tasks)
-    .where(sql`${tasks.claudeSessionId} IS NOT NULL`)
-    .all();
-
+  const sessionRows = findTasksWithClaudeSessionId();
   if (sessionRows.length === 0) return 0;
 
-  const offsetRows = db.select().from(tokenUsageSessionOffsets).all();
   const offsets = new Map(
-    offsetRows.map((r) => [r.claudeSessionId, r.byteOffset])
+    findAllSessionOffsets().map((r) => [r.claudeSessionId, r.byteOffset]),
   );
-
   const fileIndex = buildSessionFileIndex();
-
-  const insertUsage = sqlite.prepare(
-    `INSERT OR IGNORE INTO token_usage (
-      id, task_id, project_id, claude_session_id, message_uuid, model,
-      input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, ts
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-  const upsertOffset = sqlite.prepare(
-    `INSERT INTO token_usage_session_offsets
-       (claude_session_id, task_id, project_id, byte_offset, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(claude_session_id) DO UPDATE SET
-       task_id = excluded.task_id,
-       project_id = excluded.project_id,
-       byte_offset = excluded.byte_offset,
-       updated_at = excluded.updated_at`
-  );
-
-  let inserted = 0;
   const now = Date.now();
 
-  const tx = sqlite.transaction(() => {
+  return ingestTokenUsageTx((commit) => {
     for (const row of sessionRows) {
-      const sessionId = row.claudeSessionId!;
+      const sessionId = row.claudeSessionId;
       const file = fileIndex.get(sessionId);
       if (!file) continue;
       let stat: fs.Stats;
@@ -197,121 +167,55 @@ function doSync(): number {
       }
       const consumable = buf.subarray(0, lastNl + 1).toString("utf8");
       const newOffset = start + lastNl + 1;
+      const rows: TokenUsageIngestRow[] = [];
       for (const line of consumable.split("\n")) {
         const parsed = parseUsageLine(line);
         if (!parsed) continue;
-        const result = insertUsage.run(
-          `tu-${parsed.uuid}`,
-          row.taskId,
-          row.projectId,
-          sessionId,
-          parsed.uuid,
-          parsed.model,
-          parsed.usage.inputTokens,
-          parsed.usage.outputTokens,
-          parsed.usage.cacheCreationTokens,
-          parsed.usage.cacheReadTokens,
-          parsed.ts
-        );
-        if (result.changes > 0) inserted += 1;
+        rows.push({
+          id: `tu-${parsed.uuid}`,
+          taskId: row.taskId,
+          projectId: row.projectId,
+          claudeSessionId: sessionId,
+          messageUuid: parsed.uuid,
+          model: parsed.model,
+          inputTokens: parsed.usage.inputTokens,
+          outputTokens: parsed.usage.outputTokens,
+          cacheCreationTokens: parsed.usage.cacheCreationTokens,
+          cacheReadTokens: parsed.usage.cacheReadTokens,
+          ts: parsed.ts,
+        });
       }
-      upsertOffset.run(sessionId, row.taskId, row.projectId, newOffset, now);
+      commit({
+        rows,
+        sessionOffset: {
+          claudeSessionId: sessionId,
+          taskId: row.taskId,
+          projectId: row.projectId,
+          byteOffset: newOffset,
+        },
+      });
     }
-  });
-  tx();
-
-  if (inserted > 0) {
-    sqlite
-      .prepare(
-        `INSERT INTO app_settings (key, value) VALUES ('token_usage_last_sync_at', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-      )
-      .run(String(now));
-  }
-  return inserted;
+  }, now);
 }
-
-function getLastSyncedAt(): number | null {
-  const sqlite = getSqlite();
-  const row = sqlite
-    .prepare("SELECT value FROM app_settings WHERE key = 'token_usage_last_sync_at'")
-    .get() as { value?: string } | undefined;
-  if (!row?.value) return null;
-  const n = Number(row.value);
-  return Number.isFinite(n) ? n : null;
-}
-
-const sumCols = {
-  inputTokens: sql<number>`COALESCE(SUM(${tokenUsage.inputTokens}), 0)`.as("input_tokens"),
-  outputTokens: sql<number>`COALESCE(SUM(${tokenUsage.outputTokens}), 0)`.as("output_tokens"),
-  cacheCreationTokens: sql<number>`COALESCE(SUM(${tokenUsage.cacheCreationTokens}), 0)`.as(
-    "cache_creation_tokens"
-  ),
-  cacheReadTokens: sql<number>`COALESCE(SUM(${tokenUsage.cacheReadTokens}), 0)`.as(
-    "cache_read_tokens"
-  ),
-};
 
 export function getUsageSummary(daysBack: number = 30): UsageSummary {
-  const db = getDb();
+  const totalsRow = selectTotals();
+  const totals: TokenTotals = totalsRow ?? { ...EMPTY_TOTALS };
 
-  const totalsRow = db
-    .select(sumCols)
-    .from(tokenUsage)
-    .get();
-  const totals: TokenTotals = totalsRow
-    ? {
-        inputTokens: Number(totalsRow.inputTokens) || 0,
-        outputTokens: Number(totalsRow.outputTokens) || 0,
-        cacheCreationTokens: Number(totalsRow.cacheCreationTokens) || 0,
-        cacheReadTokens: Number(totalsRow.cacheReadTokens) || 0,
-      }
-    : { ...EMPTY_TOTALS };
-
-  const perProjectRows = db
-    .select({
-      projectId: projects.id,
-      name: projects.name,
-      icon: projects.icon,
-      iconColor: projects.iconColor,
-      ...sumCols,
-    })
-    .from(tokenUsage)
-    .innerJoin(projects, eq(projects.id, tokenUsage.projectId))
-    .groupBy(projects.id)
-    .all();
-  const perProject: ProjectUsage[] = perProjectRows
-    .map((r) => ({
-      projectId: r.projectId,
-      name: r.name,
-      icon: r.icon,
-      iconColor: r.iconColor,
-      inputTokens: Number(r.inputTokens) || 0,
-      outputTokens: Number(r.outputTokens) || 0,
-      cacheCreationTokens: Number(r.cacheCreationTokens) || 0,
-      cacheReadTokens: Number(r.cacheReadTokens) || 0,
-    }))
-    .sort((a, b) => totalOf(b) - totalOf(a));
+  const perProject: ProjectUsage[] = selectTotalsPerProject().sort(
+    (a, b) => totalOf(b) - totalOf(a),
+  );
 
   const sinceMs = startOfLocalDay(Date.now() - (daysBack - 1) * 86_400_000);
-  const dayExpr = sql<string>`strftime('%Y-%m-%d', ${tokenUsage.ts} / 1000, 'unixepoch', 'localtime')`;
-  const perDayRows = db
-    .select({
-      day: dayExpr,
-      ...sumCols,
-    })
-    .from(tokenUsage)
-    .where(gte(tokenUsage.ts, sinceMs))
-    .groupBy(dayExpr)
-    .all();
+  const perDayRows = selectTotalsPerDaySince(sinceMs);
   const dayMap = new Map<string, DailyUsage>();
   for (const r of perDayRows) {
-    dayMap.set(r.day as string, {
-      day: r.day as string,
-      inputTokens: Number(r.inputTokens) || 0,
-      outputTokens: Number(r.outputTokens) || 0,
-      cacheCreationTokens: Number(r.cacheCreationTokens) || 0,
-      cacheReadTokens: Number(r.cacheReadTokens) || 0,
+    dayMap.set(r.day, {
+      day: r.day,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      cacheCreationTokens: r.cacheCreationTokens,
+      cacheReadTokens: r.cacheReadTokens,
     });
   }
   const perDay: DailyUsage[] = [];
@@ -321,40 +225,16 @@ export function getUsageSummary(daysBack: number = 30): UsageSummary {
     perDay.push(dayMap.get(key) ?? { day: key, ...EMPTY_TOTALS });
   }
 
-  const perSessionRows = db
-    .select({
-      taskId: tokenUsage.taskId,
-      title: tasks.title,
-      projectId: tasks.projectId,
-      projectName: projects.name,
-      lastTs: sql<number>`MAX(${tokenUsage.ts})`.as("last_ts"),
-      ...sumCols,
-    })
-    .from(tokenUsage)
-    .innerJoin(tasks, eq(tasks.id, tokenUsage.taskId))
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .groupBy(tokenUsage.taskId)
-    .all();
-  const perSession: SessionUsage[] = perSessionRows
-    .map((r) => ({
-      taskId: r.taskId,
-      title: r.title,
-      projectId: r.projectId,
-      projectName: r.projectName,
-      lastTs: r.lastTs ? Number(r.lastTs) : null,
-      inputTokens: Number(r.inputTokens) || 0,
-      outputTokens: Number(r.outputTokens) || 0,
-      cacheCreationTokens: Number(r.cacheCreationTokens) || 0,
-      cacheReadTokens: Number(r.cacheReadTokens) || 0,
-    }))
-    .sort((a, b) => totalOf(b) - totalOf(a));
+  const perSession: SessionUsage[] = selectTotalsPerSession().sort(
+    (a, b) => totalOf(b) - totalOf(a),
+  );
 
   return {
     totals,
     perProject,
     perDay,
     perSession,
-    lastSyncedAt: getLastSyncedAt(),
+    lastSyncedAt: getTokenUsageLastSyncedAt(),
     ingested: 0,
   };
 }

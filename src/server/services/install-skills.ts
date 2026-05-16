@@ -5,7 +5,7 @@ import * as crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
-import { getLicenseState } from "~/db/settings";
+import { getLicenseState } from "./license-storage";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
 
 export type LatestSkillsManifest = {
