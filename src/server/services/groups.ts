@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import type { Group } from "~/db/schema";
 import { GROUP_COLORS } from "~/lib/design-meta";
 import { events } from "../events";
@@ -10,10 +9,7 @@ import {
   updateGroupRow,
 } from "../repositories/groups.repo";
 import { orphanProjectsByGroupId } from "../repositories/projects.repo";
-
-function newId() {
-  return `g-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-}
+import { newId } from "./_ids";
 
 export function listGroups(): Group[] {
   return findAllGroups();
@@ -24,7 +20,7 @@ export function createGroup(input: { name: string; color?: string }): Group {
   const existing = listGroups();
   const color = input.color || GROUP_COLORS[existing.length % GROUP_COLORS.length] || "#ff5a1f";
   const row: Group = {
-    id: newId(),
+    id: newId("g"),
     name: input.name.trim(),
     color,
     createdAt: Date.now(),

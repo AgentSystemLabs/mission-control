@@ -409,7 +409,8 @@ button {
     drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 90%, white));
 }
 
-.mc-btn:disabled {
+.mc-btn:disabled,
+.mc-btn[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.58;
 }
@@ -418,7 +419,12 @@ button {
 .mc-btn-frame:disabled::before,
 .mc-btn-ghost:disabled::before,
 .mc-btn-danger:disabled::before,
-.mc-btn-gray-frame:disabled::before {
+.mc-btn-gray-frame:disabled::before,
+.mc-btn-primary[aria-disabled="true"]::before,
+.mc-btn-frame[aria-disabled="true"]::before,
+.mc-btn-ghost[aria-disabled="true"]::before,
+.mc-btn-danger[aria-disabled="true"]::before,
+.mc-btn-gray-frame[aria-disabled="true"]::before {
   filter: saturate(0.75);
 }
 

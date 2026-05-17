@@ -4,7 +4,10 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
-import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
+import {
+  attachTerminalKeyHandler,
+  wireTerminalFileDrop,
+} from "~/lib/terminal-pane-helpers";
 import {
   createTerminalOptions,
   createTerminalTheme,
@@ -14,7 +17,7 @@ import {
 import { api } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { terminalInputStartsTurn } from "~/lib/task-status-sync";
-import { queryKeys, settingsQueryOptions, useTasks } from "~/queries";
+import { apiTokenQueryOptions, queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 
 async function resolveMcEnv(
@@ -22,12 +25,12 @@ async function resolveMcEnv(
   queryClient: QueryClient
 ) {
   try {
-    const [port, settings] = await Promise.all([
+    const [port, token] = await Promise.all([
       electron.getRuntimePort(),
-      queryClient.ensureQueryData(settingsQueryOptions()),
+      queryClient.ensureQueryData(apiTokenQueryOptions()),
     ]);
     if (!port) return undefined;
-    return { apiUrl: `http://127.0.0.1:${port}`, token: settings.apiToken };
+    return { apiUrl: `http://127.0.0.1:${port}`, token };
   } catch {
     return undefined;
   }
@@ -110,47 +113,17 @@ export function TerminalPane({
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
       });
 
-      // Dropping a file from Finder pastes its path into the PTY, matching
-      // iTerm/Terminal.app behavior. Claude Code reads images by path.
-      const onDragOver = (e: DragEvent) => {
-        if (e.dataTransfer?.types.includes("Files")) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }
-      };
-      const onDrop = (e: DragEvent) => {
-        const files = Array.from(e.dataTransfer?.files ?? []);
-        if (!files.length) return;
-        e.preventDefault();
-        if (!activePtyId) return;
-        const paths = files
-          .map((f) => electron.getPathForFile(f))
-          .filter(Boolean)
-          .map((p) => (/[\s"'\\]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p));
-        if (!paths.length) return;
-        electron.pty.write(activePtyId, paths.join(" ") + " ");
-        term.focus();
-      };
-      host.addEventListener("dragover", onDragOver);
-      host.addEventListener("drop", onDrop);
+      const detachFileDrop = wireTerminalFileDrop({
+        host,
+        electron,
+        getActivePtyId: () => activePtyId,
+        onFocus: () => term.focus(),
+      });
 
-      // Shift+Enter must insert a literal newline in Claude Code's prompt;
-      // xterm.js otherwise emits plain CR for both Enter and Shift+Enter,
-      // which Claude treats as submit. Send ESC+CR (alt-enter), the same
-      // sequence `claude /terminal-setup` registers for iTerm2/Terminal.app.
-      // preventDefault is required: returning false makes xterm.js bail
-      // before its own preventDefault, so the hidden textarea would also
-      // insert `\n` and xterm's input handler would write it to the PTY.
-      term.attachCustomKeyEventHandler((e) => {
-        const bytes = mapTerminalKey(e);
-        if (bytes === null) {
-          if (!shouldSuppressTerminalKey(e)) return true;
-          e.preventDefault();
-          return false;
-        }
-        e.preventDefault();
-        if (activePtyId) electron.pty.write(activePtyId, bytes);
-        return false;
+      attachTerminalKeyHandler({
+        term,
+        electron,
+        getActivePtyId: () => activePtyId,
       });
 
       // If a `claude --resume <uuid>` spawn dies almost immediately, the
@@ -212,8 +185,7 @@ export function TerminalPane({
             fallbackRunningPosted = true;
             void (async () => {
               try {
-                const settings = await queryClient.ensureQueryData(settingsQueryOptions());
-                await api.updateTaskStatus(descriptor.taskId, { status: "running" }, settings.apiToken);
+                await api.updateTaskStatus(descriptor.taskId, { status: "running" });
                 await Promise.all([
                   queryClient.invalidateQueries({ queryKey: queryKeys.tasks(project.id) }),
                   queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
@@ -291,8 +263,7 @@ export function TerminalPane({
         cancelAnimationFrame(rafHandle);
         for (const off of subscriptions) off();
         stopWatchingColorScheme();
-        host.removeEventListener("dragover", onDragOver);
-        host.removeEventListener("drop", onDrop);
+        detachFileDrop();
         ro.disconnect();
         fitRef.current = null;
         term.dispose();

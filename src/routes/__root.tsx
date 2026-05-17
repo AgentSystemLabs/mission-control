@@ -27,7 +27,7 @@ import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
-import { useSettings, useProjects, useLicense } from "~/queries";
+import { apiTokenQueryOptions, useSettings, useProjects, useLicense } from "~/queries";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
 import {
@@ -83,6 +83,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "MissionControl" },
     ],
   }),
+  // Prime the bearer cache via IPC so the module-level token in src/lib/api.ts
+  // is populated by the time child loaders start firing HTTP fetches. Note:
+  // TanStack Router runs matched-route loaders in parallel by default, so
+  // child loaders may race this prefetch — `resolveApiToken` (src/lib/api.ts)
+  // dedupes via a lazy IPC fallback so the race resolves to the same token.
+  // SSR rejects this (no Electron); the SSR branch of `resolveApiToken` reads
+  // the token directly from src/server/auth.ts:getServerApiToken.
+  loader: ({ context }) =>
+    context.queryClient
+      .ensureQueryData(apiTokenQueryOptions())
+      .catch(() => null),
   component: RootComponent,
 });
 

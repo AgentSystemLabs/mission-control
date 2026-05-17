@@ -5,9 +5,8 @@ import {
   listUserTerminals,
   renameUserTerminal,
 } from "../services/user-terminals";
-import { handleDomainError, json, noContent, notFound, parseJsonBody } from "./_helpers";
-
-const idParam = z.string().min(1);
+import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
+import { HTTP_CREATED } from "~/shared/http-status";
 
 const createTerminalBody = z.object({
   name: z.string().optional(),
@@ -37,7 +36,7 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
       cwd: parsed.data.cwd ?? null,
       startCommand: parsed.data.startCommand ?? null,
     });
-    return json({ terminal: t }, { status: 201 });
+    return json({ terminal: t }, { status: HTTP_CREATED });
   } catch (e) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;

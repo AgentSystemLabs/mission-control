@@ -198,7 +198,10 @@ function doSync(): number {
   }, now);
 }
 
-export function getUsageSummary(daysBack: number = 30): UsageSummary {
+const MS_PER_DAY = 86_400_000;
+const DEFAULT_USAGE_DAYS = 30;
+
+export function getUsageSummary(daysBack: number = DEFAULT_USAGE_DAYS): UsageSummary {
   const totalsRow = selectTotals();
   const totals: TokenTotals = totalsRow ?? { ...EMPTY_TOTALS };
 
@@ -206,7 +209,7 @@ export function getUsageSummary(daysBack: number = 30): UsageSummary {
     (a, b) => totalOf(b) - totalOf(a),
   );
 
-  const sinceMs = startOfLocalDay(Date.now() - (daysBack - 1) * 86_400_000);
+  const sinceMs = startOfLocalDay(Date.now() - (daysBack - 1) * MS_PER_DAY);
   const perDayRows = selectTotalsPerDaySince(sinceMs);
   const dayMap = new Map<string, DailyUsage>();
   for (const r of perDayRows) {
@@ -220,7 +223,7 @@ export function getUsageSummary(daysBack: number = 30): UsageSummary {
   }
   const perDay: DailyUsage[] = [];
   for (let i = daysBack - 1; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86_400_000);
+    const d = new Date(Date.now() - i * MS_PER_DAY);
     const key = formatLocalDay(d);
     perDay.push(dayMap.get(key) ?? { day: key, ...EMPTY_TOTALS });
   }

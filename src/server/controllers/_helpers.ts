@@ -7,15 +7,26 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "../errors";
+import {
+  HTTP_BAD_REQUEST,
+  HTTP_CONFLICT,
+  HTTP_NO_CONTENT,
+  HTTP_NOT_FOUND,
+  HTTP_UNAUTHORIZED,
+} from "~/shared/http-status";
 
 export { json, jsonError };
 
+// Standard `:id` path-parameter schema reused by every controller that
+// extracts an id from the URL.
+export const idParam = z.string().min(1);
+
 export function noContent(): Response {
-  return new Response(null, { status: 204 });
+  return new Response(null, { status: HTTP_NO_CONTENT });
 }
 
 export function notFound(message = "not found"): Response {
-  return jsonError(404, message);
+  return jsonError(HTTP_NOT_FOUND, message);
 }
 
 async function readBodyText(request: Request): Promise<string> {
@@ -38,12 +49,12 @@ export async function parseJsonBody<S extends z.ZodType>(
     try {
       raw = JSON.parse(text);
     } catch {
-      return { ok: false, response: jsonError(400, "invalid JSON body") };
+      return { ok: false, response: jsonError(HTTP_BAD_REQUEST, "invalid JSON body") };
     }
   }
   const result = schema.safeParse(raw);
   if (!result.success) {
-    return { ok: false, response: jsonError(400, zodMessage(result.error)) };
+    return { ok: false, response: jsonError(HTTP_BAD_REQUEST, zodMessage(result.error)) };
   }
   return { ok: true, data: result.data };
 }
@@ -56,7 +67,7 @@ export function parseSearchParams<S extends z.ZodType>(
   const obj = Object.fromEntries(url.searchParams.entries());
   const result = schema.safeParse(obj);
   if (!result.success) {
-    return { ok: false, response: jsonError(400, zodMessage(result.error)) };
+    return { ok: false, response: jsonError(HTTP_BAD_REQUEST, zodMessage(result.error)) };
   }
   return { ok: true, data: result.data };
 }
@@ -68,7 +79,7 @@ export function parsePathParams<S extends z.ZodType>(
 ): { ok: true; data: z.infer<S> } | { ok: false; response: Response } {
   const result = schema.safeParse(raw);
   if (!result.success) {
-    return { ok: false, response: jsonError(400, zodMessage(result.error)) };
+    return { ok: false, response: jsonError(HTTP_BAD_REQUEST, zodMessage(result.error)) };
   }
   return { ok: true, data: result.data };
 }
@@ -85,10 +96,10 @@ function zodMessage(error: z.ZodError): string {
  * the outer handler still surfaces a 400/500 with the original message.
  */
 export function handleDomainError(e: unknown): Response | null {
-  if (e instanceof NotFoundError) return jsonError(404, e.message);
-  if (e instanceof ValidationError) return jsonError(400, e.message);
-  if (e instanceof UnauthorizedError) return jsonError(401, e.message);
-  if (e instanceof ConflictError) return jsonError(409, e.message);
-  if (e instanceof DomainError) return jsonError(400, e.message);
+  if (e instanceof NotFoundError) return jsonError(HTTP_NOT_FOUND, e.message);
+  if (e instanceof ValidationError) return jsonError(HTTP_BAD_REQUEST, e.message);
+  if (e instanceof UnauthorizedError) return jsonError(HTTP_UNAUTHORIZED, e.message);
+  if (e instanceof ConflictError) return jsonError(HTTP_CONFLICT, e.message);
+  if (e instanceof DomainError) return jsonError(HTTP_BAD_REQUEST, e.message);
   return null;
 }

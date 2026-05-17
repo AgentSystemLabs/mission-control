@@ -3,6 +3,7 @@
 // (localhost:3000 in dev, https://agentsystem.dev in prod), so no env var is
 // required from the user.
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
+import { resolveApiToken } from "~/lib/api";
 import type {
   InstallSkillsResult,
   LatestSkillsManifest,
@@ -13,12 +14,12 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     typeof window === "undefined" && url.startsWith("/")
       ? DEV_SERVER_ORIGIN + url
       : url;
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const token = await resolveApiToken();
+  if (token) headers.authorization = `Bearer ${token}`;
   const res = await fetch(resolved, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers: { ...headers, ...(init?.headers ?? {}) },
   });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;

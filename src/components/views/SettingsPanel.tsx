@@ -18,6 +18,18 @@ export type SettingsPanelId =
   | "terms";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
+// Settings panel slides in slightly slower than it slides out so the entrance
+// feels weightier than the dismissal. Same timings used for the left nav and
+// the right content pane.
+const SLIDE_OUT_MS = 380;
+const SLIDE_IN_MS = 480;
+const SLIDE_OUT_EASE = "cubic-bezier(0.64, 0, 0.78, 0)";
+const SLIDE_IN_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+const SLIDE_OUT_LEFT = `mc-settings-slide-out-left ${SLIDE_OUT_MS}ms ${SLIDE_OUT_EASE} both`;
+const SLIDE_IN_LEFT = `mc-settings-slide-in-left ${SLIDE_IN_MS}ms ${SLIDE_IN_EASE} both`;
+const SLIDE_OUT_RIGHT = `mc-settings-slide-out-right ${SLIDE_OUT_MS}ms ${SLIDE_OUT_EASE} both`;
+const SLIDE_IN_RIGHT = `mc-settings-slide-in-right ${SLIDE_IN_MS}ms ${SLIDE_IN_EASE} both`;
+
 export function SettingsPanel({
   onBack,
   initialPanel = "general",
@@ -105,9 +117,7 @@ export function SettingsPanel({
             flexShrink: 0,
             padding: "16px 6px",
             overflow: "auto",
-            animation: isExiting
-              ? "mc-settings-slide-out-left 380ms cubic-bezier(0.64, 0, 0.78, 0) both"
-              : "mc-settings-slide-in-left 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
+            animation: isExiting ? SLIDE_OUT_LEFT : SLIDE_IN_LEFT,
           }}
           onAnimationEnd={(e) => {
             if (isExiting && e.animationName === "mc-settings-slide-out-left") {
@@ -191,9 +201,7 @@ export function SettingsPanel({
             minWidth: 0,
             padding: "24px 32px 80px",
             overflow: "auto",
-            animation: isExiting
-              ? "mc-settings-slide-out-right 380ms cubic-bezier(0.64, 0, 0.78, 0) both"
-              : "mc-settings-slide-in-right 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
+            animation: isExiting ? SLIDE_OUT_RIGHT : SLIDE_IN_RIGHT,
           }}
         >
           {activePanel === "general" ? (

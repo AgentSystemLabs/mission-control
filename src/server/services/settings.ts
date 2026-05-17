@@ -48,12 +48,6 @@ export function getOrCreateApiToken(): string {
   return token;
 }
 
-export function regenerateApiToken(): string {
-  const token = randomBytes(32).toString("hex");
-  setAppSetting(API_TOKEN_KEY, token);
-  return token;
-}
-
 const SKILLS_INITIALIZED_AT_KEY = "skills_initialized_at";
 
 export function getSkillsInitializedAt(): string | null {

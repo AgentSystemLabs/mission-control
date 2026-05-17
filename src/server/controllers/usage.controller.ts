@@ -2,13 +2,17 @@ import { z } from "zod";
 import { getUsageSummary, syncTokenUsage } from "../services/token-usage";
 import { json, parseSearchParams } from "./_helpers";
 
+const DEFAULT_USAGE_DAYS = 30;
+const MIN_USAGE_DAYS = 1;
+const MAX_USAGE_DAYS = 365;
+
 const usageParams = z.object({
   days: z
     .string()
     .optional()
     .transform((v) => {
-      const n = Number.parseInt(v ?? "30", 10) || 30;
-      return Math.max(1, Math.min(365, n));
+      const n = Number.parseInt(v ?? String(DEFAULT_USAGE_DAYS), 10) || DEFAULT_USAGE_DAYS;
+      return Math.max(MIN_USAGE_DAYS, Math.min(MAX_USAGE_DAYS, n));
     }),
   sync: z.string().optional(),
 });

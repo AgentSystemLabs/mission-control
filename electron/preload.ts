@@ -1,6 +1,25 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { IPC } from "./ipc-channels";
 
+// Mirror of UpdateState in update-manager.ts. Kept structural here so the renderer
+// bundle never imports main-process code. Drift between the two is caught by the
+// reviewer-contracts subagent.
+export type UpdateStateBridge =
+  | { kind: "unsupported-dev" }
+  | { kind: "idle"; lastCheckedAt: number | null }
+  | { kind: "checking" }
+  | { kind: "available"; version: string }
+  | {
+      kind: "downloading";
+      version: string;
+      percent: number;
+      bytesPerSecond: number;
+      transferred: number;
+      total: number;
+    }
+  | { kind: "ready-to-install"; version: string }
+  | { kind: "error"; message: string };
+
 const electronAPI = {
   installSkills: {
     fetchLatest: (opts?: { baseUrl?: string; licenseKey?: string }) =>
@@ -11,6 +30,11 @@ const electronAPI = {
       baseUrl?: string;
       licenseKey?: string;
     }) => ipcRenderer.invoke(IPC.installSkillsRun, args),
+  },
+  settings: {
+    getToken: (): Promise<string> => ipcRenderer.invoke(IPC.settingsGetToken),
+    regenerateToken: (): Promise<string> =>
+      ipcRenderer.invoke(IPC.settingsRegenerateToken),
   },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),
@@ -45,6 +69,11 @@ const electronAPI = {
       rows?: number;
       agent?: string;
       mcEnv?: { apiUrl?: string; token?: string };
+      // Required when `agent` is omitted: signals an intentional user-shell
+      // terminal that runs `command` through the login shell. Agent terminals
+      // (claude-code/codex/cursor-cli) must leave this unset and pass `command`
+      // starting with the agent's binary name, which spawns directly via argv.
+      shell?: boolean;
     }) => ipcRenderer.invoke(IPC.ptySpawn, opts) as Promise<{ ptyId: string }>,
     write: (ptyId: string, data: string) => ipcRenderer.invoke(IPC.ptyWrite, { ptyId, data }),
     resize: (ptyId: string, cols: number, rows: number) =>
@@ -81,6 +110,20 @@ const electronAPI = {
     ipcRenderer.on(IPC.appCloseIntent, listener);
     return () => ipcRenderer.removeListener(IPC.appCloseIntent, listener);
   },
+  updater: {
+    getState: (): Promise<UpdateStateBridge> =>
+      ipcRenderer.invoke(IPC.updateGetState) as Promise<UpdateStateBridge>,
+    check: (): Promise<void> => ipcRenderer.invoke(IPC.updateCheck) as Promise<void>,
+    download: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.updateDownload),
+    installNow: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.updateInstall),
+    onStateChange: (cb: (state: UpdateStateBridge) => void) => {
+      const listener = (_: Electron.IpcRendererEvent, state: UpdateStateBridge) => cb(state);
+      ipcRenderer.on(IPC.updateStateChange, listener);
+      return () => ipcRenderer.removeListener(IPC.updateStateChange, listener);
+    },
+  },
   files: {
     list: (projectRoot: string): Promise<{ ok: true; files: string[] } | { ok: false; error: string }> =>
       ipcRenderer.invoke(IPC.filesList, projectRoot),
@@ -98,8 +141,35 @@ const electronAPI = {
       expectedMtimeMs: number | null,
     ): Promise<
       | { ok: true; mtimeMs: number }
-      | { ok: false; error: "invalid-path" | "invalid-content" | "stale" | string; currentMtimeMs?: number }
+      | {
+          ok: false;
+          error:
+            | "invalid-path"
+            | "invalid-content"
+            | "stale"
+            | "protected-path"
+            | string;
+          currentMtimeMs?: number;
+        }
     > => ipcRenderer.invoke(IPC.filesWrite, projectRoot, relPath, content, expectedMtimeMs),
+    writeSensitive: (
+      projectRoot: string,
+      relPath: string,
+      content: string,
+      expectedMtimeMs: number | null,
+    ): Promise<
+      | { ok: true; mtimeMs: number }
+      | {
+          ok: false;
+          error:
+            | "invalid-path"
+            | "invalid-content"
+            | "stale"
+            | "user-declined"
+            | string;
+          currentMtimeMs?: number;
+        }
+    > => ipcRenderer.invoke(IPC.filesWriteSensitive, projectRoot, relPath, content, expectedMtimeMs),
     watch: (
       projectRoot: string,
       relPath: string,

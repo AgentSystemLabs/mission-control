@@ -1,5 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
-import { api } from "~/lib/api";
+import { api, setApiToken } from "~/lib/api";
+import { getElectron } from "~/lib/electron";
 
 export const queryKeys = {
   projects: ["projects"] as const,
@@ -7,6 +8,7 @@ export const queryKeys = {
   groups: ["groups"] as const,
   tasks: (projectId: string) => ["projects", projectId, "tasks"] as const,
   settings: ["settings"] as const,
+  apiToken: ["api-token"] as const,
   license: ["license"] as const,
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
@@ -44,6 +46,28 @@ export const settingsQueryOptions = () =>
     queryFn: async () => api.getSettings(),
   });
 
+// The api bearer token is fetched over Electron IPC, never HTTP — see
+// electron/api-token-store.ts. Stays cached indefinitely; only invalidated
+// when ApiSettingsPage rotates it. `setApiToken` mirrors the value into the
+// module-level cache that `src/lib/api.ts:req` reads on every fetch, so all
+// HTTP calls authenticate automatically once this resolves.
+export const apiTokenQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.apiToken,
+    queryFn: async (): Promise<string> => {
+      const electron = getElectron();
+      if (!electron) {
+        throw new Error(
+          "api token is only available through the Electron runtime",
+        );
+      }
+      const token = await electron.settings.getToken();
+      setApiToken(token);
+      return token;
+    },
+    staleTime: Infinity,
+  });
+
 export const licenseQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.license,
@@ -56,11 +80,14 @@ export const userTerminalsQueryOptions = (projectId: string) =>
     queryFn: async () => (await api.listUserTerminals(projectId)).terminals,
   });
 
-export const usageQueryOptions = (days: number = 30) =>
+export const DEFAULT_USAGE_DAYS = 30;
+const USAGE_STALE_MS = 30_000;
+
+export const usageQueryOptions = (days: number = DEFAULT_USAGE_DAYS) =>
   queryOptions({
     queryKey: queryKeys.usage(days),
     queryFn: async () => api.getUsage(days),
-    staleTime: 30_000,
+    staleTime: USAGE_STALE_MS,
   });
 
 export const useProjects = () => useQuery(projectsQueryOptions());
@@ -69,7 +96,9 @@ export const useGroups = () => useQuery(groupsQueryOptions());
 export const useTasks = (projectId: string) =>
   useQuery(tasksQueryOptions(projectId));
 export const useSettings = () => useQuery(settingsQueryOptions());
+export const useApiToken = () => useQuery(apiTokenQueryOptions());
 export const useLicense = () => useQuery(licenseQueryOptions());
 export const useUserTerminalsQuery = (projectId: string) =>
   useQuery(userTerminalsQueryOptions(projectId));
-export const useUsage = (days: number = 30) => useQuery(usageQueryOptions(days));
+export const useUsage = (days: number = DEFAULT_USAGE_DAYS) =>
+  useQuery(usageQueryOptions(days));

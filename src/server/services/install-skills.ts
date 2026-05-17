@@ -2,30 +2,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import { getLicenseState } from "./license-storage";
-import { ACADEMY_BASE_URL } from "~/shared/academy";
+import { academyUrl } from "~/shared/academy";
+import type {
+  InstallSkillsArgs,
+  InstallSkillsResult,
+  LatestSkillsManifest,
+} from "~/shared/electron-contract";
+import {
+  downloadAndVerifyTarball,
+  licenseAuthHeaders,
+  normalizeEntryPath,
+} from "./_skills-install-helpers";
 
-export type LatestSkillsManifest = {
-  version: string;
-  downloadUrl: string;
-  sha256: string;
-  size: number;
-};
-
-export type InstallSkillsArgs = {
-  projectPath: string;
-  harnesses: { claude: boolean; codex: boolean };
-};
-
-export type InstallSkillsResult = {
-  version: string;
-  claudeInstalled: boolean;
-  codexInstalled: boolean;
-  skillCount: number;
-};
+export type { InstallSkillsArgs, InstallSkillsResult, LatestSkillsManifest };
 
 const ALLOWED_PREFIXES = [".claude/skills/", ".codex/skills/"] as const;
 const VERSION_MANIFEST_PATH = ".agentsystem/skills-version.json";
@@ -36,17 +27,6 @@ function readRequiredLicenseKey(): string {
     throw new Error("A valid license key is required to install skills.");
   }
   return key;
-}
-
-function licenseAuthHeaders(key: string): HeadersInit {
-  return { authorization: `Bearer ${key}` };
-}
-
-function normalizeEntryPath(p: string): string | null {
-  let s = p.replace(/\\/g, "/").replace(/^\.\//, "");
-  if (s.startsWith("/")) return null;
-  if (s.split("/").some((part) => part === "..")) return null;
-  return s;
 }
 
 function entryAllowed(
@@ -87,7 +67,7 @@ export function readInstalledSkillsVersion(
 
 export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest> {
   const licenseKey = readRequiredLicenseKey();
-  const url = `${ACADEMY_BASE_URL.replace(/\/$/, "")}/api/skills/latest`;
+  const url = academyUrl("/api/skills/latest");
   const res = await fetch(url, { headers: licenseAuthHeaders(licenseKey) });
   if (!res.ok) {
     throw new Error(
@@ -131,29 +111,13 @@ export async function installProjectSkills(
   );
 
   try {
-    const dlRes = await fetch(manifest.downloadUrl, {
+    await downloadAndVerifyTarball({
+      url: manifest.downloadUrl,
       headers: licenseAuthHeaders(licenseKey),
+      tempFile,
+      expectedSha256: manifest.sha256,
+      kind: "skills tarball",
     });
-    if (!dlRes.ok || !dlRes.body) {
-      throw new Error(
-        `Failed to download skills tarball: ${dlRes.status} ${dlRes.statusText}`,
-      );
-    }
-    const hash = crypto.createHash("sha256");
-    const fileStream = fs.createWriteStream(tempFile);
-    const nodeStream = Readable.fromWeb(
-      dlRes.body as unknown as import("stream/web").ReadableStream,
-    );
-    nodeStream.on("data", (chunk: Buffer | string) => {
-      hash.update(chunk);
-    });
-    await pipeline(nodeStream, fileStream);
-    const got = hash.digest("hex");
-    if (got.toLowerCase() !== manifest.sha256.toLowerCase()) {
-      throw new Error(
-        `Tarball sha256 mismatch: expected ${manifest.sha256}, got ${got}`,
-      );
-    }
 
     const skillDirsByHarness = {
       claude: new Set<string>(),

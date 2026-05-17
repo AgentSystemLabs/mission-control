@@ -5,6 +5,7 @@ import {
   readInstalledSkillsVersion,
 } from "../services/install-skills";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
+import { HTTP_BAD_GATEWAY, HTTP_BAD_REQUEST } from "~/shared/http-status";
 
 const installBody = z.object({
   projectPath: z.string().min(1, "projectPath is required"),
@@ -27,7 +28,7 @@ export async function latest(): Promise<Response> {
     const manifest = await fetchLatestSkillsManifest();
     return json({ manifest });
   } catch (e: any) {
-    return jsonError(502, e?.message ?? "Failed to fetch manifest");
+    return jsonError(HTTP_BAD_GATEWAY, e?.message ?? "Failed to fetch manifest");
   }
 }
 
@@ -46,6 +47,6 @@ export async function install(request: Request): Promise<Response> {
   } catch (e: any) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;
-    return jsonError(400, e?.message ?? "Install failed");
+    return jsonError(HTTP_BAD_REQUEST, e?.message ?? "Install failed");
   }
 }

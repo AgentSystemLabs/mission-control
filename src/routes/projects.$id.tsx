@@ -27,11 +27,13 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
 import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER, TASK_STATUSES } from "~/shared/domain";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
+  apiTokenQueryOptions,
   groupsQueryOptions,
   projectQueryOptions,
   queryKeys,
   settingsQueryOptions,
   tasksQueryOptions,
+  useApiToken,
   useGroups,
   useProject,
   useSettings,
@@ -59,6 +61,9 @@ export const Route = createFileRoute("/projects/$id")({
       context.queryClient.ensureQueryData(tasksQueryOptions(params.id)),
       context.queryClient.ensureQueryData(groupsQueryOptions()),
       context.queryClient.ensureQueryData(settingsQueryOptions()),
+      // IPC-only; will reject under SSR/loader on the Node side but that's
+      // expected since the renderer is the only context that holds the token.
+      context.queryClient.ensureQueryData(apiTokenQueryOptions()).catch(() => null),
       context.queryClient
         .ensureQueryData(gitStatusQueryOptions(params.id))
         .catch(() => null),
@@ -98,6 +103,7 @@ function ProjectPage() {
   const { data: tasks = [] } = useTasks(id);
   const { data: groups = [] } = useGroups();
   const { data: settings } = useSettings();
+  const { data: apiToken = null } = useApiToken();
   const { data: gitStatus } = useGitStatus(id);
   const [showDiffView, setShowDiffView] = useState(false);
 
@@ -108,7 +114,6 @@ function ProjectPage() {
   const closeDiffView = useCallback(() => {
     setShowDiffView(false);
   }, []);
-  const apiToken = settings?.apiToken ?? null;
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -282,20 +287,16 @@ function ProjectPage() {
         return;
       }
       const isClaude = payload.agent === "claude-code";
-      const created = await api.createTaskInternal(
-        project.id,
-        {
-          title: TITLE_WAITING,
-          agent: payload.agent,
-          branch: payload.branch,
-          claudeSessionId: isClaude ? newSessionId() : undefined,
-          claudeBareSession: isClaude ? payload.bareSession : undefined,
-          claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
-            ? payload.skipPermissions
-            : undefined,
-        },
-        apiToken
-      );
+      const created = await api.createTaskInternal(project.id, {
+        title: TITLE_WAITING,
+        agent: payload.agent,
+        branch: payload.branch,
+        claudeSessionId: isClaude ? newSessionId() : undefined,
+        claudeBareSession: isClaude ? payload.bareSession : undefined,
+        claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
+          ? payload.skipPermissions
+          : undefined,
+      });
       terminals.toggle(project, created.task);
       await refresh();
     },

@@ -118,7 +118,14 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 The UI updates within ~1 second over its SSE connection.
 
-### Endpoints (UI — no auth needed; localhost only)
+### Endpoints (localhost only; bearer-token required on every route)
+
+All `/api/*` routes require an `Authorization: Bearer <token>` header (token in
+Settings → API). The renderer attaches it automatically; external CLIs (Claude,
+Codex, Cursor) receive it via the `$MC_API_TOKEN` env var when launched from
+within Mission Control. `/api/events` (SSE) accepts the token as `?token=…`
+because `EventSource` cannot send custom headers.
+
 
 | Method | Path                                   |
 | ------ | -------------------------------------- |
@@ -140,6 +147,29 @@ The UI updates within ~1 second over its SSE connection.
 | GET    | `/api/events` (SSE)                    |
 | GET    | `/api/settings`                        |
 | POST   | `/api/settings` (regenerate token)     |
+
+## Observability
+
+Main-process logs are written via `electron-log`. In a packaged build they persist to:
+
+- **macOS:** `~/Library/Logs/MissionControl/main.log`
+- **Windows:** `%USERPROFILE%\AppData\Roaming\MissionControl\logs\main.log`
+- **Linux:** `~/.config/MissionControl/logs/main.log`
+
+In dev (`pnpm dev`) the same lines are written to stdout/stderr.
+
+### Event prefixes
+
+| Prefix | Surface | Dispatch sites |
+| --- | --- | --- |
+| `update.check.*` | Auto-updater check lifecycle (entry, failure) | `electron/update-manager.ts:safeCheck` |
+| `update.download.*` | Auto-updater download lifecycle | `electron/update-manager.ts:safeDownload` |
+| `update.install.*` | Auto-updater install lifecycle | `electron/update-manager.ts:safeInstall` |
+| `update.state.*` | Auto-updater UpdateState transitions (sampled at 10% boundaries for downloading) | `electron/update-manager.ts:broadcast` |
+| `update.error.*` | Errors emitted by electron-updater itself | `electron/update-manager.ts:wireEvents` |
+| `update.load.*` | electron-updater module load failure | `electron/update-manager.ts:loadUpdater` |
+
+When investigating "the update never installed," start with `rg 'event: "update\.' ~/Library/Logs/MissionControl/main.log`. electron-updater's own internal log stream (URL resolution, signature verification, retries) is also routed into the same file.
 
 ## Skill file for external CLIs
 

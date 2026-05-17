@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createProjectFromLaunchKit, readLaunchKitAccess } from "../services/launch-kit";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
+import { HTTP_BAD_REQUEST, HTTP_CREATED } from "~/shared/http-status";
 
 const createProjectBody = z.object({
   parentDir: z.string().min(1, "parentDir is required"),
@@ -16,10 +17,10 @@ export async function create(request: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   try {
     const result = await createProjectFromLaunchKit(parsed.data);
-    return json(result, { status: 201 });
+    return json(result, { status: HTTP_CREATED });
   } catch (e: any) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;
-    return jsonError(400, e?.message ?? "Launch Kit import failed");
+    return jsonError(HTTP_BAD_REQUEST, e?.message ?? "Launch Kit import failed");
   }
 }

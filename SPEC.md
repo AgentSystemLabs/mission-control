@@ -28,7 +28,7 @@ Show me at a glance which projects need my attention and let me pop into a proje
 
 ### Non-Goals (v1)
 
-- No accounts, no auth, no multi-user — local single-user app
+- No user accounts, no multi-user — local single-user app (the HTTP API is bearer-token gated; see Auth & Authorization below)
 - No cloud sync or remote storage
 - No in-app AI agent orchestration — we spawn the user's installed CLIs and act as a shell + status board
 - No built-in code editor or diff viewer (clicking a task opens its terminal; that's it)
@@ -167,8 +167,9 @@ A `Group` has many `Projects`. A `Project` has many `Tasks`. A `Task` has zero o
 
 ## Auth & Authorization
 
-- **Local UI:** no auth — single-user desktop app. The Electron BrowserWindow is the only consumer.
-- **External HTTP API:** bearer token in `Authorization` header. Token generated on first launch and stored in `app_settings`. Visible & copyable from Settings dialog.
+- **No user accounts** — single-user desktop app; the bearer token is the only credential.
+- **HTTP API (UI and external):** every `/api/*` route requires `Authorization: Bearer <token>` (header — or `?token=` query for `/api/events` SSE, since `EventSource` cannot send headers). The renderer attaches the bearer automatically via the IPC-fetched token; external CLIs (Claude, Codex, Cursor) inherit `$MC_API_TOKEN` when launched from MC. Token generated on first launch, stored in `app_settings`, copyable from Settings → API.
+- **Same-origin gate:** before bearer check, every `/api/*` request must come from a loopback `Origin`/`Host` to defeat DNS rebinding and cross-origin browser fetches.
 - **Network bind:** API binds to `127.0.0.1` only. Never exposed to LAN.
 
 ## Pages & Routes

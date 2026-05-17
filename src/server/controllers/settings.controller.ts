@@ -1,9 +1,7 @@
 import { z } from "zod";
 import {
   getBooleanSetting,
-  getOrCreateApiToken,
   getSetting,
-  regenerateApiToken,
   setBooleanSetting,
   setSetting,
 } from "../services/settings";
@@ -14,9 +12,14 @@ import {
 } from "~/lib/accent-colors";
 import { json, parseJsonBody } from "./_helpers";
 
+// The api bearer token is intentionally NOT delivered over HTTP. It is only
+// readable through the Electron IPC channel `settings:getToken`, so a page
+// cannot exfiltrate it via fetch even from the same origin. See
+// todos/bugs/done/02-api-settings-leaks-bearer-token.md for the original leak.
+// .strict() so a stale client that still sends the removed `regenerate: true`
+// field (or any other unknown key) gets a 400 instead of a silent no-op.
 const updateSettingsBody = z
-  .object({
-    regenerate: z.boolean(),
+  .strictObject({
     agentSystemBannerDisabled: z.boolean(),
     accentColor: z.string().refine(isAccentColorId, { message: "invalid accentColor" }),
     minimalTheme: z.boolean(),
@@ -33,7 +36,6 @@ function getAccentColorSetting(): AccentColorId {
 
 function settingsPayload() {
   return {
-    apiToken: getOrCreateApiToken(),
     agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
     accentColor: getAccentColorSetting(),
     minimalTheme: getBooleanSetting("minimal_theme"),
@@ -54,10 +56,6 @@ export async function update(request: Request): Promise<Response> {
   const parsed = await parseJsonBody(request, updateSettingsBody);
   if (!parsed.ok) return parsed.response;
   const body = parsed.data;
-  if (body.regenerate) {
-    const apiToken = regenerateApiToken();
-    return json({ ...settingsPayload(), apiToken });
-  }
   if (body.agentSystemBannerDisabled !== undefined) {
     setBooleanSetting("agent_system_banner_disabled", body.agentSystemBannerDisabled);
   }

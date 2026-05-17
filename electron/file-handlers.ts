@@ -1,8 +1,9 @@
-import type { BrowserWindow, IpcMain } from "electron";
+import { dialog, type BrowserWindow, type IpcMain } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
 import { IPC } from "./ipc-channels";
+import { safeHandle } from "./ipc-safe-handle";
 
 const HARDCODED_IGNORES = [
   "node_modules",
@@ -34,6 +35,111 @@ type WatchEntry = {
 
 const watchers = new Map<string, WatchEntry>();
 let nextWatchId = 1;
+
+// Paths that auto-execute on routine user actions (next prompt, next git op,
+// next install, next IDE open). Writing any of these via the generic
+// `files:write` IPC would let a compromised renderer plant persistent code
+// execution without ever invoking the PTY. Sensitive writes must go through
+// `files:writeSensitive`, which surfaces a native OS confirm dialog.
+//
+// Match is applied against the *resolved* relative path, after symlink and
+// `./` normalization (see `resolveInsideRoot`).
+const SENSITIVE_DIR_SEGMENTS = new Set([
+  ".claude",
+  ".codex",
+  ".cursor",
+  ".git",
+  ".husky",
+  ".vscode",
+  ".devcontainer",
+]);
+
+const SENSITIVE_ROOT_FILES = new Set([
+  "package.json",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  ".envrc",
+]);
+
+// macOS APFS is case-insensitive by default, so `.Claude/settings.local.json`
+// and `Package.JSON` resolve to the same OS object as the canonical lowercase
+// form. The classifier matches on lowercased segments so case variants can't
+// dodge the deny-list.
+export function isSensitiveRelPath(relPath: string): boolean {
+  if (!relPath) return false;
+  const normalized = relPath.split(path.sep).join("/").replace(/^\/+/, "");
+  if (!normalized) return false;
+  const segments = normalized.split("/").filter((s) => s.length > 0);
+  if (segments.length === 0) return false;
+  if (segments.length === 1 && SENSITIVE_ROOT_FILES.has(segments[0]!.toLowerCase())) {
+    return true;
+  }
+  for (const seg of segments) {
+    const lower = seg.toLowerCase();
+    if (SENSITIVE_DIR_SEGMENTS.has(lower)) return true;
+    // `hooks` anywhere in the path — covers .husky/hooks, custom hook dirs,
+    // and generic agent-config schemas that nest a hooks folder under a
+    // non-dotted root.
+    if (lower === "hooks") return true;
+  }
+  return false;
+}
+
+// Computes the post-normalization and post-realpath relatives for an `abs`
+// already verified by `resolveInsideRoot`. The sensitive-path deny-list runs
+// against BOTH:
+//   - the normalized relative (`path.relative(root, abs)`) — collapses `..`
+//     and `.` traversal so `src/../.git/hooks/x` can't slip past as
+//     `["src", "..", ".git", ...]`.
+//   - the realpath relative (when the file exists) — catches symlink
+//     laundering where `docs/readme.md` → `.git/hooks/pre-commit`.
+function resolvedRelsForCheck(
+  projectRoot: string,
+  abs: string,
+): { normalizedRel: string; realRel: string | null } {
+  const root = path.resolve(projectRoot);
+  const normalizedRel = path.relative(root, abs);
+  let realRel: string | null = null;
+  try {
+    if (fs.existsSync(abs)) {
+      const realRoot = fs.realpathSync(root);
+      const realAbs = fs.realpathSync(abs);
+      realRel = path.relative(realRoot, realAbs);
+    }
+  } catch {
+    realRel = null;
+  }
+  return { normalizedRel, realRel };
+}
+
+export function isSensitiveAbs(projectRoot: string, abs: string): boolean {
+  const { normalizedRel, realRel } = resolvedRelsForCheck(projectRoot, abs);
+  if (isSensitiveRelPath(normalizedRel)) return true;
+  if (realRel && isSensitiveRelPath(realRel)) return true;
+  return false;
+}
+
+// Renderer-supplied strings can carry control characters that, when rendered
+// in the native confirm dialog, hide or obscure the path the user is approving
+// (extra newlines push "Allow write" off-screen; CR can overwrite the line).
+// We sanitize only what is shown to the user; the *write* still goes to the
+// canonical resolved path.
+function sanitizeDisplayPath(relPath: string): string {
+  // Strip C0 control bytes and DEL. Done by char-code rather than a
+  // /[\u0000-\u001f\u007f]/ regex so the source file contains no literal
+  // control bytes (which break grep/diff tools that auto-detect binary).
+  let out = "";
+  for (let i = 0; i < relPath.length; i++) {
+    const code = relPath.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) continue;
+    out += relPath[i];
+    if (out.length >= 200) {
+      return out.slice(0, 197) + "...";
+    }
+  }
+  return out;
+}
 
 function resolveInsideRoot(projectRoot: string, relPath: string): string | null {
   if (!projectRoot || !relPath) return null;
@@ -120,7 +226,7 @@ function isProbablyBinary(buf: Buffer): boolean {
 }
 
 export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow | null) {
-  ipc.handle(IPC.filesList, async (_evt, projectRoot: string) => {
+  safeHandle(IPC.filesList, async (_evt, projectRoot: string) => {
     if (!projectRoot || typeof projectRoot !== "string") {
       return { ok: false as const, error: "invalid root" };
     }
@@ -130,9 +236,9 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
     } catch (err) {
       return { ok: false as const, error: String(err) };
     }
-  });
+  }, ipc);
 
-  ipc.handle(
+  safeHandle(
     IPC.filesRead,
     async (_evt, projectRoot: string, relPath: string) => {
       const abs = resolveInsideRoot(projectRoot, relPath);
@@ -166,11 +272,39 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
         if (err?.code === "ENOENT") return { ok: false as const, error: "not-found" as const };
         return { ok: false as const, error: String(err) };
       }
-    }
+    },
+    ipc,
   );
 
-  ipc.handle(
-      IPC.filesWrite,
+  function writeAtPath(
+    abs: string,
+    content: string,
+    expectedMtimeMs: number | null,
+  ):
+    | { ok: true; mtimeMs: number }
+    | { ok: false; error: "stale" | string; currentMtimeMs?: number } {
+    try {
+      if (expectedMtimeMs != null) {
+        try {
+          const cur = fs.statSync(abs);
+          // Allow small skew (1ms); if mtime advanced, treat as stale.
+          if (cur.mtimeMs > expectedMtimeMs + 1) {
+            return { ok: false as const, error: "stale" as const, currentMtimeMs: cur.mtimeMs };
+          }
+        } catch (err: any) {
+          if (err?.code !== "ENOENT") throw err;
+        }
+      }
+      fs.writeFileSync(abs, content, "utf8");
+      const stat = fs.statSync(abs);
+      return { ok: true as const, mtimeMs: stat.mtimeMs };
+    } catch (err) {
+      return { ok: false as const, error: String(err) };
+    }
+  }
+
+  safeHandle(
+    IPC.filesWrite,
     async (
       _evt,
       projectRoot: string,
@@ -181,28 +315,73 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
       const abs = resolveInsideRoot(projectRoot, relPath);
       if (!abs) return { ok: false as const, error: "invalid-path" as const };
       if (typeof content !== "string") return { ok: false as const, error: "invalid-content" as const };
-      try {
-        if (expectedMtimeMs != null) {
-          try {
-            const cur = fs.statSync(abs);
-            // Allow small skew (1ms); if mtime advanced, treat as stale.
-            if (cur.mtimeMs > expectedMtimeMs + 1) {
-              return { ok: false as const, error: "stale" as const, currentMtimeMs: cur.mtimeMs };
-            }
-          } catch (err: any) {
-            if (err?.code !== "ENOENT") throw err;
-          }
-        }
-        fs.writeFileSync(abs, content, "utf8");
-        const stat = fs.statSync(abs);
-        return { ok: true as const, mtimeMs: stat.mtimeMs };
-      } catch (err) {
-        return { ok: false as const, error: String(err) };
+      // Check sensitivity against the *resolved* path (post `..`/`.` normalize
+      // + post-realpath), not the renderer-supplied string. Inputs like
+      // `src/../.git/hooks/x` or symlink-laundered targets get caught here.
+      if (isSensitiveAbs(projectRoot, abs)) {
+        return { ok: false as const, error: "protected-path" as const };
       }
-    }
+      return writeAtPath(abs, content, expectedMtimeMs);
+    },
+    ipc,
   );
 
-  ipc.handle(IPC.filesWatch, async (_evt, projectRoot: string, relPath: string) => {
+  safeHandle(
+    IPC.filesWriteSensitive,
+    async (
+      _evt,
+      projectRoot: string,
+      relPath: string,
+      content: string,
+      expectedMtimeMs: number | null,
+    ) => {
+      const abs = resolveInsideRoot(projectRoot, relPath);
+      if (!abs) return { ok: false as const, error: "invalid-path" as const };
+      if (typeof content !== "string") return { ok: false as const, error: "invalid-content" as const };
+      // Defensive: if a non-sensitive path arrives here, route it through the
+      // normal write — no reason to put the user through a confirm dialog for
+      // an ordinary source file.
+      if (!isSensitiveAbs(projectRoot, abs)) {
+        return writeAtPath(abs, content, expectedMtimeMs);
+      }
+      const win = getWin();
+      // No backing window means there's no renderer that legitimately initiated
+      // this call (the renderer is the only caller). Treat as cancel rather
+      // than open an orphan app-modal dialog the user wouldn't associate with MC.
+      if (!win) {
+        return { ok: false as const, error: "user-declined" as const };
+      }
+      // Show the canonical resolved path (sanitized of control bytes) so a
+      // malicious renderer can't push "Allow write" off-screen with embedded
+      // newlines or obscure the actual target with `..` traversal noise.
+      const root = path.resolve(projectRoot);
+      const displayPath = sanitizeDisplayPath(path.relative(root, abs));
+      const message =
+        "Mission Control is about to modify a file that controls automatic command execution.";
+      const detail =
+        `File: ${displayPath}\n\n` +
+        "Files like .claude/settings.local.json, .git/hooks/*, package.json, and " +
+        ".vscode/tasks.json can run commands automatically the next time you use " +
+        "an agent, run git, or install packages. Only allow this if you intended " +
+        "to edit this file.";
+      const confirm = await dialog.showMessageBox(win, {
+        type: "warning",
+        title: "Allow write to protected file?",
+        message,
+        detail,
+        buttons: ["Cancel", "Allow write"],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (confirm.response !== 1) {
+        return { ok: false as const, error: "user-declined" as const };
+      }
+      return writeAtPath(abs, content, expectedMtimeMs);
+    },
+    ipc,
+  );
+
+  safeHandle(IPC.filesWatch, async (_evt, projectRoot: string, relPath: string) => {
     const abs = resolveInsideRoot(projectRoot, relPath);
     if (!abs) return { ok: false as const, error: "invalid-path" as const };
     try {
@@ -228,9 +407,9 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
     } catch (err) {
       return { ok: false as const, error: String(err) };
     }
-  });
+  }, ipc);
 
-  ipc.handle(IPC.filesUnwatch, async (_evt, watchId: string) => {
+  safeHandle(IPC.filesUnwatch, async (_evt, watchId: string) => {
     const entry = watchers.get(watchId);
     if (!entry) return { ok: true as const };
     try {
@@ -238,7 +417,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
     } catch {}
     watchers.delete(watchId);
     return { ok: true as const };
-  });
+  }, ipc);
 }
 
 export function disposeAllFileWatchers() {

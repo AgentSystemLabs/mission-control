@@ -8,9 +8,8 @@ import {
   stageFiles,
   unstageFiles,
 } from "../services/git";
-import { handleDomainError, json, jsonError, notFound, parseJsonBody } from "./_helpers";
-
-const idParam = z.string().min(1);
+import { handleDomainError, idParam, json, jsonError, notFound, parseJsonBody } from "./_helpers";
+import { HTTP_BAD_REQUEST } from "~/shared/http-status";
 
 const stageBody = z.object({ files: z.array(z.string()).optional().default([]) });
 const commitBody = z.object({ autoStage: z.boolean().optional() });
@@ -19,7 +18,7 @@ function asGitErrorResponse(e: unknown): Response {
   const payload = gitErrorPayload(e);
   return new Response(
     JSON.stringify({ error: payload.message, stderr: payload.stderr }),
-    { status: 400, headers: { "content-type": "application/json" } },
+    { status: HTTP_BAD_REQUEST, headers: { "content-type": "application/json" } },
   );
 }
 
@@ -37,7 +36,7 @@ export async function diff(rawId: string, url: URL): Promise<Response> {
   const idParsed = idParam.safeParse(rawId);
   if (!idParsed.success) return notFound();
   const file = url.searchParams.get("file");
-  if (!file) return jsonError(400, "file is required");
+  if (!file) return jsonError(HTTP_BAD_REQUEST, "file is required");
   const stagedParam = url.searchParams.get("staged");
   const staged = stagedParam === "1" || stagedParam === "true";
   try {

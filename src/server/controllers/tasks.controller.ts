@@ -10,10 +10,8 @@ import {
   updateStatus,
   updateTask,
 } from "../services/tasks";
-import { requireBearerToken } from "../auth";
-import { handleDomainError, json, noContent, notFound, parseJsonBody } from "./_helpers";
-
-const idParam = z.string().min(1);
+import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
+import { HTTP_CREATED } from "~/shared/http-status";
 
 const createTaskBody = z.object({
   title: z.string().min(1, "title required"),
@@ -50,15 +48,13 @@ export function listForProject(rawProjectId: string): Response {
 }
 
 export async function create(rawProjectId: string, request: Request): Promise<Response> {
-  const auth = requireBearerToken(request);
-  if (!auth.ok) return auth.response;
   const projectIdParsed = idParam.safeParse(rawProjectId);
   if (!projectIdParsed.success) return notFound();
   const parsed = await parseJsonBody(request, createTaskBody);
   if (!parsed.ok) return parsed.response;
   try {
     const t = createTask({ ...parsed.data, projectId: projectIdParsed.data });
-    return json({ task: t }, { status: 201 });
+    return json({ task: t }, { status: HTTP_CREATED });
   } catch (e) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;
@@ -97,8 +93,6 @@ export function remove(rawId: string): Response {
 }
 
 export async function setStatus(rawId: string, request: Request): Promise<Response> {
-  const auth = requireBearerToken(request);
-  if (!auth.ok) return auth.response;
   const idParsed = idParam.safeParse(rawId);
   if (!idParsed.success) return notFound();
   const parsed = await parseJsonBody(request, updateStatusBody);

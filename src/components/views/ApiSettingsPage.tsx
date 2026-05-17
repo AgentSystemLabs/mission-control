@@ -2,14 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CodeBlock, Field, SettingsSection, useCopy } from "~/components/views/SettingsParts";
-import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
-import { queryKeys, useSettings } from "~/queries";
+import { setApiToken } from "~/lib/api";
+import { queryKeys, useApiToken } from "~/queries";
 
 export function ApiSettingsPage() {
   const queryClient = useQueryClient();
-  const { data: settings } = useSettings();
-  const token = settings?.apiToken ?? null;
+  const { data: token = null } = useApiToken();
   const [port, setPort] = useState<number | null>(null);
   const { copied, copy } = useCopy();
 
@@ -23,8 +22,14 @@ export function ApiSettingsPage() {
   }, []);
 
   const regenerate = async () => {
-    const r = await api.regenerateToken();
-    queryClient.setQueryData(queryKeys.settings, r);
+    const electron = getElectron();
+    if (!electron) return;
+    const next = await electron.settings.regenerateToken();
+    // Keep both the react-query cache and the module-level bearer cache
+    // (src/lib/api.ts) in sync so subsequent fetches don't authenticate with
+    // the now-stale token. The latter is the one src/lib/api.ts:req reads.
+    setApiToken(next);
+    queryClient.setQueryData(queryKeys.apiToken, next);
   };
 
   const baseUrl = `http://127.0.0.1:${port ?? "PORT"}`;

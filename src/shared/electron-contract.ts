@@ -1,5 +1,17 @@
 export const FILE_READ_ERRORS = ["invalid-path", "not-found", "binary", "too-large"] as const;
-export const FILE_WRITE_ERRORS = ["invalid-path", "invalid-content", "stale"] as const;
+export const FILE_WRITE_ERRORS = [
+  "invalid-path",
+  "invalid-content",
+  "stale",
+  // Hit when the renderer tried the generic `files:write` for an auto-executing
+  // config path (Claude/Codex hooks, .git/hooks, package.json, etc). The
+  // renderer is expected to retry via `files:writeSensitive`, which surfaces a
+  // native confirm in the main process.
+  "protected-path",
+  // Returned by `files:writeSensitive` when the user clicked Cancel in the
+  // native confirm dialog. Not an error condition — just a no-op result.
+  "user-declined",
+] as const;
 
 export type FileReadError = (typeof FILE_READ_ERRORS)[number];
 export type FileWriteError = (typeof FILE_WRITE_ERRORS)[number];
@@ -58,6 +70,10 @@ export type ElectronBridge = {
       args: InstallSkillsArgs,
     ) => Promise<{ ok: true; result: InstallSkillsResult } | { ok: false; error: string }>;
   };
+  settings: {
+    getToken: () => Promise<string>;
+    regenerateToken: () => Promise<string>;
+  };
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;
   openPath: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -87,6 +103,10 @@ export type ElectronBridge = {
       rows?: number;
       agent?: string;
       mcEnv?: { apiUrl?: string; token?: string };
+      // Required when `agent` is omitted: signals an intentional user-shell
+      // terminal. Agent terminals leave this unset and pass `command` starting
+      // with the agent's binary name; the main process spawns directly via argv.
+      shell?: boolean;
     }) => Promise<{ ptyId: string }>;
     write: (ptyId: string, data: string) => Promise<boolean>;
     resize: (ptyId: string, cols: number, rows: number) => Promise<boolean>;
@@ -106,6 +126,12 @@ export type ElectronBridge = {
     list: (projectRoot: string) => Promise<FileListResult>;
     read: (projectRoot: string, relPath: string) => Promise<FileReadResult>;
     write: (
+      projectRoot: string,
+      relPath: string,
+      content: string,
+      expectedMtimeMs: number | null
+    ) => Promise<FileWriteResult>;
+    writeSensitive: (
       projectRoot: string,
       relPath: string,
       content: string,

@@ -3,7 +3,10 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { getElectron } from "~/lib/electron";
-import { mapTerminalKey, shouldSuppressTerminalKey } from "~/lib/terminal-keymap";
+import {
+  attachTerminalKeyHandler,
+  wireTerminalFileDrop,
+} from "~/lib/terminal-pane-helpers";
 import {
   createTerminalOptions,
   createTerminalTheme,
@@ -12,6 +15,20 @@ import {
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
 import type { UserTerminal } from "~/db/schema";
+
+// Pattern shared by the link provider and the launch-URL detector. The two
+// callers differ only in whether the port is a capture group.
+const LOOPBACK_URL_BASE = String.raw`\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])`;
+const LOOPBACK_URL_TAIL = String.raw`(?:\/[^\s'"<>)\]]*)?`;
+const LOOPBACK_URL_REGEX = new RegExp(
+  `${LOOPBACK_URL_BASE}(?::\\d+)?${LOOPBACK_URL_TAIL}`,
+  "g",
+);
+const LOOPBACK_URL_WITH_PORT_GROUP_REGEX = new RegExp(
+  `${LOOPBACK_URL_BASE}(?::(\\d+))?${LOOPBACK_URL_TAIL}`,
+  "g",
+);
+const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 
 export function UserTerminalPane({
   terminal,
@@ -109,7 +126,7 @@ export function UserTerminalPane({
         provideLinks(y, callback) {
           const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
           const links: any[] = [];
-          const regex = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/[^\s'"<>)\]]*)?/g;
+          const regex = new RegExp(LOOPBACK_URL_REGEX.source, "g");
           let match: RegExpExecArray | null;
           while ((match = regex.exec(line)) !== null) {
             const text = match[0]!;
@@ -133,49 +150,21 @@ export function UserTerminalPane({
       const focusEl = containerRef.current;
       focusEl.addEventListener("focusin", onFocusIn);
 
-      // Dropped files paste their paths into the PTY, matching iTerm/Terminal.app.
-      const onDragOver = (e: DragEvent) => {
-        if (e.dataTransfer?.types.includes("Files")) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }
-      };
-      const onDrop = (e: DragEvent) => {
-        const files = Array.from(e.dataTransfer?.files ?? []);
-        if (!files.length) return;
-        e.preventDefault();
-        if (!activePtyId) return;
-        const paths = files
-          .map((f) => electron.getPathForFile(f))
-          .filter(Boolean)
-          .map((p) => (/[\s"'\\]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p));
-        if (!paths.length) return;
-        electron.pty.write(activePtyId, paths.join(" ") + " ");
-        term.focus();
-      };
-      focusEl.addEventListener("dragover", onDragOver);
-      focusEl.addEventListener("drop", onDrop);
-
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
 
-      // Shift+Enter must insert a newline in Claude Code's prompt; xterm.js
-      // otherwise emits plain CR. Send ESC+CR (the same sequence
-      // `claude /terminal-setup` wires up for iTerm2/Terminal.app).
-      // preventDefault is required: returning false makes xterm.js bail
-      // before its own preventDefault, so the hidden textarea would also
-      // insert `\n` and xterm's input handler would write it to the PTY.
-      term.attachCustomKeyEventHandler((e) => {
-        const bytes = mapTerminalKey(e);
-        if (bytes === null) {
-          if (!shouldSuppressTerminalKey(e)) return true;
-          e.preventDefault();
-          return false;
-        }
-        e.preventDefault();
-        if (activePtyId) electron.pty.write(activePtyId, bytes);
-        return false;
+      const detachFileDrop = wireTerminalFileDrop({
+        host: focusEl,
+        electron,
+        getActivePtyId: () => activePtyId,
+        onFocus: () => term.focus(),
+      });
+
+      attachTerminalKeyHandler({
+        term,
+        electron,
+        getActivePtyId: () => activePtyId,
       });
 
       const wireToPty = (id: string) => {
@@ -183,9 +172,9 @@ export function UserTerminalPane({
         const seenLaunchUrls = new Set<string>();
         const detectLaunchUrl = (data: string) => {
           if (!terminal.startCommand || !onLaunchUrlDetected) return;
-          const cleaned = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+          const cleaned = data.replace(ANSI_ESCAPE_REGEX, "");
           const matches = cleaned.matchAll(
-            /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?(?:\/[^\s'"<>)\]]*)?/g
+            new RegExp(LOOPBACK_URL_WITH_PORT_GROUP_REGEX.source, "g"),
           );
           for (const match of matches) {
             const url = match[0]!;
@@ -241,6 +230,11 @@ export function UserTerminalPane({
             command: terminal.startCommand ?? "",
             cols: term.cols,
             rows: term.rows,
+            // User-shell terminal: opts into the shell branch so the main
+            // process is willing to interpret `startCommand` through `sh -l -c`.
+            // Agent terminals (TerminalPane.tsx) leave this unset, which forces
+            // the allow-listed direct-argv spawn path instead.
+            shell: true,
           });
           if (cancelled) {
             await electron.pty.kill(newId).catch(() => undefined);
@@ -267,8 +261,7 @@ export function UserTerminalPane({
       cleanup = () => {
         cancelAnimationFrame(rafHandle);
         focusEl.removeEventListener("focusin", onFocusIn);
-        focusEl.removeEventListener("dragover", onDragOver);
-        focusEl.removeEventListener("drop", onDrop);
+        detachFileDrop();
         stopWatchingColorScheme();
         for (const off of subscriptions) off();
         ro.disconnect();

@@ -10,6 +10,8 @@ import {
   fetchLatestSkillsManifest,
 } from "~/lib/install-skills-client";
 
+const SKILLS_VERSION_STALE_MS = 60_000;
+
 export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
   const [open, setOpen] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
@@ -23,13 +25,13 @@ export function InstallSkillsButton({ projectPath }: { projectPath: string }) {
     queryFn: () => fetchInstalledSkillsVersion(projectPath),
     enabled: !!projectPath,
     retry: false,
-    staleTime: 60_000,
+    staleTime: SKILLS_VERSION_STALE_MS,
   });
   const latest = useQuery({
     queryKey: ["skills-latest"],
     queryFn: () => fetchLatestSkillsManifest(),
     retry: false,
-    staleTime: 60_000,
+    staleTime: SKILLS_VERSION_STALE_MS,
   });
 
   const installedVersion = installed.data?.version ?? null;

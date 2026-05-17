@@ -12,6 +12,10 @@ import {
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
 
+// Pixel size of the color-swatch dot used in the accent-color picker (both
+// the selected-check badge and the per-row preview swatch use this size).
+const SWATCH_DOT_PX = 18;
+
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
@@ -21,7 +25,6 @@ export function ThemeSettingsPage() {
   const optimisticSettings = (
     patch: Partial<Pick<AppSettings, "accentColor" | "minimalTheme">>,
   ): AppSettings => ({
-    apiToken: settings?.apiToken ?? "",
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor,
     minimalTheme,
@@ -241,8 +244,8 @@ function MinimalThemeCard({
             position: "absolute",
             top: 8,
             right: 8,
-            width: 18,
-            height: 18,
+            width: SWATCH_DOT_PX,
+            height: SWATCH_DOT_PX,
             borderRadius: 999,
             background: color.value,
             color: "#fff",
@@ -258,8 +261,8 @@ function MinimalThemeCard({
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span
             style={{
-              width: 18,
-              height: 18,
+              width: SWATCH_DOT_PX,
+              height: SWATCH_DOT_PX,
               borderRadius: 999,
               background: color.value,
               border: "1px solid rgba(255, 255, 255, 0.15)",
@@ -363,8 +366,8 @@ function ThemePreviewCard({
             position: "absolute",
             top: 6,
             right: 6,
-            width: 18,
-            height: 18,
+            width: SWATCH_DOT_PX,
+            height: SWATCH_DOT_PX,
             borderRadius: 999,
             background: color.value,
             color: "#fff",
@@ -388,8 +391,8 @@ function ThemePreviewCard({
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span
             style={{
-              width: 18,
-              height: 18,
+              width: SWATCH_DOT_PX,
+              height: SWATCH_DOT_PX,
               borderRadius: 999,
               background: color.value,
               border: "1px solid rgba(255, 255, 255, 0.15)",

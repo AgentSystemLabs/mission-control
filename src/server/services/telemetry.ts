@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ACADEMY_BASE_URL } from "~/shared/academy";
+import { academyUrl } from "~/shared/academy";
 
 export type TelemetryEventType = "app_launch" | "session_started";
 
@@ -49,7 +49,7 @@ export function sendTelemetry(eventType: TelemetryEventType): void {
     const info = readInstallInfo();
     if (!info) return;
 
-    const url = `${ACADEMY_BASE_URL.replace(/\/$/, "")}/api/telemetry`;
+    const url = academyUrl("/api/telemetry");
     const body = JSON.stringify({
       eventType,
       installId: info.installId,

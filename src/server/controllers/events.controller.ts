@@ -1,4 +1,7 @@
 import { events } from "../events";
+import { HTTP_OK } from "~/shared/http-status";
+
+const SSE_HEARTBEAT_INTERVAL_MS = 15_000;
 
 export function stream(): Response {
   const stream = new ReadableStream({
@@ -19,7 +22,7 @@ export function stream(): Response {
         } catch {
           /* swallow */
         }
-      }, 15_000);
+      }, SSE_HEARTBEAT_INTERVAL_MS);
       (controller as any)._mc_cleanup = () => {
         clearInterval(heartbeat);
         off();
@@ -31,10 +34,12 @@ export function stream(): Response {
     },
   });
   return new Response(stream, {
-    status: 200,
+    status: HTTP_OK,
     headers: {
       "content-type": "text/event-stream",
-      "cache-control": "no-cache, no-transform",
+      // no-store: the request URL carries the bearer in ?token=; keep it out
+      // of any cache layer (browser disk cache, bfcache, intermediaries).
+      "cache-control": "no-store, no-transform",
       connection: "keep-alive",
     },
   });

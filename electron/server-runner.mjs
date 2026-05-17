@@ -106,7 +106,13 @@ const server = http.createServer(async (req, res) => {
       res.end();
     }
   } catch (err) {
-    console.error("[server-runner] request error:", err);
+    // Redact any `token=…` query parameter before logging — the SSE bearer
+    // travels in `?token=` on `/api/events`, and several Node http error
+    // objects stringify the request URL.
+    const safeUrl = (req.url ?? "").replace(/([?&])token=[^&#]+/gi, "$1token=<redacted>");
+    const message = err instanceof Error ? err.message : String(err);
+    const safeMessage = message.replace(/([?&])token=[^&#\s"']+/gi, "$1token=<redacted>");
+    console.error(`[server-runner] request error url=${safeUrl}: ${safeMessage}`);
     if (!res.headersSent) res.statusCode = 500;
     res.end("Internal Server Error");
   }

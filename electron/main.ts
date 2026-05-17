@@ -1,4 +1,14 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from "electron";
+import log from "electron-log/main";
+
+// Persists to ~/Library/Logs/<AppName>/main.log on macOS, %USERPROFILE%/AppData/Roaming/<AppName>/logs/main.log on Windows,
+// and ~/.config/<AppName>/logs/main.log on Linux. This is the file users grep when
+// the auto-updater goes silent — `console.*` from a packaged Electron app is invisible.
+// Log lines may contain the user's local OS username inside artifact paths (e.g. /Users/<name>/Library/...).
+// That's already on the user's own machine, so not a privacy risk unless they share the bundle externally.
+log.initialize();
+log.transports.file.level = "info";
+log.transports.console.level = "debug";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -12,11 +22,32 @@ import { IPC } from "./ipc-channels";
 import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
 import { sendTelemetry } from "./telemetry";
 import { augmentProcessEnv, resolveCommandOnPath, sanitizedProcessEnv } from "./shell-env";
+import { registerUpdateManager } from "./update-manager";
+import {
+  disposeApiTokenStore,
+  getOrCreateApiToken,
+  regenerateApiToken,
+} from "./api-token-store";
+import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
+import { configureProjectRootsDb, disposeProjectRootsDb } from "./project-roots";
 
 const isDev = process.env.NODE_ENV === "development";
 const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
 const devServerPort = Number(process.env.MC_DEV_PORT ?? 5173);
 const devUrl = process.env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPort}`;
+
+// HTTP readiness polling: wait up to DEV_SERVER_READY_TIMEOUT_MS for the
+// server to respond, polling every HTTP_POLL_INTERVAL_MS while waiting.
+const DEV_SERVER_READY_TIMEOUT_MS = 30_000;
+const HTTP_POLL_INTERVAL_MS = 200;
+const GIT_CONFIG_PROBE_TIMEOUT_MS = 2_000;
+
+// Window sizing for the main BrowserWindow.
+const MAIN_WINDOW_DEFAULT_WIDTH = 1440;
+const MAIN_WINDOW_DEFAULT_HEIGHT = 900;
+const MAIN_WINDOW_MIN_WIDTH = 1024;
+const MAIN_WINDOW_MIN_HEIGHT = 640;
+const TRAFFIC_LIGHT_POSITION_DARWIN = { x: 48, y: 16 } as const;
 
 augmentProcessEnv();
 
@@ -41,7 +72,7 @@ function pickPort(): Promise<number> {
   });
 }
 
-function waitForHttp(url: string, timeoutMs = 30_000): Promise<void> {
+function waitForHttp(url: string, timeoutMs = DEV_SERVER_READY_TIMEOUT_MS): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     const tick = () => {
@@ -49,11 +80,11 @@ function waitForHttp(url: string, timeoutMs = 30_000): Promise<void> {
         res.resume();
         if (res.statusCode && res.statusCode < 500) return resolve();
         if (Date.now() > deadline) return reject(new Error(`Timed out waiting for ${url}`));
-        setTimeout(tick, 200);
+        setTimeout(tick, HTTP_POLL_INTERVAL_MS);
       });
       req.on("error", () => {
         if (Date.now() > deadline) return reject(new Error(`Timed out waiting for ${url}`));
-        setTimeout(tick, 200);
+        setTimeout(tick, HTTP_POLL_INTERVAL_MS);
       });
     };
     tick();
@@ -127,16 +158,20 @@ async function bootDevServer(): Promise<string> {
 
 async function createWindow() {
   const url = isDev ? await bootDevServer() : await startProductionServer();
+  // The renderer is only ever loaded from this URL — pin the IPC allow-list
+  // to that origin so a future renderer compromise (XSS in markdown, agent
+  // output rendered as HTML, an added webview) can't reach the IPC surface.
+  configureIpcAllowedOrigins([url]);
 
   win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 640,
+    width: MAIN_WINDOW_DEFAULT_WIDTH,
+    height: MAIN_WINDOW_DEFAULT_HEIGHT,
+    minWidth: MAIN_WINDOW_MIN_WIDTH,
+    minHeight: MAIN_WINDOW_MIN_HEIGHT,
     backgroundColor: "#000000",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition:
-      process.platform === "darwin" ? { x: 48, y: 16 } : undefined,
+      process.platform === "darwin" ? TRAFFIC_LIGHT_POSITION_DARWIN : undefined,
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -168,7 +203,7 @@ async function createWindow() {
 
   win.on("enter-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, true));
   win.on("leave-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, false));
-  ipcMain.handle(IPC.appIsFullScreen, () => win?.isFullScreen() ?? false);
+  safeHandle(IPC.appIsFullScreen, () => win?.isFullScreen() ?? false);
   win.webContents.setWindowOpenHandler(({ url }) => {
     void openExternalHttpUrl(url);
     return { action: "deny" };
@@ -228,7 +263,7 @@ function registerProjectImageProtocol() {
 // from copying arbitrary FS paths (e.g. /etc/passwd) into project-images/.
 const ALLOWED_PICKED_PATHS = new Set<string>();
 
-ipcMain.handle(IPC.dialogPickImage, async () => {
+safeHandle(IPC.dialogPickImage, async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile"],
@@ -244,7 +279,7 @@ ipcMain.handle(IPC.dialogPickImage, async () => {
   return { sourcePath, extension: ext };
 });
 
-ipcMain.handle(
+safeHandle(
   IPC.fileSaveProjectImage,
   async (_evt, opts: { projectId: string; sourcePath: string; extension: string }) => {
     const { projectId, sourcePath } = opts;
@@ -277,7 +312,7 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle(IPC.dialogBrowseFolder, async () => {
+safeHandle(IPC.dialogBrowseFolder, async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     properties: ["openDirectory", "createDirectory"],
@@ -286,25 +321,25 @@ ipcMain.handle(IPC.dialogBrowseFolder, async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle(IPC.shellOpenPath, async (_evt, p: string) => {
+safeHandle(IPC.shellOpenPath, async (_evt, p: string) => {
   if (!p) return { ok: false, error: "empty" };
   const err = await shell.openPath(p);
   if (err) return { ok: false, error: err };
   return { ok: true };
 });
 
-ipcMain.handle(IPC.shellOpenExternal, async (_evt, url: string) => {
+safeHandle(IPC.shellOpenExternal, async (_evt, url: string) => {
   return openExternalHttpUrl(url);
 });
 
-ipcMain.handle(IPC.appGetRuntimePort, () => runtimePort);
-ipcMain.handle(IPC.appGetUserDataDir, () => app.getPath("userData"));
+safeHandle(IPC.appGetRuntimePort, () => runtimePort);
+safeHandle(IPC.appGetUserDataDir, () => app.getPath("userData"));
 
-ipcMain.handle(IPC.appGetUserName, () => {
+safeHandle(IPC.appGetUserName, () => {
   try {
     const result = spawnSync("git", ["config", "--global", "user.name"], {
       encoding: "utf8",
-      timeout: 2000,
+      timeout: GIT_CONFIG_PROBE_TIMEOUT_MS,
     });
     const gitName = (result.stdout || "").trim();
     if (gitName) return { source: "git" as const, fullName: gitName, firstName: gitName.split(/\s+/)[0] };
@@ -313,7 +348,7 @@ ipcMain.handle(IPC.appGetUserName, () => {
   return { source: "os" as const, fullName: username, firstName: username };
 });
 
-ipcMain.handle(IPC.appReload, (event) => {
+safeHandle(IPC.appReload, (event) => {
   const target = BrowserWindow.fromWebContents(event.sender) ?? win;
   if (!target || target.isDestroyed()) {
     return { ok: false as const, error: "window-unavailable" };
@@ -322,7 +357,7 @@ ipcMain.handle(IPC.appReload, (event) => {
   return { ok: true as const };
 });
 
-ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
+safeHandle(IPC.cliCheck, (_evt, command: string) => {
   if (!command) return { ok: false, reason: "empty" };
   const resolved = resolveCommandOnPath(command, sanitizedProcessEnv());
   if (resolved) return { ok: true, path: resolved };
@@ -332,7 +367,17 @@ ipcMain.handle(IPC.cliCheck, (_evt, command: string) => {
 registerPtyHandlers(ipcMain, () => win);
 registerFileHandlers(ipcMain, () => win);
 
-ipcMain.handle(
+// API bearer token is delivered through IPC only — it must never traverse HTTP
+// because the loopback server's same-origin gate doesn't protect against a
+// compromised renderer or any other process that can reach the local port.
+safeHandle(IPC.settingsGetToken, () => {
+  return getOrCreateApiToken(app.getPath("userData"));
+});
+safeHandle(IPC.settingsRegenerateToken, () => {
+  return regenerateApiToken(app.getPath("userData"));
+});
+
+safeHandle(
   IPC.installSkillsFetchLatest,
   async (_evt, opts?: { baseUrl?: string; licenseKey?: string }) => {
     try {
@@ -347,7 +392,7 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle(
+safeHandle(
   IPC.installSkillsRun,
   async (
     _evt,
@@ -379,11 +424,17 @@ app.on("before-quit", () => {
   (app as any).isQuiting = true;
   killAllPtys();
   disposeAllFileWatchers();
+  disposeApiTokenStore();
+  disposeProjectRootsDb();
   if (serverProcess) serverProcess.kill();
 });
 
 app.whenReady().then(() => {
+  // pty:spawn validates `cwd` against this DB before letting any binary run,
+  // so it must be configured before any window can issue an IPC call.
+  configureProjectRootsDb(app.getPath("userData"));
   registerProjectImageProtocol();
+  registerUpdateManager(ipcMain, () => win);
   sendTelemetry("app_launch", app.getVersion());
   return createWindow();
 }).catch((err) => {

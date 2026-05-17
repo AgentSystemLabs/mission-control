@@ -93,9 +93,13 @@ describe("local-origin gate", () => {
     });
 
     it("allows real renderer requests from the loopback origin", async () => {
+      const { getOrCreateApiToken } = await import("../services/settings");
       const response = await handleApiRequest(
         new Request("http://127.0.0.1:5173/api/settings", {
-          headers: { origin: "http://127.0.0.1:5173" },
+          headers: {
+            origin: "http://127.0.0.1:5173",
+            authorization: `Bearer ${getOrCreateApiToken()}`,
+          },
         }),
       );
       expect(response?.status).toBe(200);

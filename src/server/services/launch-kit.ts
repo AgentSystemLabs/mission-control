@@ -3,14 +3,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import { getLicenseState } from "./license-storage";
-import { ACADEMY_BASE_URL } from "~/shared/academy";
+import { academyUrl } from "~/shared/academy";
 import { isAcademyTier } from "~/shared/license";
 import { createProject } from "./projects";
 import { readLicenseState } from "./license";
+import {
+  downloadAndVerifyTarball,
+  licenseAuthHeaders,
+  normalizeEntryPath,
+} from "./_skills-install-helpers";
+
+const GIT_INIT_TIMEOUT_MS = 15_000;
 
 export type LatestLaunchKitManifest = {
   version: string;
@@ -36,10 +41,6 @@ function readRequiredAcademyLicenseKey(): string {
   return key;
 }
 
-function licenseAuthHeaders(key: string): HeadersInit {
-  return { authorization: `Bearer ${key}` };
-}
-
 export async function readLaunchKitAccess(): Promise<{ hasAccess: boolean }> {
   const state = readLicenseState();
   if (isAcademyTier(state)) return { hasAccess: true };
@@ -48,7 +49,7 @@ export async function readLaunchKitAccess(): Promise<{ hasAccess: boolean }> {
   if (!key || state.status !== "active") return { hasAccess: false };
 
   try {
-    const url = `${ACADEMY_BASE_URL.replace(/\/$/, "")}/api/launch-kit/access`;
+    const url = academyUrl("/api/launch-kit/access");
     const res = await fetch(url, { headers: licenseAuthHeaders(key) });
     return { hasAccess: res.ok };
   } catch {
@@ -68,13 +69,6 @@ function validateProjectName(name: string): string {
   return trimmed;
 }
 
-function normalizeEntryPath(p: string): string | null {
-  const s = p.replace(/\\/g, "/").replace(/^\.\//, "");
-  if (!s || s.startsWith("/") || s.includes("\0")) return null;
-  if (s.split("/").some((part) => part === "..")) return null;
-  return s;
-}
-
 function isSafeTarEntry(entry: { path: string; type?: string }): boolean {
   const type = entry.type;
   if (
@@ -91,7 +85,7 @@ function isSafeTarEntry(entry: { path: string; type?: string }): boolean {
 
 export async function fetchLatestLaunchKitManifest(): Promise<LatestLaunchKitManifest> {
   const licenseKey = readRequiredAcademyLicenseKey();
-  const url = `${ACADEMY_BASE_URL.replace(/\/$/, "")}/api/launch-kit/latest`;
+  const url = academyUrl("/api/launch-kit/latest");
   const res = await fetch(url, { headers: licenseAuthHeaders(licenseKey) });
   if (!res.ok) {
     throw new Error(
@@ -137,30 +131,13 @@ export async function createProjectFromLaunchKit(input: {
 
   let createdTarget = false;
   try {
-    const dlRes = await fetch(manifest.downloadUrl, {
+    await downloadAndVerifyTarball({
+      url: manifest.downloadUrl,
       headers: licenseAuthHeaders(licenseKey),
+      tempFile,
+      expectedSha256: manifest.sha256,
+      kind: "Launch Kit",
     });
-    if (!dlRes.ok || !dlRes.body) {
-      throw new Error(
-        `Failed to download Launch Kit: ${dlRes.status} ${dlRes.statusText}`,
-      );
-    }
-
-    const hash = crypto.createHash("sha256");
-    const fileStream = fs.createWriteStream(tempFile);
-    const nodeStream = Readable.fromWeb(
-      dlRes.body as unknown as import("stream/web").ReadableStream,
-    );
-    nodeStream.on("data", (chunk: Buffer | string) => {
-      hash.update(chunk);
-    });
-    await pipeline(nodeStream, fileStream);
-    const got = hash.digest("hex");
-    if (got.toLowerCase() !== manifest.sha256.toLowerCase()) {
-      throw new Error(
-        `Launch Kit sha256 mismatch: expected ${manifest.sha256}, got ${got}`,
-      );
-    }
 
     const allowedEntries = new Set<string>();
     await tar.list({
@@ -188,7 +165,7 @@ export async function createProjectFromLaunchKit(input: {
     const git = spawnSync("git", ["init"], {
       cwd: targetDir,
       encoding: "utf8",
-      timeout: 15_000,
+      timeout: GIT_INIT_TIMEOUT_MS,
     });
     if (git.status !== 0) {
       throw new Error(git.stderr || "git init failed");

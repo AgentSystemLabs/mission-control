@@ -1,4 +1,10 @@
-import { jsonError, requireLocalOrigin } from "./auth";
+import {
+  jsonError,
+  requireBearerToken,
+  requireBearerTokenValue,
+  requireLocalOrigin,
+} from "./auth";
+import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
 import * as projectsController from "./controllers/projects.controller";
 import * as tasksController from "./controllers/tasks.controller";
 import * as groupsController from "./controllers/groups.controller";
@@ -31,6 +37,41 @@ function decode(segment: string | undefined): string {
   return decodeURIComponent(segment ?? "");
 }
 
+// Routes that intentionally accept anonymous requests after the same-origin
+// gate (auth.ts:requireLocalOrigin). Keep empty — every leaf route should
+// require the bearer token. Adding an entry here is the *only* way a route
+// can be reached without auth, which makes auth-bypass regressions a one-grep
+// review surface. Exported so __tests__/api-auth.test.ts can snapshot the
+// list and fail CI on any addition.
+export const ANONYMOUS_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [];
+
+function isAnonymousRoute(method: string, pathname: string): boolean {
+  return ANONYMOUS_ROUTES.some(
+    (r) => r.method === method && r.pathname === pathname,
+  );
+}
+
+/**
+ * Centralized auth gate. Default: every /api/* route requires the bearer
+ * token. Opt-outs:
+ *  - Routes in ANONYMOUS_ROUTES (intentional public surface — none today).
+ *  - /api/events SSE: EventSource cannot send custom headers, so the token
+ *    travels in `?token=<bearer>` instead. Constant-time-compared by
+ *    requireBearerTokenValue just like the header path.
+ */
+function requireApiAuth(
+  request: Request,
+  url: URL,
+  method: string,
+  pathname: string,
+): { ok: true } | { ok: false; response: Response } {
+  if (isAnonymousRoute(method, pathname)) return { ok: true };
+  if (pathname === "/api/events" && method === "GET") {
+    return requireBearerTokenValue(url.searchParams.get("token"));
+  }
+  return requireBearerToken(request);
+}
+
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
@@ -42,11 +83,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   const origin = requireLocalOrigin(request);
   if (!origin.ok) return origin.response;
 
+  const auth = requireApiAuth(request, url, method, pathname);
+  if (!auth.ok) return auth.response;
+
   try {
     return await dispatch(request, url, method, pathname);
   } catch (err: any) {
     const message = err?.message || "bad request";
-    return jsonError(400, message);
+    return jsonError(HTTP_BAD_REQUEST, message);
   }
 }
 
@@ -180,7 +224,7 @@ async function dispatch(
   if (pathname === "/api/usage" && method === "GET") return usageController.read(url);
   if (pathname === "/api/events" && method === "GET") return eventsController.stream();
 
-  return jsonError(404, "not found");
+  return jsonError(HTTP_NOT_FOUND, "not found");
 }
 
 export { mapHookEventToStatus } from "~/shared/agent-hook-events";

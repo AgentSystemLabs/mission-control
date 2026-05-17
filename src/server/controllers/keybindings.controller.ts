@@ -8,6 +8,7 @@ import {
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isValidBinding } from "~/lib/keybindings/match";
 import { json, jsonError, parseJsonBody } from "./_helpers";
+import { HTTP_BAD_REQUEST } from "~/shared/http-status";
 
 const hotkeyAction = z.enum(HOTKEY_ACTIONS);
 
@@ -32,7 +33,7 @@ export async function set(request: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   const { action, binding } = parsed.data;
   const valid = isValidBinding(binding);
-  if (!valid.ok) return jsonError(400, valid.reason);
+  if (!valid.ok) return jsonError(HTTP_BAD_REQUEST, valid.reason);
   return json({ bindings: setBinding(action as HotkeyAction, binding) });
 }
 
@@ -40,6 +41,6 @@ export function reset(url: URL): Response {
   const rawAction = url.searchParams.get("action");
   if (rawAction === null) return json({ bindings: resetAllBindings() });
   const parsed = hotkeyAction.safeParse(rawAction);
-  if (!parsed.success) return jsonError(400, "invalid action");
+  if (!parsed.success) return jsonError(HTTP_BAD_REQUEST, "invalid action");
   return json({ bindings: resetBinding(parsed.data as HotkeyAction) });
 }

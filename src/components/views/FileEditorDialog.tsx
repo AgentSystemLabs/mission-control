@@ -140,12 +140,26 @@ export function FileEditorDialog({
       if (!relPath || !window.electronAPI || !loaded) return;
       setSaving(true);
       setSaveError(null);
-      const r = await window.electronAPI.files.write(
+      const expectedMtime = forceOverwrite ? null : loaded.mtimeMs;
+      let r = await window.electronAPI.files.write(
         projectRoot,
         relPath,
         content,
-        forceOverwrite ? null : loaded.mtimeMs,
+        expectedMtime,
       );
+      // Sensitive paths (.claude/settings.local.json, .git/hooks/*, package.json,
+      // .vscode/tasks.json, etc.) are rejected by `files:write` and must go
+      // through `files:writeSensitive`, which surfaces a native OS confirm
+      // dialog in the main process. The retry is silent — the user sees one
+      // dialog, not an error followed by a re-click.
+      if (!r.ok && r.error === "protected-path") {
+        r = await window.electronAPI.files.writeSensitive(
+          projectRoot,
+          relPath,
+          content,
+          expectedMtime,
+        );
+      }
       setSaving(false);
       if (r.ok) {
         setLoaded({ content, mtimeMs: r.mtimeMs });
@@ -155,6 +169,10 @@ export function FileEditorDialog({
       if (r.error === "stale") {
         setExternalChanged(true);
         setSaveError("File changed on disk. Discard your edits and reload, or overwrite anyway.");
+        return;
+      }
+      // User clicked Cancel in the native confirm dialog — no-op, not an error.
+      if (r.error === "user-declined") {
         return;
       }
       setSaveError(r.error);

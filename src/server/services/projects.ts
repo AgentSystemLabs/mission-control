@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } from "~/shared/domain";
@@ -18,6 +17,7 @@ import {
 import { findAllTasks, findTasksByProjectId } from "../repositories/tasks.repo";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { readLicenseState } from "./license";
+import { newId } from "./_ids";
 
 export class ProjectCapExceededError extends Error {
   constructor(
@@ -51,10 +51,6 @@ export function detectGithubUrl(dir: string): string | null {
   } catch {
     return null;
   }
-}
-
-function newId(prefix: string) {
-  return `${prefix}-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 }
 
 export function detectBranch(dir: string): string {

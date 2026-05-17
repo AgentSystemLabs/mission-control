@@ -6,6 +6,8 @@ import {
 } from "@tanstack/react-query";
 import { api } from "~/lib/api";
 
+const GIT_STATUS_REFETCH_INTERVAL_MS = 3000;
+
 export const gitKeys = {
   all: (projectId: string) => ["projects", projectId, "git"] as const,
   status: (projectId: string) =>
@@ -18,7 +20,7 @@ export const gitStatusQueryOptions = (projectId: string) =>
   queryOptions({
     queryKey: gitKeys.status(projectId),
     queryFn: () => api.getGitStatus(projectId),
-    refetchInterval: 3000,
+    refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
 

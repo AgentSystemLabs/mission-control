@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import type { UserTerminal } from "~/db/schema";
 import {
   deleteEphemeralUserTerminalsByProject,
@@ -9,10 +8,7 @@ import {
   updateUserTerminalRow,
 } from "../repositories/user-terminals.repo";
 import { projectExists } from "../repositories/projects.repo";
-
-function newId() {
-  return `ut-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-}
+import { newId } from "./_ids";
 
 export function listUserTerminals(projectId: string): UserTerminal[] {
   // Ephemeral terminals (those with a startCommand) are seeded into the UI
@@ -32,7 +28,7 @@ export function createUserTerminal(input: {
   const existing = listUserTerminals(input.projectId);
   const now = Date.now();
   const row: UserTerminal = {
-    id: newId(),
+    id: newId("ut"),
     projectId: input.projectId,
     name: (input.name?.trim() || `Terminal ${existing.length + 1}`),
     cwd: input.cwd ?? null,

@@ -13,8 +13,11 @@ import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { LicenseState } from "~/shared/license";
 
+// The api bearer token is intentionally NOT part of this HTTP-derived shape.
+// Renderer code obtains it through the Electron IPC channel `settings:getToken`
+// (see queries/index.ts:apiTokenQueryOptions); the IPC handler pushes the value
+// into `setApiToken` below so every fetch in this module attaches it.
 export type AppSettings = {
-  apiToken: string;
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
   minimalTheme: boolean;
@@ -34,6 +37,59 @@ export class ApiError extends Error {
   }
 }
 
+// Module-level bearer cache. Populated by `apiTokenQueryOptions.queryFn` (see
+// src/queries/index.ts) so every `req<T>` below can attach the token without
+// awaiting an IPC round-trip per call. `resolveApiToken` falls back to a lazy
+// IPC bootstrap when nothing has primed the cache yet (test code, edge timing).
+let cachedApiToken: string | null = null;
+let pendingApiToken: Promise<string | null> | null = null;
+
+export function setApiToken(token: string | null): void {
+  cachedApiToken = token;
+  pendingApiToken = null;
+}
+
+export async function resolveApiToken(): Promise<string | null> {
+  if (cachedApiToken) return cachedApiToken;
+  if (import.meta.env.SSR) {
+    // SSR / Node: read directly from the server helper. `import.meta.env.SSR`
+    // is a compile-time constant Vite replaces with `false` in the client
+    // bundle, so this branch — and its server-only import — is dead-code
+    // eliminated client-side.
+    try {
+      const { getServerApiToken } = await import("~/server/auth");
+      return getServerApiToken();
+    } catch {
+      return null;
+    }
+  }
+  if (pendingApiToken) return pendingApiToken;
+  pendingApiToken = (async () => {
+    try {
+      const { getElectron } = await import("./electron");
+      const electron = getElectron();
+      if (!electron) return null;
+      const token = await electron.settings.getToken();
+      cachedApiToken = token;
+      return token;
+    } catch {
+      return null;
+    } finally {
+      pendingApiToken = null;
+    }
+  })();
+  return pendingApiToken;
+}
+
+function hasAuthHeader(headers: HeadersInit | undefined): boolean {
+  if (!headers) return false;
+  if (headers instanceof Headers) return headers.has("authorization");
+  if (Array.isArray(headers)) {
+    return headers.some(([k]) => k.toLowerCase() === "authorization");
+  }
+  return Object.keys(headers).some((k) => k.toLowerCase() === "authorization");
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   // Node's fetch (used during TanStack Start SSR) rejects relative URLs.
   // In the browser the page origin is implicit; on the server, prepend the
@@ -42,10 +98,15 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     typeof window === "undefined" && url.startsWith("/")
       ? DEV_SERVER_ORIGIN + url
       : url;
+  const baseHeaders: Record<string, string> = { "content-type": "application/json" };
+  if (!hasAuthHeader(init?.headers)) {
+    const token = await resolveApiToken();
+    if (token) baseHeaders.authorization = `Bearer ${token}`;
+  }
   const res = await fetch(resolved, {
     ...init,
     headers: {
-      "content-type": "application/json",
+      ...baseHeaders,
       ...(init?.headers ?? {}),
     },
   });
@@ -124,11 +185,10 @@ export const api = {
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/restore`, { method: "POST" }),
-  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number }, token: string) =>
+  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number }) =>
     req<{ task: Task }>(`/api/tasks/${id}/status`, {
       method: "POST",
       body: JSON.stringify(body),
-      headers: { authorization: `Bearer ${token}` },
     }),
   createTaskInternal: (
     projectId: string,
@@ -140,12 +200,10 @@ export const api = {
       claudeSkipPermissions?: boolean;
       claudeBareSession?: boolean;
     },
-    token: string
   ) =>
     req<{ task: Task }>(`/api/projects/${projectId}/tasks`, {
       method: "POST",
       body: JSON.stringify(body),
-      headers: { authorization: `Bearer ${token}` },
     }),
   updateTask: (
     id: string,
@@ -224,11 +282,6 @@ export const api = {
     req<AppSettings>("/api/settings", {
       method: "POST",
       body: JSON.stringify(body),
-    }),
-  regenerateToken: () =>
-    req<AppSettings>("/api/settings", {
-      method: "POST",
-      body: JSON.stringify({ regenerate: true }),
     }),
 
   getGitStatus: (projectId: string) =>

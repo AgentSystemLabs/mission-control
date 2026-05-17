@@ -10,9 +10,8 @@ import {
   togglePin,
   updateProject,
 } from "../services/projects";
-import { handleDomainError, json, noContent, notFound, parseJsonBody } from "./_helpers";
-
-const idParam = z.string().min(1, "id is required");
+import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
+import { HTTP_CREATED, HTTP_PAYMENT_REQUIRED } from "~/shared/http-status";
 
 const launchCommandSchema = z.object({
   id: z.string().min(1),
@@ -57,7 +56,7 @@ export async function create(request: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   try {
     const p = createProject(parsed.data);
-    return json({ project: p }, { status: 201 });
+    return json({ project: p }, { status: HTTP_CREATED });
   } catch (e) {
     if (e instanceof ProjectCapExceededError) {
       return new Response(
@@ -67,7 +66,7 @@ export async function create(request: Request): Promise<Response> {
           limit: e.limit,
           current: e.current,
         }),
-        { status: 402, headers: { "content-type": "application/json" } },
+        { status: HTTP_PAYMENT_REQUIRED, headers: { "content-type": "application/json" } },
       );
     }
     const mapped = handleDomainError(e);

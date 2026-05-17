@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as schema from "./schema";
+import { resolveElectronBetterSqlite3NativeBinding } from "./better-sqlite3-native-binding";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS } from "~/shared/domain";
 
 const migrationFiles = import.meta.glob("./migrations/*.sql", {
@@ -33,7 +34,9 @@ export function getDb() {
   const dir = resolveUserDataDir();
   fs.mkdirSync(dir, { recursive: true });
   const dbPath = path.join(dir, "missioncontrol.db");
-  _sqlite = new Database(dbPath);
+  _sqlite = new Database(dbPath, {
+    nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
+  });
   _sqlite.pragma("journal_mode = WAL");
   _sqlite.pragma("foreign_keys = ON");
   _db = drizzle(_sqlite, { schema });

@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "~/shared/domain";
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Task } from "~/db/schema";
@@ -17,10 +16,7 @@ import {
   insertTerminalLog,
 } from "../repositories/terminal-logs.repo";
 import { sendTelemetry } from "./telemetry";
-
-function newId() {
-  return `t-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-}
+import { newId } from "./_ids";
 
 export function listTasksForProject(projectId: string): Task[] {
   return findTasksByProjectId(projectId);
@@ -47,7 +43,7 @@ export function createTask(input: {
 
   const now = Date.now();
   const row: Task = {
-    id: newId(),
+    id: newId("t"),
     projectId: input.projectId,
     title: input.title.trim(),
     icon: null,
@@ -151,7 +147,7 @@ export function deleteTask(id: string): boolean {
 const RING_LIMIT_BYTES = 1_000_000;
 
 export function appendTerminalLog(taskId: string, chunk: string) {
-  const id = `tl-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+  const id = newId("tl");
   insertTerminalLog({ id, taskId, chunk, createdAt: Date.now() });
   // rough FIFO eviction by total length per task
   const all = findTerminalLogsByTaskId(taskId);

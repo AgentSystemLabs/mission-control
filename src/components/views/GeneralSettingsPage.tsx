@@ -9,6 +9,11 @@ import {
   CURRENT_MC_VERSION,
   useLatestMissionControlVersion,
 } from "~/queries/mission-control-version";
+import {
+  triggerUpdateCheck,
+  triggerUpdateInstall,
+  useAutoUpdaterState,
+} from "~/queries/mc-auto-updater";
 import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 
 export function GeneralSettingsPage() {
@@ -47,7 +52,6 @@ export function GeneralSettingsPage() {
       >
     >,
   ): AppSettings => ({
-    apiToken: settings?.apiToken ?? "",
     agentSystemBannerDisabled: disabled,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     minimalTheme: settings?.minimalTheme ?? false,
@@ -227,21 +231,94 @@ export function GeneralSettingsPage() {
 }
 
 function AboutSection() {
-  const { data, isLoading, isError } = useLatestMissionControlVersion();
-  const latest = data?.latestVersion;
-  const updateAvailable = !!data?.isUpdateAvailable;
+  const { data: academy, isLoading: academyLoading, isError: academyError } =
+    useLatestMissionControlVersion();
+  const updater = useAutoUpdaterState();
+  const statusId = useId();
+  const latest = academy?.latestVersion;
+  const academyHasUpdate = !!academy?.isUpdateAvailable;
+
+  const openBrowserDownload = () => {
+    if (!academy?.downloadUrl) return;
+    const api = (window as any).electronAPI;
+    if (api?.openExternal) void api.openExternal(academy.downloadUrl);
+    else window.open(academy.downloadUrl, "_blank", "noopener,noreferrer");
+  };
 
   let status: string;
-  if (isLoading) status = "Checking for updates…";
-  else if (isError) status = "Couldn't check for updates.";
-  else if (!latest) status = "No release information available.";
-  else if (updateAvailable) status = `New version v${latest} available.`;
-  else status = "You're on the latest version.";
+  let action: { label: string; onClick: () => void } | null = null;
+  const busy =
+    updater.kind === "priming" ||
+    updater.kind === "checking" ||
+    updater.kind === "available" ||
+    updater.kind === "downloading";
+
+  switch (updater.kind) {
+    case "priming":
+      status = "Checking for updates…";
+      break;
+    case "checking":
+      status = "Checking for updates…";
+      break;
+    case "available":
+      status = `Update v${updater.version} found — downloading…`;
+      break;
+    case "downloading": {
+      const pct = Math.round(updater.percent);
+      status =
+        pct < 1
+          ? `Starting download of v${updater.version}…`
+          : `Downloading v${updater.version} — ${pct}%`;
+      break;
+    }
+    case "ready-to-install":
+      status = `v${updater.version} downloaded and ready to install.`;
+      action = {
+        label: "Restart to install",
+        onClick: async () => {
+          const res = await triggerUpdateInstall();
+          if (!res.ok && academy?.downloadUrl) openBrowserDownload();
+        },
+      };
+      break;
+    case "error":
+      if (academyHasUpdate && latest && academy?.downloadUrl) {
+        status = `Auto-update unavailable. New version v${latest} can be downloaded manually.`;
+        action = { label: "Download", onClick: openBrowserDownload };
+      } else {
+        status = `Auto-update unavailable (${updater.message}).`;
+        // Always offer a retry path so the user isn't stranded.
+        action = { label: "Try again", onClick: () => void triggerUpdateCheck() };
+      }
+      break;
+    case "unsupported-dev":
+    case "idle":
+    default:
+      if (academyLoading) status = "Checking for updates…";
+      else if (academyError) status = "Couldn't check for updates.";
+      else if (!latest) status = "No release information available.";
+      else if (academyHasUpdate) {
+        status = `New version v${latest} available.`;
+        action = {
+          label: "Update",
+          onClick: async () => {
+            try {
+              await triggerUpdateCheck();
+            } catch (err) {
+              console.error("[updater] check failed; falling through to browser:", err);
+              openBrowserDownload();
+            }
+          },
+        };
+      } else status = "You're on the latest version.";
+      break;
+  }
 
   return (
     <SettingsSection title="About" subtitle="Version information for Mission Control.">
       <Field label="Version">
         <div
+          aria-busy={busy}
           style={{
             display: "flex",
             alignItems: "center",
@@ -257,25 +334,26 @@ function AboutSection() {
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
               Installed: v{CURRENT_MC_VERSION}
             </div>
-            <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}>
+            <div
+              id={statusId}
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}
+            >
               {status}
             </div>
           </div>
-          {updateAvailable && data?.downloadUrl && (
-            <a
-              href={data.downloadUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: "var(--accent)",
-                textDecoration: "none",
-                flexShrink: 0,
-              }}
+          {action && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              onClick={action.onClick}
+              aria-describedby={statusId}
+              style={{ flexShrink: 0 }}
             >
-              Download →
-            </a>
+              {action.label}
+            </Btn>
           )}
         </div>
       </Field>

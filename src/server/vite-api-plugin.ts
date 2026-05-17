@@ -1,5 +1,11 @@
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { HTTP_INTERNAL_SERVER_ERROR } from "../shared/http-status";
+
+const LOOPBACK_HOST_FALLBACK = "127.0.0.1";
+const TOKEN_QUERY_REDACT_URL = /([?&])token=[^&#]+/gi;
+const TOKEN_QUERY_REDACT_MESSAGE = /([?&])token=[^&#\s"']+/gi;
+const TOKEN_REDACTED_REPLACEMENT = "$1token=<redacted>";
 
 /**
  * Vite plugin that mounts the MissionControl `/api/*` Web-fetch handler
@@ -21,9 +27,21 @@ export function missionControlApi(): Plugin {
           if (!response) return next();
           await writeFetchResponse(response, res);
         } catch (err: any) {
-          res.statusCode = 500;
+          // Never echo err.message — it may contain the `?token=` SSE bearer
+          // if the throw wrapped a URL. Generic body + redacted server log.
+          const safeUrl = (req.url ?? "").replace(
+            TOKEN_QUERY_REDACT_URL,
+            TOKEN_REDACTED_REPLACEMENT,
+          );
+          const safeMessage = String(err?.message ?? "internal error").replace(
+            TOKEN_QUERY_REDACT_MESSAGE,
+            TOKEN_REDACTED_REPLACEMENT,
+          );
+          // eslint-disable-next-line no-console
+          console.error(`[mc-api] ${req.method} ${safeUrl} failed: ${safeMessage}`);
+          res.statusCode = HTTP_INTERNAL_SERVER_ERROR;
           res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify({ error: err?.message || "internal error" }));
+          res.end(JSON.stringify({ error: "internal error" }));
         }
       });
     },
@@ -31,7 +49,7 @@ export function missionControlApi(): Plugin {
 }
 
 async function nodeRequestToFetch(req: IncomingMessage): Promise<Request> {
-  const host = req.headers.host || "127.0.0.1";
+  const host = req.headers.host || LOOPBACK_HOST_FALLBACK;
   const url = `http://${host}${req.url ?? "/"}`;
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {

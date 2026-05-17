@@ -76,13 +76,17 @@ function* candidateJsonBlocks(s: string): Generator<string> {
   }
 }
 
+const TITLE_MAX_WORDS = 7;
+const TITLE_MAX_LEN = 80;
+const FALLBACK_TITLE_MAX_LEN = 60;
+
 function sanitizeTitle(raw: string): string {
   let t = raw.trim();
   t = t.replace(/^["'`]+|["'`]+$/g, "");
   t = t.replace(/[.!?,;:]+$/g, "");
-  const words = t.split(/\s+/).filter(Boolean).slice(0, 7);
+  const words = t.split(/\s+/).filter(Boolean).slice(0, TITLE_MAX_WORDS);
   t = words.join(" ");
-  if (t.length > 80) t = t.slice(0, 80).trim();
+  if (t.length > TITLE_MAX_LEN) t = t.slice(0, TITLE_MAX_LEN).trim();
   return t;
 }
 
@@ -176,5 +180,7 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
 
 function fallbackTitle(prompt: string): string {
   const firstLine = prompt.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "Untitled task";
-  return firstLine.length > 60 ? firstLine.slice(0, 60).trim() + "…" : firstLine;
+  return firstLine.length > FALLBACK_TITLE_MAX_LEN
+    ? firstLine.slice(0, FALLBACK_TITLE_MAX_LEN).trim() + "…"
+    : firstLine;
 }
