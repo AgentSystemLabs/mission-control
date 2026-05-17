@@ -1,14 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from "electron";
 import log from "electron-log/main";
-
-// Persists to ~/Library/Logs/<AppName>/main.log on macOS, %USERPROFILE%/AppData/Roaming/<AppName>/logs/main.log on Windows,
-// and ~/.config/<AppName>/logs/main.log on Linux. This is the file users grep when
-// the auto-updater goes silent — `console.*` from a packaged Electron app is invisible.
-// Log lines may contain the user's local OS username inside artifact paths (e.g. /Users/<name>/Library/...).
-// That's already on the user's own machine, so not a privacy risk unless they share the bundle externally.
-log.initialize();
-log.transports.file.level = "info";
-log.transports.console.level = "debug";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -30,6 +21,43 @@ import {
 } from "./api-token-store";
 import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
 import { configureProjectRootsDb, disposeProjectRootsDb } from "./project-roots";
+
+const APP_NAME = "MissionControl";
+
+function defaultUserDataDir(): string {
+  const home = os.homedir();
+  if (process.platform === "darwin") {
+    return path.join(home, "Library/Application Support", APP_NAME);
+  }
+  if (process.platform === "win32") {
+    return path.join(home, "AppData/Roaming", APP_NAME);
+  }
+  return path.join(home, ".config", APP_NAME);
+}
+
+function configureUserDataDir(): string {
+  // Keep Electron-side IPC stores aligned with src/db/client.ts. In dev the
+  // generated dist-electron/package.json only declares CommonJS, so Electron's
+  // package-name-derived default can become "Electron" or "mission-control",
+  // splitting API tokens and project roots across separate SQLite files.
+  const dir = (process.env.MC_USER_DATA_DIR || defaultUserDataDir()).trim();
+  fs.mkdirSync(dir, { recursive: true });
+  app.setName(APP_NAME);
+  app.setPath("userData", dir);
+  process.env.MC_USER_DATA_DIR = dir;
+  return dir;
+}
+
+const missionControlUserDataDir = configureUserDataDir();
+
+// Persists to ~/Library/Logs/<AppName>/main.log on macOS, %USERPROFILE%/AppData/Roaming/<AppName>/logs/main.log on Windows,
+// and ~/.config/<AppName>/logs/main.log on Linux. This is the file users grep when
+// the auto-updater goes silent — `console.*` from a packaged Electron app is invisible.
+// Log lines may contain the user's local OS username inside artifact paths (e.g. /Users/<name>/Library/...).
+// That's already on the user's own machine, so not a privacy risk unless they share the bundle externally.
+log.initialize();
+log.transports.file.level = "info";
+log.transports.console.level = "debug";
 
 const isDev = process.env.NODE_ENV === "development";
 const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
@@ -110,7 +138,7 @@ async function startProductionServer(): Promise<string> {
   const port = await pickPort();
   const origin = `http://${devServerHost}:${port}`;
   runtimePort = port;
-  const portFile = path.join(app.getPath("userData"), ".port");
+  const portFile = path.join(missionControlUserDataDir, ".port");
   fs.mkdirSync(path.dirname(portFile), { recursive: true });
   fs.writeFileSync(portFile, String(port), "utf8");
 
@@ -130,7 +158,7 @@ async function startProductionServer(): Promise<string> {
       MC_DEV_URL: origin,
       MC_DEV_PORT: String(port),
       ELECTRON_RUN_AS_NODE: "1",
-      MC_USER_DATA_DIR: app.getPath("userData"),
+      MC_USER_DATA_DIR: missionControlUserDataDir,
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
@@ -150,7 +178,7 @@ async function bootDevServer(): Promise<string> {
   // Vite dev server is launched by `pnpm dev:server`; just wait for it.
   await waitForHttp(devUrl);
   runtimePort = Number(new URL(devUrl).port);
-  const portFile = path.join(app.getPath("userData"), ".port");
+  const portFile = path.join(missionControlUserDataDir, ".port");
   fs.mkdirSync(path.dirname(portFile), { recursive: true });
   fs.writeFileSync(portFile, String(runtimePort), "utf8");
   return devUrl;
@@ -233,7 +261,7 @@ const ALLOWED_IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 function projectImagesDir(): string {
-  return path.join(app.getPath("userData"), "project-images");
+  return path.join(missionControlUserDataDir, "project-images");
 }
 
 function registerProjectImageProtocol() {
@@ -333,7 +361,7 @@ safeHandle(IPC.shellOpenExternal, async (_evt, url: string) => {
 });
 
 safeHandle(IPC.appGetRuntimePort, () => runtimePort);
-safeHandle(IPC.appGetUserDataDir, () => app.getPath("userData"));
+safeHandle(IPC.appGetUserDataDir, () => missionControlUserDataDir);
 
 safeHandle(IPC.appGetUserName, () => {
   try {
@@ -371,10 +399,10 @@ registerFileHandlers(ipcMain, () => win);
 // because the loopback server's same-origin gate doesn't protect against a
 // compromised renderer or any other process that can reach the local port.
 safeHandle(IPC.settingsGetToken, () => {
-  return getOrCreateApiToken(app.getPath("userData"));
+  return getOrCreateApiToken(missionControlUserDataDir);
 });
 safeHandle(IPC.settingsRegenerateToken, () => {
-  return regenerateApiToken(app.getPath("userData"));
+  return regenerateApiToken(missionControlUserDataDir);
 });
 
 safeHandle(
@@ -432,7 +460,7 @@ app.on("before-quit", () => {
 app.whenReady().then(() => {
   // pty:spawn validates `cwd` against this DB before letting any binary run,
   // so it must be configured before any window can issue an IPC call.
-  configureProjectRootsDb(app.getPath("userData"));
+  configureProjectRootsDb(missionControlUserDataDir);
   registerProjectImageProtocol();
   registerUpdateManager(ipcMain, () => win);
   sendTelemetry("app_launch", app.getVersion());

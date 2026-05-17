@@ -81,11 +81,32 @@ function existingPathEntries(
   }) as string[];
 }
 
+function compareVersionishNamesDesc(a: string, b: string): number {
+  const parse = (value: string): number[] | null => {
+    const match = value.match(/^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+    if (!match) return null;
+    return [Number(match[1] ?? 0), Number(match[2] ?? 0), Number(match[3] ?? 0)];
+  };
+
+  const av = parse(a);
+  const bv = parse(b);
+  if (av && bv) {
+    for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+      const diff = (bv[i] ?? 0) - (av[i] ?? 0);
+      if (diff !== 0) return diff;
+    }
+  }
+  if (av && !bv) return -1;
+  if (!av && bv) return 1;
+  return b.localeCompare(a);
+}
+
 function existingChildDirs(parent: string | undefined, childPath: string[] = []): string[] {
   if (!parent) return [];
   try {
     return fs.readdirSync(parent, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
+      .sort((a, b) => compareVersionishNamesDesc(a.name, b.name))
       .map((entry) => path.join(parent, entry.name, ...childPath));
   } catch {
     return [];
@@ -196,7 +217,16 @@ export function buildUserPath(
   );
 
   const seen = new Set<string>();
-  const all = [...candidates, ...basePath.split(delimiter).filter(Boolean)];
+  const baseEntries = basePath.split(delimiter).filter(Boolean);
+  // Windows GUI launches often inherit a PATH dominated by the packaged app and
+  // system directories, so known user install locations must lead. POSIX shells
+  // commonly carry the active Node manager selection in PATH; preserve that
+  // order so we don't accidentally pick an older global CLI from another NVM
+  // version just because it appeared first in fs.readdir().
+  const all =
+    platform === "win32"
+      ? [...candidates, ...baseEntries]
+      : [...baseEntries, ...candidates];
   return all.filter((entry) => {
     const key = platform === "win32" ? entry.toLowerCase() : entry;
     if (seen.has(key)) return false;

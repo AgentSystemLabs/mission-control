@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
+import { buildUserPath, resolveCommandOnPath } from "../shell-env";
 import {
   resolveSpawnPlan,
   SpawnPolicyError,
@@ -9,6 +13,12 @@ import {
 } from "../pty-spawn-policy";
 
 const PROJECT_ROOT = "/Users/me/code/myproject";
+
+function writeExecutable(file: string, contents = "#!/bin/sh\nexit 0\n"): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, contents, "utf8");
+  fs.chmodSync(file, 0o755);
+}
 
 function depsFor(overrides: Partial<SpawnPolicyDeps> = {}): SpawnPolicyDeps {
   return {
@@ -70,6 +80,16 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     if (plan.mode !== "agent") throw new Error("wrong mode");
     expect(plan.binary).toBe("/usr/local/bin/codex");
     expect(plan.argv).toEqual([]);
+  });
+
+  it("passes Codex managed-hook flags as direct argv", () => {
+    const plan = resolveSpawnPlan(
+      spawnReq({ agent: "codex", command: "codex --enable hooks --yolo" }),
+      depsFor(),
+    );
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    expect(plan.binary).toBe("/usr/local/bin/codex");
+    expect(plan.argv).toEqual(["--enable", "hooks", "--yolo"]);
   });
 
   it("maps cursor-cli agent to the cursor-agent binary", () => {
@@ -140,6 +160,88 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     );
     if (plan.mode !== "agent") throw new Error("wrong mode");
     expect(plan.argv).toEqual(["--resume", "X", "--debug"]);
+  });
+});
+
+describe("resolveSpawnPlan — shell env integration", () => {
+  it("chooses the active POSIX Codex from PATH over a stale guessed NVM install", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-codex-launch-"));
+    const home = path.join(root, "home");
+    const herdNvmDir = path.join(home, "Library", "Application Support", "Herd", "config", "nvm");
+    const activeBin = path.join(herdNvmDir, "versions", "node", "v24.15.0", "bin");
+    const staleBin = path.join(herdNvmDir, "versions", "node", "v22.21.1", "bin");
+    const activeCodex = path.join(activeBin, "codex");
+
+    writeExecutable(activeCodex);
+    writeExecutable(path.join(staleBin, "codex"));
+
+    const env = {
+      PATH: buildUserPath(activeBin, {
+        platform: "darwin",
+        homeDir: home,
+        env: { NVM_DIR: herdNvmDir },
+      }),
+    };
+
+    const plan = resolveSpawnPlan(
+      spawnReq({ agent: "codex", command: "codex --enable hooks" }),
+      depsFor({
+        resolveCommand: (name) => resolveCommandOnPath(name, env, "darwin"),
+      }),
+    );
+
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    expect(plan.binary).toBe(activeCodex);
+    expect(plan.binary).toContain("Application Support");
+    expect(plan.argv).toEqual(["--enable", "hooks"]);
+  });
+
+  const posixIt = process.platform === "win32" ? it.skip : it;
+  posixIt("executes the resolved POSIX Codex shim with managed-hook argv", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-codex-exec-"));
+    const home = path.join(root, "home");
+    const nvmDir = path.join(home, ".nvm");
+    const activeBin = path.join(nvmDir, "versions", "node", "v24.15.0", "bin");
+    const staleBin = path.join(nvmDir, "versions", "node", "v22.21.1", "bin");
+    const activeCodex = path.join(activeBin, "codex");
+
+    writeExecutable(
+      activeCodex,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--enable" ] && [ "$2" = "hooks" ]; then',
+        '  printf "active codex\\n"',
+        "  exit 0",
+        "fi",
+        'printf "bad argv: %s\\n" "$*" >&2',
+        "exit 13",
+        "",
+      ].join("\n"),
+    );
+    writeExecutable(
+      path.join(staleBin, "codex"),
+      '#!/bin/sh\nprintf "Unknown feature flag: hooks\\n" >&2\nexit 42\n',
+    );
+
+    const env = {
+      PATH: buildUserPath(activeBin, {
+        platform: "darwin",
+        homeDir: home,
+        env: { NVM_DIR: nvmDir },
+      }),
+    };
+    const plan = resolveSpawnPlan(
+      spawnReq({ agent: "codex", command: "codex --enable hooks" }),
+      depsFor({
+        resolveCommand: (name) => resolveCommandOnPath(name, env, "darwin"),
+      }),
+    );
+
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    const result = spawnSync(plan.binary, plan.argv, { encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("active codex");
+    expect(result.stderr).not.toContain("Unknown feature flag");
   });
 });
 

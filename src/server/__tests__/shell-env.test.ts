@@ -14,6 +14,11 @@ function touch(file: string) {
   fs.writeFileSync(file, "", "utf8");
 }
 
+function touchExecutable(file: string) {
+  touch(file);
+  fs.chmodSync(file, 0o755);
+}
+
 describe("Electron shell environment helpers", () => {
   it("adds common Windows agent CLI install directories before the packaged app PATH", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-path-"));
@@ -103,6 +108,63 @@ describe("Electron shell environment helpers", () => {
     expect(entries).toContain(path.join(home, ".config", "yarn", "global", "node_modules", ".bin"));
     expect(entries).toContain(path.join(nvmDir, "versions", "node", "v24.0.0", "bin"));
     expect(entries).toContain(path.join(fnmDir, "node-versions", "v24.0.0", "installation", "bin"));
+  });
+
+  it("preserves POSIX base PATH order before guessed Node-manager versions", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-posix-path-order-"));
+    const home = path.join(root, "home");
+    const nvmDir = path.join(home, ".nvm");
+    const activeBin = path.join(nvmDir, "versions", "node", "v24.15.0", "bin");
+    const staleBin = path.join(nvmDir, "versions", "node", "v22.21.1", "bin");
+
+    fs.mkdirSync(activeBin, { recursive: true });
+    fs.mkdirSync(staleBin, { recursive: true });
+
+    const entries = buildUserPath(activeBin, {
+      platform: "darwin",
+      homeDir: home,
+      env: { NVM_DIR: nvmDir },
+    }).split(path.delimiter);
+
+    expect(entries[0]).toBe(activeBin);
+    expect(entries.indexOf(activeBin)).toBeLessThan(entries.indexOf(staleBin));
+  });
+
+  it("orders guessed POSIX Node-manager versions newest first when PATH has no active version", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-posix-version-order-"));
+    const home = path.join(root, "home");
+    const nvmDir = path.join(home, ".nvm");
+    const newestBin = path.join(nvmDir, "versions", "node", "v24.15.0", "bin");
+    const olderBin = path.join(nvmDir, "versions", "node", "v22.21.1", "bin");
+
+    fs.mkdirSync(olderBin, { recursive: true });
+    fs.mkdirSync(newestBin, { recursive: true });
+
+    const entries = buildUserPath("", {
+      platform: "darwin",
+      homeDir: home,
+      env: { NVM_DIR: nvmDir },
+    }).split(path.delimiter);
+
+    expect(entries.indexOf(newestBin)).toBeLessThan(entries.indexOf(olderBin));
+  });
+
+  it("resolves POSIX executables from active PATH entries that contain spaces", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-posix-space-path-"));
+    const home = path.join(root, "home");
+    const herdNvmDir = path.join(home, "Library", "Application Support", "Herd", "config", "nvm");
+    const activeBin = path.join(herdNvmDir, "versions", "node", "v24.15.0", "bin");
+    const codexPath = path.join(activeBin, "codex");
+
+    touchExecutable(codexPath);
+
+    const pathValue = buildUserPath(activeBin, {
+      platform: "darwin",
+      homeDir: home,
+      env: { NVM_DIR: herdNvmDir },
+    });
+
+    expect(resolveCommandOnPath("codex", { PATH: pathValue }, "darwin")).toBe(codexPath);
   });
 
   it("resolves Windows .exe and .cmd agent shims without spawning PowerShell", () => {
