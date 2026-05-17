@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { resolveApiToken } from "./api";
+import { api } from "./api";
 
 export type ServerEvent = { type: string; [k: string]: unknown };
 
@@ -12,18 +12,23 @@ export function useServerEvents(onEvent: (e: ServerEvent) => void) {
     if (typeof window === "undefined") return;
     let stopped = false;
     let es: EventSource | null = null;
+    const reconnect = () => {
+      if (!stopped) setTimeout(() => void connect(), SSE_RECONNECT_DELAY_MS);
+    };
 
     const connect = async () => {
       if (stopped) return;
-      // EventSource cannot send Authorization headers; the bearer travels in
-      // ?token= and is constant-time-compared server-side.
-      const token = await resolveApiToken();
-      if (stopped) return;
-      if (!token) {
-        setTimeout(() => void connect(), SSE_RECONNECT_DELAY_MS);
+      // EventSource cannot send Authorization headers, so fetch a short-lived
+      // single-use ticket over the normal bearer-authenticated API first.
+      let ticket: string;
+      try {
+        ({ ticket } = await api.createEventsTicket());
+      } catch {
+        reconnect();
         return;
       }
-      es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+      if (stopped) return;
+      es = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
       es.onmessage = (msg) => {
         try {
           const data = JSON.parse(msg.data);
@@ -35,7 +40,7 @@ export function useServerEvents(onEvent: (e: ServerEvent) => void) {
       es.onerror = () => {
         es?.close();
         es = null;
-        if (!stopped) setTimeout(() => void connect(), SSE_RECONNECT_DELAY_MS);
+        reconnect();
       };
     };
 

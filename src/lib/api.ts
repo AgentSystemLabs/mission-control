@@ -39,26 +39,27 @@ export class ApiError extends Error {
 
 // Module-level bearer cache. Populated by `apiTokenQueryOptions.queryFn` (see
 // src/queries/index.ts) so every `req<T>` below can attach the token without
-// awaiting an IPC round-trip per call. `resolveApiToken` falls back to a lazy
-// IPC bootstrap when nothing has primed the cache yet (test code, edge timing).
+// awaiting an IPC round-trip per call. `resolveApiToken` falls back to a server
+// bootstrap on SSR and lazy IPC in the renderer when nothing has primed the
+// cache yet (test code, edge timing).
 let cachedApiToken: string | null = null;
 let pendingApiToken: Promise<string | null> | null = null;
+let serverApiTokenResolver: (() => string | null) | null = null;
 
 export function setApiToken(token: string | null): void {
   cachedApiToken = token;
   pendingApiToken = null;
 }
 
+export function setServerApiTokenResolver(resolver: (() => string | null) | null): void {
+  serverApiTokenResolver = resolver;
+}
+
 export async function resolveApiToken(): Promise<string | null> {
   if (cachedApiToken) return cachedApiToken;
   if (import.meta.env.SSR) {
-    // SSR / Node: read directly from the server helper. `import.meta.env.SSR`
-    // is a compile-time constant Vite replaces with `false` in the client
-    // bundle, so this branch — and its server-only import — is dead-code
-    // eliminated client-side.
     try {
-      const { getServerApiToken } = await import("~/server/auth");
-      return getServerApiToken();
+      return serverApiTokenResolver?.() ?? null;
     } catch {
       return null;
     }
@@ -309,6 +310,10 @@ export const api = {
     req<PushResult>(`/api/projects/${projectId}/git/push`, { method: "POST" }),
   getUsage: (days: number = 30) =>
     req<UsageSummary>(`/api/usage?days=${days}`),
+  createEventsTicket: () =>
+    req<{ ticket: string; expiresAt: number }>("/api/events/ticket", {
+      method: "POST",
+    }),
 
   deleteProjectFile: (projectId: string, filePath: string) =>
     req<{ ok: true }>(

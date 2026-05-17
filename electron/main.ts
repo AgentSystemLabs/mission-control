@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session } from "electron";
 import log from "electron-log/main";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
@@ -20,7 +20,9 @@ import {
   regenerateApiToken,
 } from "./api-token-store";
 import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
-import { configureProjectRootsDb, disposeProjectRootsDb } from "./project-roots";
+import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
+import { resolveSafeOpenPath } from "./open-path-policy";
+import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
 
 const APP_NAME = "MissionControl";
 
@@ -132,6 +134,14 @@ async function openExternalHttpUrl(url: string): Promise<{ ok: true } | { ok: fa
   }
   await shell.openExternal(parsed.toString());
   return { ok: true };
+}
+
+function configurePermissionHandlers(): void {
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  ses.setPermissionCheckHandler(() => false);
 }
 
 async function startProductionServer(): Promise<string> {
@@ -259,6 +269,8 @@ protocol.registerSchemesAsPrivileged([
 
 const ALLOWED_IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const DIRECTORY_GRANTS_FILE = "directory-grants.json";
+const DIRECTORY_GRANT_TTL_MS = 15 * 60_000;
 
 function projectImagesDir(): string {
   return path.join(missionControlUserDataDir, "project-images");
@@ -290,6 +302,36 @@ function registerProjectImageProtocol() {
 // accept a sourcePath that's been issued by us — prevents a compromised renderer
 // from copying arbitrary FS paths (e.g. /etc/passwd) into project-images/.
 const ALLOWED_PICKED_PATHS = new Set<string>();
+
+function recordPickedDirectoryGrant(dir: string): void {
+  const realDir = fs.realpathSync(dir);
+  const target = path.join(missionControlUserDataDir, DIRECTORY_GRANTS_FILE);
+  let grants: Array<{ path: string; createdAt: number }> = [];
+  try {
+    const now = Date.now();
+    const parsed = JSON.parse(fs.readFileSync(target, "utf8")) as {
+      grants?: Array<{ path?: unknown; createdAt?: unknown }>;
+    };
+    if (Array.isArray(parsed.grants)) {
+      grants = parsed.grants.filter(
+        (g): g is { path: string; createdAt: number } =>
+          typeof g.path === "string" &&
+          typeof g.createdAt === "number" &&
+          g.createdAt <= now &&
+          now - g.createdAt <= DIRECTORY_GRANT_TTL_MS,
+      );
+    }
+  } catch {
+    grants = [];
+  }
+  grants = grants.filter((g) => path.resolve(g.path) !== path.resolve(realDir));
+  grants.push({ path: realDir, createdAt: Date.now() });
+
+  fs.mkdirSync(missionControlUserDataDir, { recursive: true });
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ grants }, null, 2), "utf8");
+  fs.renameSync(tmp, target);
+}
 
 safeHandle(IPC.dialogPickImage, async () => {
   if (!win) return null;
@@ -346,13 +388,19 @@ safeHandle(IPC.dialogBrowseFolder, async () => {
     properties: ["openDirectory", "createDirectory"],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
-  return result.filePaths[0];
+  const selected = result.filePaths[0]!;
+  try {
+    recordPickedDirectoryGrant(selected);
+  } catch (err) {
+    log.warn("directory-grant.record-failed", { path: selected, error: String(err) });
+  }
+  return selected;
 });
 
 safeHandle(IPC.shellOpenPath, async (_evt, p: string) => {
-  if (!p) return { ok: false, error: "empty" };
-  const err = await shell.openPath(p);
-  if (err) return { ok: false, error: err };
+  const decision = resolveSafeOpenPath(p, loadProjectRoots());
+  if (!decision.ok) return decision;
+  shell.showItemInFolder(decision.path);
   return { ok: true };
 });
 
@@ -392,7 +440,14 @@ safeHandle(IPC.cliCheck, (_evt, command: string) => {
   return { ok: false, reason: "not-found" };
 });
 
-registerPtyHandlers(ipcMain, () => win);
+registerPtyHandlers(ipcMain, () => win, () => {
+  const apiUrl = buildLocalMissionControlApiUrl(runtimePort);
+  if (!apiUrl) return null;
+  return {
+    apiUrl,
+    token: getOrCreateApiToken(missionControlUserDataDir),
+  };
+});
 registerFileHandlers(ipcMain, () => win);
 
 // API bearer token is delivered through IPC only — it must never traverse HTTP
@@ -461,6 +516,7 @@ app.whenReady().then(() => {
   // pty:spawn validates `cwd` against this DB before letting any binary run,
   // so it must be configured before any window can issue an IPC call.
   configureProjectRootsDb(missionControlUserDataDir);
+  configurePermissionHandlers();
   registerProjectImageProtocol();
   registerUpdateManager(ipcMain, () => win);
   sendTelemetry("app_launch", app.getVersion());

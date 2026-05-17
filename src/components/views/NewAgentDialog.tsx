@@ -134,16 +134,14 @@ export function NewAgentDialog({
     }
     setSubmitting(true);
     setError(null);
-    if (agent !== "shell") {
-      const electron = getElectron();
-      if (electron) {
-        const cmd = AGENT_META[agent].cmd;
-        const probe = await electron.cliCheck(cmd);
-        if (!probe.ok) {
-          setError(`${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`);
-          setSubmitting(false);
-          return;
-        }
+    const electron = getElectron();
+    if (electron) {
+      const cmd = AGENT_META[agent].cmd;
+      const probe = await electron.cliCheck(cmd);
+      if (!probe.ok) {
+        setError(`${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`);
+        setSubmitting(false);
+        return;
       }
     }
     try {

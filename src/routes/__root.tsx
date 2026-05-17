@@ -88,8 +88,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   // TanStack Router runs matched-route loaders in parallel by default, so
   // child loaders may race this prefetch — `resolveApiToken` (src/lib/api.ts)
   // dedupes via a lazy IPC fallback so the race resolves to the same token.
-  // SSR rejects this (no Electron); the SSR branch of `resolveApiToken` reads
-  // the token directly from src/server/auth.ts:getServerApiToken.
+  // SSR rejects this (no Electron); the server entry registers a token resolver
+  // for `resolveApiToken` without importing server-only modules into client code.
   loader: ({ context }) =>
     context.queryClient
       .ensureQueryData(apiTokenQueryOptions())

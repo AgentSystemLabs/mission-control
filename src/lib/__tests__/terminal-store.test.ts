@@ -51,7 +51,7 @@ describe("commandForTask", () => {
     );
   });
 
-  it("passes remembered force mode to Cursor CLI", () => {
+  it("passes remembered permission-bypass mode to Cursor CLI", () => {
     const task = {
       ...baseTask,
       agent: "cursor-cli",

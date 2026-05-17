@@ -123,8 +123,8 @@ The UI updates within ~1 second over its SSE connection.
 All `/api/*` routes require an `Authorization: Bearer <token>` header (token in
 Settings → API). The renderer attaches it automatically; external CLIs (Claude,
 Codex, Cursor) receive it via the `$MC_API_TOKEN` env var when launched from
-within Mission Control. `/api/events` (SSE) accepts the token as `?token=…`
-because `EventSource` cannot send custom headers.
+within Mission Control. `/api/events` (SSE) uses a short-lived ticket from
+`POST /api/events/ticket` because `EventSource` cannot send custom headers.
 
 
 | Method | Path                                   |

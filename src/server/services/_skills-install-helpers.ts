@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -15,6 +16,35 @@ export function normalizeEntryPath(p: string): string | null {
   if (!s || s.startsWith("/") || s.includes("\0")) return null;
   if (s.split("/").some((part) => part === "..")) return null;
   return s;
+}
+
+export function assertSafeProjectRelativePath(
+  projectRoot: string,
+  relPath: string,
+  label: string,
+): void {
+  const norm = normalizeEntryPath(relPath);
+  if (!norm) throw new Error(`${label} path is invalid`);
+
+  const root = path.resolve(projectRoot);
+  let cursor = root;
+  const parts = norm.split("/").filter(Boolean);
+  for (let i = 0; i < parts.length; i++) {
+    cursor = path.join(cursor, parts[i]!);
+    const relative = path.relative(root, cursor);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error(`${label} target escapes the project root`);
+    }
+
+    const stat = fs.lstatSync(cursor, { throwIfNoEntry: false });
+    if (!stat) break;
+    if (stat.isSymbolicLink()) {
+      throw new Error(`${label} target crosses a symlink inside the project`);
+    }
+    if (i < parts.length - 1 && !stat.isDirectory()) {
+      throw new Error(`${label} parent path is not a directory`);
+    }
+  }
 }
 
 // Stream the response body into `tempFile` while hashing it. Throws if the

@@ -11,7 +11,7 @@ export const AGENT_BINARIES: Readonly<Record<TaskAgentSpawn, string>> = {
   "cursor-cli": "cursor-agent",
 };
 
-export type SpawnRequest = {
+export type BaseSpawnRequest = {
   taskId: string;
   cwd: string;
   command: string;
@@ -19,13 +19,25 @@ export type SpawnRequest = {
   cols?: number;
   rows?: number;
   mcEnv?: { apiUrl?: string; token?: string };
-  agent?: string;
+};
+
+export type AgentSpawnRequest = BaseSpawnRequest & {
+  agent: TaskAgentSpawn;
+  dangerouslySkipPermissions?: boolean;
+  shell?: never;
+};
+
+export type ShellSpawnRequest = BaseSpawnRequest & {
   // Renderer must set shell: true for a free-form user shell terminal (agent
   // undefined). Forces every spawn callsite to declare which boundary it's
   // on — agent allow-list vs. user-driven shell — so a briefly-compromised
   // renderer can't slip an arbitrary command through the "agent" branch.
-  shell?: boolean;
+  shell: true;
+  agent?: never;
+  dangerouslySkipPermissions?: never;
 };
+
+export type SpawnRequest = AgentSpawnRequest | ShellSpawnRequest;
 
 export type SpawnPlan =
   | {
@@ -74,9 +86,35 @@ export type SpawnPolicyErrorCode =
   | "binary-not-found"
   | "shell-with-agent"
   | "shell-meta-in-args"
+  | "agent-arg-not-allowed"
   | "empty-command";
 
 const SHELL_META = /[`$();&|<>"'\\\n\r\t*?{}[\]~#!]/;
+const AGENT_VALUE = /^[A-Za-z0-9._:-]+$/;
+
+type AgentArgRule = {
+  value: false | { allowed?: readonly string[] };
+  requiresDangerouslySkipPermissions?: boolean;
+};
+
+const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, AgentArgRule>>>> = {
+  "claude-code": {
+    "--bare": { value: false },
+    "--session-id": { value: {} },
+    "--resume": { value: {} },
+    "--dangerously-skip-permissions": {
+      value: false,
+      requiresDangerouslySkipPermissions: true,
+    },
+  },
+  codex: {
+    "--enable": { value: { allowed: ["hooks"] } },
+    "--yolo": { value: false, requiresDangerouslySkipPermissions: true },
+  },
+  "cursor-cli": {
+    "--force": { value: false, requiresDangerouslySkipPermissions: true },
+  },
+};
 
 function withinRoot(real: string, root: string): boolean {
   if (real === root) return true;
@@ -106,6 +144,45 @@ function defaultRealpath(p: string): string {
   }
 }
 
+function validateAgentArgv(
+  agent: TaskAgentSpawn,
+  argv: string[],
+  opts: { dangerouslySkipPermissions: boolean },
+): void {
+  const rules = AGENT_ARG_RULES[agent];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
+    const rule = rules[arg];
+    if (!rule) {
+      throw new SpawnPolicyError(
+        "agent-arg-not-allowed",
+        `pty:spawn rejected unsupported ${agent} argument`,
+      );
+    }
+    if (rule.requiresDangerouslySkipPermissions && !opts.dangerouslySkipPermissions) {
+      throw new SpawnPolicyError(
+        "agent-arg-not-allowed",
+        `pty:spawn rejected unsupported ${agent} argument`,
+      );
+    }
+    if (rule.value === false) continue;
+
+    const value = argv[i + 1];
+    if (
+      !value ||
+      value.startsWith("-") ||
+      !AGENT_VALUE.test(value) ||
+      (rule.value.allowed && !rule.value.allowed.includes(value))
+    ) {
+      throw new SpawnPolicyError(
+        "agent-arg-not-allowed",
+        `pty:spawn rejected invalid value for ${agent} argument`,
+      );
+    }
+    i += 1;
+  }
+}
+
 export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): SpawnPlan {
   const cwdExists = deps.cwdExists ?? defaultCwdExists;
   const realpath = deps.realpath ?? defaultRealpath;
@@ -115,7 +192,7 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
     throw new SpawnPolicyError("invalid-cwd", "cwd is required");
   }
   if (!cwdExists(req.cwd)) {
-    throw new SpawnPolicyError("invalid-cwd", `cwd is not an accessible directory: ${req.cwd}`);
+    throw new SpawnPolicyError("invalid-cwd", "cwd is not an accessible directory");
   }
 
   // 2. cwd must resolve into one of the registered project roots. Resolving
@@ -133,7 +210,7 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
   if (!roots.some((root) => withinRoot(realCwd, root))) {
     throw new SpawnPolicyError(
       "cwd-outside-project-roots",
-      `cwd is not within any registered project root: ${req.cwd}`,
+      "cwd is not within any registered project root",
     );
   }
 
@@ -175,7 +252,7 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
   if (!expectedBinary) {
     throw new SpawnPolicyError(
       "unknown-agent",
-      `pty:spawn agent="${req.agent}" is not in the allow-list`,
+      "pty:spawn agent is not in the allow-list",
     );
   }
 
@@ -184,13 +261,13 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
   if (tokens.length === 0) {
     throw new SpawnPolicyError(
       "empty-command",
-      `pty:spawn agent="${agentKey}" requires a non-empty command`,
+      "pty:spawn agent requires a non-empty command",
     );
   }
   if (tokens[0] !== expectedBinary) {
     throw new SpawnPolicyError(
       "command-not-on-allowlist",
-      `pty:spawn agent="${agentKey}" must run "${expectedBinary}" (got "${tokens[0]}")`,
+      "pty:spawn agent command is not allow-listed",
     );
   }
   const argv = [...tokens.slice(1), ...(req.args ?? [])];
@@ -202,17 +279,21 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
     if (SHELL_META.test(arg)) {
       throw new SpawnPolicyError(
         "shell-meta-in-args",
-        `pty:spawn rejected shell metacharacter in arg: ${JSON.stringify(arg)}`,
+        "pty:spawn rejected shell metacharacter in arg",
       );
     }
   }
+
+  validateAgentArgv(agentKey, argv, {
+    dangerouslySkipPermissions: req.dangerouslySkipPermissions === true,
+  });
 
   // 8. Resolve the binary on PATH so the spawn target is an absolute path.
   const resolved = deps.resolveCommand(expectedBinary);
   if (!resolved) {
     throw new SpawnPolicyError(
       "binary-not-found",
-      `pty:spawn could not find "${expectedBinary}" on PATH`,
+      "pty:spawn could not find agent binary on PATH",
     );
   }
 

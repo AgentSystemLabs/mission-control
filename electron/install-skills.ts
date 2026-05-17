@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import * as crypto from "node:crypto";
+import { loadProjectRoots } from "./project-roots";
 
 // Pinned contracts. Renderer reads VITE_ACADEMY_BASE_URL via import.meta.env.
 // Main process resolves at runtime; default to prod.
@@ -50,6 +51,35 @@ function normalizeEntryPath(p: string): string | null {
   return s;
 }
 
+function assertSafeProjectRelativePath(
+  projectRoot: string,
+  relPath: string,
+  label: string,
+): void {
+  const norm = normalizeEntryPath(relPath);
+  if (!norm) throw new Error(`${label} path is invalid`);
+
+  const root = path.resolve(projectRoot);
+  let cursor = root;
+  const parts = norm.split("/").filter(Boolean);
+  for (let i = 0; i < parts.length; i++) {
+    cursor = path.join(cursor, parts[i]!);
+    const relative = path.relative(root, cursor);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error(`${label} target escapes the project root`);
+    }
+
+    const stat = fs.lstatSync(cursor, { throwIfNoEntry: false });
+    if (!stat) break;
+    if (stat.isSymbolicLink()) {
+      throw new Error(`${label} target crosses a symlink inside the project`);
+    }
+    if (i < parts.length - 1 && !stat.isDirectory()) {
+      throw new Error(`${label} parent path is not a directory`);
+    }
+  }
+}
+
 function entryAllowed(
   normPath: string,
   harnesses: { claude: boolean; codex: boolean },
@@ -57,6 +87,28 @@ function entryAllowed(
   if (normPath.startsWith(".claude/skills/")) return harnesses.claude;
   if (normPath.startsWith(".codex/skills/")) return harnesses.codex;
   return false;
+}
+
+function resolveRegisteredProjectPath(projectPath: string): string {
+  let realProjectPath: string;
+  try {
+    const stat = fs.statSync(projectPath);
+    if (!stat.isDirectory()) throw new Error("not-directory");
+    realProjectPath = fs.realpathSync(projectPath);
+  } catch {
+    throw new Error(`projectPath is not a directory: ${projectPath}`);
+  }
+
+  for (const root of loadProjectRoots()) {
+    try {
+      if (path.resolve(fs.realpathSync(root)) === path.resolve(realProjectPath)) {
+        return realProjectPath;
+      }
+    } catch {
+      // Ignore stale project rows; they should not grant writes anywhere.
+    }
+  }
+  throw new Error("projectPath must be a registered Mission Control project");
 }
 
 export async function fetchLatestSkillsManifest(
@@ -88,23 +140,20 @@ export async function fetchLatestSkillsManifest(
 }
 
 export async function installSkills(args: InstallSkillsArgs): Promise<InstallSkillsResult> {
-  const { projectPath, harnesses } = args;
+  const { harnesses } = args;
   const baseUrl = args.baseUrl ?? DEFAULT_ACADEMY_BASE_URL;
   const licenseKey = args.licenseKey?.trim();
   if (!licenseKey) {
     throw new Error("A valid license key is required to install skills.");
   }
 
-  if (!projectPath || typeof projectPath !== "string" || !projectPath.trim()) {
+  if (!args.projectPath || typeof args.projectPath !== "string" || !args.projectPath.trim()) {
     throw new Error("projectPath is required");
   }
   if (!harnesses.claude && !harnesses.codex) {
     throw new Error("Select at least one harness");
   }
-  const projectStat = await fs.promises.stat(projectPath).catch(() => null);
-  if (!projectStat || !projectStat.isDirectory()) {
-    throw new Error(`projectPath is not a directory: ${projectPath}`);
-  }
+  const projectPath = resolveRegisteredProjectPath(args.projectPath);
 
   const manifest = await fetchLatestSkillsManifest(baseUrl, licenseKey);
 
@@ -173,10 +222,20 @@ export async function installSkills(args: InstallSkillsArgs): Promise<InstallSki
 
     // Per-skill clean overwrite: rm -rf each shipped skill dir inside projectPath.
     for (const skill of skillDirsByHarness.claude) {
+      assertSafeProjectRelativePath(
+        projectPath,
+        path.posix.join(".claude", "skills", skill),
+        "skills install",
+      );
       const target = path.join(projectPath, ".claude", "skills", skill);
       await fs.promises.rm(target, { recursive: true, force: true });
     }
     for (const skill of skillDirsByHarness.codex) {
+      assertSafeProjectRelativePath(
+        projectPath,
+        path.posix.join(".codex", "skills", skill),
+        "skills install",
+      );
       const target = path.join(projectPath, ".codex", "skills", skill);
       await fs.promises.rm(target, { recursive: true, force: true });
     }
@@ -188,6 +247,7 @@ export async function installSkills(args: InstallSkillsArgs): Promise<InstallSki
       filter: (filePath) => {
         const norm = normalizeEntryPath(filePath);
         if (!norm) return false;
+        assertSafeProjectRelativePath(projectPath, norm, "skills install");
         return allowedEntries.has(norm);
       },
     });

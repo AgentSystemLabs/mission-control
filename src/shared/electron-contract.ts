@@ -57,6 +57,32 @@ export type LaunchProcessKillResult = {
   }>;
 };
 
+export type PtySpawnAgent = "claude-code" | "codex" | "cursor-cli";
+
+export type BasePtySpawnOptions = {
+  taskId: string;
+  cwd: string;
+  command: string;
+  args?: string[];
+  cols?: number;
+  rows?: number;
+  mcEnv?: { apiUrl?: string; token?: string };
+};
+
+export type AgentPtySpawnOptions = BasePtySpawnOptions & {
+  agent: PtySpawnAgent;
+  dangerouslySkipPermissions?: boolean;
+  shell?: never;
+};
+
+export type ShellPtySpawnOptions = BasePtySpawnOptions & {
+  shell: true;
+  agent?: never;
+  dangerouslySkipPermissions?: never;
+};
+
+export type PtySpawnOptions = AgentPtySpawnOptions | ShellPtySpawnOptions;
+
 export type ElectronBridge = {
   installSkills: {
     fetchLatest: (opts?: {
@@ -94,20 +120,7 @@ export type ElectronBridge = {
     command: string
   ) => Promise<{ ok: true; path: string } | { ok: false; reason: string }>;
   pty: {
-    spawn: (opts: {
-      taskId: string;
-      cwd: string;
-      command: string;
-      args?: string[];
-      cols?: number;
-      rows?: number;
-      agent?: string;
-      mcEnv?: { apiUrl?: string; token?: string };
-      // Required when `agent` is omitted: signals an intentional user-shell
-      // terminal. Agent terminals leave this unset and pass `command` starting
-      // with the agent's binary name; the main process spawns directly via argv.
-      shell?: boolean;
-    }) => Promise<{ ptyId: string }>;
+    spawn: (opts: PtySpawnOptions) => Promise<{ ptyId: string }>;
     write: (ptyId: string, data: string) => Promise<boolean>;
     resize: (ptyId: string, cols: number, rows: number) => Promise<boolean>;
     kill: (ptyId: string) => Promise<boolean>;

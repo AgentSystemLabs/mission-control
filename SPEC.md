@@ -168,7 +168,7 @@ A `Group` has many `Projects`. A `Project` has many `Tasks`. A `Task` has zero o
 ## Auth & Authorization
 
 - **No user accounts** — single-user desktop app; the bearer token is the only credential.
-- **HTTP API (UI and external):** every `/api/*` route requires `Authorization: Bearer <token>` (header — or `?token=` query for `/api/events` SSE, since `EventSource` cannot send headers). The renderer attaches the bearer automatically via the IPC-fetched token; external CLIs (Claude, Codex, Cursor) inherit `$MC_API_TOKEN` when launched from MC. Token generated on first launch, stored in `app_settings`, copyable from Settings → API.
+- **HTTP API (UI and external):** every `/api/*` route requires `Authorization: Bearer <token>`; `/api/events` SSE uses a short-lived single-use ticket from `POST /api/events/ticket` because `EventSource` cannot send headers. The renderer attaches the bearer automatically via the IPC-fetched token; external CLIs (Claude, Codex, Cursor) inherit `$MC_API_TOKEN` when launched from MC. Token generated on first launch, stored in `app_settings`, copyable from Settings → API.
 - **Same-origin gate:** before bearer check, every `/api/*` request must come from a loopback `Origin`/`Host` to defeat DNS rebinding and cross-origin browser fetches.
 - **Network bind:** API binds to `127.0.0.1` only. Never exposed to LAN.
 

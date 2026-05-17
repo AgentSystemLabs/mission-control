@@ -6,7 +6,7 @@ import * as path from "node:path";
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-api-auth-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
 
-const { handleApiRequest, ANONYMOUS_ROUTES } = await import("../api-router");
+const { handleApiRequest, ANONYMOUS_ROUTES, redactSensitiveErrorText } = await import("../api-router");
 const { getOrCreateApiToken } = await import("../services/settings");
 
 const LOOPBACK_HEADERS = { origin: "http://127.0.0.1:5173" };
@@ -94,6 +94,8 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   { method: "POST", pathname: "/api/hooks/claude-code" },
   // Usage
   { method: "GET", pathname: "/api/usage" },
+  // SSE ticket issuance
+  { method: "POST", pathname: "/api/events/ticket" },
 ];
 
 describe("api auth gate", () => {
@@ -101,6 +103,18 @@ describe("api auth gate", () => {
   // bypass auth. CI must fail on any addition so a human approves it.
   it("anonymous allow-list is empty (every /api/* requires bearer)", () => {
     expect(ANONYMOUS_ROUTES).toEqual([]);
+  });
+
+  it("redacts sensitive query credentials before errors become response text", () => {
+    expect(
+      redactSensitiveErrorText("failed /api/events?token=abc123&x=1 /api/events?ticket=def456"),
+    ).toBe("failed /api/events?token=<redacted>&x=1 /api/events?ticket=<redacted>");
+  });
+
+  it("handleApiRequest reaches routes only through the protected dispatch wrapper", () => {
+    const src = handleApiRequest.toString();
+    expect(src).toContain("protectedDispatch(");
+    expect(src).not.toMatch(/[^A-Za-z0-9_]dispatch\(/);
   });
 
   for (const route of PROTECTED_ROUTES) {
@@ -118,34 +132,54 @@ describe("api auth gate", () => {
   }
 
   describe("/api/events SSE", () => {
-    it("rejects without ?token=", async () => {
+    it("rejects without ?ticket=", async () => {
       const res = await handleApiRequest(unauth("/api/events", { method: "GET" }));
       expect(res?.status).toBe(401);
     });
 
-    it("rejects with a wrong ?token=", async () => {
-      const res = await handleApiRequest(unauth("/api/events?token=nope", { method: "GET" }));
+    it("rejects with a wrong ?ticket=", async () => {
+      const res = await handleApiRequest(unauth("/api/events?ticket=nope", { method: "GET" }));
+      expect(res?.status).toBe(401);
+    });
+
+    it("rejects the old long-lived ?token= bearer path", async () => {
+      const token = getOrCreateApiToken();
+      const res = await handleApiRequest(
+        unauth(`/api/events?token=${encodeURIComponent(token)}`, { method: "GET" }),
+      );
       expect(res?.status).toBe(401);
     });
 
     it("ignores the Authorization header (EventSource can't send one)", async () => {
-      // The SSE path reads only ?token=; passing a correct Authorization
-      // header but no query token should still 401, so we don't accidentally
-      // permit two authentication paths drifting in the future.
+      // The SSE path reads only ?ticket=; passing a correct Authorization
+      // header but no ticket should still 401, so we don't accidentally permit
+      // two authentication paths drifting in the future.
       const res = await handleApiRequest(authed("/api/events", { method: "GET" }));
       expect(res?.status).toBe(401);
     });
 
-    it("accepts with a correct ?token=", async () => {
-      const token = getOrCreateApiToken();
+    it("accepts with a freshly issued single-use ?ticket=", async () => {
+      const ticketRes = await handleApiRequest(
+        authed("/api/events/ticket", { method: "POST" }),
+      );
+      expect(ticketRes?.status).toBe(200);
+      const body = await ticketRes!.json() as { ticket: string; expiresAt: number };
+      expect(body.ticket).toMatch(/^[0-9a-f]{64}$/);
+      expect(body.expiresAt).toBeGreaterThan(Date.now());
+
       const res = await handleApiRequest(
-        unauth(`/api/events?token=${encodeURIComponent(token)}`, { method: "GET" }),
+        unauth(`/api/events?ticket=${encodeURIComponent(body.ticket)}`, { method: "GET" }),
       );
       // SSE returns 200 with a streaming body.
       expect(res?.status).toBe(200);
       expect(res?.headers.get("content-type")).toMatch(/event-stream/i);
       // Don't actually consume the stream — Vitest would hang.
       await res?.body?.cancel();
+
+      const reused = await handleApiRequest(
+        unauth(`/api/events?ticket=${encodeURIComponent(body.ticket)}`, { method: "GET" }),
+      );
+      expect(reused?.status).toBe(401);
     });
   });
 

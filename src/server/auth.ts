@@ -36,9 +36,8 @@ function unauthorized(): { ok: false; response: Response } {
 }
 
 /**
- * Check a raw token value (already extracted from header or query string)
- * against the stored API bearer. Used directly for SSE where EventSource
- * cannot send Authorization headers and the token must travel in `?token=`.
+ * Check a raw token value already extracted from an Authorization header
+ * against the stored API bearer.
  */
 export function requireBearerTokenValue(
   rawToken: string | null | undefined,

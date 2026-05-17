@@ -14,6 +14,7 @@ import {
   licenseAuthHeaders,
   normalizeEntryPath,
 } from "./_skills-install-helpers";
+import { resolveLaunchKitParentDirectory } from "./path-security";
 
 const GIT_INIT_TIMEOUT_MS = 15_000;
 
@@ -108,12 +109,7 @@ export async function createProjectFromLaunchKit(input: {
   parentDir: string;
   projectName: string;
 }): Promise<CreateLaunchKitProjectResult> {
-  const parentDir = input.parentDir.trim();
-  if (!parentDir) throw new Error("Working directory is required");
-  const parentStat = await fs.promises.stat(parentDir).catch(() => null);
-  if (!parentStat || !parentStat.isDirectory()) {
-    throw new Error("Working directory must be an existing directory");
-  }
+  const parentDir = resolveLaunchKitParentDirectory(input.parentDir);
 
   const projectName = validateProjectName(input.projectName);
   const targetDir = path.join(parentDir, projectName);

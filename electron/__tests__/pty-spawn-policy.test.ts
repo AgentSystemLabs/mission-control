@@ -34,24 +34,24 @@ function depsFor(overrides: Partial<SpawnPolicyDeps> = {}): SpawnPolicyDeps {
   };
 }
 
-function spawnReq(overrides: Partial<SpawnRequest> = {}): SpawnRequest {
+function spawnReq(overrides: Record<string, unknown> = {}): SpawnRequest {
   return {
     taskId: "t1",
     cwd: PROJECT_ROOT,
     command: "claude --resume 00000000-0000-4000-8000-000000000000",
     agent: "claude-code",
     ...overrides,
-  };
+  } as SpawnRequest;
 }
 
 function expectRejected(
-  req: SpawnRequest,
+  req: unknown,
   deps: SpawnPolicyDeps,
   expectedCode: SpawnPolicyErrorCode,
 ): void {
   let thrown: unknown;
   try {
-    resolveSpawnPlan(req, deps);
+    resolveSpawnPlan(req as SpawnRequest, deps);
   } catch (err) {
     thrown = err;
   }
@@ -84,22 +84,22 @@ describe("resolveSpawnPlan — agent allow-list", () => {
 
   it("passes Codex managed-hook flags as direct argv", () => {
     const plan = resolveSpawnPlan(
-      spawnReq({ agent: "codex", command: "codex --enable hooks --yolo" }),
+      spawnReq({ agent: "codex", command: "codex --enable hooks" }),
       depsFor(),
     );
     if (plan.mode !== "agent") throw new Error("wrong mode");
     expect(plan.binary).toBe("/usr/local/bin/codex");
-    expect(plan.argv).toEqual(["--enable", "hooks", "--yolo"]);
+    expect(plan.argv).toEqual(["--enable", "hooks"]);
   });
 
   it("maps cursor-cli agent to the cursor-agent binary", () => {
     const plan = resolveSpawnPlan(
-      spawnReq({ agent: "cursor-cli", command: "cursor-agent --force" }),
+      spawnReq({ agent: "cursor-cli", command: "cursor-agent" }),
       depsFor(),
     );
     if (plan.mode !== "agent") throw new Error("wrong mode");
     expect(plan.binary).toBe("/usr/local/bin/cursor-agent");
-    expect(plan.argv).toEqual(["--force"]);
+    expect(plan.argv).toEqual([]);
   });
 
   it("rejects an unknown agent slug", () => {
@@ -141,6 +141,83 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     }
   });
 
+  it("rejects agent flags that load attacker-controlled config or commands", () => {
+    for (const req of [
+      spawnReq({ agent: "claude-code", command: "claude --mcp-config /tmp/evil.json" }),
+      spawnReq({ agent: "claude-code", command: "claude --mcp-server evil" }),
+      spawnReq({ agent: "codex", command: "codex --config-file /tmp/evil.toml" }),
+      spawnReq({ agent: "cursor-cli", command: "cursor-agent --config /tmp/evil.json" }),
+    ]) {
+      expectRejected(req, depsFor(), "agent-arg-not-allowed");
+    }
+  });
+
+  it("rejects permission-bypass flags without explicit opt-in", () => {
+    for (const req of [
+      spawnReq({ agent: "claude-code", command: "claude --dangerously-skip-permissions" }),
+      spawnReq({ agent: "codex", command: "codex --yolo" }),
+      spawnReq({ agent: "cursor-cli", command: "cursor-agent --force" }),
+    ]) {
+      expectRejected(req, depsFor(), "agent-arg-not-allowed");
+    }
+  });
+
+  it("accepts permission-bypass flags with explicit opt-in", () => {
+    const cases: Array<{ req: SpawnRequest; argv: string[] }> = [
+      {
+        req: spawnReq({
+          agent: "claude-code",
+          command:
+            "claude --resume 00000000-0000-4000-8000-000000000000 --dangerously-skip-permissions",
+          dangerouslySkipPermissions: true,
+        }),
+        argv: [
+          "--resume",
+          "00000000-0000-4000-8000-000000000000",
+          "--dangerously-skip-permissions",
+        ],
+      },
+      {
+        req: spawnReq({
+          agent: "codex",
+          command: "codex --enable hooks --yolo",
+          dangerouslySkipPermissions: true,
+        }),
+        argv: ["--enable", "hooks", "--yolo"],
+      },
+      {
+        req: spawnReq({
+          agent: "cursor-cli",
+          command: "cursor-agent --force",
+          dangerouslySkipPermissions: true,
+        }),
+        argv: ["--force"],
+      },
+    ];
+
+    for (const { req, argv } of cases) {
+      const plan = resolveSpawnPlan(req, depsFor());
+      if (plan.mode !== "agent") throw new Error("wrong mode");
+      expect(plan.argv).toEqual(argv);
+    }
+  });
+
+  it("rejects unexpected positional args after allowed agent flags", () => {
+    expectRejected(
+      spawnReq({ agent: "codex", command: "codex --enable hooks exec bad" }),
+      depsFor(),
+      "agent-arg-not-allowed",
+    );
+  });
+
+  it("rejects unapproved Codex feature values", () => {
+    expectRejected(
+      spawnReq({ agent: "codex", command: "codex --enable mcp" }),
+      depsFor(),
+      "agent-arg-not-allowed",
+    );
+  });
+
   it("rejects an empty agent command", () => {
     expectRejected(
       spawnReq({ agent: "claude-code", command: "" }),
@@ -155,11 +232,11 @@ describe("resolveSpawnPlan — agent allow-list", () => {
 
   it("merges extra args after command-tokenized argv (and still checks them)", () => {
     const plan = resolveSpawnPlan(
-      spawnReq({ command: "claude --resume X", args: ["--debug"] }),
+      spawnReq({ command: "claude --bare", args: ["--resume", "X"] }),
       depsFor(),
     );
     if (plan.mode !== "agent") throw new Error("wrong mode");
-    expect(plan.argv).toEqual(["--resume", "X", "--debug"]);
+    expect(plan.argv).toEqual(["--bare", "--resume", "X"]);
   });
 });
 
@@ -359,6 +436,30 @@ describe("SpawnPolicyError surfaces typed codes", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(SpawnPolicyError);
       expect((err as SpawnPolicyError).code).toBe("command-not-on-allowlist");
+    }
+  });
+
+  it("does not echo rejected request input in user-facing messages", () => {
+    const rawCwd = `${PROJECT_ROOT}\x1b[2J`;
+    try {
+      resolveSpawnPlan(spawnReq({ cwd: rawCwd }), depsFor({ cwdExists: () => false }));
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(SpawnPolicyError);
+      expect((err as SpawnPolicyError).message).not.toContain(PROJECT_ROOT);
+      expect((err as SpawnPolicyError).message).not.toContain("\x1b");
+    }
+
+    try {
+      resolveSpawnPlan(
+        spawnReq({ command: "claude", args: ["--resume", "\x1b[2Jfake-output"] }),
+        depsFor(),
+      );
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(SpawnPolicyError);
+      expect((err as SpawnPolicyError).message).not.toContain("fake-output");
+      expect((err as SpawnPolicyError).message).not.toContain("\x1b");
     }
   });
 });

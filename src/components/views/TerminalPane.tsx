@@ -40,6 +40,7 @@ export type TerminalDescriptor = {
   taskId: string;
   ptyId: string | null;
   startCommand: string;
+  dangerouslySkipPermissions: boolean;
   cwd: string;
 };
 
@@ -160,7 +161,7 @@ export function TerminalPane({
                 const cmd = buildClaudeCommand({
                   kind: "new",
                   sessionId: fresh,
-                  skipPermissions: !!task.claudeSkipPermissions,
+                  skipPermissions: descriptor.dangerouslySkipPermissions,
                   bareSession: !!task.claudeBareSession,
                 });
                 await spawnAndWire(cmd, false);
@@ -212,6 +213,7 @@ export function TerminalPane({
           cols: term.cols,
           rows: term.rows,
           agent: task.agent,
+          dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
           mcEnv,
         });
         spawnAt = Date.now();

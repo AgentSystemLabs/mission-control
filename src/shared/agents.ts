@@ -54,16 +54,6 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
     startCommand: (opts) => (opts?.skipPermissions ? "cursor-agent --force" : "cursor-agent"),
     titleInvocation: (input) => ({ cmd: "cursor-agent", args: ["-p", input] }),
   },
-  shell: {
-    label: "Shell",
-    description: "Plain shell session.",
-    color: "#ff5a1f",
-    glyph: "❯",
-    command: "$SHELL",
-    uiVisible: false,
-    supportsSkipPermissions: false,
-    startCommand: () => "",
-  },
 };
 
 export const UI_AGENTS = Object.entries(AGENT_REGISTRY)

@@ -1,10 +1,13 @@
 import {
   jsonError,
   requireBearerToken,
-  requireBearerTokenValue,
   requireLocalOrigin,
 } from "./auth";
-import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
+import {
+  HTTP_BAD_REQUEST,
+  HTTP_INTERNAL_SERVER_ERROR,
+  HTTP_NOT_FOUND,
+} from "~/shared/http-status";
 import * as projectsController from "./controllers/projects.controller";
 import * as tasksController from "./controllers/tasks.controller";
 import * as groupsController from "./controllers/groups.controller";
@@ -52,12 +55,11 @@ function isAnonymousRoute(method: string, pathname: string): boolean {
 }
 
 /**
- * Centralized auth gate. Default: every /api/* route requires the bearer
- * token. Opt-outs:
+ * Centralized auth gate. Default: every /api/* route requires the bearer token.
+ * Opt-outs:
  *  - Routes in ANONYMOUS_ROUTES (intentional public surface — none today).
- *  - /api/events SSE: EventSource cannot send custom headers, so the token
- *    travels in `?token=<bearer>` instead. Constant-time-compared by
- *    requireBearerTokenValue just like the header path.
+ *  - /api/events SSE: EventSource cannot send custom headers, so it uses a
+ *    short-lived, single-use ticket issued by POST /api/events/ticket.
  */
 function requireApiAuth(
   request: Request,
@@ -67,10 +69,52 @@ function requireApiAuth(
 ): { ok: true } | { ok: false; response: Response } {
   if (isAnonymousRoute(method, pathname)) return { ok: true };
   if (pathname === "/api/events" && method === "GET") {
-    return requireBearerTokenValue(url.searchParams.get("token"));
+    return eventsController.requireTicket(url.searchParams.get("ticket"));
   }
   return requireBearerToken(request);
 }
+
+const SENSITIVE_QUERY_PARAM_RE = /([?&])(token|ticket)=[^&#\s"']+/gi;
+
+export function redactSensitiveErrorText(value: string): string {
+  return value.replace(SENSITIVE_QUERY_PARAM_RE, "$1$2=<redacted>");
+}
+
+function isCallerFacingError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const maybe = err as { expose?: unknown; name?: unknown };
+  return maybe.expose === true || maybe.name === "ZodError";
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message || "bad request";
+  if (typeof err === "string") return err || "bad request";
+  return "bad request";
+}
+
+function withApiAuth(fn: typeof dispatch) {
+  return async (
+    request: Request,
+    url: URL,
+    method: string,
+    pathname: string,
+  ): Promise<Response> => {
+    const auth = requireApiAuth(request, url, method, pathname);
+    if (!auth.ok) return auth.response;
+
+    try {
+      return await fn(request, url, method, pathname);
+    } catch (err) {
+      const message = redactSensitiveErrorText(errorMessage(err));
+      if (isCallerFacingError(err)) return jsonError(HTTP_BAD_REQUEST, message);
+
+      console.error(`[api] unhandled in dispatch ${method} ${pathname}: ${message}`);
+      return jsonError(HTTP_INTERNAL_SERVER_ERROR, "internal error");
+    }
+  };
+}
+
+const protectedDispatch = withApiAuth(dispatch);
 
 /** Pure Web `Request → Response` API router for `/api/*`. Reused in dev (Vite middleware) and prod. */
 export async function handleApiRequest(request: Request): Promise<Response | null> {
@@ -83,15 +127,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   const origin = requireLocalOrigin(request);
   if (!origin.ok) return origin.response;
 
-  const auth = requireApiAuth(request, url, method, pathname);
-  if (!auth.ok) return auth.response;
-
-  try {
-    return await dispatch(request, url, method, pathname);
-  } catch (err: any) {
-    const message = err?.message || "bad request";
-    return jsonError(HTTP_BAD_REQUEST, message);
-  }
+  return protectedDispatch(request, url, method, pathname);
 }
 
 async function dispatch(
@@ -222,6 +258,9 @@ async function dispatch(
 
   // Usage + events
   if (pathname === "/api/usage" && method === "GET") return usageController.read(url);
+  if (pathname === "/api/events/ticket" && method === "POST") {
+    return eventsController.issueTicket();
+  }
   if (pathname === "/api/events" && method === "GET") return eventsController.stream();
 
   return jsonError(HTTP_NOT_FOUND, "not found");

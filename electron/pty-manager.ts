@@ -19,6 +19,7 @@ import {
   SpawnPolicyError,
   type SpawnRequest,
 } from "./pty-spawn-policy";
+import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
 
 function sanitizeEnv(): Record<string, string> {
   const out = sanitizedProcessEnv();
@@ -29,6 +30,8 @@ function sanitizeEnv(): Record<string, string> {
   // natively, but xterm.js sends `\x1b\r` (the iTerm sequence) instead of LF.
   delete out.TERM_PROGRAM;
   delete out.TERM_PROGRAM_VERSION;
+  delete out.MC_API_URL;
+  delete out.MC_API_TOKEN;
   return out;
 }
 
@@ -62,7 +65,7 @@ type Pty = {
   cwd: string;
   command: string;
   agent?: string;
-  mcEnv?: { apiUrl?: string; token?: string };
+  mcEnv?: PtyHookEnv;
   scanTail: string;
   lastInterruptAt: number;
 };
@@ -77,6 +80,15 @@ const LSOF_PROBE_TIMEOUT_MS = 2_000;
 const SIGTERM_GRACE_MS = 1_500;
 const PORT_KILL_POLL_INTERVAL_MS = 100;
 const PTY_EXIT_POLL_INTERVAL_MS = 50;
+const LOG_VALUE_MAX_LENGTH = 160;
+
+function safeLogValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const cleaned = value.replace(/[\x00-\x1f\x7f]/g, "?");
+  return cleaned.length > LOG_VALUE_MAX_LENGTH
+    ? `${cleaned.slice(0, LOG_VALUE_MAX_LENGTH)}...`
+    : cleaned;
+}
 const DEFAULT_PTY_COLS = 100;
 const DEFAULT_PTY_ROWS = 30;
 
@@ -119,16 +131,10 @@ function scanForCodexHookReview(p: Pty, haystack: string) {
   void postSyntheticHook(p, "PermissionRequest");
 }
 
-function hookEndpointSlug(agent: string | undefined): string {
-  if (agent === "codex") return "codex";
-  if (agent === "cursor-cli") return "cursor";
-  return "claude";
-}
-
 async function postSyntheticHook(p: Pty, event: string) {
   try {
-    const slug = hookEndpointSlug(p.agent);
-    const url = `${p.mcEnv!.apiUrl}/api/hooks/${slug}?taskId=${encodeURIComponent(p.taskId)}`;
+    const url = buildSyntheticHookUrl(p.mcEnv!, p.agent, p.taskId);
+    if (!url) return;
     await fetch(url, {
       method: "POST",
       headers: {
@@ -252,7 +258,11 @@ async function killPty(p: Pty): Promise<boolean> {
   }
 }
 
-export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindow | null) {
+export function registerPtyHandlers(
+  ipcMain: IpcMain,
+  getWin: () => BrowserWindow | null,
+  getHookEnv: () => PtyHookEnv | null,
+) {
   ensureClaudeShiftEnterBinding();
   safeHandle(
     IPC.ptySpawn,
@@ -286,12 +296,12 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
           // session ids the user wouldn't want in a paste).
           log.warn("pty.spawn.rejected", {
             code: err.code,
-            agent: opts.agent ?? null,
+            agent: safeLogValue(opts.agent ?? null),
             shell: opts.shell === true,
-            cwd: opts.cwd,
-            taskId: opts.taskId,
+            cwd: safeLogValue(opts.cwd),
+            taskId: safeLogValue(opts.taskId),
           });
-          throw new Error(`pty:spawn rejected (${err.code}): ${err.message}`);
+          throw new Error(`pty:spawn rejected (${err.code})`);
         }
         throw err;
       }
@@ -302,9 +312,12 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
       installAgentHooks(opts.agent, plan.cwd);
 
       const env = sanitizeEnv();
+      const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       env.MC_TASK_ID = opts.taskId;
-      if (opts.mcEnv?.apiUrl) env.MC_API_URL = opts.mcEnv.apiUrl;
-      if (opts.mcEnv?.token) env.MC_API_TOKEN = opts.mcEnv.token;
+      if (mcEnv) {
+        env.MC_API_URL = mcEnv.apiUrl;
+        env.MC_API_TOKEN = mcEnv.token;
+      }
 
       // Agent mode spawns the binary directly with a real argv array, bypassing
       // the login shell entirely so shell metacharacters in args can't be
@@ -344,7 +357,7 @@ export function registerPtyHandlers(ipcMain: IpcMain, getWin: () => BrowserWindo
         cwd: opts.cwd,
         command: opts.command,
         agent: opts.agent,
-        mcEnv: opts.mcEnv,
+        mcEnv: mcEnv ?? undefined,
         scanTail: "",
         lastInterruptAt: 0,
       };

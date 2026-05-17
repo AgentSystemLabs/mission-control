@@ -18,6 +18,7 @@ export type OpenTerminal = {
   taskId: string;
   ptyId: string | null;
   startCommand: string;
+  dangerouslySkipPermissions: boolean;
   cwd: string;
   project: Project;
   task: Task;
@@ -124,6 +125,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           taskId: task.id,
           ptyId: null,
           startCommand: commandForTask(task),
+          dangerouslySkipPermissions: !!task.claudeSkipPermissions,
           cwd: project.path,
           project,
           task,
@@ -147,6 +149,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           taskId: task.id,
           ptyId: null,
           startCommand: commandForTask(task),
+          dangerouslySkipPermissions: !!task.claudeSkipPermissions,
           cwd: project.path,
           project,
           task,

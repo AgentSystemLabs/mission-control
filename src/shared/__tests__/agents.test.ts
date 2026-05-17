@@ -15,7 +15,6 @@ describe("agent registry", () => {
       command: "cursor-agent",
       uiVisible: true,
       supportsSkipPermissions: true,
-      skipPermissionsFlag: "--force",
     });
     expect(AGENT_REGISTRY["cursor-cli"].disabled).toBeUndefined();
     expect(AGENT_REGISTRY["cursor-cli"].startCommand()).toBe("cursor-agent");

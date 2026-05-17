@@ -13,7 +13,7 @@ describe("buildClaudeCommand", () => {
     ).toBe("claude --bare --session-id 00000000-0000-4000-8000-000000000000");
   });
 
-  it("combines --bare with resume and skip-permissions flags", () => {
+  it("emits the permission-bypass flag when explicitly requested", () => {
     expect(
       buildClaudeCommand({
         kind: "resume",

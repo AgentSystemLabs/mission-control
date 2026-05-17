@@ -68,6 +68,7 @@ const electronAPI = {
       cols?: number;
       rows?: number;
       agent?: string;
+      dangerouslySkipPermissions?: boolean;
       mcEnv?: { apiUrl?: string; token?: string };
       // Required when `agent` is omitted: signals an intentional user-shell
       // terminal that runs `command` through the login shell. Agent terminals

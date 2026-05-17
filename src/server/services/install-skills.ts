@@ -11,10 +11,12 @@ import type {
   LatestSkillsManifest,
 } from "~/shared/electron-contract";
 import {
+  assertSafeProjectRelativePath,
   downloadAndVerifyTarball,
   licenseAuthHeaders,
   normalizeEntryPath,
 } from "./_skills-install-helpers";
+import { resolveRegisteredProjectPath } from "./path-security";
 
 export type { InstallSkillsArgs, InstallSkillsResult, LatestSkillsManifest };
 
@@ -89,18 +91,15 @@ export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest>
 export async function installProjectSkills(
   args: InstallSkillsArgs,
 ): Promise<InstallSkillsResult> {
-  const { projectPath, harnesses } = args;
+  const { harnesses } = args;
 
-  if (!projectPath || typeof projectPath !== "string" || !projectPath.trim()) {
+  if (!args.projectPath || typeof args.projectPath !== "string" || !args.projectPath.trim()) {
     throw new Error("projectPath is required");
   }
   if (!harnesses.claude && !harnesses.codex) {
     throw new Error("Select at least one harness");
   }
-  const projectStat = await fs.promises.stat(projectPath).catch(() => null);
-  if (!projectStat || !projectStat.isDirectory()) {
-    throw new Error(`projectPath is not a directory: ${projectPath}`);
-  }
+  const projectPath = resolveRegisteredProjectPath(args.projectPath);
 
   const manifest = await fetchLatestSkillsManifest();
   const licenseKey = readRequiredLicenseKey();
@@ -149,12 +148,22 @@ export async function installProjectSkills(
     });
 
     for (const skill of skillDirsByHarness.claude) {
+      assertSafeProjectRelativePath(
+        projectPath,
+        path.posix.join(".claude", "skills", skill),
+        "skills install",
+      );
       await fs.promises.rm(path.join(projectPath, ".claude", "skills", skill), {
         recursive: true,
         force: true,
       });
     }
     for (const skill of skillDirsByHarness.codex) {
+      assertSafeProjectRelativePath(
+        projectPath,
+        path.posix.join(".codex", "skills", skill),
+        "skills install",
+      );
       await fs.promises.rm(path.join(projectPath, ".codex", "skills", skill), {
         recursive: true,
         force: true,
@@ -167,6 +176,7 @@ export async function installProjectSkills(
       filter: (filePath) => {
         const norm = normalizeEntryPath(filePath);
         if (!norm) return false;
+        assertSafeProjectRelativePath(projectPath, norm, "skills install");
         return allowedEntries.has(norm);
       },
     });

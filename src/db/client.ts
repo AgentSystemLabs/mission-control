@@ -221,6 +221,14 @@ function ensureSchema(sqlite: Database.Database) {
       updated_at INTEGER NOT NULL
     );
   `);
+
+  // Legacy builds briefly modeled "shell" as a task agent even though shell
+  // terminals are not persisted tasks. Normalize stale rows before the narrowed
+  // TaskAgent union reaches UI code that indexes AGENT_REGISTRY.
+  sqlite.exec(`
+    UPDATE tasks SET agent = 'claude-code' WHERE agent = 'shell';
+    UPDATE projects SET saved_agent = NULL WHERE saved_agent = 'shell';
+  `);
 }
 
 export { schema };
