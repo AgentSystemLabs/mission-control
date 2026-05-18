@@ -1,6 +1,6 @@
 import type { HostedAuthContext } from "../hosted-auth-context";
 import { getHostedPool, isHostedDatabaseEnabled } from "../hosted-pg";
-import { deleteRemoteSandboxByIdOrName, deleteRemoteSandboxesForProject } from "./daytona-remote-pty";
+import { deleteRemoteSandboxesForProject } from "./daytona-remote-pty";
 import { sendHostedAlert } from "./hosted-alerts";
 import { logHostedEvent } from "./hosted-logs";
 import { incrementHostedCounter } from "./hosted-metrics";
@@ -14,6 +14,7 @@ type CleanupOutboxRow = {
   payload: {
     projectId: string;
     remoteSandboxId: string | null;
+    sandboxOwnerUserId?: string | null;
   };
 };
 
@@ -27,7 +28,7 @@ function contextFromOutbox(row: CleanupOutboxRow): HostedAuthContext {
   return {
     sessionId: "cleanup-worker",
     academyUserId: "cleanup-worker",
-    userId: row.scope.userId ?? "cleanup-worker",
+    userId: row.payload.sandboxOwnerUserId ?? row.scope.userId ?? "cleanup-worker",
     email: "cleanup-worker@example.invalid",
     organizationId: row.scope.organizationId,
   };
@@ -51,7 +52,7 @@ export async function enqueueHostedProjectCleanup(
         organizationId: context.organizationId,
         userId: context.organizationId ? null : context.userId,
       }),
-      JSON.stringify({ projectId, remoteSandboxId }),
+      JSON.stringify({ projectId, remoteSandboxId, sandboxOwnerUserId: context.userId }),
       error instanceof Error ? error.message : String(error),
     ],
   );
@@ -111,7 +112,6 @@ export async function processHostedCleanupOutbox(limit = 10): Promise<void> {
         }, "warn");
         throw new Error("project still exists; cleanup deferred");
       }
-      await deleteRemoteSandboxByIdOrName(row.payload.remoteSandboxId);
       await deleteRemoteSandboxesForProject(contextFromOutbox(row), row.payload.projectId);
       await pool.query(
         `UPDATE "hostedCleanupOutbox"

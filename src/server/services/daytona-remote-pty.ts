@@ -73,6 +73,7 @@ type RemoteProjectRepositoryInput = {
 
 const DEFAULT_RETAINED_OUTPUT_BUFFER_BYTES = 1_000_000;
 const DEFAULT_COMPUTE_LIMIT_POLL_MS = 60_000;
+const DEFAULT_DAYTONA_SNAPSHOT = "mission-control-cloud-agents";
 const EXITED_PTY_TTL_MS = 5 * 60_000;
 const tickets = new Map<string, RemotePtyTicket>();
 const TICKET_TTL_MS = 30_000;
@@ -147,6 +148,10 @@ function computeLimitPollMs(): number {
   return envNumber("MC_COMPUTE_LIMIT_POLL_MS", DEFAULT_COMPUTE_LIMIT_POLL_MS);
 }
 
+function daytonaSnapshotName(): string {
+  return process.env.DAYTONA_SNAPSHOT?.trim() || DEFAULT_DAYTONA_SNAPSHOT;
+}
+
 function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
   (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
 }
@@ -170,11 +175,7 @@ function stableSandboxName(input: RemotePtySpawnInput): string {
     process.env.DAYTONA_SANDBOX_NAME_PREFIX?.trim() ||
     process.env.DAYTONA_SANDBOX_NAME?.trim() ||
     "mission-control";
-  const scope = [
-    `user:${input.context.userId}`,
-    `project:${input.projectId}`,
-    input.taskId ? `task:${input.taskId}` : "terminal",
-  ].join("|");
+  const scope = `user:${input.context.userId}`;
   const hash = createHash("sha256").update(scope).digest("hex").slice(0, 16);
   return `${configuredPrefix}-${hash}`;
 }
@@ -215,37 +216,23 @@ async function getOrCreateSandbox(name: string, input: RemotePtySpawnInput) {
   const sandbox = await client.create(
     {
       name,
+      snapshot: daytonaSnapshotName(),
       labels: {
         app: "mission-control",
         runtime: "web-daytona",
         owner: input.context.organizationId ? "organization" : "user",
         scopeHash: sandboxScopeHash(input.context),
-        projectId: input.projectId,
-        ...(input.taskId ? { taskId: input.taskId } : {}),
       },
-      autoStopInterval: Number(process.env.DAYTONA_AUTO_STOP_MINUTES ?? 60),
+      autoStopInterval: Number(process.env.DAYTONA_AUTO_STOP_MINUTES ?? 15),
     },
     { timeout: 120 },
-  );
+  ).catch(async (error: unknown) => {
+    if (!isDaytonaConflictError(error)) throw error;
+    const existing = await client.get(name);
+    await ensureSandboxStarted(client, existing);
+    return existing;
+  });
   await ensureSandboxStarted(client, sandbox);
-  return sandbox;
-}
-
-async function recreateSandbox(input: RemotePtySpawnInput, existing: Sandbox): Promise<Sandbox> {
-  const name = stableSandboxName(input);
-  sandboxes.delete(name);
-  sandboxPromises.delete(name);
-  const client = getDaytonaClient();
-  try {
-    await client.delete(existing, 60);
-  } catch (error) {
-    if (!isDaytonaNotFoundError(error)) {
-      await client.stop(existing).catch(() => undefined);
-      throw error;
-    }
-  }
-  const sandbox = await getOrCreateSandbox(name, input);
-  sandboxes.set(name, sandbox);
   return sandbox;
 }
 
@@ -329,6 +316,11 @@ function isDaytonaNotFoundError(error: unknown): boolean {
     maybe.statusCode === 404 ||
     maybe.response?.status === 404
   );
+}
+
+function isDaytonaConflictError(error: unknown): boolean {
+  const maybe = error as { status?: number; statusCode?: number; response?: { status?: number } };
+  return maybe.status === 409 || maybe.statusCode === 409 || maybe.response?.status === 409;
 }
 
 async function ensureSandboxStarted(client: Daytona, sandbox: Sandbox) {
@@ -606,7 +598,7 @@ export async function spawnRemotePty(input: RemotePtySpawnInput): Promise<{ ptyI
     } catch (error) {
       if (!isRemotePtyShellFailure(error)) throw error;
       logHostedEvent(
-        "remote_pty.recreate_for_shell_failure",
+        "remote_pty.shell_failure",
         {
           projectId: input.projectId,
           taskId: input.taskId ?? null,
@@ -614,8 +606,7 @@ export async function spawnRemotePty(input: RemotePtySpawnInput): Promise<{ ptyI
         },
         "warn",
       );
-      sandbox = await recreateSandbox(input, sandbox);
-      await prepareSandboxForPty(input, sandbox);
+      throw error;
     }
     const createPtyOptions = {
       id: ptyId,
@@ -645,7 +636,7 @@ export async function spawnRemotePty(input: RemotePtySpawnInput): Promise<{ ptyI
     } catch (error) {
       if (!isRemotePtyShellFailure(error)) throw error;
       logHostedEvent(
-        "remote_pty.recreate_for_shell_failure",
+        "remote_pty.shell_failure",
         {
           projectId: input.projectId,
           taskId: input.taskId ?? null,
@@ -653,9 +644,7 @@ export async function spawnRemotePty(input: RemotePtySpawnInput): Promise<{ ptyI
         },
         "warn",
       );
-      sandbox = await recreateSandbox(input, sandbox);
-      await prepareSandboxForPty(input, sandbox);
-      pty = await sandbox.process.createPty(createPtyOptions);
+      throw error;
     }
   } catch (error) {
     releaseSpawnReservation();
@@ -798,6 +787,16 @@ export function listActiveRemotePtySummaries(): Array<{
     }));
 }
 
+export function resetDaytonaRemotePtyStateForTests(): void {
+  if (!process.env.VITEST) return;
+  daytona = null;
+  sandboxes.clear();
+  sandboxPromises.clear();
+  ptys.clear();
+  pendingPtySpawns.clear();
+  tickets.clear();
+}
+
 export async function writeRemotePty(
   context: HostedAuthContext,
   ptyId: string,
@@ -853,6 +852,36 @@ export async function killRemotePty(context: HostedAuthContext, ptyId: string): 
     taskId: remote.taskId ?? null,
   });
   return true;
+}
+
+export async function killRemotePtysForProject(
+  context: HostedAuthContext,
+  projectId: string,
+): Promise<void> {
+  const owned = Array.from(ptys.values())
+    .filter((remote) =>
+      !remote.exitEvent &&
+      remote.organizationId === context.organizationId &&
+      remote.userId === context.userId &&
+      remote.projectId === projectId
+    )
+    .map((remote) => remote.id);
+  await Promise.all(owned.map((ptyId) => killRemotePty(context, ptyId)));
+}
+
+export async function killRemotePtysForTask(
+  context: HostedAuthContext,
+  taskId: string,
+): Promise<void> {
+  const owned = Array.from(ptys.values())
+    .filter((remote) =>
+      !remote.exitEvent &&
+      remote.organizationId === context.organizationId &&
+      remote.userId === context.userId &&
+      remote.taskId === taskId
+    )
+    .map((remote) => remote.id);
+  await Promise.all(owned.map((ptyId) => killRemotePty(context, ptyId)));
 }
 
 export function replayRemotePty(

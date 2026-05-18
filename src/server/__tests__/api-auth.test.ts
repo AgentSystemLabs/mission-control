@@ -304,7 +304,7 @@ describe("api auth gate", () => {
         authed("/api/remote-pty", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ projectId: "hp-1", cwd: "/home/daytona", command: "pwd" }),
+          body: JSON.stringify({ projectId: "hp-1", cwd: "/home/workspace", command: "pwd" }),
         }),
       );
       expect(bearerCannotStartRemoteRuntime?.status).toBe(401);
@@ -438,7 +438,7 @@ describe("api auth gate", () => {
         authed("/api/remote-pty", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ projectId: "hp-1", cwd: "/home/daytona", command: "pwd" }),
+          body: JSON.stringify({ projectId: "hp-1", cwd: "/home/workspace", command: "pwd" }),
         }),
       );
       expect(res?.status).toBe(503);

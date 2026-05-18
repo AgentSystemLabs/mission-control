@@ -39,6 +39,7 @@
     "rebuild": "pnpm native:electron",
     "release:local": "node scripts/release-local.mjs",
     "gen:theme-images": "node scripts/gen-theme-images.mjs",
+    "daytona:snapshot": "node scripts/create-daytona-agent-snapshot.mjs",
     "postinstall": "pnpm native:electron || true"
   },
   "dependencies": {

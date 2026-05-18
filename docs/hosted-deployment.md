@@ -50,8 +50,9 @@ ACADEMY_ACCOUNT_PATH=/dashboard
 ACADEMY_LOGOUT_PATH=/api/logout
 DAYTONA_API_URL=
 DAYTONA_TARGET=
+DAYTONA_SNAPSHOT=mission-control-cloud-agents
 DAYTONA_SANDBOX_NAME_PREFIX=mission-control-prod
-DAYTONA_AUTO_STOP_MINUTES=60
+DAYTONA_AUTO_STOP_MINUTES=15
 MC_REMOTE_RUNTIME_DISABLED=
 MC_MAX_ACTIVE_PTYS_PER_USER=5
 MC_AUTH_RATE_LIMIT_PER_MINUTE=30
@@ -132,12 +133,15 @@ hosted app session after Academy handoff.
 2. Configure `DAYTONA_API_KEY` in each hosted environment. Set
    `DAYTONA_API_URL` and `DAYTONA_TARGET` only when the selected Daytona
    infrastructure requires non-default values.
-3. Set `DAYTONA_SANDBOX_NAME_PREFIX` to an environment-specific prefix such as
+3. Build the hosted agent snapshot with `pnpm daytona:snapshot`, then set
+   `DAYTONA_SNAPSHOT` to the created snapshot name. The default is
+   `mission-control-cloud-agents`.
+4. Set `DAYTONA_SANDBOX_NAME_PREFIX` to an environment-specific prefix such as
    `mission-control-staging` or `mission-control-prod`.
-4. Set `DAYTONA_AUTO_STOP_MINUTES` to the approved idle policy.
-5. Set `MISSION_CONTROL_PUBLIC_URL` to the hosted HTTPS origin. Daytona hook
+5. Set `DAYTONA_AUTO_STOP_MINUTES` to the approved idle policy.
+6. Set `MISSION_CONTROL_PUBLIC_URL` to the hosted HTTPS origin. Daytona hook
    callbacks reject localhost, private IPs, and non-HTTPS production origins.
-6. Keep `MC_REMOTE_RUNTIME_DISABLED=true` until Academy handoff, entitlement
+7. Keep `MC_REMOTE_RUNTIME_DISABLED=true` until Academy handoff, entitlement
    sync, and live Daytona smoke tests pass in staging.
 
 ## Academy Entitlement Integration Setup

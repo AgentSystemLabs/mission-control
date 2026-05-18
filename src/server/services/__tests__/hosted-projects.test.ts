@@ -7,6 +7,8 @@ const deleteRemoteSandboxByIdOrName = vi.hoisted(() => vi.fn());
 const deleteRemoteSandboxesForProject = vi.hoisted(() => vi.fn());
 const deleteRemoteSandboxesForTask = vi.hoisted(() => vi.fn());
 const ensureRemoteProjectRepository = vi.hoisted(() => vi.fn());
+const killRemotePtysForProject = vi.hoisted(() => vi.fn());
+const killRemotePtysForTask = vi.hoisted(() => vi.fn());
 
 vi.mock("../../hosted-pg", () => ({
   getHostedPool: () => ({ query: poolQuery }),
@@ -19,9 +21,17 @@ vi.mock("../daytona-remote-pty", () => ({
   deleteRemoteSandboxesForProject,
   deleteRemoteSandboxesForTask,
   ensureRemoteProjectRepository,
+  killRemotePtysForProject,
+  killRemotePtysForTask,
 }));
 
-const { createHostedProject, createHostedTask, listHostedProjects } = await import("../hosted-projects");
+const {
+  createHostedProject,
+  createHostedTask,
+  deleteHostedProject,
+  deleteHostedTask,
+  listHostedProjects,
+} = await import("../hosted-projects");
 const {
   createHostedGroup,
   listHostedGroups,
@@ -53,7 +63,7 @@ function hostedProject(overrides: Record<string, unknown> = {}) {
   return {
     id: "hp-1",
     name: "Remote Repo",
-    remotePath: "/home/daytona/remote-repo",
+    remotePath: "/home/workspace/remote-repo",
     githubUrl: "https://github.com/example/remote-repo",
     branch: "main",
     icon: "RR",
@@ -101,7 +111,9 @@ describe("hosted project persistence", () => {
     deleteRemoteSandboxesForProject.mockReset();
     deleteRemoteSandboxesForTask.mockReset();
     ensureRemoteProjectRepository.mockReset();
-    ensureRemoteProjectRepository.mockResolvedValue({ sandboxId: "sandbox-project-1", branch: "main" });
+    killRemotePtysForProject.mockReset();
+    killRemotePtysForTask.mockReset();
+    ensureRemoteProjectRepository.mockResolvedValue({ sandboxId: "sandbox-user-1", branch: "main" });
     delete process.env.MC_PLAN_LIMITS_JSON;
     delete process.env.MC_MAX_COMPUTE_SECONDS_PER_USER;
     delete process.env.MC_COMPUTE_LIMIT_WINDOW_DAYS;
@@ -123,7 +135,7 @@ describe("hosted project persistence", () => {
     expect(projects[0]).toMatchObject({
       id: "hp-1",
       groupId: "hg-1",
-      path: "/home/daytona/remote-repo",
+      path: "/home/workspace/remote-repo",
       githubUrl: "https://github.com/example/remote-repo",
       preview: "working",
       launchCommands: JSON.stringify([{ id: "dev", name: "Dev", command: "pnpm dev" }]),
@@ -136,30 +148,42 @@ describe("hosted project persistence", () => {
     });
   });
 
+  it("maps legacy Daytona home paths to the current workspace path", async () => {
+    poolQuery
+      .mockResolvedValueOnce({
+        rows: [hostedProject({ remotePath: "/home/daytona/remote-repo" })],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const projects = await listHostedProjects(context);
+
+    expect(projects[0]?.path).toBe("/home/workspace/remote-repo");
+  });
+
   it("creates hosted projects as Daytona-backed rows scoped to the signed-in user", async () => {
     poolQuery
       .mockResolvedValueOnce({ rows: [{ id: "hg-1" }] })
       .mockResolvedValueOnce({ rows: [{ sourceTier: "operators" }] })
       .mockResolvedValueOnce({ rows: [{ count: 0 }] })
       .mockResolvedValueOnce({
-        rows: [hostedProject({ id: "hp-created", name: "New Repo", remotePath: "/home/daytona/new-repo" })],
+        rows: [hostedProject({ id: "hp-created", name: "New Repo", remotePath: "/home/workspace/new-repo" })],
       });
 
     const project = await createHostedProject(context, {
       name: "New Repo",
-      path: "/home/daytona/new-repo",
+      path: "/home/workspace/new-repo",
       groupId: "hg-1",
     });
 
     expect(project).toMatchObject({
       id: "hp-created",
       name: "New Repo",
-      path: "/home/daytona/new-repo",
+      path: "/home/workspace/new-repo",
       groupId: "hg-1",
     });
     expect(poolQuery).toHaveBeenCalledWith(
       expect.stringContaining(`'daytona', 'daytona'`),
-      expect.arrayContaining([null, "user-1", "New Repo", "/home/daytona/new-repo", "hg-1"]),
+      expect.arrayContaining([null, "user-1", "New Repo", "/home/workspace/new-repo", "hg-1"]),
     );
   });
 
@@ -172,8 +196,8 @@ describe("hosted project persistence", () => {
           hostedProject({
             id: "hp-created",
             name: "Repo",
-            remoteSandboxId: "sandbox-project-1",
-            remotePath: "/home/daytona/repo",
+            remoteSandboxId: "sandbox-user-1",
+            remotePath: "/home/workspace/repo",
             githubUrl: "https://github.com/example/repo",
           }),
         ],
@@ -186,24 +210,53 @@ describe("hosted project persistence", () => {
     expect(project).toMatchObject({
       id: "hp-created",
       name: "Repo",
-      path: "/home/daytona/repo",
+      path: "/home/workspace/repo",
     });
     expect(ensureRemoteProjectRepository).toHaveBeenCalledWith({
       context,
       projectId: expect.any(String),
-      path: "/home/daytona/repo",
+      path: "/home/workspace/repo",
       githubUrl: "https://github.com/example/repo",
     });
     expect(poolQuery).toHaveBeenLastCalledWith(
       expect.stringContaining(`"githubUrl"`),
       expect.arrayContaining([
         "repo",
-        "sandbox-project-1",
-        "/home/daytona/repo",
+        "sandbox-user-1",
+        "/home/workspace/repo",
         "https://github.com/example/repo",
         "main",
       ]),
     );
+  });
+
+  it("preserves the shared user sandbox when deleting a hosted project", async () => {
+    poolQuery
+      .mockResolvedValueOnce({ rows: [{ remoteSandboxId: "sandbox-user-1" }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+    deleteRemoteSandboxesForProject.mockResolvedValue(undefined);
+
+    await expect(deleteHostedProject(context, "hp-1")).resolves.toBe(true);
+
+    expect(killRemotePtysForProject).toHaveBeenCalledWith(context, "hp-1");
+    expect(deleteRemoteSandboxByIdOrName).not.toHaveBeenCalled();
+    expect(deleteRemoteSandboxesForProject).toHaveBeenCalledWith(context, "hp-1");
+    expect(poolQuery).toHaveBeenLastCalledWith(
+      expect.stringContaining(`DELETE FROM "hostedProject"`),
+      [null, "user-1", "hp-1"],
+    );
+  });
+
+  it("kills active task PTYs before deleting a hosted task", async () => {
+    poolQuery
+      .mockResolvedValueOnce({ rows: [hostedTask({ id: "ht-1", projectId: "hp-1" })] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+    deleteRemoteSandboxesForTask.mockResolvedValue(undefined);
+
+    await expect(deleteHostedTask(context, "ht-1")).resolves.toBe(true);
+
+    expect(killRemotePtysForTask).toHaveBeenCalledWith(context, "ht-1");
+    expect(deleteRemoteSandboxesForTask).toHaveBeenCalledWith(context, "hp-1", "ht-1");
   });
 
   it("persists hosted groups in the signed-in scope", async () => {
@@ -276,7 +329,7 @@ describe("hosted project persistence", () => {
             id: "hut-1",
             projectId: "hp-1",
             name: "Terminal 1",
-            cwd: "/home/daytona/remote-repo",
+            cwd: "/home/workspace/remote-repo",
             startCommand: null,
             position: 0,
             createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -287,18 +340,18 @@ describe("hosted project persistence", () => {
 
     const terminal = await createHostedUserTerminal(context, {
       projectId: "hp-1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
     });
 
     expect(terminal).toMatchObject({
       id: "hut-1",
       projectId: "hp-1",
       name: "Terminal 1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
     });
     expect(poolQuery).toHaveBeenLastCalledWith(
       expect.stringContaining(`INSERT INTO "hostedUserTerminal"`),
-      expect.arrayContaining(["hp-1", "Terminal 1", "/home/daytona/remote-repo", null, 0]),
+      expect.arrayContaining(["hp-1", "Terminal 1", "/home/workspace/remote-repo", null, 0]),
     );
   });
 
@@ -313,7 +366,7 @@ describe("hosted project persistence", () => {
     await expect(
       createHostedProject(context, {
         name: "Limit Hit",
-        path: "/home/daytona/limit-hit",
+        path: "/home/workspace/limit-hit",
       }),
     ).rejects.toThrow("projects plan limit reached");
     expect(poolQuery).not.toHaveBeenCalledWith(
@@ -360,7 +413,7 @@ describe("hosted project persistence", () => {
     await expect(
       createHostedUserTerminal(context, {
         projectId: "hp-1",
-        cwd: "/home/daytona/remote-repo",
+        cwd: "/home/workspace/remote-repo",
       }),
     ).rejects.toThrow("userTerminals plan limit reached");
     expect(poolQuery).not.toHaveBeenCalledWith(
@@ -436,7 +489,7 @@ describe("hosted project persistence", () => {
           id: "hut-1",
           projectId: "hp-1",
           name: "Terminal 1",
-          cwd: "/home/daytona/remote-repo",
+          cwd: "/home/workspace/remote-repo",
           startCommand: null,
           position: 0,
           createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -483,7 +536,7 @@ describe("hosted project persistence", () => {
     await expect(validateHostedHookToken("ht-1", "hook-token")).resolves.toBe(true);
   });
 
-  it("retries cleanup outbox rows after a Daytona deletion failure", async () => {
+  it("retries cleanup outbox rows after a legacy Daytona project cleanup failure", async () => {
     const row = {
       id: "hco-1",
       scope: { organizationId: null, userId: "user-1" },
@@ -498,10 +551,9 @@ describe("hosted project persistence", () => {
       .mockResolvedValueOnce({ rowCount: 0, rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ count: 0 }] });
-    deleteRemoteSandboxByIdOrName
+    deleteRemoteSandboxesForProject
       .mockRejectedValueOnce(new Error("daytona unavailable"))
       .mockResolvedValueOnce(undefined);
-    deleteRemoteSandboxesForProject.mockResolvedValue(undefined);
 
     await processHostedCleanupOutbox();
     expect(poolQuery).toHaveBeenNthCalledWith(
@@ -511,8 +563,9 @@ describe("hosted project persistence", () => {
     );
 
     await processHostedCleanupOutbox();
-    expect(deleteRemoteSandboxByIdOrName).toHaveBeenCalledTimes(2);
-    expect(deleteRemoteSandboxesForProject).toHaveBeenCalledWith(
+    expect(deleteRemoteSandboxByIdOrName).not.toHaveBeenCalled();
+    expect(deleteRemoteSandboxesForProject).toHaveBeenCalledTimes(2);
+    expect(deleteRemoteSandboxesForProject).toHaveBeenLastCalledWith(
       expect.objectContaining({ userId: "user-1" }),
       "hp-1",
     );

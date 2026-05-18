@@ -1,5 +1,6 @@
 import type { UserTerminal } from "~/db/schema";
 import type { HostedAuthContext } from "../hosted-auth-context";
+import { normalizeHostedWorkspacePath } from "~/shared/hosted-workspace";
 import { getHostedPool } from "../hosted-pg";
 import { ValidationError } from "../errors";
 import { getHostedProject } from "./hosted-projects";
@@ -43,7 +44,7 @@ function mapTerminal(row: HostedUserTerminalRow): UserTerminal {
     id: row.id,
     projectId: row.projectId,
     name: row.name,
-    cwd: row.cwd,
+    cwd: normalizeHostedWorkspacePath(row.cwd),
     startCommand: row.startCommand,
     position: row.position,
     createdAt: toMillis(row.createdAt),
@@ -89,7 +90,7 @@ export async function createHostedUserTerminal(
       id,
       projectId: input.projectId,
       name,
-      cwd: input.cwd ?? null,
+      cwd: normalizeHostedWorkspacePath(input.cwd),
       startCommand,
       position: existing.length,
       createdAt: now,
@@ -102,7 +103,7 @@ export async function createHostedUserTerminal(
       )
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *`,
-    [id, input.projectId, name, input.cwd ?? null, null, existing.length],
+    [id, input.projectId, name, normalizeHostedWorkspacePath(input.cwd), null, existing.length],
   );
   return mapTerminal(result.rows[0]!);
 }

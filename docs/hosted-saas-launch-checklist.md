@@ -87,6 +87,7 @@ added.
 | `DAYTONA_API_KEY` | Yes | Use a scoped production key with rotation documented. |
 | `DAYTONA_API_URL` | Optional | Set only if using a non-default Daytona API endpoint. |
 | `DAYTONA_TARGET` | Optional | Set when Daytona infrastructure requires a specific target. |
+| `DAYTONA_SNAPSHOT` | Recommended | Daytona snapshot for hosted sandboxes. Defaults to `mission-control-cloud-agents`, built by `pnpm daytona:snapshot`. |
 | `DAYTONA_SANDBOX_NAME_PREFIX` | Recommended | Use an environment-specific prefix such as `mission-control-prod`. |
 | `DAYTONA_AUTO_STOP_MINUTES` | Recommended | Set the production idle cost-control policy explicitly. |
 | `MC_REMOTE_RUNTIME_DISABLED` | Recommended | Emergency kill switch for hosted remote runtime starts/writes without taking the app offline. |
@@ -132,6 +133,8 @@ infrastructure before launch.
 - [ ] Configure `DAYTONA_API_KEY` in staging and production.
 - [ ] Configure `DAYTONA_API_URL` and `DAYTONA_TARGET` if the selected Daytona
   environment requires them.
+- [ ] Run `pnpm daytona:snapshot` and configure `DAYTONA_SNAPSHOT` to the
+  created snapshot name.
 - [ ] Configure `MISSION_CONTROL_PUBLIC_URL` to the staging HTTPS origin.
 - [ ] Verify `MISSION_CONTROL_PUBLIC_URL` is accepted by
   `getHostedHookApiUrl`: HTTPS, public hostname, no localhost, no private IP.

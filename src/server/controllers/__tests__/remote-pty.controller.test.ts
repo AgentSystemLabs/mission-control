@@ -114,7 +114,7 @@ describe("remote PTY controller", () => {
     });
     getHostedProject.mockResolvedValue({
       id: "hp-1",
-      path: "/home/daytona/remote-repo",
+      path: "/home/workspace/remote-repo",
     });
     getHostedTask.mockResolvedValue({
       id: "ht-1",
@@ -155,7 +155,7 @@ describe("remote PTY controller", () => {
 
     const response = await spawn(spawnRequest({
       projectId: "hp-1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
       command: "pwd",
     }));
 
@@ -180,7 +180,7 @@ describe("remote PTY controller", () => {
     expect(spawnRemotePty).toHaveBeenCalledWith(expect.objectContaining({
       taskId: "ht-1",
       projectId: "hp-1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
       hookEnv: {
         apiUrl: "https://mission-control.example.com/api/hooks",
         token: "hook-token",
@@ -221,7 +221,7 @@ describe("remote PTY controller", () => {
   it("accepts transient undersized terminal dimensions", async () => {
     const response = await spawn(spawnRequest({
       projectId: "hp-1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
       command: "pwd",
       cols: 8,
       rows: 4,
@@ -242,7 +242,7 @@ describe("remote PTY controller", () => {
 
     const response = await spawn(spawnRequest({
       projectId: "hp-1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
       command: "pwd",
     }));
 
@@ -259,7 +259,7 @@ describe("remote PTY controller", () => {
 
     const response = await spawn(spawnRequest({
       projectId: "hp-1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
       command: "pwd",
     }));
 
@@ -285,7 +285,7 @@ describe("remote PTY controller", () => {
 
     const response = await spawn(spawnRequest({
       projectId: "hp-1",
-      cwd: "/home/daytona/remote-repo",
+      cwd: "/home/workspace/remote-repo",
       command: "pwd",
     }));
 

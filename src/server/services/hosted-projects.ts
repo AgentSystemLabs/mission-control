@@ -1,6 +1,6 @@
 import path from "node:path";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, TASK_STATUSES, isActiveStatus, isTaskAgent, isTaskStatus } from "~/shared/domain";
-import { hostedWorkspacePath } from "~/shared/hosted-workspace";
+import { hostedWorkspacePath, normalizeHostedWorkspacePath } from "~/shared/hosted-workspace";
 import type { LaunchCommand, TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectWithCounts } from "~/shared/projects";
@@ -11,10 +11,11 @@ import { ValidationError } from "../errors";
 import { newId } from "./_ids";
 import { hostedGroupExists } from "./hosted-groups";
 import {
-  deleteRemoteSandboxByIdOrName,
   deleteRemoteSandboxesForProject,
   deleteRemoteSandboxesForTask,
   ensureRemoteProjectRepository,
+  killRemotePtysForProject,
+  killRemotePtysForTask,
 } from "./daytona-remote-pty";
 import { enqueueHostedProjectCleanup } from "./hosted-cleanup-outbox";
 import { enforceHostedPlanLimit } from "./hosted-plan-limits";
@@ -169,7 +170,7 @@ function mapProject(row: HostedProjectRow): Project {
   return {
     id: row.id,
     name,
-    path: row.remotePath || hostedWorkspacePath(name),
+    path: normalizeHostedWorkspacePath(row.remotePath) || hostedWorkspacePath(name),
     icon: row.icon || name.slice(0, 2).toUpperCase(),
     iconColor: row.iconColor || "#ff5a1f",
     imagePath: row.imagePath,
@@ -288,9 +289,9 @@ export async function createHostedProject(
   const github = input.githubUrl?.trim()
     ? normalizeGithubRepositoryUrl(input.githubUrl)
     : null;
-  const remotePath = github
+  const remotePath = normalizeHostedWorkspacePath(github
     ? hostedWorkspacePath(github.repo)
-    : input.path?.trim();
+    : input.path?.trim());
   if (!remotePath) throw new ValidationError("Working directory is required");
   const name = input.name?.trim() || github?.repo || path.posix.basename(remotePath) || "project";
   const groupId = input.groupId ?? null;
@@ -363,7 +364,7 @@ export async function updateHostedProject(
   await validateHostedGroupId(context, groupId);
   const next = {
     name: patch.name ?? existing.name,
-    remotePath: patch.path ?? existing.path,
+    remotePath: normalizeHostedWorkspacePath(patch.path ?? existing.path),
     icon: patch.icon ?? existing.icon,
     iconColor: patch.iconColor ?? existing.iconColor,
     imagePath: hasOwn(patch, "imagePath") ? patch.imagePath ?? null : existing.imagePath,
@@ -449,7 +450,7 @@ export async function deleteHostedProject(
   const project = projectResult.rows[0];
   if (!project) return false;
   try {
-    await deleteRemoteSandboxByIdOrName(project.remoteSandboxId);
+    await killRemotePtysForProject(context, id);
     await deleteRemoteSandboxesForProject(context, id);
   } catch (error) {
     await enqueueHostedProjectCleanup(context, id, project.remoteSandboxId, error);
@@ -719,6 +720,7 @@ export async function deleteHostedTask(
 ): Promise<boolean> {
   const existing = await getHostedTask(context, id);
   if (!existing) return false;
+  await killRemotePtysForTask(context, id);
   await deleteRemoteSandboxesForTask(context, existing.projectId, id);
   const result = await getHostedPool().query(
     `DELETE FROM "hostedTask"

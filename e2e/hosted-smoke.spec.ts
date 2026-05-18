@@ -32,7 +32,7 @@ test("exposes the Academy sign-in handoff for hosted browser login", async ({ re
 
 test("denies remote runtime creation without hosted auth and entitlement", async ({ request }) => {
   const res = await request.post("/api/remote-pty", {
-    data: { projectId: "hp-1", cwd: "/home/daytona", command: "pwd" },
+    data: { projectId: "hp-1", cwd: "/home/workspace", command: "pwd" },
   });
   expect(res.status()).toBe(401);
   await expect(await res.json()).toEqual({ error: "unauthorized" });
