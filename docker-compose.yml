@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mission_control
+      POSTGRES_USER: mission_control
+      POSTGRES_PASSWORD: mission_control_dev
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - mission-control-postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mission_control -d mission_control"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-migrate:
+    image: postgres:17
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://mission_control:mission_control_dev@postgres:5432/mission_control
+    volumes:
+      - ./docker/postgres/migrations:/migrations:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS hosted_schema_migrations (name text PRIMARY KEY, applied_at timestamp NOT NULL DEFAULT now())"
+        psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS hosted_schema_migration_locks (id integer PRIMARY KEY, owner text, locked_at timestamp NOT NULL DEFAULT now())"
+        psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER TABLE hosted_schema_migration_locks ADD COLUMN IF NOT EXISTS owner text"
+        lock_owner="$$(hostname)-$$$$-$$(date +%s)"
+        cleanup_lock() {
+          psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM hosted_schema_migration_locks WHERE id = 1 AND owner = '$$lock_owner'" >/dev/null || true
+        }
+        trap cleanup_lock EXIT INT TERM
+        psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM hosted_schema_migration_locks WHERE id = 1 AND locked_at < now() - interval '2 hours'"
+        locked=$$(psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "WITH acquired AS (INSERT INTO hosted_schema_migration_locks (id, owner) VALUES (1, '$$lock_owner') ON CONFLICT DO NOTHING RETURNING 1 AS locked) SELECT COALESCE((SELECT locked FROM acquired), 0)")
+        if [ "$$locked" != "1" ]; then
+          echo "another hosted migration runner already holds the migration lock" >&2
+          exit 1
+        fi
+        for f in /migrations/*.sql; do
+          name=$$(basename "$$f")
+          applied=$$(psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT 1 FROM hosted_schema_migrations WHERE name = '$$name'")
+          if [ "$$applied" != "1" ]; then
+            psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$$f"
+            psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO hosted_schema_migrations (name) VALUES ('$$name')"
+          fi
+        done
+    restart: "no"
+
+volumes:
+  mission-control-postgres-data:

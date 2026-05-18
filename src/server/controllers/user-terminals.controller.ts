@@ -5,8 +5,17 @@ import {
   listUserTerminals,
   renameUserTerminal,
 } from "../services/user-terminals";
+import {
+  createHostedUserTerminal,
+  deleteHostedUserTerminal,
+  listHostedUserTerminals,
+  renameHostedUserTerminal,
+} from "../services/hosted-user-terminals";
 import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_CREATED } from "~/shared/http-status";
+import { getHostedAuthContext } from "../hosted-auth-context";
+import { isHostedDatabaseEnabled } from "../hosted-pg";
+import { isElectronLocalApiRequest } from "../request-runtime";
 
 const createTerminalBody = z.object({
   name: z.string().optional(),
@@ -18,9 +27,19 @@ const renameTerminalBody = z.object({
   name: z.string().min(1, "name required"),
 });
 
-export function listForProject(rawProjectId: string): Response {
+async function getHostedContext(request: Request) {
+  if (isElectronLocalApiRequest(request)) return null;
+  if (!isHostedDatabaseEnabled()) return null;
+  return getHostedAuthContext(request);
+}
+
+export async function listForProject(rawProjectId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawProjectId);
   if (!parsed.success) return json({ terminals: [] });
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    return json({ terminals: await listHostedUserTerminals(hosted, parsed.data) });
+  }
   return json({ terminals: listUserTerminals(parsed.data) });
 }
 
@@ -30,6 +49,16 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
   const parsed = await parseJsonBody(request, createTerminalBody);
   if (!parsed.ok) return parsed.response;
   try {
+    const hosted = await getHostedContext(request);
+    if (hosted) {
+      const t = await createHostedUserTerminal(hosted, {
+        projectId: idParsed.data,
+        name: parsed.data.name,
+        cwd: parsed.data.cwd ?? null,
+        startCommand: parsed.data.startCommand ?? null,
+      });
+      return json({ terminal: t }, { status: HTTP_CREATED });
+    }
     const t = createUserTerminal({
       projectId: idParsed.data,
       name: parsed.data.name,
@@ -50,6 +79,12 @@ export async function rename(rawId: string, request: Request): Promise<Response>
   const parsed = await parseJsonBody(request, renameTerminalBody);
   if (!parsed.ok) return parsed.response;
   try {
+    const hosted = await getHostedContext(request);
+    if (hosted) {
+      const t = await renameHostedUserTerminal(hosted, idParsed.data, parsed.data.name);
+      if (!t) return notFound();
+      return json({ terminal: t });
+    }
     const t = renameUserTerminal(idParsed.data, parsed.data.name);
     if (!t) return notFound();
     return json({ terminal: t });
@@ -60,8 +95,10 @@ export async function rename(rawId: string, request: Request): Promise<Response>
   }
 }
 
-export function remove(rawId: string): Response {
+export async function remove(rawId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
+  const hosted = await getHostedContext(request);
+  if (hosted) return (await deleteHostedUserTerminal(hosted, parsed.data)) ? noContent() : notFound();
   return deleteUserTerminal(parsed.data) ? noContent() : notFound();
 }

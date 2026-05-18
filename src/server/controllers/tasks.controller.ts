@@ -10,8 +10,20 @@ import {
   updateStatus,
   updateTask,
 } from "../services/tasks";
+import {
+  createHostedTask,
+  deleteHostedTask,
+  getHostedTask,
+  listHostedTasksForProject,
+  setHostedTaskArchived,
+  updateHostedTask,
+  updateHostedTaskStatus,
+} from "../services/hosted-projects";
 import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_CREATED } from "~/shared/http-status";
+import { getHostedAuthContext } from "../hosted-auth-context";
+import { isHostedDatabaseEnabled } from "../hosted-pg";
+import { isElectronLocalApiRequest } from "../request-runtime";
 
 const createTaskBody = z.object({
   title: z.string().min(1, "title required"),
@@ -41,9 +53,19 @@ const updateStatusBody = z.object({
   lines: z.number().optional(),
 });
 
-export function listForProject(rawProjectId: string): Response {
+async function getHostedContext(request: Request) {
+  if (isElectronLocalApiRequest(request)) return null;
+  if (!isHostedDatabaseEnabled()) return null;
+  return getHostedAuthContext(request);
+}
+
+export async function listForProject(rawProjectId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawProjectId);
   if (!parsed.success) return json({ tasks: [] });
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    return json({ tasks: await listHostedTasksForProject(hosted, parsed.data) });
+  }
   return json({ tasks: listTasksForProject(parsed.data) });
 }
 
@@ -53,6 +75,11 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
   const parsed = await parseJsonBody(request, createTaskBody);
   if (!parsed.ok) return parsed.response;
   try {
+    const hosted = await getHostedContext(request);
+    if (hosted) {
+      const t = await createHostedTask(hosted, { ...parsed.data, projectId: projectIdParsed.data });
+      return json({ task: t }, { status: HTTP_CREATED });
+    }
     const t = createTask({ ...parsed.data, projectId: projectIdParsed.data });
     return json({ task: t }, { status: HTTP_CREATED });
   } catch (e) {
@@ -62,9 +89,14 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
   }
 }
 
-export function getOne(rawId: string): Response {
+export async function getOne(rawId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    const t = await getHostedTask(hosted, parsed.data);
+    return t ? json({ task: t }) : notFound();
+  }
   const t = getTask(parsed.data);
   if (!t) return notFound();
   return json({ task: t });
@@ -76,6 +108,12 @@ export async function update(rawId: string, request: Request): Promise<Response>
   const parsed = await parseJsonBody(request, updateTaskBody);
   if (!parsed.ok) return parsed.response;
   try {
+    const hosted = await getHostedContext(request);
+    if (hosted) {
+      const t = await updateHostedTask(hosted, idParsed.data, parsed.data);
+      if (!t) return notFound();
+      return json({ task: t });
+    }
     const t = updateTask(idParsed.data, parsed.data);
     if (!t) return notFound();
     return json({ task: t });
@@ -86,9 +124,11 @@ export async function update(rawId: string, request: Request): Promise<Response>
   }
 }
 
-export function remove(rawId: string): Response {
+export async function remove(rawId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
+  const hosted = await getHostedContext(request);
+  if (hosted) return (await deleteHostedTask(hosted, parsed.data)) ? noContent() : notFound();
   return deleteTask(parsed.data) ? noContent() : notFound();
 }
 
@@ -98,6 +138,12 @@ export async function setStatus(rawId: string, request: Request): Promise<Respon
   const parsed = await parseJsonBody(request, updateStatusBody);
   if (!parsed.ok) return parsed.response;
   try {
+    const hosted = await getHostedContext(request);
+    if (hosted) {
+      const t = await updateHostedTaskStatus(hosted, idParsed.data, parsed.data);
+      if (!t) return notFound();
+      return json({ task: t });
+    }
     const t = updateStatus(idParsed.data, parsed.data);
     if (!t) return notFound();
     return json({ task: t });
@@ -108,17 +154,29 @@ export async function setStatus(rawId: string, request: Request): Promise<Respon
   }
 }
 
-export function archive(rawId: string): Response {
+export async function archive(rawId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    const t = await setHostedTaskArchived(hosted, parsed.data, true);
+    if (!t) return notFound();
+    return json({ task: t });
+  }
   const t = archiveTask(parsed.data);
   if (!t) return notFound();
   return json({ task: t });
 }
 
-export function restore(rawId: string): Response {
+export async function restore(rawId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    const t = await setHostedTaskArchived(hosted, parsed.data, false);
+    if (!t) return notFound();
+    return json({ task: t });
+  }
   const t = restoreTask(parsed.data);
   if (!t) return notFound();
   return json({ task: t });

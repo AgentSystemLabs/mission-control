@@ -38,6 +38,7 @@ import {
 } from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { UsagePanel } from "~/components/views/UsagePanel";
+import { AuthGate, useHostedSession } from "~/components/views/AuthGate";
 import { Toaster } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import { useWarmCliAvailability } from "~/lib/cli-availability";
@@ -113,7 +114,9 @@ function RootComponent() {
             <UserTerminalProvider>
               <AddProjectProvider>
                 <HeaderActionsProvider>
-                  <Shell />
+                  <AuthGate>
+                    <Shell />
+                  </AuthGate>
                 </HeaderActionsProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
@@ -357,6 +360,7 @@ function Shell() {
           leadingInset={topBarLeadingInset}
           right={
             <>
+              <AuthUserButton />
               <UpdateAvailableButton />
               <Btn
                 variant="ghost"
@@ -439,6 +443,51 @@ function Shell() {
       >
         This will kill the running process and remove the terminal. This can&apos;t be undone.
       </ConfirmDialog>
+    </>
+  );
+}
+
+function AuthUserButton() {
+  const { session, pending, refresh } = useHostedSession();
+  if (pending || !session?.hostedEnabled || !session.authenticated) return null;
+  const label = session.user?.email || "Academy account";
+  const accountUrl = session.academyAccountUrl || "/api/academy-auth/login";
+
+  return (
+    <>
+      <Btn
+        variant="ghost"
+        size="sm"
+        icon="external-link"
+        onClick={() => window.open(accountUrl, "_blank", "noopener,noreferrer")}
+        title={`Open Academy account and billing for ${label}`}
+        aria-label={`Open Academy account and billing for ${label}`}
+      >
+        {label}
+      </Btn>
+      <Btn
+        variant="ghost"
+        size="sm"
+        icon="shield"
+        onClick={async () => {
+          const res = await fetch("/api/academy-auth/logout", {
+            method: "POST",
+            credentials: "same-origin",
+          }).catch(() => undefined);
+          const body = res?.ok
+            ? await res.json().catch(() => null) as { academyLogoutUrl?: string } | null
+            : null;
+          if (body?.academyLogoutUrl) {
+            window.location.href = body.academyLogoutUrl;
+            return;
+          }
+          await refresh();
+        }}
+        title={`Sign out ${label}`}
+        aria-label={`Sign out ${label}`}
+      >
+        Sign out
+      </Btn>
     </>
   );
 }

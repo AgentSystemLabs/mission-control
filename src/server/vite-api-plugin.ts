@@ -79,8 +79,10 @@ async function readBody(req: IncomingMessage): Promise<Uint8Array> {
 async function writeFetchResponse(response: Response, res: ServerResponse) {
   res.statusCode = response.status;
   response.headers.forEach((value, key) => {
-    res.setHeader(key, value);
+    if (key.toLowerCase() !== "set-cookie") res.setHeader(key, value);
   });
+  const setCookies = getSetCookieHeaders(response.headers);
+  if (setCookies.length) res.setHeader("set-cookie", setCookies);
 
   if (!response.body) {
     res.end();
@@ -104,4 +106,12 @@ async function writeFetchResponse(response: Response, res: ServerResponse) {
     if (value) await flush(value);
   }
   res.end();
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const withGetSetCookie = headers as Headers & { getSetCookie?: () => string[] };
+  const values = withGetSetCookie.getSetCookie?.();
+  if (values?.length) return values;
+  const value = headers.get("set-cookie");
+  return value ? value.split(/,(?=\s*[^;,]+=)/) : [];
 }

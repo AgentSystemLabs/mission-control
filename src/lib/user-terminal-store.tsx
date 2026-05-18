@@ -247,6 +247,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
 
       if (killedPtyId && electron) {
         await electron.pty.kill(killedPtyId).catch(() => undefined);
+      } else if (killedPtyId) {
+        await api.killRemotePty(killedPtyId).catch(() => undefined);
       }
       try {
         await api.deleteUserTerminal(id);

@@ -38,6 +38,7 @@ export function readJsonSetting<T>(key: string): T | null {
 }
 
 const API_TOKEN_KEY = "api_token";
+const AUTH_SECRET_KEY = "auth_secret";
 
 export function getOrCreateApiToken(): string {
   let token = getAppSetting(API_TOKEN_KEY);
@@ -46,6 +47,15 @@ export function getOrCreateApiToken(): string {
     setAppSetting(API_TOKEN_KEY, token);
   }
   return token;
+}
+
+export function getOrCreateAuthSecret(): string {
+  let secret = getAppSetting(AUTH_SECRET_KEY);
+  if (!secret) {
+    secret = randomBytes(32).toString("hex");
+    setAppSetting(AUTH_SECRET_KEY, secret);
+  }
+  return secret;
 }
 
 const SKILLS_INITIALIZED_AT_KEY = "skills_initialized_at";

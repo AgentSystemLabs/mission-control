@@ -43,7 +43,15 @@ export function requireBearerTokenValue(
   rawToken: string | null | undefined,
 ): { ok: true } | { ok: false; response: Response } {
   const expected = getOrCreateApiToken();
+  return requireBearerTokenValueForSecret(rawToken, expected);
+}
+
+export function requireBearerTokenValueForSecret(
+  rawToken: string | null | undefined,
+  expectedSecret: string | null | undefined,
+): { ok: true } | { ok: false; response: Response } {
   const token = (rawToken ?? "").trim();
+  const expected = (expectedSecret ?? "").trim();
   if (!token || !tokensEqual(token, expected)) return unauthorized();
   return { ok: true };
 }
@@ -78,6 +86,15 @@ function isLoopback(hostname: string | null | undefined): boolean {
   return LOOPBACK_HOSTS.has(hostname.toLowerCase());
 }
 
+function isHostedMode(): boolean {
+  return !!process.env.DATABASE_URL?.trim();
+}
+
+function sameHost(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 /**
  * Reject cross-origin browser fetches and DNS-rebinding attacks against the
  * local API server. Browsers send `Origin` on every cross-origin request and
@@ -89,6 +106,24 @@ function isLoopback(hostname: string | null | undefined): boolean {
  */
 export function isSameOriginRequest(request: Request): boolean {
   const origin = request.headers.get("origin");
+  const requestHost =
+    hostnameFromHostHeader(request.headers.get("host") ?? "") ||
+    (() => {
+      try {
+        return new URL(request.url).hostname;
+      } catch {
+        return null;
+      }
+    })();
+
+  if (isHostedMode()) {
+    if (origin !== null) {
+      if (origin === "null") return false;
+      return sameHost(hostnameFromOrigin(origin), requestHost);
+    }
+    return !!requestHost;
+  }
+
   if (origin !== null) {
     if (origin === "null") return false;
     return isLoopback(hostnameFromOrigin(origin));
@@ -117,10 +152,14 @@ export function requireLocalOrigin(
   };
 }
 
-export function jsonError(status: number, message: string): Response {
+export function jsonError(
+  status: number,
+  message: string,
+  headers?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(headers ?? {}) },
   });
 }
 

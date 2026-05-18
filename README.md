@@ -84,6 +84,22 @@ pnpm build              # builds web client + server + Electron
 pnpm package            # rebuilds native deps for Electron and produces dist/
 ```
 
+### Hosted Web
+
+The hosted SaaS web app uses the web build only:
+
+```bash
+pnpm build:web
+pnpm start:hosted
+```
+
+Hosted mode is enabled by `DATABASE_URL` and uses Postgres, Academy-managed
+login/billing, and Daytona remote runtime. See
+[docs/hosted-deployment.md](docs/hosted-deployment.md) for environment
+variables, migration commands, health checks, and rollback notes.
+Operational support procedures live in
+[docs/hosted-operations-runbook.md](docs/hosted-operations-runbook.md).
+
 ### Native module rebuild
 
 `better-sqlite3` and `node-pty` have native bindings, but they do not need the same ABI in development:

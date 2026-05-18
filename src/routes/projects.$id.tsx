@@ -19,6 +19,7 @@ import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { api } from "~/lib/api";
+import { getElectron } from "~/lib/electron";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
@@ -27,19 +28,15 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
 import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER, TASK_STATUSES } from "~/shared/domain";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
-  apiTokenQueryOptions,
-  groupsQueryOptions,
-  projectQueryOptions,
   queryKeys,
-  settingsQueryOptions,
-  tasksQueryOptions,
   useApiToken,
+  useEntitlements,
   useGroups,
   useProject,
   useSettings,
   useTasks,
 } from "~/queries";
-import { gitStatusQueryOptions, useGitStatus } from "~/queries/git";
+import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
@@ -55,19 +52,6 @@ import {
 } from "~/lib/design-meta";
 
 export const Route = createFileRoute("/projects/$id")({
-  loader: ({ context, params }) =>
-    Promise.all([
-      context.queryClient.ensureQueryData(projectQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(tasksQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(groupsQueryOptions()),
-      context.queryClient.ensureQueryData(settingsQueryOptions()),
-      // IPC-only; will reject under SSR/loader on the Node side but that's
-      // expected since the renderer is the only context that holds the token.
-      context.queryClient.ensureQueryData(apiTokenQueryOptions()).catch(() => null),
-      context.queryClient
-        .ensureQueryData(gitStatusQueryOptions(params.id))
-        .catch(() => null),
-    ]),
   component: ProjectPage,
 });
 
@@ -99,11 +83,15 @@ function ProjectPage() {
   const { id } = Route.useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data: project, error: projectError } = useProject(id);
-  const { data: tasks = [] } = useTasks(id);
-  const { data: groups = [] } = useGroups();
+  const projectQuery = useProject(id);
+  const tasksQuery = useTasks(id);
+  const groupsQuery = useGroups();
+  const project = projectQuery.data;
+  const tasks = tasksQuery.data ?? [];
+  const groups = groupsQuery.data ?? [];
   const { data: settings } = useSettings();
   const { data: apiToken = null } = useApiToken();
+  const { data: entitlements } = useEntitlements();
   const { data: gitStatus } = useGitStatus(id);
   const [showDiffView, setShowDiffView] = useState(false);
 
@@ -126,12 +114,9 @@ function ProjectPage() {
   const [launching, setLaunching] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [pinning, setPinning] = useState(false);
+  const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
   const cliAvailability = useCliAvailability();
-
-  useEffect(() => {
-    if (projectError) router.navigate({ to: "/" });
-  }, [projectError, router]);
 
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement | null>(null);
@@ -281,7 +266,8 @@ function ProjectPage() {
       skipPermissions: boolean;
       bareSession: boolean;
     }) => {
-      if (!project || !apiToken) return;
+      if (!project) return;
+      if (getElectron() && !apiToken) return;
       if (!agentCanLaunch(cliAvailability, payload.agent)) {
         setShowNewAgent(true);
         return;
@@ -511,20 +497,36 @@ function ProjectPage() {
     )
   );
 
+  if (projectQuery.isError) {
+    return (
+      <div style={{ flex: 1, padding: 32 }}>
+        <EmptyState
+          title="Could not load project"
+          subtitle="Mission Control could not load this hosted project. Check your connection, then retry."
+          icon="shield"
+          action={
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="primary" icon="refresh" onClick={() => void projectQuery.refetch()}>
+                Retry
+              </Btn>
+              <Btn variant="ghost" onClick={() => router.navigate({ to: "/" })}>
+                Back to projects
+              </Btn>
+            </div>
+          }
+        />
+      </div>
+    );
+  }
+
   if (!project) {
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        style={{
-          flex: 1,
-          padding: 32,
-          color: "var(--text-dim)",
-          fontFamily: "var(--mono)",
-          fontSize: 12,
-        }}
-      >
-        Loading…
+      <div style={{ flex: 1, padding: 32 }}>
+        <EmptyState
+          title="Loading project"
+          subtitle="Fetching the hosted project, sessions, terminals, and runtime state."
+          icon="sparkles"
+        />
       </div>
     );
   }
@@ -540,6 +542,7 @@ function ProjectPage() {
   for (const t of visibleTasks) tasksByStatus[t.status].push(t);
 
   const activeId = terminals.activeTaskIdFor(project.id);
+  const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
 
   const toggleTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -554,9 +557,14 @@ function ProjectPage() {
   const deleteTask = async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
-    await terminals.close(taskId);
-    await api.deleteTask(taskId);
-    await refresh();
+    setCleanupStatus("Cleaning up hosted resources for this session. If the hosted environment is unavailable, cleanup will be retried.");
+    try {
+      await terminals.close(taskId);
+      await api.deleteTask(taskId);
+      await refresh();
+    } finally {
+      setCleanupStatus(null);
+    }
   };
 
   const remove = () => {
@@ -566,33 +574,48 @@ function ProjectPage() {
   const confirmRemoveProject = async () => {
     if (!project) return;
     setConfirmRemove(false);
-    await terminals.closeForProject(project.id);
-    await api.deleteProject(project.id);
-    router.navigate({ to: "/" });
+    setCleanupStatus("Cleaning up hosted resources for this project. If the hosted environment is unavailable, cleanup will be queued for retry.");
+    try {
+      await terminals.closeForProject(project.id);
+      await api.deleteProject(project.id);
+      router.navigate({ to: "/" });
+    } finally {
+      setCleanupStatus(null);
+    }
   };
 
   const clearFinished = async () => {
     setConfirmClearFinished(false);
     const finished = tasksByStatus.finished;
-    await Promise.all(
-      finished.map(async (t) => {
-        await terminals.close(t.id).catch(() => undefined);
-        await api.deleteTask(t.id).catch(() => undefined);
-      })
-    );
-    await refresh();
+    setCleanupStatus("Cleaning up hosted resources for finished sessions.");
+    try {
+      await Promise.all(
+        finished.map(async (t) => {
+          await terminals.close(t.id).catch(() => undefined);
+          await api.deleteTask(t.id).catch(() => undefined);
+        })
+      );
+      await refresh();
+    } finally {
+      setCleanupStatus(null);
+    }
   };
 
   const clearDisconnected = async () => {
     setConfirmClearDisconnected(false);
     const disconnected = tasksByStatus.disconnected;
-    await Promise.all(
-      disconnected.map(async (t) => {
-        await terminals.close(t.id).catch(() => undefined);
-        await api.deleteTask(t.id).catch(() => undefined);
-      })
-    );
-    await refresh();
+    setCleanupStatus("Cleaning up hosted resources for disconnected sessions.");
+    try {
+      await Promise.all(
+        disconnected.map(async (t) => {
+          await terminals.close(t.id).catch(() => undefined);
+          await api.deleteTask(t.id).catch(() => undefined);
+        })
+      );
+      await refresh();
+    } finally {
+      setCleanupStatus(null);
+    }
   };
 
   const startAgent = async (data: {
@@ -903,6 +926,46 @@ function ProjectPage() {
           </HotkeyTooltip>
         </div>
 
+        {hostedRuntime && !hostedRuntime.allowed && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            style={{
+              margin: "0 12px 28px",
+              padding: "10px 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--surface-1)",
+              color: "var(--text-dim)",
+              fontSize: 12,
+              fontFamily: "var(--mono)",
+            }}
+          >
+            Remote terminals and agents are unavailable until Academy grants hosted runtime for this account
+            or the compute usage window resets.
+          </div>
+        )}
+        {cleanupStatus && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            style={{
+              margin: "0 12px 28px",
+              padding: "10px 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--surface-1)",
+              color: "var(--text-dim)",
+              fontSize: 12,
+              fontFamily: "var(--mono)",
+            }}
+          >
+            {cleanupStatus}
+          </div>
+        )}
+
         {visibleTasks.length > 0 && (
           <div
             style={{
@@ -946,7 +1009,26 @@ function ProjectPage() {
             boxSizing: "border-box",
           }}
         >
-          {STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status) => (
+          {tasksQuery.isLoading && (
+            <EmptyState
+              title="Loading sessions"
+              subtitle="Fetching the hosted task list and terminal state."
+              icon="sparkles"
+            />
+          )}
+          {tasksQuery.isError && (
+            <EmptyState
+              title="Could not load sessions"
+              subtitle="Mission Control could not load sessions for this project. Retry before starting new work."
+              icon="shield"
+              action={
+                <Btn variant="primary" icon="refresh" onClick={() => void tasksQuery.refetch()}>
+                  Retry
+                </Btn>
+              }
+            />
+          )}
+          {!tasksQuery.isLoading && !tasksQuery.isError && STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status) => (
             <TaskColumn
               key={status}
               title={STATUS_META[status].label}
@@ -978,10 +1060,14 @@ function ProjectPage() {
               }
             />
           ))}
-          {visibleTasks.length === 0 && (
+          {!tasksQuery.isLoading && !tasksQuery.isError && visibleTasks.length === 0 && (
             <EmptyState
               title="No active sessions"
-              subtitle="Start a new session to begin working on this project."
+              subtitle={
+                hostedRuntime
+                  ? "Start a cloud-backed agent session when you are ready to work on this hosted project."
+                  : "Start a new session to begin working on this project."
+              }
               action={
                 <NewAgentButton
                   project={project}

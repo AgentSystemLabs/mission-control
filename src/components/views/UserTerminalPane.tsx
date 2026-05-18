@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { getElectron } from "~/lib/electron";
@@ -15,6 +16,9 @@ import {
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
 import type { UserTerminal } from "~/db/schema";
+import { ApiError, api } from "~/lib/api";
+import { normalizePtySize } from "~/shared/pty-size";
+import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
 
 // Pattern shared by the link provider and the launch-URL detector. The two
 // callers differ only in whether the port is a capture group.
@@ -60,11 +64,13 @@ export function UserTerminalPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement | null>(null);
   const termRef = useRef<{ focus: () => void } | null>(null);
-  const [bridgeMissing, setBridgeMissing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [draftName, setDraftName] = useState(terminal.name);
   const [domFocused, setDomFocused] = useState(false);
+  const [liveStatus, setLiveStatus] = useState("");
+  const [startError, setStartError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   useEffect(() => {
     const el = cardRef.current;
     if (!el) return;
@@ -89,10 +95,6 @@ export function UserTerminalPane({
 
   useEffect(() => {
     const electron = getElectron();
-    if (!electron) {
-      setBridgeMissing(true);
-      return;
-    }
     if (!containerRef.current) return;
 
     let cancelled = false;
@@ -138,7 +140,8 @@ export function UserTerminalPane({
               },
               activate(event: MouseEvent, uri: string) {
                 if (event.metaKey || event.ctrlKey) {
-                  void electron.openExternal(uri);
+                  if (electron) void electron.openExternal(uri);
+                  else window.open(uri, "_blank", "noopener,noreferrer");
                 }
               },
             });
@@ -154,36 +157,58 @@ export function UserTerminalPane({
       let rafHandle = 0;
       let activePtyId: string | null = null;
 
-      const detachFileDrop = wireTerminalFileDrop({
-        host: focusEl,
-        electron,
-        getActivePtyId: () => activePtyId,
-        onFocus: () => term.focus(),
-      });
+      const detachFileDrop = electron
+        ? wireTerminalFileDrop({
+            host: focusEl,
+            electron,
+            getActivePtyId: () => activePtyId,
+            onFocus: () => term.focus(),
+          })
+        : () => undefined;
 
-      attachTerminalKeyHandler({
-        term,
-        electron,
-        getActivePtyId: () => activePtyId,
-      });
+      if (electron) {
+        attachTerminalKeyHandler({
+          term,
+          electron,
+          getActivePtyId: () => activePtyId,
+        });
+      }
 
-      const wireToPty = (id: string) => {
+      const seenLaunchUrls = new Set<string>();
+      const detectLaunchUrl = (data: string) => {
+        if (!terminal.startCommand || !onLaunchUrlDetected) return;
+        const cleaned = data.replace(ANSI_ESCAPE_REGEX, "");
+        const matches = cleaned.matchAll(
+          new RegExp(LOOPBACK_URL_WITH_PORT_GROUP_REGEX.source, "g"),
+        );
+        for (const match of matches) {
+          const url = match[0]!;
+          if (seenLaunchUrls.has(url)) continue;
+          seenLaunchUrls.add(url);
+          onLaunchUrlDetected(url);
+          return;
+        }
+      };
+      const handleExit = (exitCode?: number) => {
+        activePtyId = null;
+        term.writeln("");
+        term.writeln(`\x1b[2m[process exited (code=${exitCode ?? "unknown"})]\x1b[0m`);
+        onPtyExit();
+      };
+      const wireTerminalInput = (id: string) => {
+        term.onData((data) => {
+          if (electron) electron.pty.write(id, data);
+          else void api.writeRemotePty(id, data);
+        });
+        term.onResize(({ cols, rows }) => {
+          const ptySize = normalizePtySize({ cols, rows });
+          if (electron) electron.pty.resize(id, ptySize.cols, ptySize.rows);
+          else void api.resizeRemotePty(id, ptySize.cols, ptySize.rows);
+        });
+      };
+      const wireElectronPty = (id: string) => {
+        if (!electron) return;
         activePtyId = id;
-        const seenLaunchUrls = new Set<string>();
-        const detectLaunchUrl = (data: string) => {
-          if (!terminal.startCommand || !onLaunchUrlDetected) return;
-          const cleaned = data.replace(ANSI_ESCAPE_REGEX, "");
-          const matches = cleaned.matchAll(
-            new RegExp(LOOPBACK_URL_WITH_PORT_GROUP_REGEX.source, "g"),
-          );
-          for (const match of matches) {
-            const url = match[0]!;
-            if (seenLaunchUrls.has(url)) continue;
-            seenLaunchUrls.add(url);
-            onLaunchUrlDetected(url);
-            return;
-          }
-        };
         subscriptions.push(
           electron.pty.onData((msg) => {
             if (msg.ptyId === id) {
@@ -193,23 +218,84 @@ export function UserTerminalPane({
           }),
           electron.pty.onExit((msg) => {
             if (msg.ptyId === id) {
-              activePtyId = null;
-              term.writeln("");
-              term.writeln(`\x1b[2m[process exited (code=${msg.exitCode})]\x1b[0m`);
-              onPtyExit();
+              handleExit(msg.exitCode);
             }
           })
         );
-        term.onData((data) => {
-          electron.pty.write(id, data);
+        wireTerminalInput(id);
+      };
+      const wireRemotePty = async (id: string) => {
+        activePtyId = id;
+        const { ticket } = await api.createRemotePtyTicket(id);
+        const source = new EventSource(
+          `/api/remote-pty/${encodeURIComponent(id)}/events?ticket=${encodeURIComponent(ticket)}`
+        );
+        let replaying = true;
+        const pendingLive: string[] = [];
+        let markReady: (replayBeforeSeq: number) => void = () => undefined;
+        const ready = new Promise<number>((resolve) => {
+          markReady = resolve;
         });
-        term.onResize(({ cols, rows }) => {
-          electron.pty.resize(id, cols, rows);
-        });
+        source.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data) as {
+              type?: string;
+              data?: string;
+              exitCode?: number;
+              error?: string;
+              replayBeforeSeq?: number;
+            };
+            if (msg.type === "ready") {
+              markReady(msg.replayBeforeSeq ?? 0);
+              return;
+            }
+            if (msg.type === "output" && typeof msg.data === "string") {
+              if (replaying) pendingLive.push(msg.data);
+              else {
+                term.write(msg.data);
+                detectLaunchUrl(msg.data);
+              }
+            }
+            if (msg.type === "exit") handleExit(msg.exitCode);
+            if (msg.type === "error") {
+              const message = `remote pty error: ${msg.error ?? "unknown"}`;
+              setLiveStatus(message);
+              term.writeln(`\x1b[31m[${message}]\x1b[0m`);
+            }
+          } catch {
+            /* ignore malformed SSE payloads */
+          }
+        };
+        source.onerror = () => {
+          setLiveStatus("remote pty stream disconnected");
+          term.writeln("\x1b[31m[remote pty stream disconnected]\x1b[0m");
+          markReady(0);
+          source.close();
+        };
+        subscriptions.push(() => source.close());
+        const replayBeforeSeq = await Promise.race([
+          ready,
+          new Promise<number>((resolve) => setTimeout(() => resolve(0), 5000)),
+        ]);
+        setLiveStatus("connected to remote runtime");
+        term.writeln("\x1b[36m[connected to remote runtime]\x1b[0m");
+        const replay = await api.replayRemotePty(id, { beforeSeq: replayBeforeSeq });
+        if (!cancelled && replay.data) {
+          term.write(replay.data);
+          detectLaunchUrl(replay.data);
+        }
+        replaying = false;
+        for (const chunk of pendingLive) {
+          term.write(chunk);
+          detectLaunchUrl(chunk);
+        }
+        pendingLive.length = 0;
+        wireTerminalInput(id);
       };
 
       const ensurePty = async () => {
         if (cancelled) return;
+        setStartError(null);
         try {
           try {
             fit.fit();
@@ -218,32 +304,54 @@ export function UserTerminalPane({
           }
 
           if (ptyId) {
-            wireToPty(ptyId);
-            const buf = await electron.pty.replay(ptyId);
-            if (!cancelled && buf) term.write(buf);
+            if (electron) {
+              wireElectronPty(ptyId);
+              const buf = await electron.pty.replay(ptyId);
+              if (!cancelled && buf) term.write(buf);
+            } else {
+              await wireRemotePty(ptyId);
+            }
             return;
           }
 
-          const { ptyId: newId } = await electron.pty.spawn({
-            taskId: terminal.id,
-            cwd,
-            command: terminal.startCommand ?? "",
-            cols: term.cols,
-            rows: term.rows,
-            // User-shell terminal: opts into the shell branch so the main
-            // process is willing to interpret `startCommand` through `sh -l -c`.
-            // Agent terminals (TerminalPane.tsx) leave this unset, which forces
-            // the allow-listed direct-argv spawn path instead.
-            shell: true,
-          });
+          if (!electron) {
+            setLiveStatus("starting cloud workspace");
+            term.writeln("\x1b[36m[starting cloud workspace...]\x1b[0m");
+          }
+          const ptySize = normalizePtySize({ cols: term.cols, rows: term.rows });
+          const { ptyId: newId } = electron
+            ? await electron.pty.spawn({
+                taskId: terminal.id,
+                cwd,
+                command: terminal.startCommand ?? "",
+                cols: ptySize.cols,
+                rows: ptySize.rows,
+                // User-shell terminal: opts into the shell branch so the main
+                // process is willing to interpret `startCommand` through `sh -l -c`.
+                // Agent terminals (TerminalPane.tsx) leave this unset, which forces
+                // the allow-listed direct-argv spawn path instead.
+                shell: true,
+              })
+            : await api.createRemotePty({
+                projectId: terminal.projectId,
+                cwd: cwd || HOSTED_WORKSPACE_ROOT,
+                command: terminal.startCommand ?? "",
+                cols: ptySize.cols,
+                rows: ptySize.rows,
+              });
           if (cancelled) {
-            await electron.pty.kill(newId).catch(() => undefined);
+            if (electron) await electron.pty.kill(newId).catch(() => undefined);
+            else await api.killRemotePty(newId).catch(() => undefined);
             return;
           }
           onPtyReady(newId);
-          wireToPty(newId);
+          if (electron) wireElectronPty(newId);
+          else await wireRemotePty(newId);
         } catch (err: any) {
-          term.writeln(`\x1b[31m[failed to start pty: ${err?.message || err}]\x1b[0m`);
+          const message = remoteStartErrorMessage(err);
+          setStartError(message);
+          setLiveStatus(message);
+          term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);
         }
       };
 
@@ -275,7 +383,7 @@ export function UserTerminalPane({
       cleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminal.id]);
+  }, [terminal.id, retryNonce]);
 
   // Bring focus to the xterm when this pane becomes focused via cycling or
   // after a sibling pane is closed. Defer to the next frame so the focus call
@@ -307,6 +415,24 @@ export function UserTerminalPane({
         flexDirection: "column",
       }}
     >
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: "hidden",
+          clip: "rect(0, 0, 0, 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      >
+        {liveStatus}
+      </div>
       <div
         style={{
           display: "flex",
@@ -406,15 +532,54 @@ export function UserTerminalPane({
       >
         This will kill the running process and remove the terminal. This can&apos;t be undone.
       </ConfirmDialog>
+      {startError && (
+        <div
+          role="alert"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            padding: "8px 10px",
+            borderBottom: "1px solid var(--border)",
+            color: "var(--status-failed)",
+            background: "color-mix(in oklch, var(--status-failed) 10%, transparent)",
+            fontFamily: "var(--mono)",
+            fontSize: 11.5,
+          }}
+        >
+          <span>{startError}</span>
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="refresh"
+            onClick={() => setRetryNonce((value) => value + 1)}
+          >
+            Retry
+          </Btn>
+        </div>
+      )}
       <div style={{ flex: 1, position: "relative", background: "var(--terminal-bg)" }}>
-        {bridgeMissing ? (
-          <div style={{ padding: 16, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-dim)" }}>
-            Terminals require the Electron runtime.
-          </div>
-        ) : (
-          <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-        )}
+        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
       </div>
     </CardFrame>
   );
+}
+
+function remoteStartErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) {
+      return "Academy entitlement is required before hosted runtime can start.";
+    }
+    if (error.status === 402) {
+      return error.message || "Hosted compute limit reached. Open Academy billing to upgrade or wait for the usage window to reset.";
+    }
+    if (error.status === 503) {
+      return error.message || "Hosted remote runtime is temporarily disabled. Try again later or contact support.";
+    }
+    if (error.status === 429) {
+      return "Too many remote terminal starts. Wait a minute, then retry.";
+    }
+  }
+  return error instanceof Error ? error.message : String(error || "unknown error");
 }

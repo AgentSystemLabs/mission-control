@@ -19,22 +19,19 @@ import { api } from "~/lib/api";
 import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import {
-  groupsQueryOptions,
-  projectsQueryOptions,
   queryKeys,
+  useEntitlements,
   useGroups,
   useLicense,
   useProjects,
 } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
 import { isAcademyTier } from "~/shared/license";
+import { useHostedSession } from "~/components/views/AuthGate";
+import type { Entitlements } from "~/shared/entitlements";
+import { isWebDaytonaRuntime } from "~/lib/runtime";
 
 export const Route = createFileRoute("/")({
-  loader: ({ context }) =>
-    Promise.all([
-      context.queryClient.ensureQueryData(projectsQueryOptions()),
-      context.queryClient.ensureQueryData(groupsQueryOptions()),
-    ]),
   component: MissionControlPage,
 });
 
@@ -104,9 +101,14 @@ const DASHBOARD_QUOTES = [
 function MissionControlPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data: projects = [] } = useProjects();
-  const { data: groups = [] } = useGroups();
+  const projectsQuery = useProjects();
+  const groupsQuery = useGroups();
+  const projects = projectsQuery.data ?? [];
+  const groups = groupsQuery.data ?? [];
   const { data: license } = useLicense();
+  const { data: entitlements } = useEntitlements();
+  const { session } = useHostedSession();
+  const hostedWorkspaceCopy = isWebDaytonaRuntime();
   const launchKitAccess = useQuery({
     queryKey: ["launch-kit-access", license?.maskedKey ?? null, license?.status ?? null],
     queryFn: () => api.getLaunchKitAccess(),
@@ -179,6 +181,7 @@ function MissionControlPage() {
   };
   const canUseLaunchKit =
     (!!license && isAcademyTier(license)) || !!launchKitAccess.data?.hasAccess;
+  const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
 
   return (
     <>
@@ -268,7 +271,49 @@ function MissionControlPage() {
             </div>
           </div>
 
-          {pinned.length > 0 && (
+          {hostedRuntime && (
+            <HostedRuntimeNotice
+              remoteRuntime={hostedRuntime}
+              academyAccountUrl={session?.academyAccountUrl ?? null}
+            />
+          )}
+
+          {(projectsQuery.isLoading || groupsQuery.isLoading) && (
+            <EmptyState
+              title="Loading projects"
+              subtitle={
+                hostedWorkspaceCopy
+                  ? "Fetching your hosted projects, groups, and runtime state."
+                  : "Fetching your local projects, groups, and runtime state."
+              }
+              icon="sparkles"
+            />
+          )}
+
+          {(projectsQuery.isError || groupsQuery.isError) && (
+            <EmptyState
+              title="Could not load projects"
+              subtitle={
+                hostedWorkspaceCopy
+                  ? "Mission Control could not load your hosted workspace. Check your connection, then retry."
+                  : "Mission Control could not load your local workspace. Restart Mission Control, then retry."
+              }
+              icon="shield"
+              action={
+                <Btn
+                  variant="primary"
+                  icon="refresh"
+                  onClick={() => {
+                    void Promise.all([projectsQuery.refetch(), groupsQuery.refetch()]);
+                  }}
+                >
+                  Retry
+                </Btn>
+              }
+            />
+          )}
+
+          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && pinned.length > 0 && (
             <Section
               label="Pinned"
               count={pinned.length}
@@ -290,7 +335,7 @@ function MissionControlPage() {
             </Section>
           )}
 
-          {byGroup.map(({ group, projects: gp }) => (
+          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && byGroup.map(({ group, projects: gp }) => (
             <Section
               key={group.id}
               label={group.name}
@@ -313,7 +358,7 @@ function MissionControlPage() {
             </Section>
           ))}
 
-          {ungrouped.length > 0 && (
+          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && ungrouped.length > 0 && (
             <Section
               label="Ungrouped"
               count={ungrouped.length}
@@ -334,10 +379,16 @@ function MissionControlPage() {
             </Section>
           )}
 
-          {filteredProjects.length === 0 && (
+          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && filteredProjects.length === 0 && (
             <EmptyState
               title={search ? "No matches" : "No projects yet"}
-              subtitle={search ? "Try a different search." : "Add your first project to start running sessions."}
+              subtitle={
+                search
+                  ? "Try a different search."
+                  : hostedRuntime
+                    ? "Create your first hosted project. Terminals and agents run in isolated cloud workspaces."
+                    : "Add your first project to start running sessions."
+              }
               action={
                 !search && (
                   <HotkeyTooltip action="project.add">
@@ -380,5 +431,68 @@ function MissionControlPage() {
         }}
       />
     </>
+  );
+}
+
+function HostedRuntimeNotice({
+  remoteRuntime,
+  academyAccountUrl,
+}: {
+  remoteRuntime: Entitlements["remoteRuntime"];
+  academyAccountUrl: string | null;
+}) {
+  const router = useRouter();
+  const allowed = remoteRuntime.allowed;
+  if (allowed) {
+    return null;
+  }
+
+  const message = remoteRuntime.reason === "account-blocked"
+      ? "Hosted runtime is blocked for this account. Contact support if this looks wrong."
+      : remoteRuntime.reason === "auth-required"
+        ? "Sign in through Academy to use hosted runtime."
+        : "Hosted runtime needs an active Academy plan before remote compute can start. If you hit a compute limit, Mission Control will pause new remote sessions until the window resets or your Academy plan changes.";
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        margin: "0 12px 28px",
+        padding: "10px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--surface-1)",
+        color: "var(--text-dim)",
+        fontSize: 12,
+        fontFamily: "var(--mono)",
+      }}
+    >
+      <span>{message}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <Btn
+          variant="ghost"
+          size="sm"
+          onClick={() => router.navigate({ to: "/plans" })}
+        >
+          Compare plans
+        </Btn>
+        {!allowed && academyAccountUrl && (
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="external-link"
+            onClick={() => window.open(academyAccountUrl, "_blank", "noopener,noreferrer")}
+          >
+            Academy billing
+          </Btn>
+        )}
+      </div>
+    </div>
   );
 }

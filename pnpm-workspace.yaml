@@ -2,6 +2,7 @@ savePrefix: ""
 
 overrides:
   "@esbuild-kit/core-utils@3.3.2>esbuild": 0.25.12
+  "protobufjs@8.0.1": 8.0.2
 
 allowBuilds:
   better-sqlite3: true
@@ -9,4 +10,5 @@ allowBuilds:
   electron-winstaller: false
   esbuild: true
   node-pty: true
+  protobufjs: true
   puppeteer: true

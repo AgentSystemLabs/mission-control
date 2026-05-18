@@ -662,18 +662,30 @@ button {
 }
 
 .cursor-glow {
+  --cursor-glow-size: 360px;
+  --cursor-glow-color: color-mix(in srgb, var(--accent) 12%, transparent);
+  --cursor-glow-filter: brightness(1.12) saturate(1.14);
+  --cursor-glow-mask: radial-gradient(
+    var(--cursor-glow-size) circle at var(--x, 50%) var(--y, 50%),
+    #000 0%,
+    rgb(0 0 0 / 0.82) 42%,
+    transparent 74%
+  );
+
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 9;
   opacity: 0;
   transition: opacity 400ms ease;
+  mix-blend-mode: screen;
+  backdrop-filter: var(--cursor-glow-filter);
+  -webkit-backdrop-filter: var(--cursor-glow-filter);
+  mask-image: var(--cursor-glow-mask);
+  -webkit-mask-image: var(--cursor-glow-mask);
   background: radial-gradient(
-    260px circle at var(--x, 50%) var(--y, 50%),
-    color-mix(in srgb, var(--accent) 8%, transparent),
+    var(--cursor-glow-size) circle at var(--x, 50%) var(--y, 50%),
+    var(--cursor-glow-color),
     transparent 70%
   );
 }
@@ -681,11 +693,9 @@ button {
   opacity: 1;
 }
 [data-theme="light"] .cursor-glow {
-  background: radial-gradient(
-    220px circle at var(--x, 50%) var(--y, 50%),
-    color-mix(in srgb, var(--accent) 4%, transparent),
-    transparent 74%
-  );
+  --cursor-glow-size: 320px;
+  --cursor-glow-color: color-mix(in srgb, var(--accent) 7%, transparent);
+  --cursor-glow-filter: brightness(1.03) saturate(1.06);
 }
 @media (pointer: coarse) {
   .cursor-glow {

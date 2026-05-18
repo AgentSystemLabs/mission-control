@@ -1,24 +1,49 @@
 import { EventEmitter } from "node:events";
+import type { HostedAuthContext } from "./hosted-auth-context";
+
+export type AppEventScope = {
+  organizationId: string | null;
+  userId: string | null;
+};
+
+type ScopedEvent = {
+  scope?: AppEventScope;
+};
 
 export type AppEvent =
-  | { type: "project:created"; id: string }
-  | { type: "project:updated"; id: string }
-  | { type: "project:deleted"; id: string }
-  | { type: "group:created"; id: string }
-  | { type: "group:updated"; id: string }
-  | { type: "group:deleted"; id: string }
-  | { type: "task:created"; id: string; projectId: string }
-  | { type: "task:updated"; id: string; projectId: string }
-  | { type: "task:archived"; id: string; projectId: string }
-  | { type: "task:restored"; id: string; projectId: string }
-  | { type: "task:deleted"; id: string; projectId: string }
-  | {
+  | ({ type: "project:created"; id: string } & ScopedEvent)
+  | ({ type: "project:updated"; id: string } & ScopedEvent)
+  | ({ type: "project:deleted"; id: string } & ScopedEvent)
+  | ({ type: "group:created"; id: string } & ScopedEvent)
+  | ({ type: "group:updated"; id: string } & ScopedEvent)
+  | ({ type: "group:deleted"; id: string } & ScopedEvent)
+  | ({ type: "task:created"; id: string; projectId: string } & ScopedEvent)
+  | ({ type: "task:updated"; id: string; projectId: string } & ScopedEvent)
+  | ({ type: "task:archived"; id: string; projectId: string } & ScopedEvent)
+  | ({ type: "task:restored"; id: string; projectId: string } & ScopedEvent)
+  | ({ type: "task:deleted"; id: string; projectId: string } & ScopedEvent)
+  | ({
       type: "session:finished";
       id: string;
       projectId: string;
       projectName: string;
       taskTitle: string;
-    };
+    } & ScopedEvent);
+
+export function scopeForHostedContext(context: HostedAuthContext): AppEventScope {
+  return {
+    organizationId: context.organizationId,
+    userId: context.organizationId ? null : context.userId,
+  };
+}
+
+export function eventVisibleToScope(event: AppEvent, scope: AppEventScope): boolean {
+  if (!event.scope) return false;
+  if (event.scope.organizationId) {
+    return event.scope.organizationId === scope.organizationId;
+  }
+  return !scope.organizationId && event.scope.userId === scope.userId;
+}
 
 class TypedEmitter {
   private inner = new EventEmitter();

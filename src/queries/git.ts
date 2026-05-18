@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { api } from "~/lib/api";
+import { isWebDaytonaRuntime } from "~/lib/runtime";
 
 const GIT_STATUS_REFETCH_INTERVAL_MS = 3000;
 
@@ -20,6 +21,7 @@ export const gitStatusQueryOptions = (projectId: string) =>
   queryOptions({
     queryKey: gitKeys.status(projectId),
     queryFn: () => api.getGitStatus(projectId),
+    enabled: !isWebDaytonaRuntime(),
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
@@ -34,7 +36,7 @@ export const gitDiffQueryOptions = (
       ? gitKeys.diff(projectId, file, staged)
       : (["projects", projectId, "git", "diff", "__none__"] as const),
     queryFn: () => api.getGitDiff(projectId, file!, staged),
-    enabled: !!file,
+    enabled: !!file && !isWebDaytonaRuntime(),
   });
 
 export const useGitStatus = (projectId: string) =>

@@ -1,6 +1,8 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { api, setApiToken } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import { isWebDaytonaRuntime } from "~/lib/runtime";
+import type { LicenseState } from "~/shared/license";
 
 export const queryKeys = {
   projects: ["projects"] as const,
@@ -10,10 +12,20 @@ export const queryKeys = {
   settings: ["settings"] as const,
   apiToken: ["api-token"] as const,
   license: ["license"] as const,
+  entitlements: ["entitlements"] as const,
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
     ["projects", projectId, "user-terminals"] as const,
   usage: (days: number) => ["usage", days] as const,
+};
+
+const HOSTED_LICENSE_STATE: LicenseState = {
+  hasKey: false,
+  maskedKey: null,
+  status: null,
+  plan: null,
+  lastValidatedAt: null,
+  payload: null,
 };
 
 export const projectsQueryOptions = () =>
@@ -54,12 +66,10 @@ export const settingsQueryOptions = () =>
 export const apiTokenQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.apiToken,
-    queryFn: async (): Promise<string> => {
+    queryFn: async (): Promise<string | null> => {
       const electron = getElectron();
       if (!electron) {
-        throw new Error(
-          "api token is only available through the Electron runtime",
-        );
+        return null;
       }
       const token = await electron.settings.getToken();
       setApiToken(token);
@@ -71,7 +81,18 @@ export const apiTokenQueryOptions = () =>
 export const licenseQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.license,
-    queryFn: async () => (await api.getLicense()).license,
+    queryFn: async () => {
+      if (!import.meta.env.SSR && isWebDaytonaRuntime()) {
+        return HOSTED_LICENSE_STATE;
+      }
+      return (await api.getLicense()).license;
+    },
+  });
+
+export const entitlementsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.entitlements,
+    queryFn: async () => (await api.getEntitlements()).entitlements,
   });
 
 export const userTerminalsQueryOptions = (projectId: string) =>
@@ -98,6 +119,7 @@ export const useTasks = (projectId: string) =>
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useApiToken = () => useQuery(apiTokenQueryOptions());
 export const useLicense = () => useQuery(licenseQueryOptions());
+export const useEntitlements = () => useQuery(entitlementsQueryOptions());
 export const useUserTerminalsQuery = (projectId: string) =>
   useQuery(userTerminalsQueryOptions(projectId));
 export const useUsage = (days: number = DEFAULT_USAGE_DAYS) =>

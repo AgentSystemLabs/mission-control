@@ -75,7 +75,10 @@ describe("license service", () => {
 
   it("rejects a tampered signed license without contacting academy", async () => {
     const key = signedLicense();
-    const tampered = key.replace(/.$/, key.endsWith("A") ? "B" : "A");
+    const parts = key.split(".");
+    const signature = parts[2]!;
+    const tamperedSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+    const tampered = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 

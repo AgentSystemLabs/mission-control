@@ -80,6 +80,7 @@ function buildPosixHookCommand(
       "payload=$(cat); " +
       "curl -sS -m 3 -X POST " +
       '-H "Authorization: Bearer $MC_API_TOKEN" ' +
+      '-H "X-Mission-Control-Runtime: electron-local" ' +
       '-H "Content-Type: application/json" ' +
       "--data-binary \"$payload\" " +
       `${url} >/dev/null 2>&1 || true; ` +
@@ -90,6 +91,7 @@ function buildPosixHookCommand(
     'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
     "curl -sS -m 3 -X POST " +
     '-H "Authorization: Bearer $MC_API_TOKEN" ' +
+    '-H "X-Mission-Control-Runtime: electron-local" ' +
     '-H "Content-Type: application/json" ' +
     "--data-binary @- " +
     `${url} ` +
@@ -115,7 +117,7 @@ function buildPowerShellHookCommand(
     "$payload = [Console]::In.ReadToEnd()",
     "$taskId = [System.Uri]::EscapeDataString($env:MC_TASK_ID)",
     `$url = "$($env:MC_API_URL)/api/hooks/${endpointSlug}?taskId=$taskId&hookEvent=${eventParam}"`,
-    '$headers = @{ Authorization = "Bearer $($env:MC_API_TOKEN)" }',
+    '$headers = @{ Authorization = "Bearer $($env:MC_API_TOKEN)"; "X-Mission-Control-Runtime" = "electron-local" }',
     'try { Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop | Out-Null } catch {}' +
       continueOutput,
   ].join("; ");

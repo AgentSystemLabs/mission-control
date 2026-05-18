@@ -10,8 +10,19 @@ import {
   togglePin,
   updateProject,
 } from "../services/projects";
+import {
+  createHostedProject,
+  deleteHostedProject,
+  getHostedProject,
+  listHostedProjects,
+  toggleHostedProjectPin,
+  updateHostedProject,
+} from "../services/hosted-projects";
 import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
-import { HTTP_CREATED, HTTP_PAYMENT_REQUIRED } from "~/shared/http-status";
+import { HTTP_BAD_REQUEST, HTTP_CREATED, HTTP_PAYMENT_REQUIRED } from "~/shared/http-status";
+import { getHostedAuthContext } from "../hosted-auth-context";
+import { isHostedDatabaseEnabled } from "../hosted-pg";
+import { isElectronLocalApiRequest } from "../request-runtime";
 
 const launchCommandSchema = z.object({
   id: z.string().min(1),
@@ -21,7 +32,8 @@ const launchCommandSchema = z.object({
 
 const createProjectBody = z.object({
   name: z.string().optional(),
-  path: z.string().min(1, "path is required"),
+  path: z.string().optional(),
+  githubUrl: z.string().optional(),
   icon: z.string().optional(),
   iconColor: z.string().optional(),
   groupId: z.string().nullable().optional(),
@@ -47,7 +59,15 @@ const updateProjectBody = z
   })
   .partial();
 
-export function list(): Response {
+async function getHostedContext(request: Request) {
+  if (isElectronLocalApiRequest(request)) return null;
+  if (!isHostedDatabaseEnabled()) return null;
+  return getHostedAuthContext(request);
+}
+
+export async function list(request: Request): Promise<Response> {
+  const hosted = await getHostedContext(request);
+  if (hosted) return json({ projects: await listHostedProjects(hosted) });
   return json({ projects: listProjects() });
 }
 
@@ -55,7 +75,20 @@ export async function create(request: Request): Promise<Response> {
   const parsed = await parseJsonBody(request, createProjectBody);
   if (!parsed.ok) return parsed.response;
   try {
-    const p = createProject(parsed.data);
+    const hosted = await getHostedContext(request);
+    if (hosted) {
+      const p = await createHostedProject(hosted, parsed.data);
+      return json({ project: p }, { status: HTTP_CREATED });
+    }
+    if (!parsed.data.path?.trim()) {
+      return new Response(JSON.stringify({ error: "path is required" }), {
+        status: HTTP_BAD_REQUEST,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const localPath = parsed.data.path.trim();
+    const { githubUrl: _ignored, ...localProject } = parsed.data;
+    const p = createProject({ ...localProject, path: localPath });
     return json({ project: p }, { status: HTTP_CREATED });
   } catch (e) {
     if (e instanceof ProjectCapExceededError) {
@@ -75,10 +108,15 @@ export async function create(request: Request): Promise<Response> {
   }
 }
 
-export function getOne(rawId: string): Response {
+export async function getOne(rawId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
   const id = parsed.data;
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    const p = await getHostedProject(hosted, id);
+    return p ? json({ project: p }) : notFound();
+  }
   const p = getProject(id);
   if (!p) return notFound();
   refreshBranch(id);
@@ -92,6 +130,24 @@ export async function update(rawId: string, request: Request): Promise<Response>
   const parsed = await parseJsonBody(request, updateProjectBody);
   if (!parsed.ok) return parsed.response;
   const body = parsed.data;
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    if (body.togglePin === true) {
+      const pinned = await toggleHostedProjectPin(hosted, id);
+      if (!pinned) return notFound();
+      return json({ project: pinned });
+    }
+    const { togglePin: _ignored, ...patch } = body;
+    try {
+      const p = await updateHostedProject(hosted, id, patch);
+      if (!p) return notFound();
+      return json({ project: p });
+    } catch (e) {
+      const mapped = handleDomainError(e);
+      if (mapped) return mapped;
+      throw e;
+    }
+  }
   if (body.togglePin === true) {
     const pinned = togglePin(id);
     if (!pinned) return notFound();
@@ -109,8 +165,10 @@ export async function update(rawId: string, request: Request): Promise<Response>
   }
 }
 
-export function remove(rawId: string): Response {
+export async function remove(rawId: string, request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
+  const hosted = await getHostedContext(request);
+  if (hosted) return (await deleteHostedProject(hosted, parsed.data)) ? noContent() : notFound();
   return deleteProject(parsed.data) ? noContent() : notFound();
 }

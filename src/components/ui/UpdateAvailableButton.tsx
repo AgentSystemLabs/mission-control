@@ -1,4 +1,5 @@
 import { Btn } from "./Btn";
+import { isElectron } from "~/lib/electron";
 import { useLatestMissionControlVersion } from "~/queries/mission-control-version";
 import {
   useAutoUpdaterState,
@@ -9,6 +10,8 @@ import {
 export function UpdateAvailableButton() {
   const updater = useAutoUpdaterState();
   const { data: academy } = useLatestMissionControlVersion();
+
+  if (!isElectron()) return null;
 
   switch (updater.kind) {
     case "priming":

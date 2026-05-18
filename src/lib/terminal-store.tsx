@@ -113,8 +113,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const killPty = async (id: string | null) => {
     if (!id) return;
     const electron = getElectron();
-    if (!electron) return;
-    await electron.pty.kill(id).catch(() => undefined);
+    if (electron) await electron.pty.kill(id).catch(() => undefined);
+    else await api.killRemotePty(id).catch(() => undefined);
   };
 
   const toggle = useCallback(
@@ -215,10 +215,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const runIn = useCallback(
     async (taskId: string, command: string) => {
       const electron = getElectron();
-      if (!electron) return;
       const target = sessions.find((p) => p.taskId === taskId);
       if (!target?.ptyId) return;
-      await electron.pty.write(target.ptyId, command + "\r");
+      if (electron) await electron.pty.write(target.ptyId, command + "\r");
+      else await api.writeRemotePty(target.ptyId, command + "\r").catch(() => undefined);
     },
     [sessions]
   );
