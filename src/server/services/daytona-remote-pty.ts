@@ -113,6 +113,7 @@ export function remoteRuntimeDisabled(): boolean {
 }
 
 export function remotePtyScopeKey(context: HostedAuthContext): string {
+  if (context.organizationId) return `org:${context.organizationId}`;
   return `user:${context.userId}`;
 }
 
