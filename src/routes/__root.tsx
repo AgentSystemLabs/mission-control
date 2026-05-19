@@ -100,7 +100,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootComponent() {
   return (
-    <html>
+    <html suppressHydrationWarning>
       <head>
         <script
           // eslint-disable-next-line react/no-danger
@@ -158,10 +158,23 @@ function Shell() {
   useEffect(() => {
     if (settings?.agentSystemBannerDisabled) setBannerDismissed(false);
   }, [settings?.agentSystemBannerDisabled]);
-  const bannerHidden =
-    !!settings?.agentSystemBannerDisabled || bannerDismissed;
+  // Banner is currently always hidden (mount gated below). Treat layout
+  // accordingly so the top bar's leading inset is applied in minimal mode.
+  const bannerHidden = true;
+  // Bootstrap from the same localStorage cache the pre-hydration script reads,
+  // so the inset applies on first paint instead of waiting for settings to load.
+  const cachedMinimal =
+    typeof window !== "undefined" &&
+    (() => {
+      try {
+        return window.localStorage.getItem(MINIMAL_CACHE_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })();
+  const effectiveMinimal = settings?.minimalTheme ?? cachedMinimal;
   const topBarLeadingInset =
-    settings?.minimalTheme && bannerHidden ? 130 : undefined;
+    effectiveMinimal && bannerHidden ? 130 : undefined;
   const [closeIntentTargetId, setCloseIntentTargetId] = useState<string | null>(null);
   const closeIntentTarget = closeIntentTargetId
     ? userTerminalSessions.find((s) => s.terminal.id === closeIntentTargetId)?.terminal ?? null
@@ -347,11 +360,7 @@ function Shell() {
             ["WebkitAppRegion" as any]: "drag",
           }}
         />
-        <AgentSystemBanner
-          dismissed={bannerDismissed}
-          onDismiss={() => setBannerDismissed(true)}
-          onOpenSettings={() => setActivePanel("settings")}
-        />
+        {/* Banner hidden for now — toggle also removed from Settings. */}
         <TopBar
           crumbs={crumbs}
           onHome={goHome}

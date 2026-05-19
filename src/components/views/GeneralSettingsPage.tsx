@@ -19,7 +19,6 @@ import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
-  const disabled = settings?.agentSystemBannerDisabled ?? false;
   const mouseGradientEnabled = !(settings?.mouseGradientDisabled ?? false);
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
@@ -52,7 +51,7 @@ export function GeneralSettingsPage() {
       >
     >,
   ): AppSettings => ({
-    agentSystemBannerDisabled: disabled,
+    agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     minimalTheme: settings?.minimalTheme ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
@@ -83,10 +82,6 @@ export function GeneralSettingsPage() {
       if (previous) queryClient.setQueryData(queryKeys.settings, previous);
       throw error;
     }
-  };
-
-  const setBannerDisabled = async (agentSystemBannerDisabled: boolean) => {
-    await updateSettings({ agentSystemBannerDisabled });
   };
 
   const setMouseGradientEnabled = async (enabled: boolean) => {
@@ -132,47 +127,8 @@ export function GeneralSettingsPage() {
         subtitle="Control app-wide interface preferences."
         headingLevel="h1"
       >
-        <Field label="AgentSystem.dev banner">
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 16,
-              padding: "12px 14px",
-              background: "var(--surface-0)",
-              border: "1px solid var(--border)",
-              borderRadius: 7,
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
-                Show promotional banner
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}>
-                Dismissing the banner only hides it until the app reloads.
-              </div>
-            </div>
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: 12,
-                color: "var(--text-dim)",
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={!disabled}
-                onChange={(event) => setBannerDisabled(!event.currentTarget.checked)}
-              />
-              Show banner
-            </label>
-          </div>
-        </Field>
+        {/* AgentSystem.dev banner toggle hidden for now — the banner itself
+            is also gated off in __root.tsx. */}
         <Field label="Mouse gradient">
           <ToggleRow
             title="Show mouse gradient"

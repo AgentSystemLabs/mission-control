@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
@@ -14,22 +14,19 @@ import {
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
-import { ApiError, api } from "~/lib/api";
+import { ApiError, api, resolveApiToken } from "~/lib/api";
 import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
 import { terminalInputStartsTurn } from "~/lib/task-status-sync";
-import { apiTokenQueryOptions, queryKeys, useTasks } from "~/queries";
+import { queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
 
-async function resolveMcEnv(
-  electron: NonNullable<ReturnType<typeof getElectron>>,
-  queryClient: QueryClient
-) {
+async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
   try {
     const [port, token] = await Promise.all([
       electron.getRuntimePort(),
-      queryClient.ensureQueryData(apiTokenQueryOptions()),
+      resolveApiToken(),
     ]);
     if (!port || !token) return undefined;
     return { apiUrl: `http://127.0.0.1:${port}`, token };
@@ -302,7 +299,7 @@ export function TerminalPane({
               rows: ptySize.rows,
               agent: task.agent,
               dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
-              mcEnv: await resolveMcEnv(electron, queryClient),
+              mcEnv: await resolveMcEnv(electron),
             })
           : await api.createRemotePty({
               taskId: descriptor.taskId,

@@ -29,7 +29,7 @@ const FRAME_STYLES: Record<
 
 const frameBaseStyle: CSSProperties = {
   boxSizing: "border-box",
-  background: "rgba(3, 6, 8, 0.94)",
+  backgroundColor: "transparent",
   backgroundClip: "padding-box",
   borderStyle: "solid",
   borderColor: "transparent",
@@ -65,9 +65,11 @@ export const CardFrame = forwardRef<HTMLElement, CardFrameProps>(function CardFr
         ...frameBaseStyle,
         ...frameStyle,
         ...style,
-        background:
-          style?.background ??
-          `linear-gradient(${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}, ${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}), ${focused ? "var(--mc-panel-focused-image)" : "var(--mc-panel-image)"} 39.0625% 39.0625% / 200% 200% no-repeat`,
+        backgroundColor: "transparent",
+        backgroundImage: `linear-gradient(${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}, ${solid ? "rgba(3, 6, 8, 0.15)" : "rgba(3, 6, 8, 0.10)"}), ${focused ? "var(--mc-panel-focused-image)" : "var(--mc-panel-image)"}`,
+        backgroundPosition: "0% 0%, 39.0625% 39.0625%",
+        backgroundSize: "auto, 200% 200%",
+        backgroundRepeat: "repeat, no-repeat",
         borderStyle: "solid",
         borderColor: "transparent",
         borderWidth: frameStyle.borderWidth,

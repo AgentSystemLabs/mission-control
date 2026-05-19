@@ -54,7 +54,7 @@ type Parsed = { title: string; icon: string | null };
 /**
  * Walk the string from the end and yield every balanced `{…}` block as a
  * candidate JSON payload. CLIs (especially codex exec) often print preamble or
- * telemetry that may itself contain stray `{`/`}` — a single greedy regex
+ * diagnostic text that may itself contain stray `{`/`}` — a single greedy regex
  * would match across them and fail to parse. Returning the right-most balanced
  * block first matches where the final answer typically lives.
  */

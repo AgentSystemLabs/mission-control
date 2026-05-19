@@ -37,7 +37,7 @@ export function ProjectBar() {
   const GAP = 8;
   const PAD_TOP = minimal ? 16 : 10;
   const BAR_WIDTH = minimal ? 64 : 88;
-  const ITEM_RADIUS = minimal ? 0 : 10;
+  const ITEM_RADIUS = minimal ? 9 : 10;
   const RUNNING_BADGE_RADIUS = minimal ? 0 : 7;
   const HOTKEY_BADGE_RADIUS = minimal ? 0 : 4;
   const MENU_RADIUS = minimal ? 0 : 6;

@@ -15,7 +15,6 @@ import {
   findTerminalLogsByTaskId,
   insertTerminalLog,
 } from "../repositories/terminal-logs.repo";
-import { sendTelemetry } from "./telemetry";
 import { newId } from "./_ids";
 
 export function listTasksForProject(projectId: string): Task[] {
@@ -61,7 +60,6 @@ export function createTask(input: {
   };
   insertTask(row);
   events.emit("task:created", { id: row.id, projectId: row.projectId });
-  sendTelemetry("session_started");
   return row;
 }
 

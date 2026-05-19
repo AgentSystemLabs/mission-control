@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "~/db/schema";
-import { commandForTask } from "../terminal-store";
+import { commandForTask, nextActiveTaskId } from "../terminal-store";
 
 vi.mock("../api", () => ({
   api: {
@@ -59,5 +59,19 @@ describe("commandForTask", () => {
     } satisfies Task;
 
     expect(commandForTask(task)).toBe("cursor-agent --force");
+  });
+});
+
+describe("nextActiveTaskId", () => {
+  it("keeps a stale persisted active task open when no session is materialized", () => {
+    expect(nextActiveTaskId("task-1", "task-1", false)).toBe("task-1");
+  });
+
+  it("hides a task that is already active and materialized", () => {
+    expect(nextActiveTaskId("task-1", "task-1", true)).toBeNull();
+  });
+
+  it("switches active tasks", () => {
+    expect(nextActiveTaskId("task-1", "task-2", true)).toBe("task-2");
   });
 });

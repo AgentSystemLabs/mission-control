@@ -42,7 +42,7 @@ describe("title-generator parseResponse", () => {
   it("picks the right-most JSON block when the CLI prints preamble", () => {
     const raw = [
       "[2026-05-15T01:00:00] connecting…",
-      "{telemetry: 'noise', token: 42}",
+      "{diagnostic: 'noise', token: 42}",
       '{"title":"Wire push hotkey","icon":"upload"}',
     ].join("\n");
     expect(parseResponse(raw)).toEqual({

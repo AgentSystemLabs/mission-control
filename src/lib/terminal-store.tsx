@@ -85,6 +85,16 @@ export function commandForTask(task: Task): string {
 
 const ACTIVE_BY_PROJECT_KEY = "mc.terminalActiveByProject";
 
+export function nextActiveTaskId(
+  currentTaskId: string | null,
+  requestedTaskId: string,
+  hasMaterializedSession: boolean
+): string | null {
+  return currentTaskId === requestedTaskId && hasMaterializedSession
+    ? null
+    : requestedTaskId;
+}
+
 function loadActiveByProject(): Record<string, string | null> {
   if (typeof window === "undefined") return {};
   try {
@@ -119,6 +129,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
   const toggle = useCallback(
     (project: Project, task: Task) => {
+      const hadSession = sessions.some(
+        (p) => p.taskId === task.id && p.project.id === project.id
+      );
       setSessions((prev) => {
         if (prev.some((p) => p.taskId === task.id)) return prev;
         const next: OpenTerminal = {
@@ -134,10 +147,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       });
       setActiveByProject((prev) => {
         const curr = prev[project.id] ?? null;
-        return { ...prev, [project.id]: curr === task.id ? null : task.id };
+        return { ...prev, [project.id]: nextActiveTaskId(curr, task.id, hadSession) };
       });
     },
-    []
+    [sessions]
   );
 
   const rehydrate = useCallback((project: Project, task: Task) => {

@@ -8,6 +8,11 @@ import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
+import {
+  CodexHooksNoticeDialog,
+  hasSeenCodexHooksNotice,
+  markCodexHooksNoticeSeen,
+} from "~/components/views/CodexHooksNoticeDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
 import { FileEditorDialog } from "~/components/views/FileEditorDialog";
@@ -19,7 +24,6 @@ import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { api } from "~/lib/api";
-import { getElectron } from "~/lib/electron";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
@@ -90,7 +94,7 @@ function ProjectPage() {
   const tasks = tasksQuery.data ?? [];
   const groups = groupsQuery.data ?? [];
   const { data: settings } = useSettings();
-  const { data: apiToken = null } = useApiToken();
+  useApiToken();
   const { data: entitlements } = useEntitlements();
   const { data: gitStatus } = useGitStatus(id);
   const [showDiffView, setShowDiffView] = useState(false);
@@ -259,6 +263,8 @@ function ProjectPage() {
     }
   }, [project, pinning, invalidateProject, invalidateProjects]);
 
+  const [showCodexHooksNotice, setShowCodexHooksNotice] = useState(false);
+
   const createSession = useCallback(
     async (payload: {
       agent: Task["agent"];
@@ -267,7 +273,6 @@ function ProjectPage() {
       bareSession: boolean;
     }) => {
       if (!project) return;
-      if (getElectron() && !apiToken) return;
       if (!agentCanLaunch(cliAvailability, payload.agent)) {
         setShowNewAgent(true);
         return;
@@ -285,8 +290,11 @@ function ProjectPage() {
       });
       terminals.toggle(project, created.task);
       await refresh();
+      if (payload.agent === "codex" && !hasSeenCodexHooksNotice()) {
+        setShowCodexHooksNotice(true);
+      }
     },
-    [project, apiToken, refresh, terminals, cliAvailability]
+    [project, refresh, terminals, cliAvailability]
   );
 
   const startWithSaved = useCallback(async () => {
@@ -348,7 +356,8 @@ function ProjectPage() {
     fileFinderOpen ||
     openFileRel !== null ||
     showLaunchConfig ||
-    showLaunchEmpty;
+    showLaunchEmpty ||
+    showCodexHooksNotice;
 
   const cycleSession = useCallback(
     (direction: 1 | -1) => {
@@ -1079,6 +1088,14 @@ function ProjectPage() {
           )}
         </div>
       </CardFrame>
+
+      <CodexHooksNoticeDialog
+        open={showCodexHooksNotice}
+        onClose={() => {
+          setShowCodexHooksNotice(false);
+          markCodexHooksNoticeSeen();
+        }}
+      />
 
       <NewAgentDialog
         open={showNewAgent}

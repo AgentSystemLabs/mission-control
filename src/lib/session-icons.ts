@@ -90,7 +90,7 @@ export const SESSION_ICON_OPTIONS: readonly SessionIconOption[] = [
   // Network / integration
   { id: "globe", hint: "web, internet, public surface" },
   { id: "network", hint: "networking, topology" },
-  { id: "satellite", hint: "external API, telemetry" },
+  { id: "satellite", hint: "external API, diagnostics" },
   { id: "plug-zap", hint: "connect, integration, plugin" },
   { id: "webhook", hint: "webhook handler" },
   { id: "link", hint: "URL, hyperlink" },
