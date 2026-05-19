@@ -18,6 +18,9 @@ permissions:
   contents: read
   actions: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   resolve:
     name: Resolve ref + notes
@@ -34,7 +37,7 @@ jobs:
             echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ steps.ref.outputs.ref }}
           fetch-depth: 0
@@ -58,11 +61,11 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
       - name: Create-or-get release on academy
@@ -108,14 +111,14 @@ jobs:
     # upsert is idempotent on (releaseId, platform).
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -123,7 +126,7 @@ jobs:
       # node-gyp 9.x (pulled in transitively by @electron/rebuild) imports
       # distutils, which Python 3.12 removed. macos-latest ships 3.12+, so
       # pin 3.11 to keep native rebuilds (node-pty under x64 cross-build) working.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -211,11 +214,11 @@ jobs:
     # Don't fail the workflow when finalize can't run (partial release).
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
       - name: Finalize

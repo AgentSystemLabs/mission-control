@@ -26,6 +26,7 @@ export default defineConfig({
   ],
   ssr: {
     external: ["better-sqlite3", "node-pty"],
+    noExternal: ["pg"],
   },
   build: {
     target: "node22",
