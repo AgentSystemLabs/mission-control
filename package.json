@@ -78,7 +78,7 @@
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.60.0",
     "@tailwindcss/vite": "4.3.0",
-    "@tanstack/router-plugin": "1.167.35",
+    "@tanstack/router-plugin": "1.168.6",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "25.8.0",
     "@types/pg": "8.20.0",
