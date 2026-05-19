@@ -25,6 +25,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
       - uses: pnpm/action-setup@v5
         with:
           version: 11.1.2
@@ -40,6 +41,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
       - uses: pnpm/action-setup@v5
         with:
           version: 11.1.2
@@ -55,6 +57,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
       - uses: pnpm/action-setup@v5
         with:
           version: 11.1.2
@@ -70,6 +73,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
       - uses: pnpm/action-setup@v5
         with:
           version: 11.1.2
@@ -85,6 +89,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
       - uses: pnpm/action-setup@v5
         with:
           version: 11.1.2
@@ -102,6 +107,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
       - uses: pnpm/action-setup@v5
         with:
           version: 11.1.2
@@ -117,6 +123,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
       - uses: pnpm/action-setup@v5
         with:
           version: 11.1.2
