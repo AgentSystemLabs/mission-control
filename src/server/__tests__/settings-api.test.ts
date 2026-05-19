@@ -39,6 +39,17 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps the launch intro disabled by default", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      launchOverlayEnabled: false,
+    });
+  });
+
   it("persists the mouse gradient preference", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
@@ -57,6 +68,27 @@ describe("settings API", () => {
     });
     expect(await jsonBody(read!)).toMatchObject({
       mouseGradientDisabled: true,
+    });
+  });
+
+  it("persists the launch intro preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ launchOverlayEnabled: true }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      launchOverlayEnabled: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      launchOverlayEnabled: true,
     });
   });
 

@@ -26,6 +26,16 @@ const HARDCODED_IGNORES = [
 const MAX_FILES = 50_000;
 const MAX_LINES = 1000;
 const MAX_BYTES = 5 * 1024 * 1024;
+const IMAGE_MIME_BY_EXT = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+  ".avif": "image/avif",
+} as const;
 
 type WatchEntry = {
   watcher: fs.FSWatcher;
@@ -225,6 +235,11 @@ function isProbablyBinary(buf: Buffer): boolean {
   return false;
 }
 
+export function imageMimeForRelPath(relPath: string): (typeof IMAGE_MIME_BY_EXT)[keyof typeof IMAGE_MIME_BY_EXT] | null {
+  const ext = path.extname(relPath).toLowerCase();
+  return IMAGE_MIME_BY_EXT[ext as keyof typeof IMAGE_MIME_BY_EXT] ?? null;
+}
+
 export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow | null) {
   safeHandle(IPC.filesList, async (_evt, projectRoot: string) => {
     if (!projectRoot || typeof projectRoot !== "string") {
@@ -250,6 +265,17 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
           return { ok: false as const, error: "too-large" as const, lineCount: -1 };
         }
         const buf = fs.readFileSync(abs);
+        const imageMimeType = imageMimeForRelPath(relPath);
+        if (imageMimeType) {
+          return {
+            ok: true as const,
+            kind: "image" as const,
+            dataUrl: `data:${imageMimeType};base64,${buf.toString("base64")}`,
+            mimeType: imageMimeType,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+          };
+        }
         if (isProbablyBinary(buf)) {
           return { ok: false as const, error: "binary" as const };
         }
@@ -264,6 +290,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
         }
         return {
           ok: true as const,
+          kind: "text" as const,
           content,
           mtimeMs: stat.mtimeMs,
           lineCount,

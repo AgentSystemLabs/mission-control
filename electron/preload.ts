@@ -132,7 +132,22 @@ const electronAPI = {
       projectRoot: string,
       relPath: string,
     ): Promise<
-      | { ok: true; content: string; mtimeMs: number; lineCount: number }
+      | { ok: true; kind: "text"; content: string; mtimeMs: number; lineCount: number }
+      | {
+          ok: true;
+          kind: "image";
+          dataUrl: string;
+          mimeType:
+            | "image/png"
+            | "image/jpeg"
+            | "image/gif"
+            | "image/webp"
+            | "image/bmp"
+            | "image/x-icon"
+            | "image/avif";
+          size: number;
+          mtimeMs: number;
+        }
       | { ok: false; error: "invalid-path" | "not-found" | "binary" | "too-large" | string; lineCount?: number }
     > => ipcRenderer.invoke(IPC.filesRead, projectRoot, relPath),
     write: (

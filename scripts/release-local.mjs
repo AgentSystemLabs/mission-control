@@ -22,17 +22,10 @@
 
 import { spawnSync } from "node:child_process";
 import {
-  copyFileSync,
-  createReadStream,
   existsSync,
-  mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
-  statSync,
-  writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { platform as osPlatform } from "node:os";
 
@@ -90,10 +83,10 @@ const PLATFORM_BY_HOST = {
 };
 
 const PLATFORM_BUILDER = {
-  "mac-arm64": { flags: ["--mac", "--arm64"], ext: "dmg", contentType: "application/x-apple-diskimage" },
-  "mac-x64": { flags: ["--mac", "--x64"], ext: "dmg", contentType: "application/x-apple-diskimage" },
-  "win-x64": { flags: ["--win", "--x64"], ext: "exe", contentType: "application/vnd.microsoft.portable-executable" },
-  "linux-x64": { flags: ["--linux", "--x64"], ext: "AppImage", contentType: "application/x-executable" },
+  "mac-arm64": { flags: ["--mac", "--arm64"], ext: "dmg" },
+  "mac-x64": { flags: ["--mac", "--x64"], ext: "dmg" },
+  "win-x64": { flags: ["--win", "--x64"], ext: "exe" },
+  "linux-x64": { flags: ["--linux", "--x64"], ext: "AppImage" },
 };
 
 const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
@@ -132,16 +125,18 @@ function run(cmd, argv, opts = {}) {
   if (res.status !== 0) fail(`command failed: ${cmd} ${argv.join(" ")}`);
 }
 
-async function sha256File(filePath) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(filePath)) {
-    hash.update(chunk);
-  }
-  return hash.digest("hex");
-}
-
 const OUT_DIR = join(REPO_ROOT, "dist-electron-out");
 const ARTIFACTS_DIR = join(REPO_ROOT, "artifacts");
+
+rmSync(ARTIFACTS_DIR, { recursive: true, force: true });
+process.env.RELEASE_VERSION = version;
+process.env.RELEASE_NOTES = notes ?? "";
+process.env.RELEASE_EXPECTED_PLATFORMS = platforms.join(",");
+
+console.log(
+  `[release-local] publishing ${version} to ${ACADEMY_BASE_URL} (${platforms.length} platform(s))`
+);
+run(process.execPath, [join(REPO_ROOT, "scripts", "publish-release.mjs"), "prepare"]);
 
 if (!skipBuild) {
   // Common build steps once.
@@ -164,54 +159,40 @@ for (const platform of platforms) {
       `-c.directories.output=${OUT_DIR}`,
     ]);
   }
-  // Find the produced installer.
-  const matches = readdirSync(OUT_DIR).filter(
-    (f) => f.endsWith(`.${cfg.ext}`) && !f.endsWith(`.${cfg.ext}.blockmap`)
-  );
-  if (matches.length === 0) {
-    fail(
-      `no .${cfg.ext} found in ${OUT_DIR} for ${platform} (try without --skip-build)`
-    );
-  }
-  const fileName = matches[0];
-  const filePath = join(OUT_DIR, fileName);
-  const sizeBytes = statSync(filePath).size;
-  const sha256 = await sha256File(filePath);
-
-  // Copy to artifacts/mc-<platform>/.
   const dest = join(ARTIFACTS_DIR, `mc-${platform}`);
-  mkdirSync(dest, { recursive: true });
-  const destFile = join(dest, fileName);
-  copyFileSync(filePath, destFile);
-  writeFileSync(
-    join(dest, "manifest.json"),
-    JSON.stringify(
-      {
-        platform,
-        fileName,
-        sizeBytes,
-        sha256,
-        contentType: cfg.contentType,
+  run(
+    process.execPath,
+    [join(REPO_ROOT, "scripts", "stage-release-artifacts.mjs")],
+    {
+      env: {
+        ...process.env,
+        RELEASE_PLATFORM: platform,
+        RELEASE_ARTIFACT_EXT: cfg.ext,
+        OUT_DIR,
+        ARTIFACTS_DIR: dest,
       },
-      null,
-      2
-    )
+    }
   );
-  console.log(
-    `[release-local] ✓ ${platform}: ${fileName} (${sizeBytes} bytes, sha256=${sha256.slice(0, 12)}…)`
+  run(
+    process.execPath,
+    [join(REPO_ROOT, "scripts", "publish-release.mjs"), "publish"],
+    { env: { ...process.env, ARTIFACTS_DIR: dest } }
   );
 }
 
-// ---------- publish ----------
-process.env.RELEASE_VERSION = version;
-process.env.RELEASE_NOTES = notes ?? "";
-console.log(
-  `[release-local] publishing ${version} to ${ACADEMY_BASE_URL} (${platforms.length} platform(s))`
-);
-const pub = spawnSync(
-  process.execPath,
-  [join(REPO_ROOT, "scripts", "publish-release.mjs")],
-  { stdio: "inherit", env: process.env }
-);
-if (pub.status !== 0) fail("publish step failed");
+// ---------- finalize ----------
+if (platforms.some((platform) => platform.startsWith("mac-"))) {
+  const macMetadataDir = join(ARTIFACTS_DIR, "mc-mac-metadata");
+  run(process.execPath, [join(REPO_ROOT, "scripts", "compose-mac-update-manifest.mjs")], {
+    env: {
+      ...process.env,
+      RELEASE_MANIFESTS_DIR: ARTIFACTS_DIR,
+      ARTIFACTS_DIR: macMetadataDir,
+    },
+  });
+  run(process.execPath, [join(REPO_ROOT, "scripts", "publish-release.mjs"), "publish"], {
+    env: { ...process.env, ARTIFACTS_DIR: macMetadataDir },
+  });
+}
+run(process.execPath, [join(REPO_ROOT, "scripts", "publish-release.mjs"), "finalize"]);
 console.log("[release-local] ✓ done");

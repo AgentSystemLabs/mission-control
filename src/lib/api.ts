@@ -27,6 +27,7 @@ export type AppSettings = {
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
+  launchOverlayEnabled: boolean;
 };
 
 type RemotePtyCreateBody = {
@@ -329,6 +330,7 @@ export const api = {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "launchOverlayEnabled"
       >
     >,
   ) =>

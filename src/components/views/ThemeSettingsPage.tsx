@@ -11,6 +11,10 @@ import {
 } from "~/lib/accent-colors";
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
+import {
+  hasCachedLaunchIntroPreference,
+  readCachedLaunchIntroEnabled,
+} from "~/lib/launch-intro";
 
 // Pixel size of the color-swatch dot used in the accent-color picker (both
 // the selected-check badge and the per-row preview swatch use this size).
@@ -21,6 +25,9 @@ export function ThemeSettingsPage() {
   const { data: settings } = useSettings();
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
   const minimalTheme = settings?.minimalTheme ?? false;
+  const launchOverlayEnabled = hasCachedLaunchIntroPreference()
+    ? readCachedLaunchIntroEnabled()
+    : settings?.launchOverlayEnabled ?? false;
 
   const optimisticSettings = (
     patch: Partial<Pick<AppSettings, "accentColor" | "minimalTheme">>,
@@ -32,6 +39,7 @@ export function ThemeSettingsPage() {
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
+    launchOverlayEnabled,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

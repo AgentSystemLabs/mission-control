@@ -3,12 +3,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 
+const SHELL_ENV_START = "__MISSION_CONTROL_ENV_START__";
+const SHELL_ENV_END = "__MISSION_CONTROL_ENV_END__";
+const SHELL_ENV_CAPTURE_TIMEOUT_MS = 3_000;
+
 type BuildUserPathOptions = {
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   platform?: NodeJS.Platform;
   pathExists?: (entry: string) => boolean;
 };
+
+let cachedShellEnv: Record<string, string> | null | undefined;
 
 function pathEnvKey(platform: NodeJS.Platform = os.platform()): "PATH" | "Path" {
   return platform === "win32" ? "Path" : "PATH";
@@ -149,6 +155,7 @@ function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<stri
     path.join(home, "bin"),
     path.join(home, ".cargo", "bin"),
     path.join(home, ".bun", "bin"),
+    path.join(home, ".docker", "bin"),
     path.join(home, ".codex", "bin"),
     path.join(home, ".cursor", "bin"),
     path.join(appData, "npm"),
@@ -161,6 +168,7 @@ function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<stri
     path.join(localAppData, "Programs", "cursor", "resources", "app", "bin"),
     ...windowsNvmPathCandidates(env),
     path.join(programFiles, "nodejs"),
+    path.join(programFiles, "Docker", "Docker", "resources", "bin"),
     path.join(programFiles, "Git", "cmd"),
     path.join(programFiles, "Git", "bin"),
     path.join(programFiles, "Git", "usr", "bin"),
@@ -181,6 +189,7 @@ function posixPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
     path.join(home, "bin"),
     path.join(home, ".cargo", "bin"),
     path.join(home, ".bun", "bin"),
+    path.join(home, ".docker", "bin"),
     path.join(home, "Library", "pnpm"),
     path.join(home, ".npm-global", "bin"),
     path.join(voltaHome, "bin"),
@@ -191,6 +200,7 @@ function posixPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
     ...posixFnmPathCandidates(home, env),
     "/opt/homebrew/bin",
     "/opt/homebrew/sbin",
+    "/Applications/Docker.app/Contents/Resources/bin",
     "/usr/local/bin",
     "/usr/local/sbin",
     "/home/linuxbrew/.linuxbrew/bin",
@@ -236,9 +246,11 @@ export function buildUserPath(
 }
 
 export function augmentProcessEnv(): void {
+  const shellEnv = userShellEnv();
+  const mergedEnv = { ...process.env, ...shellEnv };
   setCanonicalPathEnv(
     process.env as Record<string, string>,
-    buildUserPath(envPathValue(process.env)),
+    buildUserPath(envPathValue(mergedEnv), { env: mergedEnv }),
     os.platform()
   );
   process.env.SHELL = resolveShell();
@@ -249,7 +261,10 @@ export function sanitizedProcessEnv(): Record<string, string> {
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v === "string") out[k] = v;
   }
-  setCanonicalPathEnv(out, buildUserPath(envPathValue(out)), os.platform());
+  for (const [k, v] of Object.entries(userShellEnv())) {
+    if (typeof v === "string") out[k] = v;
+  }
+  setCanonicalPathEnv(out, buildUserPath(envPathValue(out), { env: out }), os.platform());
   out.SHELL = resolveShell();
   return out;
 }
@@ -317,6 +332,77 @@ function isCmd(shell: string): boolean {
   return base === "cmd.exe" || base === "cmd";
 }
 
+export function parseShellEnvOutput(output: string): Record<string, string> | null {
+  const start = output.lastIndexOf(SHELL_ENV_START);
+  if (start < 0) return null;
+  const blockStart = output.indexOf("\n", start);
+  if (blockStart < 0) return null;
+  const end = output.indexOf(SHELL_ENV_END, blockStart + 1);
+  if (end < 0) return null;
+
+  const env: Record<string, string> = {};
+  const block = output.slice(blockStart + 1, end);
+  for (const line of block.split(/\r?\n/)) {
+    const idx = line.indexOf("=");
+    if (idx <= 0) continue;
+    const key = line.slice(0, idx);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    env[key] = line.slice(idx + 1);
+  }
+  return env;
+}
+
+function shellEnvCaptureArgs(
+  shell: string,
+  platform: NodeJS.Platform,
+): string[] | null {
+  if (platform === "win32" && isPowerShell(shell)) {
+    const command = [
+      `Write-Output '${SHELL_ENV_START}'`,
+      "[Environment]::GetEnvironmentVariables('Process').GetEnumerator() | ForEach-Object { \"$($_.Key)=$($_.Value)\" }",
+      `Write-Output '${SHELL_ENV_END}'`,
+    ].join("; ");
+    return ["-NoLogo", "-Command", command];
+  }
+
+  if (platform === "win32" && isCmd(shell)) {
+    return ["/s", "/c", `echo ${SHELL_ENV_START} & set & echo ${SHELL_ENV_END}`];
+  }
+
+  if (platform === "win32") return null;
+
+  const envCommand = `printf '${SHELL_ENV_START}\\n'; /usr/bin/env; printf '${SHELL_ENV_END}\\n'`;
+  return ["-l", "-i", "-c", envCommand];
+}
+
+function captureUserShellEnv(
+  platform: NodeJS.Platform = os.platform(),
+): Record<string, string> | null {
+  const shell = resolveShell();
+  const args = shellEnvCaptureArgs(shell, platform);
+  if (!args) return null;
+
+  try {
+    const result = spawnSync(shell, args, {
+      encoding: "utf8",
+      env: process.env,
+      input: "",
+      maxBuffer: 1024 * 1024,
+      timeout: SHELL_ENV_CAPTURE_TIMEOUT_MS,
+    });
+    if (result.error) return null;
+    return parseShellEnvOutput(result.stdout ?? "");
+  } catch {
+    return null;
+  }
+}
+
+function userShellEnv(): Record<string, string> {
+  if (cachedShellEnv !== undefined) return cachedShellEnv ?? {};
+  cachedShellEnv = captureUserShellEnv();
+  return cachedShellEnv ?? {};
+}
+
 export function shellArgsForCommand(
   shell: string,
   command: string | undefined,
@@ -333,5 +419,5 @@ export function shellArgsForCommand(
     return ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd];
   }
   if (platform === "win32" && isCmd(shell)) return ["/d", "/s", "/c", cmd];
-  return ["-l", "-c", cmd];
+  return ["-l", "-i", "-c", cmd];
 }

@@ -16,7 +16,6 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -24,28 +23,39 @@ env:
 jobs:
   resolve:
     name: Resolve ref + notes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       ref: ${{ steps.ref.outputs.ref }}
       notes: ${{ steps.notes.outputs.notes }}
     steps:
       - id: ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            ref="$INPUT_TAG"
           else
-            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            ref="$REF_NAME"
           fi
+          if [[ ! "$ref" =~ ^v[0-9]+([.][0-9]+){0,2}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "release ref must be a version tag like v0.27.2" >&2
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ steps.ref.outputs.ref }}
           fetch-depth: 0
 
       - id: notes
         shell: bash
+        env:
+          RELEASE_REF: ${{ steps.ref.outputs.ref }}
         run: |
-          tag="${{ steps.ref.outputs.ref }}"
+          tag="$RELEASE_REF"
           notes="$(git tag -l --format='%(contents:body)' "$tag" || true)"
           if [[ -z "$notes" ]]; then
             notes="$(git tag -l --format='%(contents)' "$tag" || true)"
@@ -59,15 +69,15 @@ jobs:
   prepare:
     name: Prepare release record
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 24
+          node-version: 24.15.0
           package-manager-cache: false
       - name: Create-or-get release on academy
         env:
@@ -87,19 +97,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-15
             platform: mac-arm64
             builder_flags: "--mac --arm64"
             artifact_ext: "dmg"
-          - os: macos-latest
+          - os: macos-15-intel
             platform: mac-x64
             builder_flags: "--mac --x64"
             artifact_ext: "dmg"
-          - os: windows-latest
+          - os: windows-2025
             platform: win-x64
             builder_flags: "--win --x64"
             artifact_ext: "exe"
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             platform: linux-x64
             builder_flags: "--linux --x64"
             artifact_ext: "AppImage"
@@ -112,27 +122,27 @@ jobs:
     # upsert is idempotent on (releaseId, platform).
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 24
+          node-version: 24.15.0
           package-manager-cache: false
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
         with:
           version: 11.1.2
-          cache: true
+          cache: false
 
       # node-gyp 9.x (pulled in transitively by @electron/rebuild) imports
-      # distutils, which Python 3.12 removed. macos-latest ships 3.12+, so
+      # distutils, which Python 3.12 removed. macOS runners ship 3.12+, so
       # pin 3.11 to keep native rebuilds (node-pty under x64 cross-build) working.
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.14"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -146,11 +156,11 @@ jobs:
       - name: Run electron-builder
         shell: bash
         env:
-          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS_PASSWORD || '' }}
-          APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          CSC_LINK: ${{ startsWith(matrix.os, 'macos-') && secrets.MAC_CERTS || '' }}
+          CSC_KEY_PASSWORD: ${{ startsWith(matrix.os, 'macos-') && secrets.MAC_CERTS_PASSWORD || '' }}
+          APPLE_ID: ${{ startsWith(matrix.os, 'macos-') && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ startsWith(matrix.os, 'macos-') && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ startsWith(matrix.os, 'macos-') && secrets.APPLE_TEAM_ID || '' }}
         run: |
           pnpm exec electron-builder ${{ matrix.builder_flags }} --publish never -c.directories.output=dist-electron-out
 
@@ -162,44 +172,23 @@ jobs:
           echo "--- dist (web bundle) ---"
           ls -la dist/ || true
 
-      - name: Compute manifest + stage artifact
+      - name: Stage release artifacts
         shell: bash
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          RELEASE_ARTIFACT_EXT: ${{ matrix.artifact_ext }}
         run: |
-          mkdir -p artifacts
-          shopt -s nullglob
-          files=( dist-electron-out/*.${{ matrix.artifact_ext }} )
-          if (( ${#files[@]} == 0 )); then
-            echo "No artifacts matched dist-electron-out/*.${{ matrix.artifact_ext }}"
-            ls -la dist-electron-out/ || true
-            exit 1
-          fi
-          src="${files[0]}"
-          name="$(basename "$src")"
-          cp "$src" "artifacts/$name"
-          if command -v sha256sum >/dev/null; then
-            sha="$(sha256sum "artifacts/$name" | awk '{print $1}')"
-          else
-            sha="$(shasum -a 256 "artifacts/$name" | awk '{print $1}')"
-          fi
-          size="$(wc -c < "artifacts/$name" | tr -d ' ')"
-          case "$name" in
-            *.dmg) ct="application/x-apple-diskimage" ;;
-            *.exe) ct="application/vnd.microsoft.portable-executable" ;;
-            *.AppImage) ct="application/x-executable" ;;
-            *) ct="application/octet-stream" ;;
-          esac
-          cat > artifacts/manifest.json <<EOF
-          {
-            "platform": "${{ matrix.platform }}",
-            "fileName": "$name",
-            "sizeBytes": $size,
-            "sha256": "$sha",
-            "contentType": "$ct"
-          }
-          EOF
-          echo "Built $name ($size bytes, sha256=$sha)"
+          node scripts/stage-release-artifacts.mjs
 
-      - name: Publish asset to academy
+      - name: Upload release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-manifest-${{ matrix.platform }}
+          path: artifacts/manifest.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Publish assets to academy
         env:
           MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
           ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
@@ -214,18 +203,36 @@ jobs:
     # missing, which is what we want (release stays a draft, can be completed
     # by re-running the failed platform job).
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     # Don't fail the workflow when finalize can't run (partial release).
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 24
+          node-version: 24.15.0
           package-manager-cache: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-manifest-*
+          path: release-manifests
+
+      - name: Compose + publish mac update manifest
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+        run: |
+          node scripts/compose-mac-update-manifest.mjs
+          ARTIFACTS_DIR=artifacts-mac-metadata node scripts/publish-release.mjs publish
+
       - name: Finalize
         env:
           MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}

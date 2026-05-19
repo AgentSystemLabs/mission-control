@@ -48,7 +48,7 @@ export function ChangedFilesList({
   onStage,
   onUnstage,
   onStageAll,
-  onUnstageAll,
+  onUnstageAll: _onUnstageAll,
   onDeleteFile,
   busyPaths,
   projectId,
@@ -158,7 +158,7 @@ export function ChangedFilesList({
             <CommitPushButton
               projectId={projectId}
               label="Ship Accepted"
-              title="Commit accepted changes only, then push to remote"
+              title="commit & push"
               autoStage={false}
               showAheadBadge={false}
               variant="primary"

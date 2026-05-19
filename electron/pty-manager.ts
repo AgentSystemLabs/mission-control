@@ -321,7 +321,7 @@ export function registerPtyHandlers(
 
       // Agent mode spawns the binary directly with a real argv array, bypassing
       // the login shell entirely so shell metacharacters in args can't be
-      // re-parsed. Shell mode keeps the `sh -l -c` path for user-driven shell
+      // re-parsed. Shell mode keeps the user's login shell path for user-driven
       // terminals where command interpretation IS the feature.
       const spawnTarget = plan.mode === "agent" ? plan.binary : plan.shellPath;
       const spawnArgs = plan.mode === "agent" ? plan.argv : plan.shellArgs;

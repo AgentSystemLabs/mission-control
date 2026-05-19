@@ -26,6 +26,7 @@ const updateSettingsBody = z
     mouseGradientDisabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
+    launchOverlayEnabled: z.boolean(),
   })
   .partial();
 
@@ -45,6 +46,7 @@ function settingsPayload() {
       "session_finish_os_notification_enabled",
       false,
     ),
+    launchOverlayEnabled: getBooleanSetting("launch_overlay_enabled", false),
   };
 }
 
@@ -76,6 +78,9 @@ export async function update(request: Request): Promise<Response> {
       "session_finish_os_notification_enabled",
       body.sessionFinishOsNotificationEnabled,
     );
+  }
+  if (body.launchOverlayEnabled !== undefined) {
+    setBooleanSetting("launch_overlay_enabled", body.launchOverlayEnabled);
   }
   return json(settingsPayload());
 }

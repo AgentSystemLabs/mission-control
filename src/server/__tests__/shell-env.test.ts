@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   buildUserPath,
+  parseShellEnvOutput,
   resolveCommandOnPath,
   setCanonicalPathEnv,
   shellArgsForCommand,
@@ -20,6 +21,25 @@ function touchExecutable(file: string) {
 }
 
 describe("Electron shell environment helpers", () => {
+  it("parses shell-captured env between markers and ignores startup output", () => {
+    const parsed = parseShellEnvOutput(
+      [
+        "startup banner",
+        "__MISSION_CONTROL_ENV_START__",
+        "PATH=/from/shell/bin:/usr/bin",
+        "DOCKER_HOST=unix:///Users/me/.docker/run/docker.sock",
+        "invalid-key=value",
+        "__MISSION_CONTROL_ENV_END__",
+        "prompt noise",
+      ].join("\n"),
+    );
+
+    expect(parsed).toEqual({
+      PATH: "/from/shell/bin:/usr/bin",
+      DOCKER_HOST: "unix:///Users/me/.docker/run/docker.sock",
+    });
+  });
+
   it("adds common Windows agent CLI install directories before the packaged app PATH", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-path-"));
     const home = path.join(root, "User");
@@ -29,6 +49,8 @@ describe("Electron shell environment helpers", () => {
     const packagedPath = path.join(root, "MissionControl");
     const voltaHome = path.join(root, "Volta");
     const pnpmHome = path.join(root, "PnpmHome");
+    const userDockerBin = path.join(home, ".docker", "bin");
+    const dockerDesktopBin = path.join(root, "Program Files", "Docker", "Docker", "resources", "bin");
     const nvmHome = path.join(root, "nvm");
     const nvmSymlink = path.join(root, "nodejs");
 
@@ -38,6 +60,8 @@ describe("Electron shell environment helpers", () => {
       path.join(appData, ".npm-global", "bin"),
       path.join(voltaHome, "bin"),
       pnpmHome,
+      userDockerBin,
+      dockerDesktopBin,
       path.join(nvmHome, "v24.0.0"),
       nvmSymlink,
       path.join(localAppData, "Microsoft", "WindowsApps"),
@@ -59,6 +83,7 @@ describe("Electron shell environment helpers", () => {
         NVM_HOME: nvmHome,
         NVM_SYMLINK: nvmSymlink,
         SystemRoot: systemRoot,
+        ProgramFiles: path.join(root, "Program Files"),
       },
     });
 
@@ -68,6 +93,8 @@ describe("Electron shell environment helpers", () => {
     expect(entries).toContain(path.join(appData, ".npm-global", "bin"));
     expect(entries).toContain(path.join(voltaHome, "bin"));
     expect(entries).toContain(pnpmHome);
+    expect(entries).toContain(userDockerBin);
+    expect(entries).toContain(dockerDesktopBin);
     expect(entries).toContain(path.join(nvmHome, "v24.0.0"));
     expect(entries).toContain(nvmSymlink);
     expect(entries).toContain(path.join(localAppData, "Microsoft", "WindowsApps"));
@@ -108,6 +135,24 @@ describe("Electron shell environment helpers", () => {
     expect(entries).toContain(path.join(home, ".config", "yarn", "global", "node_modules", ".bin"));
     expect(entries).toContain(path.join(nvmDir, "versions", "node", "v24.0.0", "bin"));
     expect(entries).toContain(path.join(fnmDir, "node-versions", "v24.0.0", "installation", "bin"));
+  });
+
+  it("adds POSIX Docker Desktop CLI directories", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-posix-docker-path-"));
+    const home = path.join(root, "home");
+    const userDockerBin = path.join(home, ".docker", "bin");
+    const dockerDesktopBin = "/Applications/Docker.app/Contents/Resources/bin";
+
+    fs.mkdirSync(userDockerBin, { recursive: true });
+
+    const entries = buildUserPath("", {
+      platform: "darwin",
+      homeDir: home,
+      pathExists: (entry) => entry === userDockerBin || entry === dockerDesktopBin,
+    }).split(path.delimiter);
+
+    expect(entries).toContain(userDockerBin);
+    expect(entries).toContain(dockerDesktopBin);
   });
 
   it("preserves POSIX base PATH order before guessed Node-manager versions", () => {
@@ -227,9 +272,10 @@ describe("Electron shell environment helpers", () => {
     expect(shellArgsForCommand("powershell.exe", undefined, "win32")).toEqual(["-NoLogo"]);
   });
 
-  it("keeps login shell execution on POSIX platforms", () => {
+  it("uses interactive login shell execution for POSIX launch commands", () => {
     expect(shellArgsForCommand("/bin/zsh", "codex --enable hooks", "darwin")).toEqual([
       "-l",
+      "-i",
       "-c",
       "codex --enable hooks",
     ]);

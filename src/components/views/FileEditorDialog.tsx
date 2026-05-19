@@ -7,12 +7,23 @@ import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { languageForFilename } from "~/lib/file-language";
-import type { FileReadError } from "~/shared/electron-contract";
+import type { FileReadError, FileReadResult } from "~/shared/electron-contract";
 
-type LoadedFile = {
-  content: string;
-  mtimeMs: number;
-};
+type FileReadSuccess = Extract<FileReadResult, { ok: true }>;
+
+type LoadedFile =
+  | {
+      kind: "text";
+      content: string;
+      mtimeMs: number;
+    }
+  | {
+      kind: "image";
+      dataUrl: string;
+      mimeType: string;
+      size: number;
+      mtimeMs: number;
+    };
 
 type LoadError = FileReadError | string;
 
@@ -40,7 +51,7 @@ export function FileEditorDialog({
 
   if (loaded) mtimeRef.current = loaded.mtimeMs;
 
-  const dirty = loaded !== null && content !== loaded.content;
+  const dirty = loaded?.kind === "text" && content !== loaded.content;
   const slash = relPath ? relPath.lastIndexOf("/") : -1;
   const fileName = relPath ? (slash >= 0 ? relPath.slice(slash + 1) : relPath) : "";
   const dirPath = relPath && slash >= 0 ? relPath.slice(0, slash) : "";
@@ -59,8 +70,9 @@ export function FileEditorDialog({
       const r = await window.electronAPI!.files.read(projectRoot, relPath);
       if (cancelled) return;
       if (r.ok) {
-        setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
-        setContent(r.content);
+        const next = toLoadedFile(r);
+        setLoaded(next);
+        setContent(next.kind === "text" ? next.content : "");
       } else {
         setLoadError({ kind: r.error, lineCount: r.lineCount });
       }
@@ -99,7 +111,6 @@ export function FileEditorDialog({
       watchIdRef.current = null;
       if (id) void window.electronAPI?.files.unwatch(id);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectRoot, relPath, hasLoaded]);
 
   const dirtyRef = useRef(dirty);
@@ -109,8 +120,9 @@ export function FileEditorDialog({
     if (!relPath || !window.electronAPI) return;
     const r = await window.electronAPI.files.read(projectRoot, relPath);
     if (!r.ok) return;
+    const next = toLoadedFile(r);
     if (dirtyRef.current) {
-      setLoaded((prev) => (prev ? { ...prev, mtimeMs: r.mtimeMs } : prev));
+      setLoaded((prev) => (prev ? { ...prev, mtimeMs: next.mtimeMs } : prev));
       setExternalChanged(true);
       return;
     }
@@ -118,8 +130,8 @@ export function FileEditorDialog({
     const view = cmRef.current?.view;
     const scrollTop = view?.scrollDOM.scrollTop ?? 0;
     const selection = view?.state.selection;
-    setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
-    setContent(r.content);
+    setLoaded(next);
+    setContent(next.kind === "text" ? next.content : "");
     setExternalChanged(false);
     requestAnimationFrame(() => {
       const v = cmRef.current?.view;
@@ -138,6 +150,7 @@ export function FileEditorDialog({
   const doSave = useCallback(
     async (forceOverwrite: boolean) => {
       if (!relPath || !window.electronAPI || !loaded) return;
+      if (loaded.kind !== "text") return;
       setSaving(true);
       setSaveError(null);
       const expectedMtime = forceOverwrite ? null : loaded.mtimeMs;
@@ -162,7 +175,7 @@ export function FileEditorDialog({
       }
       setSaving(false);
       if (r.ok) {
-        setLoaded({ content, mtimeMs: r.mtimeMs });
+        setLoaded({ kind: "text", content, mtimeMs: r.mtimeMs });
         setExternalChanged(false);
         return;
       }
@@ -184,8 +197,9 @@ export function FileEditorDialog({
     if (!relPath || !window.electronAPI) return;
     const r = await window.electronAPI.files.read(projectRoot, relPath);
     if (!r.ok) return;
-    setLoaded({ content: r.content, mtimeMs: r.mtimeMs });
-    setContent(r.content);
+    const next = toLoadedFile(r);
+    setLoaded(next);
+    setContent(next.kind === "text" ? next.content : "");
     setExternalChanged(false);
     setSaveError(null);
   }, [projectRoot, relPath]);
@@ -237,7 +251,11 @@ export function FileEditorDialog({
                 color: "var(--text-faint)",
               }}
             >
-              {loaded ? `${content.length.toLocaleString()} chars` : ""}
+              {loaded?.kind === "text"
+                ? `${content.length.toLocaleString()} chars`
+                : loaded?.kind === "image"
+                  ? `${loaded.mimeType} · ${formatBytes(loaded.size)}`
+                  : ""}
             </span>
             <StaticHotkeyTooltip hotkey="Esc">
               <Btn variant="ghost" onClick={requestClose}>
@@ -348,6 +366,8 @@ export function FileEditorDialog({
               lineCount={loadError.lineCount}
               onClose={requestClose}
             />
+          ) : loaded?.kind === "image" ? (
+            <ImagePreview src={loaded.dataUrl} fileName={fileName} />
           ) : (
             <CodeMirror
               ref={cmRef}
@@ -415,6 +435,57 @@ function Status({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+function ImagePreview({ src, fileName }: { src: string; fileName: string }) {
+  return (
+    <div
+      style={{
+        minHeight: "100%",
+        padding: 24,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <img
+        src={src}
+        alt={fileName ? `Preview of ${fileName}` : "Image preview"}
+        style={{
+          maxWidth: "100%",
+          maxHeight: "100%",
+          objectFit: "contain",
+          borderRadius: 8,
+          boxShadow: "0 10px 36px rgba(0, 0, 0, 0.35)",
+        }}
+      />
+    </div>
+  );
+}
+
+function toLoadedFile(result: FileReadSuccess): LoadedFile {
+  if (result.kind === "image") {
+    return {
+      kind: "image",
+      dataUrl: result.dataUrl,
+      mimeType: result.mimeType,
+      size: result.size,
+      mtimeMs: result.mtimeMs,
+    };
+  }
+  return {
+    kind: "text",
+    content: result.content,
+    mtimeMs: result.mtimeMs,
+  };
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  const kb = size / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 }
 
 function LoadErrorView({

@@ -11,7 +11,7 @@ vi.mock("electron", () => ({
 }));
 vi.mock("electron-log/main", () => ({ default: { warn: vi.fn() } }));
 
-import { isSensitiveAbs, isSensitiveRelPath } from "../file-handlers";
+import { imageMimeForRelPath, isSensitiveAbs, isSensitiveRelPath } from "../file-handlers";
 
 describe("isSensitiveRelPath", () => {
   it("rejects empty input", () => {
@@ -141,5 +141,24 @@ describe("isSensitiveAbs (post-resolve check)", () => {
     // File does not exist — realRel will be null, normalized path catches it.
     expect(fs.existsSync(abs)).toBe(false);
     expect(isSensitiveAbs(root, abs)).toBe(true);
+  });
+});
+
+describe("imageMimeForRelPath", () => {
+  it.each([
+    ["screenshot.png", "image/png"],
+    ["photo.JPG", "image/jpeg"],
+    ["photo.jpeg", "image/jpeg"],
+    ["animation.gif", "image/gif"],
+    ["asset.webp", "image/webp"],
+    ["icon.ico", "image/x-icon"],
+    ["poster.avif", "image/avif"],
+  ])("recognizes %s", (file, mime) => {
+    expect(imageMimeForRelPath(file)).toBe(mime);
+  });
+
+  it("ignores non-previewable extensions", () => {
+    expect(imageMimeForRelPath("src/index.ts")).toBeNull();
+    expect(imageMimeForRelPath("diagram.svg")).toBeNull();
   });
 });

@@ -5,7 +5,7 @@
 //   prepare   Create-or-get the release row on academy for $RELEASE_VERSION.
 //             Idempotent — safe to call from every platform job.
 //   publish   Read ./artifacts/manifest.json (built by the current job),
-//             register the asset on the release, and upload the binary to R2.
+//             register each asset on the release, and upload it to R2.
 //   finalize  Verify all expected platforms are uploaded and mark the
 //             release finalized. Tolerated to fail (caller decides) — useful
 //             for the "publish what we have, finalize when complete" mode.
@@ -89,38 +89,50 @@ async function publish() {
   } catch (err) {
     fail(`failed to read ${manifestPath}: ${err.message}`);
   }
-  const { platform, fileName, contentType, sizeBytes, sha256 } = manifest;
-  if (!platform || !fileName || !contentType || !sizeBytes || !sha256) {
-    fail(`manifest missing required fields: ${JSON.stringify(manifest)}`);
-  }
-  const filePath = join(ARTIFACTS_DIR, fileName);
-  const stat = statSync(filePath);
-  if (stat.size !== sizeBytes) {
-    fail(`size mismatch: manifest=${sizeBytes} actual=${stat.size}`);
+  const assets = Array.isArray(manifest.assets) ? manifest.assets : [manifest];
+  if (assets.length === 0) {
+    fail(`manifest contains no assets: ${JSON.stringify(manifest)}`);
   }
 
-  const result = await apiCall(
-    "POST",
-    `/api/mission-control/releases/${encodeURIComponent(version)}/assets`,
-    { platform, fileName, contentType, sizeBytes, sha256 }
-  );
-  console.log(
-    `[publish-release] registered ${platform} → ${result.objectKey}; uploading...`
-  );
-  const uploadRes = await fetch(result.presignedUploadUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Type": contentType,
-      "Content-Length": String(sizeBytes),
-    },
-    body: createReadStream(filePath),
-    duplex: "half",
-  });
-  if (!uploadRes.ok) {
-    const text = await uploadRes.text();
-    fail(`upload failed for ${platform}: ${uploadRes.status} ${text}`);
+  for (const asset of assets) {
+    const { platform, kind, fileName, contentType, sizeBytes, sha256 } = asset;
+    if (!platform || !fileName || !contentType || !sizeBytes || !sha256) {
+      fail(`manifest asset missing required fields: ${JSON.stringify(asset)}`);
+    }
+    const filePath = join(ARTIFACTS_DIR, fileName);
+    const stat = statSync(filePath);
+    if (stat.size !== sizeBytes) {
+      fail(`${fileName} size mismatch: manifest=${sizeBytes} actual=${stat.size}`);
+    }
+
+    const body = { platform, fileName, contentType, sizeBytes, sha256 };
+    if (kind) body.kind = kind;
+
+    const result = await apiCall(
+      "POST",
+      `/api/mission-control/releases/${encodeURIComponent(version)}/assets`,
+      body
+    );
+    console.log(
+      `[publish-release] registered ${platform}/${result.kind} → ${result.objectKey}; uploading...`
+    );
+    const uploadRes = await fetch(result.presignedUploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": contentType,
+        "Content-Length": String(sizeBytes),
+      },
+      body: createReadStream(filePath),
+      duplex: "half",
+    });
+    if (!uploadRes.ok) {
+      const text = await uploadRes.text();
+      fail(
+        `upload failed for ${platform}/${kind ?? "installer"} ${fileName}: ${uploadRes.status} ${text}`
+      );
+    }
+    console.log(`[publish-release] uploaded ${fileName} (${sizeBytes} bytes)`);
   }
-  console.log(`[publish-release] uploaded ${fileName} (${sizeBytes} bytes)`);
 }
 
 async function finalize() {

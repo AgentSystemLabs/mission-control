@@ -15,6 +15,11 @@ import {
   useAutoUpdaterState,
 } from "~/queries/mc-auto-updater";
 import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
+import {
+  hasCachedLaunchIntroPreference,
+  readCachedLaunchIntroEnabled,
+  writeCachedLaunchIntroEnabled,
+} from "~/lib/launch-intro";
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
@@ -23,6 +28,9 @@ export function GeneralSettingsPage() {
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
+  const [launchOverlayEnabled, setLaunchOverlayEnabledState] = useState(
+    () => readCachedLaunchIntroEnabled(),
+  );
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
     "default",
   );
@@ -40,6 +48,13 @@ export function GeneralSettingsPage() {
     setPermission(Notification.permission);
   }, []);
 
+  useEffect(() => {
+    if (hasCachedLaunchIntroPreference()) return;
+    if (typeof settings?.launchOverlayEnabled !== "boolean") return;
+    setLaunchOverlayEnabledState(settings.launchOverlayEnabled);
+    writeCachedLaunchIntroEnabled(settings.launchOverlayEnabled);
+  }, [settings?.launchOverlayEnabled]);
+
   const optimisticSettings = (
     patch: Partial<
       Pick<
@@ -48,6 +63,7 @@ export function GeneralSettingsPage() {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "launchOverlayEnabled"
       >
     >,
   ): AppSettings => ({
@@ -57,6 +73,7 @@ export function GeneralSettingsPage() {
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
+    launchOverlayEnabled,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });
@@ -69,6 +86,7 @@ export function GeneralSettingsPage() {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "launchOverlayEnabled"
       >
     >,
   ) => {
@@ -90,6 +108,29 @@ export function GeneralSettingsPage() {
 
   const setToastEnabled = async (sessionFinishToastEnabled: boolean) => {
     await updateSettings({ sessionFinishToastEnabled });
+  };
+
+  const setLaunchOverlayEnabled = (enabled: boolean) => {
+    setLaunchOverlayEnabledState(enabled);
+    writeCachedLaunchIntroEnabled(enabled);
+    queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+      current ? { ...current, launchOverlayEnabled: enabled } : current,
+    );
+    void api
+      .updateSettings({ launchOverlayEnabled: enabled })
+      .then((next) => {
+        queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) => ({
+          ...(current ?? optimisticSettings({})),
+          ...next,
+          launchOverlayEnabled: enabled,
+        }));
+      })
+      .catch((error) => {
+        console.error("[settings] failed to sync launch intro preference:", error);
+        queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+          current ? { ...current, launchOverlayEnabled: enabled } : current,
+        );
+      });
   };
 
   const setOsNotificationEnabled = async (enabled: boolean) => {
@@ -135,6 +176,15 @@ export function GeneralSettingsPage() {
             description="Cursor and card gradients follow the pointer across the workspace."
             checked={mouseGradientEnabled}
             onChange={setMouseGradientEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Startup loading screen">
+          <ToggleRow
+            title="Show launch intro"
+            description="Sliding doors, voice, and sound effects play the next time Mission Control loads."
+            checked={launchOverlayEnabled}
+            onChange={setLaunchOverlayEnabled}
             label="Enable"
           />
         </Field>

@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: postgres:17@sha256:538bdb8c6b278f2f09070a4d79f04a83363a795ed23ec0d92d6b70cabc398eae
     restart: unless-stopped
     environment:
       POSTGRES_DB: mission_control
@@ -18,7 +18,7 @@ services:
       retries: 10
 
   postgres-migrate:
-    image: postgres:17
+    image: postgres:17@sha256:538bdb8c6b278f2f09070a4d79f04a83363a795ed23ec0d92d6b70cabc398eae
     depends_on:
       postgres:
         condition: service_healthy

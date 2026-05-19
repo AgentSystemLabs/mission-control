@@ -18,8 +18,25 @@ export type FileWriteError = (typeof FILE_WRITE_ERRORS)[number];
 
 export type FileListResult = { ok: true; files: string[] } | { ok: false; error: string };
 
+export type ImagePreviewMime =
+  | "image/png"
+  | "image/jpeg"
+  | "image/gif"
+  | "image/webp"
+  | "image/bmp"
+  | "image/x-icon"
+  | "image/avif";
+
 export type FileReadResult =
-  | { ok: true; content: string; mtimeMs: number; lineCount: number }
+  | { ok: true; kind: "text"; content: string; mtimeMs: number; lineCount: number }
+  | {
+      ok: true;
+      kind: "image";
+      dataUrl: string;
+      mimeType: ImagePreviewMime;
+      size: number;
+      mtimeMs: number;
+    }
   | { ok: false; error: FileReadError | string; lineCount?: number };
 
 export type FileWriteResult =
