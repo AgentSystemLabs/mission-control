@@ -116,12 +116,14 @@ jobs:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v5
-
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: pnpm
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 11.1.2
+          cache: true
 
       # node-gyp 9.x (pulled in transitively by @electron/rebuild) imports
       # distutils, which Python 3.12 removed. macos-latest ships 3.12+, so
