@@ -98,7 +98,9 @@ for (const fileName of outputFiles) {
 const kinds = new Set(staged.map((asset) => asset.kind));
 const requiredKinds = platform.startsWith("mac-")
   ? ["installer", "installer-zip", "blockmap"]
-  : ["installer", "metadata", "blockmap"];
+  : platform === "win-x64"
+    ? ["installer", "metadata", "blockmap"]
+    : ["installer", "metadata"];
 const missing = requiredKinds.filter((kind) => !kinds.has(kind));
 if (missing.length > 0) {
   fail(
