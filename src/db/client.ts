@@ -41,8 +41,13 @@ export function getDb() {
   _sqlite.pragma("foreign_keys = ON");
   _db = drizzle(_sqlite, { schema });
   const freshBootstrap = !tableExists(_sqlite, "projects");
-  ensureSchema(_sqlite);
-  runMigrations(_sqlite, { markAllAppliedOnly: freshBootstrap });
+  if (freshBootstrap) {
+    ensureSchema(_sqlite);
+    runMigrations(_sqlite, { markAllAppliedOnly: true });
+  } else {
+    runMigrations(_sqlite);
+    ensureSchema(_sqlite);
+  }
   // PTYs are owned by the Electron process and are not restored across app
   // restarts. Any task left as running after a restart is stale.
   _sqlite
@@ -140,6 +145,7 @@ function ensureSchema(sqlite: Database.Database) {
       branch TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH}',
       launch_commands TEXT,
       launch_url TEXT,
+      worktree_setup_command TEXT,
       remember_agent_settings INTEGER NOT NULL DEFAULT 0,
       saved_agent TEXT,
       saved_skip_permissions INTEGER NOT NULL DEFAULT 0,
@@ -150,9 +156,22 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS projects_group_idx ON projects(group_id);
     CREATE INDEX IF NOT EXISTS projects_pinned_idx ON projects(pinned);
 
+    CREATE TABLE IF NOT EXISTS worktrees (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS worktrees_project_idx ON worktrees(project_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS worktrees_project_name_unique ON worktrees(project_id, name);
+
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      worktree_id TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       icon TEXT,
       agent TEXT NOT NULL,
@@ -168,6 +187,8 @@ function ensureSchema(sqlite: Database.Database) {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks(project_id);
+    CREATE INDEX IF NOT EXISTS tasks_project_worktree_idx ON tasks(project_id, worktree_id);
+    CREATE INDEX IF NOT EXISTS tasks_worktree_idx ON tasks(worktree_id);
     CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
     CREATE INDEX IF NOT EXISTS tasks_archived_idx ON tasks(archived);
 
@@ -182,6 +203,7 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE TABLE IF NOT EXISTS user_terminals (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      worktree_id TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       cwd TEXT,
       start_command TEXT,
@@ -190,6 +212,8 @@ function ensureSchema(sqlite: Database.Database) {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS user_terminals_project_idx ON user_terminals(project_id);
+    CREATE INDEX IF NOT EXISTS user_terminals_project_worktree_idx ON user_terminals(project_id, worktree_id);
+    CREATE INDEX IF NOT EXISTS user_terminals_worktree_idx ON user_terminals(worktree_id);
 
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,

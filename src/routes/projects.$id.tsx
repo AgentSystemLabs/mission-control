@@ -1,6 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
@@ -37,8 +38,8 @@ import {
   useEntitlements,
   useGroups,
   useProject,
-  useSettings,
   useTasks,
+  useWorktrees,
 } from "~/queries";
 import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
@@ -48,7 +49,15 @@ import { featureFlags } from "~/shared/feature-flags";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
 import { agentCanLaunch, useCliAvailability } from "~/lib/cli-availability";
+import {
+  SESSION_NOTIFICATION_OPEN_EVENT,
+  clearPendingSessionOpen,
+  readPendingSessionOpen,
+  type PendingSessionOpen,
+} from "~/lib/session-notification-store";
 import type { Task, TaskStatus } from "~/db/schema";
+import type { WorktreeInfo } from "~/shared/worktrees";
+import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 import {
   DUPLICATE_ACTIVE_SESSION_EVENT,
   pickByPriority,
@@ -87,16 +96,68 @@ function ProjectPage() {
   const { id } = Route.useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [selectedWorktreeByProject, setSelectedWorktreeByProject] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("mc.selectedWorktreeByProject");
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        "mc.selectedWorktreeByProject",
+        JSON.stringify(selectedWorktreeByProject),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [selectedWorktreeByProject]);
   const projectQuery = useProject(id);
-  const tasksQuery = useTasks(id);
+  const worktreesQuery = useWorktrees(id);
   const groupsQuery = useGroups();
   const project = projectQuery.data;
+  const worktreesEnabled = featureFlags.worktrees;
+  const worktrees = worktreesQuery.data ?? [];
+  const selectedWorktreeKey = worktreesEnabled
+    ? selectedWorktreeByProject[id] || MAIN_WORKTREE_ID
+    : MAIN_WORKTREE_ID;
+  const selectedWorktree =
+    worktrees.find((w) => w.id === selectedWorktreeKey) ??
+    worktrees.find((w) => w.id === MAIN_WORKTREE_ID) ??
+    null;
+  const selectedWorktreeId = worktreesEnabled && !selectedWorktree?.isMain ? selectedWorktree?.id ?? null : null;
+  const selectedWorktreePath = worktreesEnabled
+    ? selectedWorktree?.path ?? project?.path ?? ""
+    : project?.path ?? "";
+  const selectedScopeKey = worktreeScopeKey(id, selectedWorktreeId);
+  const scopedProject = useMemo(
+    () =>
+      project
+        ? {
+            ...project,
+            path: selectedWorktreePath || project.path,
+            activeWorktreeId: selectedWorktreeId,
+          }
+        : null,
+    [project, selectedWorktreeId, selectedWorktreePath],
+  );
+  useEffect(() => {
+    if (!worktreesQuery.data) return;
+    const exists = worktreesQuery.data.some((w) => w.id === selectedWorktreeKey);
+    if (!exists && selectedWorktreeKey !== MAIN_WORKTREE_ID) {
+      setSelectedWorktreeByProject((prev) => ({ ...prev, [id]: MAIN_WORKTREE_ID }));
+    }
+  }, [id, selectedWorktreeKey, worktreesQuery.data]);
+  const tasksQuery = useTasks(id, selectedWorktreeId);
   const tasks = tasksQuery.data ?? [];
   const groups = groupsQuery.data ?? [];
-  const { data: settings } = useSettings();
   useApiToken();
   const { data: entitlements } = useEntitlements();
-  const { data: gitStatus } = useGitStatus(id);
+  const { data: gitStatus } = useGitStatus(id, selectedWorktreeId);
   const [showDiffView, setShowDiffView] = useState(false);
 
   const openDiffView = useCallback(() => {
@@ -115,6 +176,9 @@ function ProjectPage() {
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
+  const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState(false);
+  const [creatingWorktree, setCreatingWorktree] = useState(false);
+  const [deletingWorktree, setDeletingWorktree] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [pinning, setPinning] = useState(false);
@@ -147,6 +211,7 @@ function ProjectPage() {
     killTerminalsByStartCommand,
     setPanelOpen,
     sessions: userTerminalSessions,
+    runningWorktreeIds,
   } = useUserTerminals();
   const launchCommandSet = new Set(
     launchCommands.map((c) => c.command.trim()).filter(Boolean)
@@ -154,6 +219,11 @@ function ProjectPage() {
   const hasRunningLaunch = userTerminalSessions.some(
     (s) => s.ptyId && s.terminal.startCommand && launchCommandSet.has(s.terminal.startCommand.trim())
   );
+  const runningWorktreeKey = worktreesEnabled
+    ? [...runningWorktreeIds].find((key) => key.startsWith(`${project?.id ?? id}:`))
+    : undefined;
+  const runningBlocksSelectedWorktree =
+    worktreesEnabled && !!runningWorktreeKey && runningWorktreeKey !== selectedScopeKey;
   const launchPorts = useMemo(
     () => launchUrlPort(project?.launchUrl ?? null),
     [project?.launchUrl]
@@ -174,6 +244,13 @@ function ProjectPage() {
 
   const runLaunch = useCallback(async () => {
     setOverflowOpen(false);
+    if (runningBlocksSelectedWorktree) {
+      const runningId = runningWorktreeKey?.split(":")[1] || MAIN_WORKTREE_ID;
+      const runningName =
+        worktrees.find((w) => w.id === runningId)?.name ?? runningId;
+      toast.error(`Switch to ${runningName} and stop it before launching another worktree.`);
+      return;
+    }
     if (launchCommands.length === 0) {
       setShowLaunchEmpty(true);
       return;
@@ -190,11 +267,20 @@ function ProjectPage() {
     } finally {
       setLaunching(false);
     }
-  }, [launchCommands, launchPorts, killTerminalsByStartCommand, createTerminal, setPanelOpen]);
+  }, [
+    runningBlocksSelectedWorktree,
+    runningWorktreeKey,
+    worktrees,
+    launchCommands,
+    launchPorts,
+    killTerminalsByStartCommand,
+    createTerminal,
+    setPanelOpen,
+  ]);
 
   useEffect(() => {
-    if (project) setActiveUserTerminalProject(project);
-  }, [project, setActiveUserTerminalProject]);
+    if (scopedProject) setActiveUserTerminalProject(scopedProject);
+  }, [scopedProject, setActiveUserTerminalProject]);
 
   useEffect(() => {
     for (const task of tasks) terminals.syncTask(task);
@@ -208,40 +294,111 @@ function ProjectPage() {
   // across project switches doesn't make a stale ref look like a deletion in
   // the new project (which would auto-open a session there).
   const lastActiveRef = useRef<{ projectId: string; taskId: string } | null>(null);
-  const activeTaskId = terminals.activeTaskIdFor(id);
+  const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
   const lastHiddenSessionRef = useRef<{ projectId: string; taskId: string } | null>(null);
   useEffect(() => {
     if (activeTaskId !== null) {
-      lastActiveRef.current = { projectId: id, taskId: activeTaskId };
+      lastActiveRef.current = { projectId: selectedScopeKey, taskId: activeTaskId };
       return;
     }
     const prev = lastActiveRef.current;
-    if (!prev || prev.projectId !== id || !project) return;
+    if (!prev || prev.projectId !== selectedScopeKey || !scopedProject) return;
     const visible = tasks.filter((t) => !t.archived);
     if (visible.some((t) => t.id === prev.taskId)) return;
     lastActiveRef.current = null;
     const next = pickByPriority(visible);
-    if (next) terminals.toggle(project, next);
-  }, [activeTaskId, tasks, project, terminals, id]);
+    if (next) terminals.toggle(scopedProject, next);
+  }, [activeTaskId, tasks, scopedProject, terminals, selectedScopeKey]);
 
   // Rehydrate after reload: if a persisted activeTaskId resolves to an
   // existing task for this project, materialize a session entry so the panel
   // reopens without requiring a click.
   useEffect(() => {
-    if (!project) return;
-    const tid = terminals.activeTaskIdFor(project.id);
+    if (!scopedProject) return;
+    const tid = terminals.activeTaskIdFor(selectedScopeKey);
     if (!tid) return;
     const task = tasks.find((t) => t.id === tid);
-    if (task) terminals.rehydrate(project, task);
-  }, [project, tasks, terminals]);
+    if (task) terminals.rehydrate(scopedProject, task);
+  }, [scopedProject, tasks, terminals, selectedScopeKey]);
+
+  const openRequestedSession = useCallback(
+    (request: PendingSessionOpen) => {
+      if (!scopedProject || request.projectId !== id) return false;
+      if (!worktreesQuery.data) return false;
+      if (!worktreesEnabled && request.worktreeId && request.worktreeId !== MAIN_WORKTREE_ID) {
+        clearPendingSessionOpen(request);
+        return false;
+      }
+
+      const requestedWorktreeKey = request.worktreeId ?? MAIN_WORKTREE_ID;
+      const requestedWorktreeExists =
+        requestedWorktreeKey === MAIN_WORKTREE_ID ||
+        worktreesQuery.data.some((worktree) => worktree.id === requestedWorktreeKey);
+      if (!requestedWorktreeExists) {
+        clearPendingSessionOpen(request);
+        return false;
+      }
+
+      if (requestedWorktreeKey !== selectedWorktreeKey) {
+        setSelectedWorktreeByProject((prev) =>
+          prev[id] === requestedWorktreeKey
+            ? prev
+            : { ...prev, [id]: requestedWorktreeKey },
+        );
+        return false;
+      }
+
+      const task = tasks.find((t) => t.id === request.taskId && !t.archived);
+      if (!task) {
+        if (!tasksQuery.isLoading) clearPendingSessionOpen(request);
+        return false;
+      }
+
+      const active = terminals.activeFor(selectedScopeKey);
+      if (active?.taskId !== task.id) {
+        const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
+        if (activeTaskId === task.id) terminals.rehydrate(scopedProject, task);
+        else terminals.toggle(scopedProject, task);
+      }
+      clearPendingSessionOpen(request);
+      return true;
+    },
+    [
+      id,
+      scopedProject,
+      selectedScopeKey,
+      selectedWorktreeKey,
+      tasks,
+      tasksQuery.isLoading,
+      terminals,
+      worktreesEnabled,
+      worktreesQuery.data,
+    ],
+  );
+
+  useEffect(() => {
+    const pending = readPendingSessionOpen(id);
+    if (pending) openRequestedSession(pending);
+  }, [id, openRequestedSession]);
+
+  useEffect(() => {
+    const onOpenRequest = (event: Event) => {
+      const request = (event as CustomEvent<PendingSessionOpen>).detail;
+      if (request) openRequestedSession(request);
+    };
+    window.addEventListener(SESSION_NOTIFICATION_OPEN_EVENT, onOpenRequest);
+    return () => {
+      window.removeEventListener(SESSION_NOTIFICATION_OPEN_EVENT, onOpenRequest);
+    };
+  }, [openRequestedSession]);
 
   const invalidateProject = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
     [queryClient, id]
   );
   const invalidateTasks = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks(id) }),
-    [queryClient, id]
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks(id, selectedWorktreeId) }),
+    [queryClient, id, selectedWorktreeId]
   );
   const invalidateProjects = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -250,6 +407,11 @@ function ProjectPage() {
   const refresh = useCallback(async () => {
     await Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
   }, [invalidateProject, invalidateTasks, invalidateProjects]);
+
+  const invalidateWorktrees = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.worktrees(id) }),
+    [queryClient, id],
+  );
 
   const toggleProjectPin = useCallback(async () => {
     if (!project || pinning) return;
@@ -263,6 +425,90 @@ function ProjectPage() {
     }
   }, [project, pinning, invalidateProject, invalidateProjects]);
 
+  const selectWorktree = useCallback(
+    (worktreeId: string) => {
+      if (!worktreesEnabled && worktreeId !== MAIN_WORKTREE_ID) return;
+      setSelectedWorktreeByProject((prev) => ({ ...prev, [id]: worktreeId }));
+    },
+    [id, worktreesEnabled],
+  );
+
+  const createProjectWorktree = useCallback(async () => {
+    if (!worktreesEnabled || !project || creatingWorktree) return;
+    if (runningBlocksSelectedWorktree || runningWorktreeIds.size > 0) {
+      toast.error("Stop the running worktree before creating a new setup terminal.");
+      return;
+    }
+    setCreatingWorktree(true);
+    try {
+      const result = await api.createWorktree(project.id);
+      await invalidateWorktrees();
+      selectWorktree(result.worktree.id);
+      if (result.setupCommand) {
+        const setupProject = {
+          ...project,
+          path: result.worktree.path,
+          activeWorktreeId: result.worktree.id,
+        };
+        await createTerminal({
+          project: setupProject,
+          name: `Setup: ${result.worktree.name}`,
+          startCommand: result.setupCommand,
+        });
+      }
+      toast.success(`Created worktree ${result.worktree.name}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not create worktree");
+    } finally {
+      setCreatingWorktree(false);
+    }
+  }, [
+    project,
+    creatingWorktree,
+    runningBlocksSelectedWorktree,
+    runningWorktreeIds,
+    invalidateWorktrees,
+    selectWorktree,
+    createTerminal,
+    worktreesEnabled,
+  ]);
+
+  const deleteSelectedWorktree = useCallback(async () => {
+    if (!worktreesEnabled || !project || !selectedWorktree || selectedWorktree.isMain) return;
+    if (runningWorktreeIds.has(selectedScopeKey)) {
+      toast.error("Stop this worktree before deleting it.");
+      return;
+    }
+    setDeletingWorktree(true);
+    try {
+      await api.deleteWorktree(project.id, selectedWorktree.id);
+      setConfirmDeleteWorktree(false);
+      selectWorktree(MAIN_WORKTREE_ID);
+      await Promise.all([
+        invalidateWorktrees(),
+        invalidateTasks(),
+        queryClient.invalidateQueries({ queryKey: queryKeys.scopedUserTerminals(project.id, selectedWorktree.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+      ]);
+      toast.success(`Deleted worktree ${selectedWorktree.name}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not delete worktree");
+    } finally {
+      setDeletingWorktree(false);
+    }
+  }, [
+    project,
+    selectedWorktree,
+    selectedScopeKey,
+    runningWorktreeIds,
+    selectWorktree,
+    invalidateWorktrees,
+    invalidateTasks,
+    queryClient,
+    worktreesEnabled,
+  ]);
+
   const [showCodexHooksNotice, setShowCodexHooksNotice] = useState(false);
 
   const createSession = useCallback(
@@ -272,7 +518,7 @@ function ProjectPage() {
       skipPermissions: boolean;
       bareSession: boolean;
     }) => {
-      if (!project) return;
+      if (!project || !scopedProject) return;
       if (!agentCanLaunch(cliAvailability, payload.agent)) {
         setShowNewAgent(true);
         return;
@@ -287,14 +533,15 @@ function ProjectPage() {
         claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
           ? payload.skipPermissions
           : undefined,
+        worktreeId: selectedWorktreeId,
       });
-      terminals.toggle(project, created.task);
+      terminals.toggle(scopedProject, created.task);
       await refresh();
       if (payload.agent === "codex" && !hasSeenCodexHooksNotice()) {
         setShowCodexHooksNotice(true);
       }
     },
-    [project, refresh, terminals, cliAvailability]
+    [project, scopedProject, selectedWorktreeId, refresh, terminals, cliAvailability]
   );
 
   const startWithSaved = useCallback(async () => {
@@ -353,6 +600,7 @@ function ProjectPage() {
     showNewAgent ||
     showEdit ||
     confirmRemove ||
+    confirmDeleteWorktree ||
     fileFinderOpen ||
     openFileRel !== null ||
     showLaunchConfig ||
@@ -361,7 +609,7 @@ function ProjectPage() {
 
   const cycleSession = useCallback(
     (direction: 1 | -1) => {
-      if (!project) return;
+      if (!project || !scopedProject) return;
       if (anyBlockingDialogOpen) return;
       const visible = tasks.filter((t) => !t.archived);
       if (visible.length === 0) return;
@@ -370,12 +618,12 @@ function ProjectPage() {
         for (const t of visible) if (t.status === status) ordered.push(t);
       }
       if (ordered.length === 0) return;
-      const currentId = terminals.activeTaskIdFor(project.id);
+      const currentId = terminals.activeTaskIdFor(selectedScopeKey);
       // Panel closed: open the highest-priority card instead of cycling.
       if (!currentId) {
         const firstByPriority = pickByPriority(visible);
         if (!firstByPriority) return;
-        terminals.toggle(project, firstByPriority);
+        terminals.toggle(scopedProject, firstByPriority);
         return;
       }
       const idx = ordered.findIndex((t) => t.id === currentId);
@@ -383,9 +631,9 @@ function ProjectPage() {
       const nextIdx = (idx + direction + ordered.length) % ordered.length;
       const nextTask = ordered[nextIdx];
       if (!nextTask || nextTask.id === currentId) return;
-      terminals.toggle(project, nextTask);
+      terminals.toggle(scopedProject, nextTask);
     },
-    [project, tasks, terminals, anyBlockingDialogOpen],
+    [project, scopedProject, selectedScopeKey, tasks, terminals, anyBlockingDialogOpen],
   );
 
   // Direct window-capture listener (not useHotkey) — xterm's focused textarea
@@ -398,7 +646,7 @@ function ProjectPage() {
   const duplicateActiveSession = useCallback(() => {
     if (!project) return;
     if (anyBlockingDialogOpen) return;
-    const active = terminals.activeFor(project.id);
+    const active = terminals.activeFor(selectedScopeKey);
     if (!active) return;
     const sourceTask = tasks.find((t) => t.id === active.taskId);
     if (!sourceTask) return;
@@ -408,7 +656,7 @@ function ProjectPage() {
       skipPermissions: !!sourceTask.claudeSkipPermissions,
       bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
     });
-  }, [project, tasks, terminals, createSession, anyBlockingDialogOpen]);
+  }, [project, selectedScopeKey, tasks, terminals, createSession, anyBlockingDialogOpen]);
   const duplicateActiveSessionRef = useRef(duplicateActiveSession);
   duplicateActiveSessionRef.current = duplicateActiveSession;
 
@@ -454,14 +702,14 @@ function ProjectPage() {
   const hiddenSession = lastHiddenSessionRef.current;
   const canRestoreHiddenSession =
     !!project &&
-    hiddenSession?.projectId === project.id &&
+    hiddenSession?.projectId === selectedScopeKey &&
     terminals.sessions.some(
-      (s) => s.taskId === hiddenSession.taskId && s.project.id === project.id,
+      (s) => s.taskId === hiddenSession.taskId && worktreeScopeKey(s.project.id, s.project.activeWorktreeId) === selectedScopeKey,
     ) &&
     tasks.some((t) => t.id === hiddenSession.taskId && !t.archived);
   const closePanelEnabled =
     !anyBlockingDialogOpen && !!project
-      ? terminals.activeFor(project.id) !== null || canRestoreHiddenSession
+      ? terminals.activeFor(selectedScopeKey) !== null || canRestoreHiddenSession
       : false;
 
   // Capture phase so xterm.js (focused terminal) can't swallow the key first.
@@ -469,21 +717,21 @@ function ProjectPage() {
     "terminal.close",
     () => {
       if (!project) return;
-      const active = terminals.activeFor(project.id);
+      const active = terminals.activeFor(selectedScopeKey);
       if (active) {
-        lastHiddenSessionRef.current = { projectId: project.id, taskId: active.taskId };
-        terminals.deselect(project.id);
+        lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId: active.taskId };
+        terminals.deselect(selectedScopeKey);
         return;
       }
       const hidden = lastHiddenSessionRef.current;
-      if (!hidden || hidden.projectId !== project.id) return;
+      if (!hidden || hidden.projectId !== selectedScopeKey) return;
       const sessionStillOpen = terminals.sessions.some(
-        (s) => s.taskId === hidden.taskId && s.project.id === project.id,
+        (s) => s.taskId === hidden.taskId && worktreeScopeKey(s.project.id, s.project.activeWorktreeId) === selectedScopeKey,
       );
       if (!sessionStillOpen) return;
       const task = tasks.find((t) => t.id === hidden.taskId && !t.archived);
       if (!task) return;
-      terminals.toggle(project, task);
+      if (scopedProject) terminals.toggle(scopedProject, task);
     },
     {
       enabled: closePanelEnabled,
@@ -497,12 +745,15 @@ function ProjectPage() {
         if (e.type.startsWith("task:")) {
           void invalidateTasks();
           void invalidateProject();
+        } else if (e.type.startsWith("worktree:")) {
+          void invalidateWorktrees();
+          void invalidateProject();
         } else if (e.type.startsWith("project:")) {
           void invalidateProject();
           void invalidateProjects();
         }
       },
-      [invalidateTasks, invalidateProject, invalidateProjects]
+      [invalidateTasks, invalidateProject, invalidateProjects, invalidateWorktrees]
     )
   );
 
@@ -550,17 +801,17 @@ function ProjectPage() {
   );
   for (const t of visibleTasks) tasksByStatus[t.status].push(t);
 
-  const activeId = terminals.activeTaskIdFor(project.id);
+  const activeId = terminals.activeTaskIdFor(selectedScopeKey);
   const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
 
   const toggleTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
-    const active = terminals.activeFor(project.id);
+    const active = terminals.activeFor(selectedScopeKey);
     if (active?.taskId === taskId) {
-      lastHiddenSessionRef.current = { projectId: project.id, taskId };
+      lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId };
     }
-    terminals.toggle(project, task);
+    if (scopedProject) terminals.toggle(scopedProject, task);
   };
 
   const deleteTask = async (taskId: string) => {
@@ -656,10 +907,70 @@ function ProjectPage() {
         }
         onStop={stopLaunch}
       />
+      {worktreesEnabled && (
+        <>
+          <WorktreeToggleGroup
+            worktrees={worktrees}
+            selectedId={selectedWorktree?.id ?? MAIN_WORKTREE_ID}
+            runningKeys={runningWorktreeIds}
+            projectId={project.id}
+            onSelect={selectWorktree}
+            maxWidth="min(420px, 34vw)"
+          />
+          <span
+            aria-hidden
+            style={{
+              width: 1,
+              height: 24,
+              background: "var(--border)",
+              margin: "0 2px 0 4px",
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              position: "relative",
+              display: "inline-flex",
+            }}
+          >
+            <Btn
+              variant="ghost"
+              icon="git-branch"
+              onClick={() => void createProjectWorktree()}
+              disabled={creatingWorktree}
+              aria-label="Create worktree"
+              title="Create worktree"
+            />
+            <span
+              aria-hidden
+              style={{
+                position: "absolute",
+                top: -3,
+                right: -3,
+                zIndex: 2,
+                width: 14,
+                height: 14,
+                borderRadius: "50%",
+                border: "1px solid color-mix(in srgb, var(--surface-0) 88%, white)",
+                background: "var(--accent)",
+                color: "#fff",
+                boxShadow: "0 0 7px var(--accent-glow)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: creatingWorktree ? 0.58 : 1,
+                pointerEvents: "none",
+              }}
+            >
+              <Icon name="plus" size={9} />
+            </span>
+          </span>
+        </>
+      )}
       {featureFlags.installSkillsButton && (
         <>
           <span style={{ width: 12 }} aria-hidden />
-          <InstallSkillsButton projectPath={project.path} />
+          <InstallSkillsButton projectPath={selectedWorktreePath || project.path} />
         </>
       )}
     </HeaderActions>
@@ -672,7 +983,8 @@ function ProjectPage() {
         {headerActions}
         <GitDiffView
           projectId={project.id}
-          projectPath={project.path}
+          worktreeId={selectedWorktreeId}
+          projectPath={selectedWorktreePath || project.path}
           onBack={closeDiffView}
         />
       </>
@@ -703,14 +1015,18 @@ function ProjectPage() {
         }}
       >
         <div
+          className="mc-project-header"
           style={{
             display: "flex",
             alignItems: "center",
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            marginBottom: settings?.minimalTheme ? 30 : 40,
-            paddingBlock: 5,
+            margin: "-8px -8px 32px",
+            padding: "22px 24px 18px",
+            position: "relative",
+            isolation: "isolate",
+            zIndex: 2,
           }}
         >
           <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -810,10 +1126,10 @@ function ProjectPage() {
                   icon="folder"
                   onClick={() => {
                     setOverflowOpen(false);
-                    window.electronAPI?.openPath(project.path);
+                    window.electronAPI?.openPath(selectedWorktreePath || project.path);
                   }}
                   style={{ justifyContent: "flex-start" }}
-                  title={project.path}
+                  title={selectedWorktreePath || project.path}
                 >
                   Reveal in Finder
                 </Btn>
@@ -872,7 +1188,7 @@ function ProjectPage() {
                 </Btn>
                 {featureFlags.installSkillsButton && (
                   <InstallSkillsMenuItem
-                    projectPath={project.path}
+                    projectPath={selectedWorktreePath || project.path}
                     onOpen={() => setOverflowOpen(false)}
                   />
                 )}
@@ -922,7 +1238,7 @@ function ProjectPage() {
               changedCount={gitStatus?.changedCount}
               onClick={openDiffView}
             />
-            <CommitPushButton projectId={id} size="md" splitTrailing />
+            <CommitPushButton projectId={id} worktreeId={selectedWorktreeId} size="md" splitTrailing />
           </div>
           <div style={{ flex: 1 }} />
           <HotkeyTooltip action="file.finder" label="Find file in project">
@@ -933,6 +1249,15 @@ function ProjectPage() {
               aria-label="Find file in project"
             />
           </HotkeyTooltip>
+          {worktreesEnabled && selectedWorktree && !selectedWorktree.isMain && (
+            <Btn
+              variant="ghost"
+              icon="trash"
+              onClick={() => setConfirmDeleteWorktree(true)}
+              aria-label={`Delete worktree ${selectedWorktree.name}`}
+              title={`Delete worktree ${selectedWorktree.name}`}
+            />
+          )}
         </div>
 
         {hostedRuntime && !hostedRuntime.allowed && (
@@ -1125,13 +1450,13 @@ function ProjectPage() {
 
       <FileFinderDialog
         open={fileFinderOpen}
-        projectRoot={project.path}
+        projectRoot={selectedWorktreePath || project.path}
         onClose={() => setFileFinderOpen(false)}
         onPick={(rel) => setOpenFileRel(rel)}
       />
 
       <FileEditorDialog
-        projectRoot={project.path}
+        projectRoot={selectedWorktreePath || project.path}
         relPath={openFileRel}
         onClose={() => setOpenFileRel(null)}
       />
@@ -1152,6 +1477,27 @@ function ProjectPage() {
           This only unlinks the project — the files at {project.path} are not touched.
         </div>
       </ConfirmDialog>
+
+      {selectedWorktree && !selectedWorktree.isMain && (
+        <ConfirmDialog
+          open={confirmDeleteWorktree}
+          onClose={() => setConfirmDeleteWorktree(false)}
+          onConfirm={deleteSelectedWorktree}
+          title="Delete worktree"
+          confirmLabel="Delete"
+          icon="trash"
+          loading={deletingWorktree}
+          width={500}
+        >
+          <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+            Delete worktree &ldquo;{selectedWorktree.name}&rdquo;?
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+            Mission Control will remove the worktree directory at {selectedWorktree.path}. The
+            branch is kept. If this worktree has uncommitted changes, deletion will be blocked.
+          </div>
+        </ConfirmDialog>
+      )}
 
       <LaunchCommandsDialog
         open={showLaunchConfig}
@@ -1229,6 +1575,98 @@ function ProjectPage() {
       </ConfirmDialog>
       </div>
     </>
+  );
+}
+
+function WorktreeToggleGroup({
+  worktrees,
+  selectedId,
+  runningKeys,
+  projectId,
+  onSelect,
+  maxWidth = 420,
+}: {
+  worktrees: WorktreeInfo[];
+  selectedId: string;
+  runningKeys: ReadonlySet<string>;
+  projectId: string;
+  onSelect: (id: string) => void;
+  maxWidth?: number | string;
+}) {
+  const items = worktrees.length > 0 ? worktrees : [];
+  if (items.length === 0) return null;
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Project worktrees"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        maxWidth,
+        overflowX: "auto",
+        padding: 2,
+        flexShrink: 1,
+      }}
+    >
+      {items.map((worktree) => {
+        const selected = worktree.id === selectedId;
+        const running = runningKeys.has(worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id));
+        return (
+          <button
+            key={worktree.id}
+            type="button"
+            role="radio"
+            onClick={() => onSelect(worktree.id)}
+            onKeyDown={(event) => {
+              if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;
+              event.preventDefault();
+              const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+              const currentIndex = items.findIndex((item) => item.id === worktree.id);
+              const next = items[(currentIndex + direction + items.length) % items.length];
+              if (next) onSelect(next.id);
+            }}
+            aria-label={`Switch to worktree ${worktree.name}`}
+            aria-checked={selected}
+            tabIndex={selected ? 0 : -1}
+            title={worktree.path}
+            style={{
+              position: "relative",
+              display: "inline-flex",
+              alignItems: "center",
+              height: 28,
+              padding: "0 10px",
+              borderRadius: 999,
+              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+              background: selected ? "var(--accent-faint)" : "var(--surface-0)",
+              color: selected ? "var(--accent)" : "var(--text-dim)",
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+              cursor: "pointer",
+            }}
+          >
+            {running && (
+              <span
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  left: "50%",
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "var(--accent)",
+                  transform: "translateX(-50%)",
+                  boxShadow: "0 0 6px var(--accent-glow)",
+                }}
+              />
+            )}
+            {worktree.name}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

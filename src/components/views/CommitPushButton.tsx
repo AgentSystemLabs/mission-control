@@ -4,27 +4,34 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
+import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 const activeShipOperations = new Map<string, number>();
 const shipOperationListeners = new Set<() => void>();
 
-function isProjectShipping(projectId: string) {
-  return (activeShipOperations.get(projectId) ?? 0) > 0;
+function shipKey(projectId: string, worktreeId?: string | null) {
+  return `${projectId}:${worktreeId || MAIN_WORKTREE_ID}`;
+}
+
+function isProjectShipping(projectId: string, worktreeId?: string | null) {
+  return (activeShipOperations.get(shipKey(projectId, worktreeId)) ?? 0) > 0;
 }
 
 function notifyShipOperationListeners() {
   for (const listener of shipOperationListeners) listener();
 }
 
-function beginShipOperation(projectId: string) {
-  activeShipOperations.set(projectId, (activeShipOperations.get(projectId) ?? 0) + 1);
+function beginShipOperation(projectId: string, worktreeId?: string | null) {
+  const key = shipKey(projectId, worktreeId);
+  activeShipOperations.set(key, (activeShipOperations.get(key) ?? 0) + 1);
   notifyShipOperationListeners();
 }
 
-function endShipOperation(projectId: string) {
-  const next = Math.max(0, (activeShipOperations.get(projectId) ?? 0) - 1);
-  if (next === 0) activeShipOperations.delete(projectId);
-  else activeShipOperations.set(projectId, next);
+function endShipOperation(projectId: string, worktreeId?: string | null) {
+  const key = shipKey(projectId, worktreeId);
+  const next = Math.max(0, (activeShipOperations.get(key) ?? 0) - 1);
+  if (next === 0) activeShipOperations.delete(key);
+  else activeShipOperations.set(key, next);
   notifyShipOperationListeners();
 }
 
@@ -35,10 +42,10 @@ function subscribeShipOperations(listener: () => void) {
   };
 }
 
-function useProjectShipping(projectId: string) {
+function useProjectShipping(projectId: string, worktreeId?: string | null) {
   return useSyncExternalStore(
     subscribeShipOperations,
-    () => isProjectShipping(projectId),
+    () => isProjectShipping(projectId, worktreeId),
     () => false,
   );
 }
@@ -112,6 +119,7 @@ function showShipToast(title: string, detail: string) {
 
 export function CommitPushButton({
   projectId,
+  worktreeId,
   label = "Ship",
   title,
   autoStage = true,
@@ -123,6 +131,7 @@ export function CommitPushButton({
   onNotice,
 }: {
   projectId: string;
+  worktreeId?: string | null;
   label?: string;
   title?: string;
   autoStage?: boolean;
@@ -134,17 +143,17 @@ export function CommitPushButton({
   onError?: (msg: string) => void;
   onNotice?: (msg: string) => void;
 }) {
-  const commitM = useGitCommit(projectId);
-  const pushM = useGitPush(projectId);
-  const { data: status } = useGitStatus(projectId);
-  const projectShipping = useProjectShipping(projectId);
+  const commitM = useGitCommit(projectId, worktreeId);
+  const pushM = useGitPush(projectId, worktreeId);
+  const { data: status } = useGitStatus(projectId, worktreeId);
+  const projectShipping = useProjectShipping(projectId, worktreeId);
   const aheadCount = status?.aheadCount ?? null;
 
   const onCommitAndPush = useCallback(async () => {
-    if (isProjectShipping(projectId)) return;
+    if (isProjectShipping(projectId, worktreeId)) return;
 
     let committedMessage: string | null = null;
-    beginShipOperation(projectId);
+    beginShipOperation(projectId, worktreeId);
     try {
       const c = await commitM.mutateAsync({ autoStage });
       if (c.kind === "committed") {
@@ -174,9 +183,9 @@ export function CommitPushButton({
       const prefix = committedMessage ? `Committed: ${committedMessage}\n` : "";
       onError?.(prefix + (e?.message || "Commit & push failed"));
     } finally {
-      endShipOperation(projectId);
+      endShipOperation(projectId, worktreeId);
     }
-  }, [autoStage, commitM, projectId, pushM, onError, onNotice]);
+  }, [autoStage, commitM, projectId, worktreeId, pushM, onError, onNotice]);
 
   const committing = commitM.isPending;
   const pushing = pushM.isPending;
@@ -199,8 +208,8 @@ export function CommitPushButton({
             marginLeft: 6,
             padding: "0 6px",
             borderRadius: 999,
-            background: splitTrailing ? "rgba(10,11,13,0.12)" : "var(--surface-2)",
-            color: splitTrailing ? "#0a0b0d" : "var(--text)",
+            background: splitTrailing ? "rgba(0,0,0,0.35)" : "var(--surface-2)",
+            color: splitTrailing ? "#ffffff" : "var(--text)",
             fontFamily: "var(--mono)",
             fontSize: 10,
             lineHeight: "16px",

@@ -11,6 +11,7 @@ vi.mock("../api", () => ({
 const baseTask = {
   id: "task-1",
   projectId: "project-1",
+  worktreeId: null,
   title: "Task",
   icon: null,
   status: "ready",

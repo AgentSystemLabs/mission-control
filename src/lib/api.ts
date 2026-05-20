@@ -13,8 +13,10 @@ import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { LicenseState } from "~/shared/license";
 import type { Entitlements } from "~/shared/entitlements";
+import type { WorktreeInfo } from "~/shared/worktrees";
 import { getClientRuntime } from "~/lib/runtime";
 import { MISSION_CONTROL_RUNTIME_HEADER } from "~/shared/runtime";
+import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 
 // The api bearer token is intentionally NOT part of this HTTP-derived shape.
 // Renderer code obtains it through the Electron IPC channel `settings:getToken`
@@ -182,8 +184,36 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ togglePin: true }),
     }),
-  deleteProject: (id: string) =>
-    req<void>(`/api/projects/${id}`, { method: "DELETE" }),
+  deleteProject: async (id: string) => {
+    await req<void>(`/api/projects/${id}`, { method: "DELETE" });
+    pruneStoredSessionFinishNotifications({ type: "project", projectId: id });
+  },
+
+  listWorktrees: (projectId: string) =>
+    req<{ worktrees: WorktreeInfo[] }>(`/api/projects/${projectId}/worktrees`),
+  createWorktree: (projectId: string) =>
+    req<{ worktree: WorktreeInfo; setupCommand: string | null }>(
+      `/api/projects/${projectId}/worktrees`,
+      { method: "POST" },
+    ),
+  deleteWorktree: async (
+    projectId: string,
+    worktreeId: string,
+    opts: { force?: boolean } = {},
+  ) => {
+    await req<void>(
+      `/api/projects/${projectId}/worktrees/${encodeURIComponent(worktreeId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify(opts),
+      },
+    );
+    pruneStoredSessionFinishNotifications({
+      type: "worktree",
+      projectId,
+      worktreeId,
+    });
+  },
 
   listGroups: () => req<{ groups: Group[] }>("/api/groups"),
   createGroup: (body: { name: string; color?: string }) =>
@@ -199,8 +229,10 @@ export const api = {
   deleteGroup: (id: string) =>
     req<void>(`/api/groups/${id}`, { method: "DELETE" }),
 
-  listTasks: (projectId: string) =>
-    req<{ tasks: Task[] }>(`/api/projects/${projectId}/tasks`),
+  listTasks: (projectId: string, worktreeId?: string | null) =>
+    req<{ tasks: Task[] }>(
+      `/api/projects/${projectId}/tasks${worktreeQuery(worktreeId)}`,
+    ),
   archiveTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>
@@ -219,6 +251,7 @@ export const api = {
       claudeSessionId?: string | null;
       claudeSkipPermissions?: boolean;
       claudeBareSession?: boolean;
+      worktreeId?: string | null;
     },
   ) =>
     req<{ task: Task }>(`/api/projects/${projectId}/tasks`, {
@@ -239,13 +272,18 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-  deleteTask: (id: string) => req<void>(`/api/tasks/${id}`, { method: "DELETE" }),
+  deleteTask: async (id: string) => {
+    await req<void>(`/api/tasks/${id}`, { method: "DELETE" });
+    pruneStoredSessionFinishNotifications({ type: "task", taskId: id });
+  },
 
-  listUserTerminals: (projectId: string) =>
-    req<{ terminals: UserTerminal[] }>(`/api/projects/${projectId}/user-terminals`),
+  listUserTerminals: (projectId: string, worktreeId?: string | null) =>
+    req<{ terminals: UserTerminal[] }>(
+      `/api/projects/${projectId}/user-terminals${worktreeQuery(worktreeId)}`,
+    ),
   createUserTerminal: (
     projectId: string,
-    body: { name?: string; cwd?: string | null; startCommand?: string | null }
+    body: { name?: string; cwd?: string | null; startCommand?: string | null; worktreeId?: string | null }
   ) =>
     req<{ terminal: UserTerminal }>(`/api/projects/${projectId}/user-terminals`, {
       method: "POST",
@@ -339,29 +377,32 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  getGitStatus: (projectId: string) =>
-    req<GitStatus>(`/api/projects/${projectId}/git/status`),
-  getGitDiff: (projectId: string, file: string, staged: boolean) =>
+  getGitStatus: (projectId: string, worktreeId?: string | null) =>
+    req<GitStatus>(`/api/projects/${projectId}/git/status${worktreeQuery(worktreeId)}`),
+  getGitDiff: (projectId: string, file: string, staged: boolean, worktreeId?: string | null) =>
     req<GitDiff>(
-      `/api/projects/${projectId}/git/diff?file=${encodeURIComponent(file)}&staged=${staged ? "1" : "0"}`,
+      `/api/projects/${projectId}/git/diff?file=${encodeURIComponent(file)}&staged=${staged ? "1" : "0"}${worktreeId ? `&worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,
     ),
-  stageFiles: (projectId: string, files: string[]) =>
+  stageFiles: (projectId: string, files: string[], worktreeId?: string | null) =>
     req<{ ok: true }>(`/api/projects/${projectId}/git/stage`, {
       method: "POST",
-      body: JSON.stringify({ files }),
+      body: JSON.stringify({ files, worktreeId: worktreeId ?? null }),
     }),
-  unstageFiles: (projectId: string, files: string[]) =>
+  unstageFiles: (projectId: string, files: string[], worktreeId?: string | null) =>
     req<{ ok: true }>(`/api/projects/${projectId}/git/unstage`, {
       method: "POST",
-      body: JSON.stringify({ files }),
+      body: JSON.stringify({ files, worktreeId: worktreeId ?? null }),
     }),
-  gitCommit: (projectId: string, opts: { autoStage?: boolean } = {}) =>
+  gitCommit: (projectId: string, opts: { autoStage?: boolean; worktreeId?: string | null } = {}) =>
     req<CommitResult>(`/api/projects/${projectId}/git/commit`, {
       method: "POST",
       body: JSON.stringify(opts),
     }),
-  gitPush: (projectId: string) =>
-    req<PushResult>(`/api/projects/${projectId}/git/push`, { method: "POST" }),
+  gitPush: (projectId: string, worktreeId?: string | null) =>
+    req<PushResult>(`/api/projects/${projectId}/git/push`, {
+      method: "POST",
+      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    }),
   getUsage: (days: number = 30) =>
     req<UsageSummary>(`/api/usage?days=${days}`),
   createEventsTicket: () =>
@@ -369,9 +410,14 @@ export const api = {
       method: "POST",
     }),
 
-  deleteProjectFile: (projectId: string, filePath: string) =>
+  deleteProjectFile: (projectId: string, filePath: string, worktreeId?: string | null) =>
     req<{ ok: true }>(
-      `/api/projects/${projectId}/file?path=${encodeURIComponent(filePath)}`,
+      `/api/projects/${projectId}/file?path=${encodeURIComponent(filePath)}${worktreeId ? `&worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,
       { method: "DELETE" },
     ),
 };
+
+function worktreeQuery(worktreeId?: string | null): string {
+  if (worktreeId === undefined) return "";
+  return `?worktreeId=${encodeURIComponent(worktreeId || "main")}`;
+}

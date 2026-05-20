@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 
 export function TextField({
   label,
@@ -23,10 +23,14 @@ export function TextField({
   autoFocus?: boolean;
   inputRef?: Ref<HTMLInputElement>;
 }) {
+  const generatedId = useId();
+  const inputId = `mc-text-field-${generatedId}`;
+  const hintId = hint ? `${inputId}-hint` : undefined;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {label && (
         <label
+          htmlFor={inputId}
           style={{
             fontFamily: "var(--mono)",
             fontSize: 10.5,
@@ -51,11 +55,13 @@ export function TextField({
       >
         <input
           type={type}
+          id={inputId}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
           ref={inputRef}
+          aria-describedby={hintId}
           style={{
             flex: 1,
             background: "transparent",
@@ -81,7 +87,10 @@ export function TextField({
         )}
       </div>
       {hint && (
-        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--text-faint)" }}>
+        <div
+          id={hintId}
+          style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--text-faint)" }}
+        >
           {hint}
         </div>
       )}

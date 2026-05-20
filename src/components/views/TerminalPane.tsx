@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
-import { AGENT_META, STATUS_META } from "~/lib/design-meta";
+import {
+  AGENT_META,
+  DUPLICATE_ACTIVE_SESSION_EVENT,
+  STATUS_META,
+} from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import {
   attachTerminalKeyHandler,
@@ -54,7 +58,7 @@ export function TerminalPane({
   descriptor,
   onPtyReady,
 }: {
-  project: Project;
+  project: Project & { activeWorktreeId?: string | null };
   task: Task;
   onClose: () => void;
   onHide?: () => void;
@@ -71,10 +75,15 @@ export function TerminalPane({
   const [startError, setStartError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
 
-  const { data: liveTasks } = useTasks(project.id);
+  const { data: liveTasks } = useTasks(project.id, project.activeWorktreeId ?? null);
   const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
+
+  const requestSessionClone = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new Event(DUPLICATE_ACTIVE_SESSION_EVENT));
+  };
 
   useEffect(() => {
     const electron = getElectron();
@@ -169,7 +178,7 @@ export function TerminalPane({
             /* best effort */
           }
           await queryClient.invalidateQueries({
-            queryKey: queryKeys.tasks(project.id),
+            queryKey: queryKeys.tasks(project.id, project.activeWorktreeId ?? null),
           });
           onClose();
         })();
@@ -183,7 +192,9 @@ export function TerminalPane({
               try {
                 await api.updateTaskStatus(descriptor.taskId, { status: "running" });
                 await Promise.all([
-                  queryClient.invalidateQueries({ queryKey: queryKeys.tasks(project.id) }),
+                  queryClient.invalidateQueries({
+                    queryKey: queryKeys.tasks(project.id, project.activeWorktreeId ?? null),
+                  }),
                   queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
                   queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
                 ]);
@@ -378,7 +389,6 @@ export function TerminalPane({
       cancelled = true;
       cleanup?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descriptor.taskId, retryNonce]);
 
   return (
@@ -475,6 +485,15 @@ export function TerminalPane({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="copy"
+            onClick={requestSessionClone}
+            title="Clone session (Cmd+Shift+D)"
+            aria-label="Clone session"
+            style={{ width: 34, padding: 0 }}
+          />
           {onToggleExpanded && (
             <Btn
               variant="ghost"

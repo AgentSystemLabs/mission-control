@@ -41,6 +41,7 @@ export function ProjectDialog({
     imagePath?: string | null;
     pendingImage?: { sourcePath: string; extension: string } | null;
     githubUrl?: string;
+    worktreeSetupCommand?: string | null;
   }) => Promise<void> | void;
 }) {
   const [name, setName] = useState("");
@@ -48,6 +49,7 @@ export function ProjectDialog({
   const [groupId, setGroupId] = useState<string>("");
   const [icon, setIcon] = useState("");
   const [iconColor, setIconColor] = useState("#ff5a1f");
+  const [worktreeSetupCommand, setWorktreeSetupCommand] = useState("");
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
   const [pendingImage, setPendingImage] = useState<
@@ -69,6 +71,7 @@ export function ProjectDialog({
       setGroupId(project?.groupId || "");
       setIcon(project?.icon || "");
       setIconColor(project?.iconColor || "#ff5a1f");
+      setWorktreeSetupCommand(project?.worktreeSetupCommand || "");
       setImagePath(project?.imagePath ?? null);
       setImageVersion(project?.updatedAt ?? 0);
       setPendingImage(null);
@@ -146,6 +149,7 @@ export function ProjectDialog({
         groupId: groupId || null,
         ...(project ? { imagePath } : { pendingImage }),
         ...(hostedCreate && path.trim() ? { githubUrl: path.trim() } : {}),
+        ...(project ? { worktreeSetupCommand: worktreeSetupCommand.trim() || null } : {}),
       });
     } catch (e: any) {
       setError(e?.message || "Save failed");
@@ -408,6 +412,17 @@ export function ProjectDialog({
             ))}
           </div>
         </div>
+
+        {project && (
+          <TextField
+            mono
+            label="New worktree setup command"
+            value={worktreeSetupCommand}
+            onChange={(value) => setWorktreeSetupCommand(value.slice(0, 500))}
+            placeholder="pnpm i"
+            hint="Optional. Runs once inside each newly created worktree."
+          />
+        )}
 
         {error && (
           <div

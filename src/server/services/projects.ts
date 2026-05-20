@@ -137,6 +137,7 @@ export function createProject(input: {
     branch,
     launchCommands: null,
     launchUrl: null,
+    worktreeSetupCommand: null,
     rememberAgentSettings: false,
     savedAgent: null,
     savedSkipPermissions: false,
@@ -163,6 +164,7 @@ export function updateProject(
       | "pinned"
       | "branch"
       | "launchUrl"
+      | "worktreeSetupCommand"
       | "rememberAgentSettings"
       | "savedAgent"
       | "savedSkipPermissions"
@@ -173,9 +175,19 @@ export function updateProject(
   const existing = findProjectById(id);
   if (!existing) return null;
   const { launchCommands, ...rest } = patch;
+  if (
+    rest.worktreeSetupCommand !== undefined &&
+    rest.worktreeSetupCommand !== null &&
+    rest.worktreeSetupCommand.length > 500
+  ) {
+    throw new Error("worktreeSetupCommand cannot exceed 500 characters");
+  }
   const updated = {
     ...existing,
     ...rest,
+    ...(rest.worktreeSetupCommand !== undefined
+      ? { worktreeSetupCommand: rest.worktreeSetupCommand?.trim() || null }
+      : {}),
     ...(launchCommands !== undefined
       ? { launchCommands: serializeLaunchCommands(launchCommands) }
       : {}),

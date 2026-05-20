@@ -20,17 +20,19 @@ import { DiffPane } from "./DiffPane";
 
 export function GitDiffView({
   projectId,
+  worktreeId,
   projectPath,
   onBack,
 }: {
   projectId: string;
+  worktreeId?: string | null;
   projectPath: string;
   onBack: () => void;
 }) {
-  const { data: status, isLoading, error } = useGitStatus(projectId);
-  const stageM = useStageFiles(projectId);
-  const unstageM = useUnstageFiles(projectId);
-  const deleteM = useDeleteProjectFile(projectId);
+  const { data: status, isLoading, error } = useGitStatus(projectId, worktreeId);
+  const stageM = useStageFiles(projectId, worktreeId);
+  const unstageM = useUnstageFiles(projectId, worktreeId);
+  const deleteM = useDeleteProjectFile(projectId, worktreeId);
 
   const [selection, setSelection] = useState<FileSelection>(null);
   const stagedFiles = useMemo(() => status?.staged ?? [], [status]);
@@ -97,6 +99,7 @@ export function GitDiffView({
 
   const diffQuery = useGitDiff(
     projectId,
+    worktreeId,
     selection?.path ?? null,
     selection?.staged ?? false,
   );

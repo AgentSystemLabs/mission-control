@@ -1,0 +1,177 @@
+import { describe, expect, it } from "vitest";
+import {
+  clearSessionFinishNotifications,
+  loadSessionFinishNotifications,
+  pruneSessionFinishNotifications,
+  requestSessionNotificationOpen,
+  saveSessionFinishNotifications,
+  type SessionFinishNotification,
+} from "../session-notification-store";
+
+const notifications: SessionFinishNotification[] = [
+  {
+    id: "task-1",
+    projectId: "project-1",
+    worktreeId: null,
+    projectName: "Core",
+    taskTitle: "Answer name question",
+    finishedAt: 3,
+  },
+  {
+    id: "task-2",
+    projectId: "project-1",
+    worktreeId: "worktree-1",
+    projectName: "Core",
+    taskTitle: "Investigate router error",
+    finishedAt: 2,
+  },
+  {
+    id: "task-1",
+    projectId: "project-2",
+    worktreeId: null,
+    projectName: "Academy",
+    taskTitle: "Generate title",
+    finishedAt: 1,
+  },
+];
+
+describe("pruneSessionFinishNotifications", () => {
+  it("removes the notification for a deleted task in the matching project", () => {
+    const next = pruneSessionFinishNotifications(notifications, {
+      type: "task",
+      taskId: "task-1",
+      projectId: "project-1",
+    });
+
+    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+      "project-1:task-2",
+      "project-2:task-1",
+    ]);
+  });
+
+  it("removes task notifications by id when the project is unknown", () => {
+    const next = pruneSessionFinishNotifications(notifications, {
+      type: "task",
+      taskId: "task-1",
+    });
+
+    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+      "project-1:task-2",
+    ]);
+  });
+
+  it("removes every notification for a deleted project", () => {
+    const next = pruneSessionFinishNotifications(notifications, {
+      type: "project",
+      projectId: "project-1",
+    });
+
+    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+      "project-2:task-1",
+    ]);
+  });
+
+  it("removes notifications scoped to a deleted worktree", () => {
+    const next = pruneSessionFinishNotifications(notifications, {
+      type: "worktree",
+      projectId: "project-1",
+      worktreeId: "worktree-1",
+    });
+
+    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+      "project-1:task-1",
+      "project-2:task-1",
+    ]);
+  });
+
+  it("keeps the same array when nothing matches", () => {
+    const next = pruneSessionFinishNotifications(notifications, {
+      type: "task",
+      taskId: "missing",
+    });
+
+    expect(next).toBe(notifications);
+  });
+});
+
+describe("clearSessionFinishNotifications", () => {
+  it("clears persisted notifications and emits the notification change event", () => {
+    const store = new Map<string, string>();
+    const dispatchedEvents: Event[] = [];
+    const notification = notifications[0]!;
+    const previousWindow = globalThis.window;
+
+    globalThis.window = {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+      dispatchEvent: (event: Event) => {
+        dispatchedEvents.push(event);
+        return true;
+      },
+    } as unknown as Window & typeof globalThis;
+
+    try {
+      saveSessionFinishNotifications([notification]);
+      expect(loadSessionFinishNotifications()).toEqual([notification]);
+
+      clearSessionFinishNotifications();
+
+      expect(loadSessionFinishNotifications()).toEqual([]);
+      expect(dispatchedEvents).toHaveLength(1);
+      expect(dispatchedEvents[0]?.type).toBe("mc:session-notifications-changed");
+    } finally {
+      globalThis.window = previousWindow;
+    }
+  });
+});
+
+describe("requestSessionNotificationOpen", () => {
+  it("clears the opened notification and emits open plus change events", () => {
+    const store = new Map<string, string>();
+    const dispatchedEvents: Event[] = [];
+    const notification = notifications[0]!;
+    const previousWindow = globalThis.window;
+
+    globalThis.window = {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+      dispatchEvent: (event: Event) => {
+        dispatchedEvents.push(event);
+        return true;
+      },
+    } as unknown as Window & typeof globalThis;
+
+    try {
+      saveSessionFinishNotifications(notifications);
+
+      requestSessionNotificationOpen(notification);
+
+      expect(loadSessionFinishNotifications().map((n) => `${n.projectId}:${n.id}`))
+        .toEqual(["project-1:task-2", "project-2:task-1"]);
+      expect(dispatchedEvents.map((event) => event.type)).toEqual([
+        "mc:session-notification-open",
+        "mc:session-notifications-changed",
+      ]);
+      expect((dispatchedEvents[0] as CustomEvent).detail).toMatchObject({
+        projectId: "project-1",
+        taskId: "task-1",
+      });
+    } finally {
+      globalThis.window = previousWindow;
+    }
+  });
+});

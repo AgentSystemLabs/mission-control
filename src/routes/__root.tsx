@@ -39,6 +39,7 @@ import {
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { UsagePanel } from "~/components/views/UsagePanel";
 import { AuthGate, useHostedSession } from "~/components/views/AuthGate";
+import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import { useWarmCliAvailability } from "~/lib/cli-availability";
@@ -218,7 +219,7 @@ function Shell() {
     : null;
 
   useNavigationSwipe();
-  useSessionFinishNotifications();
+  const sessionNotifications = useSessionFinishNotifications();
   useWarmCliAvailability();
 
   const path = router.state.location.pathname;
@@ -416,6 +417,11 @@ function Shell() {
             <>
               <AuthUserButton />
               <UpdateAvailableButton />
+              <SessionNotificationsButton
+                notifications={sessionNotifications.notifications}
+                onClearNotification={sessionNotifications.clearNotification}
+                onClearNotifications={sessionNotifications.clearNotifications}
+              />
               <Btn
                 variant="ghost"
                 icon="settings"
@@ -474,7 +480,10 @@ function Shell() {
           theme="dark"
           toastOptions={{
             unstyled: true,
-            style: { background: "transparent", border: "none", padding: 0, boxShadow: "none" },
+            classNames: {
+              success: "mc-toast-panel mc-toast-success",
+              error: "mc-toast-panel mc-toast-error",
+            },
           }}
         />
       </div>

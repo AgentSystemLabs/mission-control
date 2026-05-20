@@ -6,6 +6,7 @@ import {
   deleteTaskRow,
   findTaskById,
   findTasksByProjectId,
+  findTasksByProjectIdAndWorktreeId,
   insertTask,
   updateTaskRow,
 } from "../repositories/tasks.repo";
@@ -21,12 +22,20 @@ export function listTasksForProject(projectId: string): Task[] {
   return findTasksByProjectId(projectId);
 }
 
+export function listTasksForProjectWorktree(
+  projectId: string,
+  worktreeId: string | null,
+): Task[] {
+  return findTasksByProjectIdAndWorktreeId(projectId, worktreeId);
+}
+
 export function getTask(id: string): Task | null {
   return findTaskById(id);
 }
 
 export function createTask(input: {
   projectId: string;
+  worktreeId?: string | null;
   title: string;
   agent: TaskAgent;
   branch?: string;
@@ -44,6 +53,7 @@ export function createTask(input: {
   const row: Task = {
     id: newId("t"),
     projectId: input.projectId,
+    worktreeId: input.worktreeId ?? null,
     title: input.title.trim(),
     icon: null,
     agent: input.agent,
@@ -92,6 +102,7 @@ export function updateStatus(
     events.emit("session:finished", {
       id,
       projectId: existing.projectId,
+      worktreeId: existing.worktreeId ?? null,
       projectName: projectName ?? "Project",
       taskTitle: existing.title,
     });

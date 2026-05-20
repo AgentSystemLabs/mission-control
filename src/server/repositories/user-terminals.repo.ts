@@ -12,10 +12,44 @@ export function findVisibleUserTerminalsByProject(projectId: string): UserTermin
     .all();
 }
 
+export function findVisibleUserTerminalsByProjectAndWorktree(
+  projectId: string,
+  worktreeId: string | null,
+): UserTerminal[] {
+  return getDb()
+    .select()
+    .from(userTerminals)
+    .where(
+      and(
+        eq(userTerminals.projectId, projectId),
+        worktreeId ? eq(userTerminals.worktreeId, worktreeId) : isNull(userTerminals.worktreeId),
+        isNull(userTerminals.startCommand),
+      )
+    )
+    .orderBy(asc(userTerminals.position), asc(userTerminals.createdAt))
+    .all();
+}
+
 export function deleteEphemeralUserTerminalsByProject(projectId: string): void {
   getDb()
     .delete(userTerminals)
     .where(and(eq(userTerminals.projectId, projectId), isNotNull(userTerminals.startCommand)))
+    .run();
+}
+
+export function deleteEphemeralUserTerminalsByProjectAndWorktree(
+  projectId: string,
+  worktreeId: string | null,
+): void {
+  getDb()
+    .delete(userTerminals)
+    .where(
+      and(
+        eq(userTerminals.projectId, projectId),
+        worktreeId ? eq(userTerminals.worktreeId, worktreeId) : isNull(userTerminals.worktreeId),
+        isNotNull(userTerminals.startCommand),
+      )
+    )
     .run();
 }
 

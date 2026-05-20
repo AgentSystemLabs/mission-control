@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import {
   DEFAULT_BRANCH,
@@ -35,6 +35,7 @@ export const projects = sqliteTable(
     branch: text("branch").notNull().default(DEFAULT_BRANCH),
     launchCommands: text("launch_commands"),
     launchUrl: text("launch_url"),
+    worktreeSetupCommand: text("worktree_setup_command"),
     rememberAgentSettings: integer("remember_agent_settings", { mode: "boolean" })
       .notNull()
       .default(false),
@@ -54,6 +55,25 @@ export const projects = sqliteTable(
   })
 );
 
+export const worktrees = sqliteTable(
+  "worktrees",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    path: text("path").notNull(),
+    branch: text("branch").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    projectIdx: index("worktrees_project_idx").on(t.projectId),
+    projectNameUnique: uniqueIndex("worktrees_project_name_unique").on(t.projectId, t.name),
+  })
+);
+
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -61,6 +81,7 @@ export const tasks = sqliteTable(
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    worktreeId: text("worktree_id").references(() => worktrees.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     icon: text("icon"),
     agent: text("agent").$type<TaskAgent>().notNull(),
@@ -77,6 +98,8 @@ export const tasks = sqliteTable(
   },
   (t) => ({
     projectIdx: index("tasks_project_idx").on(t.projectId),
+    projectWorktreeIdx: index("tasks_project_worktree_idx").on(t.projectId, t.worktreeId),
+    worktreeIdx: index("tasks_worktree_idx").on(t.worktreeId),
     statusIdx: index("tasks_status_idx").on(t.status),
     archivedIdx: index("tasks_archived_idx").on(t.archived),
   })
@@ -104,6 +127,7 @@ export const userTerminals = sqliteTable(
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    worktreeId: text("worktree_id").references(() => worktrees.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     cwd: text("cwd"),
     startCommand: text("start_command"),
@@ -113,6 +137,8 @@ export const userTerminals = sqliteTable(
   },
   (t) => ({
     projectIdx: index("user_terminals_project_idx").on(t.projectId),
+    projectWorktreeIdx: index("user_terminals_project_worktree_idx").on(t.projectId, t.worktreeId),
+    worktreeIdx: index("user_terminals_worktree_idx").on(t.worktreeId),
   })
 );
 
@@ -169,10 +195,17 @@ export const groupsRelations = relations(groups, ({ many }) => ({
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   group: one(groups, { fields: [projects.groupId], references: [groups.id] }),
   tasks: many(tasks),
+  worktrees: many(worktrees),
+}));
+
+export const worktreesRelations = relations(worktrees, ({ one, many }) => ({
+  project: one(projects, { fields: [worktrees.projectId], references: [projects.id] }),
+  tasks: many(tasks),
 }));
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
+  worktree: one(worktrees, { fields: [tasks.worktreeId], references: [worktrees.id] }),
   logs: many(terminalLogs),
 }));
 
@@ -184,6 +217,8 @@ export type Group = typeof groups.$inferSelect;
 export type NewGroup = typeof groups.$inferInsert;
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
+export type Worktree = typeof worktrees.$inferSelect;
+export type NewWorktree = typeof worktrees.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type UserTerminal = typeof userTerminals.$inferSelect;

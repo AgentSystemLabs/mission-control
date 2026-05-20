@@ -14,6 +14,8 @@ export type AppEvent =
   | ({ type: "project:created"; id: string } & ScopedEvent)
   | ({ type: "project:updated"; id: string } & ScopedEvent)
   | ({ type: "project:deleted"; id: string } & ScopedEvent)
+  | ({ type: "worktree:created"; id: string; projectId: string } & ScopedEvent)
+  | ({ type: "worktree:deleted"; id: string; projectId: string } & ScopedEvent)
   | ({ type: "group:created"; id: string } & ScopedEvent)
   | ({ type: "group:updated"; id: string } & ScopedEvent)
   | ({ type: "group:deleted"; id: string } & ScopedEvent)
@@ -26,6 +28,7 @@ export type AppEvent =
       type: "session:finished";
       id: string;
       projectId: string;
+      worktreeId: string | null;
       projectName: string;
       taskTitle: string;
     } & ScopedEvent);

@@ -50,6 +50,7 @@ const updateProjectBody = z
     pinned: z.boolean(),
     branch: z.string(),
     launchUrl: z.string().nullable(),
+    worktreeSetupCommand: z.string().max(500).nullable(),
     rememberAgentSettings: z.boolean(),
     savedAgent: z.enum(TASK_AGENTS).nullable(),
     savedSkipPermissions: z.boolean(),

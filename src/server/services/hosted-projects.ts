@@ -179,6 +179,7 @@ function mapProject(row: HostedProjectRow): Project {
     branch: row.branch || DEFAULT_BRANCH,
     launchCommands: launchCommandsToString(row.launchCommands),
     launchUrl: row.launchUrl,
+    worktreeSetupCommand: null,
     rememberAgentSettings: !!row.rememberAgentSettings,
     savedAgent: row.savedAgent,
     savedSkipPermissions: !!row.savedSkipPermissions,
@@ -192,6 +193,7 @@ function mapTask(row: HostedTaskRow): Task {
   return {
     id: row.id,
     projectId: row.projectId,
+    worktreeId: null,
     title: row.title,
     icon: row.icon,
     agent: row.agent,

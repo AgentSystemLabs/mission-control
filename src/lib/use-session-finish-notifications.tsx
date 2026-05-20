@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useSettings } from "~/queries";
@@ -6,22 +6,123 @@ import { useServerEvents, type ServerEvent } from "~/lib/use-events";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
+import {
+  SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY,
+  SESSION_NOTIFICATIONS_CHANGED_EVENT,
+  clearSessionFinishNotifications,
+  loadSessionFinishNotifications,
+  mergeSessionFinishNotification,
+  pruneSessionFinishNotification,
+  pruneSessionFinishNotifications,
+  requestSessionNotificationOpen,
+  saveSessionFinishNotifications,
+  type SessionFinishNotification,
+  type SessionNotificationPruneTarget,
+} from "~/lib/session-notification-store";
 
 export function useSessionFinishNotifications() {
   const router = useRouter();
   const { data: settings } = useSettings();
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osEnabled = settings?.sessionFinishOsNotificationEnabled ?? false;
+  const [notifications, setNotifications] = useState<SessionFinishNotification[]>(
+    loadSessionFinishNotifications,
+  );
+
+  const clearNotifications = useCallback(() => {
+    clearSessionFinishNotifications();
+    setNotifications([]);
+  }, []);
+
+  const clearNotification = useCallback((notification: SessionFinishNotification) => {
+    setNotifications((prev) => {
+      const next = pruneSessionFinishNotification(prev, notification);
+      if (next === prev) return prev;
+      saveSessionFinishNotifications(next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reloadNotifications = () => {
+      setNotifications(loadSessionFinishNotifications());
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY) {
+        reloadNotifications();
+      }
+    };
+    window.addEventListener(SESSION_NOTIFICATIONS_CHANGED_EVENT, reloadNotifications);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(
+        SESSION_NOTIFICATIONS_CHANGED_EVENT,
+        reloadNotifications,
+      );
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const pruneNotifications = useCallback((target: SessionNotificationPruneTarget) => {
+    setNotifications((prev) => {
+      const next = pruneSessionFinishNotifications(prev, target);
+      if (next === prev) return prev;
+      saveSessionFinishNotifications(next);
+      return next;
+    });
+  }, []);
 
   const handler = useCallback(
     (e: ServerEvent) => {
+      if (e.type === "task:deleted") {
+        const taskId = String(e.id ?? "");
+        const projectId = typeof e.projectId === "string" ? e.projectId : undefined;
+        if (taskId) pruneNotifications({ type: "task", taskId, projectId });
+        return;
+      }
+
+      if (e.type === "project:deleted") {
+        const projectId = String(e.id ?? "");
+        if (projectId) pruneNotifications({ type: "project", projectId });
+        return;
+      }
+
+      if (e.type === "worktree:deleted") {
+        const worktreeId = String(e.id ?? "");
+        const projectId = String(e.projectId ?? "");
+        if (worktreeId && projectId) {
+          pruneNotifications({ type: "worktree", projectId, worktreeId });
+        }
+        return;
+      }
+
       if (e.type !== "session:finished") return;
+      const id = String(e.id ?? "");
       const projectId = String(e.projectId ?? "");
+      const rawWorktreeId = e.worktreeId;
+      const worktreeId = typeof rawWorktreeId === "string" ? rawWorktreeId : null;
       const projectName = String(e.projectName ?? "Project");
       const taskTitle = String(e.taskTitle ?? "Session");
-      if (!projectId) return;
+      if (!id || !projectId) return;
+
+      const notification: SessionFinishNotification = {
+        id,
+        projectId,
+        worktreeId,
+        projectName,
+        taskTitle,
+        finishedAt: Date.now(),
+      };
+
+      setNotifications((prev) => {
+        const next = mergeSessionFinishNotification(prev, notification);
+        saveSessionFinishNotifications(next);
+        return next;
+      });
 
       const goToProject = () => {
+        requestSessionNotificationOpen(notification);
         void router.navigate({ to: "/projects/$id", params: { id: projectId } });
       };
 
@@ -117,8 +218,9 @@ export function useSessionFinishNotifications() {
         }
       }
     },
-    [toastEnabled, osEnabled, router],
+    [toastEnabled, osEnabled, router, pruneNotifications],
   );
 
   useServerEvents(handler);
+  return { notifications, clearNotification, clearNotifications };
 }

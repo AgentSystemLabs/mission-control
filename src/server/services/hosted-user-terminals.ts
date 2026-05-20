@@ -43,6 +43,7 @@ function mapTerminal(row: HostedUserTerminalRow): UserTerminal {
   return {
     id: row.id,
     projectId: row.projectId,
+    worktreeId: null,
     name: row.name,
     cwd: normalizeHostedWorkspacePath(row.cwd),
     startCommand: row.startCommand,
@@ -89,6 +90,7 @@ export async function createHostedUserTerminal(
     return {
       id,
       projectId: input.projectId,
+      worktreeId: null,
       name,
       cwd: normalizeHostedWorkspacePath(input.cwd),
       startCommand,

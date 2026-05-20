@@ -38,7 +38,8 @@ export type IconName =
   | "moon"
   | "stop"
   | "external-link"
-  | "shield";
+  | "shield"
+  | "bell";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const common = {
@@ -260,6 +261,13 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       return (
         <svg {...common}>
           <path d="M8 2L3 4v4c0 3 2 5 5 6 3-1 5-3 5-6V4L8 2z" />
+        </svg>
+      );
+    case "bell":
+      return (
+        <svg {...common}>
+          <path d="M5 6a3 3 0 016 0c0 3 1.5 3.5 1.5 5H3.5C3.5 9.5 5 9 5 6z" />
+          <path d="M6.5 13a1.7 1.7 0 003 0" />
         </svg>
       );
     default:

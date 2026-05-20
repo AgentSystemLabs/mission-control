@@ -6,21 +6,23 @@ import {
 } from "@tanstack/react-query";
 import { api } from "~/lib/api";
 import { isWebDaytonaRuntime } from "~/lib/runtime";
+import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 const GIT_STATUS_REFETCH_INTERVAL_MS = 3000;
 
 export const gitKeys = {
-  all: (projectId: string) => ["projects", projectId, "git"] as const,
-  status: (projectId: string) =>
-    ["projects", projectId, "git", "status"] as const,
-  diff: (projectId: string, file: string, staged: boolean) =>
-    ["projects", projectId, "git", "diff", file, staged ? "staged" : "unstaged"] as const,
+  all: (projectId: string, worktreeId?: string | null) =>
+    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git"] as const,
+  status: (projectId: string, worktreeId?: string | null) =>
+    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "status"] as const,
+  diff: (projectId: string, worktreeId: string | null | undefined, file: string, staged: boolean) =>
+    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", file, staged ? "staged" : "unstaged"] as const,
 };
 
-export const gitStatusQueryOptions = (projectId: string) =>
+export const gitStatusQueryOptions = (projectId: string, worktreeId?: string | null) =>
   queryOptions({
-    queryKey: gitKeys.status(projectId),
-    queryFn: () => api.getGitStatus(projectId),
+    queryKey: gitKeys.status(projectId, worktreeId),
+    queryFn: () => api.getGitStatus(projectId, worktreeId),
     enabled: !isWebDaytonaRuntime(),
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
@@ -28,67 +30,70 @@ export const gitStatusQueryOptions = (projectId: string) =>
 
 export const gitDiffQueryOptions = (
   projectId: string,
+  worktreeId: string | null | undefined,
   file: string | null,
   staged: boolean,
 ) =>
   queryOptions({
     queryKey: file
-      ? gitKeys.diff(projectId, file, staged)
-      : (["projects", projectId, "git", "diff", "__none__"] as const),
-    queryFn: () => api.getGitDiff(projectId, file!, staged),
+      ? gitKeys.diff(projectId, worktreeId, file, staged)
+      : (["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", "__none__"] as const),
+    queryFn: () => api.getGitDiff(projectId, file!, staged, worktreeId),
     enabled: !!file && !isWebDaytonaRuntime(),
   });
 
-export const useGitStatus = (projectId: string) =>
-  useQuery(gitStatusQueryOptions(projectId));
+export const useGitStatus = (projectId: string, worktreeId?: string | null) =>
+  useQuery(gitStatusQueryOptions(projectId, worktreeId));
 
 export const useGitDiff = (
   projectId: string,
+  worktreeId: string | null | undefined,
   file: string | null,
   staged: boolean,
-) => useQuery(gitDiffQueryOptions(projectId, file, staged));
+) => useQuery(gitDiffQueryOptions(projectId, worktreeId, file, staged));
 
-function useInvalidateGit(projectId: string) {
+function useInvalidateGit(projectId: string, worktreeId?: string | null) {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: gitKeys.all(projectId) });
+  return () => qc.invalidateQueries({ queryKey: gitKeys.all(projectId, worktreeId) });
 }
 
-export function useStageFiles(projectId: string) {
-  const invalidate = useInvalidateGit(projectId);
+export function useStageFiles(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({
-    mutationFn: (files: string[]) => api.stageFiles(projectId, files),
+    mutationFn: (files: string[]) => api.stageFiles(projectId, files, worktreeId),
     onSettled: invalidate,
   });
 }
 
-export function useUnstageFiles(projectId: string) {
-  const invalidate = useInvalidateGit(projectId);
+export function useUnstageFiles(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({
-    mutationFn: (files: string[]) => api.unstageFiles(projectId, files),
+    mutationFn: (files: string[]) => api.unstageFiles(projectId, files, worktreeId),
     onSettled: invalidate,
   });
 }
 
-export function useGitCommit(projectId: string) {
-  const invalidate = useInvalidateGit(projectId);
+export function useGitCommit(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({
-    mutationFn: (opts?: { autoStage?: boolean }) => api.gitCommit(projectId, opts),
+    mutationFn: (opts?: { autoStage?: boolean }) =>
+      api.gitCommit(projectId, { ...opts, worktreeId: worktreeId ?? null }),
     onSettled: invalidate,
   });
 }
 
-export function useGitPush(projectId: string) {
-  const invalidate = useInvalidateGit(projectId);
+export function useGitPush(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({
-    mutationFn: () => api.gitPush(projectId),
+    mutationFn: () => api.gitPush(projectId, worktreeId),
     onSettled: invalidate,
   });
 }
 
-export function useDeleteProjectFile(projectId: string) {
-  const invalidate = useInvalidateGit(projectId);
+export function useDeleteProjectFile(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({
-    mutationFn: (filePath: string) => api.deleteProjectFile(projectId, filePath),
+    mutationFn: (filePath: string) => api.deleteProjectFile(projectId, filePath, worktreeId),
     onSettled: invalidate,
   });
 }

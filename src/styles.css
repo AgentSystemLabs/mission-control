@@ -459,6 +459,202 @@ button {
   filter: brightness(1.12) saturate(1.1);
 }
 
+.mc-toast-panel {
+  --mc-toast-tone: var(--accent);
+  --mc-toast-frame: var(--mc-panel-image);
+  box-sizing: border-box;
+  width: min(460px, calc(100vw - 32px));
+  min-height: 64px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 16px solid transparent;
+  border-image-source: var(--mc-toast-frame);
+  border-image-slice: 48;
+  border-image-width: 16px;
+  border-image-repeat: stretch;
+  background-color: transparent;
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--surface-0) 86%, var(--mc-toast-tone) 14%),
+      color-mix(in srgb, var(--surface-0) 86%, var(--mc-toast-tone) 14%)
+    ),
+    var(--mc-toast-frame);
+  background-position: 0% 0%, 39.0625% 39.0625%;
+  background-size: auto, 200% 200%;
+  background-repeat: repeat, no-repeat;
+  background-clip: padding-box;
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.35;
+  filter: drop-shadow(
+    0 0 16px color-mix(in srgb, var(--mc-toast-tone) 24%, transparent)
+  );
+}
+
+.mc-toast-success {
+  --mc-toast-tone: var(--status-done);
+  --mc-toast-frame: url("/borders/square_green.png");
+}
+
+.mc-toast-error {
+  --mc-toast-tone: var(--status-failed);
+  --mc-toast-frame: url("/borders/square_red.png");
+}
+
+.mc-toast-panel [data-icon] {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mc-toast-tone) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mc-toast-tone) 54%, transparent);
+  color: color-mix(in srgb, var(--mc-toast-tone) 82%, white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+}
+
+.mc-toast-panel [data-icon] svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mc-toast-panel [data-content] {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mc-toast-panel [data-title] {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.mc-toast-panel [data-description] {
+  color: var(--text-faint);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mc-toast-panel [data-button] {
+  min-height: 30px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--mc-toast-tone) 58%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mc-toast-tone) 20%, transparent);
+  color: color-mix(in srgb, var(--mc-toast-tone) 82%, white);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mc-toast-panel:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mc-toast-tone) 82%, white);
+  outline-offset: 3px;
+}
+
+.mc-dashboard-hero {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: var(--surface-1);
+}
+
+.mc-project-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface-1) 94%, var(--accent) 6%) 0%,
+      var(--surface-1) 48%,
+      color-mix(in srgb, var(--surface-1) 90%, var(--accent) 10%) 100%
+    );
+}
+
+.mc-dashboard-hero-bg {
+  position: absolute;
+  inset: -16px;
+  z-index: -2;
+  width: calc(100% + 32px);
+  height: calc(100% + 32px);
+  object-fit: cover;
+  object-position: center;
+  filter: blur(8px) saturate(0.88) brightness(0.62);
+  opacity: 0.42;
+  transform: scale(1.03);
+  pointer-events: none;
+  user-select: none;
+}
+
+.mc-dashboard-hero-shade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface-0) 88%, transparent) 0%,
+      color-mix(in srgb, var(--surface-0) 68%, transparent) 46%,
+      color-mix(in srgb, var(--surface-0) 82%, transparent) 100%
+    ),
+    color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+
+.mc-dashboard-hero-copy,
+.mc-dashboard-hero-actions {
+  position: relative;
+  z-index: 1;
+}
+
+[data-theme="light"] .mc-dashboard-hero-bg {
+  filter: blur(8px) saturate(0.82) brightness(1.06);
+  opacity: 0.34;
+}
+
+[data-theme="light"] .mc-dashboard-hero-shade {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface-0) 88%, transparent) 0%,
+      color-mix(in srgb, var(--surface-0) 72%, transparent) 48%,
+      color-mix(in srgb, var(--surface-0) 86%, transparent) 100%
+    ),
+    color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+[data-theme="light"] .mc-project-header {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface-1) 92%, var(--accent) 8%) 0%,
+      var(--surface-1) 48%,
+      color-mix(in srgb, var(--surface-1) 86%, var(--accent) 14%) 100%
+    );
+}
+
+@media (max-width: 760px) {
+  .mc-dashboard-hero {
+    margin: -8px -8px 24px !important;
+    padding: 24px 16px 20px !important;
+  }
+
+  .mc-dashboard-hero-actions {
+    width: 100%;
+  }
+
+  .mc-project-header {
+    margin: -8px -8px 24px !important;
+    padding: 18px 16px 16px !important;
+  }
+}
+
 .install-skills-theme-button {
   position: relative;
   isolation: isolate;
@@ -1176,7 +1372,32 @@ body[data-card-glow] .cursor-glow {
   padding-block: 24px !important;
 }
 [data-minimal="true"] .mc-dashboard-header {
-  padding-inline: 0 !important;
+  margin: -24px -32px 28px !important;
+  padding: 32px 32px 24px !important;
+}
+[data-minimal="true"] .mc-dashboard-hero {
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  background: var(--surface-0) !important;
+}
+[data-minimal="true"] .mc-project-header {
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  background: var(--surface-0) !important;
+}
+[data-minimal="true"] .mc-dashboard-hero-bg {
+  filter: blur(8px) saturate(0.74) brightness(0.58) !important;
+  opacity: 0.34 !important;
+}
+[data-minimal="true"] .mc-dashboard-hero-shade {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface-0) 92%, transparent) 0%,
+      color-mix(in srgb, var(--surface-0) 72%, transparent) 48%,
+      color-mix(in srgb, var(--surface-0) 88%, transparent) 100%
+    ),
+    color-mix(in srgb, var(--accent) 8%, transparent) !important;
 }
 
 /* Buttons: single 28/32/40 grid, squared considered surfaces */

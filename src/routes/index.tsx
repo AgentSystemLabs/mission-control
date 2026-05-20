@@ -140,18 +140,28 @@ function MissionControlPage() {
           }}
         >
           <div
-            className="mc-dashboard-header"
+            className="mc-dashboard-header mc-dashboard-hero"
             style={{
               display: "flex",
               alignItems: "flex-end",
               justifyContent: "space-between",
-              marginBottom: 24,
+              margin: "-8px -8px 28px",
               gap: 24,
               flexWrap: "wrap",
-              paddingInline: 16,
+              padding: "28px 24px 24px",
+              position: "relative",
+              overflow: "hidden",
+              isolation: "isolate",
             }}
           >
-            <div>
+            <img
+              src="/daycare.png"
+              alt=""
+              aria-hidden="true"
+              className="mc-dashboard-hero-bg"
+            />
+            <div aria-hidden="true" className="mc-dashboard-hero-shade" />
+            <div className="mc-dashboard-hero-copy">
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: "-0.02em" }}>
                 Projects
               </h1>
@@ -160,7 +170,10 @@ function MissionControlPage() {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <div
+              className="mc-dashboard-hero-actions"
+              style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+            >
               <div
                 className="mc-input-frame"
                 style={{

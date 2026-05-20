@@ -13,6 +13,7 @@ import {
   HTTP_UNAUTHORIZED,
 } from "~/shared/http-status";
 import * as projectsController from "./controllers/projects.controller";
+import * as worktreesController from "./controllers/worktrees.controller";
 import * as tasksController from "./controllers/tasks.controller";
 import * as groupsController from "./controllers/groups.controller";
 import * as userTerminalsController from "./controllers/user-terminals.controller";
@@ -45,6 +46,8 @@ import { isElectronLocalApiRequest } from "./request-runtime";
 
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
 const PROJECT_PATH = /^\/api\/projects\/([^\/]+)$/;
+const PROJECT_WORKTREES_PATH = /^\/api\/projects\/([^\/]+)\/worktrees$/;
+const PROJECT_WORKTREE_PATH = /^\/api\/projects\/([^\/]+)\/worktrees\/([^\/]+)$/;
 const PROJECT_TASKS_PATH = /^\/api\/projects\/([^\/]+)\/tasks$/;
 const PROJECT_FILE_PATH = /^\/api\/projects\/([^\/]+)\/file$/;
 const PROJECT_GIT_PATH = /^\/api\/projects\/([^\/]+)\/git\/([a-z-]+)$/;
@@ -124,6 +127,9 @@ const HOSTED_SESSION_OR_BEARER_ROUTES: ReadonlyArray<{ method: string; pattern: 
   { method: "GET", pattern: /^\/api\/projects\/[^/]+$/ },
   { method: "PATCH", pattern: /^\/api\/projects\/[^/]+$/ },
   { method: "DELETE", pattern: /^\/api\/projects\/[^/]+$/ },
+  { method: "GET", pattern: /^\/api\/projects\/[^/]+\/worktrees$/ },
+  { method: "POST", pattern: /^\/api\/projects\/[^/]+\/worktrees$/ },
+  { method: "DELETE", pattern: /^\/api\/projects\/[^/]+\/worktrees\/[^/]+$/ },
   { method: "GET", pattern: /^\/api\/groups$/ },
   { method: "POST", pattern: /^\/api\/groups$/ },
   { method: "PATCH", pattern: /^\/api\/groups\/[^/]+$/ },
@@ -386,6 +392,18 @@ async function dispatch(
     if (method === "GET") return tasksController.listForProject(id, request);
     if (method === "POST") return tasksController.create(id, request);
   }
+  m = pathname.match(PROJECT_WORKTREES_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return worktreesController.list(id, request);
+    if (method === "POST") return worktreesController.create(id, request);
+  }
+  m = pathname.match(PROJECT_WORKTREE_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    const worktreeId = decode(m[2]);
+    if (method === "DELETE") return worktreesController.remove(id, worktreeId, request);
+  }
   m = pathname.match(PROJECT_FILE_PATH);
   if (m && method === "DELETE") {
     return projectFileController.remove(decode(m[1]), url);
@@ -394,12 +412,12 @@ async function dispatch(
   if (m) {
     const id = decode(m[1]);
     const action = m[2]!;
-    if (action === "status" && method === "GET") return gitController.status(id);
+    if (action === "status" && method === "GET") return gitController.status(id, url);
     if (action === "diff" && method === "GET") return gitController.diff(id, url);
     if (action === "stage" && method === "POST") return gitController.stage(id, request);
     if (action === "unstage" && method === "POST") return gitController.unstage(id, request);
     if (action === "commit" && method === "POST") return gitController.commit(id, request);
-    if (action === "push" && method === "POST") return gitController.push(id);
+    if (action === "push" && method === "POST") return gitController.push(id, request);
   }
   m = pathname.match(PROJECT_USER_TERMINALS_PATH);
   if (m) {

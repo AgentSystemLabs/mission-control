@@ -11,6 +11,9 @@ import {
 import { api } from "./api";
 import { getElectron } from "./electron";
 import type { Project, UserTerminal } from "~/db/schema";
+import { worktreeScopeKey } from "~/shared/worktrees";
+
+type ScopedProject = Project & { activeWorktreeId?: string | null };
 
 type Session = {
   terminal: UserTerminal;
@@ -18,16 +21,21 @@ type Session = {
 };
 
 type Ctx = {
-  project: Project | null;
-  setProject: (project: Project | null) => void;
+  project: ScopedProject | null;
+  setProject: (project: ScopedProject | null) => void;
   panelOpen: boolean;
   togglePanel: () => void;
   setPanelOpen: (open: boolean) => void;
   sessions: Session[];
   runningProjectIds: Set<string>;
+  runningWorktreeIds: Set<string>;
   focusedId: string | null;
   focusTerminal: (id: string) => void;
-  createTerminal: (opts?: { name?: string; startCommand?: string | null }) => Promise<UserTerminal | null>;
+  createTerminal: (opts?: {
+    name?: string;
+    startCommand?: string | null;
+    project?: ScopedProject;
+  }) => Promise<UserTerminal | null>;
   killTerminalsByStartCommand: (
     commands: string[],
     opts?: { ports?: number[] }
@@ -44,8 +52,12 @@ type Ctx = {
 
 const UserTerminalContext = createContext<Ctx | null>(null);
 
+function scopeKeyForProject(project: ScopedProject): string {
+  return worktreeScopeKey(project.id, project.activeWorktreeId);
+}
+
 export function UserTerminalProvider({ children }: { children: ReactNode }) {
-  const [project, setProjectState] = useState<Project | null>(null);
+  const [project, setProjectState] = useState<ScopedProject | null>(null);
   // Sessions for every project visited this app run, keyed by projectId.
   // Sessions stay alive across project switches so PTYs are not killed when
   // the user navigates away and back.
@@ -102,48 +114,52 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     sessionsByProjectRef.current = sessionsByProject;
   }, [sessionsByProject]);
 
-  const panelOpen = project ? (panelOpenByProject[project.id] ?? false) : false;
+  const scopeKey = project ? scopeKeyForProject(project) : null;
+  const panelOpen = scopeKey ? (panelOpenByProject[scopeKey] ?? false) : false;
   const setPanelOpen = useCallback(
     (open: boolean) => {
       if (!project) return;
-      const pid = project.id;
-      setPanelOpenByProject((prev) => (prev[pid] === open ? prev : { ...prev, [pid]: open }));
+      const key = scopeKeyForProject(project);
+      setPanelOpenByProject((prev) => (prev[key] === open ? prev : { ...prev, [key]: open }));
     },
     [project]
   );
   const togglePanel = useCallback(() => {
     if (!project) return;
-    const pid = project.id;
-    setPanelOpenByProject((prev) => ({ ...prev, [pid]: !(prev[pid] ?? true) }));
+    const key = scopeKeyForProject(project);
+    setPanelOpenByProject((prev) => ({ ...prev, [key]: !(prev[key] ?? true) }));
   }, [project]);
 
-  const setProject = useCallback((next: Project | null) => {
-    setProjectState((prev) => (prev?.id === next?.id ? prev : next));
+  const setProject = useCallback((next: ScopedProject | null) => {
+    setProjectState((prev) =>
+      prev?.id === next?.id && prev?.activeWorktreeId === next?.activeWorktreeId ? prev : next
+    );
   }, []);
 
   // Lazy-load each project's persisted terminals the first time we see it.
   // Existing buckets are left alone so live PTYs survive project switches.
   useEffect(() => {
     const id = project?.id;
-    if (!id) return;
-    if (loadedProjectsRef.current.has(id)) return;
-    loadedProjectsRef.current.add(id);
+    const key = project ? scopeKeyForProject(project) : null;
+    if (!id || !key) return;
+    if (loadedProjectsRef.current.has(key)) return;
+    loadedProjectsRef.current.add(key);
 
     let cancelled = false;
     void (async () => {
       try {
-        const { terminals } = await api.listUserTerminals(id);
+        const { terminals } = await api.listUserTerminals(id, project.activeWorktreeId ?? null);
         if (cancelled) return;
         setSessionsByProject((prev) => {
-          if (prev[id]) return prev; // a createTerminal call beat us to it
-          return { ...prev, [id]: terminals.map((t) => ({ terminal: t, ptyId: null })) };
+          if (prev[key]) return prev; // a createTerminal call beat us to it
+          return { ...prev, [key]: terminals.map((t) => ({ terminal: t, ptyId: null })) };
         });
         setFocusedByProject((prev) => {
-          if (prev[id] !== undefined) return prev;
-          return { ...prev, [id]: terminals[0]?.id ?? null };
+          if (prev[key] !== undefined) return prev;
+          return { ...prev, [key]: terminals[0]?.id ?? null };
         });
       } catch {
-        loadedProjectsRef.current.delete(id);
+        loadedProjectsRef.current.delete(key);
       }
     })();
     return () => {
@@ -151,30 +167,53 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     };
   }, [project]);
 
-  const sessions = project ? (sessionsByProject[project.id] ?? []) : [];
+  const sessions = scopeKey ? (sessionsByProject[scopeKey] ?? []) : [];
   const runningProjectIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const [pid, list] of Object.entries(sessionsByProject)) {
-      if (list.some((s) => s.ptyId)) ids.add(pid);
+    for (const [key, list] of Object.entries(sessionsByProject)) {
+      if (list.some((s) => s.ptyId)) ids.add(key.split(":")[0]!);
     }
     return ids;
   }, [sessionsByProject]);
-  const focusedId = project ? (focusedByProject[project.id] ?? null) : null;
+  const runningWorktreeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [key, list] of Object.entries(sessionsByProject)) {
+      if (list.some((s) => s.ptyId)) ids.add(key);
+    }
+    return ids;
+  }, [sessionsByProject]);
+  const focusedId = scopeKey ? (focusedByProject[scopeKey] ?? null) : null;
   const hiddenIds = useMemo<Set<string>>(
-    () => new Set(project ? (hiddenIdsByProject[project.id] ?? []) : []),
-    [project, hiddenIdsByProject]
+    () => new Set(scopeKey ? (hiddenIdsByProject[scopeKey] ?? []) : []),
+    [scopeKey, hiddenIdsByProject]
   );
   const toggleHidden = useCallback(
     (id: string) => {
       if (!project) return;
-      const pid = project.id;
+      const key = scopeKeyForProject(project);
+      const hiddenIds = hiddenIdsByProject[key] ?? [];
+      const hiding = !hiddenIds.includes(id);
       setHiddenIdsByProject((prev) => {
-        const cur = prev[pid] ?? [];
+        const cur = prev[key] ?? [];
         const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
-        return { ...prev, [pid]: next };
+        return { ...prev, [key]: next };
       });
+
+      if (!hiding) {
+        setPanelOpenByProject((prev) => (prev[key] === true ? prev : { ...prev, [key]: true }));
+        return;
+      }
+
+      const visibleAfterHide = (sessionsByProjectRef.current[key] ?? []).filter(
+        (s) => s.terminal.id !== id && !hiddenIds.includes(s.terminal.id)
+      );
+      if (visibleAfterHide.length === 0) {
+        setPanelOpenByProject((prev) =>
+          prev[key] === false ? prev : { ...prev, [key]: false }
+        );
+      }
     },
-    [project]
+    [hiddenIdsByProject, project]
   );
 
   const updateSessions = useCallback(
@@ -189,17 +228,20 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createTerminal = useCallback(
-    async (opts?: { name?: string; startCommand?: string | null }) => {
-      if (!project) return null;
-      const projectId = project.id;
+    async (opts?: { name?: string; startCommand?: string | null; project?: ScopedProject }) => {
+      const targetProject = opts?.project ?? project;
+      if (!targetProject) return null;
+      const projectId = targetProject.id;
+      const key = scopeKeyForProject(targetProject);
       const { terminal } = await api.createUserTerminal(projectId, {
-        cwd: project.path,
+        cwd: targetProject.path,
         name: opts?.name,
         startCommand: opts?.startCommand ?? null,
+        worktreeId: targetProject.activeWorktreeId ?? null,
       });
-      updateSessions(projectId, (prev) => [...prev, { terminal, ptyId: null }]);
-      setFocusFor(projectId, terminal.id);
-      setPanelOpen(true);
+      updateSessions(key, (prev) => [...prev, { terminal, ptyId: null }]);
+      setFocusFor(key, terminal.id);
+      setPanelOpenByProject((prev) => ({ ...prev, [key]: true }));
       return terminal;
     },
     [project, updateSessions, setFocusFor]
@@ -215,6 +257,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       let ownerProjectId: string | null = null;
       let killedPtyId: string | null = null;
       let neighborId: string | null = null;
+      let lastTerminal = false;
       for (const [pid, list] of Object.entries(snapshot)) {
         const idx = list.findIndex((s) => s.terminal.id === id);
         if (idx === -1) continue;
@@ -224,6 +267,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         if (filtered.length > 0) {
           const pick = idx > 0 ? idx - 1 : 0;
           neighborId = filtered[pick]!.terminal.id;
+        } else {
+          lastTerminal = true;
         }
         break;
       }
@@ -244,6 +289,13 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         if (!cur || !cur.includes(id)) return prev;
         return { ...prev, [ownerProjectId!]: cur.filter((x) => x !== id) };
       });
+      if (lastTerminal) {
+        setPanelOpenByProject((prev) =>
+          prev[ownerProjectId!] === false
+            ? prev
+            : { ...prev, [ownerProjectId!]: false }
+        );
+      }
 
       if (killedPtyId && electron) {
         await electron.pty.kill(killedPtyId).catch(() => undefined);
@@ -313,7 +365,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     async (commands: string[], opts?: { ports?: number[] }) => {
       if (!project) return;
       const electron = getElectron();
-      const list = sessionsByProject[project.id] ?? [];
+      const list = sessionsByProject[scopeKeyForProject(project)] ?? [];
       const wanted = new Set(commands.map((c) => c.trim()).filter(Boolean));
       if (wanted.size === 0) return;
       const targets = list.filter(
@@ -334,7 +386,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const focusTerminal = useCallback(
     (id: string) => {
       if (!project) return;
-      setFocusFor(project.id, id);
+      setFocusFor(scopeKeyForProject(project), id);
     },
     [project, setFocusFor]
   );
@@ -343,13 +395,14 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     (delta: 1 | -1) => {
       if (!project) return;
       // No-op when the panel is closed — don't open it as a side effect of cycling.
-      if (!(panelOpenByProject[project.id] ?? false)) return;
-      const list = sessionsByProject[project.id] ?? [];
+      const key = scopeKeyForProject(project);
+      if (!(panelOpenByProject[key] ?? false)) return;
+      const list = sessionsByProject[key] ?? [];
       if (list.length === 0) return;
-      const cur = focusedByProject[project.id] ?? null;
+      const cur = focusedByProject[key] ?? null;
       const idx = cur ? list.findIndex((s) => s.terminal.id === cur) : -1;
       const nextIdx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
-      setFocusFor(project.id, list[nextIdx]!.terminal.id);
+      setFocusFor(key, list[nextIdx]!.terminal.id);
     },
     [project, panelOpenByProject, sessionsByProject, focusedByProject, setFocusFor]
   );
@@ -366,6 +419,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       setPanelOpen,
       sessions,
       runningProjectIds,
+      runningWorktreeIds,
       focusedId,
       focusTerminal,
       createTerminal,
@@ -386,6 +440,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       togglePanel,
       sessions,
       runningProjectIds,
+      runningWorktreeIds,
       focusedId,
       focusTerminal,
       createTerminal,

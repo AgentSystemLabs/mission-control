@@ -6,6 +6,7 @@ import {
   deleteTask,
   getTask,
   listTasksForProject,
+  listTasksForProjectWorktree,
   restoreTask,
   updateStatus,
   updateTask,
@@ -24,6 +25,7 @@ import { HTTP_CREATED } from "~/shared/http-status";
 import { getHostedAuthContext } from "../hosted-auth-context";
 import { isHostedDatabaseEnabled } from "../hosted-pg";
 import { isElectronLocalApiRequest } from "../request-runtime";
+import { getWorktree } from "../services/worktrees";
 
 const createTaskBody = z.object({
   title: z.string().min(1, "title required"),
@@ -34,6 +36,7 @@ const createTaskBody = z.object({
   claudeSessionId: z.string().nullable().optional(),
   claudeSkipPermissions: z.boolean().optional(),
   claudeBareSession: z.boolean().optional(),
+  worktreeId: z.string().nullable().optional(),
 });
 
 const updateTaskBody = z
@@ -66,7 +69,12 @@ export async function listForProject(rawProjectId: string, request: Request): Pr
   if (hosted) {
     return json({ tasks: await listHostedTasksForProject(hosted, parsed.data) });
   }
-  return json({ tasks: listTasksForProject(parsed.data) });
+  const worktreeId = urlWorktreeId(request);
+  return json({
+    tasks: worktreeId === undefined
+      ? listTasksForProject(parsed.data)
+      : listTasksForProjectWorktree(parsed.data, worktreeId),
+  });
 }
 
 export async function create(rawProjectId: string, request: Request): Promise<Response> {
@@ -80,13 +88,24 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
       const t = await createHostedTask(hosted, { ...parsed.data, projectId: projectIdParsed.data });
       return json({ task: t }, { status: HTTP_CREATED });
     }
-    const t = createTask({ ...parsed.data, projectId: projectIdParsed.data });
+    const worktree = getWorktree(projectIdParsed.data, parsed.data.worktreeId ?? null);
+    const t = createTask({
+      ...parsed.data,
+      projectId: projectIdParsed.data,
+      worktreeId: worktree.isMain ? null : worktree.id,
+    });
     return json({ task: t }, { status: HTTP_CREATED });
   } catch (e) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;
     throw e;
   }
+}
+
+function urlWorktreeId(request: Request): string | null | undefined {
+  const value = new URL(request.url).searchParams.get("worktreeId");
+  if (value === null) return undefined;
+  return value && value !== "main" ? value : null;
 }
 
 export async function getOne(rawId: string, request: Request): Promise<Response> {

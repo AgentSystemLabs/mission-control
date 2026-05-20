@@ -1,9 +1,11 @@
 import type { UserTerminal } from "~/db/schema";
 import {
   deleteEphemeralUserTerminalsByProject,
+  deleteEphemeralUserTerminalsByProjectAndWorktree,
   deleteUserTerminalRow,
   findUserTerminalById,
   findVisibleUserTerminalsByProject,
+  findVisibleUserTerminalsByProjectAndWorktree,
   insertUserTerminal,
   updateUserTerminalRow,
 } from "../repositories/user-terminals.repo";
@@ -17,19 +19,32 @@ export function listUserTerminals(projectId: string): UserTerminal[] {
   return findVisibleUserTerminalsByProject(projectId);
 }
 
+export function listUserTerminalsForWorktree(
+  projectId: string,
+  worktreeId: string | null,
+): UserTerminal[] {
+  deleteEphemeralUserTerminalsByProjectAndWorktree(projectId, worktreeId);
+  return findVisibleUserTerminalsByProjectAndWorktree(projectId, worktreeId);
+}
+
 export function createUserTerminal(input: {
   projectId: string;
+  worktreeId?: string | null;
   name?: string;
   cwd?: string | null;
   startCommand?: string | null;
 }): UserTerminal {
   if (!projectExists(input.projectId)) throw new Error("Project does not exist");
 
-  const existing = listUserTerminals(input.projectId);
+  const existing =
+    input.worktreeId === undefined
+      ? listUserTerminals(input.projectId)
+      : listUserTerminalsForWorktree(input.projectId, input.worktreeId);
   const now = Date.now();
   const row: UserTerminal = {
     id: newId("ut"),
     projectId: input.projectId,
+    worktreeId: input.worktreeId ?? null,
     name: (input.name?.trim() || `Terminal ${existing.length + 1}`),
     cwd: input.cwd ?? null,
     startCommand: input.startCommand?.trim() || null,

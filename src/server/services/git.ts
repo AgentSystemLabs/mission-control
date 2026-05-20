@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getProject } from "./projects";
 import { runCli } from "./claude-cli";
+import { resolveProjectWorktreeCwd } from "./worktrees";
 
 const GIT_TIMEOUT_MS = 15_000;
 const PUSH_TIMEOUT_MS = 30_000;
@@ -57,13 +57,12 @@ class GitError extends Error {
   }
 }
 
-function projectCwd(projectId: string): string {
-  const p = getProject(projectId);
-  if (!p) throw new GitError("project not found");
-  if (!p.path || !fs.existsSync(p.path)) {
-    throw new GitError("project path does not exist on disk");
+function projectCwd(projectId: string, worktreeId?: string | null): string {
+  try {
+    return resolveProjectWorktreeCwd(projectId, worktreeId);
+  } catch (e) {
+    throw new GitError(e instanceof Error ? e.message : String(e));
   }
-  return p.path;
 }
 
 type RunGitResult = { stdout: string; stderr: string; code: number };
@@ -170,8 +169,8 @@ export function parsePorcelainZ(stdout: string): { staged: GitChangedFile[]; uns
   return { staged, unstaged };
 }
 
-export async function getGitStatus(projectId: string): Promise<GitStatus> {
-  const cwd = projectCwd(projectId);
+export async function getGitStatus(projectId: string, worktreeId?: string | null): Promise<GitStatus> {
+  const cwd = projectCwd(projectId, worktreeId);
   const [statusOut, branchOut, aheadCount] = await Promise.all([
     gitOk(cwd, ["status", "--porcelain=v1", "-uall", "-z"]),
     gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "HEAD\n"),
@@ -210,8 +209,9 @@ export async function getGitDiff(
   projectId: string,
   file: string,
   staged: boolean,
+  worktreeId?: string | null,
 ): Promise<GitDiff> {
-  const cwd = projectCwd(projectId);
+  const cwd = projectCwd(projectId, worktreeId);
 
   // Untracked files have no index entry — `git diff` emits nothing. Synthesize
   // a unified-diff-style payload so the UI can render +lines for new files.
@@ -283,20 +283,25 @@ function readUntrackedAsDiff(cwd: string, file: string): GitDiff {
   }
 }
 
-export async function stageFiles(projectId: string, files: string[]): Promise<void> {
+export async function stageFiles(
+  projectId: string,
+  files: string[],
+  worktreeId?: string | null,
+): Promise<void> {
   if (files.length === 0) return;
-  const cwd = projectCwd(projectId);
+  const cwd = projectCwd(projectId, worktreeId);
   await gitOk(cwd, ["add", "--", ...files]);
 }
 
 export async function deleteProjectFile(
   projectId: string,
   relPath: string,
+  worktreeId?: string | null,
 ): Promise<void> {
   if (!relPath || relPath.trim() === "") {
     throw new GitError("file path is required");
   }
-  const cwd = projectCwd(projectId);
+  const cwd = projectCwd(projectId, worktreeId);
   const abs = path.resolve(cwd, relPath);
   const rootWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
   if (abs !== cwd && !abs.startsWith(rootWithSep)) {
@@ -316,9 +321,13 @@ export async function deleteProjectFile(
   }
 }
 
-export async function unstageFiles(projectId: string, files: string[]): Promise<void> {
+export async function unstageFiles(
+  projectId: string,
+  files: string[],
+  worktreeId?: string | null,
+): Promise<void> {
   if (files.length === 0) return;
-  const cwd = projectCwd(projectId);
+  const cwd = projectCwd(projectId, worktreeId);
   // `git reset HEAD --` works whether or not HEAD has any history.
   const r = await runGit(cwd, ["reset", "HEAD", "--", ...files]);
   // `git reset` exits 1 on partial when no HEAD yet; treat fatal errors only.
@@ -338,10 +347,10 @@ export type CommitResult =
 
 export async function commit(
   projectId: string,
-  opts: { autoStage?: boolean } = {},
+  opts: { autoStage?: boolean; worktreeId?: string | null } = {},
 ): Promise<CommitResult> {
   const { autoStage = true } = opts;
-  const cwd = projectCwd(projectId);
+  const cwd = projectCwd(projectId, opts.worktreeId);
   // Detect anything that could become a commit (staged or unstaged tracked
   // changes, or untracked files). If nothing, bail before invoking the LLM.
   const status = await gitOk(cwd, ["status", "--porcelain=v1", "-z"]);
@@ -353,7 +362,7 @@ export async function commit(
   if (!cached.trim()) {
     return { kind: "nothing-to-commit" };
   }
-  const message = (await generateCommitMessage(projectId)).trim();
+  const message = (await generateCommitMessage(projectId, opts.worktreeId)).trim();
   if (!message) throw new GitError("generated commit message was empty");
   await gitOk(cwd, ["commit", "-m", message], 30_000);
   const sha = (await gitOk(cwd, ["rev-parse", "HEAD"])).trim();
@@ -364,8 +373,8 @@ export type PushResult =
   | { kind: "pushed"; setUpstream: boolean; output: string }
   | { kind: "nothing-to-push" };
 
-export async function push(projectId: string): Promise<PushResult> {
-  const cwd = projectCwd(projectId);
+export async function push(projectId: string, worktreeId?: string | null): Promise<PushResult> {
+  const cwd = projectCwd(projectId, worktreeId);
   // If an upstream is configured and there are no unpushed commits, surface
   // that to the UI as a distinct kind rather than letting `git push` print
   // "Everything up-to-date".
@@ -424,8 +433,8 @@ Format: a single short subject line (50 chars or fewer, imperative mood, no trai
 --- STAGED DIFF ---
 `;
 
-async function generateCommitMessage(projectId: string): Promise<string> {
-  const cwd = projectCwd(projectId);
+async function generateCommitMessage(projectId: string, worktreeId?: string | null): Promise<string> {
+  const cwd = projectCwd(projectId, worktreeId);
   // Use stat-prefixed diff so the model gets a roof on size.
   const diff = await gitOk(cwd, ["diff", "--cached"], 30_000);
   if (!diff.trim()) throw new GitError("nothing staged");

@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Btn } from "./Btn";
 import { Icon } from "./Icon";
 
 export type Crumb = { label: string; onClick?: () => void; node?: ReactNode };
@@ -40,6 +39,7 @@ export function TopBar({
           display: "flex",
           alignItems: "center",
           gap: 10,
+          minWidth: 0,
         }}
       >
         <button
@@ -157,6 +157,7 @@ export function TopBar({
               display: "inline-flex",
               alignItems: "center",
               gap: 8,
+              minWidth: 0,
               ["WebkitAppRegion" as any]: "no-drag",
             }}
           >

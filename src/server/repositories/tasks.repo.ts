@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { tasks } from "~/db/schema";
 import type { Task } from "~/db/schema";
@@ -12,6 +12,22 @@ export function findTasksByProjectId(projectId: string): Task[] {
     .select()
     .from(tasks)
     .where(eq(tasks.projectId, projectId))
+    .orderBy(desc(tasks.createdAt))
+    .all();
+}
+
+export function findTasksByProjectIdAndWorktreeId(
+  projectId: string,
+  worktreeId: string | null,
+): Task[] {
+  return getDb()
+    .select()
+    .from(tasks)
+    .where(
+      worktreeId
+        ? and(eq(tasks.projectId, projectId), eq(tasks.worktreeId, worktreeId))
+        : and(eq(tasks.projectId, projectId), isNull(tasks.worktreeId))
+    )
     .orderBy(desc(tasks.createdAt))
     .all();
 }

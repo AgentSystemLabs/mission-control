@@ -3,6 +3,7 @@ import {
   createUserTerminal,
   deleteUserTerminal,
   listUserTerminals,
+  listUserTerminalsForWorktree,
   renameUserTerminal,
 } from "../services/user-terminals";
 import {
@@ -16,11 +17,13 @@ import { HTTP_CREATED } from "~/shared/http-status";
 import { getHostedAuthContext } from "../hosted-auth-context";
 import { isHostedDatabaseEnabled } from "../hosted-pg";
 import { isElectronLocalApiRequest } from "../request-runtime";
+import { getWorktree } from "../services/worktrees";
 
 const createTerminalBody = z.object({
   name: z.string().optional(),
   cwd: z.string().nullable().optional(),
   startCommand: z.string().nullable().optional(),
+  worktreeId: z.string().nullable().optional(),
 });
 
 const renameTerminalBody = z.object({
@@ -40,7 +43,12 @@ export async function listForProject(rawProjectId: string, request: Request): Pr
   if (hosted) {
     return json({ terminals: await listHostedUserTerminals(hosted, parsed.data) });
   }
-  return json({ terminals: listUserTerminals(parsed.data) });
+  const worktreeId = urlWorktreeId(request);
+  return json({
+    terminals: worktreeId === undefined
+      ? listUserTerminals(parsed.data)
+      : listUserTerminalsForWorktree(parsed.data, worktreeId),
+  });
 }
 
 export async function create(rawProjectId: string, request: Request): Promise<Response> {
@@ -59,11 +67,13 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
       });
       return json({ terminal: t }, { status: HTTP_CREATED });
     }
+    const worktree = getWorktree(idParsed.data, parsed.data.worktreeId ?? null);
     const t = createUserTerminal({
       projectId: idParsed.data,
       name: parsed.data.name,
       cwd: parsed.data.cwd ?? null,
       startCommand: parsed.data.startCommand ?? null,
+      worktreeId: worktree.isMain ? null : worktree.id,
     });
     return json({ terminal: t }, { status: HTTP_CREATED });
   } catch (e) {
@@ -71,6 +81,12 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
     if (mapped) return mapped;
     throw e;
   }
+}
+
+function urlWorktreeId(request: Request): string | null | undefined {
+  const value = new URL(request.url).searchParams.get("worktreeId");
+  if (value === null) return undefined;
+  return value && value !== "main" ? value : null;
 }
 
 export async function rename(rawId: string, request: Request): Promise<Response> {

@@ -72,6 +72,25 @@ export function UserTerminalPanel() {
     }
   }, [paneWeights]);
 
+  const onTerminalTabClick = useCallback(
+    (id: string, hidden: boolean) => {
+      if (!panelOpen) {
+        if (hidden) toggleHidden(id);
+        focusTerminal(id);
+        setPanelOpen(true);
+        return;
+      }
+
+      if (hidden) {
+        toggleHidden(id);
+        focusTerminal(id);
+      } else {
+        toggleHidden(id);
+      }
+    },
+    [focusTerminal, panelOpen, setPanelOpen, toggleHidden],
+  );
+
   const onSplitterDrag = useCallback(
     (leftId: string, rightId: string, event: React.MouseEvent) => {
       event.preventDefault();
@@ -161,13 +180,22 @@ export function UserTerminalPanel() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          gap: 12,
           padding: "8px 14px",
           flexShrink: 0,
           width: "100%",
           color: "inherit",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flex: "1 1 auto",
+            minWidth: 0,
+          }}
+        >
           <Icon name="terminal" size={13} style={{ color: "var(--accent)" }} />
           <span
             style={{
@@ -175,21 +203,23 @@ export function UserTerminalPanel() {
               fontSize: 11.5,
               fontWeight: 600,
               letterSpacing: "0.02em",
+              flex: "0 0 auto",
             }}
           >
             Project Terminals
           </span>
-          {panelOpen && sessions.length > 0 && (
+          {sessions.length > 0 && (
             <span
               style={{
                 width: 1,
                 height: 14,
                 background: "var(--border)",
                 marginLeft: 4,
+                flex: "0 0 auto",
               }}
             />
           )}
-          {panelOpen && sessions.length > 0 && (
+          {sessions.length > 0 && (
             <div
               style={{
                 display: "flex",
@@ -197,23 +227,34 @@ export function UserTerminalPanel() {
                 gap: 4,
                 marginLeft: 8,
                 alignItems: "center",
+                flex: "1 1 auto",
+                minWidth: 0,
               }}
             >
               {sessions.map((s) => {
                 const hidden = hiddenIds.has(s.terminal.id);
-                const active = !hidden && focusedId === s.terminal.id;
+                const focused = focusedId === s.terminal.id;
+                const active = panelOpen ? !hidden && focused : focused;
+                const dimmed = panelOpen && hidden;
                 return (
                   <button
                     key={s.terminal.id}
-                    onClick={() => {
-                      if (hidden) {
-                        toggleHidden(s.terminal.id);
-                        focusTerminal(s.terminal.id);
-                      } else {
-                        toggleHidden(s.terminal.id);
-                      }
-                    }}
-                    title={hidden ? "Show terminal" : "Hide terminal"}
+                    onClick={() => onTerminalTabClick(s.terminal.id, hidden)}
+                    title={
+                      panelOpen
+                        ? hidden
+                          ? "Show terminal"
+                          : "Hide terminal"
+                        : "Open terminal"
+                    }
+                    aria-label={
+                      panelOpen
+                        ? hidden
+                          ? `Show terminal ${s.terminal.name}`
+                          : `Hide terminal ${s.terminal.name}`
+                        : `Open terminal ${s.terminal.name}`
+                    }
+                    aria-pressed={panelOpen ? !hidden : undefined}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -224,13 +265,22 @@ export function UserTerminalPanel() {
                       borderRadius: 4,
                       fontFamily: "var(--mono)",
                       fontSize: 11,
-                      color: hidden ? "var(--text-faint)" : "var(--text)",
-                      opacity: hidden ? 0.6 : 1,
+                      color: dimmed ? "var(--text-faint)" : "var(--text)",
+                      opacity: dimmed ? 0.6 : 1,
                       cursor: "pointer",
+                      maxWidth: 154,
+                      minWidth: 0,
                     }}
                   >
                     <Icon name="terminal" size={10} style={{ color: "var(--text-faint)" }} />
-                    <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span
+                      style={{
+                        maxWidth: 120,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       {s.terminal.name}
                     </span>
                     {s.ptyId && (
@@ -249,7 +299,7 @@ export function UserTerminalPanel() {
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
           <StaticHotkeyTooltip hotkey="⌘T" label="New terminal">
             <Btn
               variant="ghost"

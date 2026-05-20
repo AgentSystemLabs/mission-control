@@ -3,12 +3,15 @@ import { api, setApiToken } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { isWebDaytonaRuntime } from "~/lib/runtime";
 import type { LicenseState } from "~/shared/license";
+import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 export const queryKeys = {
   projects: ["projects"] as const,
   project: (id: string) => ["projects", id] as const,
   groups: ["groups"] as const,
-  tasks: (projectId: string) => ["projects", projectId, "tasks"] as const,
+  tasks: (projectId: string, worktreeId?: string | null) =>
+    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "tasks"] as const,
+  worktrees: (projectId: string) => ["projects", projectId, "worktrees"] as const,
   settings: ["settings"] as const,
   apiToken: ["api-token"] as const,
   license: ["license"] as const,
@@ -16,6 +19,8 @@ export const queryKeys = {
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
     ["projects", projectId, "user-terminals"] as const,
+  scopedUserTerminals: (projectId: string, worktreeId?: string | null) =>
+    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "user-terminals"] as const,
   usage: (days: number) => ["usage", days] as const,
 };
 
@@ -46,10 +51,16 @@ export const groupsQueryOptions = () =>
     queryFn: async () => (await api.listGroups()).groups,
   });
 
-export const tasksQueryOptions = (projectId: string) =>
+export const tasksQueryOptions = (projectId: string, worktreeId?: string | null) =>
   queryOptions({
-    queryKey: queryKeys.tasks(projectId),
-    queryFn: async () => (await api.listTasks(projectId)).tasks,
+    queryKey: queryKeys.tasks(projectId, worktreeId),
+    queryFn: async () => (await api.listTasks(projectId, worktreeId)).tasks,
+  });
+
+export const worktreesQueryOptions = (projectId: string) =>
+  queryOptions({
+    queryKey: queryKeys.worktrees(projectId),
+    queryFn: async () => (await api.listWorktrees(projectId)).worktrees,
   });
 
 export const settingsQueryOptions = () =>
@@ -95,10 +106,10 @@ export const entitlementsQueryOptions = () =>
     queryFn: async () => (await api.getEntitlements()).entitlements,
   });
 
-export const userTerminalsQueryOptions = (projectId: string) =>
+export const userTerminalsQueryOptions = (projectId: string, worktreeId?: string | null) =>
   queryOptions({
-    queryKey: queryKeys.userTerminals(projectId),
-    queryFn: async () => (await api.listUserTerminals(projectId)).terminals,
+    queryKey: queryKeys.scopedUserTerminals(projectId, worktreeId),
+    queryFn: async () => (await api.listUserTerminals(projectId, worktreeId)).terminals,
   });
 
 export const DEFAULT_USAGE_DAYS = 30;
@@ -114,13 +125,14 @@ export const usageQueryOptions = (days: number = DEFAULT_USAGE_DAYS) =>
 export const useProjects = () => useQuery(projectsQueryOptions());
 export const useProject = (id: string) => useQuery(projectQueryOptions(id));
 export const useGroups = () => useQuery(groupsQueryOptions());
-export const useTasks = (projectId: string) =>
-  useQuery(tasksQueryOptions(projectId));
+export const useTasks = (projectId: string, worktreeId?: string | null) =>
+  useQuery(tasksQueryOptions(projectId, worktreeId));
+export const useWorktrees = (projectId: string) => useQuery(worktreesQueryOptions(projectId));
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useApiToken = () => useQuery(apiTokenQueryOptions());
 export const useLicense = () => useQuery(licenseQueryOptions());
 export const useEntitlements = () => useQuery(entitlementsQueryOptions());
-export const useUserTerminalsQuery = (projectId: string) =>
-  useQuery(userTerminalsQueryOptions(projectId));
+export const useUserTerminalsQuery = (projectId: string, worktreeId?: string | null) =>
+  useQuery(userTerminalsQueryOptions(projectId, worktreeId));
 export const useUsage = (days: number = DEFAULT_USAGE_DAYS) =>
   useQuery(usageQueryOptions(days));
