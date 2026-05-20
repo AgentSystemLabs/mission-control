@@ -55,6 +55,8 @@ export function TaskCard({
         width: "100%",
         cursor: "pointer",
         transition: "box-shadow 0.15s, background 0.15s",
+        // Keep the card's internal z-index layers below page-level overlays.
+        zIndex: 0,
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
