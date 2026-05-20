@@ -1,6 +1,7 @@
 node_modules
 .codex
 .claude
+.cursor
 dist
 dist-electron
 dist-server
