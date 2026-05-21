@@ -158,6 +158,7 @@ function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<stri
     path.join(home, ".docker", "bin"),
     path.join(home, ".codex", "bin"),
     path.join(home, ".cursor", "bin"),
+    path.join(localAppData, "OpenAI", "Codex", "bin"),
     path.join(appData, "npm"),
     path.join(appData, ".npm-global", "bin"),
     path.join(voltaHome, "bin"),
@@ -177,6 +178,13 @@ function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<stri
     path.join(programFilesX86, "Git", "bin"),
     path.join(systemRoot, "System32"),
     systemRoot,
+    ...existingChildDirs(path.join(localAppData, "Packages"), [
+      "LocalCache",
+      "Local",
+      "OpenAI",
+      "Codex",
+      "bin",
+    ]),
   ];
 }
 
@@ -209,6 +217,8 @@ function posixPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
     "/bin",
     "/usr/sbin",
     "/sbin",
+    "/Applications/Codex.app/Contents/Resources",
+    path.join(home, "Applications", "Codex.app", "Contents", "Resources"),
   ];
 }
 

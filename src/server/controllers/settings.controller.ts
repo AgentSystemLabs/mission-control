@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  deleteSetting,
   getBooleanSetting,
   getSetting,
   setBooleanSetting,
@@ -10,7 +11,14 @@ import {
   isAccentColorId,
   type AccentColorId,
 } from "~/lib/accent-colors";
+import {
+  COMMIT_CLI_VALUES,
+  isCommitCli,
+  type CommitCli,
+} from "~/shared/commit-cli";
 import { json, parseJsonBody } from "./_helpers";
+
+const COMMIT_CLI_SETTING_KEY = "commit_cli";
 
 // The api bearer token is intentionally NOT delivered over HTTP. It is only
 // readable through the Electron IPC channel `settings:getToken`, so a page
@@ -27,12 +35,18 @@ const updateSettingsBody = z
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
     launchOverlayEnabled: z.boolean(),
+    commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
   })
   .partial();
 
 function getAccentColorSetting(): AccentColorId {
   const value = getSetting("accent_color");
   return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
+}
+
+function getCommitCliSetting(): CommitCli | null {
+  const value = getSetting(COMMIT_CLI_SETTING_KEY);
+  return isCommitCli(value) ? value : null;
 }
 
 function settingsPayload() {
@@ -47,6 +61,7 @@ function settingsPayload() {
       false,
     ),
     launchOverlayEnabled: getBooleanSetting("launch_overlay_enabled", false),
+    commitCli: getCommitCliSetting(),
   };
 }
 
@@ -82,5 +97,22 @@ export async function update(request: Request): Promise<Response> {
   if (body.launchOverlayEnabled !== undefined) {
     setBooleanSetting("launch_overlay_enabled", body.launchOverlayEnabled);
   }
+  if (body.commitCli !== undefined) {
+    if (body.commitCli === null) {
+      deleteSetting(COMMIT_CLI_SETTING_KEY);
+    } else {
+      setSetting(COMMIT_CLI_SETTING_KEY, body.commitCli);
+    }
+  }
   return json(settingsPayload());
+}
+
+/** Used by the commit service to read the persisted CLI choice without an HTTP round-trip. */
+export function readCommitCliSetting(): CommitCli | null {
+  return getCommitCliSetting();
+}
+
+/** Persist a CLI choice from the server side (used when auto-detection seeds a value). */
+export function writeCommitCliSetting(cli: CommitCli): void {
+  setSetting(COMMIT_CLI_SETTING_KEY, cli);
 }

@@ -43,8 +43,10 @@ export type SpawnPlan =
   | {
       mode: "agent";
       agent: TaskAgentSpawn;
-      binary: string;       // absolute path to the agent binary
-      argv: string[];        // already-tokenized arguments, no shell parsing
+      binary: string;       // resolved agent binary/shim
+      argv: string[];        // already-tokenized agent arguments, no shell parsing
+      spawnTarget: string;  // executable passed to node-pty
+      spawnArgs: string[];  // argv passed to node-pty
       cwd: string;          // canonical (realpath'd) cwd — pass this to spawn, not the original request
     }
   | {
@@ -66,6 +68,8 @@ export type SpawnPolicyDeps = {
   resolveCommand: (name: string) => string | null;
   // Returns the user's login shell and its argv for the given command.
   resolveShell: () => { shell: string; shellArgs: (cmd: string | undefined) => string[] };
+  platform?: NodeJS.Platform;
+  windowsSystemRoot?: () => string | undefined;
 };
 
 export class SpawnPolicyError extends Error {
@@ -115,6 +119,34 @@ const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, A
     "--force": { value: false, requiresDangerouslySkipPermissions: true },
   },
 };
+
+const WINDOWS_COMMAND_SCRIPT_EXTS = new Set([".bat", ".cmd"]);
+
+function quoteCmdArg(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function windowsCmdExe(deps: SpawnPolicyDeps): string {
+  const root = deps.windowsSystemRoot?.() ?? process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
+  return path.win32.join(root, "System32", "cmd.exe");
+}
+
+function nodePtySpawnTarget(
+  binary: string,
+  argv: string[],
+  deps: SpawnPolicyDeps,
+): { spawnTarget: string; spawnArgs: string[] } {
+  const platform = deps.platform ?? process.platform;
+  const ext = path.extname(binary).toLowerCase();
+  if (platform === "win32" && WINDOWS_COMMAND_SCRIPT_EXTS.has(ext)) {
+    const command = [quoteCmdArg(binary), ...argv.map(quoteCmdArg)].join(" ");
+    return {
+      spawnTarget: windowsCmdExe(deps),
+      spawnArgs: ["/d", "/s", "/c", command],
+    };
+  }
+  return { spawnTarget: binary, spawnArgs: argv };
+}
 
 function withinRoot(real: string, root: string): boolean {
   if (real === root) return true;
@@ -297,5 +329,12 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
     );
   }
 
-  return { mode: "agent", agent: agentKey, binary: resolved, argv, cwd: realCwd };
+  return {
+    mode: "agent",
+    agent: agentKey,
+    binary: resolved,
+    argv,
+    ...nodePtySpawnTarget(resolved, argv, deps),
+    cwd: realCwd,
+  };
 }

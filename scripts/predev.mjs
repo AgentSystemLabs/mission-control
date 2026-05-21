@@ -5,7 +5,11 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const env = { ...process.env };
 
+env.MC_DEV_HOST ||= "127.0.0.1";
+env.MC_DEV_PORT ||= "5173";
 env.POSTGRES_PORT ||= inferPostgresPortFromDotenv() || "55432";
+
+cleanupStaleDevServer(Number(env.MC_DEV_PORT));
 
 console.log(`[predev] starting local Postgres on localhost:${env.POSTGRES_PORT}`);
 run("docker", ["compose", "up", "-d", "--wait", "postgres"]);
@@ -26,6 +30,82 @@ function run(command, args) {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function cleanupStaleDevServer(port) {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return;
+
+  const stalePids = pidsListeningOnPort(port).filter(isRepoViteProcess);
+  if (stalePids.length === 0) return;
+
+  console.log(
+    `[predev] stopping stale Mission Control dev server on ${env.MC_DEV_HOST}:${port} ` +
+      `(pid${stalePids.length === 1 ? "" : "s"} ${stalePids.join(", ")})`
+  );
+
+  for (const pid of stalePids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  }
+
+  const deadline = Date.now() + 1500;
+  while (
+    Date.now() < deadline &&
+    pidsListeningOnPort(port).some((pid) => stalePids.includes(pid))
+  ) {
+    sleepSync(100);
+  }
+
+  for (const pid of pidsListeningOnPort(port).filter((pid) => stalePids.includes(pid))) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+function pidsListeningOnPort(port) {
+  const result = spawnSync("lsof", ["-nP", `-tiTCP:${port}`, "-sTCP:LISTEN"], {
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0) return [];
+
+  return (result.stdout || "")
+    .split(/\s+/)
+    .map((raw) => Number(raw))
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+}
+
+function isRepoViteProcess(pid) {
+  const cwd = processCwd(pid);
+  if (!cwd || resolve(cwd) !== root) return false;
+
+  const command = processCommand(pid);
+  return /\bvite(\.js)?\b/.test(command) && command.includes("--strictPort");
+}
+
+function processCommand(pid) {
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+    encoding: "utf8",
+  });
+  return result.status === 0 ? result.stdout.trim() : "";
+}
+
+function processCwd(pid) {
+  const result = spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0) return null;
+  const line = result.stdout.split(/\r?\n/).find((entry) => entry.startsWith("n"));
+  return line ? line.slice(1) : null;
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function inferPostgresPortFromDotenv() {

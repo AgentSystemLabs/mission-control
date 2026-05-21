@@ -18,6 +18,9 @@ const stageBody = z.object({
 const commitBody = z.object({
   autoStage: z.boolean().optional(),
   worktreeId: z.string().nullable().optional(),
+  /** Verbatim commit message; when provided, the CLI generation step is
+   * skipped entirely. Used by the ship-failed dialog's manual recovery. */
+  message: z.string().trim().min(1).max(4_000).optional(),
 });
 
 function queryWorktreeId(url: URL): string | null {
@@ -28,7 +31,12 @@ function queryWorktreeId(url: URL): string | null {
 function asGitErrorResponse(e: unknown): Response {
   const payload = gitErrorPayload(e);
   return new Response(
-    JSON.stringify({ error: payload.message, stderr: payload.stderr }),
+    JSON.stringify({
+      error: payload.message,
+      stderr: payload.stderr,
+      kind: payload.kind,
+      cli: payload.cli,
+    }),
     { status: HTTP_BAD_REQUEST, headers: { "content-type": "application/json" } },
   );
 }
@@ -92,6 +100,7 @@ export async function commit(rawId: string, request: Request): Promise<Response>
     return json(await gitCommit(idParsed.data, {
       autoStage: parsed.data.autoStage,
       worktreeId: parsed.data.worktreeId ?? null,
+      message: parsed.data.message,
     }));
   } catch (e) {
     return handleDomainError(e) ?? asGitErrorResponse(e);

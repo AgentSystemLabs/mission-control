@@ -562,81 +562,22 @@ button {
 }
 
 .mc-dashboard-hero {
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  background: var(--surface-1);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: transparent;
 }
 
 .mc-project-header {
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--surface-1) 94%, var(--accent) 6%) 0%,
-      var(--surface-1) 48%,
-      color-mix(in srgb, var(--surface-1) 90%, var(--accent) 10%) 100%
-    );
-}
-
-.mc-dashboard-hero-bg {
-  position: absolute;
-  inset: -16px;
-  z-index: -2;
-  width: calc(100% + 32px);
-  height: calc(100% + 32px);
-  object-fit: cover;
-  object-position: center;
-  filter: blur(8px) saturate(0.88) brightness(0.62);
-  opacity: 0.42;
-  transform: scale(1.03);
-  pointer-events: none;
-  user-select: none;
-}
-
-.mc-dashboard-hero-shade {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--surface-0) 88%, transparent) 0%,
-      color-mix(in srgb, var(--surface-0) 68%, transparent) 46%,
-      color-mix(in srgb, var(--surface-0) 82%, transparent) 100%
-    ),
-    color-mix(in srgb, var(--accent) 10%, transparent);
-  pointer-events: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: transparent;
 }
 
 .mc-dashboard-hero-copy,
 .mc-dashboard-hero-actions {
   position: relative;
-  z-index: 1;
-}
-
-[data-theme="light"] .mc-dashboard-hero-bg {
-  filter: blur(8px) saturate(0.82) brightness(1.06);
-  opacity: 0.34;
-}
-
-[data-theme="light"] .mc-dashboard-hero-shade {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--surface-0) 88%, transparent) 0%,
-      color-mix(in srgb, var(--surface-0) 72%, transparent) 48%,
-      color-mix(in srgb, var(--surface-0) 86%, transparent) 100%
-    ),
-    color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 [data-theme="light"] .mc-project-header {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--surface-1) 92%, var(--accent) 8%) 0%,
-      var(--surface-1) 48%,
-      color-mix(in srgb, var(--surface-1) 86%, var(--accent) 14%) 100%
-    );
+  background: transparent;
 }
 
 @media (max-width: 760px) {
@@ -1385,21 +1326,6 @@ body[data-card-glow] .cursor-glow {
   border-radius: 0 !important;
   background: var(--surface-0) !important;
 }
-[data-minimal="true"] .mc-dashboard-hero-bg {
-  filter: blur(8px) saturate(0.74) brightness(0.58) !important;
-  opacity: 0.34 !important;
-}
-[data-minimal="true"] .mc-dashboard-hero-shade {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--surface-0) 92%, transparent) 0%,
-      color-mix(in srgb, var(--surface-0) 72%, transparent) 48%,
-      color-mix(in srgb, var(--surface-0) 88%, transparent) 100%
-    ),
-    color-mix(in srgb, var(--accent) 8%, transparent) !important;
-}
-
 /* Buttons: single 28/32/40 grid, squared considered surfaces */
 [data-minimal="true"] .mc-btn-primary,
 [data-minimal="true"] .mc-btn-frame,

@@ -76,6 +76,32 @@ export type LaunchProcessKillResult = {
 
 export type PtySpawnAgent = "claude-code" | "codex" | "cursor-cli";
 
+export type SessionTerminalDebugLogInput = {
+  level?: "error" | "warn";
+  stage: string;
+  message: string;
+  source?: "pty-manager" | "renderer";
+  taskId?: string;
+  ptyId?: string;
+  agent?: string;
+  cwd?: string;
+  command?: string;
+  exitCode?: number;
+  signal?: number | string;
+  elapsedMs?: number;
+  details?: Record<string, unknown>;
+  outputTail?: string;
+};
+
+export type SessionTerminalDebugLogEntry = SessionTerminalDebugLogInput & {
+  id: string;
+  level: "error" | "warn";
+  source: "pty-manager" | "renderer";
+  createdAt: string;
+  platform: NodeJS.Platform;
+  arch: string;
+};
+
 export type BasePtySpawnOptions = {
   taskId: string;
   cwd: string;
@@ -116,6 +142,13 @@ export type ElectronBridge = {
   settings: {
     getToken: () => Promise<string>;
     regenerateToken: () => Promise<string>;
+  };
+  debugLog: {
+    listSessionTerminalErrors: () => Promise<SessionTerminalDebugLogEntry[]>;
+    clearSessionTerminalErrors: () => Promise<{ ok: true }>;
+    recordSessionTerminalError: (
+      input: SessionTerminalDebugLogInput,
+    ) => Promise<SessionTerminalDebugLogEntry>;
   };
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;

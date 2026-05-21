@@ -53,6 +53,17 @@ describe("Electron shell environment helpers", () => {
     const dockerDesktopBin = path.join(root, "Program Files", "Docker", "Docker", "resources", "bin");
     const nvmHome = path.join(root, "nvm");
     const nvmSymlink = path.join(root, "nodejs");
+    const codexBin = path.join(localAppData, "OpenAI", "Codex", "bin");
+    const codexPackageBin = path.join(
+      localAppData,
+      "Packages",
+      "OpenAI.Codex_test",
+      "LocalCache",
+      "Local",
+      "OpenAI",
+      "Codex",
+      "bin"
+    );
 
     for (const dir of [
       path.join(home, ".local", "bin"),
@@ -62,6 +73,8 @@ describe("Electron shell environment helpers", () => {
       pnpmHome,
       userDockerBin,
       dockerDesktopBin,
+      codexBin,
+      codexPackageBin,
       path.join(nvmHome, "v24.0.0"),
       nvmSymlink,
       path.join(localAppData, "Microsoft", "WindowsApps"),
@@ -95,6 +108,8 @@ describe("Electron shell environment helpers", () => {
     expect(entries).toContain(pnpmHome);
     expect(entries).toContain(userDockerBin);
     expect(entries).toContain(dockerDesktopBin);
+    expect(entries).toContain(codexBin);
+    expect(entries).toContain(codexPackageBin);
     expect(entries).toContain(path.join(nvmHome, "v24.0.0"));
     expect(entries).toContain(nvmSymlink);
     expect(entries).toContain(path.join(localAppData, "Microsoft", "WindowsApps"));
@@ -153,6 +168,24 @@ describe("Electron shell environment helpers", () => {
 
     expect(entries).toContain(userDockerBin);
     expect(entries).toContain(dockerDesktopBin);
+  });
+
+  it("adds POSIX Codex app CLI resource directories", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-posix-codex-path-"));
+    const home = path.join(root, "home");
+    const userCodexResources = path.join(home, "Applications", "Codex.app", "Contents", "Resources");
+    const systemCodexResources = "/Applications/Codex.app/Contents/Resources";
+
+    fs.mkdirSync(userCodexResources, { recursive: true });
+
+    const entries = buildUserPath("", {
+      platform: "darwin",
+      homeDir: home,
+      pathExists: (entry) => entry === userCodexResources || entry === systemCodexResources,
+    }).split(path.delimiter);
+
+    expect(entries).toContain(systemCodexResources);
+    expect(entries).toContain(userCodexResources);
   });
 
   it("preserves POSIX base PATH order before guessed Node-manager versions", () => {

@@ -26,6 +26,7 @@ import * as hooksController from "./controllers/hooks.controller";
 import * as usageController from "./controllers/usage.controller";
 import * as eventsController from "./controllers/events.controller";
 import * as gitController from "./controllers/git.controller";
+import * as commitCliController from "./controllers/commit-cli.controller";
 import * as projectFileController from "./controllers/project-file.controller";
 import * as entitlementsController from "./controllers/entitlements.controller";
 import * as remotePtyController from "./controllers/remote-pty.controller";
@@ -465,6 +466,9 @@ async function dispatch(
   if (pathname === "/api/settings") {
     if (method === "GET") return settingsController.read();
     if (method === "POST") return settingsController.update(request);
+  }
+  if (pathname === "/api/commit-cli/detect" && method === "GET") {
+    return commitCliController.detect();
   }
 
   // License

@@ -37,6 +37,20 @@ import {
   DEFAULT_ACCENT_COLOR,
 } from "~/lib/accent-colors";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
+import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
+
+/** Source of truth for which panel ids the OPEN_SETTINGS_EVENT handler will
+ * accept from untrusted dispatchers (any leaf component). Keep in sync with
+ * SettingsPanelId. */
+const SETTINGS_PANEL_IDS: readonly SettingsPanelId[] = [
+  "general",
+  "defaults",
+  "theme",
+  "license",
+  "keybindings",
+  "session-debug",
+  "terms",
+];
 import { UsagePanel } from "~/components/views/UsagePanel";
 import { AuthGate, useHostedSession } from "~/components/views/AuthGate";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
@@ -175,6 +189,20 @@ function Shell() {
     setSettingsInitialPanel(initial);
     setActivePanel("settings");
   };
+
+  // Leaf components (e.g. ShipFailedDialog) dispatch OPEN_SETTINGS_EVENT to
+  // request the Settings panel without prop-drilling through every parent.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ panel?: string }>).detail;
+      const panel = detail?.panel;
+      openSettings(SETTINGS_PANEL_IDS.includes(panel as SettingsPanelId)
+        ? (panel as SettingsPanelId)
+        : "general");
+    };
+    window.addEventListener(OPEN_SETTINGS_EVENT, handler);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
+  }, []);
   useTheme();
   const { data: settings } = useSettings();
   const { data: projects } = useProjects();

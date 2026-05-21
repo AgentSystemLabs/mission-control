@@ -1,10 +1,17 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
+import { ApiError } from "~/lib/api";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
+import { isCommitCli, type CommitCli } from "~/shared/commit-cli";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
+import {
+  ShipFailedDialog,
+  SHIP_FAILED_INITIAL,
+  type ShipFailedDialogState,
+} from "./ShipFailedDialog";
 
 const activeShipOperations = new Map<string, number>();
 const shipOperationListeners = new Set<() => void>();
@@ -60,6 +67,91 @@ function Spinner() {
     >
       <Icon name="refresh" size={11} />
     </span>
+  );
+}
+
+type CommitCliFailure = {
+  cli: CommitCli | null;
+  message: string;
+  stderr?: string;
+  kind: "commit-generation-failed" | "no-commit-cli";
+};
+
+/** Pull the typed commit-failure payload out of an ApiError body, if present.
+ * Returns null when the error isn't an AI-generation failure so the caller
+ * falls back to the existing toast/banner path. */
+function readCommitCliFailure(error: unknown): CommitCliFailure | null {
+  if (!(error instanceof ApiError)) return null;
+  const body = error.body;
+  if (!body || typeof body !== "object") return null;
+  const kind = (body as { kind?: unknown }).kind;
+  if (kind !== "commit-generation-failed" && kind !== "no-commit-cli") return null;
+  const rawCli = (body as { cli?: unknown }).cli;
+  const stderrRaw = (body as { stderr?: unknown }).stderr;
+  const messageRaw = (body as { error?: unknown }).error;
+  return {
+    cli: isCommitCli(rawCli) ? rawCli : null,
+    message: typeof messageRaw === "string" ? messageRaw : error.message,
+    stderr: typeof stderrRaw === "string" ? stderrRaw : undefined,
+    kind,
+  };
+}
+
+/** Used when a parent didn't pass `onError` — surfaces failures through the
+ * same sonner channel as the success path so the user never sees a Ship
+ * spinner stop with no follow-up. */
+function showShipErrorToast(title: string, detail: string) {
+  toast.custom(
+    () => (
+      <CardFrame
+        solid
+        style={{
+          minWidth: 320,
+          maxWidth: 460,
+          padding: "14px 16px",
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 999,
+            background: "color-mix(in srgb, var(--status-failed) 22%, transparent)",
+            border:
+              "1px solid color-mix(in srgb, var(--status-failed) 50%, transparent)",
+            color: "var(--status-failed)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Icon name="x" size={14} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 13 }}>
+            {title}
+          </div>
+          <div
+            title={detail}
+            style={{
+              color: "var(--text-faint)",
+              fontSize: 12,
+              marginTop: 2,
+              whiteSpace: "pre-wrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {detail}
+          </div>
+        </div>
+      </CardFrame>
+    ),
+    { duration: 8000 },
   );
 }
 
@@ -148,44 +240,130 @@ export function CommitPushButton({
   const { data: status } = useGitStatus(projectId, worktreeId);
   const projectShipping = useProjectShipping(projectId, worktreeId);
   const aheadCount = status?.aheadCount ?? null;
+  const [shipFailed, setShipFailed] = useState<ShipFailedDialogState>(
+    SHIP_FAILED_INITIAL,
+  );
+  const [manualBusy, setManualBusy] = useState(false);
+
+  /**
+   * Run commit (with optional manual message) then push, share toasts.
+   * Returns true on success, false when the commit step threw — the caller
+   * decides whether that translates into the dialog opening or a toast.
+   */
+  const runShip = useCallback(
+    async (manualMessage?: string): Promise<{ ok: boolean; error?: unknown }> => {
+      let committedMessage: string | null = null;
+      try {
+        const c = await commitM.mutateAsync(
+          manualMessage ? { autoStage, message: manualMessage } : { autoStage },
+        );
+        if (c.kind === "committed") {
+          committedMessage = c.message.split("\n")[0];
+        }
+        const p = await pushM.mutateAsync();
+        if (c.kind === "nothing-to-commit" && p.kind === "nothing-to-push") {
+          const detail = autoStage
+            ? "There are no changes to commit and nothing to push."
+            : "There are no accepted changes to ship.";
+          showShipToast("Nothing to ship", detail);
+          onNotice?.(detail);
+          return { ok: true };
+        }
+        const parts: string[] = [];
+        if (committedMessage) parts.push(`Committed: ${committedMessage}`);
+        if (p.kind === "pushed") {
+          parts.push(p.setUpstream ? "pushed and set upstream" : "pushed");
+        } else if (!committedMessage) {
+          parts.push("nothing to push");
+        }
+        const detail = parts.join(" — ");
+        showShipToast("Ship complete", detail);
+        onNotice?.(detail);
+        return { ok: true };
+      } catch (e: unknown) {
+        const prefix = committedMessage ? `Committed: ${committedMessage}\n` : "";
+        // Bubble enough info for the caller to either open the dialog
+        // (commit-generation-failed) or fall back to the toast/banner path.
+        return { ok: false, error: { raw: e, prefix } };
+      }
+    },
+    [autoStage, commitM, pushM, onNotice],
+  );
+
+  const surfaceShipError = useCallback(
+    (message: string) => {
+      // Prefer the parent's banner when they wired one (git diff view does);
+      // fall back to a sonner error card so the project route never goes silent
+      // after a failed Ship — see audit finding #1.
+      if (onError) onError(message);
+      else showShipErrorToast("Ship failed", message);
+    },
+    [onError],
+  );
 
   const onCommitAndPush = useCallback(async () => {
     if (isProjectShipping(projectId, worktreeId)) return;
 
-    let committedMessage: string | null = null;
     beginShipOperation(projectId, worktreeId);
     try {
-      const c = await commitM.mutateAsync({ autoStage });
-      if (c.kind === "committed") {
-        committedMessage = c.message.split("\n")[0];
-      }
-      const p = await pushM.mutateAsync();
-      if (c.kind === "nothing-to-commit" && p.kind === "nothing-to-push") {
-        const detail =
-          autoStage
-            ? "There are no changes to commit and nothing to push."
-            : "There are no accepted changes to ship.";
-        showShipToast("Nothing to ship", detail);
-        onNotice?.(detail);
+      const result = await runShip();
+      if (result.ok) return;
+      const { raw, prefix } = result.error as { raw: unknown; prefix: string };
+      const ciFailure = readCommitCliFailure(raw);
+      if (ciFailure && !prefix) {
+        // Commit step failed before anything landed — the dialog owns recovery.
+        setShipFailed({
+          open: true,
+          cli: ciFailure.cli,
+          message: ciFailure.message,
+          stderr: ciFailure.stderr,
+          kind: ciFailure.kind,
+        });
         return;
       }
-      const parts: string[] = [];
-      if (committedMessage) parts.push(`Committed: ${committedMessage}`);
-      if (p.kind === "pushed") {
-        parts.push(p.setUpstream ? "pushed and set upstream" : "pushed");
-      } else if (!committedMessage) {
-        parts.push("nothing to push");
-      }
-      const detail = parts.join(" — ");
-      showShipToast("Ship complete", detail);
-      onNotice?.(detail);
-    } catch (e: any) {
-      const prefix = committedMessage ? `Committed: ${committedMessage}\n` : "";
-      onError?.(prefix + (e?.message || "Commit & push failed"));
+      const message = raw instanceof Error ? raw.message : "Commit & push failed";
+      surfaceShipError(prefix + message);
     } finally {
       endShipOperation(projectId, worktreeId);
     }
-  }, [autoStage, commitM, projectId, worktreeId, pushM, onError, onNotice]);
+  }, [projectId, worktreeId, runShip, surfaceShipError]);
+
+  const onManualCommit = useCallback(
+    async (message: string) => {
+      if (manualBusy) return;
+      setManualBusy(true);
+      beginShipOperation(projectId, worktreeId);
+      try {
+        const result = await runShip(message);
+        if (result.ok) {
+          setShipFailed(SHIP_FAILED_INITIAL);
+          return;
+        }
+        const { raw, prefix } = result.error as { raw: unknown; prefix: string };
+        const tail = raw instanceof Error ? raw.message : "Commit failed";
+        if (prefix) {
+          // Manual commit succeeded; push failed. The dialog is no longer the
+          // right surface — close it and surface the push failure to the page.
+          setShipFailed(SHIP_FAILED_INITIAL);
+          surfaceShipError(prefix + tail);
+          return;
+        }
+        // Re-keep the dialog open and explicitly set `open: true` so the user
+        // can edit + retry without losing the textarea content. Spreading
+        // `prev` alone won't flip `open` back from SHIP_FAILED_INITIAL.
+        setShipFailed((prev) => ({
+          ...prev,
+          open: true,
+          message: tail,
+          kind: "other",
+        }));
+      } finally {
+        setManualBusy(false);
+        endShipOperation(projectId, worktreeId);
+      }
+    },
+    [manualBusy, projectId, worktreeId, runShip, surfaceShipError],
+  );
 
   const committing = commitM.isPending;
   const pushing = pushM.isPending;
@@ -250,5 +428,15 @@ export function CommitPushButton({
     </Btn>
   );
 
-  return primaryButton;
+  return (
+    <>
+      {primaryButton}
+      <ShipFailedDialog
+        state={shipFailed}
+        onClose={() => setShipFailed(SHIP_FAILED_INITIAL)}
+        onManualCommit={onManualCommit}
+        busy={manualBusy || committing || pushing}
+      />
+    </>
+  );
 }

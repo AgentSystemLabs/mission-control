@@ -20,6 +20,32 @@ export type UpdateStateBridge =
   | { kind: "ready-to-install"; version: string }
   | { kind: "error"; message: string };
 
+export type SessionTerminalDebugLogInputBridge = {
+  level?: "error" | "warn";
+  stage: string;
+  message: string;
+  source?: "pty-manager" | "renderer";
+  taskId?: string;
+  ptyId?: string;
+  agent?: string;
+  cwd?: string;
+  command?: string;
+  exitCode?: number;
+  signal?: number | string;
+  elapsedMs?: number;
+  details?: Record<string, unknown>;
+  outputTail?: string;
+};
+
+export type SessionTerminalDebugLogEntryBridge = SessionTerminalDebugLogInputBridge & {
+  id: string;
+  level: "error" | "warn";
+  source: "pty-manager" | "renderer";
+  createdAt: string;
+  platform: NodeJS.Platform;
+  arch: string;
+};
+
 const electronAPI = {
   installSkills: {
     fetchLatest: (opts?: { baseUrl?: string; licenseKey?: string }) =>
@@ -35,6 +61,16 @@ const electronAPI = {
     getToken: (): Promise<string> => ipcRenderer.invoke(IPC.settingsGetToken),
     regenerateToken: (): Promise<string> =>
       ipcRenderer.invoke(IPC.settingsRegenerateToken),
+  },
+  debugLog: {
+    listSessionTerminalErrors: (): Promise<SessionTerminalDebugLogEntryBridge[]> =>
+      ipcRenderer.invoke(IPC.debugSessionTerminalLogsList),
+    clearSessionTerminalErrors: (): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC.debugSessionTerminalLogsClear),
+    recordSessionTerminalError: (
+      input: SessionTerminalDebugLogInputBridge,
+    ): Promise<SessionTerminalDebugLogEntryBridge> =>
+      ipcRenderer.invoke(IPC.debugSessionTerminalLogsRecord, input),
   },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),

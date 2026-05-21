@@ -20,6 +20,7 @@ import {
   type SpawnRequest,
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
+import { recordSessionTerminalDebugLog } from "./session-terminal-debug-log";
 
 function sanitizeEnv(): Record<string, string> {
   const out = sanitizedProcessEnv();
@@ -68,10 +69,14 @@ type Pty = {
   mcEnv?: PtyHookEnv;
   scanTail: string;
   lastInterruptAt: number;
+  spawnStartedAt: number;
+  killedByUser: boolean;
 };
 
 const INTERRUPT_COOLDOWN_MS = 2000;
 const SCAN_TAIL_MAX = 256;
+const SESSION_START_FAST_EXIT_MS = 3000;
+const SESSION_START_OUTPUT_TAIL_MAX = 12_000;
 
 const MAX_TCP_PORT = 65535;
 const LSOF_PROBE_TIMEOUT_MS = 2_000;
@@ -158,6 +163,11 @@ type PortKillResult = {
   errors: string[];
 };
 
+type LaunchPortKillTarget = {
+  port: number;
+  protected: boolean;
+};
+
 let nodePty: typeof import("node-pty") | null = null;
 function loadNodePty() {
   if (!nodePty) {
@@ -174,6 +184,10 @@ function appendBuffer(p: Pty, chunk: string) {
     const dropped = p.buffer.shift()!;
     p.bufferBytes -= Buffer.byteLength(dropped, "utf8");
   }
+}
+
+function ptyOutputTail(p: Pty): string {
+  return p.buffer.join("").slice(-SESSION_START_OUTPUT_TAIL_MAX);
 }
 
 function send(getWin: () => BrowserWindow | null, channel: string, payload: any) {
@@ -238,12 +252,38 @@ async function killPidsListeningOnPort(port: number): Promise<PortKillResult> {
   return { port, pids, killed, errors };
 }
 
+function normalizePorts(ports: Iterable<number | null | undefined>): number[] {
+  return [
+    ...new Set(
+      [...ports].filter(
+        (port): port is number =>
+          typeof port === "number" &&
+          Number.isInteger(port) &&
+          port > 0 &&
+          port <= MAX_TCP_PORT
+      )
+    ),
+  ];
+}
+
+export function planLaunchPortKillTargets(
+  ports: Iterable<number | null | undefined>,
+  protectedPorts: Iterable<number | null | undefined>,
+): LaunchPortKillTarget[] {
+  const protectedSet = new Set(normalizePorts(protectedPorts));
+  return normalizePorts(ports).map((port) => ({
+    port,
+    protected: protectedSet.has(port),
+  }));
+}
+
 async function killPty(p: Pty): Promise<boolean> {
   let exited = false;
   try {
     const sub = p.proc.onExit(() => {
       exited = true;
     });
+    p.killedByUser = true;
     p.proc.kill();
     const deadline = Date.now() + SIGTERM_GRACE_MS;
     while (!exited && Date.now() < deadline) {
@@ -262,6 +302,7 @@ export function registerPtyHandlers(
   ipcMain: IpcMain,
   getWin: () => BrowserWindow | null,
   getHookEnv: () => PtyHookEnv | null,
+  getProtectedPorts: () => Iterable<number | null | undefined> = () => [],
 ) {
   ensureClaudeShiftEnterBinding();
   safeHandle(
@@ -301,8 +342,31 @@ export function registerPtyHandlers(
             cwd: safeLogValue(opts.cwd),
             taskId: safeLogValue(opts.taskId),
           });
+          recordSessionTerminalDebugLog({
+            stage: "spawn-policy-rejected",
+            message: err.message,
+            source: "pty-manager",
+            agent: opts.agent,
+            taskId: opts.taskId,
+            cwd: opts.cwd,
+            command: opts.command,
+            details: {
+              code: err.code,
+              shell: opts.shell === true,
+            },
+          });
           throw new Error(`pty:spawn rejected (${err.code})`);
         }
+        recordSessionTerminalDebugLog({
+          stage: "spawn-policy-error",
+          message: err instanceof Error ? err.message : String(err),
+          source: "pty-manager",
+          agent: opts.agent,
+          taskId: opts.taskId,
+          cwd: opts.cwd,
+          command: opts.command,
+          details: { error: err },
+        });
         throw err;
       }
 
@@ -319,14 +383,14 @@ export function registerPtyHandlers(
         env.MC_API_TOKEN = mcEnv.token;
       }
 
-      // Agent mode spawns the binary directly with a real argv array, bypassing
-      // the login shell entirely so shell metacharacters in args can't be
-      // re-parsed. Shell mode keeps the user's login shell path for user-driven
-      // terminals where command interpretation IS the feature.
-      const spawnTarget = plan.mode === "agent" ? plan.binary : plan.shellPath;
-      const spawnArgs = plan.mode === "agent" ? plan.argv : plan.shellArgs;
+      // Agent mode uses the policy-built spawn target. POSIX/native executables
+      // still launch directly; Windows npm .cmd/.bat shims go through cmd.exe
+      // only after the agent argv has been allow-listed and tokenized.
+      const spawnTarget = plan.mode === "agent" ? plan.spawnTarget : plan.shellPath;
+      const spawnArgs = plan.mode === "agent" ? plan.spawnArgs : plan.shellArgs;
 
       let proc: import("node-pty").IPty;
+      const spawnStartedAt = Date.now();
       try {
         proc = pty.spawn(spawnTarget, spawnArgs, {
           name: "xterm-256color",
@@ -337,6 +401,19 @@ export function registerPtyHandlers(
         });
       } catch (err: any) {
         const msg = err?.message ?? String(err);
+        recordSessionTerminalDebugLog({
+          stage: "native-spawn-failed",
+          message: msg,
+          source: "pty-manager",
+          agent: opts.agent,
+          taskId: opts.taskId,
+          cwd: plan.cwd,
+          command: opts.command,
+          details: {
+            target: spawnTarget,
+            argv: spawnArgs,
+          },
+        });
         if (msg.includes("posix_spawnp")) {
           throw new Error(
             `posix_spawnp failed for target="${spawnTarget}" cwd="${plan.cwd}". ` +
@@ -360,6 +437,8 @@ export function registerPtyHandlers(
         mcEnv: mcEnv ?? undefined,
         scanTail: "",
         lastInterruptAt: 0,
+        spawnStartedAt,
+        killedByUser: false,
       };
       ptys.set(id, p);
 
@@ -371,6 +450,24 @@ export function registerPtyHandlers(
         send(getWin, IPC.ptyData, { ptyId: id, data });
       });
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
+        const elapsedMs = Date.now() - p.spawnStartedAt;
+        if (p.agent && !p.killedByUser && elapsedMs < SESSION_START_FAST_EXIT_MS) {
+          recordSessionTerminalDebugLog({
+            level: exitCode === 0 ? "warn" : "error",
+            stage: "session-fast-exit",
+            message: `${p.agent} terminal exited ${elapsedMs}ms after spawn`,
+            source: "pty-manager",
+            agent: p.agent,
+            taskId: p.taskId,
+            ptyId: p.id,
+            cwd: p.cwd,
+            command: p.command,
+            exitCode,
+            signal,
+            elapsedMs,
+            outputTail: ptyOutputTail(p),
+          });
+        }
         send(getWin, IPC.ptyExit, { ptyId: id, exitCode, signal });
         ptys.delete(id);
       });
@@ -406,6 +503,7 @@ export function registerPtyHandlers(
     const p = ptys.get(ptyId);
     if (!p) return false;
     try {
+      p.killedByUser = true;
       p.proc.kill();
     } catch {
       /* swallow */
@@ -426,10 +524,19 @@ export function registerPtyHandlers(
       );
       await Promise.all(targets.map((p) => killPty(p)));
 
-      const ports = [...new Set(opts.ports ?? [])].filter(
-        (port) => Number.isInteger(port) && port > 0 && port <= MAX_TCP_PORT
+      const ports = planLaunchPortKillTargets(opts.ports ?? [], getProtectedPorts());
+      const portResults = await Promise.all(
+        ports.map((target) =>
+          target.protected
+            ? {
+                port: target.port,
+                pids: [],
+                killed: [],
+                errors: ["skipped protected Mission Control runtime port"],
+              }
+            : killPidsListeningOnPort(target.port)
+        )
       );
-      const portResults = await Promise.all(ports.map((port) => killPidsListeningOnPort(port)));
       return { ptyCount: targets.length, ports: portResults };
     },
     ipcMain,
@@ -445,6 +552,7 @@ export function registerPtyHandlers(
 export function killAllPtys() {
   for (const p of ptys.values()) {
     try {
+      p.killedByUser = true;
       p.proc.kill();
     } catch {
       /* swallow */

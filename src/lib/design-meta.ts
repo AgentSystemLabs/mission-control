@@ -37,6 +37,11 @@ export function pickByPriority<T extends { status: TaskStatus }>(tasks: T[]): T 
 
 export const DUPLICATE_ACTIVE_SESSION_EVENT = "mc:duplicate-active-session";
 
+/** Dispatched by leaf components (e.g. ShipFailedDialog) to ask the Shell
+ * to open the Settings panel at a specific page. Listened to by __root.tsx. */
+export const OPEN_SETTINGS_EVENT = "mc:open-settings";
+export type OpenSettingsEventDetail = { panel: string };
+
 export const ICON_COLORS = ["#ff5a1f", "#8ab4ff", "#c792ea", "#ff9466", "#f472b6", "#34d399", "#fb923c"];
 export const GROUP_COLORS = ["#ff5a1f", "#8ab4ff", "#c792ea", "#ff9466", "#f472b6", "#34d399", "#fb923c"];
 

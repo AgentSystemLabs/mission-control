@@ -90,6 +90,30 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     if (plan.mode !== "agent") throw new Error("wrong mode");
     expect(plan.binary).toBe("/usr/local/bin/codex");
     expect(plan.argv).toEqual(["--enable", "hooks"]);
+    expect(plan.spawnTarget).toBe("/usr/local/bin/codex");
+    expect(plan.spawnArgs).toEqual(["--enable", "hooks"]);
+  });
+
+  it("wraps Windows command shims through cmd.exe after argv validation", () => {
+    const plan = resolveSpawnPlan(
+      spawnReq({ agent: "codex", command: "codex --enable hooks" }),
+      depsFor({
+        platform: "win32",
+        resolveCommand: () => "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd",
+        windowsSystemRoot: () => "C:\\Windows",
+      }),
+    );
+
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    expect(plan.binary).toBe("C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd");
+    expect(plan.argv).toEqual(["--enable", "hooks"]);
+    expect(plan.spawnTarget).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(plan.spawnArgs).toEqual([
+      "/d",
+      "/s",
+      "/c",
+      '"C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd" "--enable" "hooks"',
+    ]);
   });
 
   it("maps cursor-cli agent to the cursor-agent binary", () => {

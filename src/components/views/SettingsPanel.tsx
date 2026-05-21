@@ -4,17 +4,21 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
+import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { LicenseSettingsPage } from "./LicenseSettingsPage";
+import { SessionDebugLogPage } from "./SessionDebugLogPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
 
 export type SettingsPanelId =
   | "general"
+  | "defaults"
   | "theme"
   | "license"
   | "keybindings"
+  | "session-debug"
   | "terms";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
@@ -60,6 +64,7 @@ export function SettingsPanel({
 
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
+    { id: "defaults", label: "Defaults", icon: "terminal" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "license", label: "License", icon: "sparkles" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
@@ -183,6 +188,34 @@ export function SettingsPanel({
                 padding: "0 10px 8px",
               }}
             >
+              Diagnostics
+            </div>
+            <SettingsNavButton
+              id="session-debug"
+              label="Session Debug Log"
+              icon="terminal"
+              active={activePanel === "session-debug"}
+              onClick={() => setActivePanel("session-debug")}
+            />
+          </div>
+          <div
+            style={{
+              marginTop: 16,
+              paddingTop: 12,
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)",
+                padding: "0 10px 8px",
+              }}
+            >
               Legal
             </div>
             <SettingsNavButton
@@ -206,12 +239,16 @@ export function SettingsPanel({
         >
           {activePanel === "general" ? (
             <GeneralSettingsPage />
+          ) : activePanel === "defaults" ? (
+            <DefaultsSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
           ) : activePanel === "license" ? (
             <LicenseSettingsPage />
           ) : activePanel === "keybindings" ? (
             <KeybindingsPage />
+          ) : activePanel === "session-debug" ? (
+            <SessionDebugLogPage />
           ) : (
             <TermsSettingsPage />
           )}

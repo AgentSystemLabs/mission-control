@@ -25,7 +25,7 @@ export function TerminalPanel({
   active: OpenTerminal | null;
   onClose: (taskId: string) => Promise<void> | void;
   onHide: () => void;
-  onPtyReady: (taskId: string, ptyId: string) => void;
+  onPtyReady: (taskId: string, ptyId: string | null) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }) {

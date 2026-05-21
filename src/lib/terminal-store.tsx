@@ -44,7 +44,7 @@ type Ctx = {
   close: (taskId: string) => Promise<void>;
   /** Permanently close every session for a project (kills PTYs). */
   closeForProject: (projectId: string) => Promise<void>;
-  setPtyId: (taskId: string, ptyId: string) => void;
+  setPtyId: (taskId: string, ptyId: string | null) => void;
   syncTask: (task: Task) => void;
   startCommandFor: (agent: TaskAgent) => string;
   /** Run an arbitrary command in the active PTY for this task. */
@@ -236,7 +236,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setPtyId = useCallback((taskId: string, ptyId: string) => {
+  const setPtyId = useCallback((taskId: string, ptyId: string | null) => {
     setSessions((prev) => prev.map((p) => (p.taskId === taskId ? { ...p, ptyId } : p)));
   }, []);
 

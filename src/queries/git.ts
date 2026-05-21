@@ -76,7 +76,7 @@ export function useUnstageFiles(projectId: string, worktreeId?: string | null) {
 export function useGitCommit(projectId: string, worktreeId?: string | null) {
   const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({
-    mutationFn: (opts?: { autoStage?: boolean }) =>
+    mutationFn: (opts?: { autoStage?: boolean; message?: string }) =>
       api.gitCommit(projectId, { ...opts, worktreeId: worktreeId ?? null }),
     onSettled: invalidate,
   });

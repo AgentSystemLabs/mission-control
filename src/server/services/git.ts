@@ -1,12 +1,16 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { runCli } from "./claude-cli";
+import {
+  CommitMessageGenerationError,
+  resolveCommitCli,
+  runCommitCli,
+} from "./commit-cli";
+import { COMMIT_CLI_LABEL, type CommitCli } from "~/shared/commit-cli";
 import { resolveProjectWorktreeCwd } from "./worktrees";
 
 const GIT_TIMEOUT_MS = 15_000;
 const PUSH_TIMEOUT_MS = 30_000;
-const COMMIT_MESSAGE_TIMEOUT_MS = 60_000;
 /** Cap diff bodies so a giant lockfile diff can't lock the renderer. */
 const DIFF_MAX_BYTES = 2 * 1024 * 1024;
 const DIFF_MAX_LINES = 50_000;
@@ -54,6 +58,28 @@ class GitError extends Error {
   constructor(message: string, public stderr?: string) {
     super(message);
     this.name = "GitError";
+  }
+}
+
+/** A commit failed because the AI step couldn't produce a usable message.
+ * Carries the CLI identity so the UI's error modal can show "Claude Code
+ * failed — try Codex in Settings" without re-deriving the choice. */
+export class CommitGenerationFailedError extends Error {
+  constructor(
+    message: string,
+    public readonly cli: CommitCli,
+    public readonly stderr?: string,
+  ) {
+    super(message);
+    this.name = "CommitGenerationFailedError";
+  }
+}
+
+/** Shown to the user when no supported CLI is on PATH at all. */
+export class NoCommitCliInstalledError extends Error {
+  constructor() {
+    super("no supported commit CLI is installed");
+    this.name = "NoCommitCliInstalledError";
   }
 }
 
@@ -347,7 +373,12 @@ export type CommitResult =
 
 export async function commit(
   projectId: string,
-  opts: { autoStage?: boolean; worktreeId?: string | null } = {},
+  opts: {
+    autoStage?: boolean;
+    worktreeId?: string | null;
+    /** When supplied, skip CLI generation and use this verbatim as the commit message. */
+    message?: string;
+  } = {},
 ): Promise<CommitResult> {
   const { autoStage = true } = opts;
   const cwd = projectCwd(projectId, opts.worktreeId);
@@ -362,7 +393,10 @@ export async function commit(
   if (!cached.trim()) {
     return { kind: "nothing-to-commit" };
   }
-  const message = (await generateCommitMessage(projectId, opts.worktreeId)).trim();
+  const manual = opts.message?.trim();
+  const message = manual && manual.length > 0
+    ? manual
+    : (await generateCommitMessage(projectId, opts.worktreeId)).trim();
   if (!message) throw new GitError("generated commit message was empty");
   await gitOk(cwd, ["commit", "-m", message], 30_000);
   const sha = (await gitOk(cwd, ["rev-parse", "HEAD"])).trim();
@@ -435,18 +469,41 @@ Format: a single short subject line (50 chars or fewer, imperative mood, no trai
 
 async function generateCommitMessage(projectId: string, worktreeId?: string | null): Promise<string> {
   const cwd = projectCwd(projectId, worktreeId);
-  // Use stat-prefixed diff so the model gets a roof on size.
   const diff = await gitOk(cwd, ["diff", "--cached"], 30_000);
   if (!diff.trim()) throw new GitError("nothing staged");
   const trimmed =
     diff.length > COMMIT_MESSAGE_DIFF_BUDGET
       ? diff.slice(0, COMMIT_MESSAGE_DIFF_BUDGET) + "\n[diff truncated]\n"
       : diff;
-  const raw = await runCli("claude", ["-p", COMMIT_MESSAGE_PROMPT + trimmed], {
-    cwd,
-    timeoutMs: COMMIT_MESSAGE_TIMEOUT_MS,
-  });
-  return sanitizeCommitMessage(raw);
+
+  const { cli } = await resolveCommitCli();
+  if (!cli) {
+    // Zero supported CLIs reachable — surface a typed error so the UI
+    // routes the user to Settings (or the manual-message bypass).
+    throw new NoCommitCliInstalledError();
+  }
+  console.info(`[commit-cli] generating commit message via ${cli}`);
+  let raw: string;
+  try {
+    raw = await runCommitCli(cli, COMMIT_MESSAGE_PROMPT + trimmed, { cwd });
+  } catch (e) {
+    if (e instanceof CommitMessageGenerationError) {
+      throw new CommitGenerationFailedError(
+        `${COMMIT_CLI_LABEL[e.cli]} failed to generate a commit message`,
+        e.cli,
+        e.stderr,
+      );
+    }
+    throw e;
+  }
+  const sanitized = sanitizeCommitMessage(raw);
+  if (!sanitized) {
+    throw new CommitGenerationFailedError(
+      `${COMMIT_CLI_LABEL[cli]} returned an empty commit message`,
+      cli,
+    );
+  }
+  return sanitized;
 }
 
 function sanitizeCommitMessage(raw: string): string {
@@ -463,8 +520,28 @@ function sanitizeCommitMessage(raw: string): string {
   return t;
 }
 
+export type GitErrorPayload = {
+  message: string;
+  stderr?: string;
+  /** Identifies an AI-generation failure so the UI can render the recovery dialog. */
+  kind?: "commit-generation-failed" | "no-commit-cli";
+  /** Which CLI was tried when kind === "commit-generation-failed". */
+  cli?: CommitCli;
+};
+
 /** Surface stderr to API consumers without leaking the GitError class. */
-export function gitErrorPayload(e: unknown): { message: string; stderr?: string } {
+export function gitErrorPayload(e: unknown): GitErrorPayload {
+  if (e instanceof CommitGenerationFailedError) {
+    return {
+      message: e.message,
+      stderr: e.stderr,
+      kind: "commit-generation-failed",
+      cli: e.cli,
+    };
+  }
+  if (e instanceof NoCommitCliInstalledError) {
+    return { message: e.message, kind: "no-commit-cli" };
+  }
   if (e instanceof GitError) {
     return { message: e.message, stderr: e.stderr };
   }

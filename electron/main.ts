@@ -14,6 +14,12 @@ import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
 import { augmentProcessEnv, resolveCommandOnPath, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
 import {
+  clearSessionTerminalDebugLogs,
+  listSessionTerminalDebugLogs,
+  recordSessionTerminalDebugLog,
+  type SessionTerminalDebugLogInput,
+} from "./session-terminal-debug-log";
+import {
   disposeApiTokenStore,
   getOrCreateApiToken,
   regenerateApiToken,
@@ -439,14 +445,21 @@ safeHandle(IPC.cliCheck, (_evt, command: string) => {
   return { ok: false, reason: "not-found" };
 });
 
-registerPtyHandlers(ipcMain, () => win, () => {
-  const apiUrl = buildLocalMissionControlApiUrl(runtimePort);
-  if (!apiUrl) return null;
-  return {
-    apiUrl,
-    token: getOrCreateApiToken(missionControlUserDataDir),
-  };
-});
+registerPtyHandlers(
+  ipcMain,
+  () => win,
+  () => {
+    const apiUrl = buildLocalMissionControlApiUrl(runtimePort);
+    if (!apiUrl) return null;
+    return {
+      apiUrl,
+      token: getOrCreateApiToken(missionControlUserDataDir),
+    };
+  },
+  () => {
+    return runtimePort ? [runtimePort] : [];
+  }
+);
 registerFileHandlers(ipcMain, () => win);
 
 // API bearer token is delivered through IPC only — it must never traverse HTTP
@@ -457,6 +470,22 @@ safeHandle(IPC.settingsGetToken, () => {
 });
 safeHandle(IPC.settingsRegenerateToken, () => {
   return regenerateApiToken(missionControlUserDataDir);
+});
+
+safeHandle(IPC.debugSessionTerminalLogsList, () => {
+  return listSessionTerminalDebugLogs();
+});
+
+safeHandle(IPC.debugSessionTerminalLogsClear, () => {
+  clearSessionTerminalDebugLogs();
+  return { ok: true as const };
+});
+
+safeHandle(IPC.debugSessionTerminalLogsRecord, (_evt, input: SessionTerminalDebugLogInput) => {
+  return recordSessionTerminalDebugLog({
+    ...input,
+    source: "renderer",
+  });
 });
 
 safeHandle(

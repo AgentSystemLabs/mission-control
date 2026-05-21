@@ -40,6 +40,7 @@ export function ThemeSettingsPage() {
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
     launchOverlayEnabled,
+    commitCli: settings?.commitCli ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

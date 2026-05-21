@@ -154,13 +154,6 @@ function MissionControlPage() {
               isolation: "isolate",
             }}
           >
-            <img
-              src="/daycare.png"
-              alt=""
-              aria-hidden="true"
-              className="mc-dashboard-hero-bg"
-            />
-            <div aria-hidden="true" className="mc-dashboard-hero-shade" />
             <div className="mc-dashboard-hero-copy">
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: "-0.02em" }}>
                 Projects

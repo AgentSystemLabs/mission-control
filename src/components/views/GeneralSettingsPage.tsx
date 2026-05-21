@@ -74,6 +74,7 @@ export function GeneralSettingsPage() {
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
     launchOverlayEnabled,
+    commitCli: settings?.commitCli ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

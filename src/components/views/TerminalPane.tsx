@@ -66,7 +66,7 @@ export function TerminalPane({
   onToggleExpanded?: () => void;
   isLast: boolean;
   descriptor: TerminalDescriptor;
-  onPtyReady: (ptyId: string) => void;
+  onPtyReady: (ptyId: string | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<XFitAddon | null>(null);
@@ -115,6 +115,12 @@ export function TerminalPane({
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
+      const pendingElectronData = new Map<string, string[]>();
+      const pendingElectronExit = new Map<
+        string,
+        { ptyId: string; exitCode: number; signal?: number }
+      >();
+      const PENDING_ELECTRON_OUTPUT_MAX_CHARS = 64_000;
       let fallbackRunningPosted = false;
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
@@ -137,19 +143,26 @@ export function TerminalPane({
         });
       }
 
+      // If an agent process exits before it has had a chance to render its
+      // first useful prompt, preserve the panel so the user can read the error.
+      const START_FAILURE_EXIT_MS = 3000;
       // If a `claude --resume <uuid>` spawn dies almost immediately, the
       // session file is gone or unreadable. Per the persistence design we
       // start fresh under a NEW uuid instead of deleting the task card.
-      const RESUME_FAST_EXIT_MS = 3000;
       let spawnAt = 0;
       let spawnedAsResume = false;
 
-      const handlePtyExit = () => {
+      const clearActivePty = () => {
+        activePtyId = null;
+        onPtyReady(null);
+      };
+
+      const handlePtyExit = (exitCode?: number) => {
         const elapsed = Date.now() - spawnAt;
         if (
           spawnedAsResume &&
           task.agent === "claude-code" &&
-          elapsed < RESUME_FAST_EXIT_MS
+          elapsed < START_FAILURE_EXIT_MS
         ) {
           void (async () => {
             const fresh = newSessionId();
@@ -167,8 +180,26 @@ export function TerminalPane({
               skipPermissions: descriptor.dangerouslySkipPermissions,
               bareSession: !!task.claudeBareSession,
             });
-            await spawnAndWire(cmd, false);
+            try {
+              await spawnAndWire(cmd, false);
+            } catch (err) {
+              const message = remoteStartErrorMessage(err);
+              clearActivePty();
+              setStartError(message);
+              setLiveStatus(message);
+              term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);
+            }
           })();
+          return;
+        }
+        if (elapsed < START_FAILURE_EXIT_MS) {
+          clearActivePty();
+          const code = exitCode ?? "unknown";
+          const message = `Session exited immediately (code=${code}). Review the terminal output above, then retry.`;
+          setStartError(message);
+          setLiveStatus(message);
+          term.writeln("");
+          term.writeln(`\x1b[31m[${message}]\x1b[0m`);
           return;
         }
         void (async () => {
@@ -183,6 +214,28 @@ export function TerminalPane({
           onClose();
         })();
       };
+
+      if (electron) {
+        subscriptions.push(
+          electron.pty.onData((msg) => {
+            if (activePtyId === msg.ptyId) {
+              term.write(msg.data);
+              return;
+            }
+            const previous = (pendingElectronData.get(msg.ptyId) ?? []).join("");
+            pendingElectronData.set(msg.ptyId, [
+              `${previous}${msg.data}`.slice(-PENDING_ELECTRON_OUTPUT_MAX_CHARS),
+            ]);
+          }),
+          electron.pty.onExit((msg) => {
+            if (activePtyId === msg.ptyId) {
+              handlePtyExit(msg.exitCode);
+              return;
+            }
+            pendingElectronExit.set(msg.ptyId, msg);
+          })
+        );
+      }
 
       const wireTerminalInput = (ptyId: string) => {
         term.onData((data) => {
@@ -219,19 +272,21 @@ export function TerminalPane({
         });
       };
 
-      const wireElectronPty = (ptyId: string) => {
-        if (!electron) return;
+      const wireElectronPty = (ptyId: string): boolean => {
+        if (!electron) return false;
         activePtyId = ptyId;
-        subscriptions.push(
-          electron.pty.onData((msg) => {
-            if (msg.ptyId === ptyId) term.write(msg.data);
-          }),
-          electron.pty.onExit((msg) => {
-            if (msg.ptyId !== ptyId) return;
-            handlePtyExit();
-          })
-        );
+        for (const chunk of pendingElectronData.get(ptyId) ?? []) {
+          term.write(chunk);
+        }
+        pendingElectronData.delete(ptyId);
+        const pendingExit = pendingElectronExit.get(ptyId);
+        if (pendingExit) {
+          pendingElectronExit.delete(ptyId);
+          handlePtyExit(pendingExit.exitCode);
+          return false;
+        }
         wireTerminalInput(ptyId);
+        return true;
       };
 
       const wireRemotePty = async (ptyId: string) => {
@@ -242,6 +297,8 @@ export function TerminalPane({
         );
         let replaying = true;
         const pendingLive: string[] = [];
+        let exitedBeforeReady = false;
+        let streamClosedBeforeReady = false;
         let markReady: (replayBeforeSeq: number) => void = () => undefined;
         const ready = new Promise<number>((resolve) => {
           markReady = resolve;
@@ -251,6 +308,7 @@ export function TerminalPane({
             const msg = JSON.parse(event.data) as {
               type?: string;
               data?: string;
+              exitCode?: number;
               error?: string;
               replayBeforeSeq?: number;
             };
@@ -263,10 +321,16 @@ export function TerminalPane({
               else term.write(msg.data);
             }
             if (msg.type === "exit") {
-              handlePtyExit();
+              exitedBeforeReady = true;
+              handlePtyExit(msg.exitCode);
             }
             if (msg.type === "error") {
               const message = `remote pty error: ${msg.error ?? "unknown"}`;
+              if (replaying) {
+                streamClosedBeforeReady = true;
+                clearActivePty();
+                setStartError(message);
+              }
               setLiveStatus(message);
               term.writeln(`\x1b[31m[${message}]\x1b[0m`);
             }
@@ -275,8 +339,14 @@ export function TerminalPane({
           }
         };
         source.onerror = () => {
-          setLiveStatus("remote pty stream disconnected");
-          term.writeln("\x1b[31m[remote pty stream disconnected]\x1b[0m");
+          const message = "remote pty stream disconnected";
+          if (replaying) {
+            streamClosedBeforeReady = true;
+            clearActivePty();
+            setStartError(message);
+          }
+          setLiveStatus(message);
+          term.writeln(`\x1b[31m[${message}]\x1b[0m`);
           markReady(0);
           source.close();
         };
@@ -285,6 +355,7 @@ export function TerminalPane({
           ready,
           new Promise<number>((resolve) => setTimeout(() => resolve(0), 5000)),
         ]);
+        if (exitedBeforeReady || streamClosedBeforeReady) return;
         setLiveStatus("connected to remote runtime");
         term.writeln("\x1b[36m[connected to remote runtime]\x1b[0m");
         const replay = await api.replayRemotePty(ptyId, { beforeSeq: replayBeforeSeq });
@@ -322,10 +393,17 @@ export function TerminalPane({
             });
         spawnAt = Date.now();
         spawnedAsResume = isResume;
-        onPtyReady(ptyId);
-        if (cancelled) return;
-        if (electron) wireElectronPty(ptyId);
-        else await wireRemotePty(ptyId);
+        if (cancelled) {
+          if (electron) await electron.pty.kill(ptyId).catch(() => undefined);
+          else await api.killRemotePty(ptyId).catch(() => undefined);
+          return;
+        }
+        if (electron) {
+          if (wireElectronPty(ptyId)) onPtyReady(ptyId);
+        } else {
+          await wireRemotePty(ptyId);
+          if (activePtyId === ptyId) onPtyReady(ptyId);
+        }
       };
 
       const ensurePty = async () => {
@@ -357,6 +435,21 @@ export function TerminalPane({
           await spawnAndWire(descriptor.startCommand, isResume);
         } catch (err: any) {
           const message = remoteStartErrorMessage(err);
+          if (electron) {
+            void electron.debugLog.recordSessionTerminalError({
+              stage: "terminal-pane-start-failed",
+              message,
+              taskId: descriptor.taskId,
+              agent: task.agent,
+              cwd: descriptor.cwd,
+              command: descriptor.startCommand,
+              details: {
+                errorName: err instanceof Error ? err.name : undefined,
+                apiStatus: err instanceof ApiError ? err.status : undefined,
+              },
+            });
+          }
+          clearActivePty();
           setStartError(message);
           setLiveStatus(message);
           term.writeln(`\x1b[31m[failed to start pty: ${message}]\x1b[0m`);

@@ -14,6 +14,7 @@ import type { UsageSummary } from "~/shared/token-usage";
 import type { LicenseState } from "~/shared/license";
 import type { Entitlements } from "~/shared/entitlements";
 import type { WorktreeInfo } from "~/shared/worktrees";
+import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import { getClientRuntime } from "~/lib/runtime";
 import { MISSION_CONTROL_RUNTIME_HEADER } from "~/shared/runtime";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
@@ -30,6 +31,11 @@ export type AppSettings = {
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   launchOverlayEnabled: boolean;
+  /**
+   * Which CLI generates Ship's commit message. `null` means "not set yet" —
+   * the server auto-detects and seeds it on the first ship attempt.
+   */
+  commitCli: CommitCli | null;
 };
 
 type RemotePtyCreateBody = {
@@ -369,6 +375,7 @@ export const api = {
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "launchOverlayEnabled"
+        | "commitCli"
       >
     >,
   ) =>
@@ -376,6 +383,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  detectCommitCli: () =>
+    req<{ detected: CommitCliDetection }>("/api/commit-cli/detect"),
 
   getGitStatus: (projectId: string, worktreeId?: string | null) =>
     req<GitStatus>(`/api/projects/${projectId}/git/status${worktreeQuery(worktreeId)}`),
@@ -393,7 +403,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ files, worktreeId: worktreeId ?? null }),
     }),
-  gitCommit: (projectId: string, opts: { autoStage?: boolean; worktreeId?: string | null } = {}) =>
+  gitCommit: (
+    projectId: string,
+    opts: {
+      autoStage?: boolean;
+      worktreeId?: string | null;
+      /**
+       * When supplied, the server skips CLI generation entirely and commits
+       * with this literal message. Used by the ship-failed dialog's manual
+       * recovery path.
+       */
+      message?: string;
+    } = {},
+  ) =>
     req<CommitResult>(`/api/projects/${projectId}/git/commit`, {
       method: "POST",
       body: JSON.stringify(opts),
