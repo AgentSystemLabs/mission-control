@@ -22,14 +22,18 @@ export function GitDiffView({
   projectId,
   worktreeId,
   projectPath,
+  enabled = true,
   onBack,
 }: {
   projectId: string;
   worktreeId?: string | null;
   projectPath: string;
+  enabled?: boolean;
   onBack: () => void;
 }) {
-  const { data: status, isLoading, error } = useGitStatus(projectId, worktreeId);
+  const { data: status, isLoading, error } = useGitStatus(projectId, worktreeId, {
+    enabled,
+  });
   const stageM = useStageFiles(projectId, worktreeId);
   const unstageM = useUnstageFiles(projectId, worktreeId);
   const deleteM = useDeleteProjectFile(projectId, worktreeId);
@@ -102,6 +106,7 @@ export function GitDiffView({
     worktreeId,
     selection?.path ?? null,
     selection?.staged ?? false,
+    { enabled },
   );
   const selectedDisplay = selection ? displayPath(selection.path) : null;
 
@@ -215,6 +220,8 @@ export function GitDiffView({
             onDeleteFile={(p) => deleteM.mutate(p)}
             busyPaths={busyPaths}
             projectId={projectId}
+            worktreeId={worktreeId}
+            enabled={enabled}
           />
           <div
             style={{

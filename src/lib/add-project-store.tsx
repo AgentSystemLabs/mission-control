@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { LicenseEntryModal } from "~/components/views/LicenseEntryModal";
 import { api, ApiError } from "~/lib/api";
@@ -26,6 +27,7 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
   const [isOpen, setIsOpen] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { data: groups = [] } = useGroups();
 
   const open = useCallback(async () => {
@@ -78,7 +80,8 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
               }
             }
             setIsOpen(false);
-            await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+            void router.navigate({ to: "/projects/$id", params: { id: created.id } });
           } catch (e) {
             if (e instanceof ApiError && e.status === 402) {
               // Server caught a race: UI thought we were under cap but server

@@ -25,6 +25,7 @@ import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { api } from "~/lib/api";
+import { getElectron } from "~/lib/electron";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
@@ -56,6 +57,7 @@ import {
   type PendingSessionOpen,
 } from "~/lib/session-notification-store";
 import type { Task, TaskStatus } from "~/db/schema";
+import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 import {
@@ -67,6 +69,11 @@ import {
 export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
 });
+
+type ProjectPathCheck =
+  | { state: "idle" | "checking" | "valid" }
+  | { state: "invalid"; status: Extract<ProjectPathStatus, { ok: false }> }
+  | { state: "error"; message: string };
 
 function launchUrlPort(raw: string | null): number[] {
   if (!raw) return [];
@@ -145,6 +152,38 @@ function ProjectPage() {
         : null,
     [project, selectedWorktreeId, selectedWorktreePath],
   );
+  const [projectPathCheck, setProjectPathCheck] = useState<ProjectPathCheck>({
+    state: "idle",
+  });
+  const [projectPathCheckRevision, setProjectPathCheckRevision] = useState(0);
+  useEffect(() => {
+    if (!project) {
+      setProjectPathCheck({ state: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setProjectPathCheck({ state: "checking" });
+    void api
+      .getProjectPathStatus(project.id, selectedWorktreeId)
+      .then(({ status }) => {
+        if (cancelled) return;
+        setProjectPathCheck(status.ok ? { state: "valid" } : { state: "invalid", status });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setProjectPathCheck({
+          state: "error",
+          message: error?.message || "Could not verify this project path.",
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id, project?.path, selectedWorktreeId, selectedWorktreePath, projectPathCheckRevision]);
+  const projectPathReady = projectPathCheck.state === "valid";
+  const projectPathIssue =
+    projectPathCheck.state === "invalid" ? projectPathCheck.status : null;
+  const terminalProject = projectPathReady ? scopedProject : null;
   useEffect(() => {
     if (!worktreesQuery.data) return;
     const exists = worktreesQuery.data.some((w) => w.id === selectedWorktreeKey);
@@ -157,16 +196,22 @@ function ProjectPage() {
   const groups = groupsQuery.data ?? [];
   useApiToken();
   const { data: entitlements } = useEntitlements();
-  const { data: gitStatus } = useGitStatus(id, selectedWorktreeId);
+  const { data: gitStatus } = useGitStatus(id, selectedWorktreeId, {
+    enabled: projectPathReady,
+  });
   const [showDiffView, setShowDiffView] = useState(false);
 
   const openDiffView = useCallback(() => {
+    if (!projectPathReady) return;
     setShowDiffView(true);
-  }, []);
+  }, [projectPathReady]);
 
   const closeDiffView = useCallback(() => {
     setShowDiffView(false);
   }, []);
+  useEffect(() => {
+    if (!projectPathReady) setShowDiffView(false);
+  }, [projectPathReady]);
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -183,6 +228,13 @@ function ProjectPage() {
   const [stopping, setStopping] = useState(false);
   const [pinning, setPinning] = useState(false);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
+  const [repairingProjectPath, setRepairingProjectPath] = useState(false);
+  const [removingMissingProject, setRemovingMissingProject] = useState(false);
+  const [retryingProjectPath, setRetryingProjectPath] = useState(false);
+  const [projectPathActionError, setProjectPathActionError] = useState<string | null>(null);
+  useEffect(() => {
+    setProjectPathActionError(null);
+  }, [projectPathCheck.state, projectPathIssue?.path]);
   const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
   const cliAvailability = useCliAvailability();
 
@@ -244,6 +296,7 @@ function ProjectPage() {
 
   const runLaunch = useCallback(async () => {
     setOverflowOpen(false);
+    if (!projectPathReady) return;
     if (runningBlocksSelectedWorktree) {
       const runningId = runningWorktreeKey?.split(":")[1] || MAIN_WORKTREE_ID;
       const runningName =
@@ -276,11 +329,12 @@ function ProjectPage() {
     killTerminalsByStartCommand,
     createTerminal,
     setPanelOpen,
+    projectPathReady,
   ]);
 
   useEffect(() => {
-    if (scopedProject) setActiveUserTerminalProject(scopedProject);
-  }, [scopedProject, setActiveUserTerminalProject]);
+    if (terminalProject) setActiveUserTerminalProject(terminalProject);
+  }, [terminalProject, setActiveUserTerminalProject]);
 
   useEffect(() => {
     for (const task of tasks) terminals.syncTask(task);
@@ -302,28 +356,28 @@ function ProjectPage() {
       return;
     }
     const prev = lastActiveRef.current;
-    if (!prev || prev.projectId !== selectedScopeKey || !scopedProject) return;
+    if (!prev || prev.projectId !== selectedScopeKey || !terminalProject) return;
     const visible = tasks.filter((t) => !t.archived);
     if (visible.some((t) => t.id === prev.taskId)) return;
     lastActiveRef.current = null;
     const next = pickByPriority(visible);
-    if (next) terminals.toggle(scopedProject, next);
-  }, [activeTaskId, tasks, scopedProject, terminals, selectedScopeKey]);
+    if (next) terminals.toggle(terminalProject, next);
+  }, [activeTaskId, tasks, terminalProject, terminals, selectedScopeKey]);
 
   // Rehydrate after reload: if a persisted activeTaskId resolves to an
   // existing task for this project, materialize a session entry so the panel
   // reopens without requiring a click.
   useEffect(() => {
-    if (!scopedProject) return;
+    if (!terminalProject) return;
     const tid = terminals.activeTaskIdFor(selectedScopeKey);
     if (!tid) return;
     const task = tasks.find((t) => t.id === tid);
-    if (task) terminals.rehydrate(scopedProject, task);
-  }, [scopedProject, tasks, terminals, selectedScopeKey]);
+    if (task) terminals.rehydrate(terminalProject, task);
+  }, [terminalProject, tasks, terminals, selectedScopeKey]);
 
   const openRequestedSession = useCallback(
     (request: PendingSessionOpen) => {
-      if (!scopedProject || request.projectId !== id) return false;
+      if (!terminalProject || request.projectId !== id) return false;
       if (!worktreesQuery.data) return false;
       if (!worktreesEnabled && request.worktreeId && request.worktreeId !== MAIN_WORKTREE_ID) {
         clearPendingSessionOpen(request);
@@ -357,15 +411,15 @@ function ProjectPage() {
       const active = terminals.activeFor(selectedScopeKey);
       if (active?.taskId !== task.id) {
         const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
-        if (activeTaskId === task.id) terminals.rehydrate(scopedProject, task);
-        else terminals.toggle(scopedProject, task);
+        if (activeTaskId === task.id) terminals.rehydrate(terminalProject, task);
+        else terminals.toggle(terminalProject, task);
       }
       clearPendingSessionOpen(request);
       return true;
     },
     [
       id,
-      scopedProject,
+      terminalProject,
       selectedScopeKey,
       selectedWorktreeKey,
       tasks,
@@ -393,7 +447,10 @@ function ProjectPage() {
   }, [openRequestedSession]);
 
   const invalidateProject = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
+    () => {
+      setProjectPathCheckRevision((value) => value + 1);
+      return queryClient.invalidateQueries({ queryKey: queryKeys.project(id) });
+    },
     [queryClient, id]
   );
   const invalidateTasks = useCallback(
@@ -518,7 +575,7 @@ function ProjectPage() {
       skipPermissions: boolean;
       bareSession: boolean;
     }) => {
-      if (!project || !scopedProject) return;
+      if (!project || !terminalProject) return;
       if (!agentCanLaunch(cliAvailability, payload.agent)) {
         setShowNewAgent(true);
         return;
@@ -535,13 +592,13 @@ function ProjectPage() {
           : undefined,
         worktreeId: selectedWorktreeId,
       });
-      terminals.toggle(scopedProject, created.task);
+      terminals.toggle(terminalProject, created.task);
       await refresh();
       if (payload.agent === "codex" && !hasSeenCodexHooksNotice()) {
         setShowCodexHooksNotice(true);
       }
     },
-    [project, scopedProject, selectedWorktreeId, refresh, terminals, cliAvailability]
+    [project, terminalProject, selectedWorktreeId, refresh, terminals, cliAvailability]
   );
 
   const startWithSaved = useCallback(async () => {
@@ -560,25 +617,26 @@ function ProjectPage() {
   }, [project, createSession, cliAvailability]);
 
   const onNewAgentPrimary = useCallback(() => {
+    if (!projectPathReady) return;
     if (showNewAgent || showEdit) return;
     if (project?.rememberAgentSettings && project.savedAgent) {
       void startWithSaved();
       return;
     }
     setShowNewAgent(true);
-  }, [project, showNewAgent, showEdit, startWithSaved]);
+  }, [project, projectPathReady, showNewAgent, showEdit, startWithSaved]);
 
   useHotkey("agent.new", onNewAgentPrimary, { ignoreEditable: true });
 
   useHotkey("project.edit", () => {
-    if (showNewAgent) return;
+    if (showNewAgent || projectPathIssue || projectPathCheck.state === "error") return;
     setShowEdit((v) => !v);
   });
 
   useHotkey(
     "project.runToggle",
     () => {
-      if (showNewAgent || showEdit || confirmRemove) return;
+      if (showNewAgent || showEdit || confirmRemove || projectPathIssue || projectPathCheck.state === "error") return;
       if (hasRunningLaunch) {
         if (!stopping) void stopLaunch();
       } else if (!launching) {
@@ -591,7 +649,7 @@ function ProjectPage() {
   useHotkey(
     "file.finder",
     () => {
-      if (openFileRel || showNewAgent || showEdit || confirmRemove) return;
+      if (openFileRel || showNewAgent || showEdit || confirmRemove || !projectPathReady) return;
       setFileFinderOpen((v) => !v);
     },
   );
@@ -605,11 +663,13 @@ function ProjectPage() {
     openFileRel !== null ||
     showLaunchConfig ||
     showLaunchEmpty ||
+    !!projectPathIssue ||
+    projectPathCheck.state === "error" ||
     showCodexHooksNotice;
 
   const cycleSession = useCallback(
     (direction: 1 | -1) => {
-      if (!project || !scopedProject) return;
+      if (!project || !terminalProject) return;
       if (anyBlockingDialogOpen) return;
       const visible = tasks.filter((t) => !t.archived);
       if (visible.length === 0) return;
@@ -623,7 +683,7 @@ function ProjectPage() {
       if (!currentId) {
         const firstByPriority = pickByPriority(visible);
         if (!firstByPriority) return;
-        terminals.toggle(scopedProject, firstByPriority);
+        terminals.toggle(terminalProject, firstByPriority);
         return;
       }
       const idx = ordered.findIndex((t) => t.id === currentId);
@@ -631,9 +691,9 @@ function ProjectPage() {
       const nextIdx = (idx + direction + ordered.length) % ordered.length;
       const nextTask = ordered[nextIdx];
       if (!nextTask || nextTask.id === currentId) return;
-      terminals.toggle(scopedProject, nextTask);
+      terminals.toggle(terminalProject, nextTask);
     },
-    [project, scopedProject, selectedScopeKey, tasks, terminals, anyBlockingDialogOpen],
+    [project, terminalProject, selectedScopeKey, tasks, terminals, anyBlockingDialogOpen],
   );
 
   // Direct window-capture listener (not useHotkey) — xterm's focused textarea
@@ -691,7 +751,8 @@ function ProjectPage() {
     "git.diff",
     () => {
       if (
-        anyBlockingDialogOpen
+        anyBlockingDialogOpen ||
+        !projectPathReady
       ) return;
       if (showDiffView) closeDiffView();
       else openDiffView();
@@ -731,7 +792,7 @@ function ProjectPage() {
       if (!sessionStillOpen) return;
       const task = tasks.find((t) => t.id === hidden.taskId && !t.archived);
       if (!task) return;
-      if (scopedProject) terminals.toggle(scopedProject, task);
+      if (terminalProject) terminals.toggle(terminalProject, task);
     },
     {
       enabled: closePanelEnabled,
@@ -803,6 +864,7 @@ function ProjectPage() {
 
   const activeId = terminals.activeTaskIdFor(selectedScopeKey);
   const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
+  const pathIssueIsWorktree = projectPathIssue?.scope === "worktree";
 
   const toggleTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -811,7 +873,7 @@ function ProjectPage() {
     if (active?.taskId === taskId) {
       lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId };
     }
-    if (scopedProject) terminals.toggle(scopedProject, task);
+    if (terminalProject) terminals.toggle(terminalProject, task);
   };
 
   const deleteTask = async (taskId: string) => {
@@ -827,10 +889,6 @@ function ProjectPage() {
     }
   };
 
-  const remove = () => {
-    setConfirmRemove(true);
-  };
-
   const confirmRemoveProject = async () => {
     if (!project) return;
     setConfirmRemove(false);
@@ -842,6 +900,69 @@ function ProjectPage() {
     } finally {
       setCleanupStatus(null);
     }
+  };
+
+  const repairMissingProjectPath = async () => {
+    const electron = getElectron();
+    if (!electron) {
+      toast.error("Folder picker is not available in this runtime.");
+      return;
+    }
+    const nextPath = await electron.browseFolder();
+    if (!nextPath || !project) return;
+    setRepairingProjectPath(true);
+    setProjectPathActionError(null);
+    try {
+      await api.updateProject(project.id, { path: nextPath });
+      setProjectPathCheck({ state: "checking" });
+      await Promise.all([refresh(), invalidateWorktrees()]);
+      toast.success("Project path updated");
+    } catch (e: any) {
+      const message = e?.message || "Could not update this project path";
+      setProjectPathActionError(message);
+      toast.error(message);
+    } finally {
+      setRepairingProjectPath(false);
+    }
+  };
+
+  const removeMissingProject = async () => {
+    if (!project) return;
+    setRemovingMissingProject(true);
+    setProjectPathActionError(null);
+    setCleanupStatus("Removing this project from Mission Control.");
+    try {
+      await terminals.closeForProject(project.id);
+      await api.deleteProject(project.id);
+      router.navigate({ to: "/" });
+    } catch (e: any) {
+      const message = e?.message || "Could not remove project";
+      setProjectPathActionError(message);
+      toast.error(message);
+    } finally {
+      setCleanupStatus(null);
+      setRemovingMissingProject(false);
+    }
+  };
+
+  const retryProjectPathCheck = async () => {
+    if (!project) return;
+    setRetryingProjectPath(true);
+    try {
+      const { status } = await api.getProjectPathStatus(project.id, selectedWorktreeId);
+      setProjectPathCheck(status.ok ? { state: "valid" } : { state: "invalid", status });
+    } catch (e: any) {
+      setProjectPathCheck({
+        state: "error",
+        message: e?.message || "Could not verify this project path.",
+      });
+    } finally {
+      setRetryingProjectPath(false);
+    }
+  };
+
+  const closePathIssue = () => {
+    router.navigate({ to: "/" });
   };
 
   const clearFinished = async () => {
@@ -900,6 +1021,8 @@ function ProjectPage() {
         running={hasRunningLaunch}
         launching={launching}
         stopping={stopping}
+        disabled={!projectPathReady}
+        disabledLabel={projectPathCheck.state === "checking" ? "Checking folder" : "Folder unavailable"}
         launchUrl={project.launchUrl ?? null}
         onStart={runLaunch}
         onOpenUrl={() =>
@@ -985,6 +1108,7 @@ function ProjectPage() {
           projectId={project.id}
           worktreeId={selectedWorktreeId}
           projectPath={selectedWorktreePath || project.path}
+          enabled={projectPathReady}
           onBack={closeDiffView}
         />
       </>
@@ -1154,6 +1278,7 @@ function ProjectPage() {
                       setOverflowOpen(false);
                       openDiffView();
                     }}
+                    disabled={!projectPathReady}
                     style={{ justifyContent: "flex-start" }}
                     title={(() => {
                       const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
@@ -1237,8 +1362,15 @@ function ProjectPage() {
               branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
               changedCount={gitStatus?.changedCount}
               onClick={openDiffView}
+              disabled={!projectPathReady}
             />
-            <CommitPushButton projectId={id} worktreeId={selectedWorktreeId} size="md" splitTrailing />
+            <CommitPushButton
+              projectId={id}
+              worktreeId={selectedWorktreeId}
+              size="md"
+              splitTrailing
+              enabled={projectPathReady}
+            />
           </div>
           <div style={{ flex: 1 }} />
           <HotkeyTooltip action="file.finder" label="Find file in project">
@@ -1328,7 +1460,10 @@ function ProjectPage() {
               <NewAgentButton
                 project={project}
                 onPrimary={onNewAgentPrimary}
-                onConfigure={() => setShowNewAgent(true)}
+                disabled={!projectPathReady}
+                onConfigure={() => {
+                  if (projectPathReady) setShowNewAgent(true);
+                }}
               />
             </div>
           </div>
@@ -1406,7 +1541,10 @@ function ProjectPage() {
                 <NewAgentButton
                   project={project}
                   onPrimary={onNewAgentPrimary}
-                  onConfigure={() => setShowNewAgent(true)}
+                  disabled={!projectPathReady}
+                  onConfigure={() => {
+                    if (projectPathReady) setShowNewAgent(true);
+                  }}
                 />
               }
             />
@@ -1422,17 +1560,152 @@ function ProjectPage() {
         }}
       />
 
+      <Modal
+        open={!!projectPathIssue}
+        onClose={closePathIssue}
+        title={pathIssueIsWorktree ? "Worktree folder missing" : "Project folder missing"}
+        width={540}
+        footer={
+          <>
+            <StaticHotkeyTooltip hotkey="Esc">
+              <Btn
+                variant="ghost"
+                onClick={closePathIssue}
+              >
+                Back to projects
+              </Btn>
+            </StaticHotkeyTooltip>
+            {pathIssueIsWorktree ? (
+              <>
+                <Btn
+                  variant="danger"
+                  icon="trash"
+                  onClick={() => void deleteSelectedWorktree()}
+                  disabled={deletingWorktree}
+                >
+                  {deletingWorktree ? "Deleting..." : "Delete worktree"}
+                </Btn>
+                <Btn
+                  variant="primary"
+                  icon="folder"
+                  onClick={() => selectWorktree(MAIN_WORKTREE_ID)}
+                  disabled={deletingWorktree}
+                >
+                  Switch to main
+                </Btn>
+              </>
+            ) : (
+              <>
+                <Btn
+                  variant="danger"
+                  icon="trash"
+                  onClick={() => void removeMissingProject()}
+                  disabled={repairingProjectPath || removingMissingProject}
+                >
+                  {removingMissingProject ? "Removing..." : "Remove project"}
+                </Btn>
+                <Btn
+                  variant="primary"
+                  icon="folder"
+                  onClick={() => void repairMissingProjectPath()}
+                  disabled={repairingProjectPath || removingMissingProject}
+                >
+                  {repairingProjectPath ? "Updating..." : "Choose new folder"}
+                </Btn>
+              </>
+            )}
+          </>
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--text)" }}>
+            {projectPathIssue?.message ?? "Mission Control cannot find this project folder."}
+            {" "}
+            {pathIssueIsWorktree
+              ? "Switch back to the main project folder, or delete this missing worktree."
+              : "Choose the folder in its new location, or remove the project from Mission Control."}
+          </div>
+          {projectPathActionError && (
+            <div
+              style={{
+                border: "1px solid color-mix(in srgb, var(--status-failed) 55%, transparent)",
+                borderRadius: 10,
+                background: "color-mix(in srgb, var(--status-failed) 12%, transparent)",
+                color: "var(--status-failed)",
+                padding: "9px 11px",
+                fontFamily: "var(--mono)",
+                fontSize: 11.5,
+                lineHeight: 1.45,
+              }}
+            >
+              {projectPathActionError}
+            </div>
+          )}
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              background: "var(--surface-0)",
+              padding: "10px 12px",
+              fontFamily: "var(--mono)",
+              fontSize: 11.5,
+              color: "var(--text-dim)",
+              lineHeight: 1.45,
+              wordBreak: "break-all",
+            }}
+          >
+            {projectPathIssue?.path}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={projectPathCheck.state === "error"}
+        onClose={closePathIssue}
+        title="Could not check project folder"
+        width={500}
+        footer={
+          <>
+            <StaticHotkeyTooltip hotkey="Esc">
+              <Btn variant="ghost" onClick={closePathIssue}>
+                Back to projects
+              </Btn>
+            </StaticHotkeyTooltip>
+            <Btn
+              variant="primary"
+              icon="refresh"
+              onClick={() => void retryProjectPathCheck()}
+              disabled={retryingProjectPath}
+            >
+              {retryingProjectPath ? "Checking..." : "Retry"}
+            </Btn>
+          </>
+        }
+      >
+        <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--text)" }}>
+          {projectPathCheck.state === "error"
+            ? projectPathCheck.message
+            : "Mission Control could not verify this project path."}
+        </div>
+      </Modal>
+
       <NewAgentDialog
         open={showNewAgent}
         project={project}
         onClose={() => setShowNewAgent(false)}
         onStart={startAgent}
         onPersistRemember={async (patch) => {
+          const previous = queryClient.getQueryData<typeof project>(queryKeys.project(project.id));
           queryClient.setQueryData(queryKeys.project(project.id), (prev: typeof project | undefined) =>
             prev ? { ...prev, ...patch } : prev
           );
-          await api.updateProject(project.id, patch);
-          await refresh();
+          try {
+            await api.updateProject(project.id, patch);
+            await refresh();
+          } catch (error) {
+            queryClient.setQueryData(queryKeys.project(project.id), previous);
+            throw error;
+          }
         }}
       />
 
@@ -1674,17 +1947,23 @@ function ProjectGitStatusButton({
   branch,
   changedCount,
   onClick,
+  disabled = false,
 }: {
   branch: string;
   changedCount: number | undefined;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   const changedLabel =
-    changedCount === undefined
+    disabled
+      ? "Unavailable"
+      : changedCount === undefined
       ? "Checking…"
       : `${changedCount} ${changedCount === 1 ? "Change" : "Changes"}`;
   const title =
-    changedCount === undefined
+    disabled
+      ? "Review Changes unavailable until the project folder is valid"
+      : changedCount === undefined
       ? `Open Review Changes · branch ${branch}`
       : `Open Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branch}`;
 
@@ -1694,6 +1973,7 @@ function ProjectGitStatusButton({
         variant="ghost"
         icon="git-branch"
         onClick={onClick}
+        disabled={disabled}
         aria-label={title}
         className="mc-btn-attached-right"
         style={{ fontFamily: "var(--mono)", maxWidth: 320, minWidth: 0 }}
@@ -1716,6 +1996,8 @@ function RunStatusPill({
   running,
   launching,
   stopping,
+  disabled = false,
+  disabledLabel = "Unavailable",
   launchUrl,
   onStart,
   onOpenUrl,
@@ -1724,13 +2006,17 @@ function RunStatusPill({
   running: boolean;
   launching: boolean;
   stopping: boolean;
+  disabled?: boolean;
+  disabledLabel?: string;
   launchUrl: string | null;
   onStart: () => void;
   onOpenUrl: () => void;
   onStop: () => void;
 }) {
   const busy = launching || stopping;
-  const label = stopping
+  const label = disabled
+    ? disabledLabel
+    : stopping
     ? "Stopping…"
     : launching
       ? "Starting…"
@@ -1738,16 +2024,18 @@ function RunStatusPill({
         ? "Running"
         : "Offline";
 
-  const interactive = !busy && !running;
-  const onClick = busy ? undefined : running ? undefined : onStart;
+  const interactive = !disabled && !busy && !running;
+  const onClick = disabled || busy ? undefined : running ? undefined : onStart;
 
-  const title = busy
+  const title = disabled
+    ? disabledLabel
+    : busy
     ? label
     : running
       ? "Running"
       : "Run launch commands";
 
-  const tone = running || launching ? "active" : "idle";
+  const tone = !disabled && (running || launching) ? "active" : "idle";
   const dotColor = tone === "active" ? "var(--accent)" : "var(--text-faint)";
   const borderColor = tone === "active" ? "var(--accent-border)" : "var(--border)";
   const background = tone === "active" ? "var(--accent-faint)" : "var(--surface-0)";
@@ -1793,7 +2081,7 @@ function RunStatusPill({
     );
   }
 
-  const showOfflineSplit = !running && !busy;
+  const showOfflineSplit = !disabled && !running && !busy;
 
   if (showOfflineSplit) {
     return (
@@ -1830,7 +2118,7 @@ function RunStatusPill({
           fontSize: 11.5,
           fontWeight: 600,
           cursor: interactive ? "pointer" : "default",
-          opacity: busy ? 0.7 : 1,
+          opacity: busy || disabled ? 0.7 : 1,
           transition: "background 0.12s, border-color 0.12s, color 0.12s",
           boxShadow: running ? "0 0 8px var(--accent-glow)" : "none",
         }}

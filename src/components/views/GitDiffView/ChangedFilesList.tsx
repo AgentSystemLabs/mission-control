@@ -52,6 +52,8 @@ export function ChangedFilesList({
   onDeleteFile,
   busyPaths,
   projectId,
+  worktreeId,
+  enabled = true,
 }: {
   staged: GitChangedFile[];
   unstaged: GitChangedFile[];
@@ -64,6 +66,8 @@ export function ChangedFilesList({
   onDeleteFile: (path: string) => void;
   busyPaths: Set<string>;
   projectId: string;
+  worktreeId?: string | null;
+  enabled?: boolean;
 }) {
   const [shipError, setShipError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(
@@ -157,11 +161,13 @@ export function ChangedFilesList({
           extra={
             <CommitPushButton
               projectId={projectId}
+              worktreeId={worktreeId}
               label="Ship Accepted"
               title="commit & push"
               autoStage={false}
               showAheadBadge={false}
               variant="primary"
+              enabled={enabled}
               onError={(m) => setShipError(m)}
               onNotice={() => setShipError(null)}
             />

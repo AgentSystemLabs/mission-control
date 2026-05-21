@@ -47,6 +47,7 @@ import { isElectronLocalApiRequest } from "./request-runtime";
 
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
 const PROJECT_PATH = /^\/api\/projects\/([^\/]+)$/;
+const PROJECT_PATH_STATUS_PATH = /^\/api\/projects\/([^/]+)\/path-status$/;
 const PROJECT_WORKTREES_PATH = /^\/api\/projects\/([^\/]+)\/worktrees$/;
 const PROJECT_WORKTREE_PATH = /^\/api\/projects\/([^\/]+)\/worktrees\/([^\/]+)$/;
 const PROJECT_TASKS_PATH = /^\/api\/projects\/([^\/]+)\/tasks$/;
@@ -126,6 +127,7 @@ const HOSTED_SESSION_OR_BEARER_ROUTES: ReadonlyArray<{ method: string; pattern: 
   { method: "GET", pattern: /^\/api\/projects$/ },
   { method: "POST", pattern: /^\/api\/projects$/ },
   { method: "GET", pattern: /^\/api\/projects\/[^/]+$/ },
+  { method: "GET", pattern: /^\/api\/projects\/[^/]+\/path-status$/ },
   { method: "PATCH", pattern: /^\/api\/projects\/[^/]+$/ },
   { method: "DELETE", pattern: /^\/api\/projects\/[^/]+$/ },
   { method: "GET", pattern: /^\/api\/projects\/[^/]+\/worktrees$/ },
@@ -386,6 +388,11 @@ async function dispatch(
     if (method === "GET") return projectsController.getOne(id, request);
     if (method === "PATCH") return projectsController.update(id, request);
     if (method === "DELETE") return projectsController.remove(id, request);
+  }
+  m = pathname.match(PROJECT_PATH_STATUS_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return projectsController.pathStatus(id, request);
   }
   m = pathname.match(PROJECT_TASKS_PATH);
   if (m) {

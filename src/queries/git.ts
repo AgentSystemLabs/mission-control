@@ -19,11 +19,15 @@ export const gitKeys = {
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", file, staged ? "staged" : "unstaged"] as const,
 };
 
-export const gitStatusQueryOptions = (projectId: string, worktreeId?: string | null) =>
+export const gitStatusQueryOptions = (
+  projectId: string,
+  worktreeId?: string | null,
+  opts: { enabled?: boolean } = {},
+) =>
   queryOptions({
     queryKey: gitKeys.status(projectId, worktreeId),
     queryFn: () => api.getGitStatus(projectId, worktreeId),
-    enabled: !isWebDaytonaRuntime(),
+    enabled: !isWebDaytonaRuntime() && (opts.enabled ?? true),
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
@@ -33,24 +37,29 @@ export const gitDiffQueryOptions = (
   worktreeId: string | null | undefined,
   file: string | null,
   staged: boolean,
+  opts: { enabled?: boolean } = {},
 ) =>
   queryOptions({
     queryKey: file
       ? gitKeys.diff(projectId, worktreeId, file, staged)
       : (["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", "__none__"] as const),
     queryFn: () => api.getGitDiff(projectId, file!, staged, worktreeId),
-    enabled: !!file && !isWebDaytonaRuntime(),
+    enabled: !!file && !isWebDaytonaRuntime() && (opts.enabled ?? true),
   });
 
-export const useGitStatus = (projectId: string, worktreeId?: string | null) =>
-  useQuery(gitStatusQueryOptions(projectId, worktreeId));
+export const useGitStatus = (
+  projectId: string,
+  worktreeId?: string | null,
+  opts: { enabled?: boolean } = {},
+) => useQuery(gitStatusQueryOptions(projectId, worktreeId, opts));
 
 export const useGitDiff = (
   projectId: string,
   worktreeId: string | null | undefined,
   file: string | null,
   staged: boolean,
-) => useQuery(gitDiffQueryOptions(projectId, worktreeId, file, staged));
+  opts: { enabled?: boolean } = {},
+) => useQuery(gitDiffQueryOptions(projectId, worktreeId, file, staged, opts));
 
 function useInvalidateGit(projectId: string, worktreeId?: string | null) {
   const qc = useQueryClient();

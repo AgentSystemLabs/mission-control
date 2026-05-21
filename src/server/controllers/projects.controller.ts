@@ -5,6 +5,7 @@ import {
   createProject,
   deleteProject,
   getProject,
+  getProjectPathStatus,
   listProjects,
   refreshBranch,
   togglePin,
@@ -122,6 +123,20 @@ export async function getOne(rawId: string, request: Request): Promise<Response>
   if (!p) return notFound();
   refreshBranch(id);
   return json({ project: p });
+}
+
+export async function pathStatus(rawId: string, request: Request): Promise<Response> {
+  const parsed = idParam.safeParse(rawId);
+  if (!parsed.success) return notFound();
+  const url = new URL(request.url);
+  const worktreeId = url.searchParams.get("worktreeId");
+  const hosted = await getHostedContext(request);
+  if (hosted) {
+    const p = await getHostedProject(hosted, parsed.data);
+    return p ? json({ status: { ok: true, path: p.path, scope: "project" } }) : notFound();
+  }
+  const status = getProjectPathStatus(parsed.data, worktreeId);
+  return status ? json({ status }) : notFound();
 }
 
 export async function update(rawId: string, request: Request): Promise<Response> {

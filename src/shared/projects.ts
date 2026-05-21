@@ -6,6 +6,17 @@ export type ProjectWithCounts = Project & {
   githubUrl?: string | null;
 };
 
+export type ProjectPathStatus =
+  | { ok: true; path: string; scope: "project" | "worktree"; worktreeId?: string | null }
+  | {
+      ok: false;
+      path: string;
+      scope: "project" | "worktree";
+      worktreeId?: string | null;
+      reason: "missing" | "not-directory" | "unreadable";
+      message: string;
+    };
+
 export type ProjectActivityState =
   | "offline"
   | "terminal-running"

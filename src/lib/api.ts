@@ -1,6 +1,6 @@
 import type { Group, Project, Task, UserTerminal } from "~/db/schema";
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
-import type { ProjectWithCounts } from "~/shared/projects";
+import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   CommitResult,
@@ -158,6 +158,10 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   listProjects: () => req<{ projects: ProjectWithCounts[] }>("/api/projects"),
   getProject: (id: string) => req<{ project: ProjectWithCounts }>(`/api/projects/${id}`),
+  getProjectPathStatus: (id: string, worktreeId?: string | null) =>
+    req<{ status: ProjectPathStatus }>(
+      `/api/projects/${id}/path-status${worktreeId ? `?worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,
+    ),
   createProject: (body: {
     name?: string;
     path: string;

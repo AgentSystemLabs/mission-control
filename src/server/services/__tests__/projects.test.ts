@@ -11,11 +11,17 @@ process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
   .export({ type: "spki", format: "pem" })
   .toString();
 
-const { listProjects, createProject, togglePin, deleteProject, updateProject, ProjectCapExceededError } = await import(
-  "../projects"
-);
+const {
+  listProjects,
+  createProject,
+  togglePin,
+  deleteProject,
+  updateProject,
+  getProjectPathStatus,
+  ProjectCapExceededError,
+} = await import("../projects");
 const { getDb } = await import("~/db/client");
-const { projects, tasks, groups, appSettings } = await import("~/db/schema");
+const { projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
 const { setLicenseKey, clearLicense } = await import("../license-storage");
 const { FREE_PROJECT_CAP } = await import("~/shared/license");
 
@@ -41,6 +47,7 @@ describe("projects service", () => {
   beforeEach(() => {
     const db = getDb();
     db.delete(tasks).run();
+    db.delete(worktrees).run();
     db.delete(projects).run();
     db.delete(groups).run();
     db.delete(appSettings).run();
@@ -50,6 +57,45 @@ describe("projects service", () => {
     expect(() =>
       createProject({ name: "no-go", path: "/definitely/not/here/i/promise" })
     ).toThrow();
+  });
+
+  it("reports a missing persisted project path", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-missing-"));
+    const created = createProject({ name: "missing", path: dir });
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    expect(getProjectPathStatus(created.id)).toMatchObject({
+      ok: false,
+      reason: "missing",
+      path: dir,
+    });
+  });
+
+  it("reports a missing selected worktree path", () => {
+    const db = getDb();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-worktree-root-"));
+    const worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-worktree-"));
+    const created = createProject({ name: "worktree", path: dir });
+    const now = Date.now();
+    db.insert(worktrees)
+      .values({
+        id: "wt-missing",
+        projectId: created.id,
+        name: "missing-worktree",
+        path: worktreeDir,
+        branch: "feature/missing",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    fs.rmSync(worktreeDir, { recursive: true, force: true });
+
+    expect(getProjectPathStatus(created.id, "wt-missing")).toMatchObject({
+      ok: false,
+      scope: "worktree",
+      reason: "missing",
+      path: worktreeDir,
+    });
   });
 
   it("creates and lists a project", () => {
@@ -68,6 +114,16 @@ describe("projects service", () => {
     expect(after?.pinned).toBe(true);
     const renamed = updateProject(c.id, { name: "beta-2" });
     expect(renamed?.name).toBe("beta-2");
+  });
+
+  it("rejects updating a project to a nonexistent path", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-update-"));
+    const c = createProject({ name: "beta", path: dir });
+
+    expect(() =>
+      updateProject(c.id, { path: "/definitely/not/here/i/promise" })
+    ).toThrow(/Working directory does not exist/);
+    expect(getProjectPathStatus(c.id)).toMatchObject({ ok: true, path: dir });
   });
 
   it("deletes cleanly", () => {

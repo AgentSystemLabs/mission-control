@@ -219,6 +219,7 @@ export function CommitPushButton({
   variant = "primary",
   size = "sm",
   splitTrailing = false,
+  enabled = true,
   onError,
   onNotice,
 }: {
@@ -232,12 +233,13 @@ export function CommitPushButton({
   size?: "sm" | "md";
   /** Right segment of a pill-style split next to the Git status control (toolbar). */
   splitTrailing?: boolean;
+  enabled?: boolean;
   onError?: (msg: string) => void;
   onNotice?: (msg: string) => void;
 }) {
   const commitM = useGitCommit(projectId, worktreeId);
   const pushM = useGitPush(projectId, worktreeId);
-  const { data: status } = useGitStatus(projectId, worktreeId);
+  const { data: status } = useGitStatus(projectId, worktreeId, { enabled });
   const projectShipping = useProjectShipping(projectId, worktreeId);
   const aheadCount = status?.aheadCount ?? null;
   const [shipFailed, setShipFailed] = useState<ShipFailedDialogState>(
@@ -302,6 +304,7 @@ export function CommitPushButton({
   );
 
   const onCommitAndPush = useCallback(async () => {
+    if (!enabled) return;
     if (isProjectShipping(projectId, worktreeId)) return;
 
     beginShipOperation(projectId, worktreeId);
@@ -326,7 +329,7 @@ export function CommitPushButton({
     } finally {
       endShipOperation(projectId, worktreeId);
     }
-  }, [projectId, worktreeId, runShip, surfaceShipError]);
+  }, [enabled, projectId, worktreeId, runShip, surfaceShipError]);
 
   const onManualCommit = useCallback(
     async (message: string) => {
@@ -369,7 +372,9 @@ export function CommitPushButton({
   const pushing = pushM.isPending;
   const localBusy = committing || pushing;
   const busy = localBusy || projectShipping;
-  const tooltip = title ?? "commit & push";
+  const tooltip = enabled
+    ? title ?? "commit & push"
+    : "Ship unavailable until the project folder is valid";
 
   const labelBusy = (
     <>
@@ -408,7 +413,7 @@ export function CommitPushButton({
       icon={localBusy ? undefined : "upload"}
       className="mc-btn-attached-left"
       onClick={() => void onCommitAndPush()}
-      disabled={busy}
+      disabled={busy || !enabled}
       title={tooltip}
       aria-label={tooltip}
       style={{ fontFamily: "var(--mono)" }}
@@ -421,7 +426,7 @@ export function CommitPushButton({
       size={size}
       icon={localBusy ? undefined : "upload"}
       onClick={onCommitAndPush}
-      disabled={busy}
+      disabled={busy || !enabled}
       title={tooltip}
     >
       {localBusy ? labelBusy : labelIdle}

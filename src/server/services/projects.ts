@@ -3,9 +3,10 @@ import * as path from "node:path";
 import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } from "~/shared/domain";
 import type { LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
-import type { ProjectWithCounts } from "~/shared/projects";
+import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
 import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
 import { events } from "../events";
+import { ValidationError } from "../errors";
 import {
   deleteProjectRow,
   findAllProjects,
@@ -14,10 +15,12 @@ import {
   insertProject,
   updateProjectRow,
 } from "../repositories/projects.repo";
+import { findWorktreeById } from "../repositories/worktrees.repo";
 import { findAllTasks, findTasksByProjectId } from "../repositories/tasks.repo";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { readLicenseState } from "./license";
 import { newId } from "./_ids";
+import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 export class ProjectCapExceededError extends Error {
   constructor(
@@ -32,6 +35,78 @@ export class ProjectCapExceededError extends Error {
 }
 
 export type { ProjectWithCounts } from "~/shared/projects";
+
+function validateWorkingDirectory(dir: string): string {
+  const trimmed = dir.trim();
+  if (!trimmed) throw new ValidationError("Working directory is required");
+  if (!fs.existsSync(trimmed)) throw new ValidationError("Working directory does not exist");
+  const stat = fs.statSync(trimmed);
+  if (!stat.isDirectory()) throw new ValidationError("Working directory must be a directory");
+  try {
+    fs.accessSync(trimmed, fs.constants.R_OK | fs.constants.X_OK);
+  } catch {
+    throw new ValidationError("Working directory is not readable");
+  }
+  return trimmed;
+}
+
+function pathStatusFor(
+  target: string,
+  scope: ProjectPathStatus["scope"],
+  worktreeId?: string | null,
+): ProjectPathStatus {
+  try {
+    if (!fs.existsSync(target)) {
+      return {
+        ok: false,
+        path: target,
+        scope,
+        worktreeId,
+        reason: "missing",
+        message:
+          scope === "worktree"
+            ? "Mission Control cannot find this worktree folder."
+            : "Mission Control cannot find this project folder.",
+      };
+    }
+    const stat = fs.statSync(target);
+    if (!stat.isDirectory()) {
+      return {
+        ok: false,
+        path: target,
+        scope,
+        worktreeId,
+        reason: "not-directory",
+        message: "This path exists, but it is not a directory.",
+      };
+    }
+    fs.accessSync(target, fs.constants.R_OK | fs.constants.X_OK);
+    return { ok: true, path: target, scope, worktreeId };
+  } catch {
+    return {
+      ok: false,
+      path: target,
+      scope,
+      worktreeId,
+      reason: "unreadable",
+      message: "Mission Control cannot read this working directory.",
+    };
+  }
+}
+
+export function getProjectPathStatus(
+  id: string,
+  worktreeId?: string | null,
+): ProjectPathStatus | null {
+  const project = findProjectById(id);
+  if (!project) return null;
+  if (worktreeId && worktreeId !== MAIN_WORKTREE_ID) {
+    const worktree = findWorktreeById(worktreeId);
+    if (!worktree || worktree.projectId !== id) return null;
+    return pathStatusFor(worktree.path, "worktree", worktreeId);
+  }
+  return pathStatusFor(project.path, "project", null);
+}
 
 export function detectGithubUrl(dir: string): string | null {
   try {
@@ -108,12 +183,9 @@ export function createProject(input: {
   iconColor?: string;
   groupId?: string | null;
 }): Project {
-  if (!input.path?.trim()) throw new Error("Working directory is required");
-  if (!fs.existsSync(input.path)) throw new Error("Working directory does not exist");
-  const stat = fs.statSync(input.path);
-  if (!stat.isDirectory()) throw new Error("Working directory must be a directory");
+  const localPath = validateWorkingDirectory(input.path ?? "");
 
-  const name = input.name?.trim() || path.basename(input.path) || "project";
+  const name = input.name?.trim() || path.basename(localPath) || "project";
 
   if (!isProTier(readLicenseState())) {
     const existing = findProjectIds();
@@ -124,11 +196,11 @@ export function createProject(input: {
 
   const now = Date.now();
   const id = newId("p");
-  const branch = detectBranch(input.path);
+  const branch = detectBranch(localPath);
   const row = {
     id,
     name,
-    path: input.path,
+    path: localPath,
     icon: (input.icon || name.slice(0, 2)).toUpperCase().slice(0, 2),
     iconColor: input.iconColor || "#ff5a1f",
     imagePath: null,
@@ -175,6 +247,8 @@ export function updateProject(
   const existing = findProjectById(id);
   if (!existing) return null;
   const { launchCommands, ...rest } = patch;
+  const nextPath =
+    rest.path !== undefined ? validateWorkingDirectory(rest.path) : undefined;
   if (
     rest.worktreeSetupCommand !== undefined &&
     rest.worktreeSetupCommand !== null &&
@@ -185,6 +259,12 @@ export function updateProject(
   const updated = {
     ...existing,
     ...rest,
+    ...(nextPath !== undefined
+      ? {
+          path: nextPath,
+          branch: rest.branch ?? detectBranch(nextPath),
+        }
+      : {}),
     ...(rest.worktreeSetupCommand !== undefined
       ? { worktreeSetupCommand: rest.worktreeSetupCommand?.trim() || null }
       : {}),
