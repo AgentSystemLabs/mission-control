@@ -6,54 +6,33 @@ import { Icon } from "~/components/ui/Icon";
 import { ApiError } from "~/lib/api";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
 import { isCommitCli, type CommitCli } from "~/shared/commit-cli";
-import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
+import {
+  beginShipOperation,
+  endShipOperation,
+  getProjectShipPhase,
+  isProjectShipping,
+  setShipPhase,
+  subscribeShipOperations,
+} from "~/lib/ship-operations";
 import {
   ShipFailedDialog,
   SHIP_FAILED_INITIAL,
   type ShipFailedDialogState,
 } from "./ShipFailedDialog";
 
-const activeShipOperations = new Map<string, number>();
-const shipOperationListeners = new Set<() => void>();
-
-function shipKey(projectId: string, worktreeId?: string | null) {
-  return `${projectId}:${worktreeId || MAIN_WORKTREE_ID}`;
-}
-
-function isProjectShipping(projectId: string, worktreeId?: string | null) {
-  return (activeShipOperations.get(shipKey(projectId, worktreeId)) ?? 0) > 0;
-}
-
-function notifyShipOperationListeners() {
-  for (const listener of shipOperationListeners) listener();
-}
-
-function beginShipOperation(projectId: string, worktreeId?: string | null) {
-  const key = shipKey(projectId, worktreeId);
-  activeShipOperations.set(key, (activeShipOperations.get(key) ?? 0) + 1);
-  notifyShipOperationListeners();
-}
-
-function endShipOperation(projectId: string, worktreeId?: string | null) {
-  const key = shipKey(projectId, worktreeId);
-  const next = Math.max(0, (activeShipOperations.get(key) ?? 0) - 1);
-  if (next === 0) activeShipOperations.delete(key);
-  else activeShipOperations.set(key, next);
-  notifyShipOperationListeners();
-}
-
-function subscribeShipOperations(listener: () => void) {
-  shipOperationListeners.add(listener);
-  return () => {
-    shipOperationListeners.delete(listener);
-  };
-}
-
 function useProjectShipping(projectId: string, worktreeId?: string | null) {
   return useSyncExternalStore(
     subscribeShipOperations,
     () => isProjectShipping(projectId, worktreeId),
     () => false,
+  );
+}
+
+function useProjectShipPhase(projectId: string, worktreeId?: string | null) {
+  return useSyncExternalStore(
+    subscribeShipOperations,
+    () => getProjectShipPhase(projectId, worktreeId),
+    () => null,
   );
 }
 
@@ -241,11 +220,11 @@ export function CommitPushButton({
   const pushM = useGitPush(projectId, worktreeId);
   const { data: status } = useGitStatus(projectId, worktreeId, { enabled });
   const projectShipping = useProjectShipping(projectId, worktreeId);
+  const shipPhase = useProjectShipPhase(projectId, worktreeId);
   const aheadCount = status?.aheadCount ?? null;
   const [shipFailed, setShipFailed] = useState<ShipFailedDialogState>(
     SHIP_FAILED_INITIAL,
   );
-  const [manualBusy, setManualBusy] = useState(false);
 
   /**
    * Run commit (with optional manual message) then push, share toasts.
@@ -262,6 +241,7 @@ export function CommitPushButton({
         if (c.kind === "committed") {
           committedMessage = c.message.split("\n")[0];
         }
+        setShipPhase(projectId, worktreeId, "pushing");
         const p = await pushM.mutateAsync();
         if (c.kind === "nothing-to-commit" && p.kind === "nothing-to-push") {
           const detail = autoStage
@@ -289,7 +269,7 @@ export function CommitPushButton({
         return { ok: false, error: { raw: e, prefix } };
       }
     },
-    [autoStage, commitM, pushM, onNotice],
+    [autoStage, commitM, onNotice, projectId, pushM, worktreeId],
   );
 
   const surfaceShipError = useCallback(
@@ -333,8 +313,7 @@ export function CommitPushButton({
 
   const onManualCommit = useCallback(
     async (message: string) => {
-      if (manualBusy) return;
-      setManualBusy(true);
+      if (isProjectShipping(projectId, worktreeId)) return;
       beginShipOperation(projectId, worktreeId);
       try {
         const result = await runShip(message);
@@ -361,17 +340,13 @@ export function CommitPushButton({
           kind: "other",
         }));
       } finally {
-        setManualBusy(false);
         endShipOperation(projectId, worktreeId);
       }
     },
-    [manualBusy, projectId, worktreeId, runShip, surfaceShipError],
+    [projectId, worktreeId, runShip, surfaceShipError],
   );
 
-  const committing = commitM.isPending;
-  const pushing = pushM.isPending;
-  const localBusy = committing || pushing;
-  const busy = localBusy || projectShipping;
+  const busy = projectShipping;
   const tooltip = enabled
     ? title ?? "commit & push"
     : "Ship unavailable until the project folder is valid";
@@ -379,7 +354,7 @@ export function CommitPushButton({
   const labelBusy = (
     <>
       <Spinner />
-      {committing ? "Committing…" : "Pushing…"}
+      {shipPhase === "pushing" ? "Pushing…" : "Committing…"}
     </>
   );
   const labelIdle = (
@@ -410,7 +385,7 @@ export function CommitPushButton({
     <Btn
       variant={variant}
       size={size}
-      icon={localBusy ? undefined : "upload"}
+      icon={busy ? undefined : "upload"}
       className="mc-btn-attached-left"
       onClick={() => void onCommitAndPush()}
       disabled={busy || !enabled}
@@ -418,18 +393,18 @@ export function CommitPushButton({
       aria-label={tooltip}
       style={{ fontFamily: "var(--mono)" }}
     >
-      {localBusy ? labelBusy : labelIdle}
+      {busy ? labelBusy : labelIdle}
     </Btn>
   ) : (
     <Btn
       variant={variant}
       size={size}
-      icon={localBusy ? undefined : "upload"}
+      icon={busy ? undefined : "upload"}
       onClick={onCommitAndPush}
       disabled={busy || !enabled}
       title={tooltip}
     >
-      {localBusy ? labelBusy : labelIdle}
+      {busy ? labelBusy : labelIdle}
     </Btn>
   );
 
@@ -440,7 +415,8 @@ export function CommitPushButton({
         state={shipFailed}
         onClose={() => setShipFailed(SHIP_FAILED_INITIAL)}
         onManualCommit={onManualCommit}
-        busy={manualBusy || committing || pushing}
+        busy={projectShipping}
+        shipPhase={shipPhase}
       />
     </>
   );

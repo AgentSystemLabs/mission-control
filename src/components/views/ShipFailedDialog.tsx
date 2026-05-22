@@ -34,12 +34,14 @@ export function ShipFailedDialog({
   onClose,
   onManualCommit,
   busy,
+  shipPhase = "committing",
 }: {
   state: ShipFailedDialogState;
   onClose: () => void;
   /** Called with the typed commit message — parent commits + pushes. */
   onManualCommit: (message: string) => Promise<void> | void;
   busy: boolean;
+  shipPhase?: "committing" | "pushing" | null;
 }) {
   const [draft, setDraft] = useState("");
 
@@ -112,7 +114,11 @@ export function ShipFailedDialog({
               onClick={submit}
               disabled={!canSubmit}
             >
-              {busy ? "Committing…" : "Commit with this message"}
+              {busy
+                ? shipPhase === "pushing"
+                  ? "Pushing…"
+                  : "Committing…"
+                : "Commit with this message"}
             </Btn>
           </StaticHotkeyTooltip>
         </>
