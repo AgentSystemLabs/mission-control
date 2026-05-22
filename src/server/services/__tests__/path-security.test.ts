@@ -15,7 +15,6 @@ const {
   resolveLaunchKitParentDirectory,
   resolveRegisteredProjectPath,
 } = await import("../path-security");
-const { installProjectSkills } = await import("../install-skills");
 const { createProjectFromLaunchKit } = await import("../launch-kit");
 const { assertSafeProjectRelativePath } = await import("../_skills-install-helpers");
 
@@ -33,22 +32,13 @@ describe("path security guards", () => {
     fs.rmSync(path.join(tmpRoot, "directory-grants.json"), { force: true });
   });
 
-  it("accepts skills installs only for registered project roots", () => {
+  it("accepts registered project roots for path-scoped writes", () => {
     const registered = mkdir("registered-project");
     const outside = mkdir("outside-project");
     createProject({ name: "registered", path: registered });
 
     expect(resolveRegisteredProjectPath(registered)).toBe(fs.realpathSync(registered));
     expect(() => resolveRegisteredProjectPath(outside)).toThrow(/registered Mission Control project/);
-  });
-
-  it("rejects skills install before network or license work when projectPath is not registered", async () => {
-    await expect(
-      installProjectSkills({
-        projectPath: mkdir("unregistered-skills"),
-        harnesses: { claude: true, codex: false },
-      }),
-    ).rejects.toThrow(/registered Mission Control project/);
   });
 
   it("rejects skills install targets that cross symlinked project subdirectories", () => {

@@ -19,12 +19,18 @@ import {
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
 import { ApiError, api, resolveApiToken } from "~/lib/api";
-import { buildClaudeCommand, newSessionId } from "~/lib/claude-command";
+import {
+  agentUsesPersistedSession,
+  buildFreshAgentLaunchCommand,
+  isAgentResumeCommand,
+  newSessionId,
+} from "~/lib/agent-command";
 import { terminalInputStartsTurn } from "~/lib/task-status-sync";
 import { queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
+import { AGENT_REGISTRY } from "~/shared/agents";
 
 async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
   try {
@@ -146,9 +152,9 @@ export function TerminalPane({
       // If an agent process exits before it has had a chance to render its
       // first useful prompt, preserve the panel so the user can read the error.
       const START_FAILURE_EXIT_MS = 3000;
-      // If a `claude --resume <uuid>` spawn dies almost immediately, the
-      // session file is gone or unreadable. Per the persistence design we
-      // start fresh under a NEW uuid instead of deleting the task card.
+      // If a resume spawn dies almost immediately, the session file is gone or
+      // unreadable. Per the persistence design we start fresh instead of
+      // deleting the task card.
       let spawnAt = 0;
       let spawnedAsResume = false;
 
@@ -161,25 +167,23 @@ export function TerminalPane({
         const elapsed = Date.now() - spawnAt;
         if (
           spawnedAsResume &&
-          task.agent === "claude-code" &&
+          agentUsesPersistedSession(task.agent) &&
           elapsed < START_FAILURE_EXIT_MS
         ) {
           void (async () => {
-            const fresh = newSessionId();
+            const fresh = task.agent === "codex" ? null : newSessionId();
             try {
               await api.updateTask(descriptor.taskId, { claudeSessionId: fresh });
             } catch {
               /* best effort — even if patch fails, spawn with fresh id */
             }
             term.writeln(
-              `\x1b[33m[resume failed; starting a fresh Claude session]\x1b[0m`
+              `\x1b[33m[resume failed; starting a fresh ${AGENT_REGISTRY[task.agent].label} session]\x1b[0m`
             );
-            const cmd = buildClaudeCommand({
-              kind: "new",
-              sessionId: fresh,
-              skipPermissions: descriptor.dangerouslySkipPermissions,
-              bareSession: !!task.claudeBareSession,
-            });
+            const cmd = buildFreshAgentLaunchCommand(
+              { ...task, claudeSessionId: fresh },
+              fresh ?? "",
+            );
             try {
               await spawnAndWire(cmd, false);
             } catch (err) {
@@ -382,6 +386,7 @@ export function TerminalPane({
               agent: task.agent,
               dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
               mcEnv: await resolveMcEnv(electron),
+              missionControlTheme: getTerminalColorScheme(),
             })
           : await api.createRemotePty({
               taskId: descriptor.taskId,
@@ -429,9 +434,7 @@ export function TerminalPane({
             return;
           }
 
-          const isResume =
-            task.agent === "claude-code" &&
-            descriptor.startCommand.includes("--resume");
+          const isResume = isAgentResumeCommand(task.agent, descriptor.startCommand);
           await spawnAndWire(descriptor.startCommand, isResume);
         } catch (err: any) {
           const message = remoteStartErrorMessage(err);

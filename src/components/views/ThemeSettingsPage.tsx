@@ -42,6 +42,10 @@ export function ThemeSettingsPage() {
     launchOverlayEnabled,
     commitCli: settings?.commitCli ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
+    worktreesEnabled:
+      queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??
+      settings?.worktreesEnabled ??
+      false,
     ...patch,
   });
 

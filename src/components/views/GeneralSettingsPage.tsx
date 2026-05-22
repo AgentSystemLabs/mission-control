@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
-import { Field, SettingsSection } from "~/components/views/SettingsParts";
+import { Field, SettingsSection, ToggleRow } from "~/components/views/SettingsParts";
 import { getElectron } from "~/lib/electron";
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
@@ -76,6 +76,10 @@ export function GeneralSettingsPage() {
     launchOverlayEnabled,
     commitCli: settings?.commitCli ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
+    worktreesEnabled:
+      queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??
+      settings?.worktreesEnabled ??
+      false,
     ...patch,
   });
 
@@ -408,77 +412,5 @@ function ReloadSection() {
         </div>
       </Field>
     </SettingsSection>
-  );
-}
-
-function ToggleRow({
-  title,
-  description,
-  checked,
-  onChange,
-  label,
-  disabled,
-}: {
-  title: string;
-  description: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-  disabled?: boolean;
-}) {
-  const titleId = useId();
-  const descriptionId = useId();
-  const labelId = useId();
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 16,
-        padding: "12px 14px",
-        background: "var(--surface-0)",
-        border: "1px solid var(--border)",
-        borderRadius: 7,
-        opacity: disabled ? 0.6 : 1,
-      }}
-    >
-      <div>
-        <div
-          id={titleId}
-          style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}
-        >
-          {title}
-        </div>
-        <div
-          id={descriptionId}
-          style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}
-        >
-          {description}
-        </div>
-      </div>
-      <label
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 8,
-          fontSize: 12,
-          color: "var(--text-dim)",
-          cursor: disabled ? "not-allowed" : "pointer",
-          flexShrink: 0,
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          aria-labelledby={`${titleId} ${labelId}`}
-          aria-describedby={descriptionId}
-          onChange={(event) => onChange(event.currentTarget.checked)}
-        />
-        <span id={labelId}>{label}</span>
-      </label>
-    </div>
   );
 }

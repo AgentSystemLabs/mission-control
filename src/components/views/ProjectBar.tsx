@@ -9,6 +9,7 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { TASK_STATUS_META } from "~/shared/domain";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { useServerEvents } from "~/lib/use-events";
+import { useUserTerminals } from "~/lib/user-terminal-store";
 import { api } from "~/lib/api";
 import { getPinnedProjectStatusDots } from "./project-bar-status-dots";
 
@@ -19,6 +20,7 @@ export function ProjectBar() {
   const queryClient = useQueryClient();
   const { data: projects } = useProjects();
   const { data: settings } = useSettings();
+  const { runningProjectIds, hasRunningLaunchForProject } = useUserTerminals();
   const minimal = settings?.minimalTheme ?? false;
   const invalidateProjects = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -104,8 +106,12 @@ export function ProjectBar() {
         />
       )}
       {pinned.map((project, idx) => {
+        const isActive = idx === activeIndex;
         const hotkey = idx < HOTKEY_LIMIT ? idx + 1 : null;
         const runningCount = project.taskCounts.running;
+        const terminalRunning = runningProjectIds.has(project.id);
+        const launchRunning = hasRunningLaunchForProject(project.id, project.launchCommands);
+        const projectRunning = runningCount > 0 || terminalRunning;
         const finishedCount = project.taskCounts.finished;
         const statusDots = getPinnedProjectStatusDots(project.taskCounts);
         const hasStatusDots = statusDots.length > 0;
@@ -118,6 +124,8 @@ export function ProjectBar() {
           runningCount > 0
             ? `${runningCount} ${runningCount === 1 ? "session" : "sessions"} running`
             : null;
+        const terminalLabel = terminalRunning ? "terminal running" : null;
+        const launchLabel = launchRunning ? "launch running" : null;
         const finishedLabel =
           finishedCount > 0
             ? `${finishedCount} ${finishedCount === 1 ? "session" : "sessions"} finished`
@@ -125,6 +133,8 @@ export function ProjectBar() {
         const tooltip = [
           hotkey ? `${project.name} (${modSymbol}${hotkey})` : project.name,
           needsInputLabel,
+          launchLabel,
+          terminalLabel,
           runningLabel,
           finishedLabel,
         ]
@@ -153,7 +163,7 @@ export function ProjectBar() {
               border: "1px solid transparent",
               borderRadius: ITEM_RADIUS,
               background: "transparent",
-              zIndex: 1,
+              zIndex: isActive ? 3 : 1,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
@@ -196,6 +206,7 @@ export function ProjectBar() {
             )}
             <span
               aria-hidden
+              className="pinned-project-logo"
               style={{
                 position: "relative",
                 width: ICON_SIZE,
@@ -206,7 +217,40 @@ export function ProjectBar() {
                 flexShrink: 0,
               }}
             >
-              <ProjectIcon project={project} size={ICON_SIZE} />
+              <span
+                className={`pinned-project-logo-surface${projectRunning ? " pinned-project-logo-surface--running" : ""}`}
+                style={{
+                  width: ICON_SIZE,
+                  height: ICON_SIZE,
+                  borderRadius: ICON_SIZE * 0.22,
+                }}
+              >
+                <ProjectIcon project={project} size={ICON_SIZE} />
+              </span>
+              {launchRunning && (
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: needsInputCount > 0 ? 12 : -4,
+                    minWidth: 14,
+                    height: 14,
+                    padding: "0 2px",
+                    borderRadius: HOTKEY_BADGE_RADIUS,
+                    background: "var(--surface-3, var(--surface-2))",
+                    border: "1px solid var(--border)",
+                    color: "var(--accent)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                    zIndex: 4,
+                  }}
+                >
+                  <Icon name="play" size={8} />
+                </span>
+              )}
               {needsInputCount > 0 && (
                 <span
                   style={{
@@ -224,6 +268,7 @@ export function ProjectBar() {
                     justifyContent: "center",
                     boxShadow: "0 1px 3px rgba(0,0,0,0.22)",
                     pointerEvents: "none",
+                    zIndex: 4,
                   }}
                 >
                   <CircleAlert size={11} strokeWidth={2.4} />
@@ -250,6 +295,7 @@ export function ProjectBar() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  zIndex: 5,
                 }}
               >
                 {hotkey}

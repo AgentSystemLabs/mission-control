@@ -19,6 +19,8 @@ export type BaseSpawnRequest = {
   cols?: number;
   rows?: number;
   mcEnv?: { apiUrl?: string; token?: string };
+  /** Mission Control UI theme so agent skills can match diagram styling. */
+  missionControlTheme?: "dark" | "light";
 };
 
 export type AgentSpawnRequest = BaseSpawnRequest & {
@@ -116,6 +118,7 @@ const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, A
     "--yolo": { value: false, requiresDangerouslySkipPermissions: true },
   },
   "cursor-cli": {
+    "--resume": { value: {} },
     "--force": { value: false, requiresDangerouslySkipPermissions: true },
   },
 };
@@ -174,6 +177,30 @@ function defaultRealpath(p: string): string {
   } catch {
     return path.resolve(p);
   }
+}
+
+const CODEX_RESUME_SUBCOMMAND = "resume";
+
+function validateCodexArgv(
+  argv: string[],
+  opts: { dangerouslySkipPermissions: boolean },
+): void {
+  if (argv[0] === CODEX_RESUME_SUBCOMMAND) {
+    const sessionId = argv[1];
+    if (
+      !sessionId ||
+      sessionId.startsWith("-") ||
+      !AGENT_VALUE.test(sessionId)
+    ) {
+      throw new SpawnPolicyError(
+        "agent-arg-not-allowed",
+        "pty:spawn rejected invalid value for codex resume session id",
+      );
+    }
+    validateAgentArgv("codex", argv.slice(2), opts);
+    return;
+  }
+  validateAgentArgv("codex", argv, opts);
 }
 
 function validateAgentArgv(
@@ -316,11 +343,13 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
     }
   }
 
-  validateAgentArgv(agentKey, argv, {
-    dangerouslySkipPermissions: req.dangerouslySkipPermissions === true,
-  });
+  const spawnOpts = { dangerouslySkipPermissions: req.dangerouslySkipPermissions === true };
+  if (agentKey === "codex") {
+    validateCodexArgv(argv, spawnOpts);
+  } else {
+    validateAgentArgv(agentKey, argv, spawnOpts);
+  }
 
-  // 8. Resolve the binary on PATH so the spawn target is an absolute path.
   const resolved = deps.resolveCommand(expectedBinary);
   if (!resolved) {
     throw new SpawnPolicyError(

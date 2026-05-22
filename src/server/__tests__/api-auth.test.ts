@@ -96,10 +96,9 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   { method: "GET", pathname: "/api/support/runtime-usage" },
   { method: "DELETE", pathname: "/api/license" },
   { method: "POST", pathname: "/api/license/validate" },
-  // Skills
-  { method: "GET", pathname: "/api/skills/install/installed" },
-  { method: "GET", pathname: "/api/skills/install/latest" },
-  { method: "POST", pathname: "/api/skills/install" },
+  // Diagram skill
+  { method: "GET", pathname: "/api/skills/install/diagram/installed" },
+  { method: "POST", pathname: "/api/skills/install/diagram" },
   // Launch kit
   { method: "GET", pathname: "/api/launch-kit/access" },
   { method: "POST", pathname: "/api/launch-kit/projects" },
@@ -114,6 +113,9 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   { method: "POST", pathname: "/api/hooks/codex" },
   { method: "POST", pathname: "/api/hooks/cursor" },
   { method: "POST", pathname: "/api/hooks/claude-code" },
+  { method: "GET", pathname: "/api/diagram" },
+  { method: "POST", pathname: "/api/diagram" },
+  { method: "GET", pathname: "/api/diagrams" },
   // Usage
   { method: "GET", pathname: "/api/usage" },
   // SSE ticket issuance

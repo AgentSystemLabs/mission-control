@@ -92,6 +92,38 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps worktrees disabled by default", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      worktreesEnabled: false,
+    });
+  });
+
+  it("persists the worktrees preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ worktreesEnabled: true }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      worktreesEnabled: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      worktreesEnabled: true,
+    });
+  });
+
   // Regression: GET /api/settings used to anonymously return the API bearer
   // token in the JSON body, collapsing the entire auth tier.
   // See todos/bugs/done/02-api-settings-leaks-bearer-token.md.

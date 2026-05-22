@@ -622,6 +622,7 @@ export async function spawnRemotePty(input: RemotePtySpawnInput): Promise<{ ptyI
           ? {
               MC_API_URL: input.hookEnv.apiUrl,
               MC_API_TOKEN: input.hookEnv.token,
+              MC_THEME: "dark",
             }
           : {}),
       },

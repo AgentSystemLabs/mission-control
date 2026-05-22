@@ -10,6 +10,7 @@ import {
   agentCanLaunch,
   availabilityFor,
   firstAvailableAgent,
+  type CliAvailability,
   useCliAvailability,
 } from "~/lib/cli-availability";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
@@ -27,12 +28,18 @@ export type RememberPatch = {
 
 const AGENT_OPTIONS = UI_AGENTS.map((id) => ({ id, ...AGENT_REGISTRY[id] }));
 
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement &&
+    !!target.closest("button, a, input, textarea, select, [role='button']");
+}
+
 export function NewAgentDialog({
   open,
   project,
   onClose,
   onStart,
   onPersistRemember,
+  onAgentUpdateRequired,
 }: {
   open: boolean;
   project: Project | null;
@@ -45,6 +52,7 @@ export function NewAgentDialog({
     bareSession: boolean;
   }) => Promise<void> | void;
   onPersistRemember: (patch: RememberPatch) => Promise<void> | void;
+  onAgentUpdateRequired?: (agent: TaskAgent, availability: CliAvailability) => void;
 }) {
   const [agent, setAgent] = useState<TaskAgent>("claude-code");
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
@@ -81,7 +89,6 @@ export function NewAgentDialog({
     setSubmitting(false);
     // Seed only when the dialog opens; later refreshes of `project` (e.g. after
     // persisting the remember toggle) must not stomp in-flight form state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const toggleRemember = async (next: boolean) => {
@@ -104,7 +111,10 @@ export function NewAgentDialog({
   };
 
   const selectAgent = (nextAgent: TaskAgent) => {
-    if (!agentCanLaunch(cliAvailability, nextAgent)) return;
+    const nextAvailability = availabilityFor(cliAvailability, nextAgent);
+    const canSelect = agentCanLaunch(cliAvailability, nextAgent) ||
+      nextAvailability.status === "outdated";
+    if (!canSelect) return;
     setAgent(nextAgent);
     if (rememberSettings) {
       void persistRememberedSettings(nextAgent, dangerouslySkipPermissions);
@@ -121,6 +131,10 @@ export function NewAgentDialog({
   const submit = async () => {
     if (submitting) return;
     const selectedAvailability = availabilityFor(cliAvailability, agent);
+    if (selectedAvailability.status === "outdated") {
+      onAgentUpdateRequired?.(agent, selectedAvailability);
+      return;
+    }
     if (!agentCanLaunch(cliAvailability, agent)) {
       const checking =
         selectedAvailability.status === "checking" ||
@@ -137,8 +151,26 @@ export function NewAgentDialog({
     const electron = getElectron();
     if (electron) {
       const cmd = AGENT_META[agent].cmd;
-      const probe = await electron.cliCheck(cmd);
+      const probe = await electron.cliCheck(cmd, { verifyVersion: true });
       if (!probe.ok) {
+        if (
+          (probe.reason === "outdated" ||
+            probe.reason === "version-unknown" ||
+            probe.reason === "version-check-failed")
+        ) {
+          onAgentUpdateRequired?.(agent, {
+            status: "outdated",
+            path: probe.path,
+            reason: probe.reason,
+            label: probe.label,
+            version: probe.version,
+            requiredVersion: probe.requiredVersion,
+            packageUrl: probe.packageUrl,
+            updateCommands: probe.updateCommands,
+          });
+          setSubmitting(false);
+          return;
+        }
         setError(`${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`);
         setSubmitting(false);
         return;
@@ -183,7 +215,11 @@ export function NewAgentDialog({
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
         const ids = AGENT_OPTIONS
-          .filter((a) => agentCanLaunch(cliAvailability, a.id))
+          .filter((a) => {
+            const availability = availabilityFor(cliAvailability, a.id);
+            return agentCanLaunch(cliAvailability, a.id) ||
+              availability.status === "outdated";
+          })
           .map((a) => a.id);
         const idx = ids.indexOf(agent);
         const next = e.key === "ArrowDown"
@@ -193,6 +229,7 @@ export function NewAgentDialog({
         return;
       }
       if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        if (isInteractiveTarget(e.target)) return;
         e.preventDefault();
         void submit();
       }
@@ -202,9 +239,10 @@ export function NewAgentDialog({
   }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions, cliAvailability]);
 
   const selectedAvailability = availabilityFor(cliAvailability, agent);
+  const selectedAgentOutdated = selectedAvailability.status === "outdated";
   const startDisabled =
     submitting ||
-    !agentCanLaunch(cliAvailability, agent);
+    (!selectedAgentOutdated && !agentCanLaunch(cliAvailability, agent));
 
   useHotkey("dialog.submit", () => void submit(), { enabled: open && !startDisabled });
 
@@ -253,7 +291,8 @@ export function NewAgentDialog({
                 availability.status === "checking" ||
                 (availability.status === "unknown" && !!getElectron());
               const cliMissing = availability.status === "missing";
-              const disabled = !agentCanLaunch(cliAvailability, a.id);
+              const cliOutdated = availability.status === "outdated";
+              const disabled = !cliOutdated && !agentCanLaunch(cliAvailability, a.id);
               return (
                 <button
                   key={a.id}
@@ -265,6 +304,8 @@ export function NewAgentDialog({
                       ? "Coming soon"
                       : cliMissing
                         ? `${a.command} was not found on PATH`
+                        : cliOutdated
+                          ? `${a.command} must be updated before launching`
                         : cliChecking
                           ? `Checking for ${a.command}`
                         : undefined
@@ -314,17 +355,21 @@ export function NewAgentDialog({
                     >
                     {a.description}
                     </div>
-                    {(cliChecking || cliMissing) && (
+                    {(cliChecking || cliMissing || cliOutdated) && (
                       <div
                         style={{
                           marginTop: 5,
                           fontFamily: "var(--mono)",
                           fontSize: 10.5,
-                          color: cliMissing ? "var(--status-failed)" : "var(--text-faint)",
+                          color: cliMissing || cliOutdated ? "var(--status-failed)" : "var(--text-faint)",
                           lineHeight: 1.35,
                         }}
                       >
-                        {cliMissing ? "CLI not found on PATH." : "Checking PATH..."}
+                        {cliMissing
+                          ? "CLI not found on PATH."
+                          : cliOutdated
+                            ? `Update required: ${availability.label ?? a.label} ${availability.requiredVersion ?? "latest"} or newer.`
+                            : "Checking PATH..."}
                       </div>
                     )}
                   </div>
@@ -345,6 +390,8 @@ export function NewAgentDialog({
                       ? "Coming soon"
                       : cliMissing
                         ? "Missing"
+                        : cliOutdated
+                          ? "Update"
                         : cliChecking
                           ? "Checking"
                           : `$${a.command}`}

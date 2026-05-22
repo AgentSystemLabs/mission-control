@@ -10,7 +10,6 @@ import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { IPC } from "./ipc-channels";
-import { installSkills, fetchLatestSkillsManifest } from "./install-skills";
 import { augmentProcessEnv, resolveCommandOnPath, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
 import {
@@ -28,6 +27,8 @@ import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
+import { checkAgentCliVersion } from "./agent-cli-version";
+import { AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND } from "./agent-cli-version-requirements";
 
 const APP_NAME = "MissionControl";
 
@@ -438,10 +439,22 @@ safeHandle(IPC.appReload, (event) => {
   return { ok: true as const };
 });
 
-safeHandle(IPC.cliCheck, (_evt, command: string) => {
+safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean }) => {
   if (!command) return { ok: false, reason: "empty" };
-  const resolved = resolveCommandOnPath(command, sanitizedProcessEnv());
-  if (resolved) return { ok: true, path: resolved };
+  const env = sanitizedProcessEnv();
+  const resolved = resolveCommandOnPath(command, env);
+  if (resolved) {
+    const requirement = AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND[command];
+    if (requirement && opts?.verifyVersion) {
+      const versionCheck = checkAgentCliVersion(resolved, env, requirement);
+      if (!versionCheck.ok) {
+        const { output: _output, ...safeVersionCheck } = versionCheck;
+        return { ...safeVersionCheck, path: resolved };
+      }
+      return { ok: true, path: resolved, version: versionCheck.version };
+    }
+    return { ok: true, path: resolved };
+  }
   return { ok: false, reason: "not-found" };
 });
 
@@ -487,41 +500,6 @@ safeHandle(IPC.debugSessionTerminalLogsRecord, (_evt, input: SessionTerminalDebu
     source: "renderer",
   });
 });
-
-safeHandle(
-  IPC.installSkillsFetchLatest,
-  async (_evt, opts?: { baseUrl?: string; licenseKey?: string }) => {
-    try {
-      const manifest = await fetchLatestSkillsManifest(
-        opts?.baseUrl,
-        opts?.licenseKey,
-      );
-      return { ok: true as const, manifest };
-    } catch (err) {
-      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
-    }
-  },
-);
-
-safeHandle(
-  IPC.installSkillsRun,
-  async (
-    _evt,
-    args: {
-      projectPath: string;
-      harnesses: { claude: boolean; codex: boolean };
-      baseUrl?: string;
-      licenseKey?: string;
-    },
-  ) => {
-    try {
-      const result = await installSkills(args);
-      return { ok: true as const, result };
-    } catch (err) {
-      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
-    }
-  },
-);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

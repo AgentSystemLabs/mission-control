@@ -28,8 +28,6 @@ export const IPC = {
   filesWatch: "files:watch",
   filesUnwatch: "files:unwatch",
   filesChanged: "files:changed",
-  installSkillsFetchLatest: "installSkills:fetchLatest",
-  installSkillsRun: "installSkills:run",
   settingsGetToken: "settings:getToken",
   settingsRegenerateToken: "settings:regenerateToken",
   debugSessionTerminalLogsList: "debug:sessionTerminalLogs:list",

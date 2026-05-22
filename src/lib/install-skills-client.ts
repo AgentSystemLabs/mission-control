@@ -1,13 +1,8 @@
-// Renderer-side wrapper for the install-skills HTTP API.
-// The local mission-control server resolves ACADEMY_BASE_URL itself
-// (localhost:3000 in dev, https://agentsystem.dev in prod), so no env var is
-// required from the user.
+// Renderer-side wrapper for the diagram skill install HTTP API.
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import { resolveApiToken } from "~/lib/api";
-import type {
-  InstallSkillsResult,
-  LatestSkillsManifest,
-} from "~/shared/electron-contract";
+import type { DiagramSkillHarnessSelection } from "~/shared/diagram-skill-install";
+import type { InstallDiagramSkillResult } from "~/shared/electron-contract";
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const resolved =
@@ -32,33 +27,21 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export type InstalledSkillsVersion = {
-  version: string | null;
-  publishedAt: string | null;
-};
-
-export async function fetchInstalledSkillsVersion(
+export async function fetchDiagramSkillInstallStatus(
   projectPath: string,
-): Promise<InstalledSkillsVersion> {
-  const { installed } = await req<{ installed: InstalledSkillsVersion }>(
-    `/api/skills/install/installed?projectPath=${encodeURIComponent(projectPath)}`,
+): Promise<InstallDiagramSkillResult> {
+  const { installed } = await req<{ installed: InstallDiagramSkillResult }>(
+    `/api/skills/install/diagram/installed?projectPath=${encodeURIComponent(projectPath)}`,
   );
   return installed;
 }
 
-export async function fetchLatestSkillsManifest(): Promise<LatestSkillsManifest> {
-  const { manifest } = await req<{ manifest: LatestSkillsManifest }>(
-    "/api/skills/install/latest",
-  );
-  return manifest;
-}
-
-export async function runInstallSkills(args: {
+export async function runInstallDiagramSkill(args: {
   projectPath: string;
-  harnesses: { claude: boolean; codex: boolean };
-}): Promise<InstallSkillsResult> {
-  const { result } = await req<{ result: InstallSkillsResult }>(
-    "/api/skills/install",
+  harnesses: DiagramSkillHarnessSelection;
+}): Promise<InstallDiagramSkillResult> {
+  const { result } = await req<{ result: InstallDiagramSkillResult }>(
+    "/api/skills/install/diagram",
     { method: "POST", body: JSON.stringify(args) },
   );
   return result;

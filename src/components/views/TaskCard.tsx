@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
@@ -6,7 +6,7 @@ import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { SessionIcon } from "~/components/ui/SessionIcon";
-import { useDismissableMenu } from "~/lib/use-dismissable-menu";
+import { useDiagrams } from "~/lib/use-diagram-events";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
 import { DEFAULT_SESSION_ICON, isSessionIcon } from "~/lib/session-icons";
@@ -23,12 +23,10 @@ export function TaskCard({
   onToggle: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
 }) {
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
-
-  const closeMenu = useCallback(() => setMenu(null), []);
-  useDismissableMenu(menu !== null, closeMenu);
+  const { hasDiagram, openDiagram } = useDiagrams();
+  const taskHasDiagram = hasDiagram(task.id);
 
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
@@ -46,11 +44,6 @@ export function TaskCard({
     <CardFrame
       glow
       focused={selected || hovered}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (onDelete) setMenu({ x: e.clientX, y: e.clientY });
-      }}
       style={{
         width: "100%",
         cursor: "pointer",
@@ -208,110 +201,80 @@ export function TaskCard({
           </div>
         </div>
 
-        {/* Top-right kebab actions */}
-        <div
-          style={{
-            position: "absolute",
-            top: 10,
-            right: 10,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            pointerEvents: "auto",
-            zIndex: 3,
-          }}
-        >
-          {onDelete && (
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="more"
-              aria-label="Task actions"
-              title="Task actions"
-              onClick={(e) => {
-                e.stopPropagation();
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setMenu({ x: r.right, y: r.bottom + 4 });
-              }}
-              style={{ width: 30, height: 30, padding: 0 }}
-            />
-          )}
-        </div>
-
-        {(task.status === "needs-input" || task.status === "interrupted") && (
+        {/* Top-right delete */}
+        {onDelete && (
           <div
             style={{
               position: "absolute",
-              bottom: 10,
+              top: 10,
               right: 10,
+              display: "flex",
+              alignItems: "center",
               pointerEvents: "auto",
               zIndex: 3,
             }}
           >
             <Btn
+              variant="ghost"
               size="sm"
-              variant="accent"
-              icon="terminal"
+              icon="trash"
+              aria-label={`Delete ${task.title}`}
+              title="Delete session"
               onClick={(e) => {
                 e.stopPropagation();
-                toggleTask();
+                setConfirmOpen(true);
               }}
-            >
-              Reply
-            </Btn>
+              style={{ width: 30, height: 30, padding: 0 }}
+            />
           </div>
         )}
 
-        {menu && onDelete && (
+        {(taskHasDiagram ||
+          task.status === "needs-input" ||
+          task.status === "interrupted") && (
           <div
-            role="menu"
-            aria-label="Task actions"
-            onClick={(e) => e.stopPropagation()}
             style={{
-              position: "fixed",
-              top: menu.y,
-              left: menu.x,
-              transform: "translateX(-100%)",
-              zIndex: 1000,
-              background: "var(--surface-2)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              padding: 4,
-              minWidth: 140,
-              boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
+              position: "absolute",
+              bottom: 10,
+              right: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               pointerEvents: "auto",
+              zIndex: 3,
             }}
           >
-            <button
-              role="menuitem"
-              autoFocus
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenu(null);
-                setConfirmOpen(true);
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                width: "100%",
-                padding: "7px 10px",
-                background: "transparent",
-                border: 0,
-                borderRadius: 4,
-                cursor: "pointer",
-                color: "var(--status-needs, #e06c75)",
-                fontSize: 12,
-                fontFamily: "var(--mono)",
-                textAlign: "left",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-            >
-              <Icon name="trash" size={12} /> Delete
-            </button>
+            {taskHasDiagram && (
+              <Btn
+                size="sm"
+                variant="ghost"
+                icon="chart"
+                title="View session diagram"
+                aria-label="View session diagram"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void openDiagram(task.id);
+                }}
+              >
+                Diagram
+              </Btn>
+            )}
+            {(task.status === "needs-input" || task.status === "interrupted") && (
+              <Btn
+                size="sm"
+                variant="accent"
+                icon="terminal"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleTask();
+                }}
+              >
+                Reply
+              </Btn>
+            )}
           </div>
         )}
+
       </div>
 
       {onDelete && (

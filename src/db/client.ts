@@ -200,6 +200,17 @@ function ensureSchema(sqlite: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS terminal_logs_task_idx ON terminal_logs(task_id);
 
+    CREATE TABLE IF NOT EXISTS task_diagrams (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT,
+      source TEXT NOT NULL,
+      format TEXT NOT NULL DEFAULT 'mermaid',
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS task_diagrams_project_idx ON task_diagrams(project_id);
+
     CREATE TABLE IF NOT EXISTS user_terminals (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

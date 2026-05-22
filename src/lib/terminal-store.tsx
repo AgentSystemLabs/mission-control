@@ -9,7 +9,12 @@ import {
 } from "react";
 import { getElectron } from "./electron";
 import { AGENT_REGISTRY } from "~/shared/agents";
-import { buildClaudeCommand, newSessionId } from "./claude-command";
+import {
+  agentLaunchMode,
+  agentUsesPersistedSession,
+  buildAgentLaunchCommand,
+  newSessionId,
+} from "./agent-command";
 import { api } from "./api";
 import type { TaskAgent } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
@@ -58,32 +63,35 @@ function commandFor(agent: TaskAgent): string {
 }
 
 /**
- * Compute the start command for a task. For claude-code, embeds either
- * --session-id (first launch) or --resume (later launches) so the
- * conversation survives app restarts. Side effect: generates and persists
- * a session ID if one is missing on a claude-code task (defensive — task
- * creation should have populated it).
+ * Compute the start command for a task. Hook-capable agents embed either a
+ * new-session or resume invocation so conversations survive app restarts.
+ * Side effect: generates and persists a session ID when one is missing on
+ * agents that require a preassigned id (defensive — task creation should
+ * have populated it).
  */
 export function commandForTask(task: Task): string {
-  if (task.agent !== "claude-code") {
+  if (!agentUsesPersistedSession(task.agent)) {
     return AGENT_REGISTRY[task.agent].startCommand({
       skipPermissions: task.claudeSkipPermissions,
     });
   }
-  const skip = !!task.claudeSkipPermissions;
-  const bare = !!task.claudeBareSession;
-  const sessionId = task.claudeSessionId;
-  if (sessionId) {
-    return buildClaudeCommand({
-      kind: task.status === "ready" ? "new" : "resume",
-      sessionId,
-      skipPermissions: skip,
-      bareSession: bare,
-    });
+
+  let sessionId = task.claudeSessionId;
+  if (!sessionId && task.agent !== "codex") {
+    sessionId = newSessionId();
+    void api.updateTask(task.id, { claudeSessionId: sessionId }).catch(() => undefined);
   }
-  const fresh = newSessionId();
-  void api.updateTask(task.id, { claudeSessionId: fresh }).catch(() => undefined);
-  return buildClaudeCommand({ kind: "new", sessionId: fresh, skipPermissions: skip, bareSession: bare });
+
+  const mode = agentLaunchMode({ ...task, claudeSessionId: sessionId });
+  if (task.agent === "codex" && mode === "new") {
+    return buildAgentLaunchCommand(task, sessionId ?? "", mode);
+  }
+
+  if (!sessionId) {
+    return buildAgentLaunchCommand(task, "", mode);
+  }
+
+  return buildAgentLaunchCommand(task, sessionId, mode);
 }
 
 const ACTIVE_BY_PROJECT_KEY = "mc.terminalActiveByProject";

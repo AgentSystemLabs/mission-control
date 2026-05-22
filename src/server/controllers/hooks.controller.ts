@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { mapHookEventToStatus } from "~/shared/agent-hook-events";
+import { AGENT_HOOK_EVENTS, mapHookEventToStatus } from "~/shared/agent-hook-events";
 import { getTask, updateStatus, updateTask } from "../services/tasks";
 import {
   getHostedTaskForHook,
@@ -24,6 +24,43 @@ const hookPayload = z
     session_id: z.string(),
   })
   .partial();
+
+function isSessionCaptureEvent(event: string): boolean {
+  return (
+    event === AGENT_HOOK_EVENTS.userPromptSubmit ||
+    event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt
+  );
+}
+
+function isTitlePromptEvent(event: string): boolean {
+  return isSessionCaptureEvent(event);
+}
+
+async function reconcileSessionId(
+  task: { claudeSessionId: string | null },
+  taskId: string,
+  incomingSessionId: string,
+  event: string,
+  updateSessionId: (taskId: string, sessionId: string) => void | Promise<void>,
+): Promise<"ok" | "foreign-session"> {
+  if (!incomingSessionId) return "ok";
+
+  if (!task.claudeSessionId) {
+    if (isSessionCaptureEvent(event)) {
+      await updateSessionId(taskId, incomingSessionId);
+    }
+    return "ok";
+  }
+
+  if (incomingSessionId === task.claudeSessionId) return "ok";
+
+  if (isSessionCaptureEvent(event)) {
+    await updateSessionId(taskId, incomingSessionId);
+    return "ok";
+  }
+
+  return "foreign-session";
+}
 
 export async function receive(url: URL, request: Request): Promise<Response> {
   const taskId = url.searchParams.get("taskId");
@@ -51,17 +88,18 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     }
 
     const incomingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
-    if (
-      task.claudeSessionId &&
-      incomingSessionId &&
-      incomingSessionId !== task.claudeSessionId
-    ) {
-      if (event === "UserPromptSubmit") {
-        await updateHostedTaskForHook(taskId, { claudeSessionId: incomingSessionId });
-      } else {
-        logHostedEvent("hook.ignored", { taskId, event, reason: "foreign-session" }, "warn");
-        return json({ ok: true, ignored: "foreign-session" });
-      }
+    const sessionResult = await reconcileSessionId(
+      task,
+      taskId,
+      incomingSessionId,
+      event,
+      async (id, sessionId) => {
+        await updateHostedTaskForHook(id, { claudeSessionId: sessionId });
+      },
+    );
+    if (sessionResult === "foreign-session") {
+      logHostedEvent("hook.ignored", { taskId, event, reason: "foreign-session" }, "warn");
+      return json({ ok: true, ignored: "foreign-session" });
     }
 
     const t = await updateHostedTaskStatusForHook(taskId, { status });
@@ -78,22 +116,27 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   if (!task) return jsonError(HTTP_NOT_FOUND, "task not found");
 
   const incomingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
-  if (
-    task.claudeSessionId &&
-    incomingSessionId &&
-    incomingSessionId !== task.claudeSessionId
-  ) {
-    if (event === "UserPromptSubmit") {
-      updateTask(taskId, { claudeSessionId: incomingSessionId });
-    } else {
-      return json({ ok: true, ignored: "foreign-session" });
-    }
+  const sessionResult = await reconcileSessionId(
+    task,
+    taskId,
+    incomingSessionId,
+    event,
+    (id, sessionId) => {
+      updateTask(id, { claudeSessionId: sessionId });
+    },
+  );
+  if (sessionResult === "foreign-session") {
+    return json({ ok: true, ignored: "foreign-session" });
   }
 
   try {
     const t = updateStatus(taskId, { status });
     if (!t) return jsonError(HTTP_NOT_FOUND, "task not found");
-    if (event === "UserPromptSubmit" && typeof payload.prompt === "string" && payload.prompt.trim()) {
+    if (
+      isTitlePromptEvent(event) &&
+      typeof payload.prompt === "string" &&
+      payload.prompt.trim()
+    ) {
       void generateTitleForTask(taskId, payload.prompt);
     }
     return json({ ok: true, status });

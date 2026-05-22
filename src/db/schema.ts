@@ -13,6 +13,7 @@ import {
   type TaskAgent,
   type TaskStatus,
 } from "~/shared/domain";
+import { type DiagramFormat } from "~/shared/diagram";
 
 export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
@@ -120,6 +121,27 @@ export const terminalLogs = sqliteTable(
   })
 );
 
+export const taskDiagrams = sqliteTable(
+  "task_diagrams",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title"),
+    source: text("source").notNull(),
+    format: text("format").$type<DiagramFormat>().notNull().default("mermaid"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    taskUnique: uniqueIndex("task_diagrams_task_unique").on(t.taskId),
+    projectIdx: index("task_diagrams_project_idx").on(t.projectId),
+  })
+);
+
 export const userTerminals = sqliteTable(
   "user_terminals",
   {
@@ -207,10 +229,16 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
   worktree: one(worktrees, { fields: [tasks.worktreeId], references: [worktrees.id] }),
   logs: many(terminalLogs),
+  diagram: one(taskDiagrams, { fields: [tasks.id], references: [taskDiagrams.taskId] }),
 }));
 
 export const terminalLogsRelations = relations(terminalLogs, ({ one }) => ({
   task: one(tasks, { fields: [terminalLogs.taskId], references: [tasks.id] }),
+}));
+
+export const taskDiagramsRelations = relations(taskDiagrams, ({ one }) => ({
+  task: one(tasks, { fields: [taskDiagrams.taskId], references: [tasks.id] }),
+  project: one(projects, { fields: [taskDiagrams.projectId], references: [projects.id] }),
 }));
 
 export type Group = typeof groups.$inferSelect;

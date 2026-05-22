@@ -10,6 +10,7 @@ import {
 } from "react";
 import { api } from "./api";
 import { getElectron } from "./electron";
+import { hasRunningLaunchForProject as projectHasRunningLaunch } from "./project-launch-running";
 import type { Project, UserTerminal } from "~/db/schema";
 import { worktreeScopeKey } from "~/shared/worktrees";
 
@@ -29,6 +30,10 @@ type Ctx = {
   sessions: Session[];
   runningProjectIds: Set<string>;
   runningWorktreeIds: Set<string>;
+  hasRunningLaunchForProject: (
+    projectId: string,
+    launchCommandsRaw: string | null | undefined
+  ) => boolean;
   focusedId: string | null;
   focusTerminal: (id: string) => void;
   createTerminal: (opts?: {
@@ -410,6 +415,12 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const cycleNext = useCallback(() => cycle(1), [cycle]);
   const cyclePrev = useCallback(() => cycle(-1), [cycle]);
 
+  const hasRunningLaunchForProject = useCallback(
+    (projectId: string, launchCommandsRaw: string | null | undefined) =>
+      projectHasRunningLaunch(projectId, launchCommandsRaw, sessionsByProject),
+    [sessionsByProject]
+  );
+
   const value = useMemo<Ctx>(
     () => ({
       project,
@@ -420,6 +431,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       sessions,
       runningProjectIds,
       runningWorktreeIds,
+      hasRunningLaunchForProject,
       focusedId,
       focusTerminal,
       createTerminal,
@@ -441,6 +453,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       sessions,
       runningProjectIds,
       runningWorktreeIds,
+      hasRunningLaunchForProject,
       focusedId,
       focusTerminal,
       createTerminal,

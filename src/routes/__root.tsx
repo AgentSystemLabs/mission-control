@@ -56,6 +56,7 @@ import { AuthGate, useHostedSession } from "~/components/views/AuthGate";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
+import { DiagramDialogHost } from "~/lib/use-diagram-events";
 import { useWarmCliAvailability } from "~/lib/cli-availability";
 import {
   LAUNCH_INTRO_CACHE_KEY,
@@ -64,6 +65,9 @@ import {
   setDocumentLaunchIntroActive,
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
+import {
+  writeCachedWorktreesEnabled,
+} from "~/lib/worktrees-preference";
 import "~/styles.css";
 
 const LAUNCH_OVERLAY_DURATION_MS = 2700;
@@ -142,7 +146,9 @@ function RootComponent() {
               <AddProjectProvider>
                 <HeaderActionsProvider>
                   <AuthGate>
-                    <Shell />
+                    <DiagramDialogHost>
+                      <Shell />
+                    </DiagramDialogHost>
                   </AuthGate>
                 </HeaderActionsProvider>
               </AddProjectProvider>
@@ -309,6 +315,11 @@ function Shell() {
       writeCachedLaunchIntroEnabled(launchOverlayEnabled);
     }
   }, [launchOverlayEnabled]);
+
+  useThemeLayoutEffect(() => {
+    if (typeof settings?.worktreesEnabled !== "boolean") return;
+    writeCachedWorktreesEnabled(settings.worktreesEnabled);
+  }, [settings?.worktreesEnabled]);
 
   useThemeLayoutEffect(() => {
     if (typeof minimalTheme !== "boolean") return;

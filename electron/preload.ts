@@ -47,16 +47,6 @@ export type SessionTerminalDebugLogEntryBridge = SessionTerminalDebugLogInputBri
 };
 
 const electronAPI = {
-  installSkills: {
-    fetchLatest: (opts?: { baseUrl?: string; licenseKey?: string }) =>
-      ipcRenderer.invoke(IPC.installSkillsFetchLatest, opts),
-    run: (args: {
-      projectPath: string;
-      harnesses: { claude: boolean; codex: boolean };
-      baseUrl?: string;
-      licenseKey?: string;
-    }) => ipcRenderer.invoke(IPC.installSkillsRun, args),
-  },
   settings: {
     getToken: (): Promise<string> => ipcRenderer.invoke(IPC.settingsGetToken),
     regenerateToken: (): Promise<string> =>
@@ -93,8 +83,28 @@ const electronAPI = {
     ipcRenderer.invoke(IPC.appGetUserName),
   reload: (): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IPC.appReload),
-  cliCheck: (command: string): Promise<{ ok: true; path: string } | { ok: false; reason: string }> =>
-    ipcRenderer.invoke(IPC.cliCheck, command),
+  cliCheck: (command: string, opts?: { verifyVersion?: boolean }): Promise<
+    | {
+        ok: true;
+        path: string;
+        version?: string;
+        label?: string;
+        requiredVersion?: string;
+        packageUrl?: string;
+        updateCommands?: readonly string[];
+      }
+    | {
+        ok: false;
+        reason: string;
+        path?: string;
+        label?: string;
+        version?: string;
+        requiredVersion?: string;
+        packageUrl?: string;
+        updateCommands?: readonly string[];
+      }
+  > =>
+    ipcRenderer.invoke(IPC.cliCheck, command, opts),
   pty: {
     spawn: (opts: {
       taskId: string;
@@ -106,6 +116,7 @@ const electronAPI = {
       agent?: string;
       dangerouslySkipPermissions?: boolean;
       mcEnv?: { apiUrl?: string; token?: string };
+      missionControlTheme?: "dark" | "light";
       // Required when `agent` is omitted: signals an intentional user-shell
       // terminal that runs `command` through the login shell. Agent terminals
       // (claude-code/codex/cursor-cli) must leave this unset and pass `command`

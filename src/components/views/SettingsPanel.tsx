@@ -4,6 +4,7 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
+import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
@@ -16,6 +17,7 @@ export type SettingsPanelId =
   | "general"
   | "defaults"
   | "theme"
+  | "beta"
   | "license"
   | "keybindings"
   | "session-debug"
@@ -188,6 +190,34 @@ export function SettingsPanel({
                 padding: "0 10px 8px",
               }}
             >
+              Beta
+            </div>
+            <SettingsNavButton
+              id="beta"
+              label="Experimental"
+              icon="sparkles"
+              active={activePanel === "beta"}
+              onClick={() => setActivePanel("beta")}
+            />
+          </div>
+          <div
+            style={{
+              marginTop: 16,
+              paddingTop: 12,
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)",
+                padding: "0 10px 8px",
+              }}
+            >
               Diagnostics
             </div>
             <SettingsNavButton
@@ -243,6 +273,8 @@ export function SettingsPanel({
             <DefaultsSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
+          ) : activePanel === "beta" ? (
+            <BetaSettingsPage />
           ) : activePanel === "license" ? (
             <LicenseSettingsPage />
           ) : activePanel === "keybindings" ? (

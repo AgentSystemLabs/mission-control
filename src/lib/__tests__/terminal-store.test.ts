@@ -4,7 +4,7 @@ import { commandForTask, nextActiveTaskId } from "../terminal-store";
 
 vi.mock("../api", () => ({
   api: {
-    updateTask: vi.fn(),
+    updateTask: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -56,10 +56,37 @@ describe("commandForTask", () => {
     const task = {
       ...baseTask,
       agent: "cursor-cli",
+      claudeSessionId: "00000000-0000-4000-8000-000000000000",
       claudeSkipPermissions: true,
     } satisfies Task;
 
-    expect(commandForTask(task)).toBe("cursor-agent --force");
+    expect(commandForTask(task)).toBe(
+      "cursor-agent --resume 00000000-0000-4000-8000-000000000000 --force",
+    );
+  });
+
+  it("starts Codex with hooks until a session id is captured", () => {
+    const task = {
+      ...baseTask,
+      agent: "codex",
+      claudeSessionId: null,
+      status: "ready",
+    } satisfies Task;
+
+    expect(commandForTask(task)).toBe("codex --enable hooks");
+  });
+
+  it("resumes Codex after the first prompt captured a session id", () => {
+    const task = {
+      ...baseTask,
+      agent: "codex",
+      status: "running",
+      claudeSessionId: "019d7a0f-432a-7fa1-a821-b7841f983967",
+    } satisfies Task;
+
+    expect(commandForTask(task)).toBe(
+      "codex resume 019d7a0f-432a-7fa1-a821-b7841f983967 --enable hooks",
+    );
   });
 });
 

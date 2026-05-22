@@ -211,11 +211,35 @@ describe("resolveSpawnPlan — agent allow-list", () => {
       },
       {
         req: spawnReq({
+          agent: "codex",
+          command:
+            "codex resume 019d7a0f-432a-7fa1-a821-b7841f983967 --enable hooks --yolo",
+          dangerouslySkipPermissions: true,
+        }),
+        argv: [
+          "resume",
+          "019d7a0f-432a-7fa1-a821-b7841f983967",
+          "--enable",
+          "hooks",
+          "--yolo",
+        ],
+      },
+      {
+        req: spawnReq({
           agent: "cursor-cli",
           command: "cursor-agent --force",
           dangerouslySkipPermissions: true,
         }),
         argv: ["--force"],
+      },
+      {
+        req: spawnReq({
+          agent: "cursor-cli",
+          command:
+            "cursor-agent --resume 00000000-0000-4000-8000-000000000000 --force",
+          dangerouslySkipPermissions: true,
+        }),
+        argv: ["--resume", "00000000-0000-4000-8000-000000000000", "--force"],
       },
     ];
 

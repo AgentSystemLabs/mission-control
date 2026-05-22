@@ -1,46 +1,38 @@
 import { z } from "zod";
 import {
-  fetchLatestSkillsManifest,
-  installProjectSkills,
-  readInstalledSkillsVersion,
-} from "../services/install-skills";
+  installDiagramSkill,
+  readDiagramSkillInstallStatus,
+} from "../services/install-diagram-skill";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
-import { HTTP_BAD_GATEWAY, HTTP_BAD_REQUEST } from "~/shared/http-status";
+import { HTTP_BAD_REQUEST } from "~/shared/http-status";
 
-const installBody = z.object({
+const diagramInstallBody = z.object({
   projectPath: z.string().min(1, "projectPath is required"),
   harnesses: z
     .object({
       claude: z.boolean().optional(),
       codex: z.boolean().optional(),
+      cursor: z.boolean().optional(),
     })
     .optional()
     .default({}),
 });
 
-export function installed(url: URL): Response {
+export function diagramInstalled(url: URL): Response {
   const projectPath = url.searchParams.get("projectPath") ?? "";
-  return json({ installed: readInstalledSkillsVersion(projectPath) });
+  return json({ installed: readDiagramSkillInstallStatus(projectPath) });
 }
 
-export async function latest(): Promise<Response> {
-  try {
-    const manifest = await fetchLatestSkillsManifest();
-    return json({ manifest });
-  } catch (e: any) {
-    return jsonError(HTTP_BAD_GATEWAY, e?.message ?? "Failed to fetch manifest");
-  }
-}
-
-export async function install(request: Request): Promise<Response> {
-  const parsed = await parseJsonBody(request, installBody);
+export async function installDiagram(request: Request): Promise<Response> {
+  const parsed = await parseJsonBody(request, diagramInstallBody);
   if (!parsed.ok) return parsed.response;
   try {
-    const result = await installProjectSkills({
+    const result = await installDiagramSkill({
       projectPath: parsed.data.projectPath,
       harnesses: {
         claude: !!parsed.data.harnesses?.claude,
         codex: !!parsed.data.harnesses?.codex,
+        cursor: !!parsed.data.harnesses?.cursor,
       },
     });
     return json({ result });

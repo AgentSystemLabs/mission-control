@@ -596,87 +596,6 @@ button {
   }
 }
 
-.install-skills-theme-button {
-  position: relative;
-  isolation: isolate;
-  height: 30px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background:
-    linear-gradient(var(--surface-0), var(--surface-0)) padding-box,
-    conic-gradient(
-      from var(--skills-border-angle),
-      var(--accent),
-      color-mix(in srgb, var(--accent) 24%, var(--surface-3)),
-      var(--border-strong),
-      color-mix(in srgb, var(--accent) 72%, white),
-      var(--accent)
-    )
-    border-box;
-  color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-faint), 0 0 18px color-mix(in srgb, var(--accent-glow) 38%, transparent);
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  animation: skills-border-spin 3.6s linear infinite;
-  transition:
-    background 0.12s ease,
-    box-shadow 0.12s ease,
-    color 0.12s ease,
-    transform 0.12s ease;
-}
-
-.install-skills-theme-button:hover {
-  background:
-    linear-gradient(var(--surface-1), var(--surface-1)) padding-box,
-    conic-gradient(
-      from var(--skills-border-angle),
-      color-mix(in srgb, var(--accent) 84%, white),
-      var(--accent),
-      var(--accent-border),
-      color-mix(in srgb, var(--accent) 68%, white),
-      color-mix(in srgb, var(--accent) 84%, white)
-    )
-    border-box;
-  box-shadow: 0 0 0 1px var(--accent-border), 0 0 22px color-mix(in srgb, var(--accent-glow) 48%, transparent);
-  color: color-mix(in srgb, var(--accent) 88%, white);
-  transform: translateY(-1px);
-}
-
-.install-skills-theme-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.install-skills-theme-button:active {
-  transform: translateY(0);
-}
-
-@property --skills-border-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
-
-@keyframes skills-border-spin {
-  to {
-    --skills-border-angle: 360deg;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .install-skills-theme-button {
-    animation: none;
-  }
-}
-
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -742,6 +661,22 @@ button {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@keyframes pinned-project-running-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-115%) skewX(-18deg);
+  }
+  18% {
+    opacity: 0.88;
+  }
+  68% {
+    opacity: 0.88;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(115%) skewX(-18deg);
   }
 }
 @keyframes fade-up {
@@ -887,6 +822,55 @@ button {
 }
 [data-theme="light"] .dot-grid-bg {
   background-image: radial-gradient(circle, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+}
+
+.pinned-project-logo {
+  overflow: visible;
+  isolation: isolate;
+}
+
+.pinned-project-logo-surface {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.pinned-project-logo-surface > img,
+.pinned-project-logo-surface > div {
+  position: relative;
+  z-index: 1;
+}
+
+.pinned-project-logo-surface--running::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  inset: 2px;
+  z-index: 2;
+  border-radius: 10px;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 26%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 41%,
+    color-mix(in srgb, var(--status-running) 52%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 24%, transparent) 59%,
+    transparent 74%,
+    transparent 100%
+  );
+  mix-blend-mode: screen;
+  animation: pinned-project-running-sweep 1.7s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pinned-project-logo-surface--running::after {
+    animation: none;
+    opacity: 0.28;
+    transform: none;
+  }
 }
 
 .cursor-glow {
@@ -1512,24 +1496,62 @@ body[data-card-glow] .cursor-glow {
   background-image: none;
 }
 
-/* Install-skills CTA: quietly modern — hairline accent ring + soft glow */
-[data-minimal="true"] .install-skills-theme-button {
-  background: var(--surface-1) !important;
-  border: 1px solid
-    color-mix(in srgb, var(--accent) 34%, transparent) !important;
-  box-shadow:
-    var(--mm-elev-1),
-    0 0 18px color-mix(in srgb, var(--accent) 10%, transparent) !important;
-  animation: none !important;
-  transition:
-    background-color var(--mm-dur) var(--mm-ease),
-    border-color var(--mm-dur) var(--mm-ease),
-    box-shadow var(--mm-dur) var(--mm-ease) !important;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
-[data-minimal="true"] .install-skills-theme-button:hover {
-  background: var(--surface-2) !important;
-  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
-  box-shadow:
-    var(--mm-elev-2),
-    0 0 28px color-mix(in srgb, var(--accent) 18%, transparent) !important;
+
+.settings-toggle-switch {
+  position: relative;
+  box-sizing: border-box;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.settings-toggle-switch[aria-checked="true"] {
+  background: var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.settings-toggle-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-toggle-switch:disabled {
+  cursor: not-allowed;
+}
+
+.settings-toggle-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: transform 0.15s ease;
+}
+
+.settings-toggle-switch[aria-checked="true"] .settings-toggle-switch__knob {
+  transform: translateX(22px);
 }

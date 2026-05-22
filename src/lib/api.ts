@@ -31,6 +31,8 @@ export type AppSettings = {
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   launchOverlayEnabled: boolean;
+  /** Beta: git worktrees per project (off by default). */
+  worktreesEnabled: boolean;
   /**
    * Which CLI generates Ship's commit message. `null` means "not set yet" —
    * the server auto-detects and seeds it on the first ship attempt.
@@ -379,6 +381,7 @@ export const api = {
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "launchOverlayEnabled"
+        | "worktreesEnabled"
         | "commitCli"
       >
     >,
@@ -435,6 +438,14 @@ export const api = {
     req<{ ticket: string; expiresAt: number }>("/api/events/ticket", {
       method: "POST",
     }),
+  listDiagrams: (projectId: string) =>
+    req<{ diagrams: import("~/shared/diagram").StoredDiagram[] }>(
+      `/api/diagrams?projectId=${encodeURIComponent(projectId)}`,
+    ),
+  getDiagram: (taskId: string) =>
+    req<{ diagram: import("~/shared/diagram").StoredDiagram }>(
+      `/api/diagram?taskId=${encodeURIComponent(taskId)}`,
+    ),
 
   deleteProjectFile: (projectId: string, filePath: string, worktreeId?: string | null) =>
     req<{ ok: true }>(

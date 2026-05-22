@@ -14,6 +14,7 @@ import {
   hasSeenCodexHooksNotice,
   markCodexHooksNoticeSeen,
 } from "~/components/views/CodexHooksNoticeDialog";
+import { AgentUpdateRequiredDialog } from "~/components/views/AgentUpdateRequiredDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
 import { FileEditorDialog } from "~/components/views/FileEditorDialog";
@@ -32,7 +33,8 @@ import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER, TASK_STATUSES } from "~/shared/domain";
-import { agentSupportsSkipPermissions } from "~/shared/agents";
+import { hasRunningLaunchSessions } from "~/lib/project-launch-running";
+import { AGENT_REGISTRY, agentSupportsSkipPermissions } from "~/shared/agents";
 import {
   queryKeys,
   useApiToken,
@@ -42,14 +44,20 @@ import {
   useTasks,
   useWorktrees,
 } from "~/queries";
+import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
 import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
-import { InstallSkillsButton } from "~/components/views/InstallSkillsButton";
-import { featureFlags } from "~/shared/feature-flags";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
-import { InstallSkillsMenuItem } from "~/components/views/InstallSkillsMenuItem";
-import { agentCanLaunch, useCliAvailability } from "~/lib/cli-availability";
+import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
+import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
+import {
+  agentCanLaunch,
+  availabilityFor,
+  cliAvailabilityFromCheckResult,
+  type CliAvailability,
+  useCliAvailability,
+} from "~/lib/cli-availability";
 import {
   SESSION_NOTIFICATION_OPEN_EVENT,
   clearPendingSessionOpen,
@@ -65,6 +73,7 @@ import {
   pickByPriority,
   STATUS_META,
 } from "~/lib/design-meta";
+import { useSyncProjectDiagrams } from "~/lib/use-diagram-events";
 
 export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
@@ -124,10 +133,11 @@ function ProjectPage() {
     }
   }, [selectedWorktreeByProject]);
   const projectQuery = useProject(id);
+  useSyncProjectDiagrams(id);
   const worktreesQuery = useWorktrees(id);
   const groupsQuery = useGroups();
   const project = projectQuery.data;
-  const worktreesEnabled = featureFlags.worktrees;
+  const worktreesEnabled = useWorktreesEnabled();
   const worktrees = worktreesQuery.data ?? [];
   const selectedWorktreeKey = worktreesEnabled
     ? selectedWorktreeByProject[id] || MAIN_WORKTREE_ID
@@ -220,6 +230,7 @@ function ProjectPage() {
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
+  const [showInstallDiagramSkill, setShowInstallDiagramSkill] = useState(false);
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
   const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState(false);
   const [creatingWorktree, setCreatingWorktree] = useState(false);
@@ -236,6 +247,11 @@ function ProjectPage() {
     setProjectPathActionError(null);
   }, [projectPathCheck.state, projectPathIssue?.path]);
   const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
+  const launchCommandSet = useMemo(
+    () =>
+      new Set(launchCommands.map((c) => c.command.trim()).filter(Boolean)),
+    [launchCommands]
+  );
   const cliAvailability = useCliAvailability();
 
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -265,12 +281,7 @@ function ProjectPage() {
     sessions: userTerminalSessions,
     runningWorktreeIds,
   } = useUserTerminals();
-  const launchCommandSet = new Set(
-    launchCommands.map((c) => c.command.trim()).filter(Boolean)
-  );
-  const hasRunningLaunch = userTerminalSessions.some(
-    (s) => s.ptyId && s.terminal.startCommand && launchCommandSet.has(s.terminal.startCommand.trim())
-  );
+  const hasRunningLaunch = hasRunningLaunchSessions(userTerminalSessions, launchCommandSet);
   const runningWorktreeKey = worktreesEnabled
     ? [...runningWorktreeIds].find((key) => key.startsWith(`${project?.id ?? id}:`))
     : undefined;
@@ -567,6 +578,38 @@ function ProjectPage() {
   ]);
 
   const [showCodexHooksNotice, setShowCodexHooksNotice] = useState(false);
+  const [agentUpdateRequired, setAgentUpdateRequired] = useState<{
+    agent: Task["agent"];
+    availability: CliAvailability;
+  } | null>(null);
+
+  const showAgentUpdateRequired = useCallback(
+    (agent: Task["agent"], availability?: CliAvailability) => {
+      setShowNewAgent(false);
+      setAgentUpdateRequired({
+        agent,
+        availability: availability ?? availabilityFor(cliAvailability, agent),
+      });
+    },
+    [cliAvailability],
+  );
+
+  const verifyAgentCanLaunch = useCallback(async (agent: Task["agent"]) => {
+    const electron = getElectron();
+    if (!electron) return true;
+    const probe = await electron.cliCheck(AGENT_REGISTRY[agent].command, { verifyVersion: true });
+    if (probe.ok) return true;
+    if (
+      probe.reason === "outdated" ||
+      probe.reason === "version-unknown" ||
+      probe.reason === "version-check-failed"
+    ) {
+      showAgentUpdateRequired(agent, cliAvailabilityFromCheckResult(probe));
+      return false;
+    }
+    setShowNewAgent(true);
+    return false;
+  }, [showAgentUpdateRequired]);
 
   const createSession = useCallback(
     async (payload: {
@@ -576,17 +619,25 @@ function ProjectPage() {
       bareSession: boolean;
     }) => {
       if (!project || !terminalProject) return;
-      if (!agentCanLaunch(cliAvailability, payload.agent)) {
+      const selectedAvailability = availabilityFor(cliAvailability, payload.agent);
+      if (selectedAvailability.status === "outdated") {
+        showAgentUpdateRequired(payload.agent, selectedAvailability);
+        return;
+      }
+      const versionVerified = await verifyAgentCanLaunch(payload.agent);
+      if (!versionVerified) return;
+      if (!versionVerified && !agentCanLaunch(cliAvailability, payload.agent)) {
         setShowNewAgent(true);
         return;
       }
-      const isClaude = payload.agent === "claude-code";
+      const usesPersistedSession =
+        payload.agent === "claude-code" || payload.agent === "cursor-cli";
       const created = await api.createTaskInternal(project.id, {
         title: TITLE_WAITING,
         agent: payload.agent,
         branch: payload.branch,
-        claudeSessionId: isClaude ? newSessionId() : undefined,
-        claudeBareSession: isClaude ? payload.bareSession : undefined,
+        claudeSessionId: usesPersistedSession ? newSessionId() : undefined,
+        claudeBareSession: payload.agent === "claude-code" ? payload.bareSession : undefined,
         claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
           ? payload.skipPermissions
           : undefined,
@@ -598,13 +649,29 @@ function ProjectPage() {
         setShowCodexHooksNotice(true);
       }
     },
-    [project, terminalProject, selectedWorktreeId, refresh, terminals, cliAvailability]
+    [
+      project,
+      terminalProject,
+      selectedWorktreeId,
+      refresh,
+      terminals,
+      cliAvailability,
+      showAgentUpdateRequired,
+      verifyAgentCanLaunch,
+    ]
   );
 
   const startWithSaved = useCallback(async () => {
     if (!project) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
-    if (!agentCanLaunch(cliAvailability, project.savedAgent)) {
+    const savedAvailability = availabilityFor(cliAvailability, project.savedAgent);
+    if (savedAvailability.status === "outdated") {
+      showAgentUpdateRequired(project.savedAgent, savedAvailability);
+      return;
+    }
+    const versionVerified = await verifyAgentCanLaunch(project.savedAgent);
+    if (!versionVerified) return;
+    if (!versionVerified && !agentCanLaunch(cliAvailability, project.savedAgent)) {
       setShowNewAgent(true);
       return;
     }
@@ -614,7 +681,7 @@ function ProjectPage() {
       skipPermissions: !!project.savedSkipPermissions,
       bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
     });
-  }, [project, createSession, cliAvailability]);
+  }, [project, createSession, cliAvailability, showAgentUpdateRequired, verifyAgentCanLaunch]);
 
   const onNewAgentPrimary = useCallback(() => {
     if (!projectPathReady) return;
@@ -662,10 +729,12 @@ function ProjectPage() {
     fileFinderOpen ||
     openFileRel !== null ||
     showLaunchConfig ||
+    showInstallDiagramSkill ||
     showLaunchEmpty ||
     !!projectPathIssue ||
     projectPathCheck.state === "error" ||
-    showCodexHooksNotice;
+    showCodexHooksNotice ||
+    agentUpdateRequired !== null;
 
   const cycleSession = useCallback(
     (direction: 1 | -1) => {
@@ -1090,12 +1159,6 @@ function ProjectPage() {
           </span>
         </>
       )}
-      {featureFlags.installSkillsButton && (
-        <>
-          <span style={{ width: 12 }} aria-hidden />
-          <InstallSkillsButton projectPath={selectedWorktreePath || project.path} />
-        </>
-      )}
     </HeaderActions>
   );
 
@@ -1311,12 +1374,12 @@ function ProjectPage() {
                 >
                   Configure launch commands
                 </Btn>
-                {featureFlags.installSkillsButton && (
-                  <InstallSkillsMenuItem
-                    projectPath={selectedWorktreePath || project.path}
-                    onOpen={() => setOverflowOpen(false)}
-                  />
-                )}
+                <InstallDiagramSkillMenuItem
+                  onSelect={() => {
+                    setOverflowOpen(false);
+                    setShowInstallDiagramSkill(true);
+                  }}
+                />
                 <HotkeyTooltip action="project.edit">
                   <Btn
                     variant="ghost"
@@ -1560,6 +1623,13 @@ function ProjectPage() {
         }}
       />
 
+      <AgentUpdateRequiredDialog
+        open={agentUpdateRequired !== null}
+        agent={agentUpdateRequired?.agent ?? null}
+        availability={agentUpdateRequired?.availability ?? null}
+        onClose={() => setAgentUpdateRequired(null)}
+      />
+
       <Modal
         open={!!projectPathIssue}
         onClose={closePathIssue}
@@ -1694,6 +1764,7 @@ function ProjectPage() {
         project={project}
         onClose={() => setShowNewAgent(false)}
         onStart={startAgent}
+        onAgentUpdateRequired={showAgentUpdateRequired}
         onPersistRemember={async (patch) => {
           const previous = queryClient.getQueryData<typeof project>(queryKeys.project(project.id));
           queryClient.setQueryData(queryKeys.project(project.id), (prev: typeof project | undefined) =>
@@ -1732,6 +1803,12 @@ function ProjectPage() {
         projectRoot={selectedWorktreePath || project.path}
         relPath={openFileRel}
         onClose={() => setOpenFileRel(null)}
+      />
+
+      <InstallDiagramSkillModal
+        open={showInstallDiagramSkill}
+        onClose={() => setShowInstallDiagramSkill(false)}
+        projectPath={selectedWorktreePath || project.path}
       />
 
       <ConfirmDialog
@@ -2042,6 +2119,7 @@ function RunStatusPill({
   const fg = tone === "active" ? "var(--accent)" : "var(--text-dim)";
 
   const activeFrameIconStyle: CSSProperties = {
+    width: 52,
     minWidth: 52,
     paddingInline: 0,
     fontFamily: "var(--mono)",
@@ -2056,27 +2134,25 @@ function RunStatusPill({
         aria-label="Project launch — running"
         style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
       >
-        {launchUrl ? (
-          <Btn
-            variant="ghost"
-            icon="external-link"
-            onClick={onOpenUrl}
-            title={`Open ${launchUrl} in browser`}
-            aria-label={`Open ${launchUrl} in browser`}
-          >
-            Open
-          </Btn>
-        ) : null}
         <HotkeyTooltip action="project.runToggle" label="Stop launch commands">
           <Btn
             variant="danger"
             icon="stop"
             onClick={() => onStop()}
             aria-label="Stop launch commands"
-          >
-            Stop
-          </Btn>
+            style={activeFrameIconStyle}
+          />
         </HotkeyTooltip>
+        {launchUrl ? (
+          <Btn
+            variant="ghost"
+            icon="globe"
+            onClick={onOpenUrl}
+            title={`Open ${launchUrl} in browser`}
+            aria-label={`Open ${launchUrl} in browser`}
+            style={activeFrameIconStyle}
+          />
+        ) : null}
       </div>
     );
   }
@@ -2091,7 +2167,7 @@ function RunStatusPill({
           icon="play"
           onClick={onStart}
           aria-label={title}
-          style={{ fontFamily: "var(--mono)" }}
+          style={activeFrameIconStyle}
         />
       </HotkeyTooltip>
     );

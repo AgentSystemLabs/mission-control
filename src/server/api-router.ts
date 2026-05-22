@@ -34,6 +34,7 @@ import * as academyAuthController from "./controllers/academy-auth.controller";
 import * as healthController from "./controllers/health.controller";
 import * as metricsController from "./controllers/metrics.controller";
 import * as supportController from "./controllers/support.controller";
+import * as diagramsController from "./controllers/diagrams.controller";
 import { getHostedAuthContext } from "./hosted-auth-context";
 import { isHostedDatabaseEnabled } from "./hosted-pg";
 import { validateHostedHookToken } from "./services/hosted-hook-tokens";
@@ -543,15 +544,12 @@ async function dispatch(
     return licenseController.validate(request);
   }
 
-  // Skills
-  if (pathname === "/api/skills/install/installed" && method === "GET") {
-    return skillsController.installed(url);
+  // Diagram skill (local bundled install)
+  if (pathname === "/api/skills/install/diagram/installed" && method === "GET") {
+    return skillsController.diagramInstalled(url);
   }
-  if (pathname === "/api/skills/install/latest" && method === "GET") {
-    return skillsController.latest();
-  }
-  if (pathname === "/api/skills/install" && method === "POST") {
-    return skillsController.install(request);
+  if (pathname === "/api/skills/install/diagram" && method === "POST") {
+    return skillsController.installDiagram(request);
   }
 
   // Launch Kit
@@ -572,6 +570,16 @@ async function dispatch(
   // Agent hooks
   m = pathname.match(AGENT_HOOK_PATH);
   if (m && method === "POST") return hooksController.receive(url, request);
+
+  if (pathname === "/api/diagram" && method === "GET") {
+    return diagramsController.read(url);
+  }
+  if (pathname === "/api/diagram" && method === "POST") {
+    return diagramsController.submit(url, request);
+  }
+  if (pathname === "/api/diagrams" && method === "GET") {
+    return diagramsController.list(url);
+  }
 
   // Usage + events
   if (pathname === "/api/usage" && method === "GET") return usageController.read(url);

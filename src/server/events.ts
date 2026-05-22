@@ -31,6 +31,15 @@ export type AppEvent =
       worktreeId: string | null;
       projectName: string;
       taskTitle: string;
+    } & ScopedEvent)
+  | ({
+      type: "diagram:show";
+      id: string;
+      taskId: string;
+      projectId: string;
+      title: string | null;
+      source: string;
+      format: "mermaid";
     } & ScopedEvent);
 
 export function scopeForHostedContext(context: HostedAuthContext): AppEventScope {

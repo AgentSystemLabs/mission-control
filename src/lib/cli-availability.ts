@@ -2,13 +2,19 @@ import { useEffect, useSyncExternalStore } from "react";
 import { getElectron } from "~/lib/electron";
 import { AGENT_REGISTRY, UI_AGENTS } from "~/shared/agents";
 import type { TaskAgent } from "~/shared/domain";
+import type { CliCheckResult } from "~/shared/electron-contract";
 
-export type CliAvailabilityStatus = "unknown" | "checking" | "available" | "missing";
+export type CliAvailabilityStatus = "unknown" | "checking" | "available" | "missing" | "outdated";
 
 export type CliAvailability = {
   status: CliAvailabilityStatus;
   path?: string;
   reason?: string;
+  label?: string;
+  version?: string;
+  requiredVersion?: string;
+  packageUrl?: string;
+  updateCommands?: readonly string[];
 };
 
 export type CliAvailabilityMap = Partial<Record<TaskAgent, CliAvailability>>;
@@ -46,7 +52,8 @@ export function availabilityFor(
 }
 
 export function isCliUnavailable(availability: CliAvailabilityMap, agent: TaskAgent): boolean {
-  return availabilityFor(availability, agent).status === "missing";
+  const status = availabilityFor(availability, agent).status;
+  return status === "missing" || status === "outdated";
 }
 
 export function agentCanLaunch(availability: CliAvailabilityMap, agent: TaskAgent): boolean {
@@ -55,6 +62,29 @@ export function agentCanLaunch(availability: CliAvailabilityMap, agent: TaskAgen
   if (status === "available") return true;
   if (status === "unknown" && !getElectron()) return true;
   return false;
+}
+
+export function cliAvailabilityFromCheckResult(result: CliCheckResult): CliAvailability {
+  if (result.ok) {
+    const next: CliAvailability = { status: "available", path: result.path };
+    if (result.label) next.label = result.label;
+    if (result.version) next.version = result.version;
+    if (result.requiredVersion) next.requiredVersion = result.requiredVersion;
+    if (result.packageUrl) next.packageUrl = result.packageUrl;
+    if (result.updateCommands) next.updateCommands = result.updateCommands;
+    return next;
+  }
+  if (result.reason === "outdated" || result.reason === "version-unknown" || result.reason === "version-check-failed") {
+    const next: CliAvailability = { status: "outdated", reason: result.reason };
+    if (result.path) next.path = result.path;
+    if (result.label) next.label = result.label;
+    if (result.version) next.version = result.version;
+    if (result.requiredVersion) next.requiredVersion = result.requiredVersion;
+    if (result.packageUrl) next.packageUrl = result.packageUrl;
+    if (result.updateCommands) next.updateCommands = result.updateCommands;
+    return next;
+  }
+  return { status: "missing", reason: result.reason };
 }
 
 export function firstAvailableAgent(availability: CliAvailabilityMap): TaskAgent | null {
@@ -79,11 +109,7 @@ export function checkCliAvailabilityOnce() {
     void electron
       .cliCheck(command)
       .then((result) => {
-        if (result.ok) {
-          setAgentAvailability(agent, { status: "available", path: result.path });
-        } else {
-          setAgentAvailability(agent, { status: "missing", reason: result.reason });
-        }
+        setAgentAvailability(agent, cliAvailabilityFromCheckResult(result));
       })
       .catch((err) => {
         setAgentAvailability(agent, {

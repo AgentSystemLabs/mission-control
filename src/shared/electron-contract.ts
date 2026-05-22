@@ -43,26 +43,7 @@ export type FileWriteResult =
   | { ok: true; mtimeMs: number }
   | { ok: false; error: FileWriteError | string; currentMtimeMs?: number };
 
-export type LatestSkillsManifest = {
-  version: string;
-  downloadUrl: string;
-  sha256: string;
-  size: number;
-};
-
-export type InstallSkillsArgs = {
-  projectPath: string;
-  harnesses: { claude: boolean; codex: boolean };
-  baseUrl?: string;
-  licenseKey?: string;
-};
-
-export type InstallSkillsResult = {
-  version: string;
-  claudeInstalled: boolean;
-  codexInstalled: boolean;
-  skillCount: number;
-};
+export type InstallDiagramSkillResult = import("~/shared/diagram-skill-install").DiagramSkillInstallResult;
 
 export type LaunchProcessKillResult = {
   ptyCount: number;
@@ -75,6 +56,27 @@ export type LaunchProcessKillResult = {
 };
 
 export type PtySpawnAgent = "claude-code" | "codex" | "cursor-cli";
+
+export type CliCheckResult =
+  | {
+      ok: true;
+      path: string;
+      version?: string;
+      label?: string;
+      requiredVersion?: string;
+      packageUrl?: string;
+      updateCommands?: readonly string[];
+    }
+  | {
+      ok: false;
+      reason: string;
+      path?: string;
+      label?: string;
+      version?: string;
+      requiredVersion?: string;
+      packageUrl?: string;
+      updateCommands?: readonly string[];
+    };
 
 export type SessionTerminalDebugLogInput = {
   level?: "error" | "warn";
@@ -110,6 +112,7 @@ export type BasePtySpawnOptions = {
   cols?: number;
   rows?: number;
   mcEnv?: { apiUrl?: string; token?: string };
+  missionControlTheme?: "dark" | "light";
 };
 
 export type AgentPtySpawnOptions = BasePtySpawnOptions & {
@@ -127,18 +130,6 @@ export type ShellPtySpawnOptions = BasePtySpawnOptions & {
 export type PtySpawnOptions = AgentPtySpawnOptions | ShellPtySpawnOptions;
 
 export type ElectronBridge = {
-  installSkills: {
-    fetchLatest: (opts?: {
-      baseUrl?: string;
-      licenseKey?: string;
-    }) => Promise<
-      | { ok: true; manifest: LatestSkillsManifest }
-      | { ok: false; error: string }
-    >;
-    run: (
-      args: InstallSkillsArgs,
-    ) => Promise<{ ok: true; result: InstallSkillsResult } | { ok: false; error: string }>;
-  };
   settings: {
     getToken: () => Promise<string>;
     regenerateToken: () => Promise<string>;
@@ -166,9 +157,7 @@ export type ElectronBridge = {
   getUserDataDir: () => Promise<string>;
   getUserName: () => Promise<{ source: "git" | "os"; fullName: string; firstName: string }>;
   reload: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  cliCheck: (
-    command: string
-  ) => Promise<{ ok: true; path: string } | { ok: false; reason: string }>;
+  cliCheck: (command: string, opts?: { verifyVersion?: boolean }) => Promise<CliCheckResult>;
   pty: {
     spawn: (opts: PtySpawnOptions) => Promise<{ ptyId: string }>;
     write: (ptyId: string, data: string) => Promise<boolean>;

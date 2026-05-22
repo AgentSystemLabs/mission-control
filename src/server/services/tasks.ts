@@ -2,6 +2,7 @@ import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Task } from "~/db/schema";
 import { events } from "../events";
+import { deleteDiagramForTask } from "./diagram-store";
 import {
   deleteTaskRow,
   findTaskById,
@@ -147,6 +148,7 @@ export function deleteTask(id: string): boolean {
   if (!existing) return false;
   const changes = deleteTaskRow(id);
   if (changes > 0) {
+    deleteDiagramForTask(id);
     events.emit("task:deleted", { id, projectId: existing.projectId });
     return true;
   }

@@ -21,6 +21,8 @@ import {
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
 import { recordSessionTerminalDebugLog } from "./session-terminal-debug-log";
+import { checkAgentCliVersion, agentVersionErrorMessage } from "./agent-cli-version";
+import { AGENT_CLI_VERSION_REQUIREMENTS } from "./agent-cli-version-requirements";
 
 function sanitizeEnv(): Record<string, string> {
   const out = sanitizedProcessEnv();
@@ -370,17 +372,38 @@ export function registerPtyHandlers(
         throw err;
       }
 
+      const env = sanitizeEnv();
+      if (plan.mode === "agent") {
+        const requirement = AGENT_CLI_VERSION_REQUIREMENTS[plan.agent];
+        const versionCheck = checkAgentCliVersion(plan.binary, env, requirement);
+        if (!versionCheck.ok) {
+          const message = agentVersionErrorMessage(versionCheck);
+          const { output: _output, ...safeVersionCheck } = versionCheck;
+          recordSessionTerminalDebugLog({
+            stage: "agent-version-blocked",
+            message,
+            source: "pty-manager",
+            agent: opts.agent,
+            taskId: opts.taskId,
+            cwd: plan.cwd,
+            command: opts.command,
+            details: safeVersionCheck,
+          });
+          throw new Error(message);
+        }
+      }
+
       // Use the canonical cwd from the plan, not the original request, so a
       // symlink-swap race between validation and spawn can't move us into a
       // post-validation target outside the project root.
       installAgentHooks(opts.agent, plan.cwd);
 
-      const env = sanitizeEnv();
       const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       env.MC_TASK_ID = opts.taskId;
       if (mcEnv) {
         env.MC_API_URL = mcEnv.apiUrl;
         env.MC_API_TOKEN = mcEnv.token;
+        env.MC_THEME = opts.missionControlTheme === "light" ? "light" : "dark";
       }
 
       // Agent mode uses the policy-built spawn target. POSIX/native executables

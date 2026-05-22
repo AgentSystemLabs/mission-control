@@ -35,6 +35,7 @@ const updateSettingsBody = z
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
     launchOverlayEnabled: z.boolean(),
+    worktreesEnabled: z.boolean(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
   })
   .partial();
@@ -61,6 +62,7 @@ function settingsPayload() {
       false,
     ),
     launchOverlayEnabled: getBooleanSetting("launch_overlay_enabled", false),
+    worktreesEnabled: getBooleanSetting("worktrees_enabled", false),
     commitCli: getCommitCliSetting(),
   };
 }
@@ -96,6 +98,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.launchOverlayEnabled !== undefined) {
     setBooleanSetting("launch_overlay_enabled", body.launchOverlayEnabled);
+  }
+  if (body.worktreesEnabled !== undefined) {
+    setBooleanSetting("worktrees_enabled", body.worktreesEnabled);
   }
   if (body.commitCli !== undefined) {
     if (body.commitCli === null) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Icon } from "~/components/ui/Icon";
 
 export function SettingsSection({
@@ -152,4 +152,100 @@ export function useCopy() {
     });
   };
   return { copied, copy };
+}
+
+export function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  label,
+  labelledBy,
+  describedBy,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+  label: string;
+  labelledBy?: string;
+  describedBy?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      className="settings-toggle-switch"
+      aria-checked={checked}
+      aria-label={labelledBy ? undefined : label}
+      aria-labelledby={labelledBy}
+      aria-describedby={describedBy}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+    >
+      <span aria-hidden className="settings-toggle-switch__knob" />
+    </button>
+  );
+}
+
+export function ToggleRow({
+  title,
+  description,
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const labelId = useId();
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 16,
+        padding: "12px 14px",
+        background: "var(--surface-0)",
+        border: "1px solid var(--border)",
+        borderRadius: 7,
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      <div>
+        <div
+          id={titleId}
+          style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}
+        >
+          {title}
+        </div>
+        <div
+          id={descriptionId}
+          style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}
+        >
+          {description}
+        </div>
+      </div>
+      <div style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+        <span id={labelId} className="sr-only">
+          {label}
+        </span>
+        <ToggleSwitch
+          checked={checked}
+          disabled={disabled}
+          label={label}
+          labelledBy={`${titleId} ${labelId}`}
+          describedBy={descriptionId}
+          onChange={onChange}
+        />
+      </div>
+    </div>
+  );
 }
