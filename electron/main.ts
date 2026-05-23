@@ -31,6 +31,7 @@ import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
 import { checkAgentCliVersion } from "./agent-cli-version";
 import { AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore } from "./app-settings-store";
+import { resolveProductionServerEntry } from "./production-server-entry";
 
 const APP_NAME = "MissionControl";
 
@@ -182,9 +183,15 @@ async function startProductionServer(): Promise<string> {
   fs.mkdirSync(path.dirname(portFile), { recursive: true });
   fs.writeFileSync(portFile, String(port), "utf8");
 
-  const serverEntry = path.join(process.resourcesPath, "app", "dist-server", "server", "server.js");
-  const fallbackEntry = path.join(__dirname, "..", "dist-server", "server", "server.js");
-  const entry = fs.existsSync(serverEntry) ? serverEntry : fallbackEntry;
+  const { entry, checkedPaths } = resolveProductionServerEntry({
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    mainDirname: __dirname,
+    exists: fs.existsSync,
+  });
+  if (!fs.existsSync(entry)) {
+    throw new Error(`Could not find production server entry. Checked: ${checkedPaths.join(", ")}`);
+  }
 
   const runner = path.join(__dirname, "server-runner.mjs");
 
