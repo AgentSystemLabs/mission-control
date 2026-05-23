@@ -1,15 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { AGENT_SPAWN_COMMANDS } from "../src/shared/agent-cli-config";
+import type { TaskAgent } from "../src/shared/domain";
 
-export type TaskAgentSpawn = "claude-code" | "codex" | "cursor-cli";
+export type TaskAgentSpawn = TaskAgent;
 
-// Maps the renderer's task-agent slug to the binary it must exec. Adding a new
-// agent here is the ONLY place a new executable can become spawn-eligible.
-export const AGENT_BINARIES: Readonly<Record<TaskAgentSpawn, string>> = {
-  "claude-code": "claude",
-  "codex": "codex",
-  "cursor-cli": "cursor-agent",
-};
+/** @deprecated Import AGENT_SPAWN_COMMANDS from agent-cli-config instead. */
+export const AGENT_BINARIES = AGENT_SPAWN_COMMANDS;
 
 export type BaseSpawnRequest = {
   taskId: string;
@@ -101,6 +98,8 @@ const AGENT_VALUE = /^[A-Za-z0-9._:-]+$/;
 type AgentArgRule = {
   value: false | { allowed?: readonly string[] };
   requiresDangerouslySkipPermissions?: boolean;
+  /** When set, string arg values must start with this prefix (OpenCode session ids). */
+  valuePrefix?: string;
 };
 
 const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, AgentArgRule>>>> = {
@@ -120,6 +119,9 @@ const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, A
   "cursor-cli": {
     "--resume": { value: {} },
     "--force": { value: false, requiresDangerouslySkipPermissions: true },
+  },
+  opencode: {
+    "--session": { value: {}, valuePrefix: "ses" },
   },
 };
 
@@ -231,7 +233,8 @@ function validateAgentArgv(
       !value ||
       value.startsWith("-") ||
       !AGENT_VALUE.test(value) ||
-      (rule.value.allowed && !rule.value.allowed.includes(value))
+      (rule.value.allowed && !rule.value.allowed.includes(value)) ||
+      (rule.valuePrefix && !value.startsWith(rule.valuePrefix))
     ) {
       throw new SpawnPolicyError(
         "agent-arg-not-allowed",

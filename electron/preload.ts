@@ -119,7 +119,7 @@ const electronAPI = {
       missionControlTheme?: "dark" | "light";
       // Required when `agent` is omitted: signals an intentional user-shell
       // terminal that runs `command` through the login shell. Agent terminals
-      // (claude-code/codex/cursor-cli) must leave this unset and pass `command`
+      // (claude-code/codex/cursor-cli/opencode) must leave this unset and pass `command`
       // starting with the agent's binary name, which spawns directly via argv.
       shell?: boolean;
     }) => ipcRenderer.invoke(IPC.ptySpawn, opts) as Promise<{ ptyId: string }>,

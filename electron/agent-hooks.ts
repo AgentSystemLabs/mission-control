@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeOpencodeMissionControlPlugin } from "../src/shared/opencode-mission-control-plugin";
 
 const MARKER = "_mcManaged";
 
@@ -173,6 +174,10 @@ export function installAgentHooks(
   platform: NodeJS.Platform = process.platform
 ): void {
   if (!agent) return;
+  if (agent === "opencode") {
+    writeOpencodeMissionControlPlugin(cwd);
+    return;
+  }
   const spec = AGENT_HOOKS[agent];
   if (!spec) return;
 

@@ -6,7 +6,9 @@ import {
   buildCodexCommand,
   buildCursorCommand,
   buildFreshAgentLaunchCommand,
+  buildOpencodeCommand,
   isAgentResumeCommand,
+  isOpencodeSessionId,
 } from "../agent-command";
 
 const baseTask = {
@@ -27,6 +29,19 @@ const baseTask = {
   updatedAt: 1,
 } satisfies Omit<Task, "agent">;
 
+const OPENCODE_SESSION_ID = "ses_3cf7dd8d4ffeUPfENpVxfFojZ2";
+
+describe("isOpencodeSessionId", () => {
+  it("accepts OpenCode session ids", () => {
+    expect(isOpencodeSessionId(OPENCODE_SESSION_ID)).toBe(true);
+  });
+
+  it("rejects Mission Control UUIDs and other foreign ids", () => {
+    expect(isOpencodeSessionId("00000000-0000-4000-8000-000000000000")).toBe(false);
+    expect(isOpencodeSessionId("019d7a0f-432a-7fa1-a821-b7841f983967")).toBe(false);
+  });
+});
+
 describe("buildCursorCommand", () => {
   it("resumes a persisted Cursor chat", () => {
     expect(
@@ -44,6 +59,39 @@ describe("buildCursorCommand", () => {
         skipPermissions: true,
       }),
     ).toBe("cursor-agent --resume 00000000-0000-4000-8000-000000000000 --force");
+  });
+});
+
+describe("buildOpencodeCommand", () => {
+  it("starts a fresh OpenCode TUI without session flags", () => {
+    expect(buildOpencodeCommand({ mode: "new" })).toBe("opencode");
+  });
+
+  it("ignores foreign session ids on a new launch", () => {
+    expect(
+      buildOpencodeCommand({
+        mode: "new",
+        sessionId: "00000000-0000-4000-8000-000000000000",
+      }),
+    ).toBe("opencode");
+  });
+
+  it("resumes only with a real OpenCode session id", () => {
+    expect(
+      buildOpencodeCommand({
+        mode: "resume",
+        sessionId: OPENCODE_SESSION_ID,
+      }),
+    ).toBe(`opencode --session ${OPENCODE_SESSION_ID}`);
+  });
+
+  it("falls back to a fresh launch when resume lacks a valid OpenCode session id", () => {
+    expect(
+      buildOpencodeCommand({
+        mode: "resume",
+        sessionId: "00000000-0000-4000-8000-000000000000",
+      }),
+    ).toBe("opencode");
   });
 });
 
@@ -82,6 +130,27 @@ describe("buildAgentLaunchCommand", () => {
       "cursor-agent --resume 00000000-0000-4000-8000-000000000000",
     );
   });
+
+  it("starts OpenCode without a session id until one is captured", () => {
+    const task = {
+      ...baseTask,
+      agent: "opencode",
+      claudeSessionId: null,
+    } satisfies Task;
+    expect(buildAgentLaunchCommand(task, "", "new")).toBe("opencode");
+  });
+
+  it("resumes OpenCode only with a captured ses_* session id", () => {
+    const task = {
+      ...baseTask,
+      agent: "opencode",
+      status: "running",
+      claudeSessionId: OPENCODE_SESSION_ID,
+    } satisfies Task;
+    expect(buildAgentLaunchCommand(task, OPENCODE_SESSION_ID, "resume")).toBe(
+      `opencode --session ${OPENCODE_SESSION_ID}`,
+    );
+  });
 });
 
 describe("agentLaunchMode", () => {
@@ -105,6 +174,33 @@ describe("agentLaunchMode", () => {
       } satisfies Task),
     ).toBe("resume");
   });
+
+  it("starts OpenCode fresh until a ses_* id is captured", () => {
+    expect(
+      agentLaunchMode({
+        ...baseTask,
+        agent: "opencode",
+        status: "ready",
+        claudeSessionId: null,
+      } satisfies Task),
+    ).toBe("new");
+    expect(
+      agentLaunchMode({
+        ...baseTask,
+        agent: "opencode",
+        status: "ready",
+        claudeSessionId: "00000000-0000-4000-8000-000000000000",
+      } satisfies Task),
+    ).toBe("new");
+    expect(
+      agentLaunchMode({
+        ...baseTask,
+        agent: "opencode",
+        status: "running",
+        claudeSessionId: OPENCODE_SESSION_ID,
+      } satisfies Task),
+    ).toBe("resume");
+  });
 });
 
 describe("isAgentResumeCommand", () => {
@@ -116,6 +212,10 @@ describe("isAgentResumeCommand", () => {
       ),
     ).toBe(true);
     expect(isAgentResumeCommand("cursor-cli", "cursor-agent --resume abc")).toBe(true);
+    expect(
+      isAgentResumeCommand("opencode", `opencode --session ${OPENCODE_SESSION_ID}`),
+    ).toBe(true);
+    expect(isAgentResumeCommand("opencode", "opencode")).toBe(false);
     expect(
       isAgentResumeCommand(
         "codex",
@@ -134,5 +234,15 @@ describe("buildFreshAgentLaunchCommand", () => {
       status: "running",
     } satisfies Task;
     expect(buildFreshAgentLaunchCommand(task, "fresh-id")).toBe("codex --enable hooks");
+  });
+
+  it("falls back to a fresh OpenCode session without session flags", () => {
+    const task = {
+      ...baseTask,
+      agent: "opencode",
+      status: "running",
+      claudeSessionId: OPENCODE_SESSION_ID,
+    } satisfies Task;
+    expect(buildFreshAgentLaunchCommand(task, OPENCODE_SESSION_ID)).toBe("opencode");
   });
 });

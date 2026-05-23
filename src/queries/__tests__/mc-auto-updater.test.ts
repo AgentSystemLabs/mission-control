@@ -5,7 +5,7 @@
 //
 // Each test re-imports the store module to reset its singleton state.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 type State = { kind: string; [k: string]: unknown };
 
@@ -72,10 +72,15 @@ describe("mc-auto-updater store", () => {
     // assert the public API surface for non-electron environments.
     expect(typeof store.useAutoUpdaterState).toBe("function");
     expect(typeof store.triggerUpdateCheck).toBe("function");
+    expect(typeof store.triggerUpdateDownload).toBe("function");
     expect(typeof store.triggerUpdateInstall).toBe("function");
     // triggerUpdateInstall in non-electron returns ok:false.
     const res = await store.triggerUpdateInstall();
     expect(res).toEqual({ ok: false, error: "not-electron" });
+    await expect(store.triggerUpdateDownload()).resolves.toEqual({
+      ok: false,
+      error: "not-electron",
+    });
     // triggerUpdateCheck in non-electron returns without throwing.
     await expect(store.triggerUpdateCheck()).resolves.toBeUndefined();
     observed = null;
@@ -97,5 +102,27 @@ describe("mc-auto-updater store", () => {
     const store = await freshStore();
     await store.triggerUpdateCheck();
     expect(api.check).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses electronAPI.updater.download() when available", async () => {
+    const { api } = installFakeApi();
+    api.download.mockResolvedValueOnce({ ok: true });
+    const store = await freshStore();
+    const res = await store.triggerUpdateDownload();
+    expect(res).toEqual({ ok: true });
+    expect(api.download).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows the update CTA to retry from an updater error state", async () => {
+    const store = await freshStore();
+
+    expect(
+      store.canTriggerUpdateCheck({
+        kind: "error",
+        message: "Cannot download update",
+      })
+    ).toBe(true);
+    expect(store.canTriggerUpdateCheck({ kind: "unsupported-dev" })).toBe(false);
+    expect(store.canTriggerUpdateCheck({ kind: "checking" })).toBe(false);
   });
 });

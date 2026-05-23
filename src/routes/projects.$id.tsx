@@ -25,7 +25,7 @@ import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
-import { api } from "~/lib/api";
+import { api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
@@ -41,6 +41,7 @@ import {
   useEntitlements,
   useGroups,
   useProject,
+  useSettings,
   useTasks,
   useWorktrees,
 } from "~/queries";
@@ -68,6 +69,14 @@ import type { Task, TaskStatus } from "~/db/schema";
 import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
+import {
+  readCachedSelectedWorktreeByProject,
+  writeCachedSelectedWorktreeByProject,
+} from "~/lib/ui-preference-cache";
+import {
+  selectedWorktreeMapsEqual,
+  type SelectedWorktreeByProject,
+} from "~/shared/ui-preferences";
 import {
   DUPLICATE_ACTIVE_SESSION_EVENT,
   pickByPriority,
@@ -112,26 +121,55 @@ function ProjectPage() {
   const { id } = Route.useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [selectedWorktreeByProject, setSelectedWorktreeByProject] = useState<Record<string, string>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem("mc.selectedWorktreeByProject");
-      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
-    } catch {
-      return {};
-    }
-  });
+  const { data: settings } = useSettings();
+  const settingsLoaded = settings !== undefined;
+  const storedSelectedWorktreeByProject = settings?.selectedWorktreeByProject ?? null;
+  const [selectedWorktreeByProject, setSelectedWorktreeByProject] =
+    useState<SelectedWorktreeByProject>(() => {
+      return readCachedSelectedWorktreeByProject() ?? {};
+    });
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        "mc.selectedWorktreeByProject",
-        JSON.stringify(selectedWorktreeByProject),
-      );
-    } catch {
-      /* ignore */
+    if (!storedSelectedWorktreeByProject) return;
+    setSelectedWorktreeByProject((current) =>
+      selectedWorktreeMapsEqual(current, storedSelectedWorktreeByProject)
+        ? current
+        : storedSelectedWorktreeByProject,
+    );
+  }, [storedSelectedWorktreeByProject]);
+  useEffect(() => {
+    writeCachedSelectedWorktreeByProject(selectedWorktreeByProject);
+    if (!settingsLoaded) return;
+    if (
+      selectedWorktreeMapsEqual(
+        storedSelectedWorktreeByProject,
+        selectedWorktreeByProject,
+      )
+    ) {
+      return;
     }
-  }, [selectedWorktreeByProject]);
+    if (
+      !storedSelectedWorktreeByProject &&
+      Object.keys(selectedWorktreeByProject).length === 0
+    ) {
+      return;
+    }
+    queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+      current
+        ? { ...current, selectedWorktreeByProject }
+        : current,
+    );
+    void api
+      .updateSettings({ selectedWorktreeByProject })
+      .then((next) => queryClient.setQueryData(queryKeys.settings, next))
+      .catch((error) => {
+        console.error("[settings] failed to persist selected worktree:", error);
+      });
+  }, [
+    queryClient,
+    selectedWorktreeByProject,
+    settingsLoaded,
+    storedSelectedWorktreeByProject,
+  ]);
   const projectQuery = useProject(id);
   useSyncProjectDiagrams(id);
   const worktreesQuery = useWorktrees(id);
@@ -631,7 +669,8 @@ function ProjectPage() {
         return;
       }
       const usesPersistedSession =
-        payload.agent === "claude-code" || payload.agent === "cursor-cli";
+        payload.agent === "claude-code" ||
+        payload.agent === "cursor-cli";
       const created = await api.createTaskInternal(project.id, {
         title: TITLE_WAITING,
         agent: payload.agent,
@@ -1107,6 +1146,7 @@ function ProjectPage() {
             runningKeys={runningWorktreeIds}
             projectId={project.id}
             onSelect={selectWorktree}
+            onDeleteSelected={() => setConfirmDeleteWorktree(true)}
             maxWidth="min(420px, 34vw)"
           />
           <span
@@ -1444,15 +1484,6 @@ function ProjectPage() {
               aria-label="Find file in project"
             />
           </HotkeyTooltip>
-          {worktreesEnabled && selectedWorktree && !selectedWorktree.isMain && (
-            <Btn
-              variant="ghost"
-              icon="trash"
-              onClick={() => setConfirmDeleteWorktree(true)}
-              aria-label={`Delete worktree ${selectedWorktree.name}`}
-              title={`Delete worktree ${selectedWorktree.name}`}
-            />
-          )}
         </div>
 
         {hostedRuntime && !hostedRuntime.allowed && (
@@ -1934,6 +1965,7 @@ function WorktreeToggleGroup({
   runningKeys,
   projectId,
   onSelect,
+  onDeleteSelected,
   maxWidth = 420,
 }: {
   worktrees: WorktreeInfo[];
@@ -1941,6 +1973,7 @@ function WorktreeToggleGroup({
   runningKeys: ReadonlySet<string>;
   projectId: string;
   onSelect: (id: string) => void;
+  onDeleteSelected?: (worktree: WorktreeInfo) => void;
   maxWidth?: number | string;
 }) {
   const items = worktrees.length > 0 ? worktrees : [];
@@ -1962,30 +1995,16 @@ function WorktreeToggleGroup({
       {items.map((worktree) => {
         const selected = worktree.id === selectedId;
         const running = runningKeys.has(worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id));
+        const canDelete = selected && !worktree.isMain && !!onDeleteSelected;
         return (
-          <button
+          <div
             key={worktree.id}
-            type="button"
-            role="radio"
-            onClick={() => onSelect(worktree.id)}
-            onKeyDown={(event) => {
-              if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;
-              event.preventDefault();
-              const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-              const currentIndex = items.findIndex((item) => item.id === worktree.id);
-              const next = items[(currentIndex + direction + items.length) % items.length];
-              if (next) onSelect(next.id);
-            }}
-            aria-label={`Switch to worktree ${worktree.name}`}
-            aria-checked={selected}
-            tabIndex={selected ? 0 : -1}
-            title={worktree.path}
+            role="none"
             style={{
               position: "relative",
               display: "inline-flex",
               alignItems: "center",
               height: 28,
-              padding: "0 10px",
               borderRadius: 999,
               border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
               background: selected ? "var(--accent-faint)" : "var(--surface-0)",
@@ -1993,7 +2012,7 @@ function WorktreeToggleGroup({
               fontFamily: "var(--mono)",
               fontSize: 11,
               whiteSpace: "nowrap",
-              cursor: "pointer",
+              flexShrink: 0,
             }}
           >
             {running && (
@@ -2012,8 +2031,64 @@ function WorktreeToggleGroup({
                 }}
               />
             )}
-            {worktree.name}
-          </button>
+            <button
+              type="button"
+              role="radio"
+              onClick={() => onSelect(worktree.id)}
+              onKeyDown={(event) => {
+                if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;
+                event.preventDefault();
+                const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+                const currentIndex = items.findIndex((item) => item.id === worktree.id);
+                const next = items[(currentIndex + direction + items.length) % items.length];
+                if (next) onSelect(next.id);
+              }}
+              aria-label={`Switch to worktree ${worktree.name}`}
+              aria-checked={selected}
+              tabIndex={selected ? 0 : -1}
+              title={worktree.path}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                height: "100%",
+                padding: canDelete ? "0 8px 0 10px" : "0 10px",
+                border: 0,
+                borderRadius: canDelete ? "999px 0 0 999px" : 999,
+                background: "transparent",
+                color: "inherit",
+                font: "inherit",
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+              }}
+            >
+              {worktree.name}
+            </button>
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => onDeleteSelected?.(worktree)}
+                aria-label={`Delete worktree ${worktree.name}`}
+                title={`Delete worktree ${worktree.name}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 24,
+                  alignSelf: "stretch",
+                  padding: 0,
+                  border: 0,
+                  borderLeft: "1px solid color-mix(in srgb, currentColor 22%, transparent)",
+                  borderRadius: "0 999px 999px 0",
+                  background: "transparent",
+                  color: "inherit",
+                  cursor: "pointer",
+                  opacity: 0.78,
+                }}
+              >
+                <Icon name="trash" size={10} />
+              </button>
+            )}
+          </div>
         );
       })}
     </div>

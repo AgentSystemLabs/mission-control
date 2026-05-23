@@ -7,8 +7,8 @@ import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
+import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import {
-  resolveCommandOnPath,
   resolveShell,
   sanitizedProcessEnv,
   shellArgsForCommand,
@@ -324,7 +324,7 @@ export function registerPtyHandlers(
       try {
         plan = resolveSpawnPlan(opts, {
           projectRoots: loadProjectRoots,
-          resolveCommand: (name) => resolveCommandOnPath(name, sanitizedProcessEnv()),
+          resolveCommand: (name) => resolveAgentCommandOnPath(name, sanitizedProcessEnv()),
           resolveShell: () => ({
             shell: resolveShell(),
             shellArgs: (cmd) => shellArgsForCommand(resolveShell(), cmd, platform),

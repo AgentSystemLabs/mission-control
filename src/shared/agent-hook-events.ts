@@ -5,8 +5,10 @@ export const AGENT_HOOK_EVENTS = {
   stop: "Stop",
   userInterrupt: "UserInterrupt",
   permissionRequest: "PermissionRequest",
+  questionRequest: "QuestionRequest",
   notification: "Notification",
   permissionPrompt: "permission_prompt",
+  sessionStart: "SessionStart",
   cursorBeforeSubmitPrompt: "beforeSubmitPrompt",
   cursorStop: "stop",
   cursorAfterAgentResponse: "afterAgentResponse",
@@ -31,6 +33,7 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
     case AGENT_HOOK_EVENTS.userInterrupt:
       return "interrupted";
     case AGENT_HOOK_EVENTS.permissionRequest:
+    case AGENT_HOOK_EVENTS.questionRequest:
       return "needs-input";
     case AGENT_HOOK_EVENTS.notification:
       return isPermissionNotification(payload) ? "needs-input" : null;

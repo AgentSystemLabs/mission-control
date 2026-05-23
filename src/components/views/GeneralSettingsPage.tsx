@@ -10,13 +10,14 @@ import {
   useLatestMissionControlVersion,
 } from "~/queries/mission-control-version";
 import {
+  canTriggerUpdateCheck,
+  triggerUpdateDownload,
   triggerUpdateCheck,
   triggerUpdateInstall,
   useAutoUpdaterState,
 } from "~/queries/mc-auto-updater";
 import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import {
-  hasCachedLaunchIntroPreference,
   readCachedLaunchIntroEnabled,
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
@@ -28,6 +29,10 @@ export function GeneralSettingsPage() {
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
+  const automaticUpdateDownloadsEnabled =
+    settings?.automaticUpdateDownloadsEnabled ?? false;
+  const automaticUpdateInstallOnQuitEnabled =
+    settings?.automaticUpdateInstallOnQuitEnabled ?? false;
   const [launchOverlayEnabled, setLaunchOverlayEnabledState] = useState(
     () => readCachedLaunchIntroEnabled(),
   );
@@ -49,7 +54,6 @@ export function GeneralSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (hasCachedLaunchIntroPreference()) return;
     if (typeof settings?.launchOverlayEnabled !== "boolean") return;
     setLaunchOverlayEnabledState(settings.launchOverlayEnabled);
     writeCachedLaunchIntroEnabled(settings.launchOverlayEnabled);
@@ -64,6 +68,8 @@ export function GeneralSettingsPage() {
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "launchOverlayEnabled"
+        | "automaticUpdateDownloadsEnabled"
+        | "automaticUpdateInstallOnQuitEnabled"
       >
     >,
   ): AppSettings => ({
@@ -74,6 +80,11 @@ export function GeneralSettingsPage() {
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
     launchOverlayEnabled,
+    automaticUpdateDownloadsEnabled,
+    automaticUpdateInstallOnQuitEnabled,
+    gitDiffChangedFilesView: settings?.gitDiffChangedFilesView ?? null,
+    gitDiffChangedFilesWidth: settings?.gitDiffChangedFilesWidth ?? null,
+    selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:
@@ -92,6 +103,8 @@ export function GeneralSettingsPage() {
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "launchOverlayEnabled"
+        | "automaticUpdateDownloadsEnabled"
+        | "automaticUpdateInstallOnQuitEnabled"
       >
     >,
   ) => {
@@ -136,6 +149,21 @@ export function GeneralSettingsPage() {
           current ? { ...current, launchOverlayEnabled: enabled } : current,
         );
       });
+  };
+
+  const setAutomaticUpdateDownloadsEnabled = async (enabled: boolean) => {
+    await updateSettings({ automaticUpdateDownloadsEnabled: enabled });
+    if (enabled) {
+      try {
+        await triggerUpdateCheck();
+      } catch (err) {
+        console.error("[updater] check after enabling auto-download failed:", err);
+      }
+    }
+  };
+
+  const setAutomaticUpdateInstallOnQuitEnabled = async (enabled: boolean) => {
+    await updateSettings({ automaticUpdateInstallOnQuitEnabled: enabled });
   };
 
   const setOsNotificationEnabled = async (enabled: boolean) => {
@@ -192,6 +220,24 @@ export function GeneralSettingsPage() {
             onChange={setLaunchOverlayEnabled}
             label="Enable"
           />
+        </Field>
+        <Field label="Updates">
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <ToggleRow
+              title="Download updates automatically"
+              description="When enabled, Mission Control downloads app updates in the background after a check finds one."
+              checked={automaticUpdateDownloadsEnabled}
+              onChange={setAutomaticUpdateDownloadsEnabled}
+              label="Enable automatic update downloads"
+            />
+            <ToggleRow
+              title="Install updates when quitting"
+              description="When enabled, a downloaded update installs the next time you quit Mission Control. Otherwise use Restart to install."
+              checked={automaticUpdateInstallOnQuitEnabled}
+              onChange={setAutomaticUpdateInstallOnQuitEnabled}
+              label="Enable install on quit"
+            />
+          </div>
         </Field>
       </SettingsSection>
       <SettingsSection
@@ -261,8 +307,22 @@ function AboutSection() {
   const busy =
     updater.kind === "priming" ||
     updater.kind === "checking" ||
-    updater.kind === "available" ||
     updater.kind === "downloading";
+  const checkForUpdate = async () => {
+    try {
+      await triggerUpdateCheck();
+    } catch (err) {
+      console.error("[updater] check failed; falling through to browser:", err);
+      openBrowserDownload();
+    }
+  };
+  const downloadUpdate = async () => {
+    const res = await triggerUpdateDownload();
+    if (!res.ok) {
+      console.error("[updater] download failed:", res.error);
+      if (academy?.downloadUrl) openBrowserDownload();
+    }
+  };
 
   switch (updater.kind) {
     case "priming":
@@ -272,7 +332,8 @@ function AboutSection() {
       status = "Checking for updates…";
       break;
     case "available":
-      status = `Update v${updater.version} found — downloading…`;
+      status = `Update v${updater.version} found.`;
+      action = { label: "Download", onClick: downloadUpdate };
       break;
     case "downloading": {
       const pct = Math.round(updater.percent);
@@ -294,8 +355,11 @@ function AboutSection() {
       break;
     case "error":
       if (academyHasUpdate && latest && academy?.downloadUrl) {
-        status = `Auto-update unavailable. New version v${latest} can be downloaded manually.`;
-        action = { label: "Download", onClick: openBrowserDownload };
+        status = `Automatic update hit a download error. New version v${latest} is available.`;
+        action = {
+          label: "Update",
+          onClick: checkForUpdate,
+        };
       } else {
         status = `Auto-update unavailable (${updater.message}).`;
         // Always offer a retry path so the user isn't stranded.
@@ -303,23 +367,26 @@ function AboutSection() {
       }
       break;
     case "unsupported-dev":
+      if (academyHasUpdate && latest && academy?.downloadUrl) {
+        status = `New version v${latest} can be downloaded manually.`;
+        action = { label: "Download", onClick: openBrowserDownload };
+        break;
+      }
+      if (academyLoading) status = "Checking for updates…";
+      else if (academyError) status = "Couldn't check for updates.";
+      else if (!latest) status = "No release information available.";
+      else status = "You're on the latest version.";
+      break;
     case "idle":
     default:
       if (academyLoading) status = "Checking for updates…";
       else if (academyError) status = "Couldn't check for updates.";
       else if (!latest) status = "No release information available.";
-      else if (academyHasUpdate) {
+      else if (academyHasUpdate && canTriggerUpdateCheck(updater)) {
         status = `New version v${latest} available.`;
         action = {
           label: "Update",
-          onClick: async () => {
-            try {
-              await triggerUpdateCheck();
-            } catch (err) {
-              console.error("[updater] check failed; falling through to browser:", err);
-              openBrowserDownload();
-            }
-          },
+          onClick: checkForUpdate,
         };
       } else status = "You're on the latest version.";
       break;

@@ -25,9 +25,11 @@ export function ThemeSettingsPage() {
   const { data: settings } = useSettings();
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
   const minimalTheme = settings?.minimalTheme ?? false;
-  const launchOverlayEnabled = hasCachedLaunchIntroPreference()
-    ? readCachedLaunchIntroEnabled()
-    : settings?.launchOverlayEnabled ?? false;
+  const launchOverlayEnabled = typeof settings?.launchOverlayEnabled === "boolean"
+    ? settings.launchOverlayEnabled
+    : hasCachedLaunchIntroPreference()
+      ? readCachedLaunchIntroEnabled()
+      : false;
 
   const optimisticSettings = (
     patch: Partial<Pick<AppSettings, "accentColor" | "minimalTheme">>,
@@ -40,6 +42,13 @@ export function ThemeSettingsPage() {
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
     launchOverlayEnabled,
+    automaticUpdateDownloadsEnabled:
+      settings?.automaticUpdateDownloadsEnabled ?? false,
+    automaticUpdateInstallOnQuitEnabled:
+      settings?.automaticUpdateInstallOnQuitEnabled ?? false,
+    gitDiffChangedFilesView: settings?.gitDiffChangedFilesView ?? null,
+    gitDiffChangedFilesWidth: settings?.gitDiffChangedFilesWidth ?? null,
+    selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:

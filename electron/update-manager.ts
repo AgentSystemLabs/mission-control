@@ -1,6 +1,7 @@
 import type { BrowserWindow, IpcMain } from "electron";
 import { app } from "electron";
 import log from "electron-log/main";
+import { getBooleanAppSetting } from "./app-settings-store";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 
@@ -12,6 +13,7 @@ import { safeHandle } from "./ipc-safe-handle";
 // but autoUpdater would throw on isPackaged=false) doesn't pay the import cost or
 // pull native bits before we've checked the guard.
 type ElectronUpdater = typeof import("electron-updater");
+type AutoUpdater = ElectronUpdater["autoUpdater"];
 
 export type UpdateState =
   | { kind: "unsupported-dev" }
@@ -24,6 +26,10 @@ export type UpdateState =
 
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h
 const UPDATE_STARTUP_DELAY_MS = 10_000;
+const AUTOMATIC_UPDATE_DOWNLOADS_SETTING_KEY = "automatic_update_downloads_enabled";
+const AUTOMATIC_UPDATE_INSTALL_ON_QUIT_SETTING_KEY = "automatic_update_install_on_quit_enabled";
+const DEFAULT_AUTOMATIC_UPDATE_DOWNLOADS_ENABLED = false;
+const DEFAULT_AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED = false;
 
 // download-progress fires roughly every second. We only want a log entry at
 // monotonically-increasing 10% boundaries so the trail tells us "got to 30%, 40%,
@@ -35,9 +41,12 @@ let currentState: UpdateState = app.isPackaged
   ? { kind: "idle", lastCheckedAt: null }
   : { kind: "unsupported-dev" };
 
-let updater: ElectronUpdater["autoUpdater"] | null = null;
+let updater: AutoUpdater | null = null;
 let getWindow: (() => BrowserWindow | null) | null = null;
+let userDataDir: string | null = null;
 let initialized = false;
+let eventsWired = false;
+let pendingUpdateVersion: string | null = null;
 
 function broadcast(next: UpdateState) {
   const prev = currentState;
@@ -108,48 +117,68 @@ function logMainError(event: string, err: unknown): void {
   console.error(`[update-manager] ${event}:`, err);
 }
 
-async function loadUpdater(): Promise<ElectronUpdater["autoUpdater"] | null> {
-  if (updater) return updater;
-  try {
-    // Dynamic import keeps dev startup fast and lets us no-op if the dep is missing.
-    const mod = (await import("electron-updater")) as ElectronUpdater;
-    updater = mod.autoUpdater;
-    return updater;
-  } catch (err) {
-    logMainError("update.load.failed", err);
-    broadcast({ kind: "error", message: describeError(err) });
-    return null;
-  }
+function readBooleanSetting(key: string, defaultValue: boolean): boolean {
+  if (!userDataDir) return defaultValue;
+  return getBooleanAppSetting(userDataDir, key, defaultValue);
 }
 
-function wireEvents(au: NonNullable<ReturnType<() => ElectronUpdater["autoUpdater"]>>) {
+function applyUpdaterPreferences(au: AutoUpdater): {
+  automaticDownloadEnabled: boolean;
+  automaticInstallOnQuitEnabled: boolean;
+} {
+  const automaticDownloadEnabled = readBooleanSetting(
+    AUTOMATIC_UPDATE_DOWNLOADS_SETTING_KEY,
+    DEFAULT_AUTOMATIC_UPDATE_DOWNLOADS_ENABLED,
+  );
+  const automaticInstallOnQuitEnabled = readBooleanSetting(
+    AUTOMATIC_UPDATE_INSTALL_ON_QUIT_SETTING_KEY,
+    DEFAULT_AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED,
+  );
+  au.autoDownload = automaticDownloadEnabled;
+  au.autoInstallOnAppQuit = automaticInstallOnQuitEnabled;
+  return { automaticDownloadEnabled, automaticInstallOnQuitEnabled };
+}
+
+function wireEvents(au: AutoUpdater) {
   // Route electron-updater's internal log stream (URL resolution, signature
   // verification, partial-content retries, differential-download fallback) into
   // the same persistent file. This is the single most valuable line for
   // debugging silent auto-update failures on macOS (notarization mismatches,
   // signing differences between dev and shipped builds).
   au.logger = log;
-
-  au.autoDownload = true;
-  au.autoInstallOnAppQuit = true;
   au.allowDowngrade = false;
+  applyUpdaterPreferences(au);
 
   au.on("checking-for-update", () => {
     broadcast({ kind: "checking" });
   });
 
   au.on("update-available", (info: { version?: string }) => {
-    broadcast({ kind: "available", version: info?.version ?? "unknown" });
+    const version = info?.version ?? "unknown";
+    pendingUpdateVersion = version;
+    log.info("update.check.available", {
+      event: "update.check.available",
+      version,
+      automaticDownloadEnabled: au.autoDownload,
+    });
+    // When auto-download is on, electron-updater starts immediately — skip the
+    // transient `available` state so the UI doesn't flash a Download CTA.
+    if (!au.autoDownload) {
+      broadcast({ kind: "available", version });
+    }
   });
 
   au.on("update-not-available", () => {
+    pendingUpdateVersion = null;
     broadcast({ kind: "idle", lastCheckedAt: Date.now() });
   });
 
   au.on("download-progress", (p: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
-    const version = currentState.kind === "downloading" || currentState.kind === "available"
-      ? (currentState as Extract<UpdateState, { version: string }>).version
-      : "unknown";
+    const version =
+      pendingUpdateVersion ??
+      (currentState.kind === "downloading" || currentState.kind === "available"
+        ? (currentState as Extract<UpdateState, { version: string }>).version
+        : "unknown");
     broadcast({
       kind: "downloading",
       version,
@@ -161,6 +190,7 @@ function wireEvents(au: NonNullable<ReturnType<() => ElectronUpdater["autoUpdate
   });
 
   au.on("update-downloaded", (info: { version?: string }) => {
+    pendingUpdateVersion = null;
     broadcast({ kind: "ready-to-install", version: info?.version ?? "unknown" });
   });
 
@@ -170,19 +200,44 @@ function wireEvents(au: NonNullable<ReturnType<() => ElectronUpdater["autoUpdate
   });
 }
 
+function ensureEventsWired(au: AutoUpdater): void {
+  if (eventsWired) return;
+  eventsWired = true;
+  wireEvents(au);
+}
+
+async function loadUpdater(): Promise<AutoUpdater | null> {
+  if (updater) {
+    ensureEventsWired(updater);
+    return updater;
+  }
+  try {
+    // Dynamic import keeps dev startup fast and lets us no-op if the dep is missing.
+    const mod = (await import("electron-updater")) as ElectronUpdater;
+    updater = mod.autoUpdater;
+    ensureEventsWired(updater);
+    return updater;
+  } catch (err) {
+    logMainError("update.load.failed", err);
+    broadcast({ kind: "error", message: describeError(err) });
+    return null;
+  }
+}
+
 type CheckTrigger = "startup" | "interval" | "ipc";
 
 async function safeCheck(trigger: CheckTrigger = "ipc"): Promise<void> {
   if (!app.isPackaged) return;
   const au = await loadUpdater();
   if (!au) return;
+  const prefs = applyUpdaterPreferences(au);
   log.info("update.check.started", {
     event: "update.check.started",
     trigger,
     currentVersion: app.getVersion(),
+    ...prefs,
   });
   try {
-    broadcast({ kind: "checking" });
     await au.checkForUpdates();
   } catch (err) {
     logMainError("update.check.failed", err);
@@ -194,7 +249,37 @@ async function safeDownload(): Promise<{ ok: true } | { ok: false; error: string
   if (!app.isPackaged) return { ok: false, error: "not-packaged" };
   const au = await loadUpdater();
   if (!au) return { ok: false, error: "updater-unavailable" };
+  applyUpdaterPreferences(au);
+  if (currentState.kind === "downloading" || currentState.kind === "ready-to-install") {
+    log.info("update.download.skipped", {
+      event: "update.download.skipped",
+      reason: currentState.kind,
+    });
+    return { ok: true };
+  }
+  if (currentState.kind !== "available") {
+    log.info("update.download.skipped", {
+      event: "update.download.skipped",
+      reason: currentState.kind,
+    });
+    return { ok: false, error: "no-update-available" };
+  }
+  const version = currentState.version;
+  log.info("update.download.started", {
+    event: "update.download.started",
+    currentVersion: app.getVersion(),
+    version,
+  });
   try {
+    pendingUpdateVersion = version;
+    broadcast({
+      kind: "downloading",
+      version,
+      percent: 0,
+      bytesPerSecond: 0,
+      transferred: 0,
+      total: 0,
+    });
     await au.downloadUpdate();
     return { ok: true };
   } catch (err) {
@@ -224,10 +309,15 @@ function safeInstall(): { ok: true } | { ok: false; error: string } {
   }
 }
 
-export function registerUpdateManager(ipcMain: IpcMain, windowAccessor: () => BrowserWindow | null) {
+export function registerUpdateManager(
+  ipcMain: IpcMain,
+  windowAccessor: () => BrowserWindow | null,
+  appUserDataDir: string,
+) {
   if (initialized) return;
   initialized = true;
   getWindow = windowAccessor;
+  userDataDir = appUserDataDir;
 
   safeHandle(IPC.updateGetState, () => currentState, ipcMain);
   safeHandle(IPC.updateCheck, () => safeCheck("ipc"), ipcMain);
@@ -239,14 +329,13 @@ export function registerUpdateManager(ipcMain: IpcMain, windowAccessor: () => Br
     return;
   }
 
-  void (async () => {
-    const au = await loadUpdater();
-    if (!au) return;
-    wireEvents(au);
-    // Initial check shortly after app ready; then periodically.
-    setTimeout(() => void safeCheck("startup"), UPDATE_STARTUP_DELAY_MS);
-    setInterval(() => void safeCheck("interval"), UPDATE_CHECK_INTERVAL_MS);
-  })();
+  app.on("before-quit", () => {
+    if (updater) applyUpdaterPreferences(updater);
+  });
+
+  // Initial check shortly after app ready; then periodically.
+  setTimeout(() => void safeCheck("startup"), UPDATE_STARTUP_DELAY_MS);
+  setInterval(() => void safeCheck("interval"), UPDATE_CHECK_INTERVAL_MS);
 
   // TODO(academy auto-update infra): this only activates once academy serves the
   // generic-provider artifacts (latest-mac.yml, latest.yml, latest-linux.yml,

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildUserPath, resolveCommandOnPath } from "../shell-env";
+import { resolveAgentCommandOnPath } from "../agent-cli-resolution";
 import {
   resolveSpawnPlan,
   SpawnPolicyError,
@@ -126,6 +127,49 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     expect(plan.argv).toEqual([]);
   });
 
+  it("resolves cursor-cli via the official agent binary when cursor-agent is absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-cursor-spawn-"));
+    const binDir = path.join(root, "User", ".local", "bin");
+    writeExecutable(path.join(binDir, "agent.exe"), "@echo off\r\n");
+
+    const env = {
+      Path: binDir,
+      PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    };
+
+    const plan = resolveSpawnPlan(
+      spawnReq({ agent: "cursor-cli", command: "cursor-agent" }),
+      depsFor({
+        platform: "win32",
+        resolveCommand: (name) => resolveAgentCommandOnPath(name, env, "win32"),
+      }),
+    );
+
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    expect(plan.binary).toBe(path.join(binDir, "agent.exe"));
+  });
+
+  it("maps opencode agent to the opencode binary", () => {
+    const plan = resolveSpawnPlan(
+      spawnReq({ agent: "opencode", command: "opencode" }),
+      depsFor(),
+    );
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    expect(plan.binary).toBe("/usr/local/bin/opencode");
+    expect(plan.argv).toEqual([]);
+  });
+
+  it("rejects OpenCode session ids that are not ses_* values", () => {
+    expectRejected(
+      spawnReq({
+        agent: "opencode",
+        command: "opencode --session 00000000-0000-4000-8000-000000000000",
+      }),
+      depsFor(),
+      "agent-arg-not-allowed",
+    );
+  });
+
   it("rejects an unknown agent slug", () => {
     expectRejected(
       spawnReq({ agent: "evil-cli", command: "evil-cli" }),
@@ -171,6 +215,7 @@ describe("resolveSpawnPlan — agent allow-list", () => {
       spawnReq({ agent: "claude-code", command: "claude --mcp-server evil" }),
       spawnReq({ agent: "codex", command: "codex --config-file /tmp/evil.toml" }),
       spawnReq({ agent: "cursor-cli", command: "cursor-agent --config /tmp/evil.json" }),
+      spawnReq({ agent: "opencode", command: "opencode --config /tmp/evil.json" }),
     ]) {
       expectRejected(req, depsFor(), "agent-arg-not-allowed");
     }
@@ -240,6 +285,13 @@ describe("resolveSpawnPlan — agent allow-list", () => {
           dangerouslySkipPermissions: true,
         }),
         argv: ["--resume", "00000000-0000-4000-8000-000000000000", "--force"],
+      },
+      {
+        req: spawnReq({
+          agent: "opencode",
+          command: "opencode --session ses_3cf7dd8d4ffeUPfENpVxfFojZ2",
+        }),
+        argv: ["--session", "ses_3cf7dd8d4ffeUPfENpVxfFojZ2"],
       },
     ];
 

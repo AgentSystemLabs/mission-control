@@ -76,19 +76,37 @@ export function TaskCard({
       {/* Agent brand watermark — faint, right side, decorative only. */}
       <div
         aria-hidden
-        style={{
-          position: "absolute",
-          right: -10,
-          top: "50%",
-          transform: "translateY(-50%)",
-          color: meta?.color ?? "var(--text)",
-          opacity: 0.09,
-          pointerEvents: "none",
-          zIndex: 0,
-          lineHeight: 0,
-        }}
+        style={
+          task.agent === "opencode"
+            ? {
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 96,
+                height: 120,
+                backgroundImage: "url('/opencode.svg')",
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "center",
+                backgroundSize: "contain",
+                opacity: 0.09,
+                pointerEvents: "none",
+                zIndex: 0,
+              }
+            : {
+                position: "absolute",
+                right: -10,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: meta?.color ?? "var(--text)",
+                opacity: 0.09,
+                pointerEvents: "none",
+                zIndex: 0,
+                lineHeight: 0,
+              }
+        }
       >
-        <AgentLogo agent={task.agent} size={140} />
+        {task.agent !== "opencode" ? <AgentLogo agent={task.agent} size={140} /> : null}
       </div>
 
       <div

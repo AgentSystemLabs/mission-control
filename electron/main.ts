@@ -10,7 +10,8 @@ import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { IPC } from "./ipc-channels";
-import { augmentProcessEnv, resolveCommandOnPath, sanitizedProcessEnv } from "./shell-env";
+import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
+import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
 import {
   clearSessionTerminalDebugLogs,
@@ -29,6 +30,7 @@ import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
 import { checkAgentCliVersion } from "./agent-cli-version";
 import { AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND } from "./agent-cli-version-requirements";
+import { disposeAppSettingsStore } from "./app-settings-store";
 
 const APP_NAME = "MissionControl";
 
@@ -91,21 +93,43 @@ let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let runtimePort: number | null = null;
 
-function pickPort(): Promise<number> {
+function pickPort(preferredPort?: number | null): Promise<number> {
+  const candidates = preferredPort ? [preferredPort, 0] : [0];
   return new Promise((resolve, reject) => {
-    const srv = nodeNet.createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, devServerHost, () => {
-      const addr = srv.address();
-      if (addr && typeof addr === "object") {
-        const port = addr.port;
-        srv.close(() => resolve(port));
-      } else {
-        srv.close(() => reject(new Error("Could not allocate port")));
+    const tryCandidate = (index: number) => {
+      const candidate = candidates[index];
+      if (candidate === undefined) {
+        reject(new Error("Could not allocate port"));
+        return;
       }
-    });
+      const srv = nodeNet.createServer();
+      srv.unref();
+      srv.on("error", (err) => {
+        if (candidate === 0) reject(err);
+        else tryCandidate(index + 1);
+      });
+      srv.listen(candidate, devServerHost, () => {
+        const addr = srv.address();
+        if (addr && typeof addr === "object") {
+          const port = addr.port;
+          srv.close(() => resolve(port));
+        } else {
+          srv.close(() => tryCandidate(index + 1));
+        }
+      });
+    };
+    tryCandidate(0);
   });
+}
+
+function readPreviousRuntimePort(portFile: string): number | null {
+  try {
+    const raw = fs.readFileSync(portFile, "utf8").trim();
+    const port = Number(raw);
+    return Number.isInteger(port) && port > 0 && port < 65536 ? port : null;
+  } catch {
+    return null;
+  }
 }
 
 function waitForHttp(url: string, timeoutMs = DEV_SERVER_READY_TIMEOUT_MS): Promise<void> {
@@ -151,10 +175,10 @@ function configurePermissionHandlers(): void {
 }
 
 async function startProductionServer(): Promise<string> {
-  const port = await pickPort();
+  const portFile = path.join(missionControlUserDataDir, ".port");
+  const port = await pickPort(readPreviousRuntimePort(portFile));
   const origin = `http://${devServerHost}:${port}`;
   runtimePort = port;
-  const portFile = path.join(missionControlUserDataDir, ".port");
   fs.mkdirSync(path.dirname(portFile), { recursive: true });
   fs.writeFileSync(portFile, String(port), "utf8");
 
@@ -442,7 +466,7 @@ safeHandle(IPC.appReload, (event) => {
 safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean }) => {
   if (!command) return { ok: false, reason: "empty" };
   const env = sanitizedProcessEnv();
-  const resolved = resolveCommandOnPath(command, env);
+  const resolved = resolveAgentCommandOnPath(command, env);
   if (resolved) {
     const requirement = AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND[command];
     if (requirement && opts?.verifyVersion) {
@@ -514,6 +538,7 @@ app.on("before-quit", () => {
   killAllPtys();
   disposeAllFileWatchers();
   disposeApiTokenStore();
+  disposeAppSettingsStore();
   disposeProjectRootsDb();
   if (serverProcess) serverProcess.kill();
 });
@@ -524,7 +549,7 @@ app.whenReady().then(() => {
   configureProjectRootsDb(missionControlUserDataDir);
   configurePermissionHandlers();
   registerProjectImageProtocol();
-  registerUpdateManager(ipcMain, () => win);
+  registerUpdateManager(ipcMain, () => win, missionControlUserDataDir);
   return createWindow();
 }).catch((err) => {
   console.error("[main] startup failed:", err);

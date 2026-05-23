@@ -1,4 +1,5 @@
 import type { TaskAgent } from "./domain";
+import { AGENT_CLI_CONFIG } from "./agent-cli-config";
 
 export type AgentRegistryEntry = {
   label: string;
@@ -20,7 +21,7 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
     description: "Anthropic's agentic coder. Best for multi-file refactors and reasoning.",
     color: "#d6a56b",
     glyph: "◆",
-    command: "claude",
+    command: AGENT_CLI_CONFIG["claude-code"].command,
     uiVisible: true,
     supportsSkipPermissions: true,
     skipPermissionsFlag: "--dangerously-skip-permissions",
@@ -32,7 +33,7 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
     description: "OpenAI's terminal coder. Best for test-driven, narrow tasks.",
     color: "#8ab4ff",
     glyph: "◇",
-    command: "codex",
+    command: AGENT_CLI_CONFIG.codex.command,
     uiVisible: true,
     supportsSkipPermissions: true,
     skipPermissionsFlag: "--yolo",
@@ -47,12 +48,23 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
     description: "Cursor's terminal agent. Best for quick inline edits.",
     color: "#c792ea",
     glyph: "▲",
-    command: "cursor-agent",
+    command: AGENT_CLI_CONFIG["cursor-cli"].command,
     uiVisible: true,
     supportsSkipPermissions: true,
     skipPermissionsFlag: "--force",
     startCommand: (opts) => (opts?.skipPermissions ? "cursor-agent --force" : "cursor-agent"),
     titleInvocation: (input) => ({ cmd: "cursor-agent", args: ["-p", input] }),
+  },
+  opencode: {
+    label: "OpenCode",
+    description: "Open-source terminal agent. Multi-model support with a plugin ecosystem.",
+    color: "#f97316",
+    glyph: "◉",
+    command: AGENT_CLI_CONFIG.opencode.command,
+    uiVisible: true,
+    supportsSkipPermissions: false,
+    startCommand: () => "opencode",
+    titleInvocation: (input) => ({ cmd: "opencode", args: ["run", input] }),
   },
 };
 

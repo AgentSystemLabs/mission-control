@@ -1,5 +1,8 @@
 import { spawnSync } from "node:child_process";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { AgentCliVersionRequirement } from "./agent-cli-version-requirements";
+import { resolveAgentCliUpdateCommands } from "./agent-cli-version-requirements";
 
 export type AgentVersionCheck =
   | {
@@ -79,38 +82,62 @@ function versionProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return out;
 }
 
-function baseCheckFields(requirement: AgentCliVersionRequirement) {
+function baseCheckFields(
+  requirement: AgentCliVersionRequirement,
+  platform: NodeJS.Platform = os.platform(),
+) {
   return {
     label: requirement.label,
     requiredVersion: requirement.minimumVersion,
     packageUrl: requirement.packageUrl,
-    updateCommands: requirement.updateCommands,
+    updateCommands: resolveAgentCliUpdateCommands(requirement.updateCommands, platform),
   };
+}
+
+function spawnCliVersion(
+  binary: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = os.platform(),
+) {
+  const ext = path.extname(binary).toLowerCase();
+  if (platform === "win32" && (ext === ".cmd" || ext === ".bat")) {
+    const systemRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
+    const cmdExe = path.win32.join(systemRoot, "System32", "cmd.exe");
+    return spawnSync(cmdExe, ["/d", "/s", "/c", binary, "--version"], {
+      env: versionProbeEnv(env),
+      encoding: "utf8",
+      timeout: VERSION_TIMEOUT_MS,
+    });
+  }
+
+  return spawnSync(binary, ["--version"], {
+    env: versionProbeEnv(env),
+    encoding: "utf8",
+    timeout: VERSION_TIMEOUT_MS,
+  });
 }
 
 export function checkAgentCliVersion(
   binary: string,
   env: NodeJS.ProcessEnv,
   requirement: AgentCliVersionRequirement,
+  platform: NodeJS.Platform = os.platform(),
 ): AgentVersionCheck {
-  const result = spawnSync(binary, ["--version"], {
-    env: versionProbeEnv(env),
-    encoding: "utf8",
-    timeout: VERSION_TIMEOUT_MS,
-  });
+  const result = spawnCliVersion(binary, env, platform);
   const output = cleanOutput(result.stdout, result.stderr);
   const version = extractCliVersion(output);
+  const fields = baseCheckFields(requirement, platform);
 
   if (version) {
     if (compareCliVersions(version, requirement.minimumVersion, requirement.versionScheme) >= 0) {
-      return { ok: true, version, ...baseCheckFields(requirement) };
+      return { ok: true, version, ...fields };
     }
     return {
       ok: false,
       reason: "outdated",
       version,
       output,
-      ...baseCheckFields(requirement),
+      ...fields,
     };
   }
 
@@ -118,7 +145,7 @@ export function checkAgentCliVersion(
     ok: false,
     reason: result.error ? "version-check-failed" : "version-unknown",
     output,
-    ...baseCheckFields(requirement),
+    ...fields,
   };
 }
 

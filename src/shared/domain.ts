@@ -1,4 +1,4 @@
-export const TASK_AGENTS = ["claude-code", "codex", "cursor-cli"] as const;
+export const TASK_AGENTS = ["claude-code", "codex", "cursor-cli", "opencode"] as const;
 export type TaskAgent = (typeof TASK_AGENTS)[number];
 
 export const TASK_STATUSES = [

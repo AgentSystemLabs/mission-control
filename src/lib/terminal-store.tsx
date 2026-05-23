@@ -77,13 +77,13 @@ export function commandForTask(task: Task): string {
   }
 
   let sessionId = task.claudeSessionId;
-  if (!sessionId && task.agent !== "codex") {
+  if (!sessionId && task.agent !== "codex" && task.agent !== "opencode") {
     sessionId = newSessionId();
     void api.updateTask(task.id, { claudeSessionId: sessionId }).catch(() => undefined);
   }
 
   const mode = agentLaunchMode({ ...task, claudeSessionId: sessionId });
-  if (task.agent === "codex" && mode === "new") {
+  if ((task.agent === "codex" || task.agent === "opencode") && mode === "new") {
     return buildAgentLaunchCommand(task, sessionId ?? "", mode);
   }
 

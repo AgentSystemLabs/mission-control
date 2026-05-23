@@ -20,6 +20,13 @@ describe("PTY hook env", () => {
         "task 1",
       ),
     ).toBe("http://127.0.0.1:5173/api/hooks/codex?taskId=task+1");
+    expect(
+      buildSyntheticHookUrl(
+        { apiUrl: "http://127.0.0.1:5173", token: "secret" },
+        "opencode",
+        "task 2",
+      ),
+    ).toBe("http://127.0.0.1:5173/api/hooks/opencode?taskId=task+2");
   });
 
   it("rejects renderer-style attacker and internal-network hook origins", () => {

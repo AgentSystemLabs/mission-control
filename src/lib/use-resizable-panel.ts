@@ -9,6 +9,8 @@ export function useResizablePanel(opts: {
   minSize: number;
   maxSize?: (viewport: number) => number;
   resizeEdge?: "start" | "end";
+  storedSize?: number | null;
+  onSizeChange?: (size: number) => void;
 }) {
   const {
     storageKey,
@@ -17,9 +19,22 @@ export function useResizablePanel(opts: {
     minSize,
     maxSize,
     resizeEdge = "start",
+    storedSize,
+    onSizeChange,
   } = opts;
 
+  const clampSize = useCallback(
+    (value: number) => {
+      if (typeof window === "undefined") return Math.max(minSize, value);
+      const viewport = axis === "x" ? window.innerWidth : window.innerHeight;
+      const upperBound = maxSize ? maxSize(viewport) : viewport - minSize;
+      return Math.max(minSize, Math.min(upperBound, value));
+    },
+    [axis, maxSize, minSize],
+  );
+
   const [size, setSize] = useState<number>(() => {
+    if (storedSize !== undefined && storedSize !== null) return Math.max(minSize, storedSize);
     if (typeof window === "undefined") return defaultSize;
     const raw = window.localStorage.getItem(storageKey);
     const n = raw ? Number(raw) : NaN;
@@ -27,10 +42,21 @@ export function useResizablePanel(opts: {
   });
 
   useEffect(() => {
+    if (storedSize === undefined || storedSize === null) return;
+    setSize((current) => {
+      const next = clampSize(storedSize);
+      return current === next ? current : next;
+    });
+  }, [clampSize, storedSize]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, String(size));
-    } catch {}
-  }, [storageKey, size]);
+    } catch {
+      /* localStorage unavailable */
+    }
+    onSizeChange?.(size);
+  }, [onSizeChange, storageKey, size]);
 
   const dragRef = useRef<{ start: number; startSize: number } | null>(null);
 
@@ -46,12 +72,7 @@ export function useResizablePanel(opts: {
           resizeEdge === "start"
             ? dragRef.current.start - cur
             : cur - dragRef.current.start;
-        const viewport = axis === "x" ? window.innerWidth : window.innerHeight;
-        const upperBound = maxSize ? maxSize(viewport) : viewport - minSize;
-        const next = Math.max(
-          minSize,
-          Math.min(upperBound, dragRef.current.startSize + delta),
-        );
+        const next = clampSize(dragRef.current.startSize + delta);
         setSize(next);
       };
       const onUp = () => {
@@ -66,7 +87,7 @@ export function useResizablePanel(opts: {
       document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
       document.body.style.userSelect = "none";
     },
-    [axis, size, minSize, maxSize, resizeEdge],
+    [axis, size, resizeEdge, clampSize],
   );
 
   return { size, onMouseDown };

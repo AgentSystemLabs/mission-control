@@ -19,9 +19,9 @@ export function BetaSettingsPage() {
   );
 
   useEffect(() => {
-    if (hasCachedWorktreesPreference()) return;
     if (typeof settings?.worktreesEnabled !== "boolean") return;
     setWorktreesEnabledState(settings.worktreesEnabled);
+    writeCachedWorktreesEnabled(settings.worktreesEnabled);
   }, [settings?.worktreesEnabled]);
 
   const setWorktreesEnabled = (enabled: boolean) => {

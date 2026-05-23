@@ -245,6 +245,22 @@ describe("Electron shell environment helpers", () => {
     expect(resolveCommandOnPath("codex", { PATH: pathValue }, "darwin")).toBe(codexPath);
   });
 
+  it("adds agent-specific home bin directories from CLI config", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-opencode-path-"));
+    const home = path.join(root, "home");
+    const opencodeBin = path.join(home, ".opencode", "bin");
+
+    fs.mkdirSync(opencodeBin, { recursive: true });
+
+    const entries = buildUserPath("", {
+      platform: "win32",
+      homeDir: home,
+      pathExists: (entry) => entry === opencodeBin,
+    }).split(";");
+
+    expect(entries).toContain(opencodeBin);
+  });
+
   it("resolves Windows .exe and .cmd agent shims without spawning PowerShell", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-cli-"));
     const nativeBin = path.join(root, "User", ".local", "bin");

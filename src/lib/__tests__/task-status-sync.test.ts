@@ -7,6 +7,11 @@ describe("terminal status sync", () => {
     expect(terminalInputStartsTurn("claude-code", "\r")).toBe(false);
   });
 
+  it("lets OpenCode report status through plugin hooks", () => {
+    expect(agentHasLifecycleHooks("opencode")).toBe(true);
+    expect(terminalInputStartsTurn("opencode", "\r")).toBe(false);
+  });
+
   it("marks input-driven agents as running when the user submits input", () => {
     expect(agentHasLifecycleHooks("cursor-cli")).toBe(false);
     expect(agentHasLifecycleHooks("codex")).toBe(false);

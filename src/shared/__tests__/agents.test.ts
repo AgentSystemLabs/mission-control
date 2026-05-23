@@ -22,4 +22,18 @@ describe("agent registry", () => {
       "cursor-agent --force"
     );
   });
+
+  it("exposes OpenCode as a selectable agent", () => {
+    expect(UI_AGENTS).toContain("opencode");
+    expect(AGENT_REGISTRY.opencode).toMatchObject({
+      command: "opencode",
+      uiVisible: true,
+      supportsSkipPermissions: false,
+    });
+    expect(AGENT_REGISTRY.opencode.startCommand()).toBe("opencode");
+    expect(AGENT_REGISTRY.opencode.titleInvocation?.("name this task")).toEqual({
+      cmd: "opencode",
+      args: ["run", "name this task"],
+    });
+  });
 });

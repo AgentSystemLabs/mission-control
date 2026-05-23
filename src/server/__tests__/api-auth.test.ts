@@ -112,6 +112,7 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   { method: "POST", pathname: "/api/hooks/claude" },
   { method: "POST", pathname: "/api/hooks/codex" },
   { method: "POST", pathname: "/api/hooks/cursor" },
+  { method: "POST", pathname: "/api/hooks/opencode" },
   { method: "POST", pathname: "/api/hooks/claude-code" },
   { method: "GET", pathname: "/api/diagram" },
   { method: "POST", pathname: "/api/diagram" },

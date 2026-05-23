@@ -55,7 +55,7 @@ export type LaunchProcessKillResult = {
   }>;
 };
 
-export type PtySpawnAgent = "claude-code" | "codex" | "cursor-cli";
+export type PtySpawnAgent = "claude-code" | "codex" | "cursor-cli" | "opencode";
 
 export type CliCheckResult =
   | {

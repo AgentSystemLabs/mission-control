@@ -7,6 +7,7 @@ export const AGENT_META: Record<TaskAgent, { label: string; color: string; glyph
   "claude-code": metaFor("claude-code"),
   codex: metaFor("codex"),
   "cursor-cli": metaFor("cursor-cli"),
+  opencode: metaFor("opencode"),
 };
 
 export const STATUS_META: Record<

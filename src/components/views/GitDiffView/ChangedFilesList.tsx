@@ -2,22 +2,36 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "~/components/ui/Icon";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
+import { api, type AppSettings } from "~/lib/api";
+import {
+  GIT_DIFF_CHANGED_FILES_WIDTH_STORAGE_KEY,
+  readCachedGitDiffChangedFilesView,
+  writeCachedGitDiffChangedFilesView,
+} from "~/lib/ui-preference-cache";
+import { queryKeys, useSettings } from "~/queries";
 import type { GitChangedFile, GitFileStatus } from "~/server/services/git";
+import {
+  DEFAULT_GIT_DIFF_CHANGED_FILES_VIEW,
+  DEFAULT_GIT_DIFF_CHANGED_FILES_WIDTH,
+  GIT_DIFF_CHANGED_FILES_WIDTH_MIN,
+  normalizeGitDiffChangedFilesWidth,
+  type GitDiffChangedFilesView,
+} from "~/shared/ui-preferences";
 
 const ADD = "#6cd07e";
 const MOD = "#e8b94a";
 const DEL = "#e06b6b";
-const MIN_PANEL_WIDTH = 240;
-const VIEW_STORAGE_KEY = "mc:gitDiffChangedFilesView";
 
 const STATUS_META: Record<GitFileStatus, { letter: string; color: string }> = {
   added: { letter: "A", color: ADD },
@@ -31,7 +45,7 @@ const STATUS_META: Record<GitFileStatus, { letter: string; color: string }> = {
 };
 
 export type FileSelection = { path: string; staged: boolean } | null;
-type FileListView = "list" | "tree";
+type FileListView = GitDiffChangedFilesView;
 type MutableTreeDir = {
   name: string;
   path: string;
@@ -69,36 +83,86 @@ export function ChangedFilesList({
   worktreeId?: string | null;
   enabled?: boolean;
 }) {
+  const queryClient = useQueryClient();
+  const { data: settings } = useSettings();
+  const settingsLoaded = settings !== undefined;
+  const storedViewMode = settings?.gitDiffChangedFilesView ?? null;
+  const storedWidth = settings?.gitDiffChangedFilesWidth ?? null;
   const [shipError, setShipError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(
     null,
   );
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  const initialCachedViewRef = useRef<FileListView | null>(null);
   const [viewMode, setViewMode] = useState<FileListView>(() =>
-    readSavedFileListView(),
+    readSavedFileListView(initialCachedViewRef),
   );
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     () => new Set(),
   );
+  const widthPersistTimerRef = useRef<number | null>(null);
+
+  const persistSettingsPatch = useCallback(
+    (patch: Partial<Pick<AppSettings, "gitDiffChangedFilesView" | "gitDiffChangedFilesWidth">>) => {
+      queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+        current ? { ...current, ...patch } : current,
+      );
+      void api
+        .updateSettings(patch)
+        .then((next) => queryClient.setQueryData(queryKeys.settings, next))
+        .catch((error) => {
+          console.error("[settings] failed to persist git diff preference:", error);
+        });
+    },
+    [queryClient],
+  );
+
+  const persistViewMode = useCallback(
+    (next: FileListView) => {
+      setViewMode(next);
+      writeCachedGitDiffChangedFilesView(next);
+      persistSettingsPatch({ gitDiffChangedFilesView: next });
+    },
+    [persistSettingsPatch],
+  );
+
+  const persistWidth = useCallback(
+    (next: number) => {
+      if (!settingsLoaded) return;
+      const width = normalizeGitDiffChangedFilesWidth(next);
+      if (width === null) return;
+      if (widthPersistTimerRef.current) window.clearTimeout(widthPersistTimerRef.current);
+      widthPersistTimerRef.current = window.setTimeout(() => {
+        persistSettingsPatch({ gitDiffChangedFilesWidth: width });
+      }, 250);
+    },
+    [persistSettingsPatch, settingsLoaded],
+  );
+
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
-    storageKey: "mc:gitDiffChangedFilesWidth",
+    storageKey: GIT_DIFF_CHANGED_FILES_WIDTH_STORAGE_KEY,
     axis: "x",
-    defaultSize: 300,
-    minSize: MIN_PANEL_WIDTH,
+    defaultSize: DEFAULT_GIT_DIFF_CHANGED_FILES_WIDTH,
+    minSize: GIT_DIFF_CHANGED_FILES_WIDTH_MIN,
     maxSize: (vw) => Math.min(520, vw - 360),
     resizeEdge: "end",
+    storedSize: storedWidth,
+    onSizeChange: persistWidth,
   });
 
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(VIEW_STORAGE_KEY, viewMode);
-    } catch {
-      /* localStorage unavailable */
+    if (!settingsLoaded) return;
+    if (storedViewMode) {
+      setViewMode(storedViewMode);
+      writeCachedGitDiffChangedFilesView(storedViewMode);
+      return;
     }
-  }, [viewMode]);
+    const cached = initialCachedViewRef.current;
+    if (cached) persistViewMode(cached);
+  }, [persistViewMode, settingsLoaded, storedViewMode]);
 
   const toggleFolder = useCallback((path: string) => {
     setCollapsedFolders((prev) => {
@@ -120,7 +184,7 @@ export function ChangedFilesList({
       style={{
         flexShrink: 0,
         width,
-        minWidth: MIN_PANEL_WIDTH,
+        minWidth: GIT_DIFF_CHANGED_FILES_WIDTH_MIN,
         borderRight: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
@@ -151,7 +215,7 @@ export function ChangedFilesList({
       <FilesToolbar
         total={staged.length + unstaged.length}
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={persistViewMode}
       />
       <div style={{ overflowY: "auto", flex: 1 }}>
         <Section
@@ -903,13 +967,12 @@ function dirChildren(dir: MutableTreeDir): FileTreeNode[] {
   return [...dirs, ...files];
 }
 
-function readSavedFileListView(): FileListView {
-  try {
-    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    return raw === "tree" ? "tree" : "list";
-  } catch {
-    return "list";
-  }
+function readSavedFileListView(initialCachedViewRef: {
+  current: FileListView | null;
+}): FileListView {
+  const cached = readCachedGitDiffChangedFilesView();
+  initialCachedViewRef.current = cached;
+  return cached ?? DEFAULT_GIT_DIFF_CHANGED_FILES_VIEW;
 }
 
 export function displayPath(p: string): { basename: string; dir: string } {
@@ -936,24 +999,24 @@ const textBtnStyle: CSSProperties = {
   flexShrink: 0,
 };
 
+const SECTION_HEADER_BACKGROUND = "rgba(3, 6, 8, 0.22)";
+
 const SECTION_TONES = {
   staged: {
-    panel: "rgba(108, 208, 126, 0.08)",
-    header: "#1d3a27",
-    border: "rgba(108, 208, 126, 0.22)",
+    header: SECTION_HEADER_BACKGROUND,
+    border: "var(--border)",
     text: "#baf3c3",
     count: "rgba(186, 243, 195, 0.72)",
   },
   unstaged: {
-    panel: "rgba(232, 185, 74, 0.08)",
-    header: "#3a2f14",
-    border: "rgba(232, 185, 74, 0.22)",
+    header: SECTION_HEADER_BACKGROUND,
+    border: "var(--border)",
     text: "#f3d58a",
     count: "rgba(243, 213, 138, 0.72)",
   },
 } satisfies Record<
   "staged" | "unstaged",
-  { panel: string; header: string; border: string; text: string; count: string }
+  { header: string; border: string; text: string; count: string }
 >;
 
 const iconBtnStyle: CSSProperties = {

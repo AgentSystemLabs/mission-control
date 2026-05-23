@@ -65,6 +65,39 @@ describe("commandForTask", () => {
     );
   });
 
+  it("starts OpenCode without a session id until one is captured", () => {
+    const task = {
+      ...baseTask,
+      agent: "opencode",
+      claudeSessionId: null,
+    } satisfies Task;
+
+    expect(commandForTask(task)).toBe("opencode");
+  });
+
+  it("resumes OpenCode after a ses_* session id is captured", () => {
+    const task = {
+      ...baseTask,
+      agent: "opencode",
+      status: "running",
+      claudeSessionId: "ses_3cf7dd8d4ffeUPfENpVxfFojZ2",
+    } satisfies Task;
+
+    expect(commandForTask(task)).toBe(
+      "opencode --session ses_3cf7dd8d4ffeUPfENpVxfFojZ2",
+    );
+  });
+
+  it("does not pass legacy UUID session ids to OpenCode", () => {
+    const task = {
+      ...baseTask,
+      agent: "opencode",
+      claudeSessionId: "00000000-0000-4000-8000-000000000000",
+    } satisfies Task;
+
+    expect(commandForTask(task)).toBe("opencode");
+  });
+
   it("starts Codex with hooks until a session id is captured", () => {
     const task = {
       ...baseTask,

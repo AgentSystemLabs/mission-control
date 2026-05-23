@@ -171,7 +171,8 @@ export function TerminalPane({
           elapsed < START_FAILURE_EXIT_MS
         ) {
           void (async () => {
-            const fresh = task.agent === "codex" ? null : newSessionId();
+            const fresh =
+              task.agent === "codex" || task.agent === "opencode" ? null : newSessionId();
             try {
               await api.updateTask(descriptor.taskId, { claudeSessionId: fresh });
             } catch {

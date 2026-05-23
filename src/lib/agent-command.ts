@@ -6,8 +6,17 @@ export { newSessionId };
 
 export type AgentLaunchMode = "new" | "resume";
 
+export function isOpencodeSessionId(sessionId: string): boolean {
+  return sessionId.startsWith("ses");
+}
+
 export function agentUsesPersistedSession(agent: TaskAgent): boolean {
-  return agent === "claude-code" || agent === "codex" || agent === "cursor-cli";
+  return (
+    agent === "claude-code" ||
+    agent === "codex" ||
+    agent === "cursor-cli" ||
+    agent === "opencode"
+  );
 }
 
 export function agentLaunchMode(task: Task): AgentLaunchMode {
@@ -16,6 +25,13 @@ export function agentLaunchMode(task: Task): AgentLaunchMode {
   }
   if (task.agent === "cursor-cli") {
     return "resume";
+  }
+  if (task.agent === "opencode") {
+    return task.claudeSessionId &&
+      isOpencodeSessionId(task.claudeSessionId) &&
+      task.status !== "ready"
+      ? "resume"
+      : "new";
   }
   if (task.agent === "codex") {
     return task.claudeSessionId && task.status !== "ready" ? "resume" : "new";
@@ -26,6 +42,9 @@ export function agentLaunchMode(task: Task): AgentLaunchMode {
 export function isAgentResumeCommand(agent: TaskAgent, command: string): boolean {
   if (agent === "claude-code" || agent === "cursor-cli") {
     return command.includes("--resume");
+  }
+  if (agent === "opencode") {
+    return command.includes("--session");
   }
   if (agent === "codex") {
     return /\bcodex(?:\s+\S+)*\s+resume(?:\s|$)/.test(command);
@@ -40,6 +59,20 @@ export function buildCursorCommand(opts: {
   const parts = ["cursor-agent", "--resume", opts.sessionId];
   if (opts.skipPermissions) parts.push("--force");
   return parts.join(" ");
+}
+
+export function buildOpencodeCommand(opts: {
+  mode: AgentLaunchMode;
+  sessionId?: string | null;
+}): string {
+  if (
+    opts.mode === "resume" &&
+    opts.sessionId &&
+    isOpencodeSessionId(opts.sessionId)
+  ) {
+    return `opencode --session ${opts.sessionId}`;
+  }
+  return "opencode";
 }
 
 export function buildCodexCommand(opts: {
@@ -72,6 +105,8 @@ export function buildAgentLaunchCommand(
       });
     case "cursor-cli":
       return buildCursorCommand({ sessionId, skipPermissions });
+    case "opencode":
+      return buildOpencodeCommand({ mode, sessionId });
     case "codex":
       return buildCodexCommand({
         mode,
@@ -89,6 +124,8 @@ export function buildFreshAgentLaunchCommand(task: Task, sessionId: string): str
       return buildAgentLaunchCommand(task, sessionId, "new");
     case "cursor-cli":
       return buildCursorCommand({ sessionId, skipPermissions: !!task.claudeSkipPermissions });
+    case "opencode":
+      return buildOpencodeCommand({ mode: "new" });
     case "codex":
       return buildCodexCommand({
         mode: "new",

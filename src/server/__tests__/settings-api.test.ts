@@ -50,6 +50,18 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps automatic update downloads disabled by default", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      automaticUpdateDownloadsEnabled: false,
+      automaticUpdateInstallOnQuitEnabled: false,
+    });
+  });
+
   it("persists the mouse gradient preference", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
@@ -92,6 +104,48 @@ describe("settings API", () => {
     });
   });
 
+  it("persists the automatic update download preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ automaticUpdateDownloadsEnabled: true }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      automaticUpdateDownloadsEnabled: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      automaticUpdateDownloadsEnabled: true,
+    });
+  });
+
+  it("persists the automatic update install-on-quit preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ automaticUpdateInstallOnQuitEnabled: true }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      automaticUpdateInstallOnQuitEnabled: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      automaticUpdateInstallOnQuitEnabled: true,
+    });
+  });
+
   it("keeps worktrees disabled by default", async () => {
     const response = await handleApiRequest(
       authedRequest("http://localhost/api/settings"),
@@ -100,6 +154,19 @@ describe("settings API", () => {
     expect(response?.status).toBe(200);
     expect(await jsonBody(response!)).toMatchObject({
       worktreesEnabled: false,
+    });
+  });
+
+  it("leaves durable UI preferences unset by default", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      gitDiffChangedFilesView: null,
+      gitDiffChangedFilesWidth: null,
+      selectedWorktreeByProject: null,
     });
   });
 
@@ -121,6 +188,36 @@ describe("settings API", () => {
     });
     expect(await jsonBody(read!)).toMatchObject({
       worktreesEnabled: true,
+    });
+  });
+
+  it("persists durable UI preferences", async () => {
+    const selectedWorktreeByProject = { "project-1": "worktree-2" };
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          gitDiffChangedFilesView: "tree",
+          gitDiffChangedFilesWidth: 420,
+          selectedWorktreeByProject,
+        }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      gitDiffChangedFilesView: "tree",
+      gitDiffChangedFilesWidth: 420,
+      selectedWorktreeByProject,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      gitDiffChangedFilesView: "tree",
+      gitDiffChangedFilesWidth: 420,
+      selectedWorktreeByProject,
     });
   });
 

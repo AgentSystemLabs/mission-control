@@ -15,6 +15,10 @@ import type { LicenseState } from "~/shared/license";
 import type { Entitlements } from "~/shared/entitlements";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
+import type {
+  GitDiffChangedFilesView,
+  SelectedWorktreeByProject,
+} from "~/shared/ui-preferences";
 import { getClientRuntime } from "~/lib/runtime";
 import { MISSION_CONTROL_RUNTIME_HEADER } from "~/shared/runtime";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
@@ -31,8 +35,13 @@ export type AppSettings = {
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   launchOverlayEnabled: boolean;
+  automaticUpdateDownloadsEnabled: boolean;
+  automaticUpdateInstallOnQuitEnabled: boolean;
   /** Beta: git worktrees per project (off by default). */
   worktreesEnabled: boolean;
+  gitDiffChangedFilesView: GitDiffChangedFilesView | null;
+  gitDiffChangedFilesWidth: number | null;
+  selectedWorktreeByProject: SelectedWorktreeByProject | null;
   /**
    * Which CLI generates Ship's commit message. `null` means "not set yet" —
    * the server auto-detects and seeds it on the first ship attempt.
@@ -381,7 +390,12 @@ export const api = {
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "launchOverlayEnabled"
+        | "automaticUpdateDownloadsEnabled"
+        | "automaticUpdateInstallOnQuitEnabled"
         | "worktreesEnabled"
+        | "gitDiffChangedFilesView"
+        | "gitDiffChangedFilesWidth"
+        | "selectedWorktreeByProject"
         | "commitCli"
       >
     >,

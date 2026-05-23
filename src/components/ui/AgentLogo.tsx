@@ -30,6 +30,9 @@ export function AgentLogo({
   if (agent === "codex") {
     return <SiOpenai size={size} style={style} title={title} />;
   }
+  if (agent === "opencode") {
+    return <PngLogo src="/opencode.svg" alt={title ?? "OpenCode"} size={size} style={style} />;
+  }
   return <ShellMark size={size} style={style} title={title} />;
 }
 

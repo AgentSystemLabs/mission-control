@@ -11,12 +11,17 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "outDir": "../dist-electron",
-    "rootDir": ".",
+    "rootDir": "..",
     "sourceMap": true,
     "declaration": false,
     "noEmit": false,
     "types": ["node"]
   },
-  "include": ["**/*.ts"],
+  "include": [
+    "**/*.ts",
+    "../src/shared/agent-cli-config.ts",
+    "../src/shared/domain.ts",
+    "../src/shared/opencode-mission-control-plugin.ts"
+  ],
   "exclude": ["../node_modules", "../dist", "../dist-electron"]
 }

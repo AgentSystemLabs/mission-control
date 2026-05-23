@@ -110,6 +110,16 @@ export async function triggerUpdateCheck(): Promise<void> {
   await api.check();
 }
 
+export async function triggerUpdateDownload(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const api = getUpdater();
+  if (!api) return { ok: false, error: "not-electron" };
+  return api.download();
+}
+
+export function canTriggerUpdateCheck(state: UpdateState): boolean {
+  return state.kind === "idle" || state.kind === "error";
+}
+
 export async function triggerUpdateInstall(): Promise<{ ok: true } | { ok: false; error: string }> {
   const api = getUpdater();
   if (!api) return { ok: false, error: "not-electron" };

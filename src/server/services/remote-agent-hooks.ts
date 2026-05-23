@@ -1,5 +1,9 @@
 import type { Sandbox } from "@daytona/sdk";
 import { isIP } from "node:net";
+import {
+  opencodeMissionControlPluginSource,
+  OPENCODE_MISSION_CONTROL_PLUGIN_SEGMENTS,
+} from "~/shared/opencode-mission-control-plugin";
 
 const MARKER = "_mcManaged";
 
@@ -121,11 +125,27 @@ async function readHooksFile(sandbox: Sandbox, file: string): Promise<HooksFile>
   }
 }
 
+async function installRemoteOpencodePlugin(
+  sandbox: Sandbox,
+  cwd: string,
+): Promise<void> {
+  const file = joinRemotePath(cwd, ...OPENCODE_MISSION_CONTROL_PLUGIN_SEGMENTS);
+  await sandbox.fs.createFolder(dirname(file), "755").catch(() => undefined);
+  await sandbox.fs.uploadFile(
+    Buffer.from(opencodeMissionControlPluginSource(), "utf8"),
+    file,
+  );
+}
+
 export async function installRemoteAgentHooks(
   sandbox: Sandbox,
   opts: { agent?: string; cwd: string },
 ): Promise<void> {
   if (!opts.agent) return;
+  if (opts.agent === "opencode") {
+    await installRemoteOpencodePlugin(sandbox, opts.cwd);
+    return;
+  }
   const spec = AGENT_HOOKS[opts.agent];
   if (!spec) return;
 

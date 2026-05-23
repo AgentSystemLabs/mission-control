@@ -28,7 +28,8 @@ const hookPayload = z
 function isSessionCaptureEvent(event: string): boolean {
   return (
     event === AGENT_HOOK_EVENTS.userPromptSubmit ||
-    event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt
+    event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt ||
+    event === AGENT_HOOK_EVENTS.sessionStart
   );
 }
 
@@ -62,6 +63,17 @@ async function reconcileSessionId(
   return "foreign-session";
 }
 
+async function captureSessionFromHook(
+  task: { claudeSessionId: string | null },
+  taskId: string,
+  incomingSessionId: string,
+  event: string,
+  updateSessionId: (taskId: string, sessionId: string) => void | Promise<void>,
+): Promise<"ok" | "foreign-session"> {
+  if (!incomingSessionId) return "ok";
+  return reconcileSessionId(task, taskId, incomingSessionId, event, updateSessionId);
+}
+
 export async function receive(url: URL, request: Request): Promise<Response> {
   const taskId = url.searchParams.get("taskId");
   if (!taskId) return jsonError(HTTP_BAD_REQUEST, "taskId required");
@@ -72,10 +84,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
 
   const event = payload.hook_event_name || url.searchParams.get("hookEvent") || "";
   const status = mapHookEventToStatus({ ...payload, hook_event_name: event });
-  if (!status) {
-    logHostedEvent("hook.ignored", { taskId, event: event || "unknown" });
-    return json({ ok: true, ignored: event });
-  }
+  const incomingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
 
   const rawAuth = request.headers.get("authorization") || request.headers.get("Authorization") || "";
   const token = rawAuth.replace(/^Bearer\s+/i, "").trim();
@@ -87,8 +96,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
       return jsonError(HTTP_NOT_FOUND, "task not found");
     }
 
-    const incomingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
-    const sessionResult = await reconcileSessionId(
+    const sessionResult = await captureSessionFromHook(
       task,
       taskId,
       incomingSessionId,
@@ -100,6 +108,11 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     if (sessionResult === "foreign-session") {
       logHostedEvent("hook.ignored", { taskId, event, reason: "foreign-session" }, "warn");
       return json({ ok: true, ignored: "foreign-session" });
+    }
+
+    if (!status) {
+      logHostedEvent("hook.ignored", { taskId, event: event || "unknown" });
+      return json({ ok: true, ignored: event });
     }
 
     const t = await updateHostedTaskStatusForHook(taskId, { status });
@@ -115,8 +128,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   const task = getTask(taskId);
   if (!task) return jsonError(HTTP_NOT_FOUND, "task not found");
 
-  const incomingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
-  const sessionResult = await reconcileSessionId(
+  const sessionResult = await captureSessionFromHook(
     task,
     taskId,
     incomingSessionId,
@@ -127,6 +139,10 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   );
   if (sessionResult === "foreign-session") {
     return json({ ok: true, ignored: "foreign-session" });
+  }
+
+  if (!status) {
+    return json({ ok: true, ignored: event });
   }
 
   try {

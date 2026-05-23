@@ -3,6 +3,8 @@ import { isElectron } from "~/lib/electron";
 import { useLatestMissionControlVersion } from "~/queries/mission-control-version";
 import {
   useAutoUpdaterState,
+  canTriggerUpdateCheck,
+  triggerUpdateDownload,
   triggerUpdateCheck,
   triggerUpdateInstall,
 } from "~/queries/mc-auto-updater";
@@ -10,6 +12,10 @@ import {
 export function UpdateAvailableButton() {
   const updater = useAutoUpdaterState();
   const { data: academy } = useLatestMissionControlVersion();
+  const downloadUpdate = async () => {
+    const res = await triggerUpdateDownload();
+    if (!res.ok) console.error("[updater] download failed:", res.error);
+  };
 
   if (!isElectron()) return null;
 
@@ -36,12 +42,10 @@ export function UpdateAvailableButton() {
       return (
         <Btn
           variant="primary"
-          icon="sparkles"
-          aria-disabled="true"
-          aria-busy="true"
-          onClick={(e) => e.preventDefault()}
+          icon="download"
+          onClick={() => void downloadUpdate()}
         >
-          Update queued
+          Download
         </Btn>
       );
 
@@ -85,11 +89,12 @@ export function UpdateAvailableButton() {
     case "unsupported-dev":
     case "idle":
       // Fallback: if the auto-updater isn't doing anything but academy knows
-      // about a newer release, surface "Update" — clicking it kicks off the
-      // updater (idle) or falls back to opening the browser (error/dev).
+      // about a newer release, surface "Update" — clicking it kicks off or
+      // retries the updater. Dev builds still fall back to the browser because
+      // electron-updater is intentionally disabled there.
       if (academy?.isUpdateAvailable && academy.latestVersion) {
         const onClick = async () => {
-          if (updater.kind === "idle") {
+          if (canTriggerUpdateCheck(updater)) {
             try {
               await triggerUpdateCheck();
               return;

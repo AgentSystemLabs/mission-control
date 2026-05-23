@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { agentHomePathSuffixes } from "../src/shared/agent-cli-config";
 
 const SHELL_ENV_START = "__MISSION_CONTROL_ENV_START__";
 const SHELL_ENV_END = "__MISSION_CONTROL_ENV_END__";
@@ -141,6 +142,10 @@ function posixFnmPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] 
   ];
 }
 
+function agentSpecificHomePathCandidates(home: string, platform: NodeJS.Platform): string[] {
+  return agentHomePathSuffixes(platform).map((suffix) => path.join(home, ...suffix.split("/")));
+}
+
 function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<string | undefined> {
   const systemRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
   const localAppData = env.LOCALAPPDATA ?? path.join(home, "AppData", "Local");
@@ -151,6 +156,7 @@ function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<stri
   const pnpmHome = env.PNPM_HOME ?? path.join(localAppData, "pnpm");
 
   return [
+    ...agentSpecificHomePathCandidates(home, "win32"),
     path.join(home, ".local", "bin"),
     path.join(home, "bin"),
     path.join(home, ".cargo", "bin"),
@@ -193,6 +199,7 @@ function posixPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
   const voltaHome = env.VOLTA_HOME ?? path.join(home, ".volta");
 
   return [
+    ...agentSpecificHomePathCandidates(home, os.platform() === "darwin" ? "darwin" : "linux"),
     path.join(home, ".local", "bin"),
     path.join(home, "bin"),
     path.join(home, ".cargo", "bin"),
