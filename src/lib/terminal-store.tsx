@@ -163,15 +163,19 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       });
       setActiveByProject((prev) => {
         const curr = prev[scopeKey] ?? null;
-        return { ...prev, [scopeKey]: nextActiveTaskId(curr, task.id, hadSession) };
+        const next = nextActiveTaskId(curr, task.id, hadSession);
+        return curr === next ? prev : { ...prev, [scopeKey]: next };
       });
     },
     [sessions]
   );
 
   const rehydrate = useCallback((project: ScopedProject, task: Task) => {
+    const scopeKey = scopeKeyForProject(project);
     setSessions((prev) => {
-      if (prev.some((p) => p.taskId === task.id)) return prev;
+      if (prev.some((p) => p.taskId === task.id && scopeKeyForProject(p.project) === scopeKey)) {
+        return prev;
+      }
       return [
         ...prev,
         {
@@ -245,13 +249,29 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setPtyId = useCallback((taskId: string, ptyId: string | null) => {
-    setSessions((prev) => prev.map((p) => (p.taskId === taskId ? { ...p, ptyId } : p)));
+    setSessions((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        if (p.taskId !== taskId) return p;
+        if (p.ptyId === ptyId) return p;
+        changed = true;
+        return { ...p, ptyId };
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const syncTask = useCallback((task: Task) => {
-    setSessions((prev) =>
-      prev.map((p) => (p.taskId === task.id ? { ...p, task } : p))
-    );
+    setSessions((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        if (p.taskId !== task.id) return p;
+        if (p.task === task) return p;
+        changed = true;
+        return { ...p, task };
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const runIn = useCallback(

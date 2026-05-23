@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENT_SPAWN_COMMANDS } from "../src/shared/agent-cli-config";
 import type { TaskAgent } from "../src/shared/domain";
+import { buildCmdScriptCommand, isWindowsCommandScript } from "./windows-cmd";
 
 export type TaskAgentSpawn = TaskAgent;
 
@@ -125,12 +126,6 @@ const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, A
   },
 };
 
-const WINDOWS_COMMAND_SCRIPT_EXTS = new Set([".bat", ".cmd"]);
-
-function quoteCmdArg(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 function windowsCmdExe(deps: SpawnPolicyDeps): string {
   const root = deps.windowsSystemRoot?.() ?? process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
   return path.win32.join(root, "System32", "cmd.exe");
@@ -142,9 +137,8 @@ function nodePtySpawnTarget(
   deps: SpawnPolicyDeps,
 ): { spawnTarget: string; spawnArgs: string[] } {
   const platform = deps.platform ?? process.platform;
-  const ext = path.extname(binary).toLowerCase();
-  if (platform === "win32" && WINDOWS_COMMAND_SCRIPT_EXTS.has(ext)) {
-    const command = [quoteCmdArg(binary), ...argv.map(quoteCmdArg)].join(" ");
+  if (platform === "win32" && isWindowsCommandScript(binary)) {
+    const command = buildCmdScriptCommand(binary, argv);
     return {
       spawnTarget: windowsCmdExe(deps),
       spawnArgs: ["/d", "/s", "/c", command],

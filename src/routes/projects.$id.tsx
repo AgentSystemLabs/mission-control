@@ -128,17 +128,46 @@ function ProjectPage() {
     useState<SelectedWorktreeByProject>(() => {
       return readCachedSelectedWorktreeByProject() ?? {};
     });
+  const [worktreeSelectionHydrated, setWorktreeSelectionHydrated] = useState(false);
+  const selectedWorktreeByProjectRef = useRef(selectedWorktreeByProject);
+  const syncingStoredWorktreeSelectionRef = useRef(false);
   useEffect(() => {
-    if (!storedSelectedWorktreeByProject) return;
+    selectedWorktreeByProjectRef.current = selectedWorktreeByProject;
+  }, [selectedWorktreeByProject]);
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    if (!storedSelectedWorktreeByProject) {
+      syncingStoredWorktreeSelectionRef.current = false;
+      setWorktreeSelectionHydrated(true);
+      return;
+    }
+    syncingStoredWorktreeSelectionRef.current = !selectedWorktreeMapsEqual(
+      selectedWorktreeByProjectRef.current,
+      storedSelectedWorktreeByProject,
+    );
     setSelectedWorktreeByProject((current) =>
       selectedWorktreeMapsEqual(current, storedSelectedWorktreeByProject)
         ? current
         : storedSelectedWorktreeByProject,
     );
-  }, [storedSelectedWorktreeByProject]);
+    setWorktreeSelectionHydrated(true);
+  }, [settingsLoaded, storedSelectedWorktreeByProject]);
   useEffect(() => {
     writeCachedSelectedWorktreeByProject(selectedWorktreeByProject);
     if (!settingsLoaded) return;
+    if (!worktreeSelectionHydrated) return;
+    if (syncingStoredWorktreeSelectionRef.current) {
+      if (
+        selectedWorktreeMapsEqual(
+          storedSelectedWorktreeByProject,
+          selectedWorktreeByProject,
+        )
+      ) {
+        syncingStoredWorktreeSelectionRef.current = false;
+      } else {
+        return;
+      }
+    }
     if (
       selectedWorktreeMapsEqual(
         storedSelectedWorktreeByProject,
@@ -169,6 +198,7 @@ function ProjectPage() {
     selectedWorktreeByProject,
     settingsLoaded,
     storedSelectedWorktreeByProject,
+    worktreeSelectionHydrated,
   ]);
   const projectQuery = useProject(id);
   useSyncProjectDiagrams(id);
@@ -236,7 +266,9 @@ function ProjectPage() {
     if (!worktreesQuery.data) return;
     const exists = worktreesQuery.data.some((w) => w.id === selectedWorktreeKey);
     if (!exists && selectedWorktreeKey !== MAIN_WORKTREE_ID) {
-      setSelectedWorktreeByProject((prev) => ({ ...prev, [id]: MAIN_WORKTREE_ID }));
+      setSelectedWorktreeByProject((prev) =>
+        prev[id] === MAIN_WORKTREE_ID ? prev : { ...prev, [id]: MAIN_WORKTREE_ID }
+      );
     }
   }, [id, selectedWorktreeKey, worktreesQuery.data]);
   const tasksQuery = useTasks(id, selectedWorktreeId);
@@ -311,6 +343,9 @@ function ProjectPage() {
   }, [overflowOpen]);
 
   const terminals = useTerminals();
+  const syncTask = terminals.syncTask;
+  const rehydrateTerminal = terminals.rehydrate;
+  const toggleTerminalSession = terminals.toggle;
   const {
     setProject: setActiveUserTerminalProject,
     createTerminal,
@@ -386,8 +421,8 @@ function ProjectPage() {
   }, [terminalProject, setActiveUserTerminalProject]);
 
   useEffect(() => {
-    for (const task of tasks) terminals.syncTask(task);
-  }, [tasks, terminals.syncTask]);
+    for (const task of tasks) syncTask(task);
+  }, [tasks, syncTask]);
 
   // When the active session is deleted/archived, jump to the next
   // highest-priority card. Plain deselect (Cmd+L, X) leaves the panel closed.
@@ -410,19 +445,18 @@ function ProjectPage() {
     if (visible.some((t) => t.id === prev.taskId)) return;
     lastActiveRef.current = null;
     const next = pickByPriority(visible);
-    if (next) terminals.toggle(terminalProject, next);
-  }, [activeTaskId, tasks, terminalProject, terminals, selectedScopeKey]);
+    if (next) toggleTerminalSession(terminalProject, next);
+  }, [activeTaskId, tasks, terminalProject, toggleTerminalSession, selectedScopeKey]);
 
   // Rehydrate after reload: if a persisted activeTaskId resolves to an
   // existing task for this project, materialize a session entry so the panel
   // reopens without requiring a click.
   useEffect(() => {
     if (!terminalProject) return;
-    const tid = terminals.activeTaskIdFor(selectedScopeKey);
-    if (!tid) return;
-    const task = tasks.find((t) => t.id === tid);
-    if (task) terminals.rehydrate(terminalProject, task);
-  }, [terminalProject, tasks, terminals, selectedScopeKey]);
+    if (!activeTaskId) return;
+    const task = tasks.find((t) => t.id === activeTaskId);
+    if (task) rehydrateTerminal(terminalProject, task);
+  }, [activeTaskId, terminalProject, tasks, rehydrateTerminal]);
 
   const openRequestedSession = useCallback(
     (request: PendingSessionOpen) => {
@@ -534,7 +568,9 @@ function ProjectPage() {
   const selectWorktree = useCallback(
     (worktreeId: string) => {
       if (!worktreesEnabled && worktreeId !== MAIN_WORKTREE_ID) return;
-      setSelectedWorktreeByProject((prev) => ({ ...prev, [id]: worktreeId }));
+      setSelectedWorktreeByProject((prev) =>
+        prev[id] === worktreeId ? prev : { ...prev, [id]: worktreeId }
+      );
     },
     [id, worktreesEnabled],
   );

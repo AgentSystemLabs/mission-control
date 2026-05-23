@@ -229,7 +229,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   );
 
   const setFocusFor = useCallback((projectId: string, id: string | null) => {
-    setFocusedByProject((prev) => ({ ...prev, [projectId]: id }));
+    setFocusedByProject((prev) => (prev[projectId] === id ? prev : { ...prev, [projectId]: id }));
   }, []);
 
   const createTerminal = useCallback(
@@ -355,14 +355,22 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
 
   const setPtyId = useCallback((terminalId: string, ptyId: string | null) => {
     setSessionsByProject((prev) => {
-      const next = { ...prev };
+      let next = prev;
+      let changed = false;
       for (const [pid, list] of Object.entries(prev)) {
         if (!list.some((s) => s.terminal.id === terminalId)) continue;
-        next[pid] = list.map((s) =>
-          s.terminal.id === terminalId ? { ...s, ptyId } : s
-        );
+        const updated = list.map((s) => {
+          if (s.terminal.id !== terminalId) return s;
+          if (s.ptyId === ptyId) return s;
+          changed = true;
+          return { ...s, ptyId };
+        });
+        if (updated !== list && changed) {
+          next = next === prev ? { ...prev } : next;
+          next[pid] = updated;
+        }
       }
-      return next;
+      return changed ? next : prev;
     });
   }, []);
 

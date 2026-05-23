@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCliVersionProbe,
   compareCliVersions,
   extractCliVersion,
 } from "../agent-cli-version";
@@ -9,6 +10,55 @@ import {
 } from "../agent-cli-version-requirements";
 
 describe("agent CLI version helpers", () => {
+  it("wraps Windows command shims through cmd.exe with a quoted version command", () => {
+    const binary = String.raw`C:\Users\Jane Doe\AppData\Roaming\npm\codex.cmd`;
+    const probe = buildCliVersionProbe(
+      binary,
+      {
+        APPDATA: String.raw`C:\Users\Jane Doe\AppData\Roaming`,
+        ComSpec: String.raw`C:\Windows\System32\cmd.exe`,
+        LOCALAPPDATA: String.raw`C:\Users\Jane Doe\AppData\Local`,
+        OPENAI_API_KEY: "secret",
+        Path: String.raw`C:\Users\Jane Doe\AppData\Roaming\npm;C:\Windows\System32`,
+        SystemRoot: String.raw`C:\Windows`,
+        TEMP: String.raw`C:\Users\Jane Doe\AppData\Local\Temp`,
+        TMP: String.raw`C:\Users\Jane Doe\AppData\Local\Temp`,
+        USERPROFILE: String.raw`C:\Users\Jane Doe`,
+      },
+      "win32",
+    );
+
+    expect(probe.command).toBe(String.raw`C:\Windows\System32\cmd.exe`);
+    expect(probe.args).toEqual([
+      "/d",
+      "/s",
+      "/c",
+      String.raw`""C:\Users\Jane Doe\AppData\Roaming\npm\codex.cmd" "--version""`,
+    ]);
+    expect(probe.env.APPDATA).toBe(String.raw`C:\Users\Jane Doe\AppData\Roaming`);
+    expect(probe.env.LOCALAPPDATA).toBe(String.raw`C:\Users\Jane Doe\AppData\Local`);
+    expect(probe.env.USERPROFILE).toBe(String.raw`C:\Users\Jane Doe`);
+    expect(probe.env.OPENAI_API_KEY).toBeUndefined();
+  });
+
+  it("keeps native CLI version probes as direct argv without secret env vars", () => {
+    const probe = buildCliVersionProbe(
+      "/usr/local/bin/claude",
+      {
+        ANTHROPIC_API_KEY: "secret",
+        HOME: "/Users/jane",
+        PATH: "/usr/local/bin:/usr/bin",
+      },
+      "darwin",
+    );
+
+    expect(probe.command).toBe("/usr/local/bin/claude");
+    expect(probe.args).toEqual(["--version"]);
+    expect(probe.env.HOME).toBe("/Users/jane");
+    expect(probe.env.PATH).toBe("/usr/local/bin:/usr/bin");
+    expect(probe.env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
   it("extracts versions from supported CLI outputs", () => {
     expect(extractCliVersion("codex 0.132.0")).toBe("0.132.0");
     expect(extractCliVersion("OpenAI Codex v0.132.0-alpha.1")).toBe("0.132.0-alpha.1");

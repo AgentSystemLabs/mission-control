@@ -477,7 +477,7 @@ safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolea
   if (resolved) {
     const requirement = AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND[command];
     if (requirement && opts?.verifyVersion) {
-      const versionCheck = checkAgentCliVersion(resolved, env, requirement);
+      const versionCheck = checkAgentCliVersion(resolved, env, requirement, os.platform());
       if (!versionCheck.ok) {
         const { output: _output, ...safeVersionCheck } = versionCheck;
         return { ...safeVersionCheck, path: resolved };

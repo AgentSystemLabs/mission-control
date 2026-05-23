@@ -375,7 +375,7 @@ export function registerPtyHandlers(
       const env = sanitizeEnv();
       if (plan.mode === "agent") {
         const requirement = AGENT_CLI_VERSION_REQUIREMENTS[plan.agent];
-        const versionCheck = checkAgentCliVersion(plan.binary, env, requirement);
+        const versionCheck = checkAgentCliVersion(plan.binary, env, requirement, platform);
         if (!versionCheck.ok) {
           const message = agentVersionErrorMessage(versionCheck);
           const { output: _output, ...safeVersionCheck } = versionCheck;
@@ -388,6 +388,7 @@ export function registerPtyHandlers(
             cwd: plan.cwd,
             command: opts.command,
             details: safeVersionCheck,
+            outputTail: versionCheck.output,
           });
           throw new Error(message);
         }

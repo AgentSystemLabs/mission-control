@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentCliVersionRequirement } from "./agent-cli-version-requirements";
 import { resolveAgentCliUpdateCommands } from "./agent-cli-version-requirements";
+import { buildCmdScriptCommand, isWindowsCommandScript } from "./windows-cmd";
 
 export type AgentVersionCheck =
   | {
@@ -27,13 +28,24 @@ export type AgentVersionCheck =
 const VERSION_TIMEOUT_MS = 3_000;
 const OUTPUT_LIMIT = 500;
 const VERSION_ENV_ALLOWLIST = [
+  "APPDATA",
+  "ComSpec",
+  "CommonProgramFiles",
   "HOME",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LOCALAPPDATA",
   "PATH",
   "Path",
   "PATHEXT",
+  "ProgramFiles",
+  "ProgramFiles(x86)",
   "SHELL",
   "SystemRoot",
+  "TEMP",
+  "TMP",
   "USER",
+  "USERPROFILE",
   "WINDIR",
 ] as const;
 
@@ -94,24 +106,38 @@ function baseCheckFields(
   };
 }
 
+export function buildCliVersionProbe(
+  binary: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = os.platform(),
+): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  const probeEnv = versionProbeEnv(env);
+  if (platform === "win32" && isWindowsCommandScript(binary)) {
+    const systemRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
+    const cmdExe = path.win32.join(systemRoot, "System32", "cmd.exe");
+    const command = buildCmdScriptCommand(binary, ["--version"]);
+    return {
+      command: cmdExe,
+      args: ["/d", "/s", "/c", command],
+      env: probeEnv,
+    };
+  }
+
+  return {
+    command: binary,
+    args: ["--version"],
+    env: probeEnv,
+  };
+}
+
 function spawnCliVersion(
   binary: string,
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = os.platform(),
 ) {
-  const ext = path.extname(binary).toLowerCase();
-  if (platform === "win32" && (ext === ".cmd" || ext === ".bat")) {
-    const systemRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
-    const cmdExe = path.win32.join(systemRoot, "System32", "cmd.exe");
-    return spawnSync(cmdExe, ["/d", "/s", "/c", binary, "--version"], {
-      env: versionProbeEnv(env),
-      encoding: "utf8",
-      timeout: VERSION_TIMEOUT_MS,
-    });
-  }
-
-  return spawnSync(binary, ["--version"], {
-    env: versionProbeEnv(env),
+  const probe = buildCliVersionProbe(binary, env, platform);
+  return spawnSync(probe.command, probe.args, {
+    env: probe.env,
     encoding: "utf8",
     timeout: VERSION_TIMEOUT_MS,
   });

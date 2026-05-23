@@ -113,7 +113,7 @@ describe("resolveSpawnPlan — agent allow-list", () => {
       "/d",
       "/s",
       "/c",
-      '"C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd" "--enable" "hooks"',
+      '""C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd" "--enable" "hooks""',
     ]);
   });
 
