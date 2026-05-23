@@ -2,6 +2,7 @@ savePrefix: ""
 
 overrides:
   "@esbuild-kit/core-utils@3.3.2>esbuild": 0.25.12
+  "lodash-es": 4.18.1
   "protobufjs@8.0.1": 8.0.2
 
 allowBuilds:
