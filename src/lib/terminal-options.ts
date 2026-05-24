@@ -2,6 +2,11 @@ import type { ITerminalOptions } from "@xterm/xterm";
 
 const DEFAULT_CURSOR_COLOR = "#ff5a1f";
 
+export const TERMINAL_FONT_FAMILY =
+  'Geist Mono, ui-monospace, "SF Mono", Menlo, monospace';
+
+export const TERMINAL_FONT_SIZE = 12;
+
 export type TerminalColorScheme = "dark" | "light";
 
 type TerminalTheme = NonNullable<ITerminalOptions["theme"]>;
@@ -146,12 +151,41 @@ export function createTerminalOptions({
   colorScheme?: TerminalColorScheme;
 } = {}): ITerminalOptions {
   return {
-    fontFamily: 'Geist Mono, ui-monospace, "SF Mono", Menlo, monospace',
-    fontSize: 12,
-    lineHeight: 1.4,
+    fontFamily: TERMINAL_FONT_FAMILY,
+    fontSize: TERMINAL_FONT_SIZE,
+    // Keep xterm's default line height so multi-row ANSI art (OpenCode's
+    // startup wordmark, box drawing, background fills) renders flush.
+    lineHeight: 1,
     cursorBlink: true,
     theme: createTerminalTheme({ colorScheme, cursorColor }),
     allowProposedApi: true,
     scrollback: 5000,
   };
+}
+
+/** Wait until the terminal monospace face is measured before the first PTY write. */
+export async function waitForTerminalFont(): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts?.load) return;
+  try {
+    await Promise.all([
+      document.fonts.load(`${TERMINAL_FONT_SIZE}px ${TERMINAL_FONT_FAMILY}`),
+      document.fonts.ready,
+    ]);
+  } catch {
+    /* best effort — xterm falls back to system monospace */
+  }
+}
+
+export function fitTerminalSurface(
+  term: { cols: number; rows: number; refresh: (start: number, end: number) => void },
+  fit: { fit: () => void },
+): void {
+  try {
+    fit.fit();
+  } catch {
+    /* container not measured yet */
+  }
+  if (term.rows > 0) {
+    term.refresh(0, term.rows - 1);
+  }
 }

@@ -20,6 +20,7 @@ import { isElectronLocalApiRequest } from "../request-runtime";
 import { getWorktree } from "../services/worktrees";
 
 const createTerminalBody = z.object({
+  id: z.string().optional(),
   name: z.string().optional(),
   cwd: z.string().nullable().optional(),
   startCommand: z.string().nullable().optional(),
@@ -69,6 +70,7 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
     }
     const worktree = getWorktree(idParsed.data, parsed.data.worktreeId ?? null);
     const t = createUserTerminal({
+      id: parsed.data.id,
       projectId: idParsed.data,
       name: parsed.data.name,
       cwd: parsed.data.cwd ?? null,

@@ -61,6 +61,6 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "dialog.submit": { label: "Submit dialog", description: "Submit a dialog form (New agent, edit project, etc.)." },
   "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },
   "file.save": { label: "Save file", description: "Save the file currently open in the editor." },
-  "git.diff": { label: "Open Review Changes", description: "Open the change review view for the current project." },
+  "git.diff": { label: "Toggle Review Changes", description: "Open or close the change review view for the current project." },
   "project.runToggle": { label: "Run / Stop project", description: "Run the project's launch commands, or stop them if already running." },
 };

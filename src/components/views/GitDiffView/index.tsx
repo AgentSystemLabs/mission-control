@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
-import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -111,18 +110,15 @@ export function GitDiffView({
   const selectedDisplay = selection ? displayPath(selection.path) : null;
 
   return (
-    <CardFrame
+    <div
       data-navigation-swipe-blocker
-      solid
       style={{
-        position: "fixed",
-        top: "var(--mc-workspace-top, 0px)",
-        left: "var(--mc-workspace-left, 0px)",
-        right: "var(--mc-workspace-right, 0px)",
-        bottom: "var(--mc-workspace-bottom, 0px)",
-        zIndex: 200,
+        flex: 1,
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
+        overflow: "hidden",
+        borderTop: "1px solid var(--border)",
       }}
     >
       <div
@@ -131,7 +127,7 @@ export function GitDiffView({
           alignItems: "center",
           gap: 10,
           flexWrap: "wrap",
-          padding: "10px 16px",
+          padding: "4px 12px",
           borderBottom: "1px solid var(--border)",
           background: "rgba(3, 6, 8, 0.35)",
         }}
@@ -301,6 +297,6 @@ export function GitDiffView({
           </div>
         </div>
       )}
-    </CardFrame>
+    </div>
   );
 }

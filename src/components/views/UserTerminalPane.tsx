@@ -11,12 +11,14 @@ import {
 import {
   createTerminalOptions,
   createTerminalTheme,
+  fitTerminalSurface,
   getCurrentAccentColor,
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
-import type { UserTerminal } from "~/db/schema";
+import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
 import { ApiError, api } from "~/lib/api";
+import type { UserTerminal } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
 
@@ -101,10 +103,7 @@ export function UserTerminalPane({
     let cleanup: (() => void) | undefined;
 
     void (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import("@xterm/xterm"),
-        import("@xterm/addon-fit"),
-      ]);
+      const { Terminal, FitAddon } = await prefetchTerminalModules();
       if (cancelled || !containerRef.current) return;
 
       const term = new Terminal(
@@ -297,11 +296,7 @@ export function UserTerminalPane({
         if (cancelled) return;
         setStartError(null);
         try {
-          try {
-            fit.fit();
-          } catch {
-            /* container not measured yet */
-          }
+          fitTerminalSurface(term, fit);
 
           if (ptyId) {
             if (electron) {
@@ -358,11 +353,7 @@ export function UserTerminalPane({
       rafHandle = window.requestAnimationFrame(() => ensurePty());
 
       const ro = new ResizeObserver(() => {
-        try {
-          fit.fit();
-        } catch {
-          /* swallow */
-        }
+        fitTerminalSurface(term, fit);
       });
       ro.observe(containerRef.current);
 

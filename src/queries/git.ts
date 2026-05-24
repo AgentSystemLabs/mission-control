@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   queryOptions,
   useMutation,
   useQuery,
@@ -28,6 +29,7 @@ export const gitStatusQueryOptions = (
     queryKey: gitKeys.status(projectId, worktreeId),
     queryFn: () => api.getGitStatus(projectId, worktreeId),
     enabled: !isWebDaytonaRuntime() && (opts.enabled ?? true),
+    placeholderData: keepPreviousData,
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });

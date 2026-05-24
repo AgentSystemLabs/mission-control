@@ -24,6 +24,7 @@ import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
 import { recordSessionTerminalDebugLog } from "./session-terminal-debug-log";
 import { checkAgentCliVersion, agentVersionErrorMessage } from "./agent-cli-version";
 import { AGENT_CLI_VERSION_REQUIREMENTS } from "./agent-cli-version-requirements";
+import { applyAgentPtyEnv } from "../src/shared/agent-pty-env";
 
 function sanitizeEnv(): Record<string, string> {
   const out = sanitizedProcessEnv();
@@ -410,6 +411,7 @@ export function registerPtyHandlers(
         env.MC_API_TOKEN = mcEnv.token;
         env.MC_THEME = opts.missionControlTheme === "light" ? "light" : "dark";
       }
+      applyAgentPtyEnv(env, opts.agent);
 
       // Agent mode uses the policy-built spawn target. POSIX/native executables
       // still launch directly; Windows npm .cmd/.bat shims go through cmd.exe

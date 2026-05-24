@@ -13,9 +13,10 @@ const {
   createUserTerminal,
   renameUserTerminal,
   deleteUserTerminal,
+  nextDefaultTerminalName,
 } = await import("../user-terminals");
 const { getDb } = await import("~/db/client");
-const { projects, tasks, userTerminals } = await import("~/db/schema");
+const { projects, tasks, userTerminals, worktrees } = await import("~/db/schema");
 
 function makeProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-ut-"));
@@ -26,6 +27,7 @@ describe("user-terminals service", () => {
   beforeEach(() => {
     const db = getDb();
     db.delete(userTerminals).run();
+    db.delete(worktrees).run();
     db.delete(tasks).run();
     db.delete(projects).run();
   });
@@ -127,5 +129,43 @@ describe("user-terminals service", () => {
 
   it("createUserTerminal throws when projectId does not exist", () => {
     expect(() => createUserTerminal({ projectId: "does-not-exist" })).toThrow();
+  });
+
+  it("accepts a client-provided id for warm-pool adoption", () => {
+    const p = makeProject();
+    const clientId = "ut-mabc123-abcdef";
+    const terminal = createUserTerminal({ projectId: p.id, id: clientId });
+    expect(terminal.id).toBe(clientId);
+    expect(listUserTerminals(p.id).some((t) => t.id === clientId)).toBe(true);
+  });
+
+  it("reuses the lowest free Terminal N after a gap", () => {
+    const p = makeProject();
+    const first = createUserTerminal({ projectId: p.id });
+    createUserTerminal({ projectId: p.id });
+    deleteUserTerminal(first.id);
+    expect(nextDefaultTerminalName(p.id)).toBe("Terminal 1");
+    const next = createUserTerminal({ projectId: p.id });
+    expect(next.name).toBe("Terminal 1");
+  });
+
+  it("avoids project-wide name collisions when creating in a worktree", () => {
+    const p = makeProject();
+    createUserTerminal({ projectId: p.id, worktreeId: null });
+    const db = getDb();
+    const now = Date.now();
+    db.insert(worktrees)
+      .values({
+        id: "wt-setup",
+        projectId: p.id,
+        name: "setup",
+        path: p.path,
+        branch: "feature/setup",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const wt = createUserTerminal({ projectId: p.id, worktreeId: "wt-setup" });
+    expect(wt.name).toBe("Terminal 2");
   });
 });

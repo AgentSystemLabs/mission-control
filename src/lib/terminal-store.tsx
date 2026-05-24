@@ -30,6 +30,8 @@ export type OpenTerminal = {
   cwd: string;
   project: ScopedProject;
   task: Task;
+  /** PTY spawn waits until the task row exists on the server. */
+  awaitingCreate?: boolean;
 };
 
 type Ctx = {
@@ -40,13 +42,21 @@ type Ctx = {
   /** The active taskId persisted for `projectId` (null = explicitly closed). */
   activeTaskIdFor: (projectId: string) => string | null;
   /** Click a card: select if not active, deselect (hide panel) if already active. */
-  toggle: (project: ScopedProject, task: Task) => void;
+  toggle: (project: ScopedProject, task: Task, opts?: { awaitCreate?: boolean }) => void;
+  /** Select a session and optionally attach an already-running PTY (warm pool claim). */
+  openSession: (
+    project: ScopedProject,
+    task: Task,
+    opts?: { ptyId?: string | null },
+  ) => void;
   /** Deselect the active card for `projectId` and hide the panel without killing the PTY. */
   deselect: (projectId: string) => void;
   /** Materialize a session entry from a persisted taskId after reload, if not already present. */
   rehydrate: (project: ScopedProject, task: Task) => void;
   /** Permanently close one session and kill its PTY. */
-  close: (taskId: string) => Promise<void>;
+  close: (taskId: string, opts?: { activateTaskId?: string | null }) => Promise<void>;
+  /** Swap a provisional task id (optimistic create) for the persisted task. */
+  adoptTaskId: (fromTaskId: string, task: Task) => void;
   /** Permanently close every session for a project (kills PTYs). */
   closeForProject: (projectId: string) => Promise<void>;
   setPtyId: (taskId: string, ptyId: string | null) => void;
@@ -143,13 +153,23 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   };
 
   const toggle = useCallback(
-    (project: ScopedProject, task: Task) => {
+    (project: ScopedProject, task: Task, opts?: { awaitCreate?: boolean }) => {
       const scopeKey = scopeKeyForProject(project);
       const hadSession = sessions.some(
         (p) => p.taskId === task.id && scopeKeyForProject(p.project) === scopeKey
       );
       setSessions((prev) => {
-        if (prev.some((p) => p.taskId === task.id)) return prev;
+        const existing = prev.find(
+          (p) => p.taskId === task.id && scopeKeyForProject(p.project) === scopeKey
+        );
+        if (existing) {
+          if (!opts?.awaitCreate || existing.awaitingCreate) return prev;
+          return prev.map((p) =>
+            p.taskId === task.id && scopeKeyForProject(p.project) === scopeKey
+              ? { ...p, awaitingCreate: true, task }
+              : p
+          );
+        }
         const next: OpenTerminal = {
           taskId: task.id,
           ptyId: null,
@@ -158,6 +178,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           cwd: project.path,
           project,
           task,
+          awaitingCreate: opts?.awaitCreate,
         };
         return [...prev, next];
       });
@@ -168,6 +189,47 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       });
     },
     [sessions]
+  );
+
+  const openSession = useCallback(
+    (project: ScopedProject, task: Task, opts?: { ptyId?: string | null }) => {
+      const scopeKey = scopeKeyForProject(project);
+      setSessions((prev) => {
+        const existing = prev.find(
+          (p) => p.taskId === task.id && scopeKeyForProject(p.project) === scopeKey
+        );
+        if (existing) {
+          return prev.map((p) =>
+            p.taskId === task.id && scopeKeyForProject(p.project) === scopeKey
+              ? {
+                  ...p,
+                  task,
+                  ptyId: opts?.ptyId ?? p.ptyId,
+                  startCommand: commandForTask(task),
+                  dangerouslySkipPermissions: !!task.claudeSkipPermissions,
+                  awaitingCreate: false,
+                }
+              : p
+          );
+        }
+        return [
+          ...prev,
+          {
+            taskId: task.id,
+            ptyId: opts?.ptyId ?? null,
+            startCommand: commandForTask(task),
+            dangerouslySkipPermissions: !!task.claudeSkipPermissions,
+            cwd: project.path,
+            project,
+            task,
+          },
+        ];
+      });
+      setActiveByProject((prev) =>
+        prev[scopeKey] === task.id ? prev : { ...prev, [scopeKey]: task.id }
+      );
+    },
+    []
   );
 
   const rehydrate = useCallback((project: ScopedProject, task: Task) => {
@@ -205,7 +267,37 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const close = useCallback(async (taskId: string) => {
+  const adoptTaskId = useCallback((fromTaskId: string, task: Task) => {
+    setSessions((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        if (p.taskId !== fromTaskId) return p;
+        changed = true;
+        return {
+          ...p,
+          taskId: task.id,
+          task,
+          startCommand: commandForTask(task),
+          dangerouslySkipPermissions: !!task.claudeSkipPermissions,
+          awaitingCreate: false,
+        };
+      });
+      return changed ? next : prev;
+    });
+    setActiveByProject((prev) => {
+      let changed = false;
+      const next: Record<string, string | null> = { ...prev };
+      for (const [key, tid] of Object.entries(prev)) {
+        if (tid === fromTaskId) {
+          next[key] = task.id;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const close = useCallback(async (taskId: string, opts?: { activateTaskId?: string | null }) => {
     setSessions((prev) => {
       const target = prev.find((p) => p.taskId === taskId);
       if (target) void killPty(target.ptyId);
@@ -216,7 +308,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       let changed = false;
       for (const [pid, tid] of Object.entries(prev)) {
         if (tid === taskId) {
-          next[pid] = null;
+          next[pid] =
+            opts?.activateTaskId !== undefined ? (opts.activateTaskId ?? null) : null;
           changed = true;
         } else {
           next[pid] = tid;
@@ -319,9 +412,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       activeFor,
       activeTaskIdFor,
       toggle,
+      openSession,
       deselect,
       rehydrate,
       close,
+      adoptTaskId,
       closeForProject,
       setPtyId,
       syncTask,
@@ -333,9 +428,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       activeFor,
       activeTaskIdFor,
       toggle,
+      openSession,
       deselect,
       rehydrate,
       close,
+      adoptTaskId,
       closeForProject,
       setPtyId,
       syncTask,

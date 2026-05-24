@@ -12,6 +12,7 @@ import {
   recordHostedRuntimeStart,
 } from "./hosted-runtime-usage";
 import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
+import { agentPtyEnvOverrides } from "~/shared/agent-pty-env";
 import { normalizePtySize } from "~/shared/pty-size";
 
 type RemotePty = {
@@ -625,6 +626,7 @@ export async function spawnRemotePty(input: RemotePtySpawnInput): Promise<{ ptyI
               MC_THEME: "dark",
             }
           : {}),
+        ...agentPtyEnvOverrides(input.agent),
       },
       onData: (data: Uint8Array) => {
         if (!remote) return;

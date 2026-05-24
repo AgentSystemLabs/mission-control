@@ -16,6 +16,7 @@ import {
 import {
   createTerminalOptions,
   createTerminalTheme,
+  fitTerminalSurface,
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
@@ -28,6 +29,7 @@ import {
 } from "~/lib/agent-command";
 import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
+import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
 import { queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
@@ -53,6 +55,7 @@ export type TerminalDescriptor = {
   startCommand: string;
   dangerouslySkipPermissions: boolean;
   cwd: string;
+  awaitingCreate?: boolean;
 };
 
 export function TerminalPane({
@@ -101,12 +104,7 @@ export function TerminalPane({
     let cleanup: (() => void) | undefined;
 
     void (async () => {
-      // Defer xterm to client-side dynamic import so SSR doesn't try to load
-      // its CommonJS UMD bundle.
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import("@xterm/xterm"),
-        import("@xterm/addon-fit"),
-      ]);
+      const { Terminal, FitAddon } = await prefetchTerminalModules();
       if (cancelled || !containerRef.current) return;
 
       const cursorColor = meta?.color;
@@ -432,13 +430,10 @@ export function TerminalPane({
 
       const ensurePty = async () => {
         if (cancelled) return;
+        if (descriptor.awaitingCreate) return;
         setStartError(null);
         try {
-          try {
-            fit.fit();
-          } catch {
-            /* container not measured yet */
-          }
+          fitTerminalSurface(term, fit);
 
           if (descriptor.ptyId) {
             // Re-attach to a live PTY: subscribe BEFORE replay so any chunk
@@ -481,11 +476,7 @@ export function TerminalPane({
       rafHandle = window.requestAnimationFrame(() => ensurePty());
 
       const ro = new ResizeObserver(() => {
-        try {
-          fit.fit();
-        } catch {
-          /* swallow */
-        }
+        fitTerminalSurface(term, fit);
       });
       ro.observe(containerRef.current);
 
@@ -504,7 +495,7 @@ export function TerminalPane({
       cancelled = true;
       cleanup?.();
     };
-  }, [descriptor.taskId, retryNonce]);
+  }, [descriptor.taskId, descriptor.awaitingCreate, retryNonce]);
 
   return (
     <div

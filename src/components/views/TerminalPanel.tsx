@@ -114,7 +114,6 @@ export function TerminalPanel({
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
-        animation: "slide-right 0.2s ease-out",
         overflow: "visible",
       }}
     >

@@ -7,6 +7,10 @@ import {
 
 describe("terminal options", () => {
   it("defaults to the dark terminal theme", () => {
+    expect(createTerminalOptions()).toMatchObject({
+      lineHeight: 1,
+      fontSize: 12,
+    });
     expect(createTerminalOptions().theme).toMatchObject({
       background: "#050607",
       foreground: "#e8e6df",

@@ -29,6 +29,7 @@ import { getWorktree } from "../services/worktrees";
 import { generateTitleForTask } from "../services/title-generator";
 
 const createTaskBody = z.object({
+  id: z.string().min(1).optional(),
   title: z.string().min(1, "title required"),
   agent: z.enum(TASK_AGENTS),
   branch: z.string().optional(),

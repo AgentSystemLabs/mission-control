@@ -11,6 +11,13 @@ import {
 import { api } from "./api";
 import { getElectron } from "./electron";
 import { hasRunningLaunchForProject as projectHasRunningLaunch } from "./project-launch-running";
+import { prefetchTerminalModules } from "./prefetch-terminal-modules";
+import {
+  discardUserTerminalWarmSlot,
+  prepareUserTerminalWarmSlot,
+  replenishUserTerminalWarmSlot,
+  takeUserTerminalWarmSlot,
+} from "./user-terminal-warm-pool";
 import type { Project, UserTerminal } from "~/db/schema";
 import { worktreeScopeKey } from "~/shared/worktrees";
 
@@ -172,6 +179,18 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     };
   }, [project]);
 
+  const warmPrepareKey = project?.path
+    ? `${scopeKeyForProject(project)}:${project.path}`
+    : null;
+  useEffect(() => {
+    if (!project?.path || !warmPrepareKey) return;
+    void prefetchTerminalModules();
+    void prepareUserTerminalWarmSlot({ project, cwd: project.path });
+    return () => {
+      void discardUserTerminalWarmSlot();
+    };
+  }, [warmPrepareKey, project]);
+
   const sessions = scopeKey ? (sessionsByProject[scopeKey] ?? []) : [];
   const runningProjectIds = useMemo(() => {
     const ids = new Set<string>();
@@ -238,15 +257,61 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       if (!targetProject) return null;
       const projectId = targetProject.id;
       const key = scopeKeyForProject(targetProject);
+      const cwd = targetProject.path;
+      const startCommand = opts?.startCommand ?? null;
+
+      if (!startCommand && cwd && getElectron()) {
+        const warmSlot = takeUserTerminalWarmSlot(cwd);
+        if (warmSlot) {
+          const draftTerminal: UserTerminal = {
+            ...warmSlot.draftTerminal,
+            name: opts?.name?.trim() || warmSlot.draftTerminal.name,
+          };
+          updateSessions(key, (prev) => [...prev, { terminal: draftTerminal, ptyId: warmSlot.ptyId }]);
+          setFocusFor(key, draftTerminal.id);
+          setPanelOpenByProject((prev) => ({ ...prev, [key]: true }));
+
+          void (async () => {
+            try {
+              const { terminal } = await api.createUserTerminal(projectId, {
+                id: warmSlot.clientTerminalId,
+                cwd,
+                name: opts?.name,
+                worktreeId: targetProject.activeWorktreeId ?? null,
+              });
+              updateSessions(key, (prev) =>
+                prev.map((s) =>
+                  s.terminal.id === warmSlot.clientTerminalId
+                    ? { terminal, ptyId: warmSlot.ptyId }
+                    : s,
+                ),
+              );
+              replenishUserTerminalWarmSlot({ project: targetProject, cwd });
+            } catch {
+              const electron = getElectron();
+              if (electron) await electron.pty.kill(warmSlot.ptyId).catch(() => undefined);
+              updateSessions(key, (prev) =>
+                prev.filter((s) => s.terminal.id !== warmSlot.clientTerminalId),
+              );
+              replenishUserTerminalWarmSlot({ project: targetProject, cwd });
+            }
+          })();
+          return draftTerminal;
+        }
+      }
+
       const { terminal } = await api.createUserTerminal(projectId, {
-        cwd: targetProject.path,
+        cwd,
         name: opts?.name,
-        startCommand: opts?.startCommand ?? null,
+        startCommand,
         worktreeId: targetProject.activeWorktreeId ?? null,
       });
       updateSessions(key, (prev) => [...prev, { terminal, ptyId: null }]);
       setFocusFor(key, terminal.id);
       setPanelOpenByProject((prev) => ({ ...prev, [key]: true }));
+      if (!startCommand && cwd) {
+        replenishUserTerminalWarmSlot({ project: targetProject, cwd });
+      }
       return terminal;
     },
     [project, updateSessions, setFocusFor]

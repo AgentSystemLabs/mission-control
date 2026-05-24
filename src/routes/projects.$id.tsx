@@ -29,6 +29,27 @@ import { api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
+import {
+  appendOptimisticTask,
+  buildOptimisticTask,
+  removeOptimisticTask,
+  removeTaskFromCache,
+  removeTasksFromCache,
+  replaceOptimisticTask,
+  restoreTasksCache,
+} from "~/lib/optimistic-task";
+import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
+import { newClientId } from "~/shared/client-id";
+import {
+  defaultSessionPayload,
+  discardSessionWarmSlot,
+  persistWarmSlotTask,
+  prepareSessionWarmSlot,
+  replenishSessionWarmSlot,
+  sessionCreateSignature,
+  takeSessionWarmSlot,
+  type SessionCreatePayload,
+} from "~/lib/session-warm-pool";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -57,9 +78,7 @@ import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
 import {
-  agentCanLaunch,
   availabilityFor,
-  cliAvailabilityFromCheckResult,
   type CliAvailability,
   useCliAvailability,
 } from "~/lib/cli-availability";
@@ -87,6 +106,7 @@ import {
   STATUS_META,
 } from "~/lib/design-meta";
 import { useSyncProjectDiagrams } from "~/lib/use-diagram-events";
+import { useGitDiffViewOpen } from "~/lib/git-diff-view-store";
 
 export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
@@ -237,14 +257,25 @@ function ProjectPage() {
   const [projectPathCheck, setProjectPathCheck] = useState<ProjectPathCheck>({
     state: "idle",
   });
-  const [projectPathCheckRevision, setProjectPathCheckRevision] = useState(0);
+  const pathScopeKey = `${project?.id ?? ""}:${project?.path ?? ""}:${selectedWorktreeId ?? ""}:${selectedWorktreePath}`;
+  const pathScopeRef = useRef(pathScopeKey);
   useEffect(() => {
     if (!project) {
       setProjectPathCheck({ state: "idle" });
+      pathScopeRef.current = pathScopeKey;
       return;
     }
+    const scopeChanged = pathScopeRef.current !== pathScopeKey;
+    pathScopeRef.current = pathScopeKey;
     let cancelled = false;
-    setProjectPathCheck({ state: "checking" });
+    // Keep the last-known-good path while revalidating the same scope so git
+    // status and launch controls don't flicker on unrelated cache refreshes
+    // (e.g. deleting a session only touches tasks, not the worktree path).
+    setProjectPathCheck((prev) => {
+      if (scopeChanged || prev.state === "idle") return { state: "checking" };
+      if (prev.state === "valid") return prev;
+      return { state: "checking" };
+    });
     void api
       .getProjectPathStatus(project.id, selectedWorktreeId)
       .then(({ status }) => {
@@ -261,11 +292,44 @@ function ProjectPage() {
     return () => {
       cancelled = true;
     };
-  }, [project?.id, project?.path, selectedWorktreeId, selectedWorktreePath, projectPathCheckRevision]);
+  }, [pathScopeKey, project, selectedWorktreeId]);
   const projectPathReady = projectPathCheck.state === "valid";
+  const projectPathBlocked =
+    projectPathCheck.state === "invalid" || projectPathCheck.state === "error";
+  const projectPathUsable = projectPathReady || projectPathCheck.state === "checking";
   const projectPathIssue =
     projectPathCheck.state === "invalid" ? projectPathCheck.status : null;
   const terminalProject = projectPathReady ? scopedProject : null;
+  const defaultWarmPayload = useMemo(
+    () => (project ? defaultSessionPayload(project) : null),
+    [
+      project?.branch,
+      project?.rememberAgentSettings,
+      project?.savedAgent,
+      project?.savedSkipPermissions,
+      project?.savedBareSession,
+    ],
+  );
+  const warmPrepareKey =
+    terminalProject && defaultWarmPayload
+      ? `${terminalProject.id}:${terminalProject.path}:${sessionCreateSignature(defaultWarmPayload, terminalProject.path)}`
+      : null;
+  useEffect(() => {
+    if (!terminalProject || !defaultWarmPayload || !warmPrepareKey) return;
+    void prefetchTerminalModules();
+    void prepareSessionWarmSlot({ project: terminalProject, payload: defaultWarmPayload });
+    return () => {
+      void discardSessionWarmSlot();
+    };
+  }, [warmPrepareKey, terminalProject, defaultWarmPayload]);
+
+  const prepareWarmForDialog = useCallback(
+    (payload: SessionCreatePayload) => {
+      if (!terminalProject) return;
+      void prepareSessionWarmSlot({ project: terminalProject, payload });
+    },
+    [terminalProject],
+  );
   useEffect(() => {
     if (!worktreesQuery.data) return;
     const exists = worktreesQuery.data.some((w) => w.id === selectedWorktreeKey);
@@ -281,21 +345,17 @@ function ProjectPage() {
   useApiToken();
   const { data: entitlements } = useEntitlements();
   const { data: gitStatus } = useGitStatus(id, selectedWorktreeId, {
-    enabled: projectPathReady,
+    enabled: projectPathUsable,
   });
-  const [showDiffView, setShowDiffView] = useState(false);
-
-  const openDiffView = useCallback(() => {
+  const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView } =
+    useGitDiffViewOpen(id);
+  const onToggleDiffView = useCallback(() => {
     if (!projectPathReady) return;
-    setShowDiffView(true);
-  }, [projectPathReady]);
-
-  const closeDiffView = useCallback(() => {
-    setShowDiffView(false);
-  }, []);
+    toggleDiffView();
+  }, [projectPathReady, toggleDiffView]);
   useEffect(() => {
-    if (!projectPathReady) setShowDiffView(false);
-  }, [projectPathReady]);
+    if (projectPathBlocked) closeDiffView();
+  }, [projectPathBlocked, closeDiffView]);
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -538,11 +598,8 @@ function ProjectPage() {
   }, [openRequestedSession]);
 
   const invalidateProject = useCallback(
-    () => {
-      setProjectPathCheckRevision((value) => value + 1);
-      return queryClient.invalidateQueries({ queryKey: queryKeys.project(id) });
-    },
-    [queryClient, id]
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
+    [queryClient, id],
   );
   const invalidateTasks = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks(id, selectedWorktreeId) }),
@@ -676,75 +733,135 @@ function ProjectPage() {
     [cliAvailability],
   );
 
-  const verifyAgentCanLaunch = useCallback(async (agent: Task["agent"]) => {
-    const electron = getElectron();
-    if (!electron) return true;
-    const probe = await electron.cliCheck(AGENT_REGISTRY[agent].command, { verifyVersion: true });
-    if (probe.ok) return true;
-    if (
-      probe.reason === "outdated" ||
-      probe.reason === "version-unknown" ||
-      probe.reason === "version-check-failed"
-    ) {
-      showAgentUpdateRequired(agent, cliAvailabilityFromCheckResult(probe));
-      return false;
-    }
-    setShowNewAgent(true);
-    return false;
-  }, [showAgentUpdateRequired]);
-
   const createSession = useCallback(
-    async (payload: {
-      agent: Task["agent"];
-      branch: string;
-      skipPermissions: boolean;
-      bareSession: boolean;
-    }) => {
+    (payload: SessionCreatePayload) => {
       if (!project || !terminalProject) return;
       const selectedAvailability = availabilityFor(cliAvailability, payload.agent);
       if (selectedAvailability.status === "outdated") {
         showAgentUpdateRequired(payload.agent, selectedAvailability);
         return;
       }
-      const versionVerified = await verifyAgentCanLaunch(payload.agent);
-      if (!versionVerified) return;
-      if (!versionVerified && !agentCanLaunch(cliAvailability, payload.agent)) {
+      if (selectedAvailability.status === "missing") {
         setShowNewAgent(true);
         return;
       }
+
+      const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+      void queryClient.cancelQueries({ queryKey: tasksKey });
+
+      const warmSlot = takeSessionWarmSlot(payload, terminalProject.path);
+      if (warmSlot) {
+        appendOptimisticTask(queryClient, project.id, selectedWorktreeId, warmSlot.draftTask);
+        terminals.openSession(terminalProject, warmSlot.draftTask, { ptyId: warmSlot.ptyId });
+        void (async () => {
+          try {
+            const task = await persistWarmSlotTask(project.id, warmSlot, selectedWorktreeId);
+            replaceOptimisticTask(
+              queryClient,
+              project.id,
+              selectedWorktreeId,
+              warmSlot.clientTaskId,
+              task,
+            );
+            terminals.openSession(terminalProject, task, { ptyId: warmSlot.ptyId });
+            void Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
+            replenishSessionWarmSlot({
+              project: terminalProject,
+              payload: defaultSessionPayload(project),
+            });
+            if (payload.agent === "codex" && !hasSeenCodexHooksNotice()) {
+              setShowCodexHooksNotice(true);
+            }
+          } catch (e: unknown) {
+            removeOptimisticTask(queryClient, project.id, selectedWorktreeId, warmSlot.clientTaskId);
+            await terminals.close(warmSlot.clientTaskId);
+            toast.error(e instanceof Error ? e.message : "Could not create session");
+            replenishSessionWarmSlot({
+              project: terminalProject,
+              payload: defaultSessionPayload(project),
+            });
+          }
+        })();
+        return;
+      }
+
+      const isLocal = !!getElectron();
       const usesPersistedSession =
         payload.agent === "claude-code" ||
         payload.agent === "cursor-cli";
-      const created = await api.createTaskInternal(project.id, {
-        title: TITLE_WAITING,
+      const claudeSessionId = usesPersistedSession ? newSessionId() : null;
+      const clientTaskId = isLocal ? newClientId("t") : undefined;
+      const optimisticTask = buildOptimisticTask({
+        id: clientTaskId,
+        projectId: project.id,
+        worktreeId: selectedWorktreeId,
         agent: payload.agent,
         branch: payload.branch,
-        claudeSessionId: usesPersistedSession ? newSessionId() : undefined,
-        claudeBareSession: payload.agent === "claude-code" ? payload.bareSession : undefined,
+        claudeSessionId,
         claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
           ? payload.skipPermissions
           : undefined,
-        worktreeId: selectedWorktreeId,
+        claudeBareSession: payload.agent === "claude-code" ? payload.bareSession : undefined,
       });
-      terminals.toggle(terminalProject, created.task);
-      await refresh();
-      if (payload.agent === "codex" && !hasSeenCodexHooksNotice()) {
-        setShowCodexHooksNotice(true);
-      }
+      appendOptimisticTask(queryClient, project.id, selectedWorktreeId, optimisticTask);
+      terminals.toggle(terminalProject, optimisticTask, { awaitCreate: !isLocal });
+
+      void (async () => {
+        try {
+          const created = await api.createTaskInternal(project.id, {
+            id: clientTaskId,
+            title: TITLE_WAITING,
+            agent: payload.agent,
+            branch: payload.branch,
+            claudeSessionId,
+            claudeBareSession: payload.agent === "claude-code" ? payload.bareSession : undefined,
+            claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
+              ? payload.skipPermissions
+              : undefined,
+            worktreeId: selectedWorktreeId,
+          });
+          replaceOptimisticTask(
+            queryClient,
+            project.id,
+            selectedWorktreeId,
+            optimisticTask.id,
+            created.task,
+          );
+          if (clientTaskId && created.task.id === clientTaskId) {
+            terminals.openSession(terminalProject, created.task);
+          } else {
+            terminals.adoptTaskId(optimisticTask.id, created.task);
+          }
+          void Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
+          replenishSessionWarmSlot({
+            project: terminalProject,
+            payload: defaultSessionPayload(project),
+          });
+          if (payload.agent === "codex" && !hasSeenCodexHooksNotice()) {
+            setShowCodexHooksNotice(true);
+          }
+        } catch (e: unknown) {
+          removeOptimisticTask(queryClient, project.id, selectedWorktreeId, optimisticTask.id);
+          await terminals.close(optimisticTask.id);
+          toast.error(e instanceof Error ? e.message : "Could not create session");
+        }
+      })();
     },
     [
       project,
       terminalProject,
       selectedWorktreeId,
-      refresh,
+      queryClient,
+      invalidateProject,
+      invalidateTasks,
+      invalidateProjects,
       terminals,
       cliAvailability,
       showAgentUpdateRequired,
-      verifyAgentCanLaunch,
     ]
   );
 
-  const startWithSaved = useCallback(async () => {
+  const startWithSaved = useCallback(() => {
     if (!project) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
     const savedAvailability = availabilityFor(cliAvailability, project.savedAgent);
@@ -752,19 +869,17 @@ function ProjectPage() {
       showAgentUpdateRequired(project.savedAgent, savedAvailability);
       return;
     }
-    const versionVerified = await verifyAgentCanLaunch(project.savedAgent);
-    if (!versionVerified) return;
-    if (!versionVerified && !agentCanLaunch(cliAvailability, project.savedAgent)) {
+    if (savedAvailability.status === "missing") {
       setShowNewAgent(true);
       return;
     }
-    await createSession({
+    createSession({
       agent: project.savedAgent,
       branch: project.branch || DEFAULT_BRANCH,
       skipPermissions: !!project.savedSkipPermissions,
       bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
     });
-  }, [project, createSession, cliAvailability, showAgentUpdateRequired, verifyAgentCanLaunch]);
+  }, [project, createSession, cliAvailability, showAgentUpdateRequired]);
 
   const onNewAgentPrimary = useCallback(() => {
     if (!projectPathReady) return;
@@ -906,8 +1021,7 @@ function ProjectPage() {
         anyBlockingDialogOpen ||
         !projectPathReady
       ) return;
-      if (showDiffView) closeDiffView();
-      else openDiffView();
+      onToggleDiffView();
     },
     { ignoreEditable: true },
   );
@@ -957,7 +1071,6 @@ function ProjectPage() {
       (e) => {
         if (e.type.startsWith("task:")) {
           void invalidateTasks();
-          void invalidateProject();
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
           void invalidateProject();
@@ -1028,17 +1141,47 @@ function ProjectPage() {
     if (terminalProject) terminals.toggle(terminalProject, task);
   };
 
-  const deleteTask = async (taskId: string) => {
+  const deleteTask = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    showHostedCleanupStatus("session");
-    try {
-      await terminals.close(taskId);
-      await api.deleteTask(taskId);
-      await refresh();
-    } finally {
-      setCleanupStatus(null);
+    if (!task || !project) return;
+
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    void queryClient.cancelQueries({ queryKey: tasksKey });
+    const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
+
+    const isActive = terminals.activeTaskIdFor(selectedScopeKey) === taskId;
+    const next = isActive
+      ? pickByPriority(tasks.filter((t) => !t.archived && t.id !== taskId))
+      : undefined;
+
+    // Point the panel at the replacement session before the deleted row disappears
+    // or its PTY is torn down — otherwise close() briefly clears active and the
+    // panel unmounts before the auto-select effect catches up.
+    if (isActive && terminalProject) {
+      if (next) terminals.openSession(terminalProject, next);
+      else terminals.deselect(selectedScopeKey);
     }
+
+    removeTaskFromCache(queryClient, project.id, selectedWorktreeId, taskId);
+
+    void (async () => {
+      showHostedCleanupStatus("session");
+      try {
+        await terminals.close(
+          taskId,
+          isActive ? { activateTaskId: next?.id ?? null } : undefined,
+        );
+        await api.deleteTask(taskId);
+        void invalidateTasks();
+      } catch (e: unknown) {
+        if (previousTasks) {
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+        }
+        toast.error(e instanceof Error ? e.message : "Could not delete session");
+      } finally {
+        setCleanupStatus(null);
+      }
+    })();
   };
 
   const confirmRemoveProject = async () => {
@@ -1117,41 +1260,73 @@ function ProjectPage() {
     router.navigate({ to: "/" });
   };
 
-  const clearFinished = async () => {
+  const clearFinished = () => {
     setConfirmClearFinished(false);
+    if (!project) return;
     const finished = tasksByStatus.finished;
-    showHostedCleanupStatus("finishedSessions");
-    try {
-      await Promise.all(
-        finished.map(async (t) => {
-          await terminals.close(t.id).catch(() => undefined);
-          await api.deleteTask(t.id).catch(() => undefined);
-        })
-      );
-      await refresh();
-    } finally {
-      setCleanupStatus(null);
-    }
+    if (finished.length === 0) return;
+
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    void queryClient.cancelQueries({ queryKey: tasksKey });
+    const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
+    const finishedIds = new Set(finished.map((t) => t.id));
+    removeTasksFromCache(queryClient, project.id, selectedWorktreeId, finishedIds);
+
+    void (async () => {
+      showHostedCleanupStatus("finishedSessions");
+      try {
+        await Promise.all(
+          finished.map(async (t) => {
+            await terminals.close(t.id).catch(() => undefined);
+            await api.deleteTask(t.id).catch(() => undefined);
+          }),
+        );
+        void invalidateTasks();
+      } catch (e: unknown) {
+        if (previousTasks) {
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+        }
+        toast.error(e instanceof Error ? e.message : "Could not clear finished sessions");
+      } finally {
+        setCleanupStatus(null);
+      }
+    })();
   };
 
-  const clearDisconnected = async () => {
+  const clearDisconnected = () => {
     setConfirmClearDisconnected(false);
+    if (!project) return;
     const disconnected = tasksByStatus.disconnected;
-    showHostedCleanupStatus("disconnectedSessions");
-    try {
-      await Promise.all(
-        disconnected.map(async (t) => {
-          await terminals.close(t.id).catch(() => undefined);
-          await api.deleteTask(t.id).catch(() => undefined);
-        })
-      );
-      await refresh();
-    } finally {
-      setCleanupStatus(null);
-    }
+    if (disconnected.length === 0) return;
+
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    void queryClient.cancelQueries({ queryKey: tasksKey });
+    const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
+    const disconnectedIds = new Set(disconnected.map((t) => t.id));
+    removeTasksFromCache(queryClient, project.id, selectedWorktreeId, disconnectedIds);
+
+    void (async () => {
+      showHostedCleanupStatus("disconnectedSessions");
+      try {
+        await Promise.all(
+          disconnected.map(async (t) => {
+            await terminals.close(t.id).catch(() => undefined);
+            await api.deleteTask(t.id).catch(() => undefined);
+          }),
+        );
+        void invalidateTasks();
+      } catch (e: unknown) {
+        if (previousTasks) {
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+        }
+        toast.error(e instanceof Error ? e.message : "Could not clear disconnected sessions");
+      } finally {
+        setCleanupStatus(null);
+      }
+    })();
   };
 
-  const startAgent = async (data: {
+  const startAgent = (data: {
     agent: Task["agent"];
     title: string;
     branch: string;
@@ -1159,7 +1334,7 @@ function ProjectPage() {
     bareSession: boolean;
   }) => {
     setShowNewAgent(false);
-    await createSession({
+    createSession({
       agent: data.agent,
       branch: data.branch,
       skipPermissions: data.dangerouslySkipPermissions,
@@ -1173,8 +1348,8 @@ function ProjectPage() {
         running={hasRunningLaunch}
         launching={launching}
         stopping={stopping}
-        disabled={!projectPathReady}
-        disabledLabel={projectPathCheck.state === "checking" ? "Checking folder" : "Folder unavailable"}
+        disabled={projectPathBlocked}
+        disabledLabel="Folder unavailable"
         launchUrl={project.launchUrl ?? null}
         onStart={runLaunch}
         onOpenUrl={() =>
@@ -1246,22 +1421,6 @@ function ProjectPage() {
     </HeaderActions>
   );
 
-  if (showDiffView) {
-    return (
-      <>
-        <CursorGlow />
-        {headerActions}
-        <GitDiffView
-          projectId={project.id}
-          worktreeId={selectedWorktreeId}
-          projectPath={selectedWorktreePath || project.path}
-          enabled={projectPathReady}
-          onBack={closeDiffView}
-        />
-      </>
-    );
-  }
-
   return (
     <>
       <CursorGlow />
@@ -1269,7 +1428,7 @@ function ProjectPage() {
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: "auto",
+          overflow: showDiffView ? "hidden" : "auto",
           padding: 0,
           display: "flex",
           flexDirection: "column",
@@ -1279,10 +1438,14 @@ function ProjectPage() {
       <CardFrame
         style={{
           width: "100%",
-          minHeight: "100%",
-          flexShrink: 0,
+          minHeight: showDiffView ? 0 : "100%",
+          flex: showDiffView ? 1 : undefined,
+          flexShrink: showDiffView ? undefined : 0,
           boxSizing: "border-box",
           padding: 8,
+          display: showDiffView ? "flex" : undefined,
+          flexDirection: showDiffView ? "column" : undefined,
+          overflow: showDiffView ? "hidden" : undefined,
         }}
       >
         <div
@@ -1293,7 +1456,7 @@ function ProjectPage() {
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            margin: "-8px -8px 32px",
+            margin: showDiffView ? "-8px -8px 12px" : "-8px -8px 32px",
             padding: "22px 24px 18px",
             position: "relative",
             isolation: "isolate",
@@ -1423,9 +1586,9 @@ function ProjectPage() {
                     icon="git-branch"
                     onClick={() => {
                       setOverflowOpen(false);
-                      openDiffView();
+                      onToggleDiffView();
                     }}
-                    disabled={!projectPathReady}
+                    disabled={projectPathBlocked}
                     style={{ justifyContent: "flex-start" }}
                     title={(() => {
                       const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
@@ -1508,15 +1671,15 @@ function ProjectPage() {
             <ProjectGitStatusButton
               branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
               changedCount={gitStatus?.changedCount}
-              onClick={openDiffView}
-              disabled={!projectPathReady}
+              onClick={onToggleDiffView}
+              disabled={projectPathBlocked}
             />
             <CommitPushButton
               projectId={id}
               worktreeId={selectedWorktreeId}
               size="md"
               splitTrailing
-              enabled={projectPathReady}
+              enabled={projectPathUsable}
             />
           </div>
           <div style={{ flex: 1 }} />
@@ -1570,7 +1733,7 @@ function ProjectPage() {
           </div>
         )}
 
-        {visibleTasks.length > 0 && (
+        {!showDiffView && visibleTasks.length > 0 && (
           <div
             style={{
               display: "flex",
@@ -1611,19 +1774,29 @@ function ProjectPage() {
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: 48,
-            paddingInline: 12,
+            gap: showDiffView ? 0 : 48,
+            paddingInline: showDiffView ? 0 : 12,
             boxSizing: "border-box",
+            flex: showDiffView ? 1 : undefined,
+            minHeight: showDiffView ? 0 : undefined,
+            overflow: showDiffView ? "hidden" : undefined,
           }}
         >
-          {tasksQuery.isLoading && (
+          {showDiffView ? (
+            <GitDiffView
+              projectId={project.id}
+              worktreeId={selectedWorktreeId}
+              projectPath={selectedWorktreePath || project.path}
+              enabled={projectPathReady}
+              onBack={closeDiffView}
+            />
+          ) : tasksQuery.isLoading ? (
             <EmptyState
               title="Loading sessions"
               subtitle="Fetching the hosted task list and terminal state."
               icon="sparkles"
             />
-          )}
-          {tasksQuery.isError && (
+          ) : tasksQuery.isError ? (
             <EmptyState
               title="Could not load sessions"
               subtitle="Mission Control could not load sessions for this project. Retry before starting new work."
@@ -1634,40 +1807,7 @@ function ProjectPage() {
                 </Btn>
               }
             />
-          )}
-          {!tasksQuery.isLoading && !tasksQuery.isError && STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status) => (
-            <TaskColumn
-              key={status}
-              title={STATUS_META[status].label}
-              color={STATUS_META[status].color}
-              tasks={tasksByStatus[status]}
-              activeId={activeId}
-              onToggle={toggleTerminal}
-              onDelete={deleteTask}
-              headerAction={
-                status === "finished" && tasksByStatus.finished.length > 0 ? (
-                  <Btn
-                    variant="ghost"
-                    icon="trash"
-                    onClick={() => setConfirmClearFinished(true)}
-                    title="Remove all finished sessions"
-                  >
-                    Clear all
-                  </Btn>
-                ) : status === "disconnected" && tasksByStatus.disconnected.length > 0 ? (
-                  <Btn
-                    variant="ghost"
-                    icon="trash"
-                    onClick={() => setConfirmClearDisconnected(true)}
-                    title="Remove all disconnected sessions"
-                  >
-                    Clear all
-                  </Btn>
-                ) : undefined
-              }
-            />
-          ))}
-          {!tasksQuery.isLoading && !tasksQuery.isError && visibleTasks.length === 0 && (
+          ) : visibleTasks.length === 0 ? (
             <EmptyState
               title="No active sessions"
               subtitle={
@@ -1686,6 +1826,39 @@ function ProjectPage() {
                 />
               }
             />
+          ) : (
+            STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status) => (
+              <TaskColumn
+                key={status}
+                title={STATUS_META[status].label}
+                color={STATUS_META[status].color}
+                tasks={tasksByStatus[status]}
+                activeId={activeId}
+                onToggle={toggleTerminal}
+                onDelete={deleteTask}
+                headerAction={
+                  status === "finished" && tasksByStatus.finished.length > 0 ? (
+                    <Btn
+                      variant="ghost"
+                      icon="trash"
+                      onClick={() => setConfirmClearFinished(true)}
+                      title="Remove all finished sessions"
+                    >
+                      Clear all
+                    </Btn>
+                  ) : status === "disconnected" && tasksByStatus.disconnected.length > 0 ? (
+                    <Btn
+                      variant="ghost"
+                      icon="trash"
+                      onClick={() => setConfirmClearDisconnected(true)}
+                      title="Remove all disconnected sessions"
+                    >
+                      Clear all
+                    </Btn>
+                  ) : undefined
+                }
+              />
+            ))
           )}
         </div>
       </CardFrame>
@@ -1839,6 +2012,7 @@ function ProjectPage() {
         project={project}
         onClose={() => setShowNewAgent(false)}
         onStart={startAgent}
+        onPrepareWarm={prepareWarmForDialog}
         onAgentUpdateRequired={showAgentUpdateRequired}
         onPersistRemember={async (patch) => {
           const previous = queryClient.getQueryData<typeof project>(queryKeys.project(project.id));
@@ -2161,7 +2335,7 @@ function ProjectGitStatusButton({
       ? "Review Changes unavailable until the project folder is valid"
       : changedCount === undefined
       ? `Open Review Changes · branch ${branch}`
-      : `Open Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branch}`;
+      : `Toggle Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branch}`;
 
   return (
     <HotkeyTooltip action="git.diff" label={title}>
@@ -2276,15 +2450,14 @@ function RunStatusPill({
     );
   }
 
-  const showOfflineSplit = !disabled && !running && !busy;
-
-  if (showOfflineSplit) {
+  if (!running && !busy) {
     return (
       <HotkeyTooltip action="project.runToggle" label={title}>
         <Btn
           variant="ghost"
           icon="play"
-          onClick={onStart}
+          onClick={disabled || busy ? undefined : onStart}
+          disabled={disabled || busy}
           aria-label={title}
           style={activeFrameIconStyle}
         />
@@ -2313,7 +2486,7 @@ function RunStatusPill({
           fontSize: 11.5,
           fontWeight: 600,
           cursor: interactive ? "pointer" : "default",
-          opacity: busy || disabled ? 0.7 : 1,
+          opacity: busy ? 0.7 : 1,
           transition: "background 0.12s, border-color 0.12s, color 0.12s",
           boxShadow: running ? "0 0 8px var(--accent-glow)" : "none",
         }}

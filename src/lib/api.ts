@@ -269,6 +269,7 @@ export const api = {
   createTaskInternal: (
     projectId: string,
     body: {
+      id?: string;
       title: string;
       agent: TaskAgent;
       branch?: string;
@@ -307,7 +308,13 @@ export const api = {
     ),
   createUserTerminal: (
     projectId: string,
-    body: { name?: string; cwd?: string | null; startCommand?: string | null; worktreeId?: string | null }
+    body: {
+      id?: string;
+      name?: string;
+      cwd?: string | null;
+      startCommand?: string | null;
+      worktreeId?: string | null;
+    },
   ) =>
     req<{ terminal: UserTerminal }>(`/api/projects/${projectId}/user-terminals`, {
       method: "POST",

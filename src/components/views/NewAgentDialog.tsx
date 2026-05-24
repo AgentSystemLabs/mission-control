@@ -40,6 +40,7 @@ export function NewAgentDialog({
   onStart,
   onPersistRemember,
   onAgentUpdateRequired,
+  onPrepareWarm,
 }: {
   open: boolean;
   project: Project | null;
@@ -53,6 +54,12 @@ export function NewAgentDialog({
   }) => Promise<void> | void;
   onPersistRemember: (patch: RememberPatch) => Promise<void> | void;
   onAgentUpdateRequired?: (agent: TaskAgent, availability: CliAvailability) => void;
+  onPrepareWarm?: (payload: {
+    agent: TaskAgent;
+    branch: string;
+    skipPermissions: boolean;
+    bareSession: boolean;
+  }) => void;
 }) {
   const [agent, setAgent] = useState<TaskAgent>("claude-code");
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
@@ -72,6 +79,17 @@ export function NewAgentDialog({
       savedBareSession: false,
     });
   };
+
+  useEffect(() => {
+    if (!open || !project || !onPrepareWarm) return;
+    const supportsSkip = agentSupportsSkipPermissions(agent);
+    onPrepareWarm({
+      agent,
+      branch: project.branch || DEFAULT_BRANCH,
+      skipPermissions: supportsSkip && dangerouslySkipPermissions,
+      bareSession: false,
+    });
+  }, [open, project, agent, dangerouslySkipPermissions, onPrepareWarm]);
 
   useEffect(() => {
     if (!open) {
@@ -128,66 +146,31 @@ export function NewAgentDialog({
     }
   };
 
-  const submit = async () => {
+  const submit = () => {
     if (submitting) return;
     const selectedAvailability = availabilityFor(cliAvailability, agent);
     if (selectedAvailability.status === "outdated") {
       onAgentUpdateRequired?.(agent, selectedAvailability);
       return;
     }
-    if (!agentCanLaunch(cliAvailability, agent)) {
-      const checking =
-        selectedAvailability.status === "checking" ||
-        selectedAvailability.status === "unknown";
-      setError(
-        checking
-          ? `${AGENT_REGISTRY[agent].label} availability is still being checked.`
-          : `${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`,
-      );
+    if (selectedAvailability.status === "missing") {
+      setError(`${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`);
       return;
     }
     setSubmitting(true);
     setError(null);
-    const electron = getElectron();
-    if (electron) {
-      const cmd = AGENT_META[agent].cmd;
-      const probe = await electron.cliCheck(cmd, { verifyVersion: true });
-      if (!probe.ok) {
-        if (
-          (probe.reason === "outdated" ||
-            probe.reason === "version-unknown" ||
-            probe.reason === "version-check-failed")
-        ) {
-          onAgentUpdateRequired?.(agent, {
-            status: "outdated",
-            path: probe.path,
-            reason: probe.reason,
-            label: probe.label,
-            version: probe.version,
-            requiredVersion: probe.requiredVersion,
-            packageUrl: probe.packageUrl,
-            updateCommands: probe.updateCommands,
-          });
-          setSubmitting(false);
-          return;
-        }
-        setError(`${AGENT_REGISTRY[agent].label} is not installed or is not on PATH.`);
-        setSubmitting(false);
-        return;
-      }
-    }
     try {
       const supportsSkip = agentSupportsSkipPermissions(agent);
       const skip = supportsSkip && dangerouslySkipPermissions;
       if (rememberSettings) {
-        await onPersistRemember({
+        void onPersistRemember({
           rememberAgentSettings: true,
           savedAgent: agent,
           savedSkipPermissions: skip,
           savedBareSession: false,
         });
       }
-      await onStart({
+      onStart({
         agent,
         title: TITLE_WAITING,
         branch: project?.branch || DEFAULT_BRANCH,

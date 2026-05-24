@@ -18,6 +18,7 @@ import {
   insertTerminalLog,
 } from "../repositories/terminal-logs.repo";
 import { newId } from "./_ids";
+import { isClientDomainId } from "../../shared/client-id";
 
 export function listTasksForProject(projectId: string): Task[] {
   return findTasksByProjectId(projectId);
@@ -35,6 +36,7 @@ export function getTask(id: string): Task | null {
 }
 
 export function createTask(input: {
+  id?: string;
   projectId: string;
   worktreeId?: string | null;
   title: string;
@@ -51,8 +53,11 @@ export function createTask(input: {
   if (!isTaskAgent(input.agent)) throw new Error("invalid agent");
 
   const now = Date.now();
+  const requestedId = input.id?.trim();
+  if (requestedId && !isClientDomainId(requestedId)) throw new Error("invalid task id");
+  if (requestedId && findTaskById(requestedId)) throw new Error("task id already exists");
   const row: Task = {
-    id: newId("t"),
+    id: requestedId || newId("t"),
     projectId: input.projectId,
     worktreeId: input.worktreeId ?? null,
     title: input.title.trim(),

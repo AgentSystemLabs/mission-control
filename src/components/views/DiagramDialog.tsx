@@ -99,6 +99,7 @@ function DiagramViewport({
 
   const onPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
     if (!ready || event.button !== 0) return;
+    event.preventDefault();
     setIsPanning(true);
     dragRef.current = {
       pointerId: event.pointerId,
@@ -171,17 +172,12 @@ function DiagramViewport({
 
       <div
         ref={viewportRef}
-        onWheel={onWheel}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endPan}
-        onPointerCancel={endPan}
         style={{
           flex: 1,
           minHeight: 0,
           overflow: "hidden",
           background: "var(--surface-0)",
-          cursor: ready ? (isPanning ? "grabbing" : "grab") : "default",
+          position: "relative",
           touchAction: "none",
         }}
       >
@@ -196,10 +192,30 @@ function DiagramViewport({
             transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
             transformOrigin: "center center",
             transition: isPanning ? "none" : "transform 80ms ease-out",
+            pointerEvents: "none",
+            userSelect: "none",
           }}
         >
           {children}
         </div>
+        {ready && (
+          <div
+            aria-hidden
+            onWheel={onWheel}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endPan}
+            onPointerCancel={endPan}
+            onDragStart={(event) => event.preventDefault()}
+            style={{
+              position: "absolute",
+              inset: 0,
+              cursor: isPanning ? "grabbing" : "grab",
+              touchAction: "none",
+              userSelect: "none",
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -235,10 +251,18 @@ export function DiagramDialog({
   useHotkey("escape", () => onClose(), { enabled: open, preventDefault: false });
 
   useEffect(() => {
-    if (renderState.status !== "ready" || !renderState.bindFunctions || !containerRef.current) {
-      return;
-    }
-    renderState.bindFunctions(containerRef.current);
+    if (renderState.status !== "ready" || !containerRef.current) return;
+
+    const root = containerRef.current;
+    root.querySelectorAll("svg, svg *").forEach((node) => {
+      if (node instanceof SVGElement) {
+        node.style.pointerEvents = "none";
+        node.style.userSelect = "none";
+      }
+    });
+    root.querySelector("svg")?.setAttribute("draggable", "false");
+
+    renderState.bindFunctions?.(root);
   }, [renderState]);
 
   useEffect(() => {
@@ -477,6 +501,10 @@ export function DiagramDialog({
                 // Mermaid emits trusted SVG for the diagram source we control.
                 // eslint-disable-next-line react/no-danger
                 dangerouslySetInnerHTML={{ __html: renderState.svg }}
+                style={{
+                  pointerEvents: "none",
+                  userSelect: "none",
+                }}
               />
             )}
           </div>

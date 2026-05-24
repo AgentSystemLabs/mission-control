@@ -53,6 +53,19 @@ function mapTerminal(row: HostedUserTerminalRow): UserTerminal {
   };
 }
 
+const DEFAULT_TERMINAL_NAME_RE = /^Terminal (\d+)$/;
+
+function nextHostedDefaultTerminalName(existing: UserTerminal[]): string {
+  const usedNumbers = new Set<number>();
+  for (const terminal of existing) {
+    const match = DEFAULT_TERMINAL_NAME_RE.exec(terminal.name);
+    if (match) usedNumbers.add(Number(match[1]));
+  }
+  let n = 1;
+  while (usedNumbers.has(n)) n++;
+  return `Terminal ${n}`;
+}
+
 export async function listHostedUserTerminals(
   context: HostedAuthContext,
   projectId: string,
@@ -83,7 +96,7 @@ export async function createHostedUserTerminal(
   await enforceHostedPlanLimit(context, "userTerminals");
   const existing = await listHostedUserTerminals(context, input.projectId);
   const id = newId("hut");
-  const name = input.name?.trim() || `Terminal ${existing.length + 1}`;
+  const name = input.name?.trim() || nextHostedDefaultTerminalName(existing);
   const startCommand = input.startCommand?.trim() || null;
   if (startCommand) {
     const now = Date.now();
