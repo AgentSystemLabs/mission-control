@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { taskDiagrams } from "~/db/schema";
 import type { StoredDiagram } from "~/shared/diagram";
@@ -11,16 +11,18 @@ function toStoredDiagram(row: typeof taskDiagrams.$inferSelect): StoredDiagram {
     title: row.title,
     source: row.source,
     format: row.format,
+    createdAt: row.createdAt,
   };
 }
 
-export function findDiagramByTaskId(taskId: string): StoredDiagram | null {
-  const row = getDb()
+export function findDiagramsByTaskId(taskId: string): StoredDiagram[] {
+  return getDb()
     .select()
     .from(taskDiagrams)
     .where(eq(taskDiagrams.taskId, taskId))
-    .get();
-  return row ? toStoredDiagram(row) : null;
+    .orderBy(asc(taskDiagrams.createdAt))
+    .all()
+    .map(toStoredDiagram);
 }
 
 export function findDiagramsByProjectId(projectId: string): StoredDiagram[] {
@@ -28,11 +30,12 @@ export function findDiagramsByProjectId(projectId: string): StoredDiagram[] {
     .select()
     .from(taskDiagrams)
     .where(eq(taskDiagrams.projectId, projectId))
+    .orderBy(asc(taskDiagrams.createdAt))
     .all()
     .map(toStoredDiagram);
 }
 
-export function upsertDiagramRow(diagram: StoredDiagram): StoredDiagram {
+export function insertDiagramRow(diagram: StoredDiagram): StoredDiagram {
   const now = Date.now();
   getDb()
     .insert(taskDiagrams)
@@ -43,24 +46,14 @@ export function upsertDiagramRow(diagram: StoredDiagram): StoredDiagram {
       title: diagram.title,
       source: diagram.source,
       format: diagram.format,
+      createdAt: diagram.createdAt,
       updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: taskDiagrams.taskId,
-      set: {
-        id: diagram.id,
-        projectId: diagram.projectId,
-        title: diagram.title,
-        source: diagram.source,
-        format: diagram.format,
-        updatedAt: now,
-      },
     })
     .run();
   return diagram;
 }
 
-export function deleteDiagramByTaskId(taskId: string): void {
+export function deleteDiagramsByTaskId(taskId: string): void {
   getDb().delete(taskDiagrams).where(eq(taskDiagrams.taskId, taskId)).run();
 }
 

@@ -134,11 +134,12 @@ export const taskDiagrams = sqliteTable(
     title: text("title"),
     source: text("source").notNull(),
     format: text("format").$type<DiagramFormat>().notNull().default("mermaid"),
+    createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (t) => ({
-    taskUnique: uniqueIndex("task_diagrams_task_unique").on(t.taskId),
     projectIdx: index("task_diagrams_project_idx").on(t.projectId),
+    taskIdx: index("task_diagrams_task_idx").on(t.taskId),
   })
 );
 
@@ -229,7 +230,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
   worktree: one(worktrees, { fields: [tasks.worktreeId], references: [worktrees.id] }),
   logs: many(terminalLogs),
-  diagram: one(taskDiagrams, { fields: [tasks.id], references: [taskDiagrams.taskId] }),
+  diagrams: many(taskDiagrams),
 }));
 
 export const terminalLogsRelations = relations(terminalLogs, ({ one }) => ({

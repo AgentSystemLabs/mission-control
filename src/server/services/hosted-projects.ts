@@ -81,7 +81,7 @@ function eventScopeFromRow(row: HostedTaskScopeRow | undefined): AppEventScope |
   };
 }
 
-async function eventScopeForHostedTask(taskId: string): Promise<AppEventScope | null> {
+export async function eventScopeForHostedTask(taskId: string): Promise<AppEventScope | null> {
   const result = await getHostedPool().query<HostedTaskScopeRow>(
     `SELECT "hostedProject"."organizationId", "hostedProject"."ownerUserId"
       FROM "hostedTask"

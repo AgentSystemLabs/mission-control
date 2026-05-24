@@ -40,6 +40,9 @@ export type AppEvent =
       title: string | null;
       source: string;
       format: "mermaid";
+      projectName: string;
+      taskTitle: string;
+      worktreeId: string | null;
     } & ScopedEvent);
 
 export function scopeForHostedContext(context: HostedAuthContext): AppEventScope {

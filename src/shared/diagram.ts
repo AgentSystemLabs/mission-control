@@ -17,4 +17,6 @@ export type DiagramShowEvent = {
   format: DiagramFormat;
 };
 
-export type StoredDiagram = Omit<DiagramShowEvent, "type">;
+export type StoredDiagram = Omit<DiagramShowEvent, "type"> & {
+  createdAt: number;
+};

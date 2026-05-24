@@ -6,13 +6,16 @@ import {
   DIAGRAM_TITLE_MAX_LENGTH,
 } from "~/shared/diagram";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
-import { events } from "../events";
+import { events, type AppEventScope } from "../events";
+import { isHostedDatabaseEnabled } from "../hosted-pg";
 import {
-  getDiagramForTask,
+  appendDiagramForTask,
   listDiagramsForProject,
-  upsertDiagramForTask,
+  listDiagramsForTask,
 } from "../services/diagram-store";
+import { eventScopeForHostedTask } from "../services/hosted-projects";
 import { getTask } from "../services/tasks";
+import { findProjectNameById } from "../repositories/projects.repo";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
 
 const diagramBody = z.object({
@@ -31,9 +34,9 @@ export function list(url: URL): Response {
 export function read(url: URL): Response {
   const taskId = url.searchParams.get("taskId")?.trim();
   if (!taskId) return jsonError(HTTP_BAD_REQUEST, "taskId required");
-  const diagram = getDiagramForTask(taskId);
-  if (!diagram) return jsonError(HTTP_NOT_FOUND, "diagram not found");
-  return json({ diagram });
+  const diagrams = listDiagramsForTask(taskId);
+  if (diagrams.length === 0) return jsonError(HTTP_NOT_FOUND, "diagram not found");
+  return json({ diagrams });
 }
 
 export async function submit(url: URL, request: Request): Promise<Response> {
@@ -52,7 +55,7 @@ export async function submit(url: URL, request: Request): Promise<Response> {
   if (!task) return jsonError(HTTP_NOT_FOUND, "task not found");
 
   const title = parsed.data.title?.trim() || null;
-  const diagram = upsertDiagramForTask({
+  const diagram = appendDiagramForTask({
     taskId,
     projectId: task.projectId,
     title,
@@ -60,10 +63,23 @@ export async function submit(url: URL, request: Request): Promise<Response> {
     format: parsed.data.format,
   });
 
-  events.emit("diagram:show", diagram);
+  let scope: AppEventScope | undefined;
+  if (isHostedDatabaseEnabled()) {
+    scope = (await eventScopeForHostedTask(taskId)) ?? undefined;
+  }
+
+  const projectName = findProjectNameById(task.projectId) ?? "Project";
+  const payload = {
+    ...diagram,
+    projectName,
+    taskTitle: task.title,
+    worktreeId: task.worktreeId ?? null,
+  };
+
+  events.emit("diagram:show", scope ? { ...payload, scope } : payload);
 
   try {
-    return json({ ok: true, id: diagram.id, replaced: true });
+    return json({ ok: true, id: diagram.id, appended: true });
   } catch (e) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;

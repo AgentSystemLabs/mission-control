@@ -2,33 +2,34 @@ import { randomUUID } from "node:crypto";
 import type { StoredDiagram } from "~/shared/diagram";
 import {
   deleteAllDiagramsForTests,
-  deleteDiagramByTaskId,
-  findDiagramByTaskId,
+  deleteDiagramsByTaskId,
   findDiagramsByProjectId,
-  upsertDiagramRow,
+  findDiagramsByTaskId,
+  insertDiagramRow,
 } from "../repositories/diagrams.repo";
 
-export function getDiagramForTask(taskId: string): StoredDiagram | null {
-  return findDiagramByTaskId(taskId);
+export function listDiagramsForTask(taskId: string): StoredDiagram[] {
+  return findDiagramsByTaskId(taskId);
 }
 
 export function listDiagramsForProject(projectId: string): StoredDiagram[] {
   return findDiagramsByProjectId(projectId);
 }
 
-export function upsertDiagramForTask(
-  input: Omit<StoredDiagram, "id">,
+export function appendDiagramForTask(
+  input: Omit<StoredDiagram, "id" | "createdAt">,
 ): StoredDiagram {
   const diagram: StoredDiagram = {
     ...input,
     id: randomUUID(),
+    createdAt: Date.now(),
   };
-  upsertDiagramRow(diagram);
+  insertDiagramRow(diagram);
   return diagram;
 }
 
-export function deleteDiagramForTask(taskId: string): void {
-  deleteDiagramByTaskId(taskId);
+export function deleteDiagramsForTask(taskId: string): void {
+  deleteDiagramsByTaskId(taskId);
 }
 
 export function resetDiagramStoreForTests(): void {

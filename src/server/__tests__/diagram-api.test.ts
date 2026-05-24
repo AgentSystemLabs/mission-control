@@ -11,7 +11,7 @@ const { getOrCreateApiToken } = await import("../services/settings");
 const { createProject } = await import("../services/projects");
 const { createTask } = await import("../services/tasks");
 const { events } = await import("../events");
-const { getDiagramForTask, resetDiagramStoreForTests } = await import("../services/diagram-store");
+const { listDiagramsForTask, resetDiagramStoreForTests } = await import("../services/diagram-store");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
 
@@ -88,11 +88,11 @@ describe("diagram API", () => {
     );
 
     expect(res?.status).toBe(200);
-    const stored = getDiagramForTask(taskId);
-    expect(stored?.source).toContain("A->>B: Hi");
+    const stored = listDiagramsForTask(taskId);
+    expect(stored[0]?.source).toContain("A->>B: Hi");
   });
 
-  it("accepts mermaid source, stores one diagram per task, and emits diagram:show", async () => {
+  it("accepts mermaid source, appends diagrams per task, and emits diagram:show", async () => {
     const seen = vi.fn();
     const off = events.onAny((event) => {
       if (event.type === "diagram:show") seen(event);
@@ -113,9 +113,9 @@ describe("diagram API", () => {
     off();
 
     expect(res?.status).toBe(200);
-    const body = (await res?.json()) as { ok: boolean; id: string; replaced: boolean };
+    const body = (await res?.json()) as { ok: boolean; id: string; appended: boolean };
     expect(body.ok).toBe(true);
-    expect(body.replaced).toBe(true);
+    expect(body.appended).toBe(true);
     expect(body.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
@@ -129,18 +129,22 @@ describe("diagram API", () => {
       title: "Pipeline",
       source: "flowchart LR\n  Draft --> POST --> Modal",
       format: "mermaid",
+      projectName: "diagram-test",
+      taskTitle: "Diagram task",
+      worktreeId: null,
     });
 
-    const stored = getDiagramForTask(taskId);
-    expect(stored?.source).toContain("Draft --> POST --> Modal");
+    const stored = listDiagramsForTask(taskId);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.source).toContain("Draft --> POST --> Modal");
   });
 
-  it("replaces the previous diagram for the same task", async () => {
+  it("appends multiple diagrams for the same task", async () => {
     await handleApiRequest(
       authed(`/api/diagram?taskId=${encodeURIComponent(taskId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ source: "flowchart LR\n  Old --> Node" }),
+        body: JSON.stringify({ source: "flowchart LR\n  Old --> Node", title: "First" }),
       }),
     );
 
@@ -148,17 +152,18 @@ describe("diagram API", () => {
       authed(`/api/diagram?taskId=${encodeURIComponent(taskId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ source: "flowchart LR\n  New --> Node" }),
+        body: JSON.stringify({ source: "flowchart LR\n  New --> Node", title: "Second" }),
       }),
     );
 
     expect(res?.status).toBe(200);
-    const stored = getDiagramForTask(taskId);
-    expect(stored?.source).toContain("New --> Node");
-    expect(stored?.source).not.toContain("Old --> Node");
+    const stored = listDiagramsForTask(taskId);
+    expect(stored).toHaveLength(2);
+    expect(stored[0]?.source).toContain("Old --> Node");
+    expect(stored[1]?.source).toContain("New --> Node");
   });
 
-  it("persists diagram across module reload (app restart)", async () => {
+  it("persists diagrams across module reload (app restart)", async () => {
     await handleApiRequest(
       authed(`/api/diagram?taskId=${encodeURIComponent(taskId)}`, {
         method: "POST",
@@ -167,8 +172,8 @@ describe("diagram API", () => {
       }),
     );
 
-    const { getDiagramForTask: reloadGetDiagram } = await import("../services/diagram-store");
-    expect(reloadGetDiagram(taskId)?.title).toBe("Latest");
+    const { listDiagramsForTask: reloadListDiagrams } = await import("../services/diagram-store");
+    expect(reloadListDiagrams(taskId)[0]?.title).toBe("Latest");
   });
 
   it("lists and reads stored diagrams for a project", async () => {
@@ -200,10 +205,12 @@ describe("diagram API", () => {
     );
     expect(readRes?.status).toBe(200);
     await expect(readRes?.json()).resolves.toEqual({
-      diagram: expect.objectContaining({
-        taskId,
-        title: "Latest",
-      }),
+      diagrams: [
+        expect.objectContaining({
+          taskId,
+          title: "Latest",
+        }),
+      ],
     });
   });
 
