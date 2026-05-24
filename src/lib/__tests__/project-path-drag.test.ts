@@ -31,7 +31,7 @@ describe("project path drag payload", () => {
       },
       types: [] as string[],
       effectAllowed: "",
-    } as DataTransfer;
+    } as unknown as DataTransfer;
 
     setProjectPathDragData(dataTransfer, "/Users/dev/project");
     expect(data.get(PROJECT_PATH_DRAG_MIME)).toBe("/Users/dev/project");
@@ -48,7 +48,7 @@ describe("project path drag payload", () => {
           return "";
         },
       },
-    } as DragEvent;
+    } as unknown as DragEvent;
 
     expect(isProjectPathDrag(event)).toBe(true);
     expect(readProjectPathFromDragEvent(event)).toBe("/Users/dev/project");

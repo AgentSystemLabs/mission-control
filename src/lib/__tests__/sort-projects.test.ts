@@ -28,7 +28,7 @@ function makeProject(
     launchUrl: null,
     worktreeSetupCommand: null,
     rememberAgentSettings: false,
-    savedAgent: undefined,
+    savedAgent: null,
     savedSkipPermissions: false,
     savedBareSession: false,
     createdAt: 1_000,

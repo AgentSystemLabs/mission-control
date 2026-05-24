@@ -48,6 +48,7 @@ export function ThemeSettingsPage() {
       settings?.automaticUpdateInstallOnQuitEnabled ?? false,
     gitDiffChangedFilesView: settings?.gitDiffChangedFilesView ?? null,
     gitDiffChangedFilesWidth: settings?.gitDiffChangedFilesWidth ?? null,
+    projectsDashboardView: settings?.projectsDashboardView ?? null,
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),

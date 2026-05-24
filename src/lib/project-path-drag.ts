@@ -22,6 +22,7 @@ export function readProjectPathFromDragEvent(event: DragEvent): string | null {
   const raw =
     event.dataTransfer?.getData(PROJECT_PATH_DRAG_MIME) ||
     event.dataTransfer?.getData("text/plain");
+  if (!raw) return null;
   const path = raw.trim();
   return path.length > 0 ? path : null;
 }
