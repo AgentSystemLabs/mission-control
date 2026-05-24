@@ -9,12 +9,11 @@ import { Icon } from "~/components/ui/Icon";
 import {
   SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY,
   SESSION_NOTIFICATIONS_CHANGED_EVENT,
-  clearAppNotifications,
   loadAppNotifications,
   mergeSessionFinishNotification,
   pruneAppNotifications,
+  publishAppNotifications,
   requestSessionNotificationOpen,
-  saveAppNotifications,
   type SessionFinishNotification,
   type SessionNotificationPruneTarget,
 } from "~/lib/session-notification-store";
@@ -33,7 +32,7 @@ export function useSessionFinishNotifications() {
 
   const clearNotifications = useCallback(() => {
     const next = loadAppNotifications().filter((n) => n.kind !== "session-finished");
-    saveAppNotifications(next);
+    publishAppNotifications(next);
     setNotifications([]);
   }, []);
 
@@ -43,7 +42,7 @@ export function useSessionFinishNotifications() {
         (item) => !(item.id === notification.id && item.projectId === notification.projectId),
       );
       if (next.length === prev.length) return prev;
-      saveAppNotifications(
+      publishAppNotifications(
         loadAppNotifications().filter(
           (item) =>
             !(
@@ -88,7 +87,7 @@ export function useSessionFinishNotifications() {
       const all = loadAppNotifications();
       const nextAll = pruneAppNotifications(all, target);
       if (nextAll === all) return prev;
-      saveAppNotifications(nextAll);
+      publishAppNotifications(nextAll);
       return nextAll.filter(
         (notification): notification is SessionFinishNotification =>
           notification.kind === "session-finished",
@@ -142,7 +141,7 @@ export function useSessionFinishNotifications() {
       setNotifications((prev) => {
         const all = loadAppNotifications();
         const nextAll = mergeSessionFinishNotification(all, notification);
-        saveAppNotifications(nextAll);
+        publishAppNotifications(nextAll);
         return nextAll.filter(
           (item): item is SessionFinishNotification => item.kind === "session-finished",
         );

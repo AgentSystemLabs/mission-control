@@ -172,6 +172,75 @@ export function saveAppNotifications(notifications: AppNotification[]) {
   }
 }
 
+const EMPTY_DIAGRAM_READY_NOTIFICATIONS: DiagramReadyNotification[] = [];
+
+let diagramReadySnapshot: DiagramReadyNotification[] = EMPTY_DIAGRAM_READY_NOTIFICATIONS;
+
+function diagramReadyNotificationsEqual(
+  left: DiagramReadyNotification[],
+  right: DiagramReadyNotification[],
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index]!;
+    const b = right[index]!;
+    if (
+      a.diagramId !== b.diagramId ||
+      a.projectId !== b.projectId ||
+      a.taskId !== b.taskId ||
+      a.createdAt !== b.createdAt
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function extractDiagramReadyNotifications(
+  notifications: AppNotification[],
+): DiagramReadyNotification[] {
+  const next = notifications.filter(
+    (notification): notification is DiagramReadyNotification =>
+      notification.kind === "diagram-ready",
+  );
+  return next.length === 0 ? EMPTY_DIAGRAM_READY_NOTIFICATIONS : next;
+}
+
+function syncDiagramReadySnapshot(source?: AppNotification[]) {
+  const next = extractDiagramReadyNotifications(source ?? loadAppNotifications());
+  if (!diagramReadyNotificationsEqual(diagramReadySnapshot, next)) {
+    diagramReadySnapshot = next;
+  }
+}
+
+export function publishAppNotifications(notifications: AppNotification[]) {
+  saveAppNotifications(notifications);
+  syncDiagramReadySnapshot(notifications);
+  dispatchSessionNotificationsChanged(notifications);
+}
+
+export function subscribeAppNotifications(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onChanged = () => {
+    syncDiagramReadySnapshot();
+    onStoreChange();
+  };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === NOTIFICATIONS_KEY) onChanged();
+  };
+  window.addEventListener(SESSION_NOTIFICATIONS_CHANGED_EVENT, onChanged);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(SESSION_NOTIFICATIONS_CHANGED_EVENT, onChanged);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+export function getDiagramReadyNotificationsSnapshot(): DiagramReadyNotification[] {
+  syncDiagramReadySnapshot();
+  return diagramReadySnapshot;
+}
+
 /** @deprecated Use saveAppNotifications */
 export function saveSessionFinishNotifications(
   notifications: SessionFinishNotification[],
@@ -184,6 +253,7 @@ export function clearAppNotifications() {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(NOTIFICATIONS_KEY);
+    syncDiagramReadySnapshot([]);
     dispatchSessionNotificationsChanged([]);
   } catch {
     /* quota or privacy-mode storage */
@@ -325,8 +395,7 @@ export function pruneStoredAppNotifications(
   const current = loadAppNotifications();
   const next = pruneAppNotifications(current, target);
   if (next !== current) {
-    saveAppNotifications(next);
-    dispatchSessionNotificationsChanged(next);
+    publishAppNotifications(next);
   }
   return next;
 }
@@ -340,8 +409,7 @@ export function pruneStoredSessionFinishNotifications(
 
 export function clearAppNotification(notification: AppNotification): AppNotification[] {
   const next = pruneAppNotification(loadAppNotifications(), notification);
-  saveAppNotifications(next);
-  dispatchSessionNotificationsChanged(next);
+  publishAppNotifications(next);
   return next;
 }
 

@@ -14,6 +14,7 @@ import {
   readPendingDiagramOpen,
   type PendingNotificationOpen,
 } from "~/lib/session-notification-store";
+import { persistDiagramReadyServerEvent } from "~/lib/use-diagram-ready-notifications";
 import { useServerEvents, type ServerEvent } from "~/lib/use-events";
 import {
   DiagramDialog,
@@ -127,6 +128,7 @@ export function DiagramDialogHost({ children }: { children?: ReactNode }) {
       const next = parseDiagramEvent(event);
       if (!next) return;
       upsertDiagram(next);
+      persistDiagramReadyServerEvent(event);
     },
     [upsertDiagram],
   );

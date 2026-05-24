@@ -58,7 +58,7 @@ import { Toaster } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import {
   mergeAppNotificationLists,
-  useDiagramReadyNotifications,
+  useDiagramReadyNotificationList,
 } from "~/lib/use-diagram-ready-notifications";
 import {
   clearAppNotification,
@@ -263,28 +263,21 @@ function Shell() {
 
   useNavigationSwipe();
   const sessionNotifications = useSessionFinishNotifications();
-  const diagramNotifications = useDiagramReadyNotifications();
+  const diagramNotificationList = useDiagramReadyNotificationList();
   const appNotifications = useMemo(
     () =>
       mergeAppNotificationLists(
         sessionNotifications.notifications,
-        diagramNotifications.notifications,
+        diagramNotificationList,
       ),
-    [sessionNotifications.notifications, diagramNotifications.notifications],
+    [sessionNotifications.notifications, diagramNotificationList],
   );
   const clearAppNotificationItem = useCallback((notification: AppNotification) => {
     clearAppNotification(notification);
-    if (notification.kind === "session-finished") {
-      sessionNotifications.clearNotification(notification);
-    } else {
-      diagramNotifications.clearNotification(notification);
-    }
-  }, [sessionNotifications, diagramNotifications]);
+  }, []);
   const clearAllAppNotifications = useCallback(() => {
     clearAppNotifications();
-    sessionNotifications.clearNotifications();
-    diagramNotifications.clearNotifications();
-  }, [sessionNotifications, diagramNotifications]);
+  }, []);
   useWarmCliAvailability();
 
   const path = router.state.location.pathname;
