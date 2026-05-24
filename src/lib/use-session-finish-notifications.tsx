@@ -9,13 +9,12 @@ import { Icon } from "~/components/ui/Icon";
 import {
   SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY,
   SESSION_NOTIFICATIONS_CHANGED_EVENT,
-  clearSessionFinishNotifications,
-  loadSessionFinishNotifications,
+  clearAppNotifications,
+  loadAppNotifications,
   mergeSessionFinishNotification,
-  pruneSessionFinishNotification,
-  pruneSessionFinishNotifications,
+  pruneAppNotifications,
   requestSessionNotificationOpen,
-  saveSessionFinishNotifications,
+  saveAppNotifications,
   type SessionFinishNotification,
   type SessionNotificationPruneTarget,
 } from "~/lib/session-notification-store";
@@ -25,20 +24,35 @@ export function useSessionFinishNotifications() {
   const { data: settings } = useSettings();
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osEnabled = settings?.sessionFinishOsNotificationEnabled ?? false;
-  const [notifications, setNotifications] = useState<SessionFinishNotification[]>(
-    loadSessionFinishNotifications,
+  const [notifications, setNotifications] = useState<SessionFinishNotification[]>(() =>
+    loadAppNotifications().filter(
+      (notification): notification is SessionFinishNotification =>
+        notification.kind === "session-finished",
+    ),
   );
 
   const clearNotifications = useCallback(() => {
-    clearSessionFinishNotifications();
+    const next = loadAppNotifications().filter((n) => n.kind !== "session-finished");
+    saveAppNotifications(next);
     setNotifications([]);
   }, []);
 
   const clearNotification = useCallback((notification: SessionFinishNotification) => {
     setNotifications((prev) => {
-      const next = pruneSessionFinishNotification(prev, notification);
-      if (next === prev) return prev;
-      saveSessionFinishNotifications(next);
+      const next = prev.filter(
+        (item) => !(item.id === notification.id && item.projectId === notification.projectId),
+      );
+      if (next.length === prev.length) return prev;
+      saveAppNotifications(
+        loadAppNotifications().filter(
+          (item) =>
+            !(
+              item.kind === "session-finished" &&
+              item.id === notification.id &&
+              item.projectId === notification.projectId
+            ),
+        ),
+      );
       return next;
     });
   }, []);
@@ -46,7 +60,12 @@ export function useSessionFinishNotifications() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const reloadNotifications = () => {
-      setNotifications(loadSessionFinishNotifications());
+      setNotifications(
+        loadAppNotifications().filter(
+          (notification): notification is SessionFinishNotification =>
+            notification.kind === "session-finished",
+        ),
+      );
     };
     const onStorage = (event: StorageEvent) => {
       if (event.key === SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY) {
@@ -66,10 +85,14 @@ export function useSessionFinishNotifications() {
 
   const pruneNotifications = useCallback((target: SessionNotificationPruneTarget) => {
     setNotifications((prev) => {
-      const next = pruneSessionFinishNotifications(prev, target);
-      if (next === prev) return prev;
-      saveSessionFinishNotifications(next);
-      return next;
+      const all = loadAppNotifications();
+      const nextAll = pruneAppNotifications(all, target);
+      if (nextAll === all) return prev;
+      saveAppNotifications(nextAll);
+      return nextAll.filter(
+        (notification): notification is SessionFinishNotification =>
+          notification.kind === "session-finished",
+      );
     });
   }, []);
 
@@ -107,6 +130,7 @@ export function useSessionFinishNotifications() {
       if (!id || !projectId) return;
 
       const notification: SessionFinishNotification = {
+        kind: "session-finished",
         id,
         projectId,
         worktreeId,
@@ -116,9 +140,12 @@ export function useSessionFinishNotifications() {
       };
 
       setNotifications((prev) => {
-        const next = mergeSessionFinishNotification(prev, notification);
-        saveSessionFinishNotifications(next);
-        return next;
+        const all = loadAppNotifications();
+        const nextAll = mergeSessionFinishNotification(all, notification);
+        saveAppNotifications(nextAll);
+        return nextAll.filter(
+          (item): item is SessionFinishNotification => item.kind === "session-finished",
+        );
       });
 
       const goToProject = () => {

@@ -12,9 +12,9 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { useFormattedBinding } from "~/lib/keybindings/store";
-import type { HotkeyAction } from "~/lib/keybindings/types";
-import { Kbd } from "./Kbd";
+import { useBinding } from "~/lib/keybindings/store";
+import type { Binding, HotkeyAction } from "~/lib/keybindings/types";
+import { Kbd, KbdCombo } from "./Kbd";
 
 const SHOW_DELAY_MS = 350;
 const GAP_PX = 6;
@@ -180,7 +180,7 @@ export function HotkeyTooltip({
   placement?: Placement;
   disabled?: boolean;
 }) {
-  const binding = useFormattedBinding(action);
+  const binding = useBinding(action);
   return (
     <Tooltip
       placement={placement}
@@ -188,7 +188,7 @@ export function HotkeyTooltip({
       content={
         <span className="mc-tooltip-row">
           {label != null && <span className="mc-tooltip-label">{label}</span>}
-          <Kbd variant="inline">{binding}</Kbd>
+          <KbdCombo binding={binding} variant="inline" />
         </span>
       }
     >
@@ -197,20 +197,52 @@ export function HotkeyTooltip({
   );
 }
 
-/** Tooltip with a static Kbd label (e.g. Esc) for non-action hotkeys. */
-export function StaticHotkeyTooltip({
-  hotkey,
+/** Tooltip for buttons that dismiss via Escape. */
+export function EscTooltip({
   label,
   children,
   placement = "top",
   disabled = false,
 }: {
-  hotkey: ReactNode;
   label?: ReactNode;
   children: ReactElement;
   placement?: Placement;
   disabled?: boolean;
 }) {
+  return (
+    <StaticHotkeyTooltip hotkey="Esc" label={label} placement={placement} disabled={disabled}>
+      {children}
+    </StaticHotkeyTooltip>
+  );
+}
+
+/** Tooltip with a static Kbd label (e.g. Esc) for non-action hotkeys. */
+export function StaticHotkeyTooltip({
+  hotkey,
+  binding,
+  parts,
+  label,
+  children,
+  placement = "top",
+  disabled = false,
+}: {
+  hotkey?: ReactNode;
+  binding?: Binding;
+  parts?: string[];
+  label?: ReactNode;
+  children: ReactElement;
+  placement?: Placement;
+  disabled?: boolean;
+}) {
+  const kbd =
+    binding != null ? (
+      <KbdCombo binding={binding} variant="inline" />
+    ) : parts != null && parts.length > 0 ? (
+      <KbdCombo parts={parts} variant="inline" />
+    ) : (
+      <Kbd variant="inline">{hotkey}</Kbd>
+    );
+
   return (
     <Tooltip
       placement={placement}
@@ -218,7 +250,7 @@ export function StaticHotkeyTooltip({
       content={
         <span className="mc-tooltip-row">
           {label != null && <span className="mc-tooltip-label">{label}</span>}
-          <Kbd variant="inline">{hotkey}</Kbd>
+          {kbd}
         </span>
       }
     >

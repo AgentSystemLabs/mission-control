@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
-import { HotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import {
   buildMermaidInitConfig,
   getMissionControlColorScheme,
@@ -29,6 +29,19 @@ export type DiagramDialogPayload = {
   source: string;
   format: DiagramFormat;
 };
+
+export type DiagramDialogSession = {
+  taskId: string;
+  projectId: string;
+  diagrams: DiagramDialogPayload[];
+  activeId: string;
+};
+
+function diagramTabLabel(diagram: DiagramDialogPayload, index: number): string {
+  const title = diagram.title?.trim();
+  if (title) return title;
+  return `Diagram ${index + 1}`;
+}
 
 type RenderState =
   | { status: "idle" }
@@ -193,13 +206,19 @@ function DiagramViewport({
 }
 
 export function DiagramDialog({
-  payload,
+  session,
   onClose,
+  onSelectDiagram,
 }: {
-  payload: DiagramDialogPayload | null;
+  session: DiagramDialogSession | null;
   onClose: () => void;
+  onSelectDiagram: (id: string) => void;
 }) {
-  const open = payload !== null;
+  const open = session !== null;
+  const payload =
+    session?.diagrams.find((diagram) => diagram.id === session.activeId) ??
+    session?.diagrams[session.diagrams.length - 1] ??
+    null;
   const containerRef = useRef<HTMLDivElement>(null);
   const [renderState, setRenderState] = useState<RenderState>({ status: "idle" });
   const [colorScheme, setColorScheme] = useState(getMissionControlColorScheme);
@@ -295,7 +314,7 @@ export function DiagramDialog({
           justifyContent: "space-between",
           gap: 10,
           padding: "10px 16px",
-          borderBottom: "1px solid var(--border)",
+          borderBottom: session && session.diagrams.length > 1 ? "none" : "1px solid var(--border)",
           background: "rgba(3, 6, 8, 0.35)",
           flexShrink: 0,
         }}
@@ -316,23 +335,83 @@ export function DiagramDialog({
         >
           {title}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close diagram"
+        <EscTooltip label="Close">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close diagram"
+            style={{
+              background: "transparent",
+              border: 0,
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              padding: 4,
+              display: "flex",
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="x" size={13} />
+          </button>
+        </EscTooltip>
+      </div>
+
+      {session && session.diagrams.length > 1 && (
+        <div
+          role="tablist"
+          aria-label="Diagram tabs"
           style={{
-            background: "transparent",
-            border: 0,
-            color: "var(--text-dim)",
-            cursor: "pointer",
-            padding: 4,
             display: "flex",
+            flexWrap: "wrap",
+            gap: 4,
+            padding: "0 16px 10px",
+            borderBottom: "1px solid var(--border)",
+            background: "rgba(3, 6, 8, 0.35)",
             flexShrink: 0,
           }}
         >
-          <Icon name="x" size={13} />
-        </button>
-      </div>
+          {session.diagrams.map((diagram, index) => {
+            const active = diagram.id === session.activeId;
+            const label = diagramTabLabel(diagram, index);
+            return (
+              <button
+                key={diagram.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={`diagram-panel-${diagram.id}`}
+                id={`diagram-tab-${diagram.id}`}
+                title={label}
+                onClick={() => onSelectDiagram(diagram.id)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "3px 9px",
+                  background: active ? "var(--surface-1)" : "transparent",
+                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                  borderRadius: 4,
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  color: active ? "var(--text)" : "var(--text-dim)",
+                  cursor: "pointer",
+                  maxWidth: 180,
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div
         style={{
@@ -348,6 +427,8 @@ export function DiagramDialog({
             ref={containerRef}
             role="img"
             aria-label={title}
+            id={payload ? `diagram-panel-${payload.id}` : undefined}
+            aria-labelledby={payload ? `diagram-tab-${payload.id}` : diagramLabelId}
             style={{
               width: "100%",
               color: "var(--text)",

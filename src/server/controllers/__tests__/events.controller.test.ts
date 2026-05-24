@@ -85,4 +85,48 @@ describe("events controller", () => {
     expect(text).toContain("owned-task");
     expect(text).not.toContain("other-task");
   });
+
+  it("delivers diagram:show events that carry hosted scope", async () => {
+    isHostedDatabaseEnabled.mockReturnValue(true);
+    isElectronLocalApiRequest.mockReturnValue(false);
+    getHostedAuthContext.mockResolvedValue(context);
+
+    const ticketResponse = await issueTicket(
+      new Request("http://127.0.0.1/api/events/ticket"),
+    );
+    const { ticket } = (await ticketResponse.json()) as { ticket: string };
+    const response = stream(new URL(`http://127.0.0.1/api/events?ticket=${ticket}`));
+    const { reader } = await readNextEvent(response);
+
+    events.emit("diagram:show", {
+      id: "diagram-1",
+      taskId: "owned-task",
+      projectId: "owned-project",
+      title: "Flow",
+      source: "flowchart LR\n  A --> B",
+      format: "mermaid",
+      projectName: "Owned",
+      taskTitle: "Owned task",
+      worktreeId: null,
+      scope: { organizationId: null, userId: "user-1" },
+    });
+    events.emit("diagram:show", {
+      id: "diagram-2",
+      taskId: "other-task",
+      projectId: "other-project",
+      title: "Other",
+      source: "flowchart LR\n  X --> Y",
+      format: "mermaid",
+      projectName: "Other",
+      taskTitle: "Other task",
+      worktreeId: null,
+      scope: { organizationId: null, userId: "user-2" },
+    });
+
+    const next = await reader.read();
+    await reader.cancel();
+    const text = new TextDecoder().decode(next.value);
+    expect(text).toContain("diagram-1");
+    expect(text).not.toContain("diagram-2");
+  });
 });

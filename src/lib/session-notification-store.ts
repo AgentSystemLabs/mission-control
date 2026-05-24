@@ -1,4 +1,5 @@
 export type SessionFinishNotification = {
+  kind: "session-finished";
   id: string;
   projectId: string;
   worktreeId: string | null;
@@ -7,24 +8,46 @@ export type SessionFinishNotification = {
   finishedAt: number;
 };
 
+export type DiagramReadyNotification = {
+  kind: "diagram-ready";
+  diagramId: string;
+  taskId: string;
+  projectId: string;
+  worktreeId: string | null;
+  projectName: string;
+  taskTitle: string;
+  diagramTitle: string | null;
+  createdAt: number;
+};
+
+export type AppNotification = SessionFinishNotification | DiagramReadyNotification;
+
 export type SessionNotificationPruneTarget =
   | { type: "task"; taskId: string; projectId?: string }
+  | { type: "diagram"; diagramId: string; projectId: string }
   | { type: "project"; projectId: string }
   | { type: "worktree"; projectId: string; worktreeId: string | null };
 
-export type PendingSessionOpen = {
+export type PendingNotificationOpen = {
+  kind: "session-finished" | "diagram-ready";
   projectId: string;
   worktreeId: string | null;
   taskId: string;
+  diagramId?: string;
   requestedAt: number;
 };
 
+/** @deprecated Use PendingNotificationOpen */
+export type PendingSessionOpen = PendingNotificationOpen;
+
 export const SESSION_NOTIFICATION_OPEN_EVENT = "mc:session-notification-open";
+export const DIAGRAM_NOTIFICATION_OPEN_EVENT = "mc:diagram-notification-open";
 export const SESSION_NOTIFICATIONS_CHANGED_EVENT =
   "mc:session-notifications-changed";
 
 const NOTIFICATIONS_KEY = "mc:sessionFinishNotifications";
 const PENDING_OPEN_KEY = "mc:pendingSessionOpen";
+const PENDING_DIAGRAM_OPEN_KEY = "mc:pendingDiagramOpen";
 const PENDING_OPEN_MAX_AGE_MS = 5 * 60_000;
 
 export const SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY = NOTIFICATIONS_KEY;
@@ -33,8 +56,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function toNotification(value: unknown): SessionFinishNotification | null {
-  if (!isRecord(value)) return null;
+function notificationTimestamp(notification: AppNotification): number {
+  return notification.kind === "session-finished"
+    ? notification.finishedAt
+    : notification.createdAt;
+}
+
+function toSessionFinishNotification(
+  value: Record<string, unknown>,
+): SessionFinishNotification | null {
   const id = typeof value.id === "string" ? value.id : "";
   const projectId = typeof value.projectId === "string" ? value.projectId : "";
   if (!("worktreeId" in value)) return null;
@@ -43,39 +73,97 @@ function toNotification(value: unknown): SessionFinishNotification | null {
   const taskTitle = typeof value.taskTitle === "string" ? value.taskTitle : "Session";
   const finishedAt = typeof value.finishedAt === "number" ? value.finishedAt : 0;
   if (!id || !projectId || !Number.isFinite(finishedAt)) return null;
-  return { id, projectId, worktreeId, projectName, taskTitle, finishedAt };
+  return {
+    kind: "session-finished",
+    id,
+    projectId,
+    worktreeId,
+    projectName,
+    taskTitle,
+    finishedAt,
+  };
 }
 
-function toPendingOpen(value: unknown): PendingSessionOpen | null {
+function toDiagramReadyNotification(
+  value: Record<string, unknown>,
+): DiagramReadyNotification | null {
+  const diagramId = typeof value.diagramId === "string" ? value.diagramId : "";
+  const taskId = typeof value.taskId === "string" ? value.taskId : "";
+  const projectId = typeof value.projectId === "string" ? value.projectId : "";
+  if (!("worktreeId" in value)) return null;
+  const worktreeId = typeof value.worktreeId === "string" ? value.worktreeId : null;
+  const projectName = typeof value.projectName === "string" ? value.projectName : "Project";
+  const taskTitle = typeof value.taskTitle === "string" ? value.taskTitle : "Session";
+  const diagramTitle =
+    typeof value.diagramTitle === "string" ? value.diagramTitle : null;
+  const createdAt = typeof value.createdAt === "number" ? value.createdAt : 0;
+  if (!diagramId || !taskId || !projectId || !Number.isFinite(createdAt)) return null;
+  return {
+    kind: "diagram-ready",
+    diagramId,
+    taskId,
+    projectId,
+    worktreeId,
+    projectName,
+    taskTitle,
+    diagramTitle,
+    createdAt,
+  };
+}
+
+function toNotification(value: unknown): AppNotification | null {
   if (!isRecord(value)) return null;
+  if (value.kind === "diagram-ready") return toDiagramReadyNotification(value);
+  return toSessionFinishNotification(value);
+}
+
+function toPendingOpen(value: unknown): PendingNotificationOpen | null {
+  if (!isRecord(value)) return null;
+  const kind =
+    value.kind === "diagram-ready" ? "diagram-ready" : "session-finished";
   const projectId = typeof value.projectId === "string" ? value.projectId : "";
   if (!("worktreeId" in value)) return null;
   const worktreeId = typeof value.worktreeId === "string" ? value.worktreeId : null;
   const taskId = typeof value.taskId === "string" ? value.taskId : "";
+  const diagramId = typeof value.diagramId === "string" ? value.diagramId : undefined;
   const requestedAt = typeof value.requestedAt === "number" ? value.requestedAt : 0;
   if (!projectId || !taskId || !Number.isFinite(requestedAt)) return null;
-  return { projectId, worktreeId, taskId, requestedAt };
+  if (kind === "diagram-ready" && !diagramId) return null;
+  return { kind, projectId, worktreeId, taskId, diagramId, requestedAt };
 }
 
-export function loadSessionFinishNotifications(): SessionFinishNotification[] {
+function sortNotifications(notifications: AppNotification[]): AppNotification[] {
+  return [...notifications].sort(
+    (a, b) => notificationTimestamp(b) - notificationTimestamp(a),
+  );
+}
+
+export function loadAppNotifications(): AppNotification[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(NOTIFICATIONS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(toNotification)
-      .filter((n): n is SessionFinishNotification => !!n)
-      .sort((a, b) => b.finishedAt - a.finishedAt);
+    return sortNotifications(
+      parsed
+        .map(toNotification)
+        .filter((n): n is AppNotification => !!n),
+    );
   } catch {
     return [];
   }
 }
 
-export function saveSessionFinishNotifications(
-  notifications: SessionFinishNotification[],
-) {
+/** @deprecated Use loadAppNotifications */
+export function loadSessionFinishNotifications(): SessionFinishNotification[] {
+  return loadAppNotifications().filter(
+    (notification): notification is SessionFinishNotification =>
+      notification.kind === "session-finished",
+  );
+}
+
+export function saveAppNotifications(notifications: AppNotification[]) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
@@ -84,7 +172,15 @@ export function saveSessionFinishNotifications(
   }
 }
 
-export function clearSessionFinishNotifications() {
+/** @deprecated Use saveAppNotifications */
+export function saveSessionFinishNotifications(
+  notifications: SessionFinishNotification[],
+) {
+  const others = loadAppNotifications().filter((n) => n.kind !== "session-finished");
+  saveAppNotifications(sortNotifications([...others, ...notifications]));
+}
+
+export function clearAppNotifications() {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(NOTIFICATIONS_KEY);
@@ -94,26 +190,65 @@ export function clearSessionFinishNotifications() {
   }
 }
 
+/** @deprecated Use clearAppNotifications */
+export function clearSessionFinishNotifications() {
+  clearAppNotifications();
+}
+
 export function mergeSessionFinishNotification(
-  current: SessionFinishNotification[],
+  current: AppNotification[],
   next: SessionFinishNotification,
-): SessionFinishNotification[] {
-  return [
+): AppNotification[] {
+  return sortNotifications([
     next,
     ...current.filter(
-      (n) => !(n.id === next.id && n.projectId === next.projectId),
+      (n) =>
+        !(
+          n.kind === "session-finished" &&
+          n.id === next.id &&
+          n.projectId === next.projectId
+        ),
     ),
-  ].sort((a, b) => b.finishedAt - a.finishedAt);
+  ]);
+}
+
+export function mergeDiagramReadyNotification(
+  current: AppNotification[],
+  next: DiagramReadyNotification,
+): AppNotification[] {
+  return sortNotifications([
+    next,
+    ...current.filter(
+      (n) =>
+        !(
+          n.kind === "diagram-ready" &&
+          n.diagramId === next.diagramId &&
+          n.projectId === next.projectId
+        ),
+    ),
+  ]);
 }
 
 function notificationMatchesPruneTarget(
-  notification: SessionFinishNotification,
+  notification: AppNotification,
   target: SessionNotificationPruneTarget,
 ): boolean {
   if (target.type === "task") {
+    const taskId =
+      notification.kind === "session-finished"
+        ? notification.id
+        : notification.taskId;
     return (
-      notification.id === target.taskId &&
+      (notification.kind === "session-finished" || notification.kind === "diagram-ready") &&
+      taskId === target.taskId &&
       (!target.projectId || notification.projectId === target.projectId)
+    );
+  }
+  if (target.type === "diagram") {
+    return (
+      notification.kind === "diagram-ready" &&
+      notification.diagramId === target.diagramId &&
+      notification.projectId === target.projectId
     );
   }
   if (target.type === "project") {
@@ -125,19 +260,34 @@ function notificationMatchesPruneTarget(
   );
 }
 
-export function pruneSessionFinishNotifications(
-  current: SessionFinishNotification[],
+export function pruneAppNotifications(
+  current: AppNotification[],
   target: SessionNotificationPruneTarget,
-): SessionFinishNotification[] {
+): AppNotification[] {
   const next = current.filter(
     (notification) => !notificationMatchesPruneTarget(notification, target),
   );
   return next.length === current.length ? current : next;
 }
 
+/** @deprecated Use pruneAppNotifications */
+export function pruneSessionFinishNotifications(
+  current: AppNotification[],
+  target: SessionNotificationPruneTarget,
+): AppNotification[] {
+  return pruneAppNotifications(current, target);
+}
+
 function notificationPruneTarget(
-  notification: SessionFinishNotification,
+  notification: AppNotification,
 ): SessionNotificationPruneTarget {
+  if (notification.kind === "diagram-ready") {
+    return {
+      type: "diagram",
+      diagramId: notification.diagramId,
+      projectId: notification.projectId,
+    };
+  }
   return {
     type: "task",
     taskId: notification.id,
@@ -145,19 +295,22 @@ function notificationPruneTarget(
   };
 }
 
-export function pruneSessionFinishNotification(
-  current: SessionFinishNotification[],
-  notification: SessionFinishNotification,
-): SessionFinishNotification[] {
-  return pruneSessionFinishNotifications(
-    current,
-    notificationPruneTarget(notification),
-  );
+export function pruneAppNotification(
+  current: AppNotification[],
+  notification: AppNotification,
+): AppNotification[] {
+  return pruneAppNotifications(current, notificationPruneTarget(notification));
 }
 
-function dispatchSessionNotificationsChanged(
-  notifications: SessionFinishNotification[],
-) {
+/** @deprecated Use pruneAppNotification */
+export function pruneSessionFinishNotification(
+  current: AppNotification[],
+  notification: SessionFinishNotification,
+): AppNotification[] {
+  return pruneAppNotification(current, notification);
+}
+
+function dispatchSessionNotificationsChanged(notifications: AppNotification[]) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent(SESSION_NOTIFICATIONS_CHANGED_EVENT, {
@@ -166,23 +319,70 @@ function dispatchSessionNotificationsChanged(
   );
 }
 
-export function pruneStoredSessionFinishNotifications(
+export function pruneStoredAppNotifications(
   target: SessionNotificationPruneTarget,
-): SessionFinishNotification[] {
-  const current = loadSessionFinishNotifications();
-  const next = pruneSessionFinishNotifications(current, target);
+): AppNotification[] {
+  const current = loadAppNotifications();
+  const next = pruneAppNotifications(current, target);
   if (next !== current) {
-    saveSessionFinishNotifications(next);
+    saveAppNotifications(next);
     dispatchSessionNotificationsChanged(next);
   }
   return next;
 }
 
+/** @deprecated Use pruneStoredAppNotifications */
+export function pruneStoredSessionFinishNotifications(
+  target: SessionNotificationPruneTarget,
+): AppNotification[] {
+  return pruneStoredAppNotifications(target);
+}
+
+export function clearAppNotification(notification: AppNotification): AppNotification[] {
+  const next = pruneAppNotification(loadAppNotifications(), notification);
+  saveAppNotifications(next);
+  dispatchSessionNotificationsChanged(next);
+  return next;
+}
+
+export function pruneStoredAppNotification(
+  notification: AppNotification,
+): AppNotification[] {
+  return pruneStoredAppNotifications(notificationPruneTarget(notification));
+}
+
+/** @deprecated Use pruneStoredAppNotification */
 export function pruneStoredSessionFinishNotification(
   notification: SessionFinishNotification,
-): SessionFinishNotification[] {
-  return pruneStoredSessionFinishNotifications(
-    notificationPruneTarget(notification),
+): AppNotification[] {
+  return pruneStoredAppNotification(notification);
+}
+
+function pendingOpenStorageKey(kind: PendingNotificationOpen["kind"]) {
+  return kind === "diagram-ready" ? PENDING_DIAGRAM_OPEN_KEY : PENDING_OPEN_KEY;
+}
+
+function writePendingOpen(request: PendingNotificationOpen) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      pendingOpenStorageKey(request.kind),
+      JSON.stringify(request),
+    );
+  } catch {
+    /* quota or privacy-mode storage */
+  }
+}
+
+function dispatchPendingOpen(request: PendingNotificationOpen) {
+  const eventName =
+    request.kind === "diagram-ready"
+      ? DIAGRAM_NOTIFICATION_OPEN_EVENT
+      : SESSION_NOTIFICATION_OPEN_EVENT;
+  window.dispatchEvent(
+    new CustomEvent<PendingNotificationOpen>(eventName, {
+      detail: request,
+    }),
   );
 }
 
@@ -190,58 +390,89 @@ export function requestSessionNotificationOpen(
   notification: SessionFinishNotification,
 ) {
   if (typeof window === "undefined") return;
-  const request: PendingSessionOpen = {
+  const request: PendingNotificationOpen = {
+    kind: "session-finished",
     projectId: notification.projectId,
     worktreeId: notification.worktreeId,
     taskId: notification.id,
     requestedAt: Date.now(),
   };
-  try {
-    window.localStorage.setItem(PENDING_OPEN_KEY, JSON.stringify(request));
-  } catch {
-    /* quota or privacy-mode storage */
-  }
-  window.dispatchEvent(
-    new CustomEvent<PendingSessionOpen>(SESSION_NOTIFICATION_OPEN_EVENT, {
-      detail: request,
-    }),
-  );
-  pruneStoredSessionFinishNotification(notification);
+  writePendingOpen(request);
+  dispatchPendingOpen(request);
+  pruneStoredAppNotification(notification);
 }
 
-export function readPendingSessionOpen(
-  projectId: string,
-): PendingSessionOpen | null {
+export function requestDiagramNotificationOpen(
+  notification: DiagramReadyNotification,
+) {
+  if (typeof window === "undefined") return;
+  const request: PendingNotificationOpen = {
+    kind: "diagram-ready",
+    projectId: notification.projectId,
+    worktreeId: notification.worktreeId,
+    taskId: notification.taskId,
+    diagramId: notification.diagramId,
+    requestedAt: Date.now(),
+  };
+  writePendingOpen(request);
+  dispatchPendingOpen(request);
+  pruneStoredAppNotification(notification);
+}
+
+function readPendingOpenFromKey(
+  key: string,
+  kind: PendingNotificationOpen["kind"],
+): PendingNotificationOpen | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(PENDING_OPEN_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     const request = toPendingOpen(JSON.parse(raw));
-    if (!request) return null;
+    if (!request || request.kind !== kind) return null;
     if (Date.now() - request.requestedAt > PENDING_OPEN_MAX_AGE_MS) {
-      window.localStorage.removeItem(PENDING_OPEN_KEY);
+      window.localStorage.removeItem(key);
       return null;
     }
-    return request.projectId === projectId ? request : null;
+    return request;
   } catch {
     return null;
   }
 }
 
-export function clearPendingSessionOpen(request: PendingSessionOpen) {
+export function readPendingSessionOpen(
+  projectId: string,
+): PendingNotificationOpen | null {
+  const request = readPendingOpenFromKey(PENDING_OPEN_KEY, "session-finished");
+  if (!request) return null;
+  return request.projectId === projectId ? request : null;
+}
+
+export function readPendingDiagramOpen(): PendingNotificationOpen | null {
+  return readPendingOpenFromKey(PENDING_DIAGRAM_OPEN_KEY, "diagram-ready");
+}
+
+export function clearPendingNotificationOpen(request: PendingNotificationOpen) {
   if (typeof window === "undefined") return;
   try {
-    const raw = window.localStorage.getItem(PENDING_OPEN_KEY);
+    const key = pendingOpenStorageKey(request.kind);
+    const raw = window.localStorage.getItem(key);
     const current = raw ? toPendingOpen(JSON.parse(raw)) : null;
     if (
       current &&
+      current.kind === request.kind &&
       current.projectId === request.projectId &&
       current.taskId === request.taskId &&
-      current.requestedAt === request.requestedAt
+      current.requestedAt === request.requestedAt &&
+      current.diagramId === request.diagramId
     ) {
-      window.localStorage.removeItem(PENDING_OPEN_KEY);
+      window.localStorage.removeItem(key);
     }
   } catch {
     /* ignore malformed storage */
   }
+}
+
+/** @deprecated Use clearPendingNotificationOpen */
+export function clearPendingSessionOpen(request: PendingNotificationOpen) {
+  clearPendingNotificationOpen(request);
 }

@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   clearSessionFinishNotifications,
+  loadAppNotifications,
   loadSessionFinishNotifications,
   pruneSessionFinishNotifications,
+  requestDiagramNotificationOpen,
   requestSessionNotificationOpen,
+  saveAppNotifications,
   saveSessionFinishNotifications,
+  type DiagramReadyNotification,
   type SessionFinishNotification,
 } from "../session-notification-store";
 
 const notifications: SessionFinishNotification[] = [
   {
+    kind: "session-finished",
     id: "task-1",
     projectId: "project-1",
     worktreeId: null,
@@ -18,6 +23,7 @@ const notifications: SessionFinishNotification[] = [
     finishedAt: 3,
   },
   {
+    kind: "session-finished",
     id: "task-2",
     projectId: "project-1",
     worktreeId: "worktree-1",
@@ -26,6 +32,7 @@ const notifications: SessionFinishNotification[] = [
     finishedAt: 2,
   },
   {
+    kind: "session-finished",
     id: "task-1",
     projectId: "project-2",
     worktreeId: null,
@@ -43,7 +50,7 @@ describe("pruneSessionFinishNotifications", () => {
       projectId: "project-1",
     });
 
-    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+    expect(next.map((n) => `${n.projectId}:${n.kind === "session-finished" ? n.id : n.taskId}`)).toEqual([
       "project-1:task-2",
       "project-2:task-1",
     ]);
@@ -55,7 +62,7 @@ describe("pruneSessionFinishNotifications", () => {
       taskId: "task-1",
     });
 
-    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+    expect(next.map((n) => `${n.projectId}:${n.kind === "session-finished" ? n.id : n.taskId}`)).toEqual([
       "project-1:task-2",
     ]);
   });
@@ -66,7 +73,7 @@ describe("pruneSessionFinishNotifications", () => {
       projectId: "project-1",
     });
 
-    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+    expect(next.map((n) => `${n.projectId}:${n.kind === "session-finished" ? n.id : n.taskId}`)).toEqual([
       "project-2:task-1",
     ]);
   });
@@ -78,7 +85,7 @@ describe("pruneSessionFinishNotifications", () => {
       worktreeId: "worktree-1",
     });
 
-    expect(next.map((n) => `${n.projectId}:${n.id}`)).toEqual([
+    expect(next.map((n) => `${n.projectId}:${n.kind === "session-finished" ? n.id : n.taskId}`)).toEqual([
       "project-1:task-1",
       "project-2:task-1",
     ]);
@@ -132,6 +139,68 @@ describe("clearSessionFinishNotifications", () => {
   });
 });
 
+describe("requestDiagramNotificationOpen", () => {
+  it("clears the opened diagram notification and emits diagram open plus change events", () => {
+    const store = new Map<string, string>();
+    const dispatchedEvents: Event[] = [];
+    const notification: DiagramReadyNotification = {
+      kind: "diagram-ready",
+      diagramId: "diagram-1",
+      taskId: "task-1",
+      projectId: "project-1",
+      worktreeId: null,
+      projectName: "Core",
+      taskTitle: "Build flow",
+      diagramTitle: "Pipeline",
+      createdAt: 1,
+    };
+    const previousWindow = globalThis.window;
+
+    globalThis.window = {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+      dispatchEvent: (event: Event) => {
+        dispatchedEvents.push(event);
+        return true;
+      },
+    } as unknown as Window & typeof globalThis;
+
+    try {
+      saveAppNotifications([
+        notifications[0]!,
+        notification,
+      ]);
+
+      requestDiagramNotificationOpen(notification);
+
+      expect(loadAppNotifications().map((n) =>
+        n.kind === "diagram-ready"
+          ? `diagram:${n.projectId}:${n.diagramId}`
+          : `session:${n.projectId}:${n.id}`,
+      )).toEqual(["session:project-1:task-1"]);
+      expect(dispatchedEvents.map((event) => event.type)).toEqual([
+        "mc:diagram-notification-open",
+        "mc:session-notifications-changed",
+      ]);
+      expect((dispatchedEvents[0] as CustomEvent).detail).toMatchObject({
+        kind: "diagram-ready",
+        projectId: "project-1",
+        taskId: "task-1",
+        diagramId: "diagram-1",
+      });
+    } finally {
+      globalThis.window = previousWindow;
+    }
+  });
+});
+
 describe("requestSessionNotificationOpen", () => {
   it("clears the opened notification and emits open plus change events", () => {
     const store = new Map<string, string>();
@@ -167,6 +236,7 @@ describe("requestSessionNotificationOpen", () => {
         "mc:session-notifications-changed",
       ]);
       expect((dispatchedEvents[0] as CustomEvent).detail).toMatchObject({
+        kind: "session-finished",
         projectId: "project-1",
         taskId: "task-1",
       });

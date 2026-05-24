@@ -20,11 +20,26 @@ function formatKey(key: string): string {
   return key;
 }
 
-export function formatBinding(b: Binding): string {
+export function formatBindingParts(b: Binding): string[] {
   const parts: string[] = [];
   if (b.mod) parts.push(isMac ? "⌘" : "Ctrl");
   if (b.alt) parts.push(isMac ? "⌥" : "Alt");
   if (b.shift) parts.push(isMac ? "⇧" : "Shift");
   parts.push(formatKey(b.key));
-  return isMac ? parts.join("") : parts.join("+");
+  return parts;
+}
+
+export function formatBinding(b: Binding): string {
+  return formatBindingParts(b).join(" + ");
+}
+
+/** Display pinned-slot bindings as e.g. ⌘ + 1–4. */
+export function formatPinnedSlotBindingParts(base: Binding): string[] {
+  const parts = formatBindingParts(base);
+  const modParts = parts.slice(0, -1);
+  return [...modParts, "1–4"];
+}
+
+export function formatPinnedSlotBinding(base: Binding): string {
+  return formatPinnedSlotBindingParts(base).join(" + ");
 }

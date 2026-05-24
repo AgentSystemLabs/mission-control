@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { api, ApiError } from "./api";
-import { isWebDaytonaRuntime } from "./runtime";
 
 export type ServerEvent = { type: string; [k: string]: unknown };
 
@@ -11,7 +10,6 @@ const SSE_RECONNECT_DELAY_MS = 1500;
 export function useServerEvents(onEvent: (e: ServerEvent) => void) {
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (isWebDaytonaRuntime()) return;
     let stopped = false;
     let es: EventSource | null = null;
     const reconnect = () => {

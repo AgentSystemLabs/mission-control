@@ -4,8 +4,9 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import {
+  requestDiagramNotificationOpen,
   requestSessionNotificationOpen,
-  type SessionFinishNotification,
+  type AppNotification,
 } from "~/lib/session-notification-store";
 
 export function SessionNotificationsButton({
@@ -13,8 +14,8 @@ export function SessionNotificationsButton({
   onClearNotification,
   onClearNotifications,
 }: {
-  notifications: SessionFinishNotification[];
-  onClearNotification: (notification: SessionFinishNotification) => void;
+  notifications: AppNotification[];
+  onClearNotification: (notification: AppNotification) => void;
   onClearNotifications: () => void;
 }) {
   const router = useRouter();
@@ -22,7 +23,12 @@ export function SessionNotificationsButton({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const sorted = useMemo(
-    () => [...notifications].sort((a, b) => b.finishedAt - a.finishedAt),
+    () =>
+      [...notifications].sort((a, b) => {
+        const aTime = a.kind === "session-finished" ? a.finishedAt : a.createdAt;
+        const bTime = b.kind === "session-finished" ? b.finishedAt : b.createdAt;
+        return bTime - aTime;
+      }),
     [notifications],
   );
   const visibleCount = Math.min(sorted.length, 9);
@@ -47,8 +53,12 @@ export function SessionNotificationsButton({
     };
   }, [open]);
 
-  const openNotification = (notification: SessionFinishNotification) => {
-    requestSessionNotificationOpen(notification);
+  const openNotification = (notification: AppNotification) => {
+    if (notification.kind === "session-finished") {
+      requestSessionNotificationOpen(notification);
+    } else {
+      requestDiagramNotificationOpen(notification);
+    }
     setOpen(false);
     void router.navigate({
       to: "/projects/$id",
@@ -62,7 +72,7 @@ export function SessionNotificationsButton({
     requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
-  const clearNotification = (notification: SessionFinishNotification) => {
+  const clearNotification = (notification: AppNotification) => {
     onClearNotification(notification);
     if (sorted.length <= 1) {
       setOpen(false);
@@ -81,10 +91,10 @@ export function SessionNotificationsButton({
         aria-expanded={open}
         aria-label={
           hasNotifications
-            ? `${sorted.length} session notification${sorted.length === 1 ? "" : "s"}`
-            : "Session notifications"
+            ? `${sorted.length} notification${sorted.length === 1 ? "" : "s"}`
+            : "Notifications"
         }
-        title="Session notifications"
+        title="Notifications"
         style={{ width: 42, padding: 0 }}
       >
         <span className="mc-btn-content">
@@ -122,7 +132,7 @@ export function SessionNotificationsButton({
       {open && (
         <CardFrame
           role="dialog"
-          aria-label="Session notifications"
+          aria-label="Notifications"
           solid
           style={{
             position: "absolute",
@@ -177,8 +187,8 @@ export function SessionNotificationsButton({
                   size="sm"
                   icon="trash"
                   onClick={clearNotifications}
-                  aria-label="Clear all session notifications"
-                  title="Clear all session notifications"
+                  aria-label="Clear all notifications"
+                  title="Clear all notifications"
                 >
                   Clear all
                 </Btn>
@@ -197,78 +207,12 @@ export function SessionNotificationsButton({
           >
             {hasNotifications ? (
               sorted.map((notification) => (
-                <div
-                  key={`${notification.projectId}:${notification.id}`}
-                  role="none"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) auto auto",
-                    gap: 8,
-                    alignItems: "center",
-                    padding: "10px 8px",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    background: "rgba(255,255,255,0.03)",
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        color: "color-mix(in srgb, var(--accent) 76%, white)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                      title={notification.projectName}
-                    >
-                      Session finished - {notification.projectName}
-                    </div>
-                    <div
-                      style={{
-                        color: "var(--text-dim)",
-                        fontSize: 11,
-                        marginTop: 3,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                      title={notification.taskTitle}
-                    >
-                      {notification.taskTitle}
-                    </div>
-                    <div
-                      style={{
-                        color: "var(--text-faint)",
-                        fontFamily: "var(--mono)",
-                        fontSize: 10,
-                        marginTop: 5,
-                      }}
-                    >
-                      {formatFinishedAt(notification.finishedAt)}
-                    </div>
-                  </div>
-                  <Btn
-                    type="button"
-                    variant="primary"
-                    size="sm"
-                    onClick={() => openNotification(notification)}
-                    aria-label={`Open ${notification.taskTitle}`}
-                  >
-                    Open
-                  </Btn>
-                  <Btn
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    icon="x"
-                    onClick={() => clearNotification(notification)}
-                    aria-label={`Clear ${notification.taskTitle}`}
-                    title={`Clear ${notification.taskTitle}`}
-                    style={{ width: 28, padding: 0 }}
-                  />
-                </div>
+                <NotificationRow
+                  key={notificationKey(notification)}
+                  notification={notification}
+                  onOpen={() => openNotification(notification)}
+                  onClear={() => clearNotification(notification)}
+                />
               ))
             ) : (
               <div
@@ -279,7 +223,7 @@ export function SessionNotificationsButton({
                   textAlign: "center",
                 }}
               >
-                Finished sessions will appear here.
+                Finished sessions and ready diagrams will appear here.
               </div>
             )}
           </div>
@@ -289,7 +233,131 @@ export function SessionNotificationsButton({
   );
 }
 
-function formatFinishedAt(value: number) {
+function NotificationRow({
+  notification,
+  onOpen,
+  onClear,
+}: {
+  notification: AppNotification;
+  onOpen: () => void;
+  onClear: () => void;
+}) {
+  const isDiagram = notification.kind === "diagram-ready";
+  const headline = isDiagram
+    ? `Diagram ready — ${notification.projectName}`
+    : `Session finished — ${notification.projectName}`;
+  const subtitle = isDiagram
+    ? notification.diagramTitle?.trim() || notification.taskTitle
+    : notification.taskTitle;
+  const timestamp = isDiagram ? notification.createdAt : notification.finishedAt;
+  const openLabel = isDiagram
+    ? `Open diagram ${subtitle}`
+    : `Open ${subtitle}`;
+
+  return (
+    <div
+      role="none"
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto auto",
+        gap: 8,
+        alignItems: "center",
+        padding: "10px 8px",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: isDiagram
+          ? "color-mix(in srgb, var(--accent) 6%, rgba(255,255,255,0.03))"
+          : "rgba(255,255,255,0.03)",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            minWidth: 0,
+          }}
+        >
+          {isDiagram && (
+            <Icon
+              name="chart"
+              size={12}
+              style={{
+                color: "color-mix(in srgb, var(--accent) 76%, white)",
+                flexShrink: 0,
+              }}
+            />
+          )}
+          <div
+            style={{
+              color: "color-mix(in srgb, var(--accent) 76%, white)",
+              fontSize: 12,
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={headline}
+          >
+            {headline}
+          </div>
+        </div>
+        <div
+          style={{
+            color: "var(--text-dim)",
+            fontSize: 11,
+            marginTop: 3,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={subtitle}
+        >
+          {subtitle}
+        </div>
+        <div
+          style={{
+            color: "var(--text-faint)",
+            fontFamily: "var(--mono)",
+            fontSize: 10,
+            marginTop: 5,
+          }}
+        >
+          {formatTimestamp(timestamp)}
+        </div>
+      </div>
+      <Btn
+        type="button"
+        variant="primary"
+        size="sm"
+        onClick={onOpen}
+        aria-label={openLabel}
+      >
+        Open
+      </Btn>
+      <Btn
+        type="button"
+        variant="ghost"
+        size="sm"
+        icon="x"
+        onClick={onClear}
+        aria-label={`Clear ${subtitle}`}
+        title={`Clear ${subtitle}`}
+        style={{ width: 28, padding: 0 }}
+      />
+    </div>
+  );
+}
+
+function notificationKey(notification: AppNotification) {
+  if (notification.kind === "diagram-ready") {
+    return `diagram:${notification.projectId}:${notification.diagramId}`;
+  }
+  return `session:${notification.projectId}:${notification.id}`;
+}
+
+function formatTimestamp(value: number) {
   try {
     return new Intl.DateTimeFormat(undefined, {
       month: "short",

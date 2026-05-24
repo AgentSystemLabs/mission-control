@@ -456,8 +456,8 @@ export const api = {
     req<{ diagrams: import("~/shared/diagram").StoredDiagram[] }>(
       `/api/diagrams?projectId=${encodeURIComponent(projectId)}`,
     ),
-  getDiagram: (taskId: string) =>
-    req<{ diagram: import("~/shared/diagram").StoredDiagram }>(
+  getDiagrams: (taskId: string) =>
+    req<{ diagrams: import("~/shared/diagram").StoredDiagram[] }>(
       `/api/diagram?taskId=${encodeURIComponent(taskId)}`,
     ),
 

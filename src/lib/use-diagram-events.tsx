@@ -8,16 +8,23 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "~/lib/api";
+import {
+  DIAGRAM_NOTIFICATION_OPEN_EVENT,
+  clearPendingNotificationOpen,
+  readPendingDiagramOpen,
+  type PendingNotificationOpen,
+} from "~/lib/session-notification-store";
 import { useServerEvents, type ServerEvent } from "~/lib/use-events";
 import {
   DiagramDialog,
   type DiagramDialogPayload,
+  type DiagramDialogSession,
 } from "~/components/views/DiagramDialog";
 import { DIAGRAM_FORMATS } from "~/shared/diagram";
 
 type DiagramContextValue = {
   hasDiagram: (taskId: string) => boolean;
-  openDiagram: (taskId: string) => Promise<void>;
+  openDiagram: (taskId: string, diagramId?: string) => Promise<void>;
   hydrateProject: (projectId: string) => Promise<void>;
 };
 
@@ -39,6 +46,42 @@ function parseDiagramEvent(event: ServerEvent): DiagramDialogPayload | null {
   return { id, taskId, projectId, title, source, format };
 }
 
+function appendDiagram(
+  current: DiagramDialogPayload[],
+  next: DiagramDialogPayload,
+): DiagramDialogPayload[] {
+  if (current.some((diagram) => diagram.id === next.id)) return current;
+  return [...current, next];
+}
+
+function toSession(
+  taskId: string,
+  projectId: string,
+  diagrams: DiagramDialogPayload[],
+  activeId?: string,
+): DiagramDialogSession | null {
+  if (diagrams.length === 0) return null;
+  const resolvedActiveId =
+    activeId && diagrams.some((diagram) => diagram.id === activeId)
+      ? activeId
+      : diagrams[diagrams.length - 1]!.id;
+  return { taskId, projectId, diagrams, activeId: resolvedActiveId };
+}
+
+function groupDiagramsByTask(
+  diagrams: Array<DiagramDialogPayload & { createdAt?: number }>,
+): Record<string, DiagramDialogPayload[]> {
+  const grouped: Record<string, DiagramDialogPayload[]> = {};
+  const sorted = [...diagrams].sort(
+    (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
+  );
+  for (const diagram of sorted) {
+    const { createdAt: _createdAt, ...payload } = diagram;
+    grouped[diagram.taskId] = appendDiagram(grouped[diagram.taskId] ?? [], payload);
+  }
+  return grouped;
+}
+
 export function useDiagrams(): DiagramContextValue {
   const ctx = useContext(DiagramContext);
   if (!ctx) {
@@ -56,11 +99,14 @@ export function useSyncProjectDiagrams(projectId: string | undefined) {
 }
 
 export function DiagramDialogHost({ children }: { children?: ReactNode }) {
-  const [byTaskId, setByTaskId] = useState<Record<string, DiagramDialogPayload>>({});
-  const [openPayload, setOpenPayload] = useState<DiagramDialogPayload | null>(null);
+  const [byTaskId, setByTaskId] = useState<Record<string, DiagramDialogPayload[]>>({});
+  const [openSession, setOpenSession] = useState<DiagramDialogSession | null>(null);
 
   const upsertDiagram = useCallback((payload: DiagramDialogPayload) => {
-    setByTaskId((current) => ({ ...current, [payload.taskId]: payload }));
+    setByTaskId((current) => ({
+      ...current,
+      [payload.taskId]: appendDiagram(current[payload.taskId] ?? [], payload),
+    }));
   }, []);
 
   const onEvent = useCallback(
@@ -74,55 +120,83 @@ export function DiagramDialogHost({ children }: { children?: ReactNode }) {
           delete next[taskId];
           return next;
         });
-        setOpenPayload((current) => (current?.taskId === taskId ? null : current));
+        setOpenSession((current) => (current?.taskId === taskId ? null : current));
         return;
       }
 
       const next = parseDiagramEvent(event);
       if (!next) return;
       upsertDiagram(next);
-      setOpenPayload(next);
     },
     [upsertDiagram],
   );
 
   useServerEvents(onEvent);
 
-  const hydrateProject = useCallback(
-    async (projectId: string) => {
-      const { diagrams } = await api.listDiagrams(projectId);
-      setByTaskId((current) => {
-        const next = { ...current };
-        for (const diagram of diagrams) {
-          next[diagram.taskId] = diagram;
-        }
-        return next;
-      });
-    },
-    [],
-  );
+  const hydrateProject = useCallback(async (projectId: string) => {
+    const { diagrams } = await api.listDiagrams(projectId);
+    const grouped = groupDiagramsByTask(diagrams);
+    setByTaskId((current) => {
+      const next = { ...current };
+      for (const [taskId, taskDiagrams] of Object.entries(grouped)) {
+        next[taskId] = taskDiagrams;
+      }
+      return next;
+    });
+  }, []);
 
   const openDiagram = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, diagramId?: string) => {
       const cached = byTaskId[taskId];
-      if (cached) {
-        setOpenPayload(cached);
+      if (cached?.length) {
+        setOpenSession(toSession(taskId, cached[0]!.projectId, cached, diagramId));
         return;
       }
       try {
-        const { diagram } = await api.getDiagram(taskId);
-        upsertDiagram(diagram);
-        setOpenPayload(diagram);
+        const { diagrams } = await api.getDiagrams(taskId);
+        if (diagrams.length === 0) return;
+        const grouped = groupDiagramsByTask(diagrams);
+        const taskDiagrams = grouped[taskId] ?? [];
+        setByTaskId((current) => ({ ...current, [taskId]: taskDiagrams }));
+        setOpenSession(
+          toSession(taskId, diagrams[0]!.projectId, taskDiagrams, diagramId),
+        );
       } catch {
         /* ignore missing diagram */
       }
     },
-    [byTaskId, upsertDiagram],
+    [byTaskId],
   );
+
+  const openRequestedDiagram = useCallback(
+    (request: PendingNotificationOpen) => {
+      if (request.kind !== "diagram-ready" || !request.diagramId) return false;
+      void openDiagram(request.taskId, request.diagramId);
+      clearPendingNotificationOpen(request);
+      return true;
+    },
+    [openDiagram],
+  );
+
+  useEffect(() => {
+    const pending = readPendingDiagramOpen();
+    if (pending) openRequestedDiagram(pending);
+  }, [openRequestedDiagram]);
+
+  useEffect(() => {
+    const onOpenRequest = (event: Event) => {
+      const request = (event as CustomEvent<PendingNotificationOpen>).detail;
+      if (request) openRequestedDiagram(request);
+    };
+    window.addEventListener(DIAGRAM_NOTIFICATION_OPEN_EVENT, onOpenRequest);
+    return () => {
+      window.removeEventListener(DIAGRAM_NOTIFICATION_OPEN_EVENT, onOpenRequest);
+    };
+  }, [openRequestedDiagram]);
 
   const value = useMemo<DiagramContextValue>(
     () => ({
-      hasDiagram: (taskId: string) => !!byTaskId[taskId],
+      hasDiagram: (taskId: string) => (byTaskId[taskId]?.length ?? 0) > 0,
       openDiagram,
       hydrateProject,
     }),
@@ -132,7 +206,15 @@ export function DiagramDialogHost({ children }: { children?: ReactNode }) {
   return (
     <DiagramContext.Provider value={value}>
       {children}
-      <DiagramDialog payload={openPayload} onClose={() => setOpenPayload(null)} />
+      <DiagramDialog
+        session={openSession}
+        onClose={() => setOpenSession(null)}
+        onSelectDiagram={(id) =>
+          setOpenSession((current) =>
+            current ? { ...current, activeId: id } : current,
+          )
+        }
+      />
     </DiagramContext.Provider>
   );
 }
