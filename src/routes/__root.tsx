@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -56,6 +56,15 @@ import { AuthGate, useHostedSession } from "~/components/views/AuthGate";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
+import {
+  mergeAppNotificationLists,
+  useDiagramReadyNotifications,
+} from "~/lib/use-diagram-ready-notifications";
+import {
+  clearAppNotification,
+  clearAppNotifications,
+  type AppNotification,
+} from "~/lib/session-notification-store";
 import { DiagramDialogHost } from "~/lib/use-diagram-events";
 import { useWarmCliAvailability } from "~/lib/cli-availability";
 import {
@@ -254,6 +263,28 @@ function Shell() {
 
   useNavigationSwipe();
   const sessionNotifications = useSessionFinishNotifications();
+  const diagramNotifications = useDiagramReadyNotifications();
+  const appNotifications = useMemo(
+    () =>
+      mergeAppNotificationLists(
+        sessionNotifications.notifications,
+        diagramNotifications.notifications,
+      ),
+    [sessionNotifications.notifications, diagramNotifications.notifications],
+  );
+  const clearAppNotificationItem = useCallback((notification: AppNotification) => {
+    clearAppNotification(notification);
+    if (notification.kind === "session-finished") {
+      sessionNotifications.clearNotification(notification);
+    } else {
+      diagramNotifications.clearNotification(notification);
+    }
+  }, [sessionNotifications, diagramNotifications]);
+  const clearAllAppNotifications = useCallback(() => {
+    clearAppNotifications();
+    sessionNotifications.clearNotifications();
+    diagramNotifications.clearNotifications();
+  }, [sessionNotifications, diagramNotifications]);
   useWarmCliAvailability();
 
   const path = router.state.location.pathname;
@@ -457,9 +488,9 @@ function Shell() {
               <AuthUserButton />
               <UpdateAvailableButton />
               <SessionNotificationsButton
-                notifications={sessionNotifications.notifications}
-                onClearNotification={sessionNotifications.clearNotification}
-                onClearNotifications={sessionNotifications.clearNotifications}
+                notifications={appNotifications}
+                onClearNotification={clearAppNotificationItem}
+                onClearNotifications={clearAllAppNotifications}
               />
               <Btn
                 variant="ghost"
