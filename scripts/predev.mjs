@@ -11,6 +11,7 @@ env.MC_DEV_PORT ||= "5173";
 env.POSTGRES_PORT ||= inferPostgresPortFromDotenv() || "55432";
 
 cleanupStaleDevServer(Number(env.MC_DEV_PORT));
+assertDevPortAvailable(Number(env.MC_DEV_PORT));
 
 if (shouldStartPostgres) {
   console.log(`[predev] starting local Postgres on localhost:${env.POSTGRES_PORT}`);
@@ -69,6 +70,23 @@ function cleanupStaleDevServer(port) {
       /* already gone */
     }
   }
+}
+
+function assertDevPortAvailable(port) {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return;
+
+  const remainingPids = pidsListeningOnPort(port);
+  if (remainingPids.length === 0) return;
+
+  console.error(`[predev] ${env.MC_DEV_HOST}:${port} is already in use.`);
+  for (const pid of remainingPids) {
+    const command = processCommand(pid);
+    console.error(`[predev]   pid ${pid}${command ? `: ${command}` : ""}`);
+  }
+  console.error(
+    "[predev] Quit the process using that port, then run the dev command again."
+  );
+  process.exit(1);
 }
 
 function pidsListeningOnPort(port) {

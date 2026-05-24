@@ -11,8 +11,8 @@
   },
   "scripts": {
     "dev": "corepack pnpm@11.1.2 dev:electron",
-    "dev:electron": "node scripts/predev.mjs && cross-env MC_DEV_HOST=127.0.0.1 MC_DEV_PORT=5173 concurrently -k -n vite,electron -c blue,green \"corepack pnpm@11.1.2 dev:server\" \"wait-on tcp:5173 && corepack pnpm@11.1.2 dev:electron:main\"",
-    "dev:web": "node scripts/predev.mjs --postgres && cross-env MC_DEV_HOST=127.0.0.1 MC_DEV_PORT=5173 corepack pnpm@11.1.2 dev:server",
+    "dev:electron": "node scripts/dev-local.mjs electron",
+    "dev:web": "node scripts/dev-local.mjs web --postgres",
     "dev:server": "corepack pnpm@11.1.2 native:node && vite --strictPort",
     "dev:electron:main": "node scripts/ensure-electron-sqlite.mjs && tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development electron dist-electron/electron/main.js",
     "build:web": "vite build && vite build -c vite.config.server-entry.ts && node scripts/copy-bundled-skills.mjs",
