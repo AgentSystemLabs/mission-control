@@ -73,6 +73,10 @@ describe("diagram skill install API", () => {
       expect(fs.existsSync(skillFile)).toBe(true);
     }
 
+    expect(fs.existsSync(path.join(projectPath, ".agents", "skills", "diagram", "SKILL.md"))).toBe(
+      true,
+    );
+
     const claudeSkill = path.join(projectPath, ".claude", "skills", "diagram", "SKILL.md");
     expect(fs.readFileSync(claudeSkill, "utf8")).toContain("POST $MC_API_URL/api/diagram");
     expect(fs.readFileSync(claudeSkill, "utf8")).toContain("MC_THEME");

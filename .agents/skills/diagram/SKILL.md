@@ -73,8 +73,25 @@ sequenceDiagram
 4. **Pass `"theme": "$MC_THEME"`** in the JSON body when `$MC_THEME` is set.
 5. **Tell the user briefly** that the diagram opened in Mission Control — don't repeat the full source unless they ask.
 6. **On HTTP failure**, show the error and paste the Mermaid source as a fallback.
+7. **Verify env vars before POSTing.** If `MC_API_URL`, `MC_API_TOKEN`, or `MC_TASK_ID` is empty, tell the user the session is not running inside Mission Control.
 
 ## Examples
+
+### Minimal POST (preferred — no jq required)
+
+```bash
+curl -sS -X POST "$MC_API_URL/api/diagram?taskId=$MC_TASK_ID" \
+  -H "Authorization: Bearer $MC_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @- <<EOF
+{
+  "source": "flowchart LR\n  A[Draft Mermaid] --> B[POST /api/diagram]\n  B --> C[Modal opens]",
+  "title": "Diagram pipeline",
+  "format": "mermaid",
+  "theme": "${MC_THEME:-dark}"
+}
+EOF
+```
 
 ### Sequence diagram
 

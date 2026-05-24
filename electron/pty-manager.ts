@@ -1,10 +1,11 @@
-import type { IpcMain, BrowserWindow } from "electron";
+import { app, type IpcMain, type BrowserWindow } from "electron";
 import log from "electron-log/main";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
+import { ensureDiagramSkillForAgent } from "./ensure-diagram-skill";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
@@ -398,6 +399,9 @@ export function registerPtyHandlers(
       // symlink-swap race between validation and spawn can't move us into a
       // post-validation target outside the project root.
       installAgentHooks(opts.agent, plan.cwd);
+      if (plan.mode === "agent") {
+        ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
+      }
 
       const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       env.MC_TASK_ID = opts.taskId;

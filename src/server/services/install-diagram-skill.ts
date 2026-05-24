@@ -74,9 +74,14 @@ export async function installDiagramSkill(
     const segments = DIAGRAM_SKILL_INSTALL_TARGETS[harness].segments;
     const rel = path.posix.join(...segments);
     assertSafeProjectRelativePath(projectPath, rel, "diagram skill install");
-    const targetDir = path.join(projectPath, ...segments);
-    await fs.promises.rm(targetDir, { recursive: true, force: true });
-    await copySkillTree(sourceDir, targetDir);
+    const targetDirs = [path.join(projectPath, ...segments)];
+    if (harness === "cursor") {
+      targetDirs.push(path.join(projectPath, ".agents", "skills", "diagram"));
+    }
+    for (const targetDir of targetDirs) {
+      await fs.promises.rm(targetDir, { recursive: true, force: true });
+      await copySkillTree(sourceDir, targetDir);
+    }
     result[`${harness}Installed`] = true;
   }
 
