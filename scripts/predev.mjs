@@ -72,6 +72,21 @@ function cleanupStaleDevServer(port) {
 }
 
 function pidsListeningOnPort(port) {
+  if (process.platform === "win32") {
+    const result = spawnSync("netstat", ["-ano", "-p", "tcp"], {
+      encoding: "utf8",
+    });
+    if (result.error || result.status !== 0) return [];
+
+    return (result.stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim().split(/\s+/))
+      .filter((parts) => parts.length >= 5 && parts[0] === "TCP" && parts[3] === "LISTENING")
+      .filter((parts) => parts[1]?.endsWith(`:${port}`))
+      .map((parts) => Number(parts[4]))
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+  }
+
   const result = spawnSync("lsof", ["-nP", `-tiTCP:${port}`, "-sTCP:LISTEN"], {
     encoding: "utf8",
   });
@@ -84,6 +99,11 @@ function pidsListeningOnPort(port) {
 }
 
 function isRepoViteProcess(pid) {
+  if (process.platform === "win32") {
+    const command = processCommand(pid);
+    return command.includes(root) && /\bvite(\.js)?\b/.test(command) && command.includes("--strictPort");
+  }
+
   const cwd = processCwd(pid);
   if (!cwd || resolve(cwd) !== root) return false;
 
@@ -92,6 +112,19 @@ function isRepoViteProcess(pid) {
 }
 
 function processCommand(pid) {
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}"; if ($p) { $p.CommandLine }`,
+      ],
+      { encoding: "utf8" },
+    );
+    return result.status === 0 ? result.stdout.trim() : "";
+  }
+
   const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
     encoding: "utf8",
   });
