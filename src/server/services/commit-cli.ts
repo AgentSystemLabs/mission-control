@@ -130,6 +130,7 @@ export async function resolveCommitCli(): Promise<{
  *   - claude:        `claude -p <prompt>`
  *   - codex:         `codex exec <prompt>` (non-interactive single-shot)
  *   - cursor-agent:  `cursor-agent -p <prompt>`
+ *   - opencode:      `opencode run <prompt>` (non-interactive single-shot)
  * Returns the (cmd, args) tuple that `runCli` then spawns through the login shell.
  */
 function commandFor(cli: CommitCli, prompt: string): { cmd: string; args: string[] } {
@@ -140,6 +141,8 @@ function commandFor(cli: CommitCli, prompt: string): { cmd: string; args: string
       return { cmd: "codex", args: ["exec", prompt] };
     case "cursor-agent":
       return { cmd: "cursor-agent", args: ["-p", prompt] };
+    case "opencode":
+      return { cmd: "opencode", args: ["run", prompt] };
   }
 }
 
