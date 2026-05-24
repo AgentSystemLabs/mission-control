@@ -9,6 +9,7 @@ export const AGENT_HOOK_EVENTS = {
   notification: "Notification",
   permissionPrompt: "permission_prompt",
   sessionStart: "SessionStart",
+  cursorSessionStart: "sessionStart",
   cursorBeforeSubmitPrompt: "beforeSubmitPrompt",
   cursorStop: "stop",
   cursorAfterAgentResponse: "afterAgentResponse",

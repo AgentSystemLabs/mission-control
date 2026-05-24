@@ -177,6 +177,32 @@ describe("cursor-cli hook API", () => {
     });
   });
 
+  it("captures conversation ids from beforeSubmitPrompt", async () => {
+    const res = await postHook("cursor", taskId, {
+      hook_event_name: "beforeSubmitPrompt",
+      conversation_id: SESSION_ID,
+      prompt: "wire hook tests",
+    });
+
+    expect(res?.status).toBe(200);
+    expect(getTask(taskId)).toMatchObject({
+      claudeSessionId: SESSION_ID,
+      status: "running",
+    });
+  });
+
+  it("captures conversation ids from sessionStart", async () => {
+    const res = await postHook("cursor", taskId, {
+      hook_event_name: "sessionStart",
+      conversation_id: SESSION_ID,
+    });
+
+    expect(res?.status).toBe(200);
+    expect(getTask(taskId)).toMatchObject({
+      claudeSessionId: SESSION_ID,
+    });
+  });
+
   it("marks tasks finished on stop", async () => {
     const res = await postHook("cursor", taskId, {
       hook_event_name: "stop",

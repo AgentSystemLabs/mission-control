@@ -26,6 +26,7 @@ import { getHostedAuthContext } from "../hosted-auth-context";
 import { isHostedDatabaseEnabled } from "../hosted-pg";
 import { isElectronLocalApiRequest } from "../request-runtime";
 import { getWorktree } from "../services/worktrees";
+import { generateTitleForTask } from "../services/title-generator";
 
 const createTaskBody = z.object({
   title: z.string().min(1, "title required"),
@@ -54,6 +55,7 @@ const updateStatusBody = z.object({
   status: z.enum(TASK_STATUSES).optional(),
   preview: z.string().optional(),
   lines: z.number().optional(),
+  prompt: z.string().optional(),
 });
 
 async function getHostedContext(request: Request) {
@@ -165,6 +167,10 @@ export async function setStatus(rawId: string, request: Request): Promise<Respon
     }
     const t = updateStatus(idParsed.data, parsed.data);
     if (!t) return notFound();
+    const prompt = typeof parsed.data.prompt === "string" ? parsed.data.prompt.trim() : "";
+    if (prompt) {
+      void generateTitleForTask(idParsed.data, prompt).catch(() => undefined);
+    }
     return json({ task: t });
   } catch (e) {
     const mapped = handleDomainError(e);

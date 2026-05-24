@@ -261,7 +261,7 @@ export const api = {
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/restore`, { method: "POST" }),
-  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number }) =>
+  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number; prompt?: string }) =>
     req<{ task: Task }>(`/api/tasks/${id}/status`, {
       method: "POST",
       body: JSON.stringify(body),

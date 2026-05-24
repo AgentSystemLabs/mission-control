@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseResponse } from "../title-generator";
+import { parseResponse, resolveTitleInvocation } from "../title-generator";
 
 describe("title-generator parseResponse", () => {
   it("parses the canonical TITLE:/ICON: two-line format", () => {
@@ -64,5 +64,23 @@ describe("title-generator parseResponse", () => {
   it("falls back to last-line text when no recognizable format is present", () => {
     const raw = "Some preamble\nLast line title";
     expect(parseResponse(raw)).toEqual({ title: "Last line title", icon: null });
+  });
+});
+
+describe("resolveTitleInvocation", () => {
+  it("uses claude print mode for cursor-cli titles instead of cursor-agent", () => {
+    const invocation = resolveTitleInvocation("cursor-cli", "fix login bug");
+    expect(invocation).toEqual({
+      cmd: "claude",
+      args: ["-p", expect.stringContaining("fix login bug")],
+    });
+    expect(invocation?.cmd).not.toBe("cursor-agent");
+  });
+
+  it("keeps agent-native print mode for non-cursor agents", () => {
+    expect(resolveTitleInvocation("codex", "fix login bug")).toEqual({
+      cmd: "codex",
+      args: ["exec", expect.stringContaining("fix login bug")],
+    });
   });
 });

@@ -1,3 +1,8 @@
+import {
+  formatPathForTerminalPaste,
+  isProjectPathDrag,
+  readProjectPathFromDragEvent,
+} from "./project-path-drag";
 import { getElectron } from "./electron";
 import { mapTerminalKey, shouldSuppressTerminalKey } from "./terminal-keymap";
 
@@ -8,13 +13,10 @@ type TerminalLike = {
   attachCustomKeyEventHandler(handler: (e: KeyboardEvent) => boolean): void;
 };
 
-const PATH_NEEDS_QUOTING = /[\s"'\\]/;
-const QUOTE_ESCAPE = /"/g;
-
 /**
- * Wire native drag-and-drop on `host` so dropped files paste their absolute
- * paths into the active PTY (matches iTerm / Terminal.app behavior; Claude
- * Code reads images by path). Returns a cleanup function.
+ * Wire native drag-and-drop on `host` so dropped files or pinned-project
+ * paths paste into the active PTY (matches iTerm / Terminal.app behavior;
+ * Claude Code reads images by path). Returns a cleanup function.
  */
 export function wireTerminalFileDrop(opts: {
   host: HTMLElement;
@@ -24,21 +26,29 @@ export function wireTerminalFileDrop(opts: {
 }): () => void {
   const { host, electron, getActivePtyId, onFocus } = opts;
   const onDragOver = (e: DragEvent) => {
-    if (e.dataTransfer?.types.includes("Files")) {
+    if (e.dataTransfer?.types.includes("Files") || isProjectPathDrag(e)) {
       e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
+      e.dataTransfer!.dropEffect = "copy";
     }
   };
   const onDrop = (e: DragEvent) => {
-    const files = Array.from(e.dataTransfer?.files ?? []);
-    if (!files.length) return;
     e.preventDefault();
     const activePtyId = getActivePtyId();
     if (!activePtyId) return;
+
+    const projectPath = readProjectPathFromDragEvent(e);
+    if (projectPath) {
+      electron.pty.write(activePtyId, formatPathForTerminalPaste(projectPath) + " ");
+      onFocus();
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (!files.length) return;
     const paths = files
       .map((f) => electron.getPathForFile(f))
       .filter(Boolean)
-      .map((p) => (PATH_NEEDS_QUOTING.test(p) ? `"${p.replace(QUOTE_ESCAPE, '\\"')}"` : p));
+      .map((p) => formatPathForTerminalPaste(p));
     if (!paths.length) return;
     electron.pty.write(activePtyId, paths.join(" ") + " ");
     onFocus();

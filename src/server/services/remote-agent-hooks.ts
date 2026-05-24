@@ -55,6 +55,7 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
     style: "cursor",
     events: [
       { event: "beforeSubmitPrompt" },
+      { event: "sessionStart" },
       { event: "stop" },
       { event: "afterAgentResponse" },
     ],
@@ -82,12 +83,10 @@ function buildPosixHookCommand(
   if (style === "cursor") {
     return (
       'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then printf \'{"continue":true}\\n\'; exit 0; fi; ' +
-      "payload=$(cat); " +
-      "curl -sS -m 3 -X POST " +
+      "cat | curl -sS -m 3 -X POST " +
       '-H "Authorization: Bearer $MC_API_TOKEN" ' +
       '-H "Content-Type: application/json" ' +
-      "--data-binary \"$payload\" " +
-      `${url} >/dev/null 2>&1 || true; ` +
+      `--data-binary @- ${url} >/dev/null 2>&1 || true; ` +
       "printf '{\"continue\":true}\\n'"
     );
   }

@@ -1,4 +1,5 @@
 import { AGENT_REGISTRY } from "~/shared/agents";
+import type { TaskAgent } from "~/shared/domain";
 import { TITLE_GENERATING, TITLE_WAITING, isSentinelTitle } from "~/lib/task-sentinels";
 import { SESSION_ICON_OPTIONS, isSessionIcon } from "~/lib/session-icons";
 import { runCli } from "./claude-cli";
@@ -48,6 +49,25 @@ function buildMetaPrompt(): string {
 }
 
 const META_PROMPT = buildMetaPrompt();
+
+// Spawning cursor-agent -p while an interactive cursor-agent PTY is active can
+// destabilize the running session and crash the Electron main process (EPIPE).
+const CURSOR_TITLE_CLI_FALLBACKS: TaskAgent[] = ["claude-code", "codex"];
+
+export function resolveTitleInvocation(
+  agent: TaskAgent,
+  prompt: string,
+): { cmd: string; args: string[] } | undefined {
+  const input = META_PROMPT + prompt;
+  if (agent !== "cursor-cli") {
+    return AGENT_REGISTRY[agent].titleInvocation?.(input);
+  }
+  for (const fallbackAgent of CURSOR_TITLE_CLI_FALLBACKS) {
+    const invocation = AGENT_REGISTRY[fallbackAgent].titleInvocation?.(input);
+    if (invocation) return invocation;
+  }
+  return undefined;
+}
 
 type Parsed = { title: string; icon: string | null };
 
@@ -143,8 +163,13 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
   if (!isSentinelTitle(task.title)) return; // user has set a manual title
   if (!prompt.trim()) return;
 
-  const invocation = AGENT_REGISTRY[task.agent].titleInvocation?.(META_PROMPT + prompt);
-  if (!invocation) return; // agent has no print mode — leave sentinel
+  const invocation = resolveTitleInvocation(task.agent, prompt);
+  if (!invocation) {
+    if (task.title === TITLE_WAITING) {
+      updateTask(taskId, { title: fallbackTitle(prompt) });
+    }
+    return;
+  }
 
   // Move from "Waiting" → "Generating".
   if (task.title === TITLE_WAITING) {

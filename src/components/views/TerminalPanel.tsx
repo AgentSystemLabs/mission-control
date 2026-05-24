@@ -3,7 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
-import { getElectron } from "~/lib/electron";
+import { getElectron, isElectron } from "~/lib/electron";
+import { useHotkey } from "~/lib/use-hotkey";
 import { api } from "~/lib/api";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
@@ -46,6 +47,16 @@ export function TerminalPanel({
       setConfirmDelete(true);
     });
   }, [active, userTerminals.panelOpen, userTerminals.focusedId]);
+
+  useHotkey(
+    "session.closeWindow",
+    () => {
+      if (!active) return;
+      if (userTerminals.panelOpen && userTerminals.focusedId) return;
+      setConfirmDelete(true);
+    },
+    { enabled: !isElectron() && !!active, capture: true },
+  );
 
   const handleDelete = async () => {
     if (!active) return;

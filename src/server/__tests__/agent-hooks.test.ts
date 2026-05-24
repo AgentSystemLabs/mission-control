@@ -124,9 +124,11 @@ describe("agent hook installation", () => {
       "/api/hooks/cursor?taskId=$MC_TASK_ID&hookEvent=beforeSubmitPrompt"
     );
     expect(settings.hooks.beforeSubmitPrompt?.[0]?.command).toContain(
-      "{\"continue\":true}"
+      '{"continue":true}'
     );
+    expect(settings.hooks.beforeSubmitPrompt?.[0]?.command).toContain("--data-binary @-");
     expect(settings.hooks.beforeSubmitPrompt?.[0]?.hooks).toBeUndefined();
+    expect(settings.hooks.sessionStart?.[0]?.command).toContain("hookEvent=sessionStart");
     expect(settings.hooks.stop?.[0]?.command).toContain("hookEvent=stop");
     expect(settings.hooks.afterAgentResponse?.[0]?.command).toContain(
       "hookEvent=afterAgentResponse"

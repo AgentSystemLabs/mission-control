@@ -3,7 +3,7 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { Icon } from "~/components/ui/Icon";
-import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { UserTerminalPane } from "./UserTerminalPane";
@@ -300,7 +300,7 @@ export function UserTerminalPanel() {
           )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
-          <StaticHotkeyTooltip hotkey="⌘T" label="New terminal">
+          <HotkeyTooltip action="terminal.newTab" label="New terminal">
             <Btn
               variant="ghost"
               size="sm"
@@ -312,9 +312,9 @@ export function UserTerminalPanel() {
             >
               New
             </Btn>
-          </StaticHotkeyTooltip>
-          <StaticHotkeyTooltip
-            hotkey="⌃`"
+          </HotkeyTooltip>
+          <HotkeyTooltip
+            action="terminal.toggle"
             label={panelOpen ? "Collapse panel" : "Expand panel"}
           >
             <Btn
@@ -324,7 +324,7 @@ export function UserTerminalPanel() {
               aria-label={panelOpen ? "Collapse panel" : "Expand panel"}
               onClick={() => setPanelOpen(!panelOpen)}
             />
-          </StaticHotkeyTooltip>
+          </HotkeyTooltip>
         </div>
       </div>
       {panelOpen && (
@@ -364,7 +364,7 @@ export function UserTerminalPanel() {
                     : "Click a tab above to bring a terminal back into view."
                 }
                 action={
-                  <StaticHotkeyTooltip hotkey="⌘T">
+                  <HotkeyTooltip action="terminal.newTab">
                     <Btn
                       variant="ghost"
                       size="sm"
@@ -373,7 +373,7 @@ export function UserTerminalPanel() {
                     >
                       New terminal
                     </Btn>
-                  </StaticHotkeyTooltip>
+                  </HotkeyTooltip>
                 }
               />
             ) : (

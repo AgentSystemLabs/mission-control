@@ -22,14 +22,26 @@ const hookPayload = z
     message: z.string(),
     title: z.string(),
     session_id: z.string(),
+    conversation_id: z.string(),
   })
   .partial();
+
+function hookSessionId(payload: z.infer<typeof hookPayload>): string {
+  if (typeof payload.session_id === "string" && payload.session_id.trim()) {
+    return payload.session_id.trim();
+  }
+  if (typeof payload.conversation_id === "string" && payload.conversation_id.trim()) {
+    return payload.conversation_id.trim();
+  }
+  return "";
+}
 
 function isSessionCaptureEvent(event: string): boolean {
   return (
     event === AGENT_HOOK_EVENTS.userPromptSubmit ||
     event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt ||
-    event === AGENT_HOOK_EVENTS.sessionStart
+    event === AGENT_HOOK_EVENTS.sessionStart ||
+    event === AGENT_HOOK_EVENTS.cursorSessionStart
   );
 }
 
@@ -84,7 +96,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
 
   const event = payload.hook_event_name || url.searchParams.get("hookEvent") || "";
   const status = mapHookEventToStatus({ ...payload, hook_event_name: event });
-  const incomingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
+  const incomingSessionId = hookSessionId(payload);
 
   const rawAuth = request.headers.get("authorization") || request.headers.get("Authorization") || "";
   const token = rawAuth.replace(/^Bearer\s+/i, "").trim();
@@ -153,7 +165,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
       typeof payload.prompt === "string" &&
       payload.prompt.trim()
     ) {
-      void generateTitleForTask(taskId, payload.prompt);
+      void generateTitleForTask(taskId, payload.prompt).catch(() => undefined);
     }
     return json({ ok: true, status });
   } catch (e) {

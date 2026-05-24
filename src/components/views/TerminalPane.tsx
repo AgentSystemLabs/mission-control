@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import {
   AGENT_META,
   DUPLICATE_ACTIVE_SESSION_EVENT,
@@ -25,7 +26,8 @@ import {
   isAgentResumeCommand,
   newSessionId,
 } from "~/lib/agent-command";
-import { terminalInputStartsTurn } from "~/lib/task-status-sync";
+import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
+import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
@@ -128,6 +130,8 @@ export function TerminalPane({
       >();
       const PENDING_ELECTRON_OUTPUT_MAX_CHARS = 64_000;
       let fallbackRunningPosted = false;
+      let promptCaptureBuffer = "";
+      let promptTitlePosted = false;
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
       });
@@ -244,11 +248,25 @@ export function TerminalPane({
 
       const wireTerminalInput = (ptyId: string) => {
         term.onData((data) => {
+          const usesPromptFallback = agentUsesTerminalPromptFallback(task.agent);
+          let submittedPrompt: string | null = null;
+          if (usesPromptFallback && !promptTitlePosted) {
+            const captured = accumulateTerminalPrompt(promptCaptureBuffer, data);
+            promptCaptureBuffer = captured.buffer;
+            submittedPrompt = captured.submitted;
+          }
+
           if (!fallbackRunningPosted && terminalInputStartsTurn(task.agent, data)) {
             fallbackRunningPosted = true;
             void (async () => {
               try {
-                await api.updateTaskStatus(descriptor.taskId, { status: "running" });
+                await api.updateTaskStatus(descriptor.taskId, {
+                  status: "running",
+                  ...(submittedPrompt ? { prompt: submittedPrompt } : {}),
+                });
+                if (submittedPrompt) {
+                  promptTitlePosted = true;
+                }
                 await Promise.all([
                   queryClient.invalidateQueries({
                     queryKey: queryKeys.tasks(project.id, project.activeWorktreeId ?? null),
@@ -582,37 +600,43 @@ export function TerminalPane({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <Btn
-            variant="ghost"
-            size="sm"
-            icon="copy"
-            onClick={requestSessionClone}
-            title="Clone session (Cmd+Shift+D)"
-            aria-label="Clone session"
-            style={{ width: 34, padding: 0 }}
-          />
-          {onToggleExpanded && (
+          <HotkeyTooltip action="session.clone" label="Clone session">
             <Btn
               variant="ghost"
               size="sm"
-              icon={expanded ? "minimize" : "maximize"}
-              onClick={onToggleExpanded}
-              title={expanded ? "Shrink session panel" : "Expand session panel"}
-              aria-label={expanded ? "Shrink session panel" : "Expand session panel"}
-              aria-pressed={expanded}
+              icon="copy"
+              onClick={requestSessionClone}
+              aria-label="Clone session"
               style={{ width: 34, padding: 0 }}
             />
+          </HotkeyTooltip>
+          {onToggleExpanded && (
+            <HotkeyTooltip
+              action="terminal.expandToggle"
+              label={expanded ? "Shrink session panel" : "Expand session panel"}
+            >
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon={expanded ? "minimize" : "maximize"}
+                onClick={onToggleExpanded}
+                aria-label={expanded ? "Shrink session panel" : "Expand session panel"}
+                aria-pressed={expanded}
+                style={{ width: 34, padding: 0 }}
+              />
+            </HotkeyTooltip>
           )}
           {onHide && (
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="x"
-              onClick={onHide}
-              title="Hide session panel"
-              aria-label="Hide session panel"
-              style={{ width: 34, padding: 0 }}
-            />
+            <HotkeyTooltip action="terminal.close" label="Hide session panel">
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon="x"
+                onClick={onHide}
+                aria-label="Hide session panel"
+                style={{ width: 34, padding: 0 }}
+              />
+            </HotkeyTooltip>
           )}
         </div>
       </div>
