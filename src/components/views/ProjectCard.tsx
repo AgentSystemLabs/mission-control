@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { Icon } from "~/components/ui/Icon";
 import { Btn } from "~/components/ui/Btn";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
@@ -27,8 +26,10 @@ export function ProjectCard({
   const [hovered, setHovered] = useState(false);
   return (
     <CardFrame
+      className="mc-project-card"
       glow
       focused={hovered}
+      onClick={onOpen}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -39,23 +40,9 @@ export function ProjectCard({
         flexDirection: "column",
       }}
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`Open project ${project.name}`}
-        style={{
-          position: "absolute",
-          inset: 0,
-          zIndex: 0,
-          background: "transparent",
-          border: 0,
-          padding: 0,
-          margin: 0,
-          cursor: "pointer",
-          borderRadius: "inherit",
-        }}
-      />
-      <ShimmerBar active={hasActivity} />
+      <div aria-hidden style={{ pointerEvents: "none", position: "relative", zIndex: 2 }}>
+        <ShimmerBar active={hasActivity} />
+      </div>
       {hasActivity && (
         <div
           aria-hidden
@@ -67,6 +54,8 @@ export function ProjectCard({
             width: 3,
             background: "var(--accent)",
             boxShadow: "0 0 14px var(--accent-glow)",
+            pointerEvents: "none",
+            zIndex: 2,
           }}
         />
       )}
@@ -77,35 +66,57 @@ export function ProjectCard({
           flexDirection: "column",
           gap: 14,
           position: "relative",
-          zIndex: 1,
-          pointerEvents: "none",
+          zIndex: 2,
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-          <ProjectIcon project={project} size={36} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-              <span
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "var(--text)",
-                  letterSpacing: "-0.01em",
-                  flex: "1 1 auto",
-                  minWidth: 0,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {project.name}
-              </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+            aria-label={`Open project ${project.name}`}
+            style={{
+              flex: "1 1 auto",
+              minWidth: 0,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 12,
+              padding: 0,
+              border: 0,
+              background: "transparent",
+              color: "inherit",
+              font: "inherit",
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+          >
+            <ProjectIcon project={project} size={36} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                <span
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    letterSpacing: "-0.01em",
+                    flex: "1 1 auto",
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {project.name}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>
+                <ProjectStatusBadge activity={activity} />
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>
-              <ProjectStatusBadge activity={activity} />
-            </div>
-          </div>
+          </button>
           <Btn
             size="sm"
             variant={project.pinned ? "accent" : "ghost"}
@@ -116,7 +127,7 @@ export function ProjectCard({
             }}
             aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
             title={project.pinned ? "Unpin" : "Pin"}
-            style={{ pointerEvents: "auto", position: "relative", zIndex: 1 }}
+            style={{ pointerEvents: "auto", position: "relative", zIndex: 3 }}
           >
             {project.pinned ? "Pinned" : "Pin"}
           </Btn>

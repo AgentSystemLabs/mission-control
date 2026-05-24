@@ -17,6 +17,7 @@ import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import type {
   GitDiffChangedFilesView,
+  ProjectsDashboardView,
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import { getClientRuntime } from "~/lib/runtime";
@@ -41,6 +42,8 @@ export type AppSettings = {
   worktreesEnabled: boolean;
   gitDiffChangedFilesView: GitDiffChangedFilesView | null;
   gitDiffChangedFilesWidth: number | null;
+  /** Projects dashboard layout — cards (default) or table. */
+  projectsDashboardView: ProjectsDashboardView | null;
   selectedWorktreeByProject: SelectedWorktreeByProject | null;
   /**
    * Which CLI generates Ship's commit message. `null` means "not set yet" —
@@ -395,6 +398,7 @@ export const api = {
         | "worktreesEnabled"
         | "gitDiffChangedFilesView"
         | "gitDiffChangedFilesWidth"
+        | "projectsDashboardView"
         | "selectedWorktreeByProject"
         | "commitCli"
       >

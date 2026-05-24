@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
-import { KbdAction } from "~/components/ui/Kbd";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { groupProjects } from "~/lib/group-projects";
@@ -12,10 +11,16 @@ import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { ProjectCard } from "~/components/views/ProjectCard";
+import { ProjectsDashboardViewToggle } from "~/components/views/ProjectsDashboardViewToggle";
+import { ProjectsTable } from "~/components/views/ProjectsTable";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { LaunchKitDialog } from "~/components/views/LaunchKitDialog";
 import { useAddProject } from "~/lib/add-project-store";
-import { api } from "~/lib/api";
+import { api, type AppSettings } from "~/lib/api";
+import {
+  readCachedProjectsDashboardView,
+  writeCachedProjectsDashboardView,
+} from "~/lib/ui-preference-cache";
 import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import {
@@ -24,12 +29,17 @@ import {
   useGroups,
   useLicense,
   useProjects,
+  useSettings,
 } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
 import { isAcademyTier } from "~/shared/license";
 import { useHostedSession } from "~/components/views/AuthGate";
 import type { Entitlements } from "~/shared/entitlements";
 import { isWebDaytonaRuntime } from "~/lib/runtime";
+import {
+  DEFAULT_PROJECTS_DASHBOARD_VIEW,
+  type ProjectsDashboardView,
+} from "~/shared/ui-preferences";
 
 export const Route = createFileRoute("/")({
   component: MissionControlPage,
@@ -57,8 +67,44 @@ function MissionControlPage() {
   const [showGroups, setShowGroups] = useState(false);
   const [showLaunchKit, setShowLaunchKit] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const { data: settings } = useSettings();
+  const settingsLoaded = settings !== undefined;
+  const storedDashboardView = settings?.projectsDashboardView ?? null;
+  const [dashboardView, setDashboardView] = useState<ProjectsDashboardView>(() =>
+    readCachedProjectsDashboardView() ?? DEFAULT_PROJECTS_DASHBOARD_VIEW,
+  );
   const { setProject: setActiveUserTerminalProject } = useUserTerminals();
   const { open: openAddProject } = useAddProject();
+
+  const persistDashboardView = useCallback(
+    (next: ProjectsDashboardView) => {
+      setDashboardView(next);
+      writeCachedProjectsDashboardView(next);
+      queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+        current ? { ...current, projectsDashboardView: next } : current,
+      );
+      void api
+        .updateSettings({ projectsDashboardView: next })
+        .then((updated) => queryClient.setQueryData(queryKeys.settings, updated))
+        .catch((error) => {
+          console.error("[settings] failed to persist projects dashboard view:", error);
+        });
+    },
+    [queryClient],
+  );
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    if (storedDashboardView) {
+      setDashboardView(storedDashboardView);
+      writeCachedProjectsDashboardView(storedDashboardView);
+      return;
+    }
+    const cached = readCachedProjectsDashboardView();
+    if (cached && cached !== DEFAULT_PROJECTS_DASHBOARD_VIEW) {
+      persistDashboardView(cached);
+    }
+  }, [persistDashboardView, settingsLoaded, storedDashboardView]);
 
   // Dashboard has no project context — detach the user-terminal panel from
   // whichever project we were just viewing.
@@ -117,6 +163,11 @@ function MissionControlPage() {
         ].join(", ");
 
   const gridCols = "repeat(auto-fill, minmax(300px, 1fr))";
+  const showProjectContent =
+    !projectsQuery.isLoading &&
+    !groupsQuery.isLoading &&
+    !projectsQuery.isError &&
+    !groupsQuery.isError;
 
   const open = (id: string) => router.navigate({ to: "/projects/$id", params: { id } });
   const togglePin = async (id: string) => {
@@ -167,39 +218,46 @@ function MissionControlPage() {
               className="mc-dashboard-hero-actions"
               style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
             >
-              <div
-                className="mc-input-frame"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "0 12px",
-                  height: 36,
-                  width: 220,
-                }}
-              >
-                <Icon
-                  name="search"
-                  size={12}
-                  style={{ color: "var(--text-faint)", marginRight: 6 }}
-                />
-                <input
-                  ref={searchRef}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search projects…"
-                  aria-label="Search projects"
+              <HotkeyTooltip action="search.focus" label="Focus search">
+                <div
+                  className="mc-input-frame"
                   style={{
-                    flex: 1,
-                    background: "transparent",
-                    border: 0,
-                    outline: 0,
-                    color: "var(--text)",
-                    fontFamily: "var(--mono)",
-                    fontSize: 11.5,
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "0 12px",
+                    height: 36,
+                    width: 220,
                   }}
-                />
-                <KbdAction action="search.focus" />
-              </div>
+                >
+                  <Icon
+                    name="search"
+                    size={12}
+                    style={{ color: "var(--text-faint)", marginRight: 6 }}
+                  />
+                  <input
+                    ref={searchRef}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search projects…"
+                    aria-label="Search projects"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      background: "transparent",
+                      border: 0,
+                      outline: 0,
+                      color: "var(--text)",
+                      fontFamily: "var(--mono)",
+                      fontSize: 11.5,
+                    }}
+                  />
+                </div>
+              </HotkeyTooltip>
+
+              <ProjectsDashboardViewToggle
+                view={dashboardView}
+                onChange={persistDashboardView}
+              />
 
               <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
                 Groups
@@ -213,7 +271,7 @@ function MissionControlPage() {
                   Launch Kit
                 </Btn>
               )}
-              <HotkeyTooltip action="agent.new">
+              <HotkeyTooltip action="project.add">
                 <Btn variant="primary" icon="plus" onClick={openAddProject}>
                   Add project
                 </Btn>
@@ -263,7 +321,25 @@ function MissionControlPage() {
             />
           )}
 
-          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && pinned.length > 0 && (
+          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && dashboardView === "table" && filteredProjects.length > 0 && (
+            <Section
+              label="All projects"
+              count={filteredProjects.length}
+              icon="grid"
+              divider={false}
+              marginBottom={48}
+              labelSize={13}
+            >
+              <ProjectsTable
+                projects={filteredProjects}
+                groups={groups}
+                onOpen={open}
+                onTogglePin={togglePin}
+              />
+            </Section>
+          )}
+
+          {showProjectContent && dashboardView === "cards" && pinned.length > 0 && (
             <Section
               label="Pinned"
               count={pinned.length}
@@ -285,7 +361,7 @@ function MissionControlPage() {
             </Section>
           )}
 
-          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && byGroup.map(({ group, projects: gp }) => (
+          {showProjectContent && dashboardView === "cards" && byGroup.map(({ group, projects: gp }) => (
             <Section
               key={group.id}
               label={group.name}
@@ -308,7 +384,7 @@ function MissionControlPage() {
             </Section>
           ))}
 
-          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && ungrouped.length > 0 && (
+          {showProjectContent && dashboardView === "cards" && ungrouped.length > 0 && (
             <Section
               label="Ungrouped"
               count={ungrouped.length}

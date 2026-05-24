@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
@@ -10,8 +10,11 @@ import { TASK_STATUS_META } from "~/shared/domain";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
+import { useBinding } from "~/lib/keybindings/store";
+import { formatBinding } from "~/lib/keybindings/format";
 import { api } from "~/lib/api";
 import { getPinnedProjectStatusDots } from "./project-bar-status-dots";
+import { setProjectPathDragData } from "~/lib/project-path-drag";
 
 const HOTKEY_LIMIT = 9;
 
@@ -30,6 +33,8 @@ export function ProjectBar() {
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
     null
   );
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const suppressClickRef = useRef(false);
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
   useServerEvents(
@@ -42,12 +47,14 @@ export function ProjectBar() {
       [invalidateProjects]
     )
   );
+  const pinnedSlotBase = useBinding("project.pinnedSlot");
+  const pinnedSlotBinding = (slot: number) =>
+    formatBinding({ ...pinnedSlotBase, key: String(slot) });
 
   if (pinned.length === 0) return null;
 
   const activeId = router.state.location.pathname.match(/^\/projects\/([^/]+)/)?.[1];
   const activeIndex = pinned.findIndex((p) => p.id === activeId);
-  const modSymbol = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform) ? "⌘" : "Ctrl+";
 
   const ITEM_WIDTH = 58;
   const ITEM_HEIGHT = 48;
@@ -131,7 +138,8 @@ export function ProjectBar() {
             ? `${finishedCount} ${finishedCount === 1 ? "session" : "sessions"} finished`
             : null;
         const tooltip = [
-          hotkey ? `${project.name} (${modSymbol}${hotkey})` : project.name,
+          hotkey ? `${project.name} (${pinnedSlotBinding(hotkey)})` : project.name,
+          "Drag into a chat session to paste the project path",
           needsInputLabel,
           launchLabel,
           terminalLabel,
@@ -140,15 +148,32 @@ export function ProjectBar() {
         ]
           .filter(Boolean)
           .join(" — ");
+        const isDragging = draggingProjectId === project.id;
         return (
           <button
             key={project.id}
             type="button"
+            draggable
             title={tooltip}
             aria-label={tooltip}
-            onClick={() =>
-              router.navigate({ to: "/projects/$id", params: { id: project.id } })
-            }
+            onClick={() => {
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
+              router.navigate({ to: "/projects/$id", params: { id: project.id } });
+            }}
+            onDragStart={(e) => {
+              suppressClickRef.current = true;
+              setDraggingProjectId(project.id);
+              setProjectPathDragData(e.dataTransfer, project.path);
+            }}
+            onDragEnd={() => {
+              setDraggingProjectId(null);
+              window.setTimeout(() => {
+                suppressClickRef.current = false;
+              }, 0);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -164,7 +189,8 @@ export function ProjectBar() {
               borderRadius: ITEM_RADIUS,
               background: "transparent",
               zIndex: isActive ? 3 : 1,
-              cursor: "pointer",
+              cursor: isDragging ? "grabbing" : "grab",
+              opacity: isDragging ? 0.55 : 1,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

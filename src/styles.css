@@ -140,6 +140,16 @@ body {
 button {
   font-family: inherit;
   color: inherit;
+  -webkit-app-region: no-drag;
+}
+
+a,
+input,
+textarea,
+select,
+[role="button"],
+.mc-project-card {
+  -webkit-app-region: no-drag;
 }
 
 .mc-btn {
@@ -824,6 +834,156 @@ button {
   background-image: radial-gradient(circle, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
 }
 
+.mc-projects-table-scroll {
+  overflow-x: auto;
+}
+
+.mc-projects-table-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.mc-projects-table-grid thead tr {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+}
+
+.mc-projects-table-head {
+  padding: 10px 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.mc-projects-table-pin-head {
+  width: 88px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+}
+
+.mc-projects-table-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mc-projects-table-sort[data-active="true"] {
+  color: var(--text);
+}
+
+.mc-projects-table-sort:hover {
+  color: var(--text);
+}
+
+.mc-projects-table-row {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s ease;
+}
+
+.mc-projects-table-row:last-child {
+  border-bottom: 0;
+}
+
+.mc-projects-table-row:hover {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface-1));
+}
+
+.mc-projects-table-row[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.mc-projects-table-cell {
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.mc-projects-table-name {
+  min-width: 220px;
+}
+
+.mc-projects-table-name-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.mc-projects-table-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.mc-projects-table-group {
+  min-width: 120px;
+  color: var(--text);
+}
+
+.mc-projects-table-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mc-projects-table-group-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mc-projects-table-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 120px;
+}
+
+.mc-projects-table-date {
+  min-width: 100px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mc-projects-table-muted {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.mc-projects-table-pin {
+  text-align: right;
+}
+
 .pinned-project-logo {
   overflow: visible;
   isolation: isolate;
@@ -1282,6 +1442,10 @@ body[data-card-glow] .cursor-glow {
     0 1px 2px oklch(0 0 0 / 0.40),
     0 10px 26px oklch(0 0 0 / 0.30),
     0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent) !important;
+}
+
+:root:not([data-minimal="true"]) .mc-project-card[data-focused="true"] {
+  border-image-source: var(--mc-panel-image) !important;
 }
 
 /* Dashboard page wrapper: dissolve in minimal — the outer frame would

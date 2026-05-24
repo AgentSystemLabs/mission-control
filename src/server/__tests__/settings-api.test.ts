@@ -166,6 +166,7 @@ describe("settings API", () => {
     expect(await jsonBody(response!)).toMatchObject({
       gitDiffChangedFilesView: null,
       gitDiffChangedFilesWidth: null,
+      projectsDashboardView: null,
       selectedWorktreeByProject: null,
     });
   });
@@ -200,6 +201,7 @@ describe("settings API", () => {
         body: JSON.stringify({
           gitDiffChangedFilesView: "tree",
           gitDiffChangedFilesWidth: 420,
+          projectsDashboardView: "table",
           selectedWorktreeByProject,
         }),
       }),
@@ -212,11 +214,13 @@ describe("settings API", () => {
     expect(await jsonBody(update!)).toMatchObject({
       gitDiffChangedFilesView: "tree",
       gitDiffChangedFilesWidth: 420,
+      projectsDashboardView: "table",
       selectedWorktreeByProject,
     });
     expect(await jsonBody(read!)).toMatchObject({
       gitDiffChangedFilesView: "tree",
       gitDiffChangedFilesWidth: 420,
+      projectsDashboardView: "table",
       selectedWorktreeByProject,
     });
   });

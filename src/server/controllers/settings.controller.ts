@@ -20,8 +20,10 @@ import {
   GIT_DIFF_CHANGED_FILES_VIEWS,
   GIT_DIFF_CHANGED_FILES_WIDTH_MAX,
   GIT_DIFF_CHANGED_FILES_WIDTH_MIN,
+  PROJECTS_DASHBOARD_VIEWS,
   normalizeGitDiffChangedFilesView,
   normalizeGitDiffChangedFilesWidth,
+  normalizeProjectsDashboardView,
   normalizeSelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import { json, parseJsonBody } from "./_helpers";
@@ -30,6 +32,7 @@ const COMMIT_CLI_SETTING_KEY = "commit_cli";
 const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
+const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
 
 // The api bearer token is intentionally NOT delivered over HTTP. It is only
 // readable through the Electron IPC channel `settings:getToken`, so a page
@@ -56,6 +59,7 @@ const updateSettingsBody = z
       .min(GIT_DIFF_CHANGED_FILES_WIDTH_MIN)
       .max(GIT_DIFF_CHANGED_FILES_WIDTH_MAX)
       .nullable(),
+    projectsDashboardView: z.enum(PROJECTS_DASHBOARD_VIEWS).nullable(),
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
   })
@@ -77,6 +81,10 @@ function getGitDiffChangedFilesViewSetting() {
 
 function getGitDiffChangedFilesWidthSetting() {
   return normalizeGitDiffChangedFilesWidth(getSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY));
+}
+
+function getProjectsDashboardViewSetting() {
+  return normalizeProjectsDashboardView(getSetting(PROJECTS_DASHBOARD_VIEW_KEY));
 }
 
 function getSelectedWorktreeByProjectSetting() {
@@ -112,6 +120,7 @@ function settingsPayload() {
     worktreesEnabled: getBooleanSetting("worktrees_enabled", false),
     gitDiffChangedFilesView: getGitDiffChangedFilesViewSetting(),
     gitDiffChangedFilesWidth: getGitDiffChangedFilesWidthSetting(),
+    projectsDashboardView: getProjectsDashboardViewSetting(),
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
   };
@@ -176,6 +185,13 @@ export async function update(request: Request): Promise<Response> {
       deleteSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY);
     } else {
       setSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY, String(body.gitDiffChangedFilesWidth));
+    }
+  }
+  if (body.projectsDashboardView !== undefined) {
+    if (body.projectsDashboardView === null) {
+      deleteSetting(PROJECTS_DASHBOARD_VIEW_KEY);
+    } else {
+      setSetting(PROJECTS_DASHBOARD_VIEW_KEY, body.projectsDashboardView);
     }
   }
   if (body.selectedWorktreeByProject !== undefined) {
