@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   buildCliVersionProbe,
+  checkAgentCliVersion,
   compareCliVersions,
   extractCliVersion,
 } from "../agent-cli-version";
@@ -40,6 +44,31 @@ describe("agent CLI version helpers", () => {
     expect(probe.env.USERPROFILE).toBe(String.raw`C:\Users\Jane Doe`);
     expect(probe.env.OPENAI_API_KEY).toBeUndefined();
   });
+
+  if (process.platform === "win32") {
+    it("executes Windows command shims with verbatim cmd.exe arguments", () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-version-shim-"));
+      const binDir = path.join(root, "npm shims");
+      fs.mkdirSync(binDir, { recursive: true });
+      const binary = path.join(binDir, "codex.cmd");
+      fs.writeFileSync(binary, "@ECHO off\r\necho codex-cli 0.133.0\r\n", "utf8");
+
+      const result = checkAgentCliVersion(
+        binary,
+        {
+          Path: process.env.Path ?? "",
+          SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
+          WINDIR: process.env.WINDIR ?? process.env.SystemRoot ?? "C:\\Windows",
+        },
+        AGENT_CLI_CONFIG.codex,
+        "win32",
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("version check failed");
+      expect(result.version).toBe("0.133.0");
+    });
+  }
 
   it("keeps native CLI version probes as direct argv without secret env vars", () => {
     const probe = buildCliVersionProbe(

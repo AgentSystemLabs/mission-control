@@ -72,7 +72,8 @@ mission-control/
 
 ```bash
 pnpm install            # installs deps; postinstall rebuilds Electron PTY bindings
-pnpm dev                # runs Vite dev server + Electron in parallel
+pnpm dev:electron       # runs Vite dev server + Electron without Docker
+pnpm dev:web            # runs hosted web dev server with local Postgres via Docker
 ```
 
 The first run creates `~/Library/Application Support/MissionControl/missioncontrol.db` (macOS) or the equivalent on Linux/Windows.
@@ -104,8 +105,8 @@ Operational support procedures live in
 
 `better-sqlite3` and `node-pty` have native bindings, but they do not need the same ABI in development:
 
-- `better-sqlite3` is loaded by the Vite/TanStack server under stock Node, so `pnpm dev`, `pnpm test`, and `pnpm db:*` first rebuild it for the current Node runtime.
-- `node-pty` only runs inside Electron, so postinstall and `pnpm dev:electron` rebuild it for Electron.
+- `better-sqlite3` is loaded by the Vite/TanStack server under stock Node, so `pnpm dev`, `pnpm dev:electron`, `pnpm dev:web`, `pnpm test`, and `pnpm db:*` first rebuild it for the current Node runtime.
+- `node-pty` only runs inside Electron, so postinstall rebuilds it for Electron.
 
 When you need both native modules rebuilt for Electron (for example before packaging), run:
 

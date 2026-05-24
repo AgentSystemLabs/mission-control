@@ -9,16 +9,15 @@ hosted web app.
 Start Postgres and apply hosted migrations:
 
 ```bash
-docker compose up -d postgres
-docker compose run --rm postgres-migrate
+pnpm dev:web
 ```
 
-If local port `5432` is already in use, choose another host port:
+`pnpm dev:web` starts local Postgres, applies hosted migrations, and runs the
+Vite dev server. If local port `5432` is already in use, choose another host
+port:
 
 ```bash
-POSTGRES_PORT=55432 docker compose up -d postgres
-POSTGRES_PORT=55432 docker compose run --rm postgres-migrate
-DATABASE_URL=postgres://mission_control:mission_control_dev@localhost:55432/mission_control pnpm dev:server
+POSTGRES_PORT=55432 DATABASE_URL=postgres://mission_control:mission_control_dev@localhost:55432/mission_control pnpm dev:web
 ```
 
 Hosted mode is enabled when `DATABASE_URL` is set. Without `DATABASE_URL`, the

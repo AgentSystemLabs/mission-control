@@ -292,7 +292,7 @@ function commandNames(command: string, env: NodeJS.ProcessEnv, platform: NodeJS.
     .split(";")
     .map((ext) => ext.trim())
     .filter(Boolean);
-  return [command, ...pathext.map((ext) => `${command}${ext.toLowerCase()}`)];
+  return [...pathext.map((ext) => `${command}${ext.toLowerCase()}`), command];
 }
 
 function isExecutableFile(file: string, platform: NodeJS.Platform): boolean {

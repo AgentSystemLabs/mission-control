@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const env = { ...process.env };
+const shouldStartPostgres = process.argv.includes("--postgres");
 
 env.MC_DEV_HOST ||= "127.0.0.1";
 env.MC_DEV_PORT ||= "5173";
@@ -11,9 +12,11 @@ env.POSTGRES_PORT ||= inferPostgresPortFromDotenv() || "55432";
 
 cleanupStaleDevServer(Number(env.MC_DEV_PORT));
 
-console.log(`[predev] starting local Postgres on localhost:${env.POSTGRES_PORT}`);
-run("docker", ["compose", "up", "-d", "--wait", "postgres"]);
-run("docker", ["compose", "run", "--rm", "postgres-migrate"]);
+if (shouldStartPostgres) {
+  console.log(`[predev] starting local Postgres on localhost:${env.POSTGRES_PORT}`);
+  run("docker", ["compose", "up", "-d", "--wait", "postgres"]);
+  run("docker", ["compose", "run", "--rm", "postgres-migrate"]);
+}
 
 function run(command, args) {
   const result = spawnSync(command, args, {

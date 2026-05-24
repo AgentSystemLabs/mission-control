@@ -109,12 +109,9 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     expect(plan.binary).toBe("C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd");
     expect(plan.argv).toEqual(["--enable", "hooks"]);
     expect(plan.spawnTarget).toBe("C:\\Windows\\System32\\cmd.exe");
-    expect(plan.spawnArgs).toEqual([
-      "/d",
-      "/s",
-      "/c",
-      '""C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd" "--enable" "hooks""',
-    ]);
+    expect(plan.spawnArgs).toBe(
+      '/d /s /c ""C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd" "--enable" "hooks""',
+    );
   });
 
   it("maps cursor-cli agent to the cursor-agent binary", () => {

@@ -10,10 +10,11 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "predev": "node scripts/predev.mjs",
-    "dev": "cross-env MC_DEV_HOST=127.0.0.1 MC_DEV_PORT=5173 concurrently -k -n vite,electron -c blue,green \"pnpm dev:server\" \"wait-on tcp:5173 && pnpm dev:electron\"",
+    "dev": "pnpm dev:electron",
+    "dev:electron": "node scripts/predev.mjs && cross-env MC_DEV_HOST=127.0.0.1 MC_DEV_PORT=5173 concurrently -k -n vite,electron -c blue,green \"pnpm dev:server\" \"wait-on tcp:5173 && pnpm dev:electron:main\"",
+    "dev:web": "node scripts/predev.mjs --postgres && cross-env MC_DEV_HOST=127.0.0.1 MC_DEV_PORT=5173 pnpm dev:server",
     "dev:server": "pnpm native:node && vite --strictPort",
-    "dev:electron": "node scripts/ensure-electron-sqlite.mjs && tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development electron dist-electron/electron/main.js",
+    "dev:electron:main": "node scripts/ensure-electron-sqlite.mjs && tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development electron dist-electron/electron/main.js",
     "build:web": "vite build && vite build -c vite.config.server-entry.ts && node scripts/copy-bundled-skills.mjs",
     "start:hosted": "node scripts/serve-hosted.mjs",
     "build:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && node -e \"require('fs').copyFileSync('electron/server-runner.mjs','dist-electron/electron/server-runner.mjs')\"",

@@ -140,6 +140,7 @@ function spawnCliVersion(
     env: probe.env,
     encoding: "utf8",
     timeout: VERSION_TIMEOUT_MS,
+    windowsVerbatimArguments: platform === "win32" && isWindowsCommandScript(binary),
   });
 }
 

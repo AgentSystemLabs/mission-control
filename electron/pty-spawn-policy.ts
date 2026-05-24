@@ -46,7 +46,7 @@ export type SpawnPlan =
       binary: string;       // resolved agent binary/shim
       argv: string[];        // already-tokenized agent arguments, no shell parsing
       spawnTarget: string;  // executable passed to node-pty
-      spawnArgs: string[];  // argv passed to node-pty
+      spawnArgs: string[] | string;  // argv/command line passed to node-pty
       cwd: string;          // canonical (realpath'd) cwd — pass this to spawn, not the original request
     }
   | {
@@ -135,13 +135,13 @@ function nodePtySpawnTarget(
   binary: string,
   argv: string[],
   deps: SpawnPolicyDeps,
-): { spawnTarget: string; spawnArgs: string[] } {
+): { spawnTarget: string; spawnArgs: string[] | string } {
   const platform = deps.platform ?? process.platform;
   if (platform === "win32" && isWindowsCommandScript(binary)) {
     const command = buildCmdScriptCommand(binary, argv);
     return {
       spawnTarget: windowsCmdExe(deps),
-      spawnArgs: ["/d", "/s", "/c", command],
+      spawnArgs: `/d /s /c ${command}`,
     };
   }
   return { spawnTarget: binary, spawnArgs: argv };

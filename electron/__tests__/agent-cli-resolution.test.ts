@@ -33,6 +33,22 @@ describe("resolveAgentCommandOnPath", () => {
     );
   });
 
+  it("prefers Windows command shims over extensionless npm shell shims", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-npm-shim-"));
+    const binDir = path.join(root, "npm");
+    touch(path.join(binDir, "codex"));
+    touch(path.join(binDir, "codex.cmd"));
+
+    const env = {
+      Path: binDir,
+      PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    };
+
+    expect(resolveAgentCommandOnPath("codex", env, "win32")).toBe(
+      path.join(binDir, "codex.cmd"),
+    );
+  });
+
   it("prefers cursor-agent when both shims exist", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-cursor-both-"));
     const binDir = path.join(root, "bin");
