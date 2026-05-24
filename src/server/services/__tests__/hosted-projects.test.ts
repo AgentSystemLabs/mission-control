@@ -45,11 +45,18 @@ const {
   issueHostedHookToken,
   validateHostedHookToken,
 } = await import("../hosted-hook-tokens");
-const { processHostedCleanupOutbox } = await import("../hosted-cleanup-outbox");
+const {
+  processHostedCleanupOutbox,
+  processHostedCleanupOutboxSafely,
+} = await import("../hosted-cleanup-outbox");
 const {
   enforceHostedComputeLimit,
   hostedComputeLimitStatus,
 } = await import("../hosted-plan-limits");
+const {
+  readHostedMetrics,
+  resetHostedMetricsForTests,
+} = await import("../hosted-metrics");
 
 const context: HostedAuthContext = {
   sessionId: "hs-1",
@@ -113,6 +120,7 @@ describe("hosted project persistence", () => {
     ensureRemoteProjectRepository.mockReset();
     killRemotePtysForProject.mockReset();
     killRemotePtysForTask.mockReset();
+    resetHostedMetricsForTests();
     ensureRemoteProjectRepository.mockResolvedValue({ sandboxId: "sandbox-user-1", branch: "main" });
     delete process.env.MC_PLAN_LIMITS_JSON;
     delete process.env.MC_MAX_COMPUTE_SECONDS_PER_USER;
@@ -574,5 +582,13 @@ describe("hosted project persistence", () => {
       expect.stringContaining(`SET "status" = 'done'`),
       ["hco-1"],
     );
+  });
+
+  it("logs cleanup outbox worker connection failures without rejecting", async () => {
+    poolQuery.mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:55432"));
+
+    await expect(processHostedCleanupOutboxSafely()).resolves.toBeUndefined();
+
+    expect(readHostedMetrics().counters.cleanupFailures).toBe(1);
   });
 });

@@ -32,6 +32,10 @@ import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
+import {
+  hostedCleanupStatusForCurrentRuntime,
+  type HostedCleanupStatusScope,
+} from "~/lib/hosted-cleanup-status";
 import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER, TASK_STATUSES } from "~/shared/domain";
 import { hasRunningLaunchSessions } from "~/lib/project-launch-running";
 import { AGENT_REGISTRY, agentSupportsSkipPermissions } from "~/shared/agents";
@@ -313,6 +317,10 @@ function ProjectPage() {
   const [removingMissingProject, setRemovingMissingProject] = useState(false);
   const [retryingProjectPath, setRetryingProjectPath] = useState(false);
   const [projectPathActionError, setProjectPathActionError] = useState<string | null>(null);
+  const showHostedCleanupStatus = (scope: HostedCleanupStatusScope) => {
+    const status = hostedCleanupStatusForCurrentRuntime(scope);
+    if (status) setCleanupStatus(status);
+  };
   useEffect(() => {
     setProjectPathActionError(null);
   }, [projectPathCheck.state, projectPathIssue?.path]);
@@ -1023,7 +1031,7 @@ function ProjectPage() {
   const deleteTask = async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
-    setCleanupStatus("Cleaning up hosted resources for this session. If the hosted environment is unavailable, cleanup will be retried.");
+    showHostedCleanupStatus("session");
     try {
       await terminals.close(taskId);
       await api.deleteTask(taskId);
@@ -1036,7 +1044,7 @@ function ProjectPage() {
   const confirmRemoveProject = async () => {
     if (!project) return;
     setConfirmRemove(false);
-    setCleanupStatus("Cleaning up hosted resources for this project. If the hosted environment is unavailable, cleanup will be queued for retry.");
+    showHostedCleanupStatus("project");
     try {
       await terminals.closeForProject(project.id);
       await api.deleteProject(project.id);
@@ -1112,7 +1120,7 @@ function ProjectPage() {
   const clearFinished = async () => {
     setConfirmClearFinished(false);
     const finished = tasksByStatus.finished;
-    setCleanupStatus("Cleaning up hosted resources for finished sessions.");
+    showHostedCleanupStatus("finishedSessions");
     try {
       await Promise.all(
         finished.map(async (t) => {
@@ -1129,7 +1137,7 @@ function ProjectPage() {
   const clearDisconnected = async () => {
     setConfirmClearDisconnected(false);
     const disconnected = tasksByStatus.disconnected;
-    setCleanupStatus("Cleaning up hosted resources for disconnected sessions.");
+    showHostedCleanupStatus("disconnectedSessions");
     try {
       await Promise.all(
         disconnected.map(async (t) => {

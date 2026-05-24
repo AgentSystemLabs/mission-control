@@ -24,6 +24,21 @@ type CleanupOutboxAlertRow = {
 
 let scheduled = false;
 
+function cleanupWorkerErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function processHostedCleanupOutboxSafely(limit = 10): Promise<void> {
+  try {
+    await processHostedCleanupOutbox(limit);
+  } catch (error) {
+    incrementHostedCounter("cleanupFailures");
+    logHostedEvent("cleanup.worker_failed", {
+      error: cleanupWorkerErrorMessage(error),
+    }, "error");
+  }
+}
+
 function contextFromOutbox(row: CleanupOutboxRow): HostedAuthContext {
   return {
     sessionId: "cleanup-worker",
@@ -168,9 +183,9 @@ export function scheduleHostedCleanupOutboxWorker(): void {
   if (process.env.VITEST) return;
   if (scheduled || !isHostedDatabaseEnabled()) return;
   scheduled = true;
-  void processHostedCleanupOutbox();
+  void processHostedCleanupOutboxSafely();
   const timer = setInterval(() => {
-    void processHostedCleanupOutbox();
+    void processHostedCleanupOutboxSafely();
   }, 60_000);
   timer.unref?.();
 }
