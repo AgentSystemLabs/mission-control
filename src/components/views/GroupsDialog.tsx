@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
+import { EscTooltip } from "~/components/ui/Tooltip";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import type { Group } from "~/db/schema";
@@ -32,9 +33,11 @@ export function GroupsDialog({
       title="Manage groups"
       width={480}
       footer={
-        <Btn variant="ghost" onClick={onClose}>
-          Done
-        </Btn>
+        <EscTooltip label="Done">
+          <Btn variant="ghost" onClick={onClose}>
+            Done
+          </Btn>
+        </EscTooltip>
       }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

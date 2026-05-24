@@ -4,7 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { HotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ICON_COLORS } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
@@ -166,9 +166,11 @@ export function ProjectDialog({
       width={520}
       footer={
         <>
-          <Btn variant="ghost" onClick={onClose}>
-            Cancel
-          </Btn>
+          <EscTooltip label="Cancel">
+            <Btn variant="ghost" onClick={onClose}>
+              Cancel
+            </Btn>
+          </EscTooltip>
           <HotkeyTooltip action="dialog.submit">
             <Btn
               variant="primary"

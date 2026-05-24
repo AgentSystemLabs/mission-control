@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Btn } from "~/components/ui/Btn";
-import { Kbd } from "~/components/ui/Kbd";
+import { KbdCombo } from "~/components/ui/Kbd";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useKeybindings } from "~/lib/keybindings/store";
-import { formatBinding } from "~/lib/keybindings/format";
 import { bindingComboKey, bindingsEqual, eventToBinding, isValidBinding } from "~/lib/keybindings/match";
 import { DEFAULT_BINDINGS } from "~/lib/keybindings/defaults";
+import { KEYBINDING_GROUPS } from "~/lib/keybindings/groups";
+import { formatPinnedSlotBindingParts } from "~/lib/keybindings/format";
 import { ACTION_META, HOTKEY_ACTIONS, type Binding, type HotkeyAction } from "~/lib/keybindings/types";
 
 export function KeybindingsSettings() {
@@ -82,29 +83,37 @@ export function KeybindingsSettings() {
       {conflicts.size > 0 && (
         <ConflictBanner count={conflicts.size} />
       )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {HOTKEY_ACTIONS.map((action) => (
-          <BindingRow
-            key={action}
-            action={action}
-            binding={bindings[action]}
-            isDefault={bindingsEqual(bindings[action], DEFAULT_BINDINGS[action])}
-            recording={recordingFor === action}
-            pendingBinding={recordingFor === action ? pendingBinding : null}
-            pendingConflict={recordingFor === action ? pendingConflict : null}
-            recordError={recordingFor === action ? recordError : null}
-            saving={saving}
-            inConflict={conflicts.has(action)}
-            onStartRecording={() => startRecording(action)}
-            onCancelRecording={cancelRecording}
-            onCapture={(b) => {
-              setPendingBinding(b);
-              setRecordError(null);
-            }}
-            onCaptureError={(msg) => setRecordError(msg)}
-            onSave={saveRecording}
-            onReset={() => onReset(action)}
-          />
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {KEYBINDING_GROUPS.map((group) => (
+          <BindingGroup
+            key={group.id}
+            label={group.label}
+            description={group.description}
+          >
+            {group.actions.map((action) => (
+              <BindingRow
+                key={action}
+                action={action}
+                binding={bindings[action]}
+                isDefault={bindingsEqual(bindings[action], DEFAULT_BINDINGS[action])}
+                recording={recordingFor === action}
+                pendingBinding={recordingFor === action ? pendingBinding : null}
+                pendingConflict={recordingFor === action ? pendingConflict : null}
+                recordError={recordingFor === action ? recordError : null}
+                saving={saving}
+                inConflict={conflicts.has(action)}
+                onStartRecording={() => startRecording(action)}
+                onCancelRecording={cancelRecording}
+                onCapture={(b) => {
+                  setPendingBinding(b);
+                  setRecordError(null);
+                }}
+                onCaptureError={(msg) => setRecordError(msg)}
+                onSave={saveRecording}
+                onReset={() => onReset(action)}
+              />
+            ))}
+          </BindingGroup>
         ))}
       </div>
       <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
@@ -133,6 +142,48 @@ function ConflictBanner({ count }: { count: number }) {
     >
       {count} actions share the same shortcut. Resolve the conflicts below.
     </div>
+  );
+}
+
+function BindingGroup({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <div style={{ marginBottom: 10 }}>
+        <h2
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--text)",
+            margin: "0 0 4px",
+          }}
+        >
+          {label}
+        </h2>
+        <p
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            color: "var(--text-dim)",
+            lineHeight: 1.45,
+            margin: 0,
+          }}
+        >
+          {description}
+        </p>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{children}</div>
+    </section>
   );
 }
 
@@ -242,9 +293,13 @@ function BindingRow({
               fontSize: 11,
             }}
           >
-            <span style={{ color: pendingConflict ? "#ff9b9b" : "var(--text-dim)" }}>
-              {pendingBinding ? formatBinding(pendingBinding) : "Press keys…"}
-            </span>
+            {pendingBinding ? (
+              <KbdCombo binding={pendingBinding} variant="ghost" size="lg" />
+            ) : (
+              <span style={{ color: pendingConflict ? "#ff9b9b" : "var(--text-dim)" }}>
+                Press keys…
+              </span>
+            )}
             {pendingConflict && (
               <span style={{ color: "#ff9b9b" }}>
                 conflicts with “{ACTION_META[pendingConflict].label}”
@@ -276,7 +331,11 @@ function BindingRow({
           </div>
         ) : (
           <>
-            <Kbd variant="ghost">{formatBinding(binding)}</Kbd>
+            {action === "project.pinnedSlot" ? (
+              <KbdCombo parts={formatPinnedSlotBindingParts(binding)} variant="ghost" size="lg" />
+            ) : (
+              <KbdCombo binding={binding} variant="ghost" size="lg" />
+            )}
             <Btn variant="ghost" size="sm" onClick={onStartRecording}>
               Rebind
             </Btn>

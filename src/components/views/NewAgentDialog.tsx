@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { HotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META } from "~/lib/design-meta";
 import { AgentLogo } from "~/components/ui/AgentLogo";
@@ -255,9 +255,11 @@ export function NewAgentDialog({
         width={540}
         footer={
           <>
-            <Btn variant="ghost" onClick={onClose}>
-              Cancel
-            </Btn>
+            <EscTooltip label="Cancel">
+              <Btn variant="ghost" onClick={onClose}>
+                Cancel
+              </Btn>
+            </EscTooltip>
             <HotkeyTooltip action="dialog.submit">
               <Btn variant="primary" icon="play" onClick={submit} disabled={startDisabled}>
                 Start session

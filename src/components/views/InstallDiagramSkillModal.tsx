@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import {
   fetchDiagramSkillInstallStatus,
@@ -184,14 +184,16 @@ export function InstallDiagramSkillModal({
       width={460}
       footer={
         <>
-          <Btn variant="ghost" onClick={onClose} disabled={isWorking}>
-            Cancel
-          </Btn>
-          <StaticHotkeyTooltip hotkey="⌘ Enter" disabled={!canInstall}>
+          <EscTooltip label="Cancel">
+            <Btn variant="ghost" onClick={onClose} disabled={isWorking}>
+              Cancel
+            </Btn>
+          </EscTooltip>
+          <HotkeyTooltip action="dialog.submit" disabled={!canInstall}>
             <Btn variant="primary" onClick={() => void submit()} disabled={!canInstall}>
               {isWorking ? "Installing…" : alreadyInstalled ? "Reinstall selected" : "Install selected"}
             </Btn>
-          </StaticHotkeyTooltip>
+          </HotkeyTooltip>
         </>
       }
     >

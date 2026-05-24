@@ -31,7 +31,13 @@ import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
 import { checkAgentCliVersion } from "./agent-cli-version";
 import { AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore } from "./app-settings-store";
+import { getBinding, matchElectronInput } from "./keybindings-reader";
 import { resolveProductionServerEntry } from "./production-server-entry";
+import {
+  DEFAULT_DEV_SERVER_PORT,
+  nextTcpPort,
+  productionRuntimePortStart,
+} from "./runtime-port";
 
 const APP_NAME = "MissionControl";
 
@@ -70,9 +76,18 @@ log.initialize();
 log.transports.file.level = "info";
 log.transports.console.level = "debug";
 
+function ignoreBrokenPipe(stream: NodeJS.WriteStream | undefined): void {
+  stream?.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") return;
+    throw err;
+  });
+}
+ignoreBrokenPipe(process.stdout);
+ignoreBrokenPipe(process.stderr);
+
 const isDev = process.env.NODE_ENV === "development";
 const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
-const devServerPort = Number(process.env.MC_DEV_PORT ?? 5173);
+const devServerPort = Number(process.env.MC_DEV_PORT ?? DEFAULT_DEV_SERVER_PORT);
 const devUrl = process.env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPort}`;
 
 // HTTP readiness polling: wait up to DEV_SERVER_READY_TIMEOUT_MS for the
@@ -94,20 +109,21 @@ let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let runtimePort: number | null = null;
 
-function pickPort(preferredPort?: number | null): Promise<number> {
-  const candidates = preferredPort ? [preferredPort, 0] : [0];
+function pickPort(startPort: number): Promise<number> {
   return new Promise((resolve, reject) => {
-    const tryCandidate = (index: number) => {
-      const candidate = candidates[index];
-      if (candidate === undefined) {
-        reject(new Error("Could not allocate port"));
+    const tryCandidate = (candidate: number | null) => {
+      if (candidate === null) {
+        reject(new Error(`Could not allocate port starting at ${startPort}`));
         return;
       }
       const srv = nodeNet.createServer();
       srv.unref();
-      srv.on("error", (err) => {
-        if (candidate === 0) reject(err);
-        else tryCandidate(index + 1);
+      srv.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE" || err.code === "EACCES") {
+          tryCandidate(nextTcpPort(candidate));
+          return;
+        }
+        reject(err);
       });
       srv.listen(candidate, devServerHost, () => {
         const addr = srv.address();
@@ -115,11 +131,11 @@ function pickPort(preferredPort?: number | null): Promise<number> {
           const port = addr.port;
           srv.close(() => resolve(port));
         } else {
-          srv.close(() => tryCandidate(index + 1));
+          srv.close(() => tryCandidate(nextTcpPort(candidate)));
         }
       });
     };
-    tryCandidate(0);
+    tryCandidate(startPort);
   });
 }
 
@@ -177,7 +193,12 @@ function configurePermissionHandlers(): void {
 
 async function startProductionServer(): Promise<string> {
   const portFile = path.join(missionControlUserDataDir, ".port");
-  const port = await pickPort(readPreviousRuntimePort(portFile));
+  // Dev mode writes the fixed Vite port to the shared .port file for hook
+  // wiring. A packaged app must not reuse that port or it blocks `pnpm dev`.
+  const startPort = productionRuntimePortStart(readPreviousRuntimePort(portFile), {
+    devServerPort,
+  });
+  const port = await pickPort(startPort);
   const origin = `http://${devServerHost}:${port}`;
   runtimePort = port;
   fs.mkdirSync(path.dirname(portFile), { recursive: true });
@@ -259,16 +280,23 @@ async function createWindow() {
 
   win.once("ready-to-show", () => win?.show());
 
-  // Intercept Cmd/Ctrl+W before the default app menu's "Close Window" accelerator
-  // closes the BrowserWindow. We forward to the renderer so it can close the
-  // focused terminal instead; if nothing claims it, the keystroke is just swallowed.
+  // Intercept the configured close-session binding before the default app menu's
+  // "Close Window" accelerator closes the BrowserWindow. We forward to the
+  // renderer so it can close the focused terminal instead; if nothing claims it,
+  // the keystroke is just swallowed.
   win.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
     const mod = process.platform === "darwin" ? input.meta : input.control;
-    if (mod && !input.shift && !input.alt && input.key.toLowerCase() === "w") {
+    if (mod && !input.alt && input.key.toLowerCase() === "r") {
       event.preventDefault();
-      win?.webContents.send(IPC.appCloseIntent);
+      if (input.shift) win?.webContents.reloadIgnoringCache();
+      else win?.webContents.reload();
+      return;
     }
+    const closeBinding = getBinding(app.getPath("userData"), "session.closeWindow");
+    if (!matchElectronInput(input, closeBinding)) return;
+    event.preventDefault();
+    win?.webContents.send(IPC.appCloseIntent);
   });
 
   // macOS-only: 3-finger swipe (System Settings → Trackpad → More Gestures).

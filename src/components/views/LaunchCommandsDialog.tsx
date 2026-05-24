@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
+import { EscTooltip } from "~/components/ui/Tooltip";
 import { Icon } from "~/components/ui/Icon";
 import { LAUNCH_COMMANDS_MAX, parseLaunchCommands, type LaunchCommand } from "~/shared/domain";
 import type { Project } from "~/db/schema";
@@ -77,9 +78,11 @@ export function LaunchCommandsDialog({
       width={640}
       footer={
         <>
-          <Btn variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </Btn>
+          <EscTooltip label="Cancel">
+            <Btn variant="ghost" onClick={onClose} disabled={saving}>
+              Cancel
+            </Btn>
+          </EscTooltip>
           <Btn variant="primary" icon="check" onClick={save} disabled={saving}>
             {saving ? "Saving…" : "Save"}
           </Btn>

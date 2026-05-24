@@ -33,6 +33,14 @@ export function getBooleanAppSetting(
   return row.value === "true";
 }
 
+export function getStringAppSetting(userDataDir: string, key: string): string | null {
+  const db = openDb(userDataDir);
+  const row = db
+    .prepare("SELECT value FROM app_settings WHERE key = ?")
+    .get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
 export function disposeAppSettingsStore(): void {
   if (_db) {
     try {

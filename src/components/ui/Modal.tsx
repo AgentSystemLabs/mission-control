@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { CardFrame } from "./CardFrame";
+import { EscTooltip } from "./Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 
 export function Modal({
@@ -135,21 +136,23 @@ export function Modal({
         >
           {title}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close dialog"
-          style={{
-            background: "transparent",
-            border: 0,
-            color: "var(--text-dim)",
-            cursor: "pointer",
-            padding: 4,
-            display: "flex",
-          }}
-        >
-          <Icon name="x" size={13} />
-        </button>
+        <EscTooltip label="Close">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            style={{
+              background: "transparent",
+              border: 0,
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              padding: 4,
+              display: "flex",
+            }}
+          >
+            <Icon name="x" size={13} />
+          </button>
+        </EscTooltip>
       </div>
       <div style={{ padding: 18, overflowY: "auto", flex: 1, ...contentStyle }}>{children}</div>
       {footer && (

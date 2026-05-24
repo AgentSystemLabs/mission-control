@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Btn } from "./Btn";
-import { StaticHotkeyTooltip } from "./Tooltip";
+import { HotkeyTooltip, StaticHotkeyTooltip } from "./Tooltip";
 import type { IconName } from "./Icon";
 import { useHotkey } from "~/lib/use-hotkey";
 
@@ -67,7 +67,7 @@ export function ConfirmDialog({
               {cancelLabel}
             </Btn>
           </StaticHotkeyTooltip>
-          <StaticHotkeyTooltip hotkey="⌘ Enter">
+          <HotkeyTooltip action="dialog.submit">
             <Btn
               variant={variant}
               icon={icon}
@@ -76,7 +76,7 @@ export function ConfirmDialog({
             >
               {loading ? `${confirmLabel}…` : confirmLabel}
             </Btn>
-          </StaticHotkeyTooltip>
+          </HotkeyTooltip>
         </>
       }
     >

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { Textarea } from "~/components/ui/Textarea";
-import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import {
   OPEN_SETTINGS_EVENT,
@@ -107,7 +107,7 @@ export function ShipFailedDialog({
           <Btn variant="ghost" icon="settings" onClick={openCommitCliSettings} disabled={busy}>
             Open Settings
           </Btn>
-          <StaticHotkeyTooltip hotkey="⌘ Enter">
+          <HotkeyTooltip action="dialog.submit">
             <Btn
               variant="primary"
               icon="upload"
@@ -120,7 +120,7 @@ export function ShipFailedDialog({
                   : "Committing…"
                 : "Commit with this message"}
             </Btn>
-          </StaticHotkeyTooltip>
+          </HotkeyTooltip>
         </>
       }
     >

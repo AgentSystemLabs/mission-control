@@ -3,7 +3,7 @@ import CodeMirror, { EditorView, type ReactCodeMirrorRef } from "@uiw/react-code
 import { oneDark } from "@codemirror/theme-one-dark";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
-import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, StaticHotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { languageForFilename } from "~/lib/file-language";
@@ -530,9 +530,11 @@ function LoadErrorView({
     >
       <div style={{ fontWeight: 600 }}>{title}</div>
       <div style={{ color: "var(--text-dim)", fontSize: 12, lineHeight: 1.5 }}>{body}</div>
-      <Btn variant="ghost" onClick={onClose}>
-        Close
-      </Btn>
+      <EscTooltip label="Close">
+        <Btn variant="ghost" onClick={onClose}>
+          Close
+        </Btn>
+      </EscTooltip>
     </div>
   );
 }

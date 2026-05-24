@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
-import { HotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -80,9 +80,11 @@ export function LaunchKitDialog({
       width={520}
       footer={
         <>
-          <Btn variant="ghost" onClick={onClose} disabled={isWorking}>
-            Cancel
-          </Btn>
+          <EscTooltip label="Cancel">
+            <Btn variant="ghost" onClick={onClose} disabled={isWorking}>
+              Cancel
+            </Btn>
+          </EscTooltip>
           <HotkeyTooltip action="dialog.submit">
             <Btn variant="primary" onClick={() => void submit()} disabled={!canSubmit}>
               {isWorking ? phaseLabel : "Create Project"}
