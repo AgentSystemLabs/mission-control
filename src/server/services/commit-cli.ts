@@ -1,4 +1,6 @@
-import { spawn } from "node:child_process";
+import * as os from "node:os";
+import { resolveAgentCommandOnPath } from "../../../electron/agent-cli-resolution";
+import { sanitizedProcessEnv } from "../../../electron/shell-env";
 import {
   COMMIT_CLI_VALUES,
   type CommitCli,
@@ -10,58 +12,31 @@ import {
 } from "../controllers/settings.controller";
 import { runCli } from "./claude-cli";
 
-const DETECT_TIMEOUT_MS = 5_000;
 const COMMIT_MESSAGE_TIMEOUT_MS = 60_000;
 
-/** Probe a single binary via `command -v` through the user's login shell so
- * nvm/asdf/brew PATH resolves the same way `runCli` does at ship time.
- * Returns true iff the shell exits 0 (binary is reachable). */
-function probeCli(binary: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const userShell = process.env.SHELL || "/bin/sh";
-    // Single-quote the binary name to defend against the (very unlikely) case
-    // where COMMIT_CLI_VALUES grows to include shell metacharacters.
-    const escaped = `'${binary.replace(/'/g, "'\\''")}'`;
-    let child;
-    try {
-      child = spawn(userShell, ["-l", "-c", `command -v ${escaped} >/dev/null 2>&1`], {
-        env: process.env,
-        stdio: ["ignore", "ignore", "ignore"],
-      });
-    } catch (e) {
-      // spawn can throw synchronously when $SHELL points at a missing binary.
-      console.warn(`[commit-cli] probe ${binary} failed to spawn: ${(e as Error)?.message}`);
-      resolve(false);
-      return;
-    }
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      console.warn(`[commit-cli] probe ${binary} timed out after ${DETECT_TIMEOUT_MS}ms`);
-      resolve(false);
-    }, DETECT_TIMEOUT_MS);
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      console.warn(`[commit-cli] probe ${binary} errored: ${e?.message}`);
-      resolve(false);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve(code === 0);
-    });
-  });
+function probeCli(
+  binary: string,
+  env: NodeJS.ProcessEnv = sanitizedProcessEnv(),
+  platform: NodeJS.Platform = os.platform(),
+): boolean {
+  return resolveAgentCommandOnPath(binary, env, platform) !== null;
 }
 
-/** Probe every supported CLI in parallel and return the availability map.
- * Returns the all-false shape on unexpected probe rejection so callers always
- * get a typed CommitCliDetection — see Promise.all caveat: a single reject
- * blows up the whole batch. `probeCli` itself never throws today, but this
- * defends against a future regression. */
+export function detectInstalledCommitClisFromEnv(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = os.platform(),
+): CommitCliDetection {
+  return Object.fromEntries(
+    COMMIT_CLI_VALUES.map((cli) => [cli, probeCli(cli, env, platform)] as const),
+  ) as CommitCliDetection;
+}
+
+/** Probe every supported CLI and return the availability map.
+ * Uses the same augmented PATH + alias resolver as session launch, so Windows
+ * `.cmd` shims and Cursor's `agent.exe` alias are detected consistently. */
 export async function detectInstalledCommitClis(): Promise<CommitCliDetection> {
   try {
-    const entries = await Promise.all(
-      COMMIT_CLI_VALUES.map(async (cli) => [cli, await probeCli(cli)] as const),
-    );
-    return Object.fromEntries(entries) as CommitCliDetection;
+    return detectInstalledCommitClisFromEnv(sanitizedProcessEnv());
   } catch (e) {
     console.error(
       `[commit-cli] detection batch failed: ${(e as Error)?.message ?? String(e)}`,
