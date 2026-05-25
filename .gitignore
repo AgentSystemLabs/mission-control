@@ -21,3 +21,4 @@ dist-electron-out/
 artifacts/
 
 .openai-key
+.license-key
