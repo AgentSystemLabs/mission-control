@@ -168,9 +168,9 @@ export type ElectronBridge = {
       commands: string[];
       ports?: number[];
     }) => Promise<LaunchProcessKillResult>;
-    onData: (cb: (msg: { ptyId: string; data: string }) => void) => () => void;
+    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => () => void;
     onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => () => void;
-    replay: (ptyId: string) => Promise<string>;
+    replay: (ptyId: string) => Promise<{ data: string; nextSeq: number }>;
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;

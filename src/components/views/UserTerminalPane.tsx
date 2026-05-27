@@ -9,6 +9,7 @@ import {
   wireTerminalFileDrop,
 } from "~/lib/terminal-pane-helpers";
 import {
+  applyTerminalFontSize,
   createTerminalOptions,
   createTerminalTheme,
   fitTerminalSurface,
@@ -16,20 +17,26 @@ import {
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
+import { useTerminalZoom, useTerminalPaneZoomShortcuts } from "~/lib/use-terminal-zoom";
+import { TerminalZoomControls } from "~/components/views/TerminalZoomControls";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
+import { attachTerminalLinks } from "~/lib/terminal-links";
+import { resizePtyToTerminal } from "~/lib/terminal-resize";
+import {
+  dataAfterReplay,
+  sequencedPtyData,
+  type PtyReplaySnapshot,
+  type SequencedPtyData,
+} from "~/lib/terminal-replay";
 import { ApiError, api } from "~/lib/api";
+import { CLEAR_USER_TERMINAL_EVENT } from "~/lib/design-meta";
 import type { UserTerminal } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
 
-// Pattern shared by the link provider and the launch-URL detector. The two
-// callers differ only in whether the port is a capture group.
+// Pattern for the launch-URL detector (port capture group for dev-server URLs).
 const LOOPBACK_URL_BASE = String.raw`\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])`;
 const LOOPBACK_URL_TAIL = String.raw`(?:\/[^\s'"<>)\]]*)?`;
-const LOOPBACK_URL_REGEX = new RegExp(
-  `${LOOPBACK_URL_BASE}(?::\\d+)?${LOOPBACK_URL_TAIL}`,
-  "g",
-);
 const LOOPBACK_URL_WITH_PORT_GROUP_REGEX = new RegExp(
   `${LOOPBACK_URL_BASE}(?::(\\d+))?${LOOPBACK_URL_TAIL}`,
   "g",
@@ -48,7 +55,7 @@ export function UserTerminalPane({
   onHide,
   onDelete,
   onRename,
-  isLast,
+  isLast: _isLast,
 }: {
   terminal: UserTerminal;
   ptyId: string | null;
@@ -65,7 +72,20 @@ export function UserTerminalPane({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement | null>(null);
-  const termRef = useRef<{ focus: () => void } | null>(null);
+  const termRef = useRef<{
+    focus: () => void;
+    clear: () => void;
+    setFontSize: (fontSize: number) => void;
+  } | null>(null);
+  const {
+    level: zoomLevel,
+    fontSize: terminalFontSize,
+    zoomIn,
+    zoomOut,
+    canZoomIn,
+    canZoomOut,
+  } = useTerminalZoom(terminal.id);
+  useTerminalPaneZoomShortcuts(cardRef, zoomIn, zoomOut);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [draftName, setDraftName] = useState(terminal.name);
@@ -96,6 +116,20 @@ export function UserTerminalPane({
   useEffect(() => setDraftName(terminal.name), [terminal.name]);
 
   useEffect(() => {
+    termRef.current?.setFontSize(terminalFontSize);
+  }, [terminalFontSize]);
+
+  useEffect(() => {
+    const onClear = () => {
+      const root = cardRef.current;
+      if (!root?.contains(document.activeElement)) return;
+      termRef.current?.clear();
+    };
+    window.addEventListener(CLEAR_USER_TERMINAL_EVENT, onClear);
+    return () => window.removeEventListener(CLEAR_USER_TERMINAL_EVENT, onClear);
+  }, []);
+
+  useEffect(() => {
     const electron = getElectron();
     if (!containerRef.current) return;
 
@@ -110,12 +144,12 @@ export function UserTerminalPane({
         createTerminalOptions({
           colorScheme: getTerminalColorScheme(),
           cursorColor: getCurrentAccentColor(),
+          fontSize: terminalFontSize,
         })
       );
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(containerRef.current);
-      termRef.current = { focus: () => term.focus() };
       term.focus();
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
         term.options.theme = createTerminalTheme({
@@ -123,31 +157,7 @@ export function UserTerminalPane({
           cursorColor: getCurrentAccentColor(),
         });
       });
-      term.registerLinkProvider({
-        provideLinks(y, callback) {
-          const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
-          const links: any[] = [];
-          const regex = new RegExp(LOOPBACK_URL_REGEX.source, "g");
-          let match: RegExpExecArray | null;
-          while ((match = regex.exec(line)) !== null) {
-            const text = match[0]!;
-            links.push({
-              text,
-              range: {
-                start: { x: match.index + 1, y: 1 },
-                end: { x: match.index + text.length, y: 1 },
-              },
-              activate(event: MouseEvent, uri: string) {
-                if (event.metaKey || event.ctrlKey) {
-                  if (electron) void electron.openExternal(uri);
-                  else window.open(uri, "_blank", "noopener,noreferrer");
-                }
-              },
-            });
-          }
-          callback(links);
-        },
-      });
+      const detachLinks = attachTerminalLinks(term);
       const onFocusIn = () => onFocus();
       const focusEl = containerRef.current;
       focusEl.addEventListener("focusin", onFocusIn);
@@ -155,6 +165,10 @@ export function UserTerminalPane({
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
+      let electronReplayPtyId: string | null = null;
+      let electronReplayData: SequencedPtyData[] = [];
+      let electronReplayExit: { ptyId: string; exitCode: number; signal?: number } | null =
+        null;
 
       const detachFileDrop = electron
         ? wireTerminalFileDrop({
@@ -194,6 +208,23 @@ export function UserTerminalPane({
         term.writeln(`\x1b[2m[process exited (code=${exitCode ?? "unknown"})]\x1b[0m`);
         onPtyExit();
       };
+      const resizeElectronPtyToSurface = (id: string) => {
+        if (!electron) return Promise.resolve(false);
+        return resizePtyToTerminal(term, (cols, rows) => electron.pty.resize(id, cols, rows));
+      };
+      const resizeRemotePtyToSurface = (id: string) =>
+        resizePtyToTerminal(term, (cols, rows) => api.resizeRemotePty(id, cols, rows));
+      termRef.current = {
+        focus: () => term.focus(),
+        clear: () => term.clear(),
+        setFontSize: (nextFontSize) => {
+          applyTerminalFontSize(term, fit, nextFontSize);
+          const id = activePtyId;
+          if (!id) return;
+          if (electron) void resizeElectronPtyToSurface(id);
+          else void resizeRemotePtyToSurface(id).catch(() => undefined);
+        },
+      };
       const wireTerminalInput = (id: string) => {
         term.onData((data) => {
           if (electron) electron.pty.write(id, data);
@@ -211,17 +242,59 @@ export function UserTerminalPane({
         subscriptions.push(
           electron.pty.onData((msg) => {
             if (msg.ptyId === id) {
+              if (electronReplayPtyId === id) {
+                electronReplayData.push(sequencedPtyData(msg.seq, msg.data));
+                return;
+              }
               term.write(msg.data);
               detectLaunchUrl(msg.data);
             }
           }),
           electron.pty.onExit((msg) => {
             if (msg.ptyId === id) {
+              if (electronReplayPtyId === id) {
+                electronReplayExit = msg;
+                return;
+              }
               handleExit(msg.exitCode);
             }
           })
         );
         wireTerminalInput(id);
+      };
+      const replayExistingElectronPty = async (id: string) => {
+        if (!electron) return;
+        electronReplayPtyId = id;
+        electronReplayData = [];
+        electronReplayExit = null;
+        wireElectronPty(id);
+        void resizeElectronPtyToSurface(id);
+
+        let replay: PtyReplaySnapshot = { data: "", nextSeq: 0 };
+        try {
+          replay = await electron.pty.replay(id);
+        } finally {
+          if (electronReplayPtyId === id) {
+            electronReplayPtyId = null;
+          }
+        }
+        if (cancelled || activePtyId !== id) return;
+
+        if (replay.data) {
+          term.write(replay.data);
+          detectLaunchUrl(replay.data);
+        }
+        for (const chunk of dataAfterReplay(electronReplayData, replay)) {
+          term.write(chunk);
+          detectLaunchUrl(chunk);
+        }
+        electronReplayData = [];
+
+        const replayExit = electronReplayExit as
+          | { ptyId: string; exitCode: number; signal?: number }
+          | null;
+        electronReplayExit = null;
+        if (replayExit) handleExit(replayExit.exitCode);
       };
       const wireRemotePty = async (id: string) => {
         activePtyId = id;
@@ -278,6 +351,7 @@ export function UserTerminalPane({
         ]);
         setLiveStatus("connected to remote runtime");
         term.writeln("\x1b[36m[connected to remote runtime]\x1b[0m");
+        await resizeRemotePtyToSurface(id).catch(() => undefined);
         const replay = await api.replayRemotePty(id, { beforeSeq: replayBeforeSeq });
         if (!cancelled && replay.data) {
           term.write(replay.data);
@@ -300,9 +374,7 @@ export function UserTerminalPane({
 
           if (ptyId) {
             if (electron) {
-              wireElectronPty(ptyId);
-              const buf = await electron.pty.replay(ptyId);
-              if (!cancelled && buf) term.write(buf);
+              await replayExistingElectronPty(ptyId);
             } else {
               await wireRemotePty(ptyId);
             }
@@ -361,6 +433,7 @@ export function UserTerminalPane({
         cancelAnimationFrame(rafHandle);
         focusEl.removeEventListener("focusin", onFocusIn);
         detachFileDrop();
+        detachLinks();
         stopWatchingColorScheme();
         for (const off of subscriptions) off();
         ro.disconnect();
@@ -373,7 +446,6 @@ export function UserTerminalPane({
       cancelled = true;
       cleanup?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminal.id, retryNonce]);
 
   // Bring focus to the xterm when this pane becomes focused via cycling or
@@ -480,34 +552,42 @@ export function UserTerminalPane({
             {terminal.name}
           </span>
         )}
-        <button
-          onClick={() => setConfirmDelete(true)}
-          title="Delete terminal (kills the process)"
-          style={{
-            background: "transparent",
-            border: 0,
-            padding: 4,
-            color: "var(--text-faint)",
-            cursor: "pointer",
-            display: "flex",
-          }}
-        >
-          <Icon name="trash" size={11} />
-        </button>
-        <button
-          onClick={onHide}
-          title="Hide terminal (keeps it running)"
-          style={{
-            background: "transparent",
-            border: 0,
-            padding: 4,
-            color: "var(--text-faint)",
-            cursor: "pointer",
-            display: "flex",
-          }}
-        >
-          <Icon name="x" size={11} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <TerminalZoomControls
+            level={zoomLevel}
+            canZoomIn={canZoomIn}
+            canZoomOut={canZoomOut}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+          />
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="eraser"
+            onClick={() => termRef.current?.clear()}
+            title="Clear terminal output"
+            aria-label="Clear terminal output"
+            style={{ width: 34, padding: 0 }}
+          />
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="trash"
+            onClick={() => setConfirmDelete(true)}
+            title="Delete terminal (kills the process)"
+            aria-label="Delete terminal (kills the process)"
+            style={{ width: 34, padding: 0 }}
+          />
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="x"
+            onClick={onHide}
+            title="Hide terminal (keeps it running)"
+            aria-label="Hide terminal (keeps it running)"
+            style={{ width: 34, padding: 0 }}
+          />
+        </div>
       </div>
       <ConfirmDialog
         open={confirmDelete}

@@ -1,14 +1,21 @@
 import { useLicense } from "~/queries";
 import { type LicenseState } from "~/shared/license";
 
-type Tier = "lite" | "pro";
+type Tier = "unknown" | "lite" | "pro";
 
 function deriveTier(license: LicenseState | undefined): Tier {
-  if (!license || !license.hasKey) return "lite";
+  if (!license) return "unknown";
+  if (!license.hasKey) return "lite";
   return license.status === "active" ? "pro" : "lite";
 }
 
 const TIER_STYLE: Record<Tier, { label: string; bg: string; border: string; fg: string }> = {
+  unknown: {
+    label: "",
+    bg: "transparent",
+    border: "var(--border)",
+    fg: "var(--text-faint)",
+  },
   lite: {
     label: "Lite",
     bg: "transparent",
@@ -28,27 +35,31 @@ export function LicenseBadge({ onClick }: { onClick?: () => void }) {
   const tier = deriveTier(license);
   const s = TIER_STYLE[tier];
   const title =
-    tier === "lite"
+    tier === "unknown"
+      ? "Checking Mission Control plan"
+      : tier === "lite"
       ? "Mission Control Lite — click to activate Pro"
       : "Mission Control Pro — click to manage license";
 
   const style = {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        height: 22,
-        padding: "0 8px",
-        borderRadius: 999,
-        border: `1px solid ${s.border}`,
-        background: s.bg,
-        color: s.fg,
-        fontFamily: "var(--mono)",
-        fontSize: 10.5,
-        fontWeight: 600,
-        letterSpacing: "0.04em",
-        textTransform: "uppercase",
-        cursor: onClick ? "pointer" : "default",
-      };
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    height: 22,
+    minWidth: 44,
+    justifyContent: "center",
+    padding: "0 8px",
+    borderRadius: 999,
+    border: `1px solid ${s.border}`,
+    background: s.bg,
+    color: s.fg,
+    fontFamily: "var(--mono)",
+    fontSize: 10.5,
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    cursor: onClick ? "pointer" : "default",
+  };
 
   if (!onClick) {
     return (
@@ -62,6 +73,7 @@ export function LicenseBadge({ onClick }: { onClick?: () => void }) {
     <button
       type="button"
       onClick={onClick}
+      aria-label={title}
       title={title}
       style={style}
     >

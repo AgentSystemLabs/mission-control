@@ -38,6 +38,13 @@ export function pickByPriority<T extends { status: TaskStatus }>(tasks: T[]): T 
 
 export const DUPLICATE_ACTIVE_SESSION_EVENT = "mc:duplicate-active-session";
 
+/** Dispatched when Cmd+K (terminal.expandToggle) fires while a bottom user TTY has focus. */
+export const CLEAR_USER_TERMINAL_EVENT = "mc:clear-user-terminal";
+
+/** Dispatched on Cmd+/Cmd- when an xterm (user or session) has keyboard focus. */
+export const TERMINAL_ZOOM_IN_EVENT = "mc:terminal-zoom-in";
+export const TERMINAL_ZOOM_OUT_EVENT = "mc:terminal-zoom-out";
+
 /** Dispatched by leaf components (e.g. ShipFailedDialog) to ask the Shell
  * to open the Settings panel at a specific page. Listened to by __root.tsx. */
 export const OPEN_SETTINGS_EVENT = "mc:open-settings";

@@ -427,6 +427,7 @@ async function dispatch(
     if (action === "unstage" && method === "POST") return gitController.unstage(id, request);
     if (action === "commit" && method === "POST") return gitController.commit(id, request);
     if (action === "push" && method === "POST") return gitController.push(id, request);
+    if (action === "create-pr" && method === "POST") return gitController.createPr(id, request);
   }
   m = pathname.match(PROJECT_USER_TERMINALS_PATH);
   if (m) {

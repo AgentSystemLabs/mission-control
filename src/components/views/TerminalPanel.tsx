@@ -107,6 +107,7 @@ export function TerminalPanel({
     <CardFrame
       ref={rootRef}
       focused={focused}
+      data-session-terminal-panel
       style={{
         width: expanded ? "100%" : width,
         flex: expanded ? 1 : undefined,

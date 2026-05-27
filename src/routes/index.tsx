@@ -1,8 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -11,11 +13,13 @@ import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { ProjectCard } from "~/components/views/ProjectCard";
+import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { ProjectsDashboardViewToggle } from "~/components/views/ProjectsDashboardViewToggle";
 import { ProjectsTable } from "~/components/views/ProjectsTable";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { LaunchKitDialog } from "~/components/views/LaunchKitDialog";
 import { useAddProject } from "~/lib/add-project-store";
+import { useTerminals } from "~/lib/terminal-store";
 import { api, type AppSettings } from "~/lib/api";
 import {
   readCachedProjectsDashboardView,
@@ -40,6 +44,7 @@ import {
   DEFAULT_PROJECTS_DASHBOARD_VIEW,
   type ProjectsDashboardView,
 } from "~/shared/ui-preferences";
+import type { Group } from "~/db/schema";
 
 export const Route = createFileRoute("/")({
   component: MissionControlPage,
@@ -66,6 +71,9 @@ function MissionControlPage() {
   const [search, setSearch] = useState("");
   const [showGroups, setShowGroups] = useState(false);
   const [showLaunchKit, setShowLaunchKit] = useState(false);
+  const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
+  const [removingProject, setRemovingProject] = useState<ProjectWithCounts | null>(null);
+  const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const { data: settings } = useSettings();
   const settingsLoaded = settings !== undefined;
@@ -73,6 +81,7 @@ function MissionControlPage() {
   const [dashboardView, setDashboardView] = useState<ProjectsDashboardView>(() =>
     readCachedProjectsDashboardView() ?? DEFAULT_PROJECTS_DASHBOARD_VIEW,
   );
+  const terminals = useTerminals();
   const { setProject: setActiveUserTerminalProject } = useUserTerminals();
   const { open: openAddProject } = useAddProject();
 
@@ -123,9 +132,24 @@ function MissionControlPage() {
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
     [queryClient]
   );
+  const invalidateProject = useCallback(
+    (id: string) => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
+    [queryClient]
+  );
   const invalidateGroups = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.groups }),
     [queryClient]
+  );
+  const createGroupForSelection = useCallback(
+    async (name: string) => {
+      const { group } = await api.createGroup({ name });
+      queryClient.setQueryData<Group[]>(queryKeys.groups, (current) =>
+        current ? [...current, group] : [group],
+      );
+      await invalidateGroups();
+      return group;
+    },
+    [invalidateGroups, queryClient],
   );
 
   useServerEvents(
@@ -172,11 +196,36 @@ function MissionControlPage() {
   const open = (id: string) => router.navigate({ to: "/projects/$id", params: { id } });
   const togglePin = async (id: string) => {
     await api.togglePin(id);
-    await invalidateProjects();
+    await Promise.all([invalidateProjects(), invalidateProject(id)]);
+  };
+  const removeProject = async () => {
+    if (!removingProject || removingProjectId) return;
+    const projectId = removingProject.id;
+    setRemovingProjectId(projectId);
+    try {
+      await terminals.closeForProject(projectId);
+      await api.deleteProject(projectId);
+      setRemovingProject(null);
+      await Promise.all([invalidateProjects(), invalidateProject(projectId)]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not remove project");
+    } finally {
+      setRemovingProjectId(null);
+    }
   };
   const canUseLaunchKit =
     (!!license && isAcademyTier(license)) || !!launchKitAccess.data?.hasAccess;
   const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
+  const renderProjectCard = (project: ProjectWithCounts) => (
+    <ProjectCard
+      key={project.id}
+      project={project}
+      onOpen={() => open(project.id)}
+      onEdit={() => setEditingProject(project)}
+      onRemove={() => setRemovingProject(project)}
+      onTogglePin={togglePin}
+    />
+  );
 
   return (
     <>
@@ -349,14 +398,7 @@ function MissionControlPage() {
               labelSize={13}
             >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
-                {pinned.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    onOpen={() => open(p.id)}
-                    onTogglePin={togglePin}
-                  />
-                ))}
+                {pinned.map(renderProjectCard)}
               </div>
             </Section>
           )}
@@ -372,14 +414,7 @@ function MissionControlPage() {
               labelSize={13}
             >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
-                {gp.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    onOpen={() => open(p.id)}
-                    onTogglePin={togglePin}
-                  />
-                ))}
+                {gp.map(renderProjectCard)}
               </div>
             </Section>
           ))}
@@ -393,14 +428,7 @@ function MissionControlPage() {
               labelSize={13}
             >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
-                {ungrouped.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    onOpen={() => open(p.id)}
-                    onTogglePin={togglePin}
-                  />
-                ))}
+                {ungrouped.map(renderProjectCard)}
               </div>
             </Section>
           )}
@@ -435,8 +463,7 @@ function MissionControlPage() {
         projects={projects}
         onClose={() => setShowGroups(false)}
         onAdd={async (name) => {
-          await api.createGroup({ name });
-          await invalidateGroups();
+          await createGroupForSelection(name);
         }}
         onRemove={async (id) => {
           await api.deleteGroup(id);
@@ -445,6 +472,10 @@ function MissionControlPage() {
         onRename={async (id, name) => {
           await api.updateGroup(id, { name });
           await invalidateGroups();
+        }}
+        onProjectGroupChange={async (projectId, groupId) => {
+          await api.updateProject(projectId, { groupId });
+          await Promise.all([invalidateProjects(), invalidateProject(projectId)]);
         }}
       />
       <LaunchKitDialog
@@ -456,6 +487,40 @@ function MissionControlPage() {
           void router.navigate({ to: "/projects/$id", params: { id: projectId } });
         }}
       />
+      {editingProject && (
+        <ProjectDialog
+          open
+          project={editingProject}
+          groups={groups}
+          onCreateGroup={createGroupForSelection}
+          onClose={() => setEditingProject(null)}
+          onSave={async (data) => {
+            const projectId = editingProject.id;
+            await api.updateProject(projectId, data);
+            setEditingProject(null);
+            await Promise.all([invalidateProjects(), invalidateProject(projectId)]);
+          }}
+        />
+      )}
+      <ConfirmDialog
+        open={removingProject !== null}
+        onClose={() => {
+          if (!removingProjectId) setRemovingProject(null);
+        }}
+        onConfirm={removeProject}
+        title="Remove project"
+        confirmLabel="Remove"
+        icon="trash"
+        loading={removingProjectId !== null}
+        width={460}
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+          Remove &ldquo;{removingProject?.name}&rdquo; from MissionControl?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          This only unlinks the project — the files at {removingProject?.path} are not touched.
+        </div>
+      </ConfirmDialog>
     </>
   );
 }

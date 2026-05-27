@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   commit as gitCommit,
+  createPullRequest as gitCreatePullRequest,
   getGitDiff,
   getGitStatus,
   gitErrorPayload,
@@ -114,6 +115,18 @@ export async function push(rawId: string, request: Request): Promise<Response> {
   if (!body.ok) return body.response;
   try {
     return json(await gitPush(parsed.data, body.data.worktreeId ?? null));
+  } catch (e) {
+    return handleDomainError(e) ?? asGitErrorResponse(e);
+  }
+}
+
+export async function createPr(rawId: string, request: Request): Promise<Response> {
+  const parsed = idParam.safeParse(rawId);
+  if (!parsed.success) return notFound();
+  const body = await parseJsonBody(request, z.object({ worktreeId: z.string().nullable().optional() }));
+  if (!body.ok) return body.response;
+  try {
+    return json(await gitCreatePullRequest(parsed.data, body.data.worktreeId ?? null));
   } catch (e) {
     return handleDomainError(e) ?? asGitErrorResponse(e);
   }

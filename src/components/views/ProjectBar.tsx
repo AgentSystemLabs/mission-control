@@ -13,6 +13,7 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
 import { useBinding } from "~/lib/keybindings/store";
 import { formatBinding } from "~/lib/keybindings/format";
 import { api } from "~/lib/api";
+import { shouldFlashPinnedProjectLogo } from "./project-bar-activity";
 import { getPinnedProjectStatusDots } from "./project-bar-status-dots";
 import { setProjectPathDragData } from "~/lib/project-path-drag";
 
@@ -118,7 +119,10 @@ export function ProjectBar() {
         const runningCount = project.taskCounts.running;
         const terminalRunning = runningProjectIds.has(project.id);
         const launchRunning = hasRunningLaunchForProject(project.id, project.launchCommands);
-        const projectRunning = runningCount > 0 || terminalRunning;
+        const logoShouldFlash = shouldFlashPinnedProjectLogo({
+          cliRunningCount: runningCount,
+          terminalOpen: terminalRunning,
+        });
         const finishedCount = project.taskCounts.finished;
         const statusDots = getPinnedProjectStatusDots(project.taskCounts);
         const hasStatusDots = statusDots.length > 0;
@@ -244,7 +248,7 @@ export function ProjectBar() {
               }}
             >
               <span
-                className={`pinned-project-logo-surface${projectRunning ? " pinned-project-logo-surface--running" : ""}`}
+                className={`pinned-project-logo-surface${logoShouldFlash ? " pinned-project-logo-surface--running" : ""}`}
                 style={{
                   width: ICON_SIZE,
                   height: ICON_SIZE,

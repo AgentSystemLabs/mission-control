@@ -36,7 +36,7 @@ import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
 } from "~/lib/accent-colors";
-import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
+import { type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 
 /** Source of truth for which panel ids the OPEN_SETTINGS_EVENT handler will
@@ -45,6 +45,7 @@ import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 const SETTINGS_PANEL_IDS: readonly SettingsPanelId[] = [
   "general",
   "defaults",
+  "terminal",
   "theme",
   "license",
   "keybindings",
@@ -66,7 +67,13 @@ import {
   type AppNotification,
 } from "~/lib/session-notification-store";
 import { DiagramDialogHost } from "~/lib/use-diagram-events";
+import { isUserTerminalXtermFocused, isTerminalXtermFocused, terminalZoomStepFromKeyboard } from "~/lib/terminal-pane-helpers";
 import { useWarmCliAvailability } from "~/lib/cli-availability";
+import {
+  CLEAR_USER_TERMINAL_EVENT,
+  TERMINAL_ZOOM_IN_EVENT,
+  TERMINAL_ZOOM_OUT_EVENT,
+} from "~/lib/design-meta";
 import {
   LAUNCH_INTRO_CACHE_KEY,
   hasCachedLaunchIntroPreference,
@@ -197,12 +204,12 @@ function LaunchIntroOverlayController() {
 
 function Shell() {
   const router = useRouter();
-  const [activePanel, setActivePanel] = useState<"settings" | "usage" | null>(null);
-  const [settingsInitialPanel, setSettingsInitialPanel] =
-    useState<SettingsPanelId>("general");
+  const [activePanel, setActivePanel] = useState<"usage" | null>(null);
   const openSettings = (initial: SettingsPanelId = "general") => {
-    setSettingsInitialPanel(initial);
-    setActivePanel("settings");
+    void router.navigate({
+      to: "/settings",
+      search: { panel: initial },
+    });
   };
 
   // Leaf components (e.g. ShipFailedDialog) dispatch OPEN_SETTINGS_EVENT to
@@ -217,7 +224,7 @@ function Shell() {
     };
     window.addEventListener(OPEN_SETTINGS_EVENT, handler);
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
-  }, []);
+  }, [router]);
   useTheme();
   const { data: settings } = useSettings();
   const { data: projects } = useProjects();
@@ -313,7 +320,7 @@ function Shell() {
     !!projectId && terminalExpanded && !!activeFor(projectId);
   const crumbs: Crumb[] = projectMatch
     ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} /> }]
-    : activePanel === "settings"
+    : path === "/settings"
       ? [{ label: "Settings" }]
       : activePanel === "usage"
         ? [{ label: "Usage" }]
@@ -396,11 +403,30 @@ function Shell() {
   useHotkey(
     "terminal.expandToggle",
     () => {
+      if (userTerminalPanelOpen && isUserTerminalXtermFocused()) {
+        window.dispatchEvent(new Event(CLEAR_USER_TERMINAL_EVENT));
+        return;
+      }
       if (projectId && activeFor(projectId)) toggleTerminalExpanded();
     },
     { capture: true },
   );
   useHotkey("nav.toggle", goHome);
+  // Cmd/Ctrl + =/- zoom the focused terminal; otherwise leave browser zoom alone.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const direction = terminalZoomStepFromKeyboard(e);
+      if (direction === null) return;
+      if (!isTerminalXtermFocused()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      window.dispatchEvent(
+        new Event(direction === 1 ? TERMINAL_ZOOM_IN_EVENT : TERMINAL_ZOOM_OUT_EVENT),
+      );
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
   // Cmd/Ctrl + [ / ] / T are non-rebindable terminal-focused shortcuts.
   // Capture phase: a focused xterm textarea swallows these on bubble.
   useEffect(() => {
@@ -488,11 +514,15 @@ function Shell() {
               <Btn
                 variant="ghost"
                 icon="settings"
-                onClick={() =>
-                  setActivePanel(activePanel === "settings" ? null : "settings")
-                }
-                aria-label={activePanel === "settings" ? "Close settings" : "Open settings"}
-                title={activePanel === "settings" ? "Close settings" : "Open settings"}
+                onClick={() => {
+                  if (path === "/settings") {
+                    goHome();
+                    return;
+                  }
+                  void router.navigate({ to: "/settings" });
+                }}
+                aria-label={path === "/settings" ? "Close settings" : "Open settings"}
+                title={path === "/settings" ? "Close settings" : "Open settings"}
               />
             </>
           }
@@ -534,9 +564,6 @@ function Shell() {
           </div>
           <UserTerminalPanel />
         </div>
-        {activePanel === "settings" && (
-          <SettingsPanel onBack={closePanel} initialPanel={settingsInitialPanel} />
-        )}
         {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
         <Toaster
           position="bottom-right"

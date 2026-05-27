@@ -47,11 +47,14 @@ export function FileEditorDialog({
   const [confirmClose, setConfirmClose] = useState(false);
   const watchIdRef = useRef<string | null>(null);
   const mtimeRef = useRef<number>(0);
+  const savingRef = useRef(false);
   const cmRef = useRef<ReactCodeMirrorRef>(null);
 
   if (loaded) mtimeRef.current = loaded.mtimeMs;
 
   const dirty = loaded?.kind === "text" && content !== loaded.content;
+  const contentRef = useRef(content);
+  contentRef.current = content;
   const slash = relPath ? relPath.lastIndexOf("/") : -1;
   const fileName = relPath ? (slash >= 0 ? relPath.slice(slash + 1) : relPath) : "";
   const dirPath = relPath && slash >= 0 ? relPath.slice(0, slash) : "";
@@ -100,6 +103,7 @@ export function FileEditorDialog({
       watchIdRef.current = r.watchId;
       unsub = window.electronAPI!.files.onChanged((msg) => {
         if (msg.watchId !== r.watchId) return;
+        if (savingRef.current) return;
         if (msg.mtimeMs <= mtimeRef.current) return;
         void handleExternalChange();
       });
@@ -121,6 +125,13 @@ export function FileEditorDialog({
     const r = await window.electronAPI.files.read(projectRoot, relPath);
     if (!r.ok) return;
     const next = toLoadedFile(r);
+    // Our own save can race the watcher: disk already matches the editor.
+    if (next.kind === "text" && next.content === contentRef.current) {
+      mtimeRef.current = next.mtimeMs;
+      setLoaded(next);
+      setExternalChanged(false);
+      return;
+    }
     if (dirtyRef.current) {
       setLoaded((prev) => (prev ? { ...prev, mtimeMs: next.mtimeMs } : prev));
       setExternalChanged(true);
@@ -148,9 +159,10 @@ export function FileEditorDialog({
   }, [projectRoot, relPath]);
 
   const doSave = useCallback(
-    async (forceOverwrite: boolean) => {
-      if (!relPath || !window.electronAPI || !loaded) return;
-      if (loaded.kind !== "text") return;
+    async (forceOverwrite: boolean): Promise<boolean> => {
+      if (!relPath || !window.electronAPI || !loaded) return false;
+      if (loaded.kind !== "text") return false;
+      savingRef.current = true;
       setSaving(true);
       setSaveError(null);
       const expectedMtime = forceOverwrite ? null : loaded.mtimeMs;
@@ -173,25 +185,39 @@ export function FileEditorDialog({
           expectedMtime,
         );
       }
-      setSaving(false);
       if (r.ok) {
+        mtimeRef.current = r.mtimeMs;
         setLoaded({ kind: "text", content, mtimeMs: r.mtimeMs });
         setExternalChanged(false);
-        return;
+        setSaving(false);
+        savingRef.current = false;
+        return true;
       }
+      setSaving(false);
+      savingRef.current = false;
       if (r.error === "stale") {
         setExternalChanged(true);
         setSaveError("File changed on disk. Discard your edits and reload, or overwrite anyway.");
-        return;
+        return false;
       }
       // User clicked Cancel in the native confirm dialog — no-op, not an error.
       if (r.error === "user-declined") {
-        return;
+        return false;
       }
       setSaveError(r.error);
+      return false;
     },
     [projectRoot, relPath, loaded, content],
   );
+
+  const saveAndClose = useCallback(async () => {
+    if (loaded?.kind !== "text" || !dirty) {
+      onClose();
+      return;
+    }
+    const ok = await doSave(false);
+    if (ok) onClose();
+  }, [loaded, dirty, doSave, onClose]);
 
   const discardAndReload = useCallback(async () => {
     if (!relPath || !window.electronAPI) return;
@@ -262,11 +288,19 @@ export function FileEditorDialog({
                 Close
               </Btn>
             </StaticHotkeyTooltip>
+            <Btn
+              variant="primary"
+              icon="check"
+              onClick={() => void saveAndClose()}
+              disabled={!loaded || saving}
+            >
+              {saving ? "Saving…" : "Save and close"}
+            </Btn>
             <HotkeyTooltip action="file.save">
               <Btn
                 variant="primary"
                 icon="check"
-                onClick={() => doSave(false)}
+                onClick={() => void doSave(false)}
                 disabled={!loaded || saving || !dirty}
               >
                 {saving ? "Saving…" : "Save"}

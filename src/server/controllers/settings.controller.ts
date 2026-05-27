@@ -26,6 +26,12 @@ import {
   normalizeProjectsDashboardView,
   normalizeSelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
+import {
+  DEFAULT_TERMINAL_ZOOM_LEVEL,
+  TERMINAL_ZOOM_MAX,
+  TERMINAL_ZOOM_MIN,
+  normalizeTerminalZoomLevel,
+} from "~/shared/terminal-zoom";
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -33,6 +39,7 @@ const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
 const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
+const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
 
 // The api bearer token is intentionally NOT delivered over HTTP. It is only
 // readable through the Electron IPC channel `settings:getToken`, so a page
@@ -62,6 +69,7 @@ const updateSettingsBody = z
     projectsDashboardView: z.enum(PROJECTS_DASHBOARD_VIEWS).nullable(),
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
+    terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
   })
   .partial();
 
@@ -97,6 +105,10 @@ function getSelectedWorktreeByProjectSetting() {
   }
 }
 
+function getTerminalZoomLevelSetting() {
+  return normalizeTerminalZoomLevel(getSetting(TERMINAL_ZOOM_LEVEL_KEY)) ?? DEFAULT_TERMINAL_ZOOM_LEVEL;
+}
+
 function settingsPayload() {
   return {
     agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
@@ -123,6 +135,7 @@ function settingsPayload() {
     projectsDashboardView: getProjectsDashboardViewSetting(),
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
+    terminalZoomLevel: getTerminalZoomLevelSetting(),
   };
 }
 
@@ -210,6 +223,9 @@ export async function update(request: Request): Promise<Response> {
     } else {
       setSetting(COMMIT_CLI_SETTING_KEY, body.commitCli);
     }
+  }
+  if (body.terminalZoomLevel !== undefined) {
+    setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
   }
   return json(settingsPayload());
 }

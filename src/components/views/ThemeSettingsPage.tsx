@@ -15,6 +15,7 @@ import {
   hasCachedLaunchIntroPreference,
   readCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
+import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
 
 // Pixel size of the color-swatch dot used in the accent-color picker (both
 // the selected-check badge and the per-row preview swatch use this size).
@@ -51,6 +52,7 @@ export function ThemeSettingsPage() {
     projectsDashboardView: settings?.projectsDashboardView ?? null,
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
+    terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:
       queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??

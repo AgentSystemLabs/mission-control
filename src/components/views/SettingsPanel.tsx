@@ -10,12 +10,14 @@ import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { LicenseSettingsPage } from "./LicenseSettingsPage";
 import { SessionDebugLogPage } from "./SessionDebugLogPage";
+import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
 
 export type SettingsPanelId =
   | "general"
   | "defaults"
+  | "terminal"
   | "theme"
   | "beta"
   | "license"
@@ -67,6 +69,7 @@ export function SettingsPanel({
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
     { id: "defaults", label: "Defaults", icon: "terminal" },
+    { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "license", label: "License", icon: "sparkles" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
@@ -271,6 +274,8 @@ export function SettingsPanel({
             <GeneralSettingsPage />
           ) : activePanel === "defaults" ? (
             <DefaultsSettingsPage />
+          ) : activePanel === "terminal" ? (
+            <TerminalSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
           ) : activePanel === "beta" ? (

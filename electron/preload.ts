@@ -129,8 +129,11 @@ const electronAPI = {
     kill: (ptyId: string) => ipcRenderer.invoke(IPC.ptyKill, { ptyId }),
     killLaunchProcesses: (opts: { cwd: string; commands: string[]; ports?: number[] }) =>
       ipcRenderer.invoke(IPC.ptyKillLaunchProcesses, opts),
-    onData: (cb: (msg: { ptyId: string; data: string }) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; data: string }) => cb(msg);
+    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        msg: { ptyId: string; data: string; seq: number },
+      ) => cb(msg);
       ipcRenderer.on(IPC.ptyData, listener);
       return () => ipcRenderer.removeListener(IPC.ptyData, listener);
     },
@@ -140,7 +143,8 @@ const electronAPI = {
       ipcRenderer.on(IPC.ptyExit, listener);
       return () => ipcRenderer.removeListener(IPC.ptyExit, listener);
     },
-    replay: (ptyId: string): Promise<string> => ipcRenderer.invoke(IPC.ptyReplay, { ptyId }) as Promise<string>,
+    replay: (ptyId: string): Promise<{ data: string; nextSeq: number }> =>
+      ipcRenderer.invoke(IPC.ptyReplay, { ptyId }) as Promise<{ data: string; nextSeq: number }>,
   },
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => {
     const listener = (_: Electron.IpcRendererEvent, direction: "left" | "right" | "up" | "down") => cb(direction);

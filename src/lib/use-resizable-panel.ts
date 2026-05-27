@@ -41,8 +41,16 @@ export function useResizablePanel(opts: {
     return Number.isFinite(n) && n >= minSize ? n : defaultSize;
   });
 
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+
+  const isDraggingRef = useRef(false);
+  const onSizeChangeRef = useRef(onSizeChange);
+  onSizeChangeRef.current = onSizeChange;
+
   useEffect(() => {
     if (storedSize === undefined || storedSize === null) return;
+    if (isDraggingRef.current) return;
     setSize((current) => {
       const next = clampSize(storedSize);
       return current === next ? current : next;
@@ -55,18 +63,27 @@ export function useResizablePanel(opts: {
     } catch {
       /* localStorage unavailable */
     }
-    onSizeChange?.(size);
-  }, [onSizeChange, storageKey, size]);
+  }, [storageKey, size]);
 
   const dragRef = useRef<{ start: number; startSize: number } | null>(null);
+
+  const finishDrag = useCallback(() => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    dragRef.current = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    onSizeChangeRef.current?.(sizeRef.current);
+  }, []);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       const startCoord = axis === "x" ? e.clientX : e.clientY;
-      dragRef.current = { start: startCoord, startSize: size };
+      isDraggingRef.current = true;
+      dragRef.current = { start: startCoord, startSize: sizeRef.current };
       const onMove = (ev: MouseEvent) => {
-        if (!dragRef.current) return;
+        if (!dragRef.current || !isDraggingRef.current) return;
         const cur = axis === "x" ? ev.clientX : ev.clientY;
         const delta =
           resizeEdge === "start"
@@ -76,18 +93,16 @@ export function useResizablePanel(opts: {
         setSize(next);
       };
       const onUp = () => {
-        dragRef.current = null;
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
+        finishDrag();
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
       document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
       document.body.style.userSelect = "none";
     },
-    [axis, size, resizeEdge, clampSize],
+    [axis, resizeEdge, clampSize, finishDrag],
   );
 
   return { size, onMouseDown };

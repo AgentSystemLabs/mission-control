@@ -63,6 +63,7 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   { method: "POST", pathname: "/api/projects/abc/git/stage" },
   { method: "POST", pathname: "/api/projects/abc/git/commit" },
   { method: "POST", pathname: "/api/projects/abc/git/push" },
+  { method: "POST", pathname: "/api/projects/abc/git/create-pr" },
   // User terminals
   { method: "GET", pathname: "/api/projects/abc/user-terminals" },
   { method: "POST", pathname: "/api/projects/abc/user-terminals" },

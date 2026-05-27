@@ -13,6 +13,38 @@ type TerminalLike = {
   attachCustomKeyEventHandler(handler: (e: KeyboardEvent) => boolean): void;
 };
 
+/** True when keyboard focus is inside an xterm surface in the bottom user terminal panel. */
+export function isUserTerminalXtermFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  if (!el.closest("[data-user-terminal-panel]")) return false;
+  return !!el.closest(".xterm");
+}
+
+/** True when keyboard focus is inside an xterm surface in the session terminal panel. */
+export function isSessionTerminalXtermFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  if (!el.closest("[data-session-terminal-panel]")) return false;
+  return !!el.closest(".xterm");
+}
+
+export function isTerminalXtermFocused(): boolean {
+  return isUserTerminalXtermFocused() || isSessionTerminalXtermFocused();
+}
+
+/** Cmd/Ctrl + =/+ zoom in, Cmd/Ctrl + - zoom out; null when not a zoom chord. */
+export function terminalZoomStepFromKeyboard(e: KeyboardEvent): 1 | -1 | null {
+  if (e.type !== "keydown") return null;
+  if (!(e.metaKey || e.ctrlKey)) return null;
+  if (e.altKey) return null;
+  if (e.key === "+" || e.key === "=" || e.code === "Equal") return 1;
+  if (e.key === "-" || e.code === "Minus") return -1;
+  return null;
+}
+
 /**
  * Wire native drag-and-drop on `host` so dropped files or pinned-project
  * paths paste into the active PTY (matches iTerm / Terminal.app behavior;

@@ -4,6 +4,7 @@ import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   CommitResult,
+  CreatePullRequestResult,
   GitDiff,
   GitStatus,
   PushResult,
@@ -20,6 +21,7 @@ import type {
   ProjectsDashboardView,
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
+import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
 import { getClientRuntime } from "~/lib/runtime";
 import { MISSION_CONTROL_RUNTIME_HEADER } from "~/shared/runtime";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
@@ -50,6 +52,8 @@ export type AppSettings = {
    * the server auto-detects and seeds it on the first ship attempt.
    */
   commitCli: CommitCli | null;
+  /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
+  terminalZoomLevel: TerminalZoomLevel;
 };
 
 type RemotePtyCreateBody = {
@@ -408,6 +412,7 @@ export const api = {
         | "projectsDashboardView"
         | "selectedWorktreeByProject"
         | "commitCli"
+        | "terminalZoomLevel"
       >
     >,
   ) =>
@@ -454,6 +459,11 @@ export const api = {
     }),
   gitPush: (projectId: string, worktreeId?: string | null) =>
     req<PushResult>(`/api/projects/${projectId}/git/push`, {
+      method: "POST",
+      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    }),
+  gitCreatePullRequest: (projectId: string, worktreeId?: string | null) =>
+    req<CreatePullRequestResult>(`/api/projects/${projectId}/git/create-pr`, {
       method: "POST",
       body: JSON.stringify({ worktreeId: worktreeId ?? null }),
     }),

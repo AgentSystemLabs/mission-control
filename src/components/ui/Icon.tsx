@@ -33,6 +33,7 @@ export type IconName =
   | "sparkles"
   | "copy"
   | "trash"
+  | "eraser"
   | "github"
   | "chart"
   | "sun"
@@ -40,7 +41,9 @@ export type IconName =
   | "stop"
   | "external-link"
   | "shield"
-  | "bell";
+  | "bell"
+  | "zoom-in"
+  | "zoom-out";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const common = {
@@ -218,6 +221,13 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <path d="M2.5 4h11M6 4V2.5h4V4M3.5 4l.7 9.1c0 .5.4.9.9.9h5.8c.5 0 .9-.4.9-.9L12.5 4M6.5 7v4M9.5 7v4" />
         </svg>
       );
+    case "eraser":
+      return (
+        <svg {...common}>
+          <path d="M11.5 2.5l2 2-7.2 7.2-2.8.8.8-2.8 7.2-7.2z" />
+          <path d="M3 13.5h10" />
+        </svg>
+      );
     case "chart":
       return (
         <svg {...common}>
@@ -271,6 +281,22 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
         <svg {...common}>
           <path d="M5 6a3 3 0 016 0c0 3 1.5 3.5 1.5 5H3.5C3.5 9.5 5 9 5 6z" />
           <path d="M6.5 13a1.7 1.7 0 003 0" />
+        </svg>
+      );
+    case "zoom-in":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="4.5" />
+          <path d="M13.5 13.5l-3-3" />
+          <path d="M7 4.5v5M4.5 7h5" />
+        </svg>
+      );
+    case "zoom-out":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="4.5" />
+          <path d="M13.5 13.5l-3-3" />
+          <path d="M4.5 7h5" />
         </svg>
       );
     default:

@@ -103,6 +103,13 @@ export function useGitPush(projectId: string, worktreeId?: string | null) {
   });
 }
 
+export function useGitCreatePullRequest(projectId: string, worktreeId?: string | null) {
+  return useMutation({
+    mutationKey: [...gitKeys.all(projectId, worktreeId), "create-pr"] as const,
+    mutationFn: () => api.gitCreatePullRequest(projectId, worktreeId),
+  });
+}
+
 export function useDeleteProjectFile(projectId: string, worktreeId?: string | null) {
   const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({

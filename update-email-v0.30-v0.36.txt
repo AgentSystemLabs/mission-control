@@ -1,0 +1,78 @@
+Subject: Mission Control update — faster agents, diagrams, OpenCode, and a better projects dashboard
+
+Preview text: v0.31–v0.36: agent startup speed, multi-diagram viewer, OpenCode support, keyboard shortcuts, and reliability fixes.
+
+---
+
+Hi,
+
+Mission Control has shipped a lot since v0.30. Here’s what matters most.
+
+FASTER DAY-TO-DAY WORK (v0.36)
+- Agent startup is noticeably snappier — terminal sessions pre-warm in the background, new tasks appear optimistically while creation finishes, and xterm loads ahead of time.
+- Git diff is embedded in the project workspace, so you can review changes without leaving the project view.
+
+DIAGRAMS (v0.31 → v0.36)
+- Built-in diagram workflow — agents can render Mermaid diagrams in-app; the diagram skill auto-installs when an agent terminal starts.
+- Multiple diagrams per task with a tabbed viewer and in-app notifications when a diagram is ready (no duplicate popups or missed alerts).
+
+MORE AGENT & SHIP OPTIONS (v0.31–v0.36)
+- OpenCode is a first-class agent CLI, with terminal rendering tuned for Mission Control.
+- Ship/commit can use OpenCode alongside Claude, Codex, and Cursor Agent.
+- Cursor CLI hooks capture terminal prompts and help generate task titles automatically.
+- Minimum CLI version checks block outdated agent CLIs with a clear “update required” dialog.
+- Codex/Cursor session resume picks up where you left off.
+
+PROJECTS & NAVIGATION (v0.36)
+- Projects dashboard table view — sort columns and drag project paths to reorganize faster.
+
+SETTINGS & POLISH (v0.32, v0.36)
+- UI preferences and auto-update controls persist in the desktop app (download/install on your schedule).
+- Keyboard shortcut system — grouped keybindings, consistent Kbd display, and Electron shortcut reading.
+
+RELIABILITY FIXES (worth knowing)
+- macOS packaged app startup fixes (server entry + asar bundling).
+- Windows & SQLite dev/runtime startup fixes.
+- Hosted projects now surface cleanup status on project routes.
+- Commit CLI detection respects your session PATH (fewer “CLI not found” false negatives).
+
+---
+
+Recommended action: Update to v0.36.0 (Settings → Updates, or grab the latest release).
+
+Questions or feedback? Reply to this email — we read everything.
+
+— The Mission Control team
+
+---
+
+CHANGELOG (v0.30 → v0.36)
+
+0.36.0
+- Faster agent startup (warm terminals, optimistic tasks)
+- Multi-diagram viewer + notification center
+- Projects table view with sorting and path drag
+- Keybinding groups and shortcut display
+- OpenCode in Ship commit flow
+- Cursor CLI hooks and title generation
+- Inline git diff in project workspace
+
+0.35.0
+- Windows and native SQLite startup fixes
+
+0.34.0
+- macOS packaged app server entry fix
+
+0.33.0
+- Security dependency patch (lodash-es)
+
+0.32.0
+- OpenCode agent CLI
+- Persisted UI preferences
+- Auto-update settings
+
+0.31.0
+- Diagram skill and in-app viewer
+- Agent CLI version gate
+- Codex/Cursor session resume
+- Beta settings page

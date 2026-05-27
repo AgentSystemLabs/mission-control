@@ -59,7 +59,25 @@ describe("settings API", () => {
     expect(await jsonBody(response!)).toMatchObject({
       automaticUpdateDownloadsEnabled: false,
       automaticUpdateInstallOnQuitEnabled: false,
+      terminalZoomLevel: 0,
     });
+  });
+
+  it("persists the default terminal zoom level", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ terminalZoomLevel: 2 }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ terminalZoomLevel: 2 });
+    expect(await jsonBody(read!)).toMatchObject({ terminalZoomLevel: 2 });
   });
 
   it("persists the mouse gradient preference", async () => {

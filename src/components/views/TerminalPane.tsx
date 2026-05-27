@@ -14,12 +14,15 @@ import {
   wireTerminalFileDrop,
 } from "~/lib/terminal-pane-helpers";
 import {
+  applyTerminalFontSize,
   createTerminalOptions,
   createTerminalTheme,
   fitTerminalSurface,
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
+import { useTerminalZoom, useTerminalPaneZoomShortcuts } from "~/lib/use-terminal-zoom";
+import { TerminalZoomControls } from "~/components/views/TerminalZoomControls";
 import { ApiError, api, resolveApiToken } from "~/lib/api";
 import {
   agentUsesPersistedSession,
@@ -30,6 +33,16 @@ import {
 import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
+import { attachTerminalLinks } from "~/lib/terminal-links";
+import { resizePtyToTerminal } from "~/lib/terminal-resize";
+import {
+  appendBoundedSequencedData,
+  dataAfterReplay,
+  replayDataOrFallback,
+  sequencedPtyData,
+  type PtyReplaySnapshot,
+  type SequencedPtyData,
+} from "~/lib/terminal-replay";
 import { queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
@@ -80,11 +93,22 @@ export function TerminalPane({
   onPtyReady: (ptyId: string | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<XFitAddon | null>(null);
+  const termSurfaceRef = useRef<{ setFontSize: (fontSize: number) => void } | null>(null);
   const queryClient = useQueryClient();
   const [liveStatus, setLiveStatus] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const {
+    level: zoomLevel,
+    fontSize: terminalFontSize,
+    zoomIn,
+    zoomOut,
+    canZoomIn,
+    canZoomOut,
+  } = useTerminalZoom(descriptor.taskId);
+  useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut);
 
   const { data: liveTasks } = useTasks(project.id, project.activeWorktreeId ?? null);
   const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
@@ -95,6 +119,10 @@ export function TerminalPane({
     if (typeof window === "undefined") return;
     window.dispatchEvent(new Event(DUPLICATE_ACTIVE_SESSION_EVENT));
   };
+
+  useEffect(() => {
+    termSurfaceRef.current?.setFontSize(terminalFontSize);
+  }, [terminalFontSize]);
 
   useEffect(() => {
     const electron = getElectron();
@@ -109,7 +137,11 @@ export function TerminalPane({
 
       const cursorColor = meta?.color;
       const term = new Terminal(
-        createTerminalOptions({ cursorColor, colorScheme: getTerminalColorScheme() })
+        createTerminalOptions({
+          cursorColor,
+          colorScheme: getTerminalColorScheme(),
+          fontSize: terminalFontSize,
+        })
       );
       const fit = new FitAddon();
       fitRef.current = fit;
@@ -121,18 +153,23 @@ export function TerminalPane({
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
-      const pendingElectronData = new Map<string, string[]>();
+      const pendingElectronData = new Map<string, SequencedPtyData[]>();
       const pendingElectronExit = new Map<
         string,
         { ptyId: string; exitCode: number; signal?: number }
       >();
       const PENDING_ELECTRON_OUTPUT_MAX_CHARS = 64_000;
+      let electronReplayPtyId: string | null = null;
+      let electronReplayData: SequencedPtyData[] = [];
+      let electronReplayExit: { ptyId: string; exitCode: number; signal?: number } | null =
+        null;
       let fallbackRunningPosted = false;
       let promptCaptureBuffer = "";
       let promptTitlePosted = false;
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
       });
+      const detachLinks = attachTerminalLinks(term);
 
       const detachFileDrop = electron
         ? wireTerminalFileDrop({
@@ -226,16 +263,31 @@ export function TerminalPane({
         subscriptions.push(
           electron.pty.onData((msg) => {
             if (activePtyId === msg.ptyId) {
+              if (electronReplayPtyId === msg.ptyId) {
+                appendBoundedSequencedData(
+                  electronReplayData,
+                  sequencedPtyData(msg.seq, msg.data),
+                  PENDING_ELECTRON_OUTPUT_MAX_CHARS,
+                );
+                return;
+              }
               term.write(msg.data);
               return;
             }
-            const previous = (pendingElectronData.get(msg.ptyId) ?? []).join("");
-            pendingElectronData.set(msg.ptyId, [
-              `${previous}${msg.data}`.slice(-PENDING_ELECTRON_OUTPUT_MAX_CHARS),
-            ]);
+            const chunks = pendingElectronData.get(msg.ptyId) ?? [];
+            appendBoundedSequencedData(
+              chunks,
+              sequencedPtyData(msg.seq, msg.data),
+              PENDING_ELECTRON_OUTPUT_MAX_CHARS,
+            );
+            pendingElectronData.set(msg.ptyId, chunks);
           }),
           electron.pty.onExit((msg) => {
             if (activePtyId === msg.ptyId) {
+              if (electronReplayPtyId === msg.ptyId) {
+                electronReplayExit = msg;
+                return;
+              }
               handlePtyExit(msg.exitCode);
               return;
             }
@@ -243,6 +295,24 @@ export function TerminalPane({
           })
         );
       }
+
+      const resizeElectronPtyToSurface = (ptyId: string) => {
+        if (!electron) return Promise.resolve(false);
+        return resizePtyToTerminal(term, (cols, rows) => electron.pty.resize(ptyId, cols, rows));
+      };
+
+      const resizeRemotePtyToSurface = (ptyId: string) =>
+        resizePtyToTerminal(term, (cols, rows) => api.resizeRemotePty(ptyId, cols, rows));
+
+      termSurfaceRef.current = {
+        setFontSize: (nextFontSize) => {
+          applyTerminalFontSize(term, fit, nextFontSize);
+          const id = activePtyId;
+          if (!id) return;
+          if (electron) void resizeElectronPtyToSurface(id);
+          else void resizeRemotePtyToSurface(id).catch(() => undefined);
+        },
+      };
 
       const wireTerminalInput = (ptyId: string) => {
         term.onData((data) => {
@@ -293,11 +363,11 @@ export function TerminalPane({
         });
       };
 
-      const wireElectronPty = (ptyId: string): boolean => {
+      const wireNewElectronPty = (ptyId: string): boolean => {
         if (!electron) return false;
         activePtyId = ptyId;
         for (const chunk of pendingElectronData.get(ptyId) ?? []) {
-          term.write(chunk);
+          term.write(chunk.data);
         }
         pendingElectronData.delete(ptyId);
         const pendingExit = pendingElectronExit.get(ptyId);
@@ -307,6 +377,45 @@ export function TerminalPane({
           return false;
         }
         wireTerminalInput(ptyId);
+        return true;
+      };
+
+      const wireExistingElectronPty = async (ptyId: string): Promise<boolean> => {
+        if (!electron) return false;
+
+        electronReplayPtyId = ptyId;
+        electronReplayData = [];
+        electronReplayExit = pendingElectronExit.get(ptyId) ?? null;
+        pendingElectronExit.delete(ptyId);
+
+        activePtyId = ptyId;
+        const pendingBeforeReplay = pendingElectronData.get(ptyId) ?? [];
+        pendingElectronData.delete(ptyId);
+        wireTerminalInput(ptyId);
+
+        void resizeElectronPtyToSurface(ptyId);
+        let replay: PtyReplaySnapshot = { data: "", nextSeq: 0 };
+        try {
+          replay = await electron.pty.replay(ptyId);
+        } finally {
+          if (electronReplayPtyId === ptyId) {
+            electronReplayPtyId = null;
+          }
+        }
+        if (cancelled || activePtyId !== ptyId) return false;
+
+        const replayData = replayDataOrFallback(replay, pendingBeforeReplay);
+        if (replayData) term.write(replayData);
+
+        for (const chunk of dataAfterReplay(electronReplayData, replay)) term.write(chunk);
+        electronReplayData = [];
+
+        const replayExit = electronReplayExit;
+        electronReplayExit = null;
+        if (replayExit) {
+          handlePtyExit(replayExit.exitCode);
+          return false;
+        }
         return true;
       };
 
@@ -379,6 +488,7 @@ export function TerminalPane({
         if (exitedBeforeReady || streamClosedBeforeReady) return;
         setLiveStatus("connected to remote runtime");
         term.writeln("\x1b[36m[connected to remote runtime]\x1b[0m");
+        await resizeRemotePtyToSurface(ptyId).catch(() => undefined);
         const replay = await api.replayRemotePty(ptyId, { beforeSeq: replayBeforeSeq });
         if (!cancelled && replay.data) term.write(replay.data);
         replaying = false;
@@ -421,7 +531,7 @@ export function TerminalPane({
           return;
         }
         if (electron) {
-          if (wireElectronPty(ptyId)) onPtyReady(ptyId);
+          if (wireNewElectronPty(ptyId)) onPtyReady(ptyId);
         } else {
           await wireRemotePty(ptyId);
           if (activePtyId === ptyId) onPtyReady(ptyId);
@@ -439,9 +549,7 @@ export function TerminalPane({
             // Re-attach to a live PTY: subscribe BEFORE replay so any chunk
             // emitted between the calls is queued, not lost.
             if (electron) {
-              wireElectronPty(descriptor.ptyId);
-              const buf = await electron.pty.replay(descriptor.ptyId);
-              if (!cancelled && buf) term.write(buf);
+              await wireExistingElectronPty(descriptor.ptyId);
             } else {
               await wireRemotePty(descriptor.ptyId);
             }
@@ -484,9 +592,11 @@ export function TerminalPane({
         cancelAnimationFrame(rafHandle);
         for (const off of subscriptions) off();
         stopWatchingColorScheme();
+        detachLinks();
         detachFileDrop();
         ro.disconnect();
         fitRef.current = null;
+        termSurfaceRef.current = null;
         term.dispose();
       };
     })();
@@ -499,6 +609,7 @@ export function TerminalPane({
 
   return (
     <div
+      ref={paneRef}
       style={{
         flex: 1,
         minHeight: 120,
@@ -591,6 +702,13 @@ export function TerminalPane({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <TerminalZoomControls
+            level={zoomLevel}
+            canZoomIn={canZoomIn}
+            canZoomOut={canZoomOut}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+          />
           <HotkeyTooltip action="session.clone" label="Clone session">
             <Btn
               variant="ghost"

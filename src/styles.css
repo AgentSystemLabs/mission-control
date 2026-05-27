@@ -137,6 +137,20 @@ body {
   z-index: 1;
 }
 
+.auth-pending-project-rail {
+  width: 0;
+  flex-shrink: 0;
+  border-right: 1px solid transparent;
+}
+
+[data-has-pinned-projects="true"] .auth-pending-project-rail {
+  width: 96px;
+}
+
+[data-minimal="true"][data-has-pinned-projects="true"] .auth-pending-project-rail {
+  width: 72px;
+}
+
 button {
   font-family: inherit;
   color: inherit;
