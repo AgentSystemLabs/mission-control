@@ -9,6 +9,7 @@ import { DEFAULT_BRANCH } from "~/shared/domain";
 import { useGitCreatePullRequest } from "~/queries/git";
 
 export type CreatePullRequestDialogState =
+  | { kind: "loading" }
   | {
       kind: "gh-missing";
       compareUrl: string;
@@ -84,6 +85,8 @@ export function useCreatePullRequestAction({
       return;
     }
 
+    setDialog({ kind: "loading" });
+
     try {
       const result = await createPr.mutateAsync();
       if (result.kind === "gh-missing") {
@@ -95,6 +98,7 @@ export function useCreatePullRequestAction({
         });
         return;
       }
+      setDialog(null);
       openExternal(result.url);
       toast.success(
         result.kind === "exists" ? "Opened existing pull request" : "Pull request created",
@@ -124,38 +128,59 @@ export function CreatePullRequestDialog({
   state: CreatePullRequestDialogState | null;
   onClose: () => void;
 }) {
+  const isLoading = state?.kind === "loading";
   const ghMissing = state?.kind === "gh-missing" ? state : null;
 
   return (
     <Modal
       open={state !== null}
-      onClose={onClose}
+      onClose={isLoading ? () => {} : onClose}
       title={
-        state?.kind === "gh-missing"
-          ? "GitHub CLI not installed"
-          : (state?.title ?? "Create pull request")
+        isLoading
+          ? "Creating pull request"
+          : state?.kind === "gh-missing"
+            ? "GitHub CLI not installed"
+            : (state?.title ?? "Create pull request")
       }
       width={520}
       footer={
-        <>
-          <Btn variant="ghost" onClick={onClose}>
-            Close
-          </Btn>
-          {ghMissing && (
-            <Btn
-              variant="primary"
-              icon="external-link"
-              onClick={() => {
-                openExternal(ghMissing.compareUrl);
-                onClose();
-              }}
-            >
-              Open pull request on GitHub
+        isLoading ? undefined : (
+          <>
+            <Btn variant="ghost" onClick={onClose}>
+              Close
             </Btn>
-          )}
-        </>
+            {ghMissing && (
+              <Btn
+                variant="primary"
+                icon="external-link"
+                onClick={() => {
+                  openExternal(ghMissing.compareUrl);
+                  onClose();
+                }}
+              >
+                Open pull request on GitHub
+              </Btn>
+            )}
+          </>
+        )
       }
     >
+      {isLoading && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+            color: "var(--text-dim)",
+            fontSize: 13,
+          }}
+        >
+          <Spinner />
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            Pushing your branch and opening a pull request on GitHub. This can take a few seconds.
+          </p>
+        </div>
+      )}
       {state?.kind === "issue" && (
         <p style={{ margin: 0, color: "var(--text-dim)", fontSize: 13, whiteSpace: "pre-wrap" }}>
           {state.message}
