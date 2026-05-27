@@ -278,8 +278,8 @@ function AuthPendingShell() {
           top: 0,
           left: 0,
           right: 0,
-          height: 20,
-          zIndex: 20,
+          height: 40,
+          zIndex: 1,
           ["WebkitAppRegion" as any]: "drag",
         }}
       />
@@ -293,7 +293,9 @@ function AuthPendingShell() {
           padding: "0 20px 0 24px",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
-          ["WebkitAppRegion" as any]: "drag",
+          position: "relative",
+          zIndex: 10,
+          pointerEvents: "none",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>

@@ -490,8 +490,8 @@ function Shell() {
             top: 0,
             left: 0,
             right: 0,
-            height: 20,
-            zIndex: 20,
+            height: 40,
+            zIndex: 1,
             ["WebkitAppRegion" as any]: "drag",
           }}
         />

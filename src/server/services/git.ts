@@ -734,6 +734,24 @@ function sanitizeCommitMessage(raw: string): string {
   return t;
 }
 
+export type GitBranch = {
+  /** Short branch name used for checkout (e.g. `main`, `feat/foo`). */
+  name: string;
+  local: boolean;
+  /** Remote tracking ref when known (e.g. `origin/main`). */
+  remoteRef?: string;
+};
+
+export type GitBranchesResult = {
+  current: string;
+  branches: GitBranch[];
+};
+
+export type GitCheckoutResult = {
+  branch: string;
+  created: boolean;
+};
+
 export type GitErrorPayload = {
   message: string;
   stderr?: string;
@@ -742,6 +760,113 @@ export type GitErrorPayload = {
   /** Which CLI was tried when kind === "commit-generation-failed". */
   cli?: CommitCli;
 };
+
+/** Merge local and remote branch lists into deduplicated checkout targets. */
+export function parseBranchList(localRaw: string, remoteRaw: string): GitBranch[] {
+  const localNames = localRaw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const byName = new Map<string, GitBranch>();
+  for (const name of localNames) {
+    byName.set(name, { name, local: true });
+  }
+  for (const line of remoteRaw.split("\n")) {
+    const ref = line.trim();
+    if (!ref || ref.includes("HEAD ->")) continue;
+    const slash = ref.indexOf("/");
+    if (slash <= 0) continue;
+    const name = ref.slice(slash + 1);
+    if (!name) continue;
+    const existing = byName.get(name);
+    if (existing) {
+      existing.remoteRef = ref;
+      continue;
+    }
+    byName.set(name, { name, local: false, remoteRef: ref });
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function localBranchExists(cwd: string, branch: string): Promise<boolean> {
+  const r = await runGit(cwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  return r.code === 0;
+}
+
+async function resolveRemoteTrackingRef(cwd: string, branch: string): Promise<string | null> {
+  for (const remote of ["origin", "upstream"]) {
+    const ref = `${remote}/${branch}`;
+    const r = await runGit(cwd, ["show-ref", "--verify", "--quiet", `refs/remotes/${ref}`]);
+    if (r.code === 0) return ref;
+  }
+  return null;
+}
+
+async function assertValidBranchName(cwd: string, branch: string): Promise<void> {
+  const r = await runGit(cwd, ["check-ref-format", "--branch", branch]);
+  if (r.code !== 0) {
+    throw new GitError(`Invalid branch name "${branch}"`, r.stderr.trim() || undefined);
+  }
+}
+
+async function listBranchRefNames(cwd: string, refPrefix: string): Promise<string> {
+  const r = await runGit(cwd, ["for-each-ref", "--format=%(refname:short)", refPrefix]);
+  return r.code === 0 ? r.stdout : "";
+}
+
+export async function listGitBranches(
+  projectId: string,
+  worktreeId?: string | null,
+): Promise<GitBranchesResult> {
+  const cwd = projectCwd(projectId, worktreeId);
+  const [localOut, remoteOut, currentOut] = await Promise.all([
+    listBranchRefNames(cwd, "refs/heads/"),
+    listBranchRefNames(cwd, "refs/remotes/"),
+    runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).then((r) =>
+      r.code === 0 ? r.stdout : "HEAD\n",
+    ),
+  ]);
+  return {
+    current: currentOut.trim() || "HEAD",
+    branches: parseBranchList(localOut, remoteOut),
+  };
+}
+
+export async function checkoutGitBranch(
+  projectId: string,
+  branchName: string,
+  worktreeId?: string | null,
+  opts: { create?: boolean } = {},
+): Promise<GitCheckoutResult> {
+  const cwd = projectCwd(projectId, worktreeId);
+  const name = branchName.trim();
+  if (!name) throw new GitError("Branch name cannot be empty");
+  await assertValidBranchName(cwd, name);
+
+  const current = (await gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+  if (current === name) return { branch: name, created: false };
+
+  if (await localBranchExists(cwd, name)) {
+    await gitOk(cwd, ["switch", name]);
+    return { branch: name, created: false };
+  }
+
+  const remoteRef = await resolveRemoteTrackingRef(cwd, name);
+  if (remoteRef) {
+    await gitOk(cwd, ["switch", "--track", remoteRef]);
+    return { branch: name, created: false };
+  }
+
+  if (opts.create) {
+    await gitOk(cwd, ["switch", "-c", name]);
+    return { branch: name, created: true };
+  }
+
+  throw new GitError(
+    `Branch "${name}" was not found locally or on the remote.`,
+    "Create it by choosing the create option or typing a new branch name.",
+  );
+}
 
 /** Surface stderr to API consumers without leaking the GitError class. */
 export function gitErrorPayload(e: unknown): GitErrorPayload {

@@ -5,10 +5,14 @@ import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   CommitResult,
   CreatePullRequestResult,
+  GitBranch,
+  GitBranchesResult,
+  GitCheckoutResult,
   GitDiff,
   GitStatus,
   PushResult,
 } from "~/server/services/git";
+export type { GitBranch, GitBranchesResult, GitCheckoutResult };
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
@@ -426,6 +430,21 @@ export const api = {
 
   getGitStatus: (projectId: string, worktreeId?: string | null) =>
     req<GitStatus>(`/api/projects/${projectId}/git/status${worktreeQuery(worktreeId)}`),
+  getGitBranches: (projectId: string, worktreeId?: string | null) =>
+    req<GitBranchesResult>(`/api/projects/${projectId}/git/branches${worktreeQuery(worktreeId)}`),
+  gitCheckout: (
+    projectId: string,
+    branch: string,
+    opts: { create?: boolean; worktreeId?: string | null } = {},
+  ) =>
+    req<GitCheckoutResult>(`/api/projects/${projectId}/git/checkout`, {
+      method: "POST",
+      body: JSON.stringify({
+        branch,
+        create: opts.create,
+        worktreeId: opts.worktreeId ?? null,
+      }),
+    }),
   getGitDiff: (projectId: string, file: string, staged: boolean, worktreeId?: string | null) =>
     req<GitDiff>(
       `/api/projects/${projectId}/git/diff?file=${encodeURIComponent(file)}&staged=${staged ? "1" : "0"}${worktreeId ? `&worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,

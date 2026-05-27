@@ -74,6 +74,7 @@ import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
 import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
+import { BranchTypeahead } from "~/components/views/BranchTypeahead";
 import {
   CreatePullRequestDialog,
   CreatePullRequestMenuItem,
@@ -1403,6 +1404,7 @@ function ProjectPage() {
             onSelect={selectWorktree}
             onDeleteSelected={() => setConfirmDeleteWorktree(true)}
             mainBranchLabel={gitStatus?.branch}
+            branchSwitchDisabled={projectPathBlocked}
             maxWidth="min(420px, 34vw)"
           />
           <span
@@ -1644,13 +1646,13 @@ function ProjectPage() {
                     }}
                     disabled={projectPathBlocked}
                     style={{ justifyContent: "flex-start" }}
-                    title={(() => {
-                      const b = gitStatus?.branch ?? "…";
-                      if (gitStatus && gitStatus.changedCount > 0) {
-                        return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
-                      }
-                      return gitStatus ? `Branch ${b}` : "Checking branch…";
-                    })()}
+                    title={
+                      gitStatus && gitStatus.changedCount > 0
+                        ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`
+                        : gitStatus
+                          ? "Review Changes"
+                          : "Checking changes…"
+                    }
                   >
                     <span style={{ flex: 1, textAlign: "left" }}>
                       Review Changes
@@ -1730,7 +1732,6 @@ function ProjectPage() {
             }}
           >
             <ProjectGitStatusButton
-              branch={gitStatus?.branch}
               changedCount={gitStatus?.changedCount}
               onClick={onToggleDiffView}
               disabled={projectPathBlocked}
@@ -2243,6 +2244,7 @@ function WorktreeToggleGroup({
   onSelect,
   onDeleteSelected,
   mainBranchLabel,
+  branchSwitchDisabled = false,
   maxWidth = 420,
 }: {
   worktrees: WorktreeInfo[];
@@ -2253,6 +2255,7 @@ function WorktreeToggleGroup({
   onDeleteSelected?: (worktree: WorktreeInfo) => void;
   /** Live git branch for the main worktree — shown instead of the "main" id. */
   mainBranchLabel?: string | null;
+  branchSwitchDisabled?: boolean;
   maxWidth?: number | string;
 }) {
   const items = worktrees.length > 0 ? worktrees : [];
@@ -2267,6 +2270,7 @@ function WorktreeToggleGroup({
         gap: 4,
         maxWidth,
         overflowX: "auto",
+        overflowY: "visible",
         padding: 2,
         flexShrink: 1,
       }}
@@ -2279,6 +2283,44 @@ function WorktreeToggleGroup({
           ? mainBranchLabel?.trim() || "…"
           : worktree.name;
         return (
+          worktree.isMain && selected ? (
+            <div
+              key={worktree.id}
+              role="none"
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              {running && (
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    left: "50%",
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--accent)",
+                    transform: "translateX(-50%)",
+                    boxShadow: "0 0 6px var(--accent-glow)",
+                    zIndex: 1,
+                  }}
+                />
+              )}
+              <BranchTypeahead
+                projectId={projectId}
+                worktreeId={null}
+                branch={mainBranchLabel}
+                disabled={branchSwitchDisabled}
+                worktreePath={worktree.path}
+                selected
+              />
+            </div>
+          ) : (
           <div
             key={worktree.id}
             role="none"
@@ -2375,6 +2417,7 @@ function WorktreeToggleGroup({
               </button>
             )}
           </div>
+          )
         );
       })}
     </div>
@@ -2382,17 +2425,14 @@ function WorktreeToggleGroup({
 }
 
 function ProjectGitStatusButton({
-  branch,
   changedCount,
   onClick,
   disabled = false,
 }: {
-  branch: string | undefined;
   changedCount: number | undefined;
   onClick: () => void;
   disabled?: boolean;
 }) {
-  const branchLabel = branch?.trim() || "…";
   const changedLabel =
     disabled
       ? "Unavailable"
@@ -2403,8 +2443,8 @@ function ProjectGitStatusButton({
     disabled
       ? "Review Changes unavailable until the project folder is valid"
       : changedCount === undefined
-      ? `Open Review Changes · branch ${branchLabel}`
-      : `Toggle Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branchLabel}`;
+      ? "Open Review Changes"
+      : `Toggle Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"}`;
 
   return (
     <HotkeyTooltip action="git.diff" label={title}>
@@ -2415,24 +2455,8 @@ function ProjectGitStatusButton({
         disabled={disabled}
         aria-label={title}
         className="mc-btn-attached-right"
-        style={{ fontFamily: "var(--mono)", maxWidth: 360, minWidth: 0 }}
+        style={{ fontFamily: "var(--mono)", minWidth: 0 }}
       >
-        <span
-          style={{
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            color: "var(--text)",
-            flexShrink: 1,
-          }}
-          title={branchLabel}
-        >
-          {branchLabel}
-        </span>
-        <span aria-hidden style={{ color: "var(--text-faint)", flexShrink: 0 }}>
-          ·
-        </span>
         <span
           style={{
             color: changedCount && changedCount > 0 ? "var(--accent)" : "var(--text-dim)",
