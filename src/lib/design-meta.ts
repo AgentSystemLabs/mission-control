@@ -50,6 +50,10 @@ export const TERMINAL_ZOOM_OUT_EVENT = "mc:terminal-zoom-out";
 export const OPEN_SETTINGS_EVENT = "mc:open-settings";
 export type OpenSettingsEventDetail = { panel: string };
 
+/** Dispatched by the Shell settings toggle to play the panel exit animation
+ * before navigating away. Listened to by SettingsPanel. */
+export const CLOSE_SETTINGS_EVENT = "mc:close-settings";
+
 export const ICON_COLORS = ["#ff5a1f", "#8ab4ff", "#c792ea", "#ff9466", "#f472b6", "#34d399", "#fb923c"];
 export const GROUP_COLORS = ["#ff5a1f", "#8ab4ff", "#c792ea", "#ff9466", "#f472b6", "#34d399", "#fb923c"];
 

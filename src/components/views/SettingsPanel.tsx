@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { CLOSE_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useHotkey } from "~/lib/use-hotkey";
 import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
@@ -59,10 +60,15 @@ export function SettingsPanel({
     window.localStorage.setItem("mc-settings-active-panel", activePanel);
   }, [activePanel]);
 
-  const handleBack = () => {
-    if (isExiting) return;
-    setIsExiting(true);
-  };
+  const handleBack = useCallback(() => {
+    setIsExiting((current) => (current ? current : true));
+  }, []);
+
+  useEffect(() => {
+    const onCloseRequest = () => handleBack();
+    window.addEventListener(CLOSE_SETTINGS_EVENT, onCloseRequest);
+    return () => window.removeEventListener(CLOSE_SETTINGS_EVENT, onCloseRequest);
+  }, [handleBack]);
 
   useHotkey("escape", handleBack, { preventDefault: false });
 

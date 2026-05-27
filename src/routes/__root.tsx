@@ -5,6 +5,7 @@ import {
   HeadContent,
   Scripts,
   useRouter,
+  useRouterState,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { getPinnedProjects } from "~/lib/pinned-project-order";
@@ -39,6 +40,10 @@ import {
 } from "~/lib/accent-colors";
 import { type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
+import {
+  openSettingsRoute,
+  toggleSettingsRoute,
+} from "~/lib/settings-navigation";
 
 /** Source of truth for which panel ids the OPEN_SETTINGS_EVENT handler will
  * accept from untrusted dispatchers (any leaf component). Keep in sync with
@@ -207,10 +212,7 @@ function Shell() {
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"usage" | null>(null);
   const openSettings = (initial: SettingsPanelId = "general") => {
-    void router.navigate({
-      to: "/settings",
-      search: { panel: initial },
-    });
+    openSettingsRoute(router, initial);
   };
 
   // Leaf components (e.g. ShipFailedDialog) dispatch OPEN_SETTINGS_EVENT to
@@ -288,7 +290,7 @@ function Shell() {
   }, []);
   useWarmCliAvailability();
 
-  const path = router.state.location.pathname;
+  const path = useRouterState({ select: (state) => state.location.pathname });
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const projectId = projectMatch ? projectMatch[1]! : null;
 
@@ -515,13 +517,7 @@ function Shell() {
               <Btn
                 variant="ghost"
                 icon="settings"
-                onClick={() => {
-                  if (path === "/settings") {
-                    goHome();
-                    return;
-                  }
-                  void router.navigate({ to: "/settings" });
-                }}
+                onClick={() => toggleSettingsRoute(router)}
                 aria-label={path === "/settings" ? "Close settings" : "Open settings"}
                 title={path === "/settings" ? "Close settings" : "Open settings"}
               />

@@ -1,6 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { z } from "zod";
 import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
+import { closeSettings } from "~/lib/settings-navigation";
 
 const settingsSearchSchema = z.object({
   panel: z
@@ -29,7 +30,7 @@ function SettingsRoutePage() {
 
   return (
     <SettingsPanel
-      onBack={() => router.navigate({ to: "/" })}
+      onBack={() => closeSettings(router)}
       initialPanel={(panel ?? "terminal") as SettingsPanelId}
     />
   );
