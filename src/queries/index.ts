@@ -2,6 +2,12 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 import { api, setApiToken } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { isWebDaytonaRuntime } from "~/lib/runtime";
+import {
+  readCachedGroups,
+  readCachedLicense,
+  readCachedProjects,
+  readCachedSettings,
+} from "~/lib/shell-query-cache";
 import type { LicenseState } from "~/shared/license";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
@@ -37,6 +43,7 @@ export const projectsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.projects,
     queryFn: async () => (await api.listProjects()).projects,
+    placeholderData: readCachedProjects,
   });
 
 export const projectQueryOptions = (id: string) =>
@@ -49,6 +56,7 @@ export const groupsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.groups,
     queryFn: async () => (await api.listGroups()).groups,
+    placeholderData: readCachedGroups,
   });
 
 export const tasksQueryOptions = (projectId: string, worktreeId?: string | null) =>
@@ -67,6 +75,7 @@ export const settingsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.settings,
     queryFn: async () => api.getSettings(),
+    placeholderData: readCachedSettings,
   });
 
 // The api bearer token is fetched over Electron IPC, never HTTP — see
@@ -98,6 +107,7 @@ export const licenseQueryOptions = () =>
       }
       return (await api.getLicense()).license;
     },
+    placeholderData: readCachedLicense,
   });
 
 export const entitlementsQueryOptions = () =>

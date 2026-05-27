@@ -65,8 +65,9 @@ type Pty = {
   id: string;
   taskId: string;
   proc: any;
-  buffer: string[];
+  buffer: PtyBufferChunk[];
   bufferBytes: number;
+  nextSeq: number;
   cwd: string;
   command: string;
   agent?: string;
@@ -75,6 +76,12 @@ type Pty = {
   lastInterruptAt: number;
   spawnStartedAt: number;
   killedByUser: boolean;
+};
+
+type PtyBufferChunk = {
+  seq: number;
+  data: string;
+  bytes: number;
 };
 
 const INTERRUPT_COOLDOWN_MS = 2000;
@@ -181,17 +188,20 @@ function loadNodePty() {
   return nodePty!;
 }
 
-function appendBuffer(p: Pty, chunk: string) {
-  p.buffer.push(chunk);
-  p.bufferBytes += Buffer.byteLength(chunk, "utf8");
+function appendBuffer(p: Pty, data: string): number {
+  const bytes = Buffer.byteLength(data, "utf8");
+  const seq = p.nextSeq++;
+  p.buffer.push({ seq, data, bytes });
+  p.bufferBytes += bytes;
   while (p.bufferBytes > RING_LIMIT_BYTES && p.buffer.length > 1) {
     const dropped = p.buffer.shift()!;
-    p.bufferBytes -= Buffer.byteLength(dropped, "utf8");
+    p.bufferBytes -= dropped.bytes;
   }
+  return seq;
 }
 
 function ptyOutputTail(p: Pty): string {
-  return p.buffer.join("").slice(-SESSION_START_OUTPUT_TAIL_MAX);
+  return p.buffer.map((chunk) => chunk.data).join("").slice(-SESSION_START_OUTPUT_TAIL_MAX);
 }
 
 function send(getWin: () => BrowserWindow | null, channel: string, payload: any) {
@@ -461,6 +471,7 @@ export function registerPtyHandlers(
         proc,
         buffer: [],
         bufferBytes: 0,
+        nextSeq: 1,
         cwd: opts.cwd,
         command: opts.command,
         agent: opts.agent,
@@ -473,11 +484,11 @@ export function registerPtyHandlers(
       ptys.set(id, p);
 
       proc.onData((data: string) => {
-        appendBuffer(p, data);
+        const seq = appendBuffer(p, data);
         const haystack = scanTail(p, data);
         scanForInterrupt(p, haystack);
         scanForCodexHookReview(p, haystack);
-        send(getWin, IPC.ptyData, { ptyId: id, data });
+        send(getWin, IPC.ptyData, { ptyId: id, data, seq });
       });
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
         const elapsedMs = Date.now() - p.spawnStartedAt;
@@ -574,8 +585,11 @@ export function registerPtyHandlers(
 
   safeHandle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
-    if (!p) return "";
-    return p.buffer.join("");
+    if (!p) return { data: "", nextSeq: 0 };
+    return {
+      data: p.buffer.map((chunk) => chunk.data).join(""),
+      nextSeq: p.nextSeq,
+    };
   }, ipcMain);
 }
 

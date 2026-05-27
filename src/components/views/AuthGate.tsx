@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
@@ -16,6 +16,9 @@ type HostedEntitlementsState =
   | { status: "loading"; entitlements: null; error: null }
   | { status: "ready"; entitlements: Entitlements; error: null }
   | { status: "error"; entitlements: null; error: string };
+
+const useHostedSessionEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function useHostedEntitlements(session: HostedSessionSummary | null) {
   const [state, setState] = useState<HostedEntitlementsState>({
@@ -90,7 +93,7 @@ export function useHostedSession() {
     }
   }, []);
 
-  useEffect(() => {
+  useHostedSessionEffect(() => {
     void refresh();
   }, [refresh]);
 
@@ -265,10 +268,79 @@ function AuthPendingShell() {
     <div
       id="root"
       style={{
-        minHeight: "100vh",
         background: "var(--bg)",
       }}
-    />
+    >
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 40,
+          zIndex: 1,
+          ["WebkitAppRegion" as any]: "drag",
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          height: 48,
+          padding: "0 20px 0 24px",
+          borderBottom: "1px solid var(--border)",
+          flexShrink: 0,
+          position: "relative",
+          zIndex: 10,
+          pointerEvents: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <img
+            src="/images/robot.png"
+            alt=""
+            width={22}
+            height={22}
+            style={{ borderRadius: 5, display: "block" }}
+          />
+          <span
+            style={{
+              width: 164,
+              height: 13,
+              borderRadius: 4,
+              background: "var(--surface-2)",
+            }}
+          />
+          <span
+            style={{
+              width: 44,
+              height: 22,
+              borderRadius: 999,
+              border: "1px solid var(--border)",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 32, height: 32, borderRadius: 8, background: "var(--surface-2)" }} />
+          <span style={{ width: 32, height: 32, borderRadius: 8, background: "var(--surface-2)" }} />
+          <span style={{ width: 32, height: 32, borderRadius: 8, background: "var(--surface-2)" }} />
+        </div>
+      </div>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          overflow: "hidden",
+          minHeight: 0,
+        }}
+      >
+        <div className="auth-pending-project-rail" aria-hidden />
+        <div style={{ flex: 1, minWidth: 0 }} />
+      </div>
+    </div>
   );
 }
 

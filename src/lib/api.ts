@@ -4,10 +4,15 @@ import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   CommitResult,
+  CreatePullRequestResult,
+  GitBranch,
+  GitBranchesResult,
+  GitCheckoutResult,
   GitDiff,
   GitStatus,
   PushResult,
 } from "~/server/services/git";
+export type { GitBranch, GitBranchesResult, GitCheckoutResult };
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
@@ -20,6 +25,7 @@ import type {
   ProjectsDashboardView,
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
+import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
 import { getClientRuntime } from "~/lib/runtime";
 import { MISSION_CONTROL_RUNTIME_HEADER } from "~/shared/runtime";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
@@ -35,6 +41,8 @@ export type AppSettings = {
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
+  /** Ding when a session-finish or diagram-ready notification arrives. */
+  notificationSoundEnabled: boolean;
   launchOverlayEnabled: boolean;
   automaticUpdateDownloadsEnabled: boolean;
   automaticUpdateInstallOnQuitEnabled: boolean;
@@ -50,6 +58,8 @@ export type AppSettings = {
    * the server auto-detects and seeds it on the first ship attempt.
    */
   commitCli: CommitCli | null;
+  /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
+  terminalZoomLevel: TerminalZoomLevel;
 };
 
 type RemotePtyCreateBody = {
@@ -207,6 +217,11 @@ export const api = {
     req<{ project: Project }>(`/api/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ togglePin: true }),
+    }),
+  reorderPinnedProjects: (order: string[]) =>
+    req<{ projects: ProjectWithCounts[] }>("/api/projects/pinned-order", {
+      method: "PATCH",
+      body: JSON.stringify({ order }),
     }),
   deleteProject: async (id: string) => {
     await req<void>(`/api/projects/${id}`, { method: "DELETE" });
@@ -399,6 +414,7 @@ export const api = {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "notificationSoundEnabled"
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
@@ -408,6 +424,7 @@ export const api = {
         | "projectsDashboardView"
         | "selectedWorktreeByProject"
         | "commitCli"
+        | "terminalZoomLevel"
       >
     >,
   ) =>
@@ -421,6 +438,21 @@ export const api = {
 
   getGitStatus: (projectId: string, worktreeId?: string | null) =>
     req<GitStatus>(`/api/projects/${projectId}/git/status${worktreeQuery(worktreeId)}`),
+  getGitBranches: (projectId: string, worktreeId?: string | null) =>
+    req<GitBranchesResult>(`/api/projects/${projectId}/git/branches${worktreeQuery(worktreeId)}`),
+  gitCheckout: (
+    projectId: string,
+    branch: string,
+    opts: { create?: boolean; worktreeId?: string | null } = {},
+  ) =>
+    req<GitCheckoutResult>(`/api/projects/${projectId}/git/checkout`, {
+      method: "POST",
+      body: JSON.stringify({
+        branch,
+        create: opts.create,
+        worktreeId: opts.worktreeId ?? null,
+      }),
+    }),
   getGitDiff: (projectId: string, file: string, staged: boolean, worktreeId?: string | null) =>
     req<GitDiff>(
       `/api/projects/${projectId}/git/diff?file=${encodeURIComponent(file)}&staged=${staged ? "1" : "0"}${worktreeId ? `&worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,
@@ -454,6 +486,11 @@ export const api = {
     }),
   gitPush: (projectId: string, worktreeId?: string | null) =>
     req<PushResult>(`/api/projects/${projectId}/git/push`, {
+      method: "POST",
+      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    }),
+  gitCreatePullRequest: (projectId: string, worktreeId?: string | null) =>
+    req<CreatePullRequestResult>(`/api/projects/${projectId}/git/create-pr`, {
       method: "POST",
       body: JSON.stringify({ worktreeId: worktreeId ?? null }),
     }),

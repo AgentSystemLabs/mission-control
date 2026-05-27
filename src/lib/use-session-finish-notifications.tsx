@@ -6,6 +6,11 @@ import { useServerEvents, type ServerEvent } from "~/lib/use-events";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
+import { playNotificationDing } from "~/lib/notification-sound";
+import {
+  showSessionFinishOsNotification,
+  subscribeSessionFinishOsNotificationClick,
+} from "~/lib/os-notifications";
 import {
   SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY,
   SESSION_NOTIFICATIONS_CHANGED_EVENT,
@@ -23,6 +28,7 @@ export function useSessionFinishNotifications() {
   const { data: settings } = useSettings();
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osEnabled = settings?.sessionFinishOsNotificationEnabled ?? false;
+  const soundEnabled = settings?.notificationSoundEnabled ?? true;
   const [notifications, setNotifications] = useState<SessionFinishNotification[]>(() =>
     loadAppNotifications().filter(
       (notification): notification is SessionFinishNotification =>
@@ -81,6 +87,31 @@ export function useSessionFinishNotifications() {
       window.removeEventListener("storage", onStorage);
     };
   }, []);
+
+  useEffect(() => {
+    return subscribeSessionFinishOsNotificationClick(({ projectId, taskId, worktreeId }) => {
+      const stored = loadAppNotifications().find(
+        (notification): notification is SessionFinishNotification =>
+          notification.kind === "session-finished" &&
+          notification.id === taskId &&
+          notification.projectId === projectId,
+      );
+      if (stored) {
+        requestSessionNotificationOpen(stored);
+      } else {
+        requestSessionNotificationOpen({
+          kind: "session-finished",
+          id: taskId,
+          projectId,
+          worktreeId,
+          projectName: "Project",
+          taskTitle: "Session",
+          finishedAt: Date.now(),
+        });
+      }
+      void router.navigate({ to: "/projects/$id", params: { id: projectId } });
+    });
+  }, [router]);
 
   const pruneNotifications = useCallback((target: SessionNotificationPruneTarget) => {
     setNotifications((prev) => {
@@ -146,6 +177,8 @@ export function useSessionFinishNotifications() {
           (item): item is SessionFinishNotification => item.kind === "session-finished",
         );
       });
+
+      playNotificationDing(soundEnabled);
 
       const goToProject = () => {
         requestSessionNotificationOpen(notification);
@@ -223,28 +256,21 @@ export function useSessionFinishNotifications() {
         );
       }
 
-      if (
-        osEnabled &&
-        typeof window !== "undefined" &&
-        "Notification" in window &&
-        Notification.permission === "granted"
-      ) {
-        try {
-          const n = new Notification(`Session finished — ${projectName}`, {
-            body: taskTitle,
+      if (osEnabled) {
+        void showSessionFinishOsNotification(
+          {
             tag: `session-finished-${e.id}`,
-          });
-          n.onclick = () => {
-            window.focus();
-            goToProject();
-            n.close();
-          };
-        } catch {
-          /* ignore */
-        }
+            title: `Session finished — ${projectName}`,
+            body: taskTitle,
+            projectId,
+            taskId: id,
+            worktreeId,
+          },
+          { onClick: goToProject },
+        );
       }
     },
-    [toastEnabled, osEnabled, router, pruneNotifications],
+    [toastEnabled, osEnabled, soundEnabled, router, pruneNotifications],
   );
 
   useServerEvents(handler);

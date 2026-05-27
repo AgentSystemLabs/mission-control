@@ -21,6 +21,13 @@ import {
   readCachedLaunchIntroEnabled,
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
+import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import {
+  readOsNotificationPermission,
+  requestOsNotificationPermission,
+  type OsNotificationPermission,
+} from "~/lib/os-notifications";
+import { isElectron } from "~/lib/electron";
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
@@ -29,6 +36,7 @@ export function GeneralSettingsPage() {
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
+  const notificationSoundEnabled = settings?.notificationSoundEnabled ?? true;
   const automaticUpdateDownloadsEnabled =
     settings?.automaticUpdateDownloadsEnabled ?? false;
   const automaticUpdateInstallOnQuitEnabled =
@@ -36,9 +44,7 @@ export function GeneralSettingsPage() {
   const [launchOverlayEnabled, setLaunchOverlayEnabledState] = useState(
     () => readCachedLaunchIntroEnabled(),
   );
-  const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
-    "default",
-  );
+  const [permission, setPermission] = useState<OsNotificationPermission>("default");
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,11 +52,12 @@ export function GeneralSettingsPage() {
       setPermission("unsupported");
       return;
     }
-    if (!("Notification" in window)) {
-      setPermission("unsupported");
-      return;
-    }
-    setPermission(Notification.permission);
+    const refreshPermission = () => {
+      void readOsNotificationPermission().then(setPermission);
+    };
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
+    return () => window.removeEventListener("focus", refreshPermission);
   }, []);
 
   useEffect(() => {
@@ -67,6 +74,7 @@ export function GeneralSettingsPage() {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "notificationSoundEnabled"
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
@@ -79,6 +87,7 @@ export function GeneralSettingsPage() {
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
+    notificationSoundEnabled,
     launchOverlayEnabled,
     automaticUpdateDownloadsEnabled,
     automaticUpdateInstallOnQuitEnabled,
@@ -87,6 +96,7 @@ export function GeneralSettingsPage() {
     projectsDashboardView: settings?.projectsDashboardView ?? null,
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
+    terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:
       queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??
@@ -103,6 +113,7 @@ export function GeneralSettingsPage() {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "notificationSoundEnabled"
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
@@ -127,6 +138,10 @@ export function GeneralSettingsPage() {
 
   const setToastEnabled = async (sessionFinishToastEnabled: boolean) => {
     await updateSettings({ sessionFinishToastEnabled });
+  };
+
+  const setNotificationSoundEnabled = async (enabled: boolean) => {
+    await updateSettings({ notificationSoundEnabled: enabled });
   };
 
   const setLaunchOverlayEnabled = (enabled: boolean) => {
@@ -170,30 +185,47 @@ export function GeneralSettingsPage() {
   const setOsNotificationEnabled = async (enabled: boolean) => {
     setPermissionHint(null);
     if (enabled) {
-      if (permission === "unsupported") {
+      const current = await readOsNotificationPermission();
+      setPermission(current);
+      if (current === "unsupported") {
         setPermissionHint("OS notifications are not supported in this environment.");
         return;
       }
-      if (Notification.permission === "default") {
-        const result = await Notification.requestPermission();
-        setPermission(result);
-        if (result !== "granted") {
+      if (!isElectron()) {
+        if (current === "denied") {
           setPermissionHint(
-            "Notification permission was not granted. Enable it in your OS or browser settings, then try again.",
+            "Notification permission is blocked. Enable it in your OS or browser settings, then try again.",
           );
           return;
         }
-      } else if (Notification.permission === "denied") {
-        setPermissionHint(
-          "Notification permission is blocked. Enable it in your OS or browser settings, then try again.",
-        );
-        return;
+        if (current === "default") {
+          const result = await requestOsNotificationPermission();
+          setPermission(result);
+          if (result !== "granted") {
+            setPermissionHint(
+              "Notification permission was not granted. Enable it in your OS or browser settings, then try again.",
+            );
+            return;
+          }
+        }
       }
     }
     await updateSettings({
       sessionFinishOsNotificationEnabled: enabled,
     });
   };
+
+  const osNotificationBlocked =
+    osNotificationEnabled &&
+    permission !== "unsupported" &&
+    permission !== "granted";
+  const osNotificationStatusMessage =
+    permissionHint ??
+    (osNotificationBlocked && permission === "denied" && !isElectron()
+      ? "Notification permission is blocked. On macOS, open System Settings → Notifications → Mission Control, allow notifications, then reload Mission Control."
+      : osNotificationBlocked && permission === "default" && !isElectron()
+        ? "Notification permission is not granted yet. Turn this toggle off and on again to approve the prompt."
+        : null);
 
   return (
     <>
@@ -245,6 +277,15 @@ export function GeneralSettingsPage() {
         title="Session finish notifications"
         subtitle="Get notified when a Claude session finishes in any project."
       >
+        <Field label="Sound">
+          <ToggleRow
+            title="Notification sound"
+            description="Play a short ding when a session finishes or a diagram is ready."
+            checked={notificationSoundEnabled}
+            onChange={setNotificationSoundEnabled}
+            label="Play sound"
+          />
+        </Field>
         <Field label="Toast">
           <ToggleRow
             title="Show toast"
@@ -260,14 +301,16 @@ export function GeneralSettingsPage() {
             description={
               permission === "unsupported"
                 ? "Not supported in this environment."
-                : "A native OS notification appears so you see it even when the app is in the background."
+                : isElectron()
+                  ? "Uses macOS notifications through Electron. Control badges, sounds, and banners in System Settings → Notifications → Electron."
+                  : "A native OS notification appears so you see it even when the app is in the background."
             }
             checked={osNotificationEnabled}
             onChange={setOsNotificationEnabled}
             disabled={permission === "unsupported"}
             label="Enable"
           />
-          {permissionHint && (
+          {osNotificationStatusMessage && (
             <div
               role="status"
               style={{
@@ -277,7 +320,7 @@ export function GeneralSettingsPage() {
                 lineHeight: 1.45,
               }}
             >
-              {permissionHint}
+              {osNotificationStatusMessage}
             </div>
           )}
         </Field>

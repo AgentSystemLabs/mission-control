@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { CLOSE_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useHotkey } from "~/lib/use-hotkey";
 import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
@@ -10,12 +11,14 @@ import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { LicenseSettingsPage } from "./LicenseSettingsPage";
 import { SessionDebugLogPage } from "./SessionDebugLogPage";
+import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
 
 export type SettingsPanelId =
   | "general"
   | "defaults"
+  | "terminal"
   | "theme"
   | "beta"
   | "license"
@@ -57,16 +60,22 @@ export function SettingsPanel({
     window.localStorage.setItem("mc-settings-active-panel", activePanel);
   }, [activePanel]);
 
-  const handleBack = () => {
-    if (isExiting) return;
-    setIsExiting(true);
-  };
+  const handleBack = useCallback(() => {
+    setIsExiting((current) => (current ? current : true));
+  }, []);
+
+  useEffect(() => {
+    const onCloseRequest = () => handleBack();
+    window.addEventListener(CLOSE_SETTINGS_EVENT, onCloseRequest);
+    return () => window.removeEventListener(CLOSE_SETTINGS_EVENT, onCloseRequest);
+  }, [handleBack]);
 
   useHotkey("escape", handleBack, { preventDefault: false });
 
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
     { id: "defaults", label: "Defaults", icon: "terminal" },
+    { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "license", label: "License", icon: "sparkles" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
@@ -271,6 +280,8 @@ export function SettingsPanel({
             <GeneralSettingsPage />
           ) : activePanel === "defaults" ? (
             <DefaultsSettingsPage />
+          ) : activePanel === "terminal" ? (
+            <TerminalSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
           ) : activePanel === "beta" ? (

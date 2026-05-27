@@ -146,13 +146,15 @@ export function watchTerminalColorScheme(
 export function createTerminalOptions({
   cursorColor = getCurrentAccentColor(),
   colorScheme = "dark",
+  fontSize = TERMINAL_FONT_SIZE,
 }: {
   cursorColor?: string;
   colorScheme?: TerminalColorScheme;
+  fontSize?: number;
 } = {}): ITerminalOptions {
   return {
     fontFamily: TERMINAL_FONT_FAMILY,
-    fontSize: TERMINAL_FONT_SIZE,
+    fontSize,
     // Keep xterm's default line height so multi-row ANSI art (OpenCode's
     // startup wordmark, box drawing, background fills) renders flush.
     lineHeight: 1,
@@ -188,4 +190,19 @@ export function fitTerminalSurface(
   if (term.rows > 0) {
     term.refresh(0, term.rows - 1);
   }
+}
+
+export function applyTerminalFontSize(
+  term: {
+    options: { fontSize?: number };
+    cols: number;
+    rows: number;
+    refresh: (start: number, end: number) => void;
+  },
+  fit: { fit: () => void },
+  fontSize: number,
+): void {
+  if (term.options.fontSize === fontSize) return;
+  term.options.fontSize = fontSize;
+  fitTerminalSurface(term, fit);
 }

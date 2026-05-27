@@ -74,6 +74,12 @@ import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
 import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
+import { BranchTypeahead } from "~/components/views/BranchTypeahead";
+import {
+  CreatePullRequestDialog,
+  CreatePullRequestMenuItem,
+  useCreatePullRequestAction,
+} from "~/components/views/CreatePullRequestButton";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
@@ -88,7 +94,7 @@ import {
   readPendingSessionOpen,
   type PendingSessionOpen,
 } from "~/lib/session-notification-store";
-import type { Task, TaskStatus } from "~/db/schema";
+import type { Group, Task, TaskStatus } from "~/db/schema";
 import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
@@ -346,6 +352,12 @@ function ProjectPage() {
   const { data: entitlements } = useEntitlements();
   const { data: gitStatus } = useGitStatus(id, selectedWorktreeId, {
     enabled: projectPathUsable,
+  });
+  const createPullRequest = useCreatePullRequestAction({
+    projectId: id,
+    worktreeId: selectedWorktreeId,
+    branch: gitStatus?.branch,
+    projectPathUsable,
   });
   const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView } =
     useGitDiffViewOpen(id);
@@ -608,6 +620,21 @@ function ProjectPage() {
   const invalidateProjects = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
     [queryClient]
+  );
+  const invalidateGroups = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.groups }),
+    [queryClient],
+  );
+  const createGroupForSelection = useCallback(
+    async (name: string) => {
+      const { group } = await api.createGroup({ name });
+      queryClient.setQueryData<Group[]>(queryKeys.groups, (current) =>
+        current ? [...current, group] : [group],
+      );
+      await invalidateGroups();
+      return group;
+    },
+    [invalidateGroups, queryClient],
   );
   const refresh = useCallback(async () => {
     await Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
@@ -1357,6 +1384,16 @@ function ProjectPage() {
         }
         onStop={stopLaunch}
       />
+      <span
+        aria-hidden
+        style={{
+          width: 1,
+          height: 24,
+          background: "var(--border)",
+          margin: "0 2px 0 4px",
+          flexShrink: 0,
+        }}
+      />
       {worktreesEnabled && (
         <>
           <WorktreeToggleGroup
@@ -1366,6 +1403,8 @@ function ProjectPage() {
             projectId={project.id}
             onSelect={selectWorktree}
             onDeleteSelected={() => setConfirmDeleteWorktree(true)}
+            mainBranchLabel={gitStatus?.branch}
+            branchSwitchDisabled={projectPathBlocked}
             maxWidth="min(420px, 34vw)"
           />
           <span
@@ -1567,18 +1606,35 @@ function ProjectPage() {
                 >
                   Reveal in Finder
                 </Btn>
-                {project.githubUrl && (
+                <HotkeyTooltip action="file.finder">
                   <Btn
                     variant="ghost"
-                    icon="github"
+                    icon="search"
                     onClick={() => {
                       setOverflowOpen(false);
-                      window.open(project.githubUrl!, "_blank", "noreferrer");
+                      setFileFinderOpen(true);
                     }}
+                    disabled={projectPathBlocked}
                     style={{ justifyContent: "flex-start" }}
                   >
-                    Open GitHub
+                    <span style={{ flex: 1, textAlign: "left" }}>Find file in project</span>
                   </Btn>
+                </HotkeyTooltip>
+                {project.githubUrl && (
+                  <>
+                    <MenuSeparator />
+                    <Btn
+                      variant="ghost"
+                      icon="github"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        window.open(project.githubUrl!, "_blank", "noreferrer");
+                      }}
+                      style={{ justifyContent: "flex-start" }}
+                    >
+                      Open GitHub
+                    </Btn>
+                  </>
                 )}
                 <HotkeyTooltip action="git.diff">
                   <Btn
@@ -1590,13 +1646,13 @@ function ProjectPage() {
                     }}
                     disabled={projectPathBlocked}
                     style={{ justifyContent: "flex-start" }}
-                    title={(() => {
-                      const b = gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH;
-                      if (gitStatus && gitStatus.changedCount > 0) {
-                        return `Branch ${b} · ${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`;
-                      }
-                      return `Branch ${b}`;
-                    })()}
+                    title={
+                      gitStatus && gitStatus.changedCount > 0
+                        ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`
+                        : gitStatus
+                          ? "Review Changes"
+                          : "Checking changes…"
+                    }
                   >
                     <span style={{ flex: 1, textAlign: "left" }}>
                       Review Changes
@@ -1609,6 +1665,13 @@ function ProjectPage() {
                     </span>
                   </Btn>
                 </HotkeyTooltip>
+                <CreatePullRequestMenuItem
+                  onSelect={() => {
+                    setOverflowOpen(false);
+                    void createPullRequest.onCreate();
+                  }}
+                  busy={createPullRequest.busy}
+                />
                 <MenuSeparator />
                 <Btn
                   variant="ghost"
@@ -1669,7 +1732,6 @@ function ProjectPage() {
             }}
           >
             <ProjectGitStatusButton
-              branch={gitStatus?.branch ?? project.branch ?? DEFAULT_BRANCH}
               changedCount={gitStatus?.changedCount}
               onClick={onToggleDiffView}
               disabled={projectPathBlocked}
@@ -1682,15 +1744,6 @@ function ProjectPage() {
               enabled={projectPathUsable}
             />
           </div>
-          <div style={{ flex: 1 }} />
-          <HotkeyTooltip action="file.finder" label="Find file in project">
-            <Btn
-              variant="ghost"
-              icon="search"
-              onClick={() => setFileFinderOpen(true)}
-              aria-label="Find file in project"
-            />
-          </HotkeyTooltip>
         </div>
 
         {hostedRuntime && !hostedRuntime.allowed && (
@@ -2033,6 +2086,7 @@ function ProjectPage() {
         open={showEdit}
         project={project}
         groups={groups}
+        onCreateGroup={createGroupForSelection}
         onClose={() => setShowEdit(false)}
         onSave={async (data) => {
           await api.updateProject(project.id, data);
@@ -2052,6 +2106,11 @@ function ProjectPage() {
         projectRoot={selectedWorktreePath || project.path}
         relPath={openFileRel}
         onClose={() => setOpenFileRel(null)}
+      />
+
+      <CreatePullRequestDialog
+        state={createPullRequest.dialog}
+        onClose={createPullRequest.closeDialog}
       />
 
       <InstallDiagramSkillModal
@@ -2184,6 +2243,8 @@ function WorktreeToggleGroup({
   projectId,
   onSelect,
   onDeleteSelected,
+  mainBranchLabel,
+  branchSwitchDisabled = false,
   maxWidth = 420,
 }: {
   worktrees: WorktreeInfo[];
@@ -2192,6 +2253,9 @@ function WorktreeToggleGroup({
   projectId: string;
   onSelect: (id: string) => void;
   onDeleteSelected?: (worktree: WorktreeInfo) => void;
+  /** Live git branch for the main worktree — shown instead of the "main" id. */
+  mainBranchLabel?: string | null;
+  branchSwitchDisabled?: boolean;
   maxWidth?: number | string;
 }) {
   const items = worktrees.length > 0 ? worktrees : [];
@@ -2206,6 +2270,7 @@ function WorktreeToggleGroup({
         gap: 4,
         maxWidth,
         overflowX: "auto",
+        overflowY: "visible",
         padding: 2,
         flexShrink: 1,
       }}
@@ -2214,7 +2279,48 @@ function WorktreeToggleGroup({
         const selected = worktree.id === selectedId;
         const running = runningKeys.has(worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id));
         const canDelete = selected && !worktree.isMain && !!onDeleteSelected;
+        const label = worktree.isMain
+          ? mainBranchLabel?.trim() || "…"
+          : worktree.name;
         return (
+          worktree.isMain && selected ? (
+            <div
+              key={worktree.id}
+              role="none"
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              {running && (
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    left: "50%",
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--accent)",
+                    transform: "translateX(-50%)",
+                    boxShadow: "0 0 6px var(--accent-glow)",
+                    zIndex: 1,
+                  }}
+                />
+              )}
+              <BranchTypeahead
+                projectId={projectId}
+                worktreeId={null}
+                branch={mainBranchLabel}
+                disabled={branchSwitchDisabled}
+                worktreePath={worktree.path}
+                selected
+              />
+            </div>
+          ) : (
           <div
             key={worktree.id}
             role="none"
@@ -2261,10 +2367,14 @@ function WorktreeToggleGroup({
                 const next = items[(currentIndex + direction + items.length) % items.length];
                 if (next) onSelect(next.id);
               }}
-              aria-label={`Switch to worktree ${worktree.name}`}
+              aria-label={`Switch to worktree ${worktree.isMain ? label : worktree.name}`}
               aria-checked={selected}
               tabIndex={selected ? 0 : -1}
-              title={worktree.path}
+              title={
+                worktree.isMain
+                  ? `${worktree.path}${mainBranchLabel ? ` · branch ${mainBranchLabel}` : ""}`
+                  : worktree.path
+              }
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -2279,7 +2389,7 @@ function WorktreeToggleGroup({
                 cursor: "pointer",
               }}
             >
-              {worktree.name}
+              {label}
             </button>
             {canDelete && (
               <button
@@ -2307,6 +2417,7 @@ function WorktreeToggleGroup({
               </button>
             )}
           </div>
+          )
         );
       })}
     </div>
@@ -2314,12 +2425,10 @@ function WorktreeToggleGroup({
 }
 
 function ProjectGitStatusButton({
-  branch,
   changedCount,
   onClick,
   disabled = false,
 }: {
-  branch: string;
   changedCount: number | undefined;
   onClick: () => void;
   disabled?: boolean;
@@ -2334,8 +2443,8 @@ function ProjectGitStatusButton({
     disabled
       ? "Review Changes unavailable until the project folder is valid"
       : changedCount === undefined
-      ? `Open Review Changes · branch ${branch}`
-      : `Toggle Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"} · branch ${branch}`;
+      ? "Open Review Changes"
+      : `Toggle Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"}`;
 
   return (
     <HotkeyTooltip action="git.diff" label={title}>
@@ -2346,7 +2455,7 @@ function ProjectGitStatusButton({
         disabled={disabled}
         aria-label={title}
         className="mc-btn-attached-right"
-        style={{ fontFamily: "var(--mono)", maxWidth: 320, minWidth: 0 }}
+        style={{ fontFamily: "var(--mono)", minWidth: 0 }}
       >
         <span
           style={{

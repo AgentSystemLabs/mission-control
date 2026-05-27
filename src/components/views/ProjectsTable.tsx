@@ -155,14 +155,14 @@ export function ProjectsTable({
                   <td className="mc-projects-table-cell mc-projects-table-pin">
                     <Btn
                       size="sm"
-                      variant={project.pinned ? "accent" : "ghost"}
+                      variant={project.pinned ? "primary" : "ghost"}
                       icon={project.pinned ? "pin-fill" : "pin"}
                       onClick={() => onTogglePin(project.id)}
                       aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
+                      aria-pressed={project.pinned}
                       title={project.pinned ? "Unpin" : "Pin"}
-                    >
-                      {project.pinned ? "Pinned" : "Pin"}
-                    </Btn>
+                      style={{ width: 30, minWidth: 30, padding: 0, paddingInline: 0 }}
+                    />
                   </td>
                 </tr>
               );

@@ -3,7 +3,6 @@ import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
-import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ICON_COLORS } from "~/lib/design-meta";
@@ -27,6 +26,7 @@ export function ProjectDialog({
   groups,
   onClose,
   onSave,
+  onCreateGroup,
 }: {
   open: boolean;
   project: Project | null;
@@ -43,15 +43,18 @@ export function ProjectDialog({
     githubUrl?: string;
     worktreeSetupCommand?: string | null;
   }) => Promise<void> | void;
+  onCreateGroup?: (name: string) => Promise<Group> | Group;
 }) {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [groupId, setGroupId] = useState<string>("");
+  const [groupQuery, setGroupQuery] = useState("");
+  const [groupTypeaheadOpen, setGroupTypeaheadOpen] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [icon, setIcon] = useState("");
   const [iconColor, setIconColor] = useState("#ff5a1f");
   const [worktreeSetupCommand, setWorktreeSetupCommand] = useState("");
   const [imagePath, setImagePath] = useState<string | null>(null);
-  const [imageVersion, setImageVersion] = useState(0);
   const [pendingImage, setPendingImage] = useState<
     { sourcePath: string; extension: string } | null
   >(null);
@@ -61,6 +64,16 @@ export function ProjectDialog({
   const hostedRuntime = isWebDaytonaRuntime();
   const hostedCreate = hostedRuntime && !project;
   const hostedRepoName = hostedCreate ? repoNameFromGithubUrl(path) : "";
+  const selectedGroup = groupId ? groups.find((group) => group.id === groupId) ?? null : null;
+  const normalizedGroupQuery = groupQuery.trim().toLowerCase();
+  const exactGroupMatch = normalizedGroupQuery
+    ? groups.find((group) => group.name.toLowerCase() === normalizedGroupQuery) ?? null
+    : null;
+  const filteredGroups = normalizedGroupQuery
+    ? groups.filter((group) => group.name.toLowerCase().includes(normalizedGroupQuery))
+    : groups;
+  const canCreateGroup =
+    !!onCreateGroup && !!groupQuery.trim() && !exactGroupMatch;
 
   useEffect(() => {
     if (open) {
@@ -69,15 +82,26 @@ export function ProjectDialog({
       setName(project?.name || "");
       setPath(project?.path || "");
       setGroupId(project?.groupId || "");
+      setGroupQuery(
+        project?.groupId
+          ? groups.find((group) => group.id === project.groupId)?.name ?? ""
+          : "",
+      );
+      setGroupTypeaheadOpen(false);
+      setCreatingGroup(false);
       setIcon(project?.icon || "");
       setIconColor(project?.iconColor || "#ff5a1f");
       setWorktreeSetupCommand(project?.worktreeSetupCommand || "");
       setImagePath(project?.imagePath ?? null);
-      setImageVersion(project?.updatedAt ?? 0);
       setPendingImage(null);
       setError(null);
     }
   }, [open, project?.id]);
+
+  useEffect(() => {
+    if (!open || !selectedGroup || groupQuery.trim()) return;
+    setGroupQuery(selectedGroup.name);
+  }, [groupQuery, open, selectedGroup]);
 
   const chooseImage = async () => {
     setError(null);
@@ -106,7 +130,6 @@ export function ProjectDialog({
         return;
       }
       setImagePath(result.filename);
-      setImageVersion(Date.now());
     } finally {
       setUploading(false);
     }
@@ -115,7 +138,6 @@ export function ProjectDialog({
   const removeImage = () => {
     setImagePath(null);
     setPendingImage(null);
-    setImageVersion(Date.now());
   };
 
   const browse = async () => {
@@ -131,9 +153,61 @@ export function ProjectDialog({
     }
   };
 
+  const selectGroup = (group: Group) => {
+    setGroupId(group.id);
+    setGroupQuery(group.name);
+    setGroupTypeaheadOpen(false);
+  };
+
+  const clearGroup = () => {
+    setGroupId("");
+    setGroupQuery("");
+    setGroupTypeaheadOpen(false);
+  };
+
+  const createAndSelectGroup = async (groupName: string): Promise<string | null> => {
+    if (!onCreateGroup || creatingGroup) return groupId || null;
+    setError(null);
+    setCreatingGroup(true);
+    try {
+      const group = await onCreateGroup(groupName);
+      selectGroup(group);
+      return group.id;
+    } catch (e: any) {
+      setError(e?.message || "Could not add group");
+      throw e;
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
+  const commitGroupQuery = async () => {
+    const trimmed = groupQuery.trim();
+    if (!trimmed) {
+      clearGroup();
+      return;
+    }
+    if (exactGroupMatch) {
+      selectGroup(exactGroupMatch);
+      return;
+    }
+    if (!onCreateGroup || creatingGroup) return;
+    await createAndSelectGroup(trimmed);
+  };
+
+  const resolveGroupIdForSave = async (): Promise<string | null> => {
+    const trimmed = groupQuery.trim();
+    if (!trimmed) return null;
+    if (exactGroupMatch) return exactGroupMatch.id;
+    if (selectedGroup?.name === trimmed) return selectedGroup.id;
+    if (onCreateGroup) return createAndSelectGroup(trimmed);
+    return groupId || null;
+  };
+
   const submit = async () => {
     setError(null);
     try {
+      const effectiveGroupId = await resolveGroupIdForSave();
       const effectiveName =
         name.trim() ||
         hostedRepoName ||
@@ -146,7 +220,7 @@ export function ProjectDialog({
         path: effectivePath,
         icon: icon || effectiveName.slice(0, 2).toUpperCase(),
         iconColor,
-        groupId: groupId || null,
+        groupId: effectiveGroupId,
         ...(project ? { imagePath } : { pendingImage }),
         ...(hostedCreate && path.trim() ? { githubUrl: path.trim() } : {}),
         ...(project ? { worktreeSetupCommand: worktreeSetupCommand.trim() || null } : {}),
@@ -374,44 +448,214 @@ export function ProjectDialog({
           >
             Group
           </label>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button
-              onClick={() => setGroupId("")}
+          <div style={{ position: "relative" }}>
+            <div
               style={{
-                padding: "6px 12px",
-                borderRadius: 999,
-                background: groupId === "" ? "var(--accent-dim)" : "var(--surface-0)",
-                border: `1px solid ${groupId === "" ? "var(--accent)" : "var(--border)"}`,
-                color: groupId === "" ? "var(--accent)" : "var(--text-dim)",
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: "var(--surface-0)",
+                border: `1px solid ${groupTypeaheadOpen ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 7,
+                padding: "0 8px 0 12px",
+                minHeight: 38,
               }}
             >
-              Ungrouped
-            </button>
-            {groups.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => setGroupId(g.id)}
+              {selectedGroup && (
+                <span
+                  aria-hidden
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: selectedGroup.color,
+                    flex: "0 0 auto",
+                  }}
+                />
+              )}
+              <input
+                value={groupQuery}
+                onFocus={() => setGroupTypeaheadOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setGroupTypeaheadOpen(false), 100);
+                }}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setGroupQuery(next);
+                  setGroupTypeaheadOpen(true);
+                  if (!next.trim()) setGroupId("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void commitGroupQuery();
+                  } else if (e.key === "Escape") {
+                    setGroupTypeaheadOpen(false);
+                  }
+                }}
+                role="combobox"
+                aria-expanded={groupTypeaheadOpen}
+                aria-controls="project-group-options"
+                aria-label="Project group"
+                placeholder="Ungrouped or group name"
                 style={{
-                  padding: "6px 12px",
-                  borderRadius: 999,
-                  background: groupId === g.id ? "var(--accent-dim)" : "var(--surface-0)",
-                  border: `1px solid ${groupId === g.id ? "var(--accent)" : "var(--border)"}`,
-                  color: groupId === g.id ? "var(--accent)" : "var(--text-dim)",
+                  flex: 1,
+                  minWidth: 0,
+                  background: "transparent",
+                  border: 0,
+                  outline: 0,
+                  color: "var(--text)",
+                  padding: "9px 0",
                   fontFamily: "var(--mono)",
-                  fontSize: 11,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
+                  fontSize: 12.5,
+                }}
+              />
+              {(groupQuery || groupId) && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={clearGroup}
+                  aria-label="Clear group"
+                  title="Clear group"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 24,
+                    height: 24,
+                    border: 0,
+                    background: "transparent",
+                    color: "var(--text-faint)",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              )}
+            </div>
+            {groupTypeaheadOpen && (
+              <div
+                id="project-group-options"
+                role="listbox"
+                style={{
+                  position: "absolute",
+                  zIndex: 20,
+                  left: 0,
+                  right: 0,
+                  top: "calc(100% + 6px)",
+                  maxHeight: 220,
+                  overflow: "auto",
+                  background: "var(--surface-1)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  boxShadow: "0 14px 36px rgba(0, 0, 0, 0.32)",
+                  padding: 6,
                 }}
               >
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: g.color }} />
-                {g.name}
-              </button>
-            ))}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={groupId === ""}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={clearGroup}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minHeight: 32,
+                    border: 0,
+                    borderRadius: 6,
+                    background: groupId === "" ? "var(--accent-dim)" : "transparent",
+                    color: groupId === "" ? "var(--accent)" : "var(--text-dim)",
+                    cursor: "pointer",
+                    padding: "7px 9px",
+                    textAlign: "left",
+                    fontFamily: "var(--mono)",
+                    fontSize: 11.5,
+                  }}
+                >
+                  Ungrouped
+                </button>
+                {filteredGroups.map((group) => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    role="option"
+                    aria-selected={groupId === group.id}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => selectGroup(group)}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      minHeight: 32,
+                      border: 0,
+                      borderRadius: 6,
+                      background: groupId === group.id ? "var(--accent-dim)" : "transparent",
+                      color: groupId === group.id ? "var(--accent)" : "var(--text)",
+                      cursor: "pointer",
+                      padding: "7px 9px",
+                      textAlign: "left",
+                      fontFamily: "var(--mono)",
+                      fontSize: 11.5,
+                    }}
+                  >
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: group.color,
+                      }}
+                    />
+                    <span
+                      style={{
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {group.name}
+                    </span>
+                  </button>
+                ))}
+                {canCreateGroup && (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    disabled={creatingGroup}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => void commitGroupQuery()}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      minHeight: 32,
+                      border: 0,
+                      borderRadius: 6,
+                      background: "transparent",
+                      color: "var(--accent)",
+                      cursor: creatingGroup ? "default" : "pointer",
+                      opacity: creatingGroup ? 0.65 : 1,
+                      padding: "7px 9px",
+                      textAlign: "left",
+                      fontFamily: "var(--mono)",
+                      fontSize: 11.5,
+                    }}
+                  >
+                    <Icon name="plus" size={12} />
+                    {creatingGroup ? "Creating..." : `Create "${groupQuery.trim()}"`}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

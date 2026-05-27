@@ -19,6 +19,7 @@ import {
 } from "./daytona-remote-pty";
 import { enqueueHostedProjectCleanup } from "./hosted-cleanup-outbox";
 import { enforceHostedPlanLimit } from "./hosted-plan-limits";
+import { getPinnedProjects, nextPinnedOrder, validatePinnedReorder } from "~/lib/pinned-project-order";
 
 type HostedProjectRow = {
   id: string;
@@ -32,6 +33,7 @@ type HostedProjectRow = {
   iconColor: string;
   imagePath: string | null;
   pinned: boolean;
+  pinnedOrder: number | null;
   launchCommands: unknown;
   launchUrl: string | null;
   rememberAgentSettings: boolean;
@@ -176,6 +178,7 @@ function mapProject(row: HostedProjectRow): Project {
     imagePath: row.imagePath,
     groupId: row.groupId,
     pinned: !!row.pinned,
+    pinnedOrder: row.pinnedOrder ?? null,
     branch: row.branch || DEFAULT_BRANCH,
     launchCommands: launchCommandsToString(row.launchCommands),
     launchUrl: row.launchUrl,
@@ -351,6 +354,7 @@ export async function updateHostedProject(
       | "imagePath"
       | "groupId"
       | "pinned"
+      | "pinnedOrder"
       | "branch"
       | "launchUrl"
       | "rememberAgentSettings"
@@ -364,6 +368,7 @@ export async function updateHostedProject(
   if (!existing) return null;
   const groupId = hasOwn(patch, "groupId") ? patch.groupId ?? null : existing.groupId;
   await validateHostedGroupId(context, groupId);
+  const pinning = hasOwn(patch, "pinned") ? !!patch.pinned : existing.pinned;
   const next = {
     name: patch.name ?? existing.name,
     remotePath: normalizeHostedWorkspacePath(patch.path ?? existing.path),
@@ -371,7 +376,12 @@ export async function updateHostedProject(
     iconColor: patch.iconColor ?? existing.iconColor,
     imagePath: hasOwn(patch, "imagePath") ? patch.imagePath ?? null : existing.imagePath,
     groupId,
-    pinned: patch.pinned ?? existing.pinned,
+    pinned: pinning,
+    pinnedOrder: pinning
+      ? hasOwn(patch, "pinnedOrder")
+        ? patch.pinnedOrder ?? null
+        : existing.pinnedOrder ?? nextPinnedOrder((await listHostedProjects(context)).filter((p) => p.id !== id))
+      : null,
     branch: patch.branch ?? existing.branch,
     launchCommands:
       patch.launchCommands === undefined
@@ -395,6 +405,7 @@ export async function updateHostedProject(
     next.imagePath,
     next.groupId,
     next.pinned,
+    next.pinnedOrder,
     next.branch,
     JSON.stringify(next.launchCommands),
     next.launchUrl,
@@ -412,13 +423,14 @@ export async function updateHostedProject(
         "imagePath" = $8,
         "groupId" = $9,
         "pinned" = $10,
-        "branch" = $11,
-        "launchCommands" = $12::jsonb,
-        "launchUrl" = $13,
-        "rememberAgentSettings" = $14,
-        "savedAgent" = $15,
-        "savedSkipPermissions" = $16,
-        "savedBareSession" = $17,
+        "pinnedOrder" = $11,
+        "branch" = $12,
+        "launchCommands" = $13::jsonb,
+        "launchUrl" = $14,
+        "rememberAgentSettings" = $15,
+        "savedAgent" = $16,
+        "savedSkipPermissions" = $17,
+        "savedBareSession" = $18,
         "updatedAt" = now()
       WHERE ${scopedProjectWhere()} AND "id" = $3
       RETURNING *`,
@@ -436,7 +448,54 @@ export async function toggleHostedProjectPin(
 ): Promise<Project | null> {
   const existing = await getHostedProject(context, id);
   if (!existing) return null;
-  return updateHostedProject(context, id, { pinned: !existing.pinned });
+  const pinning = !existing.pinned;
+  const pinnedOrder = pinning
+    ? nextPinnedOrder((await listHostedProjects(context)).filter((project) => project.id !== id))
+    : null;
+  return updateHostedProject(context, id, { pinned: pinning, pinnedOrder });
+}
+
+export async function reorderHostedPinnedProjects(
+  context: HostedAuthContext,
+  order: string[],
+): Promise<ProjectWithCounts[]> {
+  const pool = getHostedPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const current = await client.query<HostedProjectRow>(
+      `SELECT * FROM "hostedProject"
+        WHERE ${scopedProjectWhere()}
+        ORDER BY "createdAt" ASC
+        FOR UPDATE`,
+      scopeParams(context),
+    );
+    const pinned = getPinnedProjects(current.rows.map(mapProject));
+    try {
+      validatePinnedReorder(order, pinned);
+    } catch (error) {
+      throw new ValidationError(error instanceof Error ? error.message : "invalid pinned order");
+    }
+    for (let index = 0; index < order.length; index++) {
+      await client.query(
+        `UPDATE "hostedProject"
+          SET "pinnedOrder" = $4, "updatedAt" = now()
+          WHERE ${scopedProjectWhere()} AND "id" = $3`,
+        [...scopeParams(context), order[index]!, index],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  const scope = eventScopeForContext(context);
+  for (const id of order) {
+    events.emit("project:updated", { id, scope });
+  }
+  return listHostedProjects(context);
 }
 
 export async function deleteHostedProject(

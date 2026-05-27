@@ -383,6 +383,9 @@ async function dispatch(
     if (method === "GET") return projectsController.list(request);
     if (method === "POST") return projectsController.create(request);
   }
+  if (pathname === "/api/projects/pinned-order" && method === "PATCH") {
+    return projectsController.reorderPinned(request);
+  }
   let m = pathname.match(PROJECT_PATH);
   if (m) {
     const id = decode(m[1]);
@@ -422,11 +425,14 @@ async function dispatch(
     const id = decode(m[1]);
     const action = m[2]!;
     if (action === "status" && method === "GET") return gitController.status(id, url);
+    if (action === "branches" && method === "GET") return gitController.branches(id, url);
     if (action === "diff" && method === "GET") return gitController.diff(id, url);
     if (action === "stage" && method === "POST") return gitController.stage(id, request);
     if (action === "unstage" && method === "POST") return gitController.unstage(id, request);
     if (action === "commit" && method === "POST") return gitController.commit(id, request);
     if (action === "push" && method === "POST") return gitController.push(id, request);
+    if (action === "create-pr" && method === "POST") return gitController.createPr(id, request);
+    if (action === "checkout" && method === "POST") return gitController.checkout(id, request);
   }
   m = pathname.match(PROJECT_USER_TERMINALS_PATH);
   if (m) {

@@ -14,6 +14,7 @@ import {
 } from "~/queries";
 import { isWebDaytonaRuntime } from "~/lib/runtime";
 import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
+import type { Group } from "~/db/schema";
 
 type Ctx = {
   open: () => void;
@@ -46,6 +47,17 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
   }, [queryClient]);
   const close = useCallback(() => setIsOpen(false), []);
   const closePaywall = useCallback(() => setPaywallOpen(false), []);
+  const createGroupForSelection = useCallback(
+    async (name: string) => {
+      const { group } = await api.createGroup({ name });
+      queryClient.setQueryData<Group[]>(queryKeys.groups, (current) =>
+        current ? [...current, group] : [group],
+      );
+      await queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+      return group;
+    },
+    [queryClient],
+  );
 
   useHotkey(
     "project.add",
@@ -64,6 +76,7 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
         project={null}
         groups={groups}
         onClose={close}
+        onCreateGroup={createGroupForSelection}
         onSave={async (data) => {
           const { pendingImage, imagePath: _ignore, ...createBody } = data;
           try {

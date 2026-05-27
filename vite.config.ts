@@ -37,6 +37,6 @@ export default defineConfig({
   },
   ssr: {
     external: ["better-sqlite3", "node-pty"],
-    noExternal: ["@xterm/xterm", "@xterm/addon-fit"],
+    noExternal: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
   },
 });

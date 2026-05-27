@@ -1,8 +1,8 @@
 import type { Group } from "~/db/schema";
+import { getPinnedProjects, type PinnedOrderable } from "~/lib/pinned-project-order";
 
-export type GroupableProject = {
+export type GroupableProject = PinnedOrderable & {
   groupId: string | null;
-  pinned: boolean;
 };
 
 export type ProjectGroupSection<TProject extends GroupableProject> = {
@@ -26,12 +26,10 @@ export function groupProjects<TProject extends GroupableProject>(
     groupedById.set(group.id, []);
   }
 
-  const pinned: TProject[] = [];
   const ungrouped: TProject[] = [];
 
   for (const project of projects) {
     if (project.pinned) {
-      pinned.push(project);
       continue;
     }
 
@@ -50,7 +48,7 @@ export function groupProjects<TProject extends GroupableProject>(
     }))
     .filter((section) => section.projects.length > 0);
 
-  return { pinned, byGroup, ungrouped };
+  return { pinned: getPinnedProjects(projects), byGroup, ungrouped };
 }
 
 export function projectPickerSections<TProject extends GroupableProject>(

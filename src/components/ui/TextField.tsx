@@ -6,6 +6,7 @@ export function TextField({
   value,
   onChange,
   placeholder,
+  ariaLabel,
   mono,
   rightAddon,
   type = "text",
@@ -17,6 +18,7 @@ export function TextField({
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  ariaLabel?: string;
   mono?: boolean;
   rightAddon?: ReactNode;
   type?: string;
@@ -59,6 +61,7 @@ export function TextField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          aria-label={ariaLabel}
           autoFocus={autoFocus}
           ref={inputRef}
           aria-describedby={hintId}

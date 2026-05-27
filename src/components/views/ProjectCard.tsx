@@ -2,20 +2,37 @@ import { useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Btn } from "~/components/ui/Btn";
+import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
 import { ProjectStatusBadge } from "~/components/ui/ProjectStatusBadge";
 import { TASK_STATUSES } from "~/shared/domain";
 import { useUserTerminals } from "~/lib/user-terminal-store";
+import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
+
+type ProjectCardMenu = { x: number; y: number } | null;
+const MENU_WIDTH = 184;
+const MENU_HEIGHT = 96;
+
+function menuPosition(x: number, y: number): NonNullable<ProjectCardMenu> {
+  return {
+    x: Math.max(8, Math.min(x, window.innerWidth - MENU_WIDTH - 8)),
+    y: Math.max(8, Math.min(y, window.innerHeight - MENU_HEIGHT - 8)),
+  };
+}
 
 export function ProjectCard({
   project,
   onOpen,
+  onEdit,
+  onRemove,
   onTogglePin,
 }: {
   project: ProjectWithCounts;
   onOpen: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
   onTogglePin: (id: string) => void;
 }) {
   const counts = project.taskCounts;
@@ -24,12 +41,24 @@ export function ProjectCard({
   const hasActivity = isProjectActive(activity);
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
   const [hovered, setHovered] = useState(false);
+  const [menu, setMenu] = useState<ProjectCardMenu>(null);
+  useDismissableMenu(menu !== null, () => setMenu(null));
+
+  const openMenu = (x: number, y: number) => {
+    setMenu(menuPosition(x, y));
+  };
+
   return (
     <CardFrame
       className="mc-project-card"
       glow
-      focused={hovered}
+      focused={hovered || menu !== null}
       onClick={onOpen}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(e.clientX, e.clientY);
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -117,20 +146,50 @@ export function ProjectCard({
               </div>
             </div>
           </button>
-          <Btn
-            size="sm"
-            variant={project.pinned ? "accent" : "ghost"}
-            icon={project.pinned ? "pin-fill" : "pin"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onTogglePin(project.id);
-            }}
-            aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
-            title={project.pinned ? "Unpin" : "Pin"}
-            style={{ pointerEvents: "auto", position: "relative", zIndex: 3 }}
-          >
-            {project.pinned ? "Pinned" : "Pin"}
-          </Btn>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <Btn
+              size="sm"
+              variant={project.pinned ? "primary" : "ghost"}
+              icon={project.pinned ? "pin-fill" : "pin"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePin(project.id);
+              }}
+              aria-label={project.pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
+              aria-pressed={project.pinned}
+              title={project.pinned ? "Unpin" : "Pin"}
+              style={{
+                pointerEvents: "auto",
+                position: "relative",
+                zIndex: 3,
+                width: 30,
+                minWidth: 30,
+                padding: 0,
+                paddingInline: 0,
+              }}
+            />
+            <Btn
+              size="sm"
+              variant="ghost"
+              icon="more"
+              onClick={(e) => {
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                openMenu(rect.left, rect.bottom + 4);
+              }}
+              aria-label={`Project actions for ${project.name}`}
+              aria-haspopup="menu"
+              aria-expanded={menu !== null}
+              title="Project actions"
+              style={{
+                pointerEvents: "auto",
+                position: "relative",
+                zIndex: 3,
+                width: 30,
+                padding: 0,
+              }}
+            />
+          </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -167,6 +226,90 @@ export function ProjectCard({
           </div>
         )}
       </div>
+      {menu && (
+        <div
+          role="menu"
+          aria-label={`${project.name} actions`}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: menu.y,
+            left: menu.x,
+            zIndex: 1000,
+            background: "var(--surface-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: 4,
+            minWidth: 176,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
+          }}
+        >
+          <ProjectCardMenuItem
+            autoFocus
+            icon="settings"
+            label="Edit project"
+            onSelect={() => {
+              setMenu(null);
+              onEdit();
+            }}
+          />
+          <ProjectCardMenuItem
+            icon="trash"
+            label="Remove project"
+            danger
+            onSelect={() => {
+              setMenu(null);
+              onRemove();
+            }}
+          />
+        </div>
+      )}
     </CardFrame>
+  );
+}
+
+function ProjectCardMenuItem({
+  icon,
+  label,
+  onSelect,
+  danger = false,
+  autoFocus = false,
+}: {
+  icon: "settings" | "trash";
+  label: string;
+  onSelect: () => void;
+  danger?: boolean;
+  autoFocus?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      autoFocus={autoFocus}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        width: "100%",
+        padding: "7px 10px",
+        background: "transparent",
+        border: 0,
+        borderRadius: 4,
+        cursor: "pointer",
+        color: danger ? "var(--status-failed, #e06c75)" : "var(--text)",
+        fontSize: 12,
+        fontFamily: "var(--mono)",
+        textAlign: "left",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      <Icon name={icon} size={12} />
+      {label}
+    </button>
   );
 }

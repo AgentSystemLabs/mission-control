@@ -150,6 +150,7 @@ export function UserTerminalPanel() {
   return (
     <CardFrame
       frame="slanted"
+      data-user-terminal-panel
       style={{
         width: "100%",
         height: panelOpen ? height : "auto",

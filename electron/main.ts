@@ -33,6 +33,12 @@ import { AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND } from "./agent-cli-version-r
 import { disposeAppSettingsStore } from "./app-settings-store";
 import { getBinding, matchElectronInput } from "./keybindings-reader";
 import { resolveProductionServerEntry } from "./production-server-entry";
+import { shouldAllowWebPermission } from "./notification-permissions";
+import {
+  getNativeOsNotificationPermission,
+  showSessionFinishOsNotification,
+  type SessionFinishOsNotificationPayload,
+} from "./session-finish-notification";
 import {
   DEFAULT_DEV_SERVER_PORT,
   nextTcpPort,
@@ -185,10 +191,12 @@ async function openExternalHttpUrl(url: string): Promise<{ ok: true } | { ok: fa
 
 function configurePermissionHandlers(): void {
   const ses = session.defaultSession;
-  ses.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+  ses.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(shouldAllowWebPermission(permission));
   });
-  ses.setPermissionCheckHandler(() => false);
+  ses.setPermissionCheckHandler((_webContents, permission) => {
+    return shouldAllowWebPermission(permission);
+  });
 }
 
 async function startProductionServer(): Promise<string> {
@@ -557,6 +565,38 @@ safeHandle(IPC.debugSessionTerminalLogsRecord, (_evt, input: SessionTerminalDebu
   return recordSessionTerminalDebugLog({
     ...input,
     source: "renderer",
+  });
+});
+
+function parseSessionFinishOsNotificationPayload(
+  payload: SessionFinishOsNotificationPayload,
+): SessionFinishOsNotificationPayload | null {
+  const tag = typeof payload?.tag === "string" ? payload.tag : "";
+  const title = typeof payload?.title === "string" ? payload.title : "";
+  const body = typeof payload?.body === "string" ? payload.body : "";
+  const projectId = typeof payload?.projectId === "string" ? payload.projectId : "";
+  const taskId = typeof payload?.taskId === "string" ? payload.taskId : "";
+  const worktreeId =
+    typeof payload?.worktreeId === "string"
+      ? payload.worktreeId
+      : payload?.worktreeId === null
+        ? null
+        : null;
+  if (!tag || !title || !projectId || !taskId) return null;
+  return { tag, title, body, projectId, taskId, worktreeId };
+}
+
+safeHandle(IPC.notificationsGetPermission, () => getNativeOsNotificationPermission());
+
+safeHandle(IPC.notificationsShowSessionFinished, (_evt, payload: SessionFinishOsNotificationPayload) => {
+  const parsed = parseSessionFinishOsNotificationPayload(payload);
+  if (!parsed) return { ok: false as const, error: "invalid-payload" };
+  return showSessionFinishOsNotification(win, parsed, () => {
+    win?.webContents.send(IPC.notificationsSessionFinishedClick, {
+      projectId: parsed.projectId,
+      taskId: parsed.taskId,
+      worktreeId: parsed.worktreeId,
+    });
   });
 });
 

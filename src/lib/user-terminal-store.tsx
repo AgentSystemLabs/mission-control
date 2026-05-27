@@ -35,6 +35,7 @@ type Ctx = {
   togglePanel: () => void;
   setPanelOpen: (open: boolean) => void;
   sessions: Session[];
+  sessionsByScope: Record<string, Session[]>;
   runningProjectIds: Set<string>;
   runningWorktreeIds: Set<string>;
   hasRunningLaunchForProject: (
@@ -502,6 +503,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       togglePanel,
       setPanelOpen,
       sessions,
+      sessionsByScope: sessionsByProject,
       runningProjectIds,
       runningWorktreeIds,
       hasRunningLaunchForProject,
@@ -524,6 +526,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       panelOpen,
       togglePanel,
       sessions,
+      sessionsByProject,
       runningProjectIds,
       runningWorktreeIds,
       hasRunningLaunchForProject,

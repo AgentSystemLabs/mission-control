@@ -8,10 +8,14 @@ export function formatPathForTerminalPaste(path: string): string {
   return PATH_NEEDS_QUOTING.test(path) ? `"${path.replace(QUOTE_ESCAPE, '\\"')}"` : path;
 }
 
-export function setProjectPathDragData(dataTransfer: DataTransfer, path: string): void {
+export function setProjectPathDragData(
+  dataTransfer: DataTransfer,
+  path: string,
+  effectAllowed: DataTransfer["effectAllowed"] = "copy",
+): void {
   dataTransfer.setData(PROJECT_PATH_DRAG_MIME, path);
   dataTransfer.setData("text/plain", path);
-  dataTransfer.effectAllowed = "copy";
+  dataTransfer.effectAllowed = effectAllowed;
 }
 
 export function isProjectPathDrag(event: DragEvent): boolean {

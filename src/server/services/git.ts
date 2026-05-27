@@ -7,10 +7,15 @@ import {
   runCommitCli,
 } from "./commit-cli";
 import { COMMIT_CLI_LABEL, type CommitCli } from "~/shared/commit-cli";
+import { DEFAULT_BRANCH } from "~/shared/domain";
+import { buildGithubCompareUrl } from "~/shared/github-pr";
+import { detectGithubUrl } from "./projects";
 import { resolveProjectWorktreeCwd } from "./worktrees";
 
 const GIT_TIMEOUT_MS = 15_000;
 const PUSH_TIMEOUT_MS = 30_000;
+const GH_TIMEOUT_MS = 30_000;
+const PR_BASE_BRANCH = DEFAULT_BRANCH;
 /** Cap diff bodies so a giant lockfile diff can't lock the renderer. */
 const DIFF_MAX_BYTES = 2 * 1024 * 1024;
 const DIFF_MAX_LINES = 50_000;
@@ -126,6 +131,60 @@ function runGit(
       });
     });
   });
+}
+
+async function countCommitsBetween(
+  cwd: string,
+  fromRef: string,
+  toRef: string,
+): Promise<number | null> {
+  const r = await runGit(cwd, ["rev-list", "--count", `${fromRef}..${toRef}`]);
+  if (r.code !== 0) return null;
+  const n = parseInt(r.stdout.trim(), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function resolveBaseRef(cwd: string, base: string): Promise<string | null> {
+  for (const ref of [base, `origin/${base}`]) {
+    const r = await runGit(cwd, ["rev-parse", "--verify", ref]);
+    if (r.code === 0 && r.stdout.trim()) return ref;
+  }
+  return null;
+}
+
+async function countCommitsAheadOfBase(cwd: string, base: string): Promise<number | null> {
+  const baseRef = await resolveBaseRef(cwd, base);
+  if (!baseRef) return null;
+  return countCommitsBetween(cwd, baseRef, "HEAD");
+}
+
+async function workingTreeDirty(cwd: string): Promise<boolean> {
+  const r = await runGit(cwd, ["status", "--porcelain"]);
+  return r.code === 0 && r.stdout.trim().length > 0;
+}
+
+async function remoteBranchExists(cwd: string, branch: string): Promise<boolean> {
+  const r = await runGit(cwd, ["ls-remote", "--heads", "origin", branch]);
+  return r.code === 0 && r.stdout.trim().length > 0;
+}
+
+function assertPullRequestHasCommits(opts: {
+  branch: string;
+  baseBranch: string;
+  aheadOfBase: number | null;
+  dirty: boolean;
+}): void {
+  const { branch, baseBranch, aheadOfBase, dirty } = opts;
+  if (aheadOfBase === null) return;
+  if (aheadOfBase > 0) return;
+  if (dirty) {
+    throw new GitError(
+      `Branch "${branch}" has no commits ahead of ${baseBranch} yet. Accept your changes in Review Changes, then use Ship to commit and push before opening a pull request.`,
+    );
+  }
+  throw new GitError(
+    `Branch "${branch}" has no commits ahead of ${baseBranch}. Commit your work with Ship before opening a pull request.`,
+  );
 }
 
 async function gitOk(cwd: string, args: string[], timeoutMs?: number): Promise<string> {
@@ -407,6 +466,16 @@ export type PushResult =
   | { kind: "pushed"; setUpstream: boolean; output: string }
   | { kind: "nothing-to-push" };
 
+export type CreatePullRequestResult =
+  | { kind: "created"; url: string }
+  | { kind: "exists"; url: string }
+  | {
+      kind: "gh-missing";
+      compareUrl: string;
+      branch: string;
+      baseBranch: string;
+    };
+
 export async function push(projectId: string, worktreeId?: string | null): Promise<PushResult> {
   const cwd = projectCwd(projectId, worktreeId);
   // If an upstream is configured and there are no unpushed commits, surface
@@ -454,6 +523,151 @@ export async function push(projectId: string, worktreeId?: string | null): Promi
     );
   }
   return { kind: "pushed", setUpstream: true, output: combineStreams(second) };
+}
+
+function runGh(
+  cwd: string,
+  args: string[],
+  options: { timeoutMs?: number } = {},
+): Promise<RunGitResult> {
+  const { timeoutMs = GH_TIMEOUT_MS } = options;
+  return new Promise((resolve, reject) => {
+    const child = spawn("gh", args, {
+      cwd,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const outChunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new GitError(`gh ${args[0]} timed out`));
+    }, timeoutMs);
+    child.stdout.on("data", (d: Buffer) => outChunks.push(d));
+    child.stderr.on("data", (d: Buffer) => errChunks.push(d));
+    child.on("error", (e: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      if (e.code === "ENOENT") {
+        resolve({ stdout: "", stderr: e.message, code: 127 });
+        return;
+      }
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({
+        stdout: Buffer.concat(outChunks).toString("utf8"),
+        stderr: Buffer.concat(errChunks).toString("utf8"),
+        code: code ?? 1,
+      });
+    });
+  });
+}
+
+async function ghOk(cwd: string, args: string[], timeoutMs?: number): Promise<string> {
+  const r = await runGh(cwd, args, { timeoutMs });
+  if (r.code !== 0) {
+    throw new GitError(`gh ${args[0]} failed`, r.stderr.trim() || `exit ${r.code}`);
+  }
+  return r.stdout;
+}
+
+function parseGhUrl(stdout: string): string | null {
+  const match = stdout.match(/https:\/\/github\.com\/[^\s]+/);
+  return match?.[0]?.replace(/[)\].,]+$/, "") ?? null;
+}
+
+async function isGhInstalled(cwd: string): Promise<boolean> {
+  const r = await runGh(cwd, ["--version"]);
+  return r.code === 0;
+}
+
+async function existingPullRequestUrl(cwd: string, branch: string): Promise<string | null> {
+  const r = await runGh(cwd, ["pr", "view", "--head", branch, "--json", "url", "-q", ".url"]);
+  if (r.code !== 0) return null;
+  const url = r.stdout.trim();
+  return url.startsWith("https://") ? url : null;
+}
+
+export async function createPullRequest(
+  projectId: string,
+  worktreeId?: string | null,
+): Promise<CreatePullRequestResult> {
+  const cwd = projectCwd(projectId, worktreeId);
+  const branch = (await gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+  if (!branch || branch === "HEAD") {
+    throw new GitError("cannot create pull request from detached HEAD");
+  }
+  if (branch === PR_BASE_BRANCH) {
+    throw new GitError(`already on ${PR_BASE_BRANCH}; switch to a feature branch first`);
+  }
+
+  const githubUrl = detectGithubUrl(cwd);
+  if (!githubUrl) {
+    throw new GitError("could not detect a GitHub origin for this repository");
+  }
+  const compareUrl = buildGithubCompareUrl(githubUrl, PR_BASE_BRANCH, branch);
+
+  if (!(await isGhInstalled(cwd))) {
+    return {
+      kind: "gh-missing",
+      compareUrl,
+      branch,
+      baseBranch: PR_BASE_BRANCH,
+    };
+  }
+
+  const [aheadOfBase, dirty] = await Promise.all([
+    countCommitsAheadOfBase(cwd, PR_BASE_BRANCH),
+    workingTreeDirty(cwd),
+  ]);
+  assertPullRequestHasCommits({
+    branch,
+    baseBranch: PR_BASE_BRANCH,
+    aheadOfBase,
+    dirty,
+  });
+
+  const existing = await existingPullRequestUrl(cwd, branch);
+  if (existing) {
+    return { kind: "exists", url: existing };
+  }
+
+  // Publish any local commits before asking gh to open the PR.
+  try {
+    await push(projectId, worktreeId);
+  } catch (e) {
+    throw e instanceof GitError ? e : new GitError("git push failed before creating pull request");
+  }
+
+  if (!(await remoteBranchExists(cwd, branch))) {
+    throw new GitError(
+      `Branch "${branch}" is not on origin yet. Use Ship to commit and push your changes, then try creating the pull request again.`,
+    );
+  }
+
+  const created = await runGh(
+    cwd,
+    ["pr", "create", "--base", PR_BASE_BRANCH, "--fill"],
+    { timeoutMs: GH_TIMEOUT_MS },
+  );
+  if (created.code !== 0) {
+    const stderr = created.stderr.trim();
+    const alreadyExists =
+      /already exists/i.test(stderr) ||
+      /A pull request for .+ already exists/i.test(stderr);
+    if (alreadyExists) {
+      const url = (await existingPullRequestUrl(cwd, branch)) ?? parseGhUrl(created.stdout);
+      if (url) return { kind: "exists", url };
+    }
+    throw new GitError("gh pr create failed", stderr || `exit ${created.code}`);
+  }
+
+  const url = parseGhUrl(created.stdout) ?? (await existingPullRequestUrl(cwd, branch));
+  if (!url) {
+    throw new GitError("pull request was created but no URL was returned");
+  }
+  return { kind: "created", url };
 }
 
 function combineStreams(r: RunGitResult): string {
@@ -520,6 +734,24 @@ function sanitizeCommitMessage(raw: string): string {
   return t;
 }
 
+export type GitBranch = {
+  /** Short branch name used for checkout (e.g. `main`, `feat/foo`). */
+  name: string;
+  local: boolean;
+  /** Remote tracking ref when known (e.g. `origin/main`). */
+  remoteRef?: string;
+};
+
+export type GitBranchesResult = {
+  current: string;
+  branches: GitBranch[];
+};
+
+export type GitCheckoutResult = {
+  branch: string;
+  created: boolean;
+};
+
 export type GitErrorPayload = {
   message: string;
   stderr?: string;
@@ -528,6 +760,113 @@ export type GitErrorPayload = {
   /** Which CLI was tried when kind === "commit-generation-failed". */
   cli?: CommitCli;
 };
+
+/** Merge local and remote branch lists into deduplicated checkout targets. */
+export function parseBranchList(localRaw: string, remoteRaw: string): GitBranch[] {
+  const localNames = localRaw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const byName = new Map<string, GitBranch>();
+  for (const name of localNames) {
+    byName.set(name, { name, local: true });
+  }
+  for (const line of remoteRaw.split("\n")) {
+    const ref = line.trim();
+    if (!ref || ref.includes("HEAD ->")) continue;
+    const slash = ref.indexOf("/");
+    if (slash <= 0) continue;
+    const name = ref.slice(slash + 1);
+    if (!name) continue;
+    const existing = byName.get(name);
+    if (existing) {
+      existing.remoteRef = ref;
+      continue;
+    }
+    byName.set(name, { name, local: false, remoteRef: ref });
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function localBranchExists(cwd: string, branch: string): Promise<boolean> {
+  const r = await runGit(cwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  return r.code === 0;
+}
+
+async function resolveRemoteTrackingRef(cwd: string, branch: string): Promise<string | null> {
+  for (const remote of ["origin", "upstream"]) {
+    const ref = `${remote}/${branch}`;
+    const r = await runGit(cwd, ["show-ref", "--verify", "--quiet", `refs/remotes/${ref}`]);
+    if (r.code === 0) return ref;
+  }
+  return null;
+}
+
+async function assertValidBranchName(cwd: string, branch: string): Promise<void> {
+  const r = await runGit(cwd, ["check-ref-format", "--branch", branch]);
+  if (r.code !== 0) {
+    throw new GitError(`Invalid branch name "${branch}"`, r.stderr.trim() || undefined);
+  }
+}
+
+async function listBranchRefNames(cwd: string, refPrefix: string): Promise<string> {
+  const r = await runGit(cwd, ["for-each-ref", "--format=%(refname:short)", refPrefix]);
+  return r.code === 0 ? r.stdout : "";
+}
+
+export async function listGitBranches(
+  projectId: string,
+  worktreeId?: string | null,
+): Promise<GitBranchesResult> {
+  const cwd = projectCwd(projectId, worktreeId);
+  const [localOut, remoteOut, currentOut] = await Promise.all([
+    listBranchRefNames(cwd, "refs/heads/"),
+    listBranchRefNames(cwd, "refs/remotes/"),
+    runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).then((r) =>
+      r.code === 0 ? r.stdout : "HEAD\n",
+    ),
+  ]);
+  return {
+    current: currentOut.trim() || "HEAD",
+    branches: parseBranchList(localOut, remoteOut),
+  };
+}
+
+export async function checkoutGitBranch(
+  projectId: string,
+  branchName: string,
+  worktreeId?: string | null,
+  opts: { create?: boolean } = {},
+): Promise<GitCheckoutResult> {
+  const cwd = projectCwd(projectId, worktreeId);
+  const name = branchName.trim();
+  if (!name) throw new GitError("Branch name cannot be empty");
+  await assertValidBranchName(cwd, name);
+
+  const current = (await gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+  if (current === name) return { branch: name, created: false };
+
+  if (await localBranchExists(cwd, name)) {
+    await gitOk(cwd, ["switch", name]);
+    return { branch: name, created: false };
+  }
+
+  const remoteRef = await resolveRemoteTrackingRef(cwd, name);
+  if (remoteRef) {
+    await gitOk(cwd, ["switch", "--track", remoteRef]);
+    return { branch: name, created: false };
+  }
+
+  if (opts.create) {
+    await gitOk(cwd, ["switch", "-c", name]);
+    return { branch: name, created: true };
+  }
+
+  throw new GitError(
+    `Branch "${name}" was not found locally or on the remote.`,
+    "Create it by choosing the create option or typing a new branch name.",
+  );
+}
 
 /** Surface stderr to API consumers without leaking the GitError class. */
 export function gitErrorPayload(e: unknown): GitErrorPayload {

@@ -31,7 +31,7 @@ export function TopBar({
         flexShrink: 0,
         position: "relative",
         zIndex: 10,
-        ["WebkitAppRegion" as any]: "drag",
+        pointerEvents: "none",
       }}
     >
       <div
@@ -56,6 +56,7 @@ export function TopBar({
             margin: 0,
             cursor: "pointer",
             color: "inherit",
+            pointerEvents: "auto",
             ["WebkitAppRegion" as any]: "no-drag",
           }}
         >
@@ -117,6 +118,7 @@ export function TopBar({
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
+                      pointerEvents: "auto",
                       ["WebkitAppRegion" as any]: "no-drag",
                     }}
                   >
@@ -130,6 +132,7 @@ export function TopBar({
                       fontSize: 12,
                       color: i === crumbs.length - 1 ? "var(--text)" : "var(--text-dim)",
                       cursor: c.onClick ? "pointer" : "default",
+                      pointerEvents: c.onClick ? "auto" : undefined,
                       ["WebkitAppRegion" as any]: c.onClick ? "no-drag" : undefined,
                     }}
                   >
@@ -158,6 +161,7 @@ export function TopBar({
               alignItems: "center",
               gap: 8,
               minWidth: 0,
+              pointerEvents: "auto",
               ["WebkitAppRegion" as any]: "no-drag",
             }}
           >
@@ -170,6 +174,7 @@ export function TopBar({
           display: "flex",
           alignItems: "center",
           gap: 8,
+          pointerEvents: "auto",
           ["WebkitAppRegion" as any]: "no-drag",
         }}
       >

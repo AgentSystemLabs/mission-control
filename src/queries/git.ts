@@ -16,6 +16,8 @@ export const gitKeys = {
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git"] as const,
   status: (projectId: string, worktreeId?: string | null) =>
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "status"] as const,
+  branches: (projectId: string, worktreeId?: string | null) =>
+    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "branches"] as const,
   diff: (projectId: string, worktreeId: string | null | undefined, file: string, staged: boolean) =>
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", file, staged ? "staged" : "unstaged"] as const,
 };
@@ -32,6 +34,19 @@ export const gitStatusQueryOptions = (
     placeholderData: keepPreviousData,
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
+  });
+
+export const gitBranchesQueryOptions = (
+  projectId: string,
+  worktreeId?: string | null,
+  opts: { enabled?: boolean } = {},
+) =>
+  queryOptions({
+    queryKey: gitKeys.branches(projectId, worktreeId),
+    queryFn: () => api.getGitBranches(projectId, worktreeId),
+    enabled: !isWebDaytonaRuntime() && !!projectId && (opts.enabled ?? true),
+    staleTime: 5_000,
+    retry: 1,
   });
 
 export const gitDiffQueryOptions = (
@@ -54,6 +69,12 @@ export const useGitStatus = (
   worktreeId?: string | null,
   opts: { enabled?: boolean } = {},
 ) => useQuery(gitStatusQueryOptions(projectId, worktreeId, opts));
+
+export const useGitBranches = (
+  projectId: string,
+  worktreeId?: string | null,
+  opts: { enabled?: boolean } = {},
+) => useQuery(gitBranchesQueryOptions(projectId, worktreeId, opts));
 
 export const useGitDiff = (
   projectId: string,
@@ -99,6 +120,23 @@ export function useGitPush(projectId: string, worktreeId?: string | null) {
   return useMutation({
     mutationKey: [...gitKeys.all(projectId, worktreeId), "push"] as const,
     mutationFn: () => api.gitPush(projectId, worktreeId),
+    onSettled: invalidate,
+  });
+}
+
+export function useGitCreatePullRequest(projectId: string, worktreeId?: string | null) {
+  return useMutation({
+    mutationKey: [...gitKeys.all(projectId, worktreeId), "create-pr"] as const,
+    mutationFn: () => api.gitCreatePullRequest(projectId, worktreeId),
+  });
+}
+
+export function useGitCheckout(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
+  return useMutation({
+    mutationKey: [...gitKeys.all(projectId, worktreeId), "checkout"] as const,
+    mutationFn: (opts: { branch: string; create?: boolean }) =>
+      api.gitCheckout(projectId, opts.branch, { create: opts.create, worktreeId: worktreeId ?? null }),
     onSettled: invalidate,
   });
 }

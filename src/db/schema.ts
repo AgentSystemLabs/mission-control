@@ -33,6 +33,7 @@ export const projects = sqliteTable(
     imagePath: text("image_path"),
     groupId: text("group_id").references(() => groups.id, { onDelete: "set null" }),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    pinnedOrder: integer("pinned_order"),
     branch: text("branch").notNull().default(DEFAULT_BRANCH),
     launchCommands: text("launch_commands"),
     launchUrl: text("launch_url"),

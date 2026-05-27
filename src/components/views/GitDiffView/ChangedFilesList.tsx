@@ -150,6 +150,17 @@ export function ChangedFilesList({
     onSizeChange: persistWidth,
   });
 
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (widthPersistTimerRef.current) {
+        window.clearTimeout(widthPersistTimerRef.current);
+        widthPersistTimerRef.current = null;
+      }
+      onResizeMouseDown(e);
+    },
+    [onResizeMouseDown],
+  );
+
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
 
@@ -311,15 +322,16 @@ export function ChangedFilesList({
         </Section>
       </div>
       <div
-        onMouseDown={onResizeMouseDown}
+        onMouseDown={handleResizeMouseDown}
         title="Drag to resize"
         style={{
           position: "absolute",
           top: 0,
-          right: -3,
+          right: -5,
           bottom: 0,
-          width: 6,
+          width: 10,
           cursor: "col-resize",
+          touchAction: "none",
           zIndex: 10,
         }}
       />
@@ -999,7 +1011,7 @@ const textBtnStyle: CSSProperties = {
   flexShrink: 0,
 };
 
-const SECTION_HEADER_BACKGROUND = "rgba(3, 6, 8, 0.22)";
+const SECTION_HEADER_BACKGROUND = "#000000";
 
 const SECTION_TONES = {
   staged: {

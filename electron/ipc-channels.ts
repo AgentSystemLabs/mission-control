@@ -38,4 +38,7 @@ export const IPC = {
   updateInstall: "update:install",
   updateGetState: "update:get-state",
   updateStateChange: "update:state-change",
+  notificationsGetPermission: "notifications:getPermission",
+  notificationsShowSessionFinished: "notifications:showSessionFinished",
+  notificationsSessionFinishedClick: "notifications:sessionFinishedClick",
 } as const;

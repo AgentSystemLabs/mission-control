@@ -157,6 +157,24 @@ export type ElectronBridge = {
   getUserDataDir: () => Promise<string>;
   getUserName: () => Promise<{ source: "git" | "os"; fullName: string; firstName: string }>;
   reload: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  notifications: {
+    getPermission: () => Promise<"granted" | "unsupported">;
+    showSessionFinished: (payload: {
+      tag: string;
+      title: string;
+      body: string;
+      projectId: string;
+      taskId: string;
+      worktreeId: string | null;
+    }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    onSessionFinishedClick: (
+      cb: (payload: {
+        projectId: string;
+        taskId: string;
+        worktreeId: string | null;
+      }) => void,
+    ) => () => void;
+  };
   cliCheck: (command: string, opts?: { verifyVersion?: boolean }) => Promise<CliCheckResult>;
   pty: {
     spawn: (opts: PtySpawnOptions) => Promise<{ ptyId: string }>;
@@ -168,9 +186,9 @@ export type ElectronBridge = {
       commands: string[];
       ports?: number[];
     }) => Promise<LaunchProcessKillResult>;
-    onData: (cb: (msg: { ptyId: string; data: string }) => void) => () => void;
+    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => () => void;
     onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => () => void;
-    replay: (ptyId: string) => Promise<string>;
+    replay: (ptyId: string) => Promise<{ data: string; nextSeq: number }>;
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
