@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Project } from "~/db/schema";
 import {
   describeLiveWorktreeActivity,
   getLiveWorktreeActivity,
@@ -6,7 +7,35 @@ import {
   isBlockingAgentSession,
 } from "../worktree-live-activity";
 
-const mainProject = { id: "proj-1", activeWorktreeId: null } as const;
+type ScopedProject = Project & { activeWorktreeId?: string | null };
+
+function makeScopedProject(
+  overrides: Partial<ScopedProject> & Pick<ScopedProject, "id">,
+): ScopedProject {
+  return {
+    name: "Test Project",
+    path: `/tmp/${overrides.id}`,
+    icon: "folder",
+    iconColor: "#ffffff",
+    imagePath: null,
+    groupId: null,
+    pinned: false,
+    branch: "main",
+    launchCommands: null,
+    launchUrl: null,
+    worktreeSetupCommand: null,
+    rememberAgentSettings: false,
+    savedAgent: null,
+    savedSkipPermissions: false,
+    savedBareSession: false,
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    activeWorktreeId: null,
+    ...overrides,
+  };
+}
+
+const mainProject = makeScopedProject({ id: "proj-1" });
 
 describe("worktree-live-activity", () => {
   it("counts only live, non-finished agent sessions in the requested worktree scope", () => {
@@ -20,7 +49,7 @@ describe("worktree-live-activity", () => {
         },
         {
           ptyId: "pty-2",
-          project: { id: "proj-1", activeWorktreeId: "wt-a" },
+          project: makeScopedProject({ id: "proj-1", activeWorktreeId: "wt-a" }),
           task: { status: "running", archived: false },
         },
         {
