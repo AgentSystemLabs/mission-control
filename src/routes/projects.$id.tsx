@@ -1604,6 +1604,20 @@ function ProjectPage() {
                 >
                   Reveal in Finder
                 </Btn>
+                <HotkeyTooltip action="file.finder">
+                  <Btn
+                    variant="ghost"
+                    icon="search"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      setFileFinderOpen(true);
+                    }}
+                    disabled={projectPathBlocked}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    <span style={{ flex: 1, textAlign: "left" }}>Find file in project</span>
+                  </Btn>
+                </HotkeyTooltip>
                 {project.githubUrl && (
                   <>
                     <MenuSeparator />
@@ -1729,15 +1743,6 @@ function ProjectPage() {
               enabled={projectPathUsable}
             />
           </div>
-          <div style={{ flex: 1 }} />
-          <HotkeyTooltip action="file.finder" label="Find file in project">
-            <Btn
-              variant="ghost"
-              icon="search"
-              onClick={() => setFileFinderOpen(true)}
-              aria-label="Find file in project"
-            />
-          </HotkeyTooltip>
         </div>
 
         {hostedRuntime && !hostedRuntime.allowed && (

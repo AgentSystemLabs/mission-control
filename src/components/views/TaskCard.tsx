@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Icon } from "~/components/ui/Icon";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { Btn } from "~/components/ui/Btn";
@@ -203,19 +202,12 @@ export function TaskCard({
           <div
             style={{
               marginTop: 4,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
               fontFamily: "var(--mono)",
               fontSize: 11,
               color: "var(--text-faint)",
             }}
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <Icon name="git-branch" size={11} /> {task.branch}
-            </span>
-            <span>·</span>
-            <span>{updated}</span>
+            {updated}
           </div>
         </div>
 
