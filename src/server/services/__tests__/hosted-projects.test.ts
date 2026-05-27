@@ -78,6 +78,7 @@ function hostedProject(overrides: Record<string, unknown> = {}) {
     imagePath: null,
     groupId: "hg-1",
     pinned: false,
+    pinnedOrder: null,
     launchCommands: [{ id: "dev", name: "Dev", command: "pnpm dev" }],
     launchUrl: null,
     rememberAgentSettings: false,

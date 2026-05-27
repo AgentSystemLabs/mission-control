@@ -7,6 +7,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
+import { getPinnedProjects } from "~/lib/pinned-project-order";
 import { getElectron } from "~/lib/electron";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
@@ -451,7 +452,7 @@ function Shell() {
         return;
       }
       if (!e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
-        const pinned = (projects ?? []).filter((p) => p.pinned);
+        const pinned = getPinnedProjects(projects ?? []);
         const idx = Number(e.key) - 1;
         const target = pinned[idx];
         if (target) {

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getSqlite } from "~/db/client";
 import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } from "~/shared/domain";
 import type { LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
@@ -21,6 +22,7 @@ import { deleteAllProjectImagesFor } from "./project-images";
 import { readLicenseState } from "./license";
 import { newId } from "./_ids";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
+import { getPinnedProjects, nextPinnedOrder, validatePinnedReorder } from "~/lib/pinned-project-order";
 
 export class ProjectCapExceededError extends Error {
   constructor(
@@ -113,7 +115,7 @@ export function detectGithubUrl(dir: string): string | null {
     const cfg = path.join(dir, ".git", "config");
     if (!fs.existsSync(cfg)) return null;
     const text = fs.readFileSync(cfg, "utf8");
-    const m = text.match(/\[remote "origin"\][^\[]*?url\s*=\s*(\S+)/);
+    const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
     if (!m) return null;
     let url = m[1].trim();
     // git@github.com:owner/repo(.git)
@@ -206,6 +208,7 @@ export function createProject(input: {
     imagePath: null,
     groupId: input.groupId ?? null,
     pinned: false,
+    pinnedOrder: null,
     branch,
     launchCommands: null,
     launchUrl: null,
@@ -234,6 +237,7 @@ export function updateProject(
       | "imagePath"
       | "groupId"
       | "pinned"
+      | "pinnedOrder"
       | "branch"
       | "launchUrl"
       | "worktreeSetupCommand"
@@ -259,6 +263,14 @@ export function updateProject(
   const updated = {
     ...existing,
     ...rest,
+    ...(rest.pinned !== undefined
+      ? {
+          pinned: rest.pinned,
+          pinnedOrder: rest.pinned
+            ? rest.pinnedOrder ?? existing.pinnedOrder ?? nextPinnedOrder(findAllProjects())
+            : null,
+        }
+      : {}),
     ...(nextPath !== undefined
       ? {
           path: nextPath,
@@ -297,12 +309,38 @@ function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
 }
 
 export function togglePin(id: string): Project | null {
-  const existing = findProjectById(id);
-  if (!existing) return null;
-  const next = { ...existing, pinned: !existing.pinned, updatedAt: Date.now() };
-  updateProjectRow(id, { pinned: next.pinned, updatedAt: next.updatedAt });
-  events.emit("project:updated", { id });
+  const togglePinned = getSqlite().transaction(() => {
+    const existing = findProjectById(id);
+    if (!existing) return null;
+    const pinning = !existing.pinned;
+    const now = Date.now();
+    const pinnedOrder = pinning ? nextPinnedOrder(findAllProjects()) : null;
+    const next = { ...existing, pinned: pinning, pinnedOrder, updatedAt: now };
+    updateProjectRow(id, { pinned: pinning, pinnedOrder, updatedAt: now });
+    return next;
+  });
+  const next = togglePinned.immediate();
+  if (next) events.emit("project:updated", { id });
   return next;
+}
+
+export function reorderPinnedProjects(order: string[]): ProjectWithCounts[] {
+  const updatePinnedOrder = getSqlite().transaction(() => {
+    const all = findAllProjects();
+    const pinned = getPinnedProjects(all);
+    try {
+      validatePinnedReorder(order, pinned);
+    } catch (error) {
+      throw new ValidationError(error instanceof Error ? error.message : "invalid pinned order");
+    }
+    const now = Date.now();
+    for (let index = 0; index < order.length; index++) {
+      updateProjectRow(order[index]!, { pinnedOrder: index, updatedAt: now });
+    }
+  });
+  updatePinnedOrder.immediate();
+  for (const id of order) events.emit("project:updated", { id });
+  return listProjects();
 }
 
 export function deleteProject(id: string): boolean {

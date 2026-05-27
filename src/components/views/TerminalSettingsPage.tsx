@@ -30,6 +30,7 @@ export function TerminalSettingsPage() {
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
+    notificationSoundEnabled: settings?.notificationSoundEnabled ?? true,
     launchOverlayEnabled: settings?.launchOverlayEnabled ?? false,
     automaticUpdateDownloadsEnabled: settings?.automaticUpdateDownloadsEnabled ?? false,
     automaticUpdateInstallOnQuitEnabled:

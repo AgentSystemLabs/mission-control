@@ -157,6 +157,24 @@ export type ElectronBridge = {
   getUserDataDir: () => Promise<string>;
   getUserName: () => Promise<{ source: "git" | "os"; fullName: string; firstName: string }>;
   reload: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  notifications: {
+    getPermission: () => Promise<"granted" | "unsupported">;
+    showSessionFinished: (payload: {
+      tag: string;
+      title: string;
+      body: string;
+      projectId: string;
+      taskId: string;
+      worktreeId: string | null;
+    }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    onSessionFinishedClick: (
+      cb: (payload: {
+        projectId: string;
+        taskId: string;
+        worktreeId: string | null;
+      }) => void,
+    ) => () => void;
+  };
   cliCheck: (command: string, opts?: { verifyVersion?: boolean }) => Promise<CliCheckResult>;
   pty: {
     spawn: (opts: PtySpawnOptions) => Promise<{ ptyId: string }>;

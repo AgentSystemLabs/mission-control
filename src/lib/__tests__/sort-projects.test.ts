@@ -23,6 +23,7 @@ function makeProject(
     imagePath: null,
     groupId: null,
     pinned: false,
+    pinnedOrder: null,
     branch: "main",
     launchCommands: null,
     launchUrl: null,

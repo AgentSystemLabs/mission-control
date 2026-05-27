@@ -7,7 +7,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { playNotificationDing } from "~/lib/notification-sound";
 import { api } from "~/lib/api";
+import { useSettings } from "~/queries";
 import {
   DIAGRAM_NOTIFICATION_OPEN_EVENT,
   clearPendingNotificationOpen,
@@ -100,6 +102,8 @@ export function useSyncProjectDiagrams(projectId: string | undefined) {
 }
 
 export function DiagramDialogHost({ children }: { children?: ReactNode }) {
+  const { data: settings } = useSettings();
+  const soundEnabled = settings?.notificationSoundEnabled ?? true;
   const [byTaskId, setByTaskId] = useState<Record<string, DiagramDialogPayload[]>>({});
   const [openSession, setOpenSession] = useState<DiagramDialogSession | null>(null);
 
@@ -128,9 +132,11 @@ export function DiagramDialogHost({ children }: { children?: ReactNode }) {
       const next = parseDiagramEvent(event);
       if (!next) return;
       upsertDiagram(next);
-      persistDiagramReadyServerEvent(event);
+      if (persistDiagramReadyServerEvent(event)) {
+        playNotificationDing(soundEnabled);
+      }
     },
-    [upsertDiagram],
+    [upsertDiagram, soundEnabled],
   );
 
   useServerEvents(onEvent);

@@ -142,6 +142,7 @@ function ensureSchema(sqlite: Database.Database) {
       image_path TEXT,
       group_id TEXT REFERENCES groups(id) ON DELETE SET NULL,
       pinned INTEGER NOT NULL DEFAULT 0,
+      pinned_order INTEGER,
       branch TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH}',
       launch_commands TEXT,
       launch_url TEXT,

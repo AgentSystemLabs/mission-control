@@ -42,6 +42,7 @@ function makeProject(overrides: Partial<ProjectWithCounts> = {}): ProjectWithCou
     imagePath: null,
     groupId: null,
     pinned: true,
+    pinnedOrder: 0,
     branch: "main",
     launchCommands: null,
     launchUrl: null,

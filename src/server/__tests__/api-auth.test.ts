@@ -53,6 +53,7 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   { method: "POST", pathname: "/api/projects" },
   { method: "GET", pathname: "/api/projects/abc" },
   { method: "PATCH", pathname: "/api/projects/abc" },
+  { method: "PATCH", pathname: "/api/projects/pinned-order" },
   { method: "DELETE", pathname: "/api/projects/abc" },
   { method: "DELETE", pathname: "/api/projects/abc/file?path=foo" },
   // Project tasks

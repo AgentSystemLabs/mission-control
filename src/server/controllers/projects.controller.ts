@@ -10,6 +10,7 @@ import {
   refreshBranch,
   togglePin,
   updateProject,
+  reorderPinnedProjects,
 } from "../services/projects";
 import {
   createHostedProject,
@@ -18,6 +19,7 @@ import {
   listHostedProjects,
   toggleHostedProjectPin,
   updateHostedProject,
+  reorderHostedPinnedProjects,
 } from "../services/hosted-projects";
 import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_CREATED, HTTP_PAYMENT_REQUIRED } from "~/shared/http-status";
@@ -66,6 +68,10 @@ async function getHostedContext(request: Request) {
   if (!isHostedDatabaseEnabled()) return null;
   return getHostedAuthContext(request);
 }
+
+const reorderPinnedBody = z.object({
+  order: z.array(z.string().min(1)),
+});
 
 export async function list(request: Request): Promise<Response> {
   const hosted = await getHostedContext(request);
@@ -137,6 +143,22 @@ export async function pathStatus(rawId: string, request: Request): Promise<Respo
   }
   const status = getProjectPathStatus(parsed.data, worktreeId);
   return status ? json({ status }) : notFound();
+}
+
+export async function reorderPinned(request: Request): Promise<Response> {
+  const parsed = await parseJsonBody(request, reorderPinnedBody);
+  if (!parsed.ok) return parsed.response;
+  try {
+    const hosted = await getHostedContext(request);
+    if (hosted) {
+      return json({ projects: await reorderHostedPinnedProjects(hosted, parsed.data.order) });
+    }
+    return json({ projects: reorderPinnedProjects(parsed.data.order) });
+  } catch (e) {
+    const mapped = handleDomainError(e);
+    if (mapped) return mapped;
+    throw e;
+  }
 }
 
 export async function update(rawId: string, request: Request): Promise<Response> {

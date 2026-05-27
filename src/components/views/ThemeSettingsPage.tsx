@@ -42,6 +42,7 @@ export function ThemeSettingsPage() {
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
+    notificationSoundEnabled: settings?.notificationSoundEnabled ?? true,
     launchOverlayEnabled,
     automaticUpdateDownloadsEnabled:
       settings?.automaticUpdateDownloadsEnabled ?? false,

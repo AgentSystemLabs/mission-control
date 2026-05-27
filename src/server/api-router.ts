@@ -383,6 +383,9 @@ async function dispatch(
     if (method === "GET") return projectsController.list(request);
     if (method === "POST") return projectsController.create(request);
   }
+  if (pathname === "/api/projects/pinned-order" && method === "PATCH") {
+    return projectsController.reorderPinned(request);
+  }
   let m = pathname.match(PROJECT_PATH);
   if (m) {
     const id = decode(m[1]);

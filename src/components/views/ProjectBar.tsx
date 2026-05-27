@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
+import { toast } from "sonner";
 import { useProjects, useSettings, queryKeys } from "~/queries";
+import type { ProjectWithCounts } from "~/shared/projects";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
 import { CardFrame } from "~/components/ui/CardFrame";
@@ -13,11 +15,20 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
 import { useBinding } from "~/lib/keybindings/store";
 import { formatBinding } from "~/lib/keybindings/format";
 import { api } from "~/lib/api";
+import { getPinnedProjects, reorderPinnedIds } from "~/lib/pinned-project-order";
 import { shouldFlashPinnedProjectLogo } from "./project-bar-activity";
 import { getPinnedProjectStatusDots } from "./project-bar-status-dots";
-import { setProjectPathDragData } from "~/lib/project-path-drag";
 
 const HOTKEY_LIMIT = 9;
+const DRAG_THRESHOLD_PX = 4;
+
+type PointerReorderState = {
+  id: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+};
 
 export function ProjectBar() {
   const router = useRouter();
@@ -30,12 +41,33 @@ export function ProjectBar() {
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
     [queryClient]
   );
-  const pinned = (projects ?? []).filter((p) => p.pinned);
+  const sortedPinned = useMemo(() => getPinnedProjects(projects ?? []), [projects]);
+  const pinnedById = useMemo(
+    () => new Map(sortedPinned.map((project) => [project.id, project])),
+    [sortedPinned],
+  );
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const pinned = useMemo(() => {
+    if (!dragOrder) return sortedPinned;
+    return dragOrder.flatMap((id) => {
+      const project = pinnedById.get(id);
+      return project ? [project] : [];
+    });
+  }, [dragOrder, pinnedById, sortedPinned]);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
     null
   );
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [reorderSaving, setReorderSaving] = useState(false);
+  const pointerReorderRef = useRef<PointerReorderState | null>(null);
+  const cleanupPointerReorderRef = useRef<(() => void) | null>(null);
+  const pinnedIdsRef = useRef<string[]>([]);
+  const dragOrderRef = useRef<string[] | null>(null);
+  const reorderSavingRef = useRef(false);
+  const reorderSaveSeqRef = useRef(0);
+  const barRef = useRef<HTMLElement | null>(null);
   const suppressClickRef = useRef(false);
+  pinnedIdsRef.current = pinned.map((project) => project.id);
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
   useServerEvents(
@@ -51,6 +83,183 @@ export function ProjectBar() {
   const pinnedSlotBase = useBinding("project.pinnedSlot");
   const pinnedSlotBinding = (slot: number) =>
     formatBinding({ ...pinnedSlotBase, key: String(slot) });
+
+  const cleanupPointerReorder = useCallback(() => {
+    cleanupPointerReorderRef.current?.();
+    cleanupPointerReorderRef.current = null;
+  }, []);
+
+  useEffect(() => cleanupPointerReorder, [cleanupPointerReorder]);
+
+  const persistPinnedOrder = useCallback(
+    async (nextOrder: string[]) => {
+      const originalOrder = sortedPinned.map((project) => project.id);
+      if (nextOrder.join("\0") === originalOrder.join("\0")) {
+        setDragOrder(null);
+        dragOrderRef.current = null;
+        return;
+      }
+      const saveSeq = ++reorderSaveSeqRef.current;
+      reorderSavingRef.current = true;
+      setReorderSaving(true);
+      const nextOrders = new Map(nextOrder.map((id, index) => [id, index]));
+      const previous = queryClient.getQueryData<ProjectWithCounts[]>(queryKeys.projects);
+      queryClient.setQueryData<ProjectWithCounts[]>(
+        queryKeys.projects,
+        (current) =>
+          current?.map((project) =>
+            nextOrders.has(project.id)
+              ? { ...project, pinnedOrder: nextOrders.get(project.id)! }
+              : project,
+          ) ?? current,
+      );
+      try {
+        const { projects: updated } = await api.reorderPinnedProjects(nextOrder);
+        if (saveSeq === reorderSaveSeqRef.current) {
+          queryClient.setQueryData(queryKeys.projects, updated);
+        }
+      } catch (error) {
+        if (saveSeq === reorderSaveSeqRef.current) {
+          queryClient.setQueryData(queryKeys.projects, previous);
+          await invalidateProjects();
+          toast.error(error instanceof Error ? error.message : "Could not reorder pinned projects");
+        }
+      } finally {
+        if (saveSeq === reorderSaveSeqRef.current) {
+          reorderSavingRef.current = false;
+          setReorderSaving(false);
+          setDragOrder(null);
+          dragOrderRef.current = null;
+        }
+      }
+    },
+    [invalidateProjects, queryClient, sortedPinned],
+  );
+
+  const resolveDropIndex = useCallback((clientY: number) => {
+    const items = barRef.current?.querySelectorAll<HTMLElement>("[data-pinned-item]");
+    if (!items?.length) return 0;
+    for (let index = 0; index < items.length; index++) {
+      const rect = items[index]!.getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return index;
+    }
+    return items.length - 1;
+  }, []);
+
+  const clearDragState = useCallback(() => {
+    pointerReorderRef.current = null;
+    setDraggingProjectId(null);
+  }, []);
+
+  const moveDraggedProject = useCallback(
+    (drag: PointerReorderState, clientY: number) => {
+      const currentOrder = dragOrderRef.current ?? pinnedIdsRef.current;
+      const fromIndex = currentOrder.indexOf(drag.id);
+      const toIndex = resolveDropIndex(clientY);
+      if (fromIndex < 0 || fromIndex === toIndex) return;
+      const nextOrder = reorderPinnedIds(currentOrder, fromIndex, toIndex);
+      dragOrderRef.current = nextOrder;
+      setDragOrder(nextOrder);
+    },
+    [resolveDropIndex],
+  );
+
+  const startPointerReorder = useCallback(
+    (projectId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (reorderSavingRef.current) return;
+      if (event.button !== 0) return;
+      cleanupPointerReorder();
+      dragOrderRef.current = null;
+      setDragOrder(null);
+      clearDragState();
+      const initialOrder = [...pinnedIdsRef.current];
+      const captureTarget = event.currentTarget;
+      pointerReorderRef.current = {
+        id: projectId,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+      };
+      dragOrderRef.current = initialOrder;
+      captureTarget.setPointerCapture(event.pointerId);
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        const drag = pointerReorderRef.current;
+        if (!drag || drag.pointerId !== moveEvent.pointerId) return;
+        const deltaX = moveEvent.clientX - drag.startX;
+        const deltaY = moveEvent.clientY - drag.startY;
+        if (!drag.moved && Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD_PX) return;
+        drag.moved = true;
+        suppressClickRef.current = true;
+        setDraggingProjectId(drag.id);
+        moveDraggedProject(drag, moveEvent.clientY);
+        moveEvent.preventDefault();
+      };
+
+      const cleanupListeners = () => {
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerCancel);
+        if (captureTarget.hasPointerCapture(event.pointerId)) {
+          captureTarget.releasePointerCapture(event.pointerId);
+        }
+        if (cleanupPointerReorderRef.current === cleanupListeners) {
+          cleanupPointerReorderRef.current = null;
+        }
+      };
+
+      const onPointerUp = (upEvent: PointerEvent) => {
+        cleanupListeners();
+        const drag = pointerReorderRef.current;
+        if (!drag || drag.pointerId !== upEvent.pointerId) {
+          clearDragState();
+          return;
+        }
+        if (drag.moved) {
+          upEvent.preventDefault();
+          moveDraggedProject(drag, upEvent.clientY);
+          void persistPinnedOrder(dragOrderRef.current ?? initialOrder);
+          window.setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 0);
+        } else {
+          dragOrderRef.current = null;
+          setDragOrder(null);
+        }
+        clearDragState();
+      };
+
+      const onPointerCancel = (cancelEvent: PointerEvent) => {
+        if (pointerReorderRef.current?.pointerId !== cancelEvent.pointerId) return;
+        cleanupListeners();
+        dragOrderRef.current = null;
+        setDragOrder(null);
+        clearDragState();
+      };
+
+      window.addEventListener("pointermove", onPointerMove, { passive: false });
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerCancel);
+      cleanupPointerReorderRef.current = cleanupListeners;
+    },
+    [cleanupPointerReorder, clearDragState, moveDraggedProject, persistPinnedOrder],
+  );
+
+  const movePinnedProjectByKeyboard = useCallback(
+    (projectId: string, direction: -1 | 1) => {
+      if (reorderSavingRef.current) return;
+      const currentOrder = [...pinnedIdsRef.current];
+      const fromIndex = currentOrder.indexOf(projectId);
+      if (fromIndex < 0) return;
+      const toIndex = Math.max(0, Math.min(currentOrder.length - 1, fromIndex + direction));
+      if (fromIndex === toIndex) return;
+      const nextOrder = reorderPinnedIds(currentOrder, fromIndex, toIndex);
+      dragOrderRef.current = nextOrder;
+      setDragOrder(nextOrder);
+      void persistPinnedOrder(nextOrder);
+    },
+    [persistPinnedOrder],
+  );
 
   if (pinned.length === 0) return null;
 
@@ -78,6 +287,7 @@ export function ProjectBar() {
 
   return (
     <CardFrame
+      ref={barRef}
       glow
       role="navigation"
       aria-label="Pinned projects"
@@ -143,7 +353,7 @@ export function ProjectBar() {
             : null;
         const tooltip = [
           hotkey ? `${project.name} (${pinnedSlotBinding(hotkey)})` : project.name,
-          "Drag into a chat session to paste the project path",
+          "Drag or press Shift+Arrow Up/Down to reorder pinned projects",
           needsInputLabel,
           launchLabel,
           terminalLabel,
@@ -157,26 +367,23 @@ export function ProjectBar() {
           <button
             key={project.id}
             type="button"
-            draggable
+            data-pinned-item
             title={tooltip}
             aria-label={tooltip}
+            aria-keyshortcuts="Shift+ArrowUp Shift+ArrowDown"
+            onPointerDown={(e) => startPointerReorder(project.id, e)}
+            onDragStart={(e) => e.preventDefault()}
+            onKeyDown={(e) => {
+              if (!e.shiftKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+              e.preventDefault();
+              movePinnedProjectByKeyboard(project.id, e.key === "ArrowUp" ? -1 : 1);
+            }}
             onClick={() => {
               if (suppressClickRef.current) {
                 suppressClickRef.current = false;
                 return;
               }
               router.navigate({ to: "/projects/$id", params: { id: project.id } });
-            }}
-            onDragStart={(e) => {
-              suppressClickRef.current = true;
-              setDraggingProjectId(project.id);
-              setProjectPathDragData(e.dataTransfer, project.path);
-            }}
-            onDragEnd={() => {
-              setDraggingProjectId(null);
-              window.setTimeout(() => {
-                suppressClickRef.current = false;
-              }, 0);
             }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -193,8 +400,12 @@ export function ProjectBar() {
               borderRadius: ITEM_RADIUS,
               background: "transparent",
               zIndex: isActive ? 3 : 1,
-              cursor: isDragging ? "grabbing" : "grab",
+              cursor: reorderSaving ? "default" : isDragging ? "grabbing" : "grab",
               opacity: isDragging ? 0.55 : 1,
+              boxShadow: isDragging ? "0 0 0 2px color-mix(in srgb, var(--accent) 70%, white)" : undefined,
+              touchAction: "none",
+              userSelect: "none",
+              ["WebkitUserDrag" as any]: "none",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -245,6 +456,7 @@ export function ProjectBar() {
                 alignItems: "center",
                 justifyContent: "center",
                 flexShrink: 0,
+                pointerEvents: "none",
               }}
             >
               <span

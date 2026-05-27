@@ -41,6 +41,8 @@ export type AppSettings = {
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
+  /** Ding when a session-finish or diagram-ready notification arrives. */
+  notificationSoundEnabled: boolean;
   launchOverlayEnabled: boolean;
   automaticUpdateDownloadsEnabled: boolean;
   automaticUpdateInstallOnQuitEnabled: boolean;
@@ -215,6 +217,11 @@ export const api = {
     req<{ project: Project }>(`/api/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ togglePin: true }),
+    }),
+  reorderPinnedProjects: (order: string[]) =>
+    req<{ projects: ProjectWithCounts[] }>("/api/projects/pinned-order", {
+      method: "PATCH",
+      body: JSON.stringify({ order }),
     }),
   deleteProject: async (id: string) => {
     await req<void>(`/api/projects/${id}`, { method: "DELETE" });
@@ -407,6 +414,7 @@ export const api = {
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
+        | "notificationSoundEnabled"
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"

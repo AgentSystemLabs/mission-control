@@ -15,6 +15,7 @@ const {
   listProjects,
   createProject,
   togglePin,
+  reorderPinnedProjects,
   deleteProject,
   updateProject,
   getProjectPathStatus,
@@ -112,8 +113,41 @@ describe("projects service", () => {
     const c = createProject({ name: "beta", path: dir });
     const after = togglePin(c.id);
     expect(after?.pinned).toBe(true);
+    expect(after?.pinnedOrder).toBe(0);
     const renamed = updateProject(c.id, { name: "beta-2" });
     expect(renamed?.name).toBe("beta-2");
+  });
+
+  it("appends newly pinned projects and clears order on unpin", () => {
+    const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-a-"));
+    const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-b-"));
+    const a = createProject({ name: "alpha", path: dirA });
+    const b = createProject({ name: "beta", path: dirB });
+    togglePin(a.id);
+    togglePin(b.id);
+    const unpinned = togglePin(b.id);
+    expect(unpinned?.pinned).toBe(false);
+    expect(unpinned?.pinnedOrder).toBeNull();
+    const repinned = togglePin(b.id);
+    expect(repinned?.pinned).toBe(true);
+    expect(repinned?.pinnedOrder).toBe(1);
+  });
+
+  it("persists pinned reorder across reads", () => {
+    setLicenseKey(signedLicense());
+    const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-reorder-a-"));
+    const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-reorder-b-"));
+    const a = createProject({ name: "alpha", path: dirA });
+    const b = createProject({ name: "beta", path: dirB });
+    togglePin(a.id);
+    togglePin(b.id);
+    reorderPinnedProjects([b.id, a.id]);
+    expect(
+      listProjects()
+        .filter((project) => project.pinned)
+        .sort((left, right) => (left.pinnedOrder ?? 0) - (right.pinnedOrder ?? 0))
+        .map((project) => project.id),
+    ).toEqual([b.id, a.id]);
   });
 
   it("rejects updating a project to a nonexistent path", () => {

@@ -12,14 +12,16 @@ type ScopedProject = Project & { activeWorktreeId?: string | null };
 function makeScopedProject(
   overrides: Partial<ScopedProject> & Pick<ScopedProject, "id">,
 ): ScopedProject {
+  const { id, pinnedOrder, ...rest } = overrides;
   return {
     name: "Test Project",
-    path: `/tmp/${overrides.id}`,
+    path: `/tmp/${id}`,
     icon: "folder",
     iconColor: "#ffffff",
     imagePath: null,
     groupId: null,
     pinned: false,
+    pinnedOrder: pinnedOrder ?? null,
     branch: "main",
     launchCommands: null,
     launchUrl: null,
@@ -31,7 +33,8 @@ function makeScopedProject(
     createdAt: 1_000,
     updatedAt: 1_000,
     activeWorktreeId: null,
-    ...overrides,
+    id,
+    ...rest,
   };
 }
 

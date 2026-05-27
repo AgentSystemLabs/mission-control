@@ -83,6 +83,33 @@ const electronAPI = {
     ipcRenderer.invoke(IPC.appGetUserName),
   reload: (): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IPC.appReload),
+  notifications: {
+    getPermission: (): Promise<"granted" | "unsupported"> =>
+      ipcRenderer.invoke(IPC.notificationsGetPermission),
+    showSessionFinished: (payload: {
+      tag: string;
+      title: string;
+      body: string;
+      projectId: string;
+      taskId: string;
+      worktreeId: string | null;
+    }): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.notificationsShowSessionFinished, payload),
+    onSessionFinishedClick: (
+      cb: (payload: {
+        projectId: string;
+        taskId: string;
+        worktreeId: string | null;
+      }) => void,
+    ) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        payload: { projectId: string; taskId: string; worktreeId: string | null },
+      ) => cb(payload);
+      ipcRenderer.on(IPC.notificationsSessionFinishedClick, listener);
+      return () => ipcRenderer.removeListener(IPC.notificationsSessionFinishedClick, listener);
+    },
+  },
   cliCheck: (command: string, opts?: { verifyVersion?: boolean }): Promise<
     | {
         ok: true;

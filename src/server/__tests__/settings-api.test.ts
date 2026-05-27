@@ -164,6 +164,38 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps notification sound enabled by default", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      notificationSoundEnabled: true,
+    });
+  });
+
+  it("persists the notification sound preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ notificationSoundEnabled: false }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      notificationSoundEnabled: false,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      notificationSoundEnabled: false,
+    });
+  });
+
   it("keeps worktrees disabled by default", async () => {
     const response = await handleApiRequest(
       authedRequest("http://localhost/api/settings"),
