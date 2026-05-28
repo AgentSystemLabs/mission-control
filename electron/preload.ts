@@ -68,6 +68,11 @@ const electronAPI = {
     ipcRenderer.invoke(IPC.shellOpenPath, path),
   openExternal: (url: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IPC.shellOpenExternal, url),
+  clipboard: {
+    readText: (): Promise<string> => ipcRenderer.invoke(IPC.clipboardReadText),
+    writeText: (text: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC.clipboardWriteText, text),
+  },
   pickImage: (): Promise<
     { sourcePath: string; extension: string } | { error: string } | null
   > => ipcRenderer.invoke(IPC.dialogPickImage),

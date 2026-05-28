@@ -30,6 +30,41 @@ export function shouldSuppressTerminalKey(e: KeyboardEvent): boolean {
   return e.type === "keypress" && isShiftEnter(e);
 }
 
+export type TerminalClipboardAction = "copy" | "paste";
+
+/**
+ * Recognize the terminal copy/paste chords. In a terminal, plain Ctrl+C/Ctrl+V
+ * are control codes (SIGINT / quoted-insert) the PTY needs, so they can't double
+ * as copy/paste — hence the cross-platform convention used by VS Code, GNOME
+ * Terminal, and Windows Terminal: Ctrl+Shift+C to copy, Ctrl+Shift+V to paste,
+ * with Ctrl+Insert / Shift+Insert as the classic aliases.
+ *
+ * macOS copy/paste stays on Cmd+C/Cmd+V (driven by the OS Edit menu, untouched
+ * here): Cmd sets metaKey, which we explicitly exclude, and these chords never
+ * collide with it — so this map is correct on every platform and needs no
+ * platform branch.
+ *
+ * Matches on every event type (keydown/keypress/keyup) so the caller can both
+ * act on keydown and swallow the follow-up events, keeping xterm from turning
+ * the chord into a stray control byte.
+ */
+export function terminalClipboardAction(e: KeyboardEvent): TerminalClipboardAction | null {
+  if (e.altKey || e.metaKey) return null;
+
+  if (e.ctrlKey && e.shiftKey) {
+    if (e.code === "KeyC" || e.key === "c" || e.key === "C") return "copy";
+    if (e.code === "KeyV" || e.key === "v" || e.key === "V") return "paste";
+    return null;
+  }
+
+  if (e.code === "Insert" || e.key === "Insert") {
+    if (e.ctrlKey && !e.shiftKey) return "copy";
+    if (e.shiftKey && !e.ctrlKey) return "paste";
+  }
+
+  return null;
+}
+
 function isShiftEnter(e: KeyboardEvent): boolean {
   return e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
 }

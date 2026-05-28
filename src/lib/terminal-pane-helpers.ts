@@ -4,13 +4,20 @@ import {
   readProjectPathFromDragEvent,
 } from "./project-path-drag";
 import { getElectron } from "./electron";
-import { mapTerminalKey, shouldSuppressTerminalKey } from "./terminal-keymap";
+import {
+  mapTerminalKey,
+  shouldSuppressTerminalKey,
+  terminalClipboardAction,
+} from "./terminal-keymap";
 
 type Electron = NonNullable<ReturnType<typeof getElectron>>;
 
 type TerminalLike = {
   focus(): void;
   attachCustomKeyEventHandler(handler: (e: KeyboardEvent) => boolean): void;
+  hasSelection(): boolean;
+  getSelection(): string;
+  paste(data: string): void;
 };
 
 /** True when keyboard focus is inside an xterm surface in the bottom user terminal panel. */
@@ -110,6 +117,34 @@ export function attachTerminalKeyHandler(opts: {
 }): void {
   const { term, electron, getActivePtyId } = opts;
   term.attachCustomKeyEventHandler((e) => {
+    // Copy/paste chords (Ctrl+Shift+C/V, Ctrl/Shift+Insert). xterm has no
+    // built-in clipboard keybindings and consumes plain Ctrl+C/Ctrl+V as
+    // control codes, so without this Windows/Linux have no working copy or
+    // paste path. Read/write the native clipboard through the Electron bridge —
+    // navigator.clipboard.readText() is blocked because the app denies the
+    // "clipboard-read" web permission. preventDefault + return false on every
+    // event type so xterm never emits a stray byte for the chord.
+    const clipboardAction = terminalClipboardAction(e);
+    if (clipboardAction) {
+      e.preventDefault();
+      if (e.type === "keydown") {
+        if (clipboardAction === "copy") {
+          if (term.hasSelection()) {
+            const selection = term.getSelection();
+            if (selection) void electron.clipboard.writeText(selection);
+          }
+        } else {
+          void electron.clipboard.readText().then((text) => {
+            // term.paste() routes through xterm's onData (incl. bracketed
+            // paste), so the pasted text reaches the PTY via the normal input
+            // wiring — no direct pty.write needed here.
+            if (text) term.paste(text);
+          });
+        }
+      }
+      return false;
+    }
+
     const bytes = mapTerminalKey(e);
     if (bytes === null) {
       if (!shouldSuppressTerminalKey(e)) return true;

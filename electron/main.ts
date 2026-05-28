@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, clipboard } from "electron";
 import log from "electron-log/main";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
@@ -479,6 +479,20 @@ safeHandle(IPC.shellOpenPath, async (_evt, p: string) => {
 
 safeHandle(IPC.shellOpenExternal, async (_evt, url: string) => {
   return openExternalHttpUrl(url);
+});
+
+// Terminal copy/paste is wired through the main process rather than the web
+// Clipboard API: navigator.clipboard.readText() is blocked here because
+// configurePermissionHandlers() denies the "clipboard-read" permission, and in
+// a terminal Ctrl+C/Ctrl+V are control codes (SIGINT / quoted-insert) that
+// xterm consumes — so the renderer drives copy/paste off Ctrl+Shift+C/V (and
+// Cmd+C/V on macOS) and reaches the native clipboard through these handlers.
+const MAX_CLIPBOARD_WRITE_CHARS = 5_000_000;
+safeHandle(IPC.clipboardReadText, () => clipboard.readText());
+safeHandle(IPC.clipboardWriteText, (_evt, text: string) => {
+  const value = typeof text === "string" ? text.slice(0, MAX_CLIPBOARD_WRITE_CHARS) : "";
+  clipboard.writeText(value);
+  return { ok: true as const };
 });
 
 safeHandle(IPC.appGetRuntimePort, () => runtimePort);

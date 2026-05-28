@@ -4,6 +4,8 @@ export const IPC = {
   fileSaveProjectImage: "file:saveProjectImage",
   shellOpenPath: "shell:openPath",
   shellOpenExternal: "shell:openExternal",
+  clipboardReadText: "clipboard:readText",
+  clipboardWriteText: "clipboard:writeText",
   appGetRuntimePort: "app:getRuntimePort",
   appGetUserDataDir: "app:getUserDataDir",
   appGetUserName: "app:getUserName",

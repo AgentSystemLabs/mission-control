@@ -145,6 +145,10 @@ export type ElectronBridge = {
   browseFolder: () => Promise<string | null>;
   openPath: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   openExternal: (url: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  clipboard: {
+    readText: () => Promise<string>;
+    writeText: (text: string) => Promise<{ ok: true }>;
+  };
   pickImage: () => Promise<
     { sourcePath: string; extension: string } | { error: string } | null
   >;
