@@ -36,8 +36,11 @@ export function ProjectCard({
   onTogglePin: (id: string) => void;
 }) {
   const counts = project.taskCounts;
-  const { runningProjectIds } = useUserTerminals();
-  const activity = getProjectActivity(project, runningProjectIds);
+  const { hasRunningLaunchForProject } = useUserTerminals();
+  const launchRunningProjectIds = hasRunningLaunchForProject(project.id, project.launchCommands)
+    ? new Set([project.id])
+    : new Set<string>();
+  const activity = getProjectActivity(project, launchRunningProjectIds);
   const hasActivity = isProjectActive(activity);
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
   const [hovered, setHovered] = useState(false);

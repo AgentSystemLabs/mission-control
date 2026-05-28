@@ -60,7 +60,7 @@ function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; siz
 export function ProjectPicker({ projectId }: { projectId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { runningProjectIds } = useUserTerminals();
+  const { hasRunningLaunchForProject } = useUserTerminals();
   const [open, setOpen] = useState(false);
   const { data: projects } = useProjects();
   const { data: groups = [] } = useGroups();
@@ -82,6 +82,15 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
 
   // Mirrors the landing page layout so the affordance is consistent.
   const sections = useMemo(() => projectPickerSections(filtered, groups), [filtered, groups]);
+  const launchRunningProjectIds = useMemo(
+    () =>
+      new Set(
+        (projects ?? [])
+          .filter((project) => hasRunningLaunchForProject(project.id, project.launchCommands))
+          .map((project) => project.id),
+      ),
+    [projects, hasRunningLaunchForProject],
+  );
 
   // Flat list of selectable items, in render order — drives keyboard nav indexing.
   const flatItems = useMemo(() => sections.flatMap((s) => s.projects), [sections]);
@@ -299,7 +308,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
                           }}
                         >
                           <ProjectIcon project={p} size={18} />
-                          <ProjectRunningDot running={isProjectActive(getProjectActivity(p, runningProjectIds))} size={7} />
+                          <ProjectRunningDot running={isProjectActive(getProjectActivity(p, launchRunningProjectIds))} size={7} />
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {p.name}
                           </span>

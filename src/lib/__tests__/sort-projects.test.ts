@@ -128,10 +128,10 @@ describe("sortProjects", () => {
     ]);
   });
 
-  it("sorts by status using terminal-running when no tasks are active", () => {
+  it("sorts by status using launch-running when no tasks are active", () => {
     const sort: ProjectSortState = { column: "status", direction: "desc" };
-    const runningProjectIds = new Set(["p-alpha"]);
-    expect(sortProjects(projects, groups, sort, runningProjectIds).map((p) => p.name)).toEqual([
+    const launchRunningProjectIds = new Set(["p-alpha"]);
+    expect(sortProjects(projects, groups, sort, launchRunningProjectIds).map((p) => p.name)).toEqual([
       "Bravo",
       "Zulu",
       "Alpha",

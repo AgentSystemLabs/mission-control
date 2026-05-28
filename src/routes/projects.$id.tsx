@@ -1,6 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
@@ -19,6 +20,7 @@ import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
 import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
+import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
 import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
@@ -59,7 +61,7 @@ import {
 } from "~/lib/hosted-cleanup-status";
 import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER, TASK_STATUSES } from "~/shared/domain";
 import { hasRunningLaunchSessions } from "~/lib/project-launch-running";
-import { AGENT_REGISTRY, agentSupportsSkipPermissions } from "~/shared/agents";
+import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
   queryKeys,
   useApiToken,
@@ -123,6 +125,12 @@ type ProjectPathCheck =
   | { state: "invalid"; status: Extract<ProjectPathStatus, { ok: false }> }
   | { state: "error"; message: string };
 
+const OPTIMISTIC_WORKTREE_ID_PREFIX = "wt-optimistic-";
+
+function isOptimisticWorktree(worktree: WorktreeInfo): boolean {
+  return worktree.id.startsWith(OPTIMISTIC_WORKTREE_ID_PREFIX);
+}
+
 function launchUrlPort(raw: string | null): number[] {
   if (!raw) return [];
   try {
@@ -138,6 +146,7 @@ function launchUrlPort(raw: string | null): number[] {
 function MenuSeparator() {
   return (
     <div
+      className="mc-project-actions-menu-separator"
       style={{
         height: 1,
         background: "var(--border)",
@@ -240,6 +249,10 @@ function ProjectPage() {
   const selectedWorktreeKey = worktreesEnabled
     ? selectedWorktreeByProject[id] || MAIN_WORKTREE_ID
     : MAIN_WORKTREE_ID;
+  const selectedWorktreeKeyRef = useRef(selectedWorktreeKey);
+  useEffect(() => {
+    selectedWorktreeKeyRef.current = selectedWorktreeKey;
+  }, [selectedWorktreeKey]);
   const selectedWorktree =
     worktrees.find((w) => w.id === selectedWorktreeKey) ??
     worktrees.find((w) => w.id === MAIN_WORKTREE_ID) ??
@@ -376,10 +389,12 @@ function ProjectPage() {
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
+  const [showWorktreeSetupConfig, setShowWorktreeSetupConfig] = useState(false);
   const [showInstallDiagramSkill, setShowInstallDiagramSkill] = useState(false);
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
   const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState(false);
   const [creatingWorktree, setCreatingWorktree] = useState(false);
+  const creatingWorktreeRef = useRef(false);
   const [deletingWorktree, setDeletingWorktree] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -405,11 +420,43 @@ function ProjectPage() {
   const cliAvailability = useCliAvailability();
 
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [overflowMenuRect, setOverflowMenuRect] = useState<{
+    top: number;
+    left: number;
+    minWidth: number;
+  } | null>(null);
   const overflowRef = useRef<HTMLDivElement | null>(null);
+  const overflowDropdownRef = useRef<HTMLElement>(null);
+  const updateOverflowMenuRect = useCallback(() => {
+    const anchor = overflowRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    setOverflowMenuRect({
+      top: rect.bottom + 6,
+      left: rect.left,
+      minWidth: 220,
+    });
+  }, []);
+  useLayoutEffect(() => {
+    if (!overflowOpen) {
+      setOverflowMenuRect(null);
+      return;
+    }
+    updateOverflowMenuRect();
+    window.addEventListener("resize", updateOverflowMenuRect);
+    window.addEventListener("scroll", updateOverflowMenuRect, true);
+    return () => {
+      window.removeEventListener("resize", updateOverflowMenuRect);
+      window.removeEventListener("scroll", updateOverflowMenuRect, true);
+    };
+  }, [overflowOpen, updateOverflowMenuRect]);
   useEffect(() => {
     if (!overflowOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (!overflowRef.current?.contains(e.target as Node)) setOverflowOpen(false);
+      const target = e.target as Node;
+      if (overflowRef.current?.contains(target)) return;
+      if (overflowDropdownRef.current?.contains(target)) return;
+      setOverflowOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOverflowOpen(false);
@@ -432,11 +479,15 @@ function ProjectPage() {
     killTerminalsByStartCommand,
     setPanelOpen,
     sessions: userTerminalSessions,
-    runningWorktreeIds,
+    runningLaunchWorktreeIdsForProject,
   } = useUserTerminals();
+  const launchRunningWorktreeIds = useMemo(
+    () => runningLaunchWorktreeIdsForProject(project?.id ?? id, project?.launchCommands ?? null),
+    [id, project?.id, project?.launchCommands, runningLaunchWorktreeIdsForProject]
+  );
   const hasRunningLaunch = hasRunningLaunchSessions(userTerminalSessions, launchCommandSet);
   const runningWorktreeKey = worktreesEnabled
-    ? [...runningWorktreeIds].find((key) => key.startsWith(`${project?.id ?? id}:`))
+    ? [...launchRunningWorktreeIds].find((key) => key.startsWith(`${project?.id ?? id}:`))
     : undefined;
   const runningBlocksSelectedWorktree =
     worktreesEnabled && !!runningWorktreeKey && runningWorktreeKey !== selectedScopeKey;
@@ -660,6 +711,7 @@ function ProjectPage() {
   const selectWorktree = useCallback(
     (worktreeId: string) => {
       if (!worktreesEnabled && worktreeId !== MAIN_WORKTREE_ID) return;
+      selectedWorktreeKeyRef.current = worktreeId;
       setSelectedWorktreeByProject((prev) =>
         prev[id] === worktreeId ? prev : { ...prev, [id]: worktreeId }
       );
@@ -668,16 +720,38 @@ function ProjectPage() {
   );
 
   const createProjectWorktree = useCallback(async () => {
-    if (!worktreesEnabled || !project || creatingWorktree) return;
-    if (runningBlocksSelectedWorktree || runningWorktreeIds.size > 0) {
-      toast.error("Stop the running worktree before creating a new setup terminal.");
-      return;
-    }
+    if (!worktreesEnabled || !project || creatingWorktreeRef.current) return;
+    creatingWorktreeRef.current = true;
     setCreatingWorktree(true);
+    const worktreesKey = queryKeys.worktrees(project.id);
+    const selectionAtCreate = selectedWorktreeKeyRef.current;
+    const optimisticWorktree: WorktreeInfo = {
+      id: `${OPTIMISTIC_WORKTREE_ID_PREFIX}${Date.now()}`,
+      projectId: project.id,
+      name: "Creating...",
+      path: project.path,
+      branch: "",
+      isMain: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await queryClient.cancelQueries({ queryKey: worktreesKey });
+    queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
+      current ? [...current, optimisticWorktree] : current
+    );
     try {
       const result = await api.createWorktree(project.id);
+      queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) => {
+        const withoutOptimistic = (current ?? []).filter(
+          (worktree) =>
+            worktree.id !== optimisticWorktree.id && worktree.id !== result.worktree.id
+        );
+        return [...withoutOptimistic, result.worktree];
+      });
       await invalidateWorktrees();
-      selectWorktree(result.worktree.id);
+      if (selectedWorktreeKeyRef.current === selectionAtCreate) {
+        selectWorktree(result.worktree.id);
+      }
       if (result.setupCommand) {
         const setupProject = {
           ...project,
@@ -692,32 +766,42 @@ function ProjectPage() {
       }
       toast.success(`Created worktree ${result.worktree.name}`);
     } catch (e: any) {
+      queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
+        current?.filter((worktree) => worktree.id !== optimisticWorktree.id) ?? current
+      );
+      void invalidateWorktrees();
       toast.error(e?.message || "Could not create worktree");
     } finally {
+      creatingWorktreeRef.current = false;
       setCreatingWorktree(false);
     }
   }, [
     project,
-    creatingWorktree,
-    runningBlocksSelectedWorktree,
-    runningWorktreeIds,
     invalidateWorktrees,
     selectWorktree,
     createTerminal,
+    queryClient,
     worktreesEnabled,
   ]);
 
   const deleteSelectedWorktree = useCallback(async () => {
     if (!worktreesEnabled || !project || !selectedWorktree || selectedWorktree.isMain) return;
-    if (runningWorktreeIds.has(selectedScopeKey)) {
+    if (launchRunningWorktreeIds.has(selectedScopeKey)) {
       toast.error("Stop this worktree before deleting it.");
       return;
     }
     setDeletingWorktree(true);
+    const worktreesKey = queryKeys.worktrees(project.id);
+    const previousWorktrees = queryClient.getQueryData<WorktreeInfo[]>(worktreesKey);
+    const previousSelectedWorktreeKey = selectedWorktreeKey;
+    await queryClient.cancelQueries({ queryKey: worktreesKey });
+    setConfirmDeleteWorktree(false);
+    selectWorktree(MAIN_WORKTREE_ID);
+    queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
+      current?.filter((worktree) => worktree.id !== selectedWorktree.id) ?? current
+    );
     try {
       await api.deleteWorktree(project.id, selectedWorktree.id);
-      setConfirmDeleteWorktree(false);
-      selectWorktree(MAIN_WORKTREE_ID);
       await Promise.all([
         invalidateWorktrees(),
         invalidateTasks(),
@@ -727,6 +811,13 @@ function ProjectPage() {
       ]);
       toast.success(`Deleted worktree ${selectedWorktree.name}`);
     } catch (e: any) {
+      if (previousWorktrees) {
+        queryClient.setQueryData(worktreesKey, previousWorktrees);
+      } else {
+        void invalidateWorktrees();
+      }
+      selectWorktree(previousSelectedWorktreeKey);
+      setConfirmDeleteWorktree(true);
       toast.error(e?.message || "Could not delete worktree");
     } finally {
       setDeletingWorktree(false);
@@ -734,8 +825,9 @@ function ProjectPage() {
   }, [
     project,
     selectedWorktree,
+    selectedWorktreeKey,
     selectedScopeKey,
-    runningWorktreeIds,
+    launchRunningWorktreeIds,
     selectWorktree,
     invalidateWorktrees,
     invalidateTasks,
@@ -954,6 +1046,7 @@ function ProjectPage() {
     fileFinderOpen ||
     openFileRel !== null ||
     showLaunchConfig ||
+    showWorktreeSetupConfig ||
     showInstallDiagramSkill ||
     showLaunchEmpty ||
     !!projectPathIssue ||
@@ -1399,7 +1492,7 @@ function ProjectPage() {
           <WorktreeToggleGroup
             worktrees={worktrees}
             selectedId={selectedWorktree?.id ?? MAIN_WORKTREE_ID}
-            runningKeys={runningWorktreeIds}
+            runningKeys={launchRunningWorktreeIds}
             projectId={project.id}
             onSelect={selectWorktree}
             onDeleteSelected={() => setConfirmDeleteWorktree(true)}
@@ -1545,22 +1638,26 @@ function ProjectPage() {
                 style={{ color: "var(--text-dim)" }}
               />
             </Btn>
-            {overflowOpen && (
+            {overflowOpen &&
+              overflowMenuRect &&
+              createPortal(
               <CardFrame
+                ref={overflowDropdownRef}
                 role="menu"
                 solid
+                className="mc-project-actions-menu"
                 style={{
-                  position: "absolute",
-                  top: "calc(100% + 6px)",
-                  left: 0,
-                  minWidth: 220,
+                  position: "fixed",
+                  top: overflowMenuRect.top,
+                  left: overflowMenuRect.left,
+                  minWidth: overflowMenuRect.minWidth,
                   padding: 8,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "stretch",
-                  gap: 2,
+                  gap: 4,
                   boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-                  zIndex: 100,
+                  zIndex: 10000,
                 }}
               >
                 {hasRunningLaunch ? (
@@ -1684,6 +1781,19 @@ function ProjectPage() {
                 >
                   Configure launch commands
                 </Btn>
+                {worktreesEnabled ? (
+                  <Btn
+                    variant="ghost"
+                    icon="terminal"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      setShowWorktreeSetupConfig(true);
+                    }}
+                    style={{ justifyContent: "flex-start" }}
+                  >
+                    Configure worktree init command
+                  </Btn>
+                ) : null}
                 <InstallDiagramSkillMenuItem
                   onSelect={() => {
                     setOverflowOpen(false);
@@ -1716,7 +1826,8 @@ function ProjectPage() {
                 >
                   Remove project
                 </Btn>
-              </CardFrame>
+              </CardFrame>,
+              document.body,
             )}
           </div>
           {headerActions}
@@ -2167,6 +2278,16 @@ function ProjectPage() {
         }}
       />
 
+      <WorktreeSetupCommandDialog
+        open={showWorktreeSetupConfig}
+        project={project}
+        onClose={() => setShowWorktreeSetupConfig(false)}
+        onSave={async (command) => {
+          await api.updateProject(project.id, { worktreeSetupCommand: command });
+          await refresh();
+        }}
+      />
+
       <Modal
         open={showLaunchEmpty}
         onClose={() => setShowLaunchEmpty(false)}
@@ -2259,6 +2380,7 @@ function WorktreeToggleGroup({
   maxWidth?: number | string;
 }) {
   const items = worktrees.length > 0 ? worktrees : [];
+  const selectableItems = items.filter((worktree) => !isOptimisticWorktree(worktree));
   if (items.length === 0) return null;
   return (
     <div
@@ -2277,11 +2399,10 @@ function WorktreeToggleGroup({
     >
       {items.map((worktree) => {
         const selected = worktree.id === selectedId;
+        const optimistic = isOptimisticWorktree(worktree);
         const running = runningKeys.has(worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id));
-        const canDelete = selected && !worktree.isMain && !!onDeleteSelected;
-        const label = worktree.isMain
-          ? mainBranchLabel?.trim() || "…"
-          : worktree.name;
+        const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
+        const label = worktree.isMain ? "main" : worktree.name;
         return (
           worktree.isMain && selected ? (
             <div
@@ -2315,6 +2436,7 @@ function WorktreeToggleGroup({
                 projectId={projectId}
                 worktreeId={null}
                 branch={mainBranchLabel}
+                displayLabel={label}
                 disabled={branchSwitchDisabled}
                 worktreePath={worktree.path}
                 selected
@@ -2358,22 +2480,28 @@ function WorktreeToggleGroup({
             <button
               type="button"
               role="radio"
+              disabled={optimistic}
               onClick={() => onSelect(worktree.id)}
               onKeyDown={(event) => {
+                if (optimistic) return;
                 if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;
                 event.preventDefault();
                 const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-                const currentIndex = items.findIndex((item) => item.id === worktree.id);
-                const next = items[(currentIndex + direction + items.length) % items.length];
+                const currentIndex = selectableItems.findIndex((item) => item.id === worktree.id);
+                const next = selectableItems[
+                  (currentIndex + direction + selectableItems.length) % selectableItems.length
+                ];
                 if (next) onSelect(next.id);
               }}
               aria-label={`Switch to worktree ${worktree.isMain ? label : worktree.name}`}
               aria-checked={selected}
               tabIndex={selected ? 0 : -1}
               title={
-                worktree.isMain
-                  ? `${worktree.path}${mainBranchLabel ? ` · branch ${mainBranchLabel}` : ""}`
-                  : worktree.path
+                optimistic
+                  ? "Creating worktree..."
+                  : worktree.isMain
+                    ? `${worktree.path}${mainBranchLabel ? ` · branch ${mainBranchLabel}` : ""}`
+                    : worktree.path
               }
               style={{
                 display: "inline-flex",
@@ -2386,7 +2514,8 @@ function WorktreeToggleGroup({
                 color: "inherit",
                 font: "inherit",
                 whiteSpace: "nowrap",
-                cursor: "pointer",
+                cursor: optimistic ? "default" : "pointer",
+                opacity: optimistic ? 0.68 : 1,
               }}
             >
               {label}

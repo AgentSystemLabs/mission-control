@@ -89,6 +89,7 @@ export function BranchTypeahead({
   projectId,
   worktreeId,
   branch,
+  displayLabel,
   disabled = false,
   worktreePath,
   selected = false,
@@ -96,11 +97,13 @@ export function BranchTypeahead({
   projectId: string;
   worktreeId?: string | null;
   branch: string | null | undefined;
+  displayLabel?: string | null;
   disabled?: boolean;
   worktreePath?: string;
   selected?: boolean;
 }) {
   const branchLabel = branch?.trim() || "…";
+  const buttonLabel = displayLabel?.trim() || branchLabel;
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -508,7 +511,7 @@ export function BranchTypeahead({
               whiteSpace: "nowrap",
             }}
           >
-            {branchLabel}
+            {buttonLabel}
           </span>
           <Icon
             name="chevron-down"

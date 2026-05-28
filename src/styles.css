@@ -1312,6 +1312,30 @@ body[data-card-glow] .cursor-glow {
   color: var(--text);
 }
 
+.mc-project-actions-menu {
+  row-gap: 4px;
+}
+
+.mc-project-actions-menu > .mc-project-actions-menu-separator {
+  margin: 0 2px;
+}
+
+.mc-project-actions-menu .mc-btn {
+  --mc-btn-gap: 10px;
+  width: 100%;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.mc-project-actions-menu .mc-btn:not(:last-of-type) {
+  margin-bottom: 2px;
+}
+
+.mc-project-actions-menu .mc-btn-ghost,
+.mc-project-actions-menu .mc-btn-danger {
+  filter: none;
+}
+
 /* Tooltip */
 .mc-tooltip-trigger {
   display: contents;

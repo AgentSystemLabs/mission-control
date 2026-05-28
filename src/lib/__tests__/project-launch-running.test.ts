@@ -3,6 +3,7 @@ import {
   getLaunchCommandSet,
   hasRunningLaunchForProject,
   hasRunningLaunchSessions,
+  runningLaunchScopeKeysForProject,
 } from "../project-launch-running";
 
 describe("project-launch-running", () => {
@@ -48,5 +49,16 @@ describe("project-launch-running", () => {
         "proj-1:wt-a": [{ ptyId: "pty-1", terminal: { startCommand: "pnpm dev" } }],
       })
     ).toBe(true);
+  });
+
+  it("returns only worktree scopes with launch-created running terminals", () => {
+    const launchCommands = JSON.stringify([{ id: "dev", name: "Dev", command: "pnpm dev" }]);
+    expect(
+      [...runningLaunchScopeKeysForProject("proj-1", launchCommands, {
+        "proj-1:main": [{ ptyId: "pty-shell", terminal: { startCommand: null } }],
+        "proj-1:wt-a": [{ ptyId: "pty-setup", terminal: { startCommand: "pnpm install" } }],
+        "proj-1:wt-b": [{ ptyId: "pty-dev", terminal: { startCommand: "pnpm dev" } }],
+      })],
+    ).toEqual(["proj-1:wt-b"]);
   });
 });

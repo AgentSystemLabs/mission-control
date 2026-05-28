@@ -42,12 +42,21 @@ export function ProjectsTable({
   onOpen: (id: string) => void;
   onTogglePin: (id: string) => void;
 }) {
-  const { runningProjectIds } = useUserTerminals();
+  const { hasRunningLaunchForProject } = useUserTerminals();
   const [sort, setSort] = useState<ProjectSortState>(DEFAULT_PROJECT_SORT);
   const groupById = useMemo(() => new Map(groups.map((group) => [group.id, group])), [groups]);
+  const launchRunningProjectIds = useMemo(
+    () =>
+      new Set(
+        projects
+          .filter((project) => hasRunningLaunchForProject(project.id, project.launchCommands))
+          .map((project) => project.id),
+      ),
+    [projects, hasRunningLaunchForProject],
+  );
   const sortedProjects = useMemo(
-    () => sortProjects(projects, groups, sort, runningProjectIds),
-    [projects, groups, sort, runningProjectIds],
+    () => sortProjects(projects, groups, sort, launchRunningProjectIds),
+    [projects, groups, sort, launchRunningProjectIds],
   );
 
   const handleSort = (column: ProjectSortColumn) => {
@@ -84,7 +93,7 @@ export function ProjectsTable({
           </thead>
           <tbody>
             {sortedProjects.map((project) => {
-              const activity = getProjectActivity(project, runningProjectIds);
+              const activity = getProjectActivity(project, launchRunningProjectIds);
               const active = isProjectActive(activity);
               const group = project.groupId ? groupById.get(project.groupId) : null;
               const totalShown = TASK_STATUSES.reduce(

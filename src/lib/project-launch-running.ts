@@ -31,11 +31,20 @@ export function hasRunningLaunchForProject(
   launchCommandsRaw: string | null | undefined,
   sessionsByScope: Readonly<Record<string, readonly LaunchSession[]>>
 ): boolean {
+  return runningLaunchScopeKeysForProject(projectId, launchCommandsRaw, sessionsByScope).size > 0;
+}
+
+export function runningLaunchScopeKeysForProject(
+  projectId: string,
+  launchCommandsRaw: string | null | undefined,
+  sessionsByScope: Readonly<Record<string, readonly LaunchSession[]>>
+): Set<string> {
   const launchCommandSet = getLaunchCommandSet(launchCommandsRaw);
-  if (launchCommandSet.size === 0) return false;
+  const keys = new Set<string>();
+  if (launchCommandSet.size === 0) return keys;
   for (const [scopeKey, sessions] of Object.entries(sessionsByScope)) {
     if (!scopeKey.startsWith(`${projectId}:`)) continue;
-    if (hasRunningLaunchSessions(sessions, launchCommandSet)) return true;
+    if (hasRunningLaunchSessions(sessions, launchCommandSet)) keys.add(scopeKey);
   }
-  return false;
+  return keys;
 }

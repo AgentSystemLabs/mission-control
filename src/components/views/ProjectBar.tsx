@@ -35,7 +35,7 @@ export function ProjectBar() {
   const queryClient = useQueryClient();
   const { data: projects } = useProjects();
   const { data: settings } = useSettings();
-  const { runningProjectIds, hasRunningLaunchForProject } = useUserTerminals();
+  const { hasRunningLaunchForProject } = useUserTerminals();
   const minimal = settings?.minimalTheme ?? false;
   const invalidateProjects = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -327,11 +327,10 @@ export function ProjectBar() {
         const isActive = idx === activeIndex;
         const hotkey = idx < HOTKEY_LIMIT ? idx + 1 : null;
         const runningCount = project.taskCounts.running;
-        const terminalRunning = runningProjectIds.has(project.id);
         const launchRunning = hasRunningLaunchForProject(project.id, project.launchCommands);
         const logoShouldFlash = shouldFlashPinnedProjectLogo({
           cliRunningCount: runningCount,
-          terminalOpen: terminalRunning,
+          terminalOpen: launchRunning,
         });
         const finishedCount = project.taskCounts.finished;
         const statusDots = getPinnedProjectStatusDots(project.taskCounts);
@@ -345,7 +344,6 @@ export function ProjectBar() {
           runningCount > 0
             ? `${runningCount} ${runningCount === 1 ? "session" : "sessions"} running`
             : null;
-        const terminalLabel = terminalRunning ? "terminal running" : null;
         const launchLabel = launchRunning ? "launch running" : null;
         const finishedLabel =
           finishedCount > 0
@@ -356,7 +354,6 @@ export function ProjectBar() {
           "Drag or press Shift+Arrow Up/Down to reorder pinned projects",
           needsInputLabel,
           launchLabel,
-          terminalLabel,
           runningLabel,
           finishedLabel,
         ]
