@@ -238,10 +238,15 @@ export const api = {
   deleteWorktree: async (
     projectId: string,
     worktreeId: string,
-    opts: { force?: boolean } = {},
+    opts: { force?: boolean; stashChanges?: boolean } = {},
   ) => {
+    const params = new URLSearchParams();
+    if (opts.force) params.set("force", "true");
+    if (opts.stashChanges) params.set("stashChanges", "true");
+    const queryString = params.toString();
+    const query = queryString ? `?${queryString}` : "";
     await req<void>(
-      `/api/projects/${projectId}/worktrees/${encodeURIComponent(worktreeId)}`,
+      `/api/projects/${projectId}/worktrees/${encodeURIComponent(worktreeId)}${query}`,
       {
         method: "DELETE",
         body: JSON.stringify(opts),

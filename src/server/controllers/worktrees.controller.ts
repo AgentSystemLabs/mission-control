@@ -13,7 +13,14 @@ import { isElectronLocalApiRequest } from "../request-runtime";
 
 const deleteBody = z.object({
   force: z.boolean().optional(),
+  stashChanges: z.boolean().optional(),
 }).optional();
+
+function booleanQueryFlag(url: URL, name: string): boolean | undefined {
+  const value = url.searchParams.get(name);
+  if (value === null) return undefined;
+  return value === "1" || value.toLowerCase() === "true";
+}
 
 function asWorktreeErrorResponse(e: unknown): Response {
   const payload = worktreeErrorPayload(e);
@@ -63,11 +70,13 @@ export async function remove(
   if (!projectId.success || !worktreeId.success) return notFound();
   const parsed = await parseJsonBody(request, deleteBody);
   if (!parsed.ok) return parsed.response;
+  const url = new URL(request.url);
   try {
     const deleted = await deleteWorktree({
       projectId: projectId.data,
       worktreeId: worktreeId.data,
-      force: parsed.data?.force,
+      force: parsed.data?.force ?? booleanQueryFlag(url, "force"),
+      stashChanges: parsed.data?.stashChanges ?? booleanQueryFlag(url, "stashChanges"),
     });
     return deleted ? noContent() : notFound();
   } catch (e) {

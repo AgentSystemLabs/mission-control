@@ -51,6 +51,8 @@ type Ctx = {
   ) => void;
   /** Deselect the active card for `projectId` and hide the panel without killing the PTY. */
   deselect: (projectId: string) => void;
+  /** Tell root-level panel lookup which worktree scope is currently visible for a project. */
+  setVisibleScope: (projectId: string, scopeKey: string | null) => void;
   /** Materialize a session entry from a persisted taskId after reload, if not already present. */
   rehydrate: (project: ScopedProject, task: Task) => void;
   /** Permanently close one session and kill its PTY. */
@@ -130,11 +132,39 @@ function loadActiveByProject(): Record<string, string | null> {
   }
 }
 
+export function resolveActiveTaskIdForProject(
+  activeByProject: Record<string, string | null>,
+  projectId: string,
+  visibleScopeByProject: Record<string, string | null> = {},
+): { scopeKey: string | null; taskId: string | null } {
+  if (projectId.includes(":")) {
+    return { scopeKey: projectId, taskId: activeByProject[projectId] ?? null };
+  }
+
+  const visibleScopeKey = visibleScopeByProject[projectId] ?? null;
+  if (visibleScopeKey) {
+    return { scopeKey: visibleScopeKey, taskId: activeByProject[visibleScopeKey] ?? null };
+  }
+
+  const mainScopeKey = worktreeScopeKey(projectId, null);
+  const mainTaskId = activeByProject[mainScopeKey] ?? activeByProject[projectId] ?? null;
+  if (mainTaskId) return { scopeKey: mainScopeKey, taskId: mainTaskId };
+
+  for (const [key, taskId] of Object.entries(activeByProject)) {
+    if (taskId && key.startsWith(`${projectId}:`)) {
+      return { scopeKey: key, taskId };
+    }
+  }
+
+  return { scopeKey: null, taskId: null };
+}
+
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<OpenTerminal[]>([]);
   const [activeByProject, setActiveByProject] = useState<Record<string, string | null>>(
     loadActiveByProject
   );
+  const [visibleScopeByProject, setVisibleScopeByProject] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -253,6 +283,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setVisibleScope = useCallback((projectId: string, scopeKey: string | null) => {
+    setVisibleScopeByProject((prev) => {
+      if (scopeKey === null) {
+        if (!(projectId in prev)) return prev;
+        const next = { ...prev };
+        delete next[projectId];
+        return next;
+      }
+      return prev[projectId] === scopeKey ? prev : { ...prev, [projectId]: scopeKey };
+    });
+  }, []);
+
   const deselect = useCallback((projectId: string) => {
     setActiveByProject((prev) => {
       const next = { ...prev };
@@ -339,6 +381,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       }
       return changed ? next : prev;
     });
+    setVisibleScopeByProject((prev) => {
+      if (!(projectId in prev)) return prev;
+      const next = { ...prev };
+      delete next[projectId];
+      return next;
+    });
   }, []);
 
   const setPtyId = useCallback((taskId: string, ptyId: string | null) => {
@@ -380,30 +428,29 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
   const activeFor = useCallback(
     (projectId: string): OpenTerminal | null => {
-      const direct = activeByProject[projectId] ?? null;
-      if (direct) {
-        return sessions.find((s) => s.taskId === direct && scopeKeyForProject(s.project) === projectId) ?? null;
-      }
-      for (const [key, tid] of Object.entries(activeByProject)) {
-        if (!tid || !key.startsWith(`${projectId}:`)) continue;
-        const active = sessions.find((s) => s.taskId === tid && scopeKeyForProject(s.project) === key);
-        if (active) return active;
-      }
-      return null;
+      const { scopeKey, taskId } = resolveActiveTaskIdForProject(
+        activeByProject,
+        projectId,
+        visibleScopeByProject,
+      );
+      if (!scopeKey || !taskId) return null;
+      return (
+        sessions.find((s) => s.taskId === taskId && scopeKeyForProject(s.project) === scopeKey) ??
+        null
+      );
     },
-    [activeByProject, sessions]
+    [activeByProject, sessions, visibleScopeByProject]
   );
 
   const activeTaskIdFor = useCallback(
     (projectId: string) => {
-      const direct = activeByProject[projectId] ?? null;
-      if (direct || projectId.includes(":")) return direct;
-      for (const [key, tid] of Object.entries(activeByProject)) {
-        if (tid && key.startsWith(`${projectId}:`)) return tid;
-      }
-      return null;
+      return resolveActiveTaskIdForProject(
+        activeByProject,
+        projectId,
+        visibleScopeByProject,
+      ).taskId;
     },
-    [activeByProject]
+    [activeByProject, visibleScopeByProject]
   );
 
   const value = useMemo<Ctx>(
@@ -414,6 +461,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       toggle,
       openSession,
       deselect,
+      setVisibleScope,
       rehydrate,
       close,
       adoptTaskId,
@@ -430,6 +478,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       toggle,
       openSession,
       deselect,
+      setVisibleScope,
       rehydrate,
       close,
       adoptTaskId,

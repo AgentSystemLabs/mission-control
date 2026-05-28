@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "~/db/schema";
-import { commandForTask, nextActiveTaskId } from "../terminal-store";
+import {
+  commandForTask,
+  nextActiveTaskId,
+  resolveActiveTaskIdForProject,
+} from "../terminal-store";
 
 vi.mock("../api", () => ({
   api: {
@@ -134,5 +138,51 @@ describe("nextActiveTaskId", () => {
 
   it("switches active tasks", () => {
     expect(nextActiveTaskId("task-1", "task-2", true)).toBe("task-2");
+  });
+});
+
+describe("resolveActiveTaskIdForProject", () => {
+  it("prefers the currently visible worktree scope for root panel lookups", () => {
+    expect(
+      resolveActiveTaskIdForProject(
+        {
+          "project-1:main": "main-task",
+          "project-1:worktree-a": "worktree-task",
+        },
+        "project-1",
+        { "project-1": "project-1:worktree-a" },
+      ),
+    ).toEqual({ scopeKey: "project-1:worktree-a", taskId: "worktree-task" });
+  });
+
+  it("does not fall back to another worktree when the visible scope has no active task", () => {
+    expect(
+      resolveActiveTaskIdForProject(
+        {
+          "project-1:main": "main-task",
+          "project-1:worktree-a": "worktree-task",
+        },
+        "project-1",
+        { "project-1": "project-1:worktree-b" },
+      ),
+    ).toEqual({ scopeKey: "project-1:worktree-b", taskId: null });
+  });
+
+  it("uses exact scoped ids without cross-worktree fallback", () => {
+    expect(
+      resolveActiveTaskIdForProject(
+        {
+          "project-1:main": "main-task",
+          "project-1:worktree-a": "worktree-task",
+        },
+        "project-1:worktree-b",
+      ),
+    ).toEqual({ scopeKey: "project-1:worktree-b", taskId: null });
+  });
+
+  it("maps legacy plain project active ids to the main worktree scope", () => {
+    expect(
+      resolveActiveTaskIdForProject({ "project-1": "legacy-task" }, "project-1"),
+    ).toEqual({ scopeKey: "project-1:main", taskId: "legacy-task" });
   });
 });

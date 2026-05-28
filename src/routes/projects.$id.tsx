@@ -26,6 +26,7 @@ import { CursorGlow } from "~/components/ui/CursorGlow";
 import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
 import { api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
@@ -120,6 +121,28 @@ export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
 });
 
+type DeleteWorktreeMode = "clean" | "stash" | "discard";
+const WORKTREE_DELETE_FILES_MAX_HEIGHT = 220;
+
+function worktreeChangeLabel(count: number | undefined): string {
+  if (count === undefined) return "Checking changes";
+  return `${count} changed file${count === 1 ? "" : "s"}`;
+}
+
+function deleteWorktreeOptionsForMode(mode: DeleteWorktreeMode): {
+  force?: boolean;
+  stashChanges?: boolean;
+} {
+  if (mode === "stash") return { stashChanges: true };
+  if (mode === "discard") return { force: true };
+  return {};
+}
+
+function formatWorktreeChangeStatus(area: "staged" | "unstaged", status: string): string {
+  const areaLabel = area === "staged" ? "Staged" : "Unstaged";
+  return `${areaLabel} ${status.replace("-", " ")}`;
+}
+
 type ProjectPathCheck =
   | { state: "idle" | "checking" | "valid" }
   | { state: "invalid"; status: Extract<ProjectPathStatus, { ok: false }> }
@@ -141,6 +164,14 @@ function launchUrlPort(raw: string | null): number[] {
   } catch {
     return [];
   }
+}
+
+function firstDisplayedTask<T extends { status: TaskStatus }>(tasks: T[]): T | undefined {
+  for (const status of STATUS_DISPLAY_ORDER) {
+    const task = tasks.find((t) => t.status === status);
+    if (task) return task;
+  }
+  return undefined;
 }
 
 function MenuSeparator() {
@@ -363,7 +394,7 @@ function ProjectPage() {
   const groups = groupsQuery.data ?? [];
   useApiToken();
   const { data: entitlements } = useEntitlements();
-  const { data: gitStatus } = useGitStatus(id, selectedWorktreeId, {
+  const { data: gitStatus, refetch: refetchGitStatus } = useGitStatus(id, selectedWorktreeId, {
     enabled: projectPathUsable,
   });
   const createPullRequest = useCreatePullRequestAction({
@@ -372,7 +403,7 @@ function ProjectPage() {
     branch: gitStatus?.branch,
     projectPathUsable,
   });
-  const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView } =
+  const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView, setOpen: setDiffViewOpen } =
     useGitDiffViewOpen(id);
   const onToggleDiffView = useCallback(() => {
     if (!projectPathReady) return;
@@ -393,6 +424,7 @@ function ProjectPage() {
   const [showInstallDiagramSkill, setShowInstallDiagramSkill] = useState(false);
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
   const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState(false);
+  const [worktreeDeleteConfirmName, setWorktreeDeleteConfirmName] = useState("");
   const [creatingWorktree, setCreatingWorktree] = useState(false);
   const creatingWorktreeRef = useRef(false);
   const [deletingWorktree, setDeletingWorktree] = useState(false);
@@ -418,6 +450,24 @@ function ProjectPage() {
     [launchCommands]
   );
   const cliAvailability = useCliAvailability();
+  const selectedWorktreeChangeCount = selectedWorktree && !selectedWorktree.isMain
+    ? gitStatus?.changedCount
+    : undefined;
+  const selectedWorktreeDirty =
+    !!selectedWorktree && !selectedWorktree.isMain && (selectedWorktreeChangeCount ?? 0) > 0;
+  const selectedWorktreeStatusPending =
+    !!selectedWorktree &&
+    !selectedWorktree.isMain &&
+    selectedWorktreeChangeCount === undefined &&
+    projectPathUsable;
+  const worktreeDiscardConfirmMatches =
+    !!selectedWorktree && worktreeDeleteConfirmName.trim() === selectedWorktree.name;
+  const worktreeChangedFiles = useMemo(() => {
+    return [
+      ...(gitStatus?.staged ?? []).map((file) => ({ ...file, area: "staged" as const })),
+      ...(gitStatus?.unstaged ?? []).map((file) => ({ ...file, area: "unstaged" as const })),
+    ];
+  }, [gitStatus?.staged, gitStatus?.unstaged]);
 
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [overflowMenuRect, setOverflowMenuRect] = useState<{
@@ -473,6 +523,7 @@ function ProjectPage() {
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
+  const setVisibleTerminalScope = terminals.setVisibleScope;
   const {
     setProject: setActiveUserTerminalProject,
     createTerminal,
@@ -551,6 +602,11 @@ function ProjectPage() {
     if (terminalProject) setActiveUserTerminalProject(terminalProject);
   }, [terminalProject, setActiveUserTerminalProject]);
 
+  useLayoutEffect(() => {
+    setVisibleTerminalScope(id, selectedScopeKey);
+    return () => setVisibleTerminalScope(id, null);
+  }, [id, selectedScopeKey, setVisibleTerminalScope]);
+
   useEffect(() => {
     for (const task of tasks) syncTask(task);
   }, [tasks, syncTask]);
@@ -565,6 +621,52 @@ function ProjectPage() {
   const lastActiveRef = useRef<{ projectId: string; taskId: string } | null>(null);
   const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
   const lastHiddenSessionRef = useRef<{ projectId: string; taskId: string } | null>(null);
+  const previousSessionScopeRef = useRef<{ projectId: string; scopeKey: string }>({
+    projectId: id,
+    scopeKey: selectedScopeKey,
+  });
+  const pendingWorktreeSessionSelectRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousSessionScopeRef.current;
+    previousSessionScopeRef.current = { projectId: id, scopeKey: selectedScopeKey };
+    if (previous.projectId !== id) {
+      pendingWorktreeSessionSelectRef.current = null;
+      return;
+    }
+    if (previous.scopeKey !== selectedScopeKey) {
+      pendingWorktreeSessionSelectRef.current = selectedScopeKey;
+    }
+  }, [id, selectedScopeKey]);
+
+  useEffect(() => {
+    if (pendingWorktreeSessionSelectRef.current !== selectedScopeKey) return;
+    if (!terminalProject || tasksQuery.isLoading || tasksQuery.isError) return;
+
+    pendingWorktreeSessionSelectRef.current = null;
+    const firstTask = firstDisplayedTask(tasks.filter((t) => !t.archived));
+    if (!firstTask) {
+      terminals.deselect(selectedScopeKey);
+      return;
+    }
+
+    const currentActiveTaskId = terminals.activeTaskIdFor(selectedScopeKey);
+    if (currentActiveTaskId === firstTask.id) {
+      if (!terminals.activeFor(selectedScopeKey)) {
+        terminals.rehydrate(terminalProject, firstTask);
+      }
+      return;
+    }
+
+    terminals.openSession(terminalProject, firstTask);
+  }, [
+    selectedScopeKey,
+    terminalProject,
+    tasks,
+    tasksQuery.isLoading,
+    tasksQuery.isError,
+    terminals,
+  ]);
+
   useEffect(() => {
     if (activeTaskId !== null) {
       lastActiveRef.current = { projectId: selectedScopeKey, taskId: activeTaskId };
@@ -784,7 +886,17 @@ function ProjectPage() {
     worktreesEnabled,
   ]);
 
-  const deleteSelectedWorktree = useCallback(async () => {
+  const closeDeleteWorktreeDialog = useCallback(() => {
+    setConfirmDeleteWorktree(false);
+    setWorktreeDeleteConfirmName("");
+  }, []);
+
+  const reviewSelectedWorktreeChanges = useCallback(() => {
+    closeDeleteWorktreeDialog();
+    setDiffViewOpen(true);
+  }, [closeDeleteWorktreeDialog, setDiffViewOpen]);
+
+  const deleteSelectedWorktree = useCallback(async (mode: DeleteWorktreeMode = "clean") => {
     if (!worktreesEnabled || !project || !selectedWorktree || selectedWorktree.isMain) return;
     if (launchRunningWorktreeIds.has(selectedScopeKey)) {
       toast.error("Stop this worktree before deleting it.");
@@ -795,13 +907,17 @@ function ProjectPage() {
     const previousWorktrees = queryClient.getQueryData<WorktreeInfo[]>(worktreesKey);
     const previousSelectedWorktreeKey = selectedWorktreeKey;
     await queryClient.cancelQueries({ queryKey: worktreesKey });
-    setConfirmDeleteWorktree(false);
+    closeDeleteWorktreeDialog();
     selectWorktree(MAIN_WORKTREE_ID);
     queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
       current?.filter((worktree) => worktree.id !== selectedWorktree.id) ?? current
     );
     try {
-      await api.deleteWorktree(project.id, selectedWorktree.id);
+      await api.deleteWorktree(
+        project.id,
+        selectedWorktree.id,
+        deleteWorktreeOptionsForMode(mode),
+      );
       await Promise.all([
         invalidateWorktrees(),
         invalidateTasks(),
@@ -809,7 +925,11 @@ function ProjectPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
       ]);
-      toast.success(`Deleted worktree ${selectedWorktree.name}`);
+      toast.success(
+        mode === "stash"
+          ? `Stashed changes and deleted worktree ${selectedWorktree.name}`
+          : `Deleted worktree ${selectedWorktree.name}`,
+      );
     } catch (e: any) {
       if (previousWorktrees) {
         queryClient.setQueryData(worktreesKey, previousWorktrees);
@@ -817,8 +937,13 @@ function ProjectPage() {
         void invalidateWorktrees();
       }
       selectWorktree(previousSelectedWorktreeKey);
+      if (e?.status === 409) void refetchGitStatus();
       setConfirmDeleteWorktree(true);
-      toast.error(e?.message || "Could not delete worktree");
+      toast.error(
+        e?.status === 409
+          ? "This worktree has changes. Choose how to handle them before deleting."
+          : e?.message || "Could not delete worktree",
+      );
     } finally {
       setDeletingWorktree(false);
     }
@@ -829,9 +954,11 @@ function ProjectPage() {
     selectedScopeKey,
     launchRunningWorktreeIds,
     selectWorktree,
+    closeDeleteWorktreeDialog,
     invalidateWorktrees,
     invalidateTasks,
     queryClient,
+    refetchGitStatus,
     worktreesEnabled,
   ]);
 
@@ -2248,24 +2375,192 @@ function ProjectPage() {
       </ConfirmDialog>
 
       {selectedWorktree && !selectedWorktree.isMain && (
-        <ConfirmDialog
+        <Modal
           open={confirmDeleteWorktree}
-          onClose={() => setConfirmDeleteWorktree(false)}
-          onConfirm={deleteSelectedWorktree}
-          title="Delete worktree"
-          confirmLabel="Delete"
-          icon="trash"
-          loading={deletingWorktree}
-          width={500}
+          onClose={closeDeleteWorktreeDialog}
+          title={selectedWorktreeDirty ? "Delete dirty worktree" : "Delete worktree"}
+          width={760}
+          maxWidth="calc(100vw - 32px)"
+          footerStyle={{ flexWrap: "nowrap", overflowX: "auto" }}
+          footer={
+            <>
+              <StaticHotkeyTooltip hotkey="Esc">
+                <Btn
+                  variant="ghost"
+                  onClick={closeDeleteWorktreeDialog}
+                  disabled={deletingWorktree}
+                >
+                  Cancel
+                </Btn>
+              </StaticHotkeyTooltip>
+              {selectedWorktreeDirty ? (
+                <>
+                  <Btn
+                    variant="ghost"
+                    icon="git-branch"
+                    onClick={reviewSelectedWorktreeChanges}
+                    disabled={deletingWorktree}
+                  >
+                    Review changes
+                  </Btn>
+                  <Btn
+                    variant="primary"
+                    icon="archive"
+                    onClick={() => void deleteSelectedWorktree("stash")}
+                    disabled={deletingWorktree}
+                  >
+                    {deletingWorktree ? "Deleting..." : "Stash and delete"}
+                  </Btn>
+                  <Btn
+                    variant="danger"
+                    icon="trash"
+                    onClick={() => void deleteSelectedWorktree("discard")}
+                    disabled={deletingWorktree || !worktreeDiscardConfirmMatches}
+                  >
+                    Discard and delete
+                  </Btn>
+                </>
+              ) : (
+                <Btn
+                  variant="danger"
+                  icon="trash"
+                  onClick={() => void deleteSelectedWorktree("clean")}
+                  disabled={deletingWorktree || selectedWorktreeStatusPending}
+                >
+                  {selectedWorktreeStatusPending
+                    ? "Checking..."
+                    : deletingWorktree
+                      ? "Deleting..."
+                      : "Delete"}
+                </Btn>
+              )}
+            </>
+          }
         >
-          <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-            Delete worktree &ldquo;{selectedWorktree.name}&rdquo;?
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 13, color: "var(--text)" }}>
+                Delete worktree &ldquo;{selectedWorktree.name}&rdquo;?
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                Mission Control will remove this worktree folder. The branch is kept.
+              </div>
+            </div>
+            <div
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                background: "var(--surface-0)",
+                padding: "9px 11px",
+                fontFamily: "var(--mono)",
+                fontSize: 11.5,
+                color: "var(--text-dim)",
+                lineHeight: 1.45,
+                wordBreak: "break-all",
+              }}
+            >
+              {selectedWorktree.path}
+            </div>
+
+            {selectedWorktreeStatusPending && (
+              <div
+                role="status"
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  background: "var(--surface-0)",
+                  padding: "9px 11px",
+                  color: "var(--text-dim)",
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                Checking for uncommitted changes before delete is enabled.
+              </div>
+            )}
+
+            {selectedWorktreeDirty && (
+              <>
+                <div
+                  style={{
+                    border: "1px solid color-mix(in srgb, var(--status-failed) 45%, transparent)",
+                    borderRadius: 8,
+                    background: "color-mix(in srgb, var(--status-failed) 10%, transparent)",
+                    padding: "10px 12px",
+                    color: "var(--text)",
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  This worktree has {worktreeChangeLabel(selectedWorktreeChangeCount)}.
+                  Review them, stash them before deletion, or type the worktree name to discard them.
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: 8,
+                  }}
+                >
+                  <WorktreeChangeStat
+                    label="Staged"
+                    count={gitStatus?.staged.length ?? 0}
+                  />
+                  <WorktreeChangeStat
+                    label="Unstaged"
+                    count={gitStatus?.unstaged.length ?? 0}
+                  />
+                </div>
+                {worktreeChangedFiles.length > 0 && (
+                  <div
+                    role="region"
+                    aria-label="Changed files in worktree"
+                    style={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      background: "var(--surface-0)",
+                      maxHeight: WORKTREE_DELETE_FILES_MAX_HEIGHT,
+                      overflowX: "hidden",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {worktreeChangedFiles.map((file, index) => (
+                      <div
+                        key={`${file.area}:${file.status}:${file.path}:${index}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "92px minmax(0, 1fr)",
+                          gap: 10,
+                          padding: "7px 10px",
+                          borderTop: index === 0 ? 0 : "1px solid var(--border)",
+                          fontFamily: "var(--mono)",
+                          fontSize: 11,
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        <span style={{ color: "var(--text-faint)" }}>
+                          {formatWorktreeChangeStatus(file.area, file.status)}
+                        </span>
+                        <span style={{ color: "var(--text-dim)", wordBreak: "break-all" }}>
+                          {file.path}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <TextField
+                  label="Discard confirmation"
+                  value={worktreeDeleteConfirmName}
+                  onChange={setWorktreeDeleteConfirmName}
+                  placeholder={selectedWorktree.name}
+                  mono
+                  hint={`Type ${selectedWorktree.name} to enable Discard and delete.`}
+                  ariaLabel={`Type ${selectedWorktree.name} to discard changes and delete the worktree`}
+                />
+              </>
+            )}
           </div>
-          <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
-            Mission Control will remove the worktree directory at {selectedWorktree.path}. The
-            branch is kept. If this worktree has uncommitted changes, deletion will be blocked.
-          </div>
-        </ConfirmDialog>
+        </Modal>
       )}
 
       <LaunchCommandsDialog
@@ -2597,6 +2892,43 @@ function ProjectGitStatusButton({
         </span>
       </Btn>
     </HotkeyTooltip>
+  );
+}
+
+function WorktreeChangeStat({ label, count }: { label: string; count: number }) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--surface-0)",
+        padding: "9px 10px",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--mono)",
+          fontSize: 10.5,
+          color: "var(--text-faint)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 3,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--mono)",
+          fontSize: 16,
+          fontWeight: 650,
+          color: "var(--text)",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {count}
+      </div>
+    </div>
   );
 }
 

@@ -233,6 +233,7 @@ export async function deleteWorktree(input: {
   projectId: string;
   worktreeId: string;
   force?: boolean;
+  stashChanges?: boolean;
 }): Promise<boolean> {
   const normalized = normalizeWorktreeId(input.worktreeId);
   if (!normalized) throw new Error("main worktree cannot be deleted");
@@ -245,16 +246,25 @@ export async function deleteWorktree(input: {
   const expectedPath = resolveWorktreePath(projectRoot, row.name);
   const worktreePath = path.resolve(row.path);
   if (worktreePath !== expectedPath) throw new Error("worktree path is invalid");
-  const dirty = await gitOk(worktreePath, ["status", "--porcelain"]).catch((e) => {
-    throw e;
-  });
+  const dirty = await gitOk(worktreePath, ["status", "--porcelain"]);
   const info = toInfo(row);
-  if (dirty.trim() && !input.force) throw new WorktreeDirtyError(info);
+  const isDirty = dirty.trim().length > 0;
+  if (isDirty && input.stashChanges) {
+    await gitOk(worktreePath, [
+      "stash",
+      "push",
+      "-u",
+      "-m",
+      `Mission Control backup before deleting worktree ${row.name}`,
+    ]);
+  } else if (isDirty && !input.force) {
+    throw new WorktreeDirtyError(info);
+  }
 
   await gitOk(projectRoot, [
     "worktree",
     "remove",
-    ...(input.force ? ["--force"] : []),
+    ...(input.force || input.stashChanges ? ["--force"] : []),
     worktreePath,
   ]);
   await fs.promises.rm(worktreePath, { recursive: true, force: true });
