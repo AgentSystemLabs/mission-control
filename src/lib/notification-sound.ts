@@ -1,4 +1,4 @@
-export const NOTIFICATION_DING_SRC = "/audio/notification-ding.wav";
+export const NOTIFICATION_DING_SRC = "/audio/chime.mp3";
 
 const NOTIFICATION_DING_VOLUME = 0.35;
 

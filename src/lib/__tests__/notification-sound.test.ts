@@ -12,7 +12,7 @@ describe("playNotificationDing", () => {
 
   it("uses the notification ding asset path", async () => {
     const { NOTIFICATION_DING_SRC } = await import("~/lib/notification-sound");
-    expect(NOTIFICATION_DING_SRC).toBe("/audio/notification-ding.wav");
+    expect(NOTIFICATION_DING_SRC).toBe("/audio/chime.mp3");
   });
 
   it("does not play when disabled", async () => {

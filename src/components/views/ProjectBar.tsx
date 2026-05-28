@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
 import { toast } from "sonner";
-import { useProjects, useSettings, queryKeys } from "~/queries";
+import { useGroups, useProjects, useSettings, queryKeys } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
+import type { Group } from "~/db/schema";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
+import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { TASK_STATUS_META } from "~/shared/domain";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { useServerEvents } from "~/lib/use-events";
@@ -34,12 +38,28 @@ export function ProjectBar() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: projects } = useProjects();
+  const { data: groups = [] } = useGroups();
   const { data: settings } = useSettings();
   const { hasRunningLaunchForProject } = useUserTerminals();
   const minimal = settings?.minimalTheme ?? false;
   const invalidateProjects = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
     [queryClient]
+  );
+  const invalidateProject = useCallback(
+    (id: string) => queryClient.invalidateQueries({ queryKey: queryKeys.project(id) }),
+    [queryClient]
+  );
+  const createGroupForSelection = useCallback(
+    async (name: string) => {
+      const { group } = await api.createGroup({ name });
+      queryClient.setQueryData<Group[]>(queryKeys.groups, (current) =>
+        current ? [...current, group] : [group],
+      );
+      await queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+      return group;
+    },
+    [queryClient],
   );
   const sortedPinned = useMemo(() => getPinnedProjects(projects ?? []), [projects]);
   const pinnedById = useMemo(
@@ -57,6 +77,7 @@ export function ProjectBar() {
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
     null
   );
+  const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
   const [reorderSaving, setReorderSaving] = useState(false);
   const pointerReorderRef = useRef<PointerReorderState | null>(null);
@@ -276,8 +297,6 @@ export function ProjectBar() {
   const IDLE_ITEM_WIDTH = ITEM_HEIGHT;
   const ITEM_RADIUS = minimal ? 9 : 10;
   const HOTKEY_BADGE_RADIUS = minimal ? 0 : 4;
-  const MENU_RADIUS = minimal ? 0 : 6;
-  const MENU_ITEM_RADIUS = minimal ? 0 : 4;
   const activeProject = activeIndex >= 0 ? pinned[activeIndex] : null;
   const activeStatusDots = activeProject
     ? getPinnedProjectStatusDots(activeProject.taskCounts)
@@ -285,7 +304,10 @@ export function ProjectBar() {
   const activeItemWidth =
     activeProject && activeStatusDots.length > 0 ? ITEM_WIDTH : IDLE_ITEM_WIDTH;
 
+  const menuProject = menu ? pinnedById.get(menu.id) ?? null : null;
+
   return (
+    <>
     <CardFrame
       ref={barRef}
       glow
@@ -543,57 +565,73 @@ export function ProjectBar() {
           </button>
         );
       })}
-      {menu && (
-        <div
-          role="menu"
-          aria-label={`${menu.name} actions`}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            top: menu.y,
-            left: menu.x,
-            zIndex: 1000,
-            background: "var(--surface-2)",
-            border: "1px solid var(--border)",
-            borderRadius: MENU_RADIUS,
-            padding: 4,
-            minWidth: 140,
-            boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
-          }}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            autoFocus
-            onClick={async (e) => {
-              e.stopPropagation();
-              const id = menu.id;
-              setMenu(null);
-              await api.togglePin(id);
-              await invalidateProjects();
-            }}
+      {menu &&
+        createPortal(
+          <CardFrame
+            role="menu"
+            aria-label={`${menu.name} actions`}
+            solid
+            className="mc-project-actions-menu"
+            onClick={(e) => e.stopPropagation()}
             style={{
+              position: "fixed",
+              top: menu.y,
+              left: menu.x,
+              minWidth: 196,
+              padding: 8,
               display: "flex",
-              alignItems: "center",
-              gap: 8,
-              width: "100%",
-              padding: "7px 10px",
-              background: "transparent",
-              border: 0,
-              borderRadius: MENU_ITEM_RADIUS,
-              cursor: "pointer",
-              color: "var(--text)",
-              fontSize: 12,
-              fontFamily: "var(--mono)",
-              textAlign: "left",
+              flexDirection: "column",
+              alignItems: "stretch",
+              gap: 4,
+              boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
+              zIndex: 10000,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
           >
-            <Icon name="pin" size={12} /> Unpin
-          </button>
-        </div>
-      )}
+            <Btn
+              variant="ghost"
+              icon="settings"
+              autoFocus
+              onClick={() => {
+                if (!menuProject) return;
+                setMenu(null);
+                setEditingProject(menuProject);
+              }}
+              style={{ justifyContent: "flex-start" }}
+            >
+              Edit project
+            </Btn>
+            <Btn
+              variant="ghost"
+              icon="pin-fill"
+              onClick={async () => {
+                const id = menu.id;
+                setMenu(null);
+                await api.togglePin(id);
+                await Promise.all([invalidateProjects(), invalidateProject(id)]);
+              }}
+              style={{ justifyContent: "flex-start" }}
+            >
+              Unpin project
+            </Btn>
+          </CardFrame>,
+          document.body,
+        )}
     </CardFrame>
+    {editingProject && (
+      <ProjectDialog
+        open
+        project={editingProject}
+        groups={groups}
+        onCreateGroup={createGroupForSelection}
+        onClose={() => setEditingProject(null)}
+        onSave={async (data) => {
+          const projectId = editingProject.id;
+          await api.updateProject(projectId, data);
+          setEditingProject(null);
+          await Promise.all([invalidateProjects(), invalidateProject(projectId)]);
+        }}
+      />
+    )}
+    </>
   );
 }
