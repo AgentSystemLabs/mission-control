@@ -22,3 +22,6 @@ artifacts/
 
 .openai-key
 .license-key
+
+# Local dev SQLite store + app state (isolated from the installed app's DB)
+.dev-userdata/

@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "~/db/schema";
 import {
+  archivedSessionsEligibleForReap,
   commandForTask,
   nextActiveTaskId,
   resolveActiveTaskIdForProject,
+  type OpenTerminal,
 } from "../terminal-store";
 
 vi.mock("../api", () => ({
@@ -184,5 +186,64 @@ describe("resolveActiveTaskIdForProject", () => {
     expect(
       resolveActiveTaskIdForProject({ "project-1": "legacy-task" }, "project-1"),
     ).toEqual({ scopeKey: "project-1:main", taskId: "legacy-task" });
+  });
+});
+
+describe("archivedSessionsEligibleForReap", () => {
+  const openTerminal = (opts: {
+    taskId: string;
+    projectId?: string;
+    worktreeId?: string | null;
+    archived: boolean;
+  }): OpenTerminal => ({
+    taskId: opts.taskId,
+    ptyId: null,
+    startCommand: "",
+    dangerouslySkipPermissions: false,
+    cwd: "/tmp",
+    project: {
+      id: opts.projectId ?? "project-1",
+      activeWorktreeId: opts.worktreeId ?? null,
+    } as OpenTerminal["project"],
+    task: { id: opts.taskId, archived: opts.archived } as OpenTerminal["task"],
+  });
+
+  it("reaps an archived session that is not the active selection", () => {
+    const sessions = [openTerminal({ taskId: "a", archived: true })];
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": null })).toEqual([
+      "a",
+    ]);
+  });
+
+  it("keeps an archived session alive while it is the active selection", () => {
+    const sessions = [openTerminal({ taskId: "a", archived: true })];
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": "a" })).toEqual([]);
+  });
+
+  it("never reaps a non-archived session even when it is unselected", () => {
+    const sessions = [openTerminal({ taskId: "a", archived: false })];
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": null })).toEqual([]);
+  });
+
+  it("checks the active selection in the session's own worktree scope", () => {
+    const sessions = [
+      openTerminal({ taskId: "a", worktreeId: "worktree-a", archived: true }),
+    ];
+    // "a" is the active task in the main scope, but this session lives in the
+    // worktree scope where nothing is selected, so it is still reaped.
+    expect(
+      archivedSessionsEligibleForReap(sessions, { "project-1:main": "a" }),
+    ).toEqual(["a"]);
+  });
+
+  it("returns only the unselected archived sessions", () => {
+    const sessions = [
+      openTerminal({ taskId: "a", archived: true }),
+      openTerminal({ taskId: "b", archived: true }),
+      openTerminal({ taskId: "c", archived: false }),
+    ];
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": "b" })).toEqual([
+      "a",
+    ]);
   });
 });

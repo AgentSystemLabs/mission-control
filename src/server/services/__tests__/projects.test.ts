@@ -14,6 +14,7 @@ process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
 const {
   listProjects,
   createProject,
+  getProject,
   togglePin,
   reorderPinnedProjects,
   deleteProject,
@@ -22,7 +23,7 @@ const {
   ProjectCapExceededError,
 } = await import("../projects");
 const { getDb } = await import("~/db/client");
-const { projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
+const { projects, tasks, groups, appSettings, worktrees, sandboxes } = await import("~/db/schema");
 const { setLicenseKey, clearLicense } = await import("../license-storage");
 const { FREE_PROJECT_CAP } = await import("~/shared/license");
 
@@ -131,6 +132,43 @@ describe("projects service", () => {
     const repinned = togglePin(b.id);
     expect(repinned?.pinned).toBe(true);
     expect(repinned?.pinnedOrder).toBe(1);
+  });
+
+  it("reorders pinned projects independently per sandbox scope", () => {
+    setLicenseKey(signedLicense());
+    const db = getDb();
+    const sandboxId = "sb-test";
+    const now = Date.now();
+    db.insert(sandboxes)
+      .values({
+        id: sandboxId,
+        name: "Test sandbox",
+        kind: "local-docker",
+        color: null,
+        imageTag: null,
+        dockerfilePath: null,
+        buildArgs: null,
+        gitAuthMode: "none",
+        declaredPorts: null,
+        env: null,
+        hostAgentPort: null,
+        portMap: null,
+        pairingToken: null,
+        remoteConfig: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const dirLocal = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-local-"));
+    const dirSandbox = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-sandbox-"));
+    const local = createProject({ name: "local", path: dirLocal, sandboxId: null });
+    const sandbox = createProject({ name: "sandbox", path: dirSandbox, sandboxId });
+    togglePin(local.id);
+    togglePin(sandbox.id);
+    expect(() => reorderPinnedProjects([sandbox.id])).not.toThrow();
+    expect(() => reorderPinnedProjects([local.id])).not.toThrow();
+    expect(getProject(local.id)?.pinnedOrder).toBe(0);
+    expect(getProject(sandbox.id)?.pinnedOrder).toBe(0);
   });
 
   it("persists pinned reorder across reads", () => {

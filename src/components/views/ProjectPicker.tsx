@@ -14,7 +14,7 @@ import type { TaskStatus } from "~/shared/domain";
 import { useServerEvents } from "~/lib/use-events";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import { queryKeys, useGroups, useProjects } from "~/queries";
+import { queryKeys, useGroups, useProjects, useScopedProjects } from "~/queries";
 import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
 
 function DotCount({ status, count, size }: { status: TaskStatus; count: number; size: number }) {
@@ -62,7 +62,8 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const queryClient = useQueryClient();
   const { hasRunningLaunchForProject } = useUserTerminals();
   const [open, setOpen] = useState(false);
-  const { data: projects } = useProjects();
+  const { data: allProjects } = useProjects();
+  const { data: projects } = useScopedProjects();
   const { data: groups = [] } = useGroups();
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -70,7 +71,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const current = projects?.find((p) => p.id === projectId) ?? null;
+  const current = allProjects?.find((p) => p.id === projectId) ?? null;
   const label = current?.name ?? "Project";
 
   const filtered = useMemo<ProjectWithCounts[]>(() => {
@@ -85,11 +86,11 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   const launchRunningProjectIds = useMemo(
     () =>
       new Set(
-        (projects ?? [])
+        (allProjects ?? [])
           .filter((project) => hasRunningLaunchForProject(project.id, project.launchCommands))
           .map((project) => project.id),
       ),
-    [projects, hasRunningLaunchForProject],
+    [allProjects, hasRunningLaunchForProject],
   );
 
   // Flat list of selectable items, in render order — drives keyboard nav indexing.

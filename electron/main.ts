@@ -13,6 +13,7 @@ import { IPC } from "./ipc-channels";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
+import { registerSandboxManager, disposeSandboxManager } from "./sandbox-manager";
 import {
   clearSessionTerminalDebugLogs,
   listSessionTerminalDebugLogs,
@@ -626,6 +627,7 @@ app.on("before-quit", () => {
   (app as any).isQuiting = true;
   killAllPtys();
   disposeAllFileWatchers();
+  disposeSandboxManager();
   disposeApiTokenStore();
   disposeAppSettingsStore();
   disposeProjectRootsDb();
@@ -639,6 +641,11 @@ app.whenReady().then(() => {
   configurePermissionHandlers();
   registerProjectImageProtocol();
   registerUpdateManager(ipcMain, () => win, missionControlUserDataDir);
+  registerSandboxManager(ipcMain, () => win, missionControlUserDataDir, app.getAppPath(), () =>
+    runtimePort
+      ? { port: runtimePort, token: getOrCreateApiToken(missionControlUserDataDir) }
+      : null,
+  );
   return createWindow();
 }).catch((err) => {
   console.error("[main] startup failed:", err);

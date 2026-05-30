@@ -30,9 +30,11 @@ import {
 } from "~/lib/terminal-replay";
 import { ApiError, api } from "~/lib/api";
 import { CLEAR_USER_TERMINAL_EVENT } from "~/lib/design-meta";
+import { isRemotePtyId } from "~/lib/pty-id";
+import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import type { UserTerminal } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
-import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
+import { HOSTED_WORKSPACE_ROOT, sandboxWorkspacePath } from "~/shared/hosted-workspace";
 
 // Pattern for the launch-URL detector (port capture group for dev-server URLs).
 const LOOPBACK_URL_BASE = String.raw`\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])`;
@@ -140,6 +142,15 @@ export function UserTerminalPane({
       const { Terminal, FitAddon } = await prefetchTerminalModules();
       if (cancelled || !containerRef.current) return;
 
+      // Sandbox shell terminals route to the in-container agent via `remotePty`
+      // (same method shape as the local PTY; only spawn differs). Read the setting
+      // fresh; default to host. The shell starts in the project's clone dir,
+      // derived from the host cwd's basename (matches the clone slug typically).
+      const useSandbox = !!electron && (await isDockerSandboxRuntime(electron));
+      if (cancelled) return;
+      const ptyApi = electron ? (useSandbox ? electron.remotePty : electron.pty) : null;
+      const sandboxCwd = sandboxWorkspacePath(cwd.split("/").filter(Boolean).pop() ?? "project");
+
       const term = new Terminal(
         createTerminalOptions({
           colorScheme: getTerminalColorScheme(),
@@ -169,6 +180,27 @@ export function UserTerminalPane({
       let electronReplayData: SequencedPtyData[] = [];
       let electronReplayExit: { ptyId: string; exitCode: number; signal?: number } | null =
         null;
+      // Sandbox spawns are fire-and-forget over the WS; if the agent never acks
+      // (spawned/output/exit), surface it instead of leaving the terminal blank.
+      const SANDBOX_SPAWN_ACK_MS = 12_000;
+      let spawnAckTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearSpawnAck = () => {
+        if (spawnAckTimer) {
+          clearTimeout(spawnAckTimer);
+          spawnAckTimer = null;
+        }
+      };
+      const armSpawnAck = (id: string) => {
+        clearSpawnAck();
+        spawnAckTimer = setTimeout(() => {
+          spawnAckTimer = null;
+          if (cancelled || activePtyId !== id) return;
+          term.writeln("");
+          term.writeln(
+            "\x1b[33m[sandbox isn't responding — the agent never acknowledged the terminal. Check the sandbox is connected, then reopen.]\x1b[0m",
+          );
+        }, SANDBOX_SPAWN_ACK_MS);
+      };
 
       const detachFileDrop = electron
         ? wireTerminalFileDrop({
@@ -209,8 +241,8 @@ export function UserTerminalPane({
         onPtyExit();
       };
       const resizeElectronPtyToSurface = (id: string) => {
-        if (!electron) return Promise.resolve(false);
-        return resizePtyToTerminal(term, (cols, rows) => electron.pty.resize(id, cols, rows));
+        if (!ptyApi) return Promise.resolve(false);
+        return resizePtyToTerminal(term, (cols, rows) => ptyApi.resize(id, cols, rows));
       };
       const resizeRemotePtyToSurface = (id: string) =>
         resizePtyToTerminal(term, (cols, rows) => api.resizeRemotePty(id, cols, rows));
@@ -227,21 +259,22 @@ export function UserTerminalPane({
       };
       const wireTerminalInput = (id: string) => {
         term.onData((data) => {
-          if (electron) electron.pty.write(id, data);
+          if (ptyApi) ptyApi.write(id, data);
           else void api.writeRemotePty(id, data);
         });
         term.onResize(({ cols, rows }) => {
           const ptySize = normalizePtySize({ cols, rows });
-          if (electron) electron.pty.resize(id, ptySize.cols, ptySize.rows);
+          if (ptyApi) ptyApi.resize(id, ptySize.cols, ptySize.rows);
           else void api.resizeRemotePty(id, ptySize.cols, ptySize.rows);
         });
       };
       const wireElectronPty = (id: string) => {
-        if (!electron) return;
+        if (!ptyApi) return;
         activePtyId = id;
         subscriptions.push(
-          electron.pty.onData((msg) => {
+          ptyApi.onData((msg) => {
             if (msg.ptyId === id) {
+              clearSpawnAck(); // the agent is alive
               if (electronReplayPtyId === id) {
                 electronReplayData.push(sequencedPtyData(msg.seq, msg.data));
                 return;
@@ -250,8 +283,9 @@ export function UserTerminalPane({
               detectLaunchUrl(msg.data);
             }
           }),
-          electron.pty.onExit((msg) => {
+          ptyApi.onExit((msg) => {
             if (msg.ptyId === id) {
+              clearSpawnAck();
               if (electronReplayPtyId === id) {
                 electronReplayExit = msg;
                 return;
@@ -260,10 +294,23 @@ export function UserTerminalPane({
             }
           })
         );
+        if (electron && useSandbox) {
+          subscriptions.push(
+            electron.remotePty.onSpawnError((msg) => {
+              if (msg.ptyId !== id) return;
+              clearSpawnAck();
+              term.writeln("");
+              term.writeln(
+                `\x1b[31m[sandbox spawn failed (${msg.code})${msg.message ? `: ${msg.message}` : ""}]\x1b[0m`,
+              );
+              handleExit(undefined);
+            }),
+          );
+        }
         wireTerminalInput(id);
       };
       const replayExistingElectronPty = async (id: string) => {
-        if (!electron) return;
+        if (!ptyApi) return;
         electronReplayPtyId = id;
         electronReplayData = [];
         electronReplayExit = null;
@@ -272,7 +319,7 @@ export function UserTerminalPane({
 
         let replay: PtyReplaySnapshot = { data: "", nextSeq: 0 };
         try {
-          replay = await electron.pty.replay(id);
+          replay = await ptyApi.replay(id);
         } finally {
           if (electronReplayPtyId === id) {
             electronReplayPtyId = null;
@@ -373,12 +420,16 @@ export function UserTerminalPane({
           fitTerminalSurface(term, fit);
 
           if (ptyId) {
-            if (electron) {
-              await replayExistingElectronPty(ptyId);
+            if (useSandbox && electron && !isRemotePtyId(ptyId)) {
+              await electron.pty.kill(ptyId).catch(() => undefined);
             } else {
-              await wireRemotePty(ptyId);
+              if (electron) {
+                await replayExistingElectronPty(ptyId);
+              } else {
+                await wireRemotePty(ptyId);
+              }
+              return;
             }
-            return;
           }
 
           if (!electron) {
@@ -386,34 +437,45 @@ export function UserTerminalPane({
             term.writeln("\x1b[36m[starting cloud workspace...]\x1b[0m");
           }
           const ptySize = normalizePtySize({ cols: term.cols, rows: term.rows });
-          const { ptyId: newId } = electron
-            ? await electron.pty.spawn({
-                taskId: terminal.id,
-                cwd,
-                command: terminal.startCommand ?? "",
-                cols: ptySize.cols,
-                rows: ptySize.rows,
-                // User-shell terminal: opts into the shell branch so the main
-                // process is willing to interpret `startCommand` through `sh -l -c`.
-                // Agent terminals (TerminalPane.tsx) leave this unset, which forces
-                // the allow-listed direct-argv spawn path instead.
-                shell: true,
-              })
-            : await api.createRemotePty({
+          const { ptyId: newId } = !electron
+            ? await api.createRemotePty({
                 projectId: terminal.projectId,
                 cwd: cwd || HOSTED_WORKSPACE_ROOT,
                 command: terminal.startCommand ?? "",
                 cols: ptySize.cols,
                 rows: ptySize.rows,
-              });
+              })
+            : useSandbox
+              ? await electron.remotePty.spawn({
+                  taskId: terminal.id,
+                  cwd: sandboxCwd, // in-container clone dir
+                  command: terminal.startCommand ?? "",
+                  cols: ptySize.cols,
+                  rows: ptySize.rows,
+                  shell: true,
+                })
+              : await electron.pty.spawn({
+                  taskId: terminal.id,
+                  cwd,
+                  command: terminal.startCommand ?? "",
+                  cols: ptySize.cols,
+                  rows: ptySize.rows,
+                  // User-shell terminal: opts into the shell branch so the main
+                  // process is willing to interpret `startCommand` through `sh -l -c`.
+                  // Agent terminals (TerminalPane.tsx) leave this unset, which forces
+                  // the allow-listed direct-argv spawn path instead.
+                  shell: true,
+                });
           if (cancelled) {
-            if (electron) await electron.pty.kill(newId).catch(() => undefined);
+            if (ptyApi) await ptyApi.kill(newId).catch(() => undefined);
             else await api.killRemotePty(newId).catch(() => undefined);
             return;
           }
           onPtyReady(newId);
-          if (electron) wireElectronPty(newId);
-          else await wireRemotePty(newId);
+          if (electron) {
+            if (useSandbox) armSpawnAck(newId); // surfaces a stuck/never-acked sandbox spawn
+            wireElectronPty(newId);
+          } else await wireRemotePty(newId);
         } catch (err: any) {
           const message = remoteStartErrorMessage(err);
           setStartError(message);
@@ -431,6 +493,7 @@ export function UserTerminalPane({
 
       cleanup = () => {
         cancelAnimationFrame(rafHandle);
+        clearSpawnAck();
         focusEl.removeEventListener("focusin", onFocusIn);
         detachFileDrop();
         detachLinks();

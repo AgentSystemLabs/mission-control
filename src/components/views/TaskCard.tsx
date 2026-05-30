@@ -3,6 +3,7 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { SessionIcon } from "~/components/ui/SessionIcon";
 import { useDiagrams } from "~/lib/use-diagram-events";
@@ -15,14 +16,22 @@ export function TaskCard({
   task,
   selected,
   onToggle,
+  onArchive,
+  onRestore,
   onDelete,
 }: {
   task: Task;
   selected: boolean;
   onToggle: (taskId: string) => void;
+  /** Archive an active session (soft, no confirmation, kills the tty). */
+  onArchive?: (taskId: string) => void;
+  /** Restore an archived session back to the active list. */
+  onRestore?: (taskId: string) => void;
+  /** Permanently delete a session (confirmed, irreversible). */
   onDelete?: (taskId: string) => void;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const { hasDiagram, openDiagram } = useDiagrams();
   const taskHasDiagram = hasDiagram(task.id);
@@ -30,6 +39,11 @@ export function TaskCard({
   const meta = AGENT_META[task.agent];
   const statusMeta = STATUS_META[task.status];
   const isRunning = task.status === "running";
+
+  // Archived sessions are parked (their tty was killed on archive), but the
+  // card is still openable: clicking it reloads/resumes the session terminal.
+  // The top-right actions swap delete → restore + permanent delete.
+  const archived = task.archived;
 
   const sentinel = isSentinelTitle(task.title);
   const sessionIcon = isSessionIcon(task.icon) ? task.icon : DEFAULT_SESSION_ICON;
@@ -211,8 +225,8 @@ export function TaskCard({
           </div>
         </div>
 
-        {/* Top-right delete */}
-        {onDelete && (
+        {/* Top-right session actions */}
+        {(onArchive || onRestore || onDelete) && (
           <div
             style={{
               position: "absolute",
@@ -220,22 +234,68 @@ export function TaskCard({
               right: 10,
               display: "flex",
               alignItems: "center",
+              gap: 6,
               pointerEvents: "auto",
               zIndex: 3,
             }}
           >
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="trash"
-              aria-label={`Delete ${task.title}`}
-              title="Delete session"
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirmOpen(true);
-              }}
-              style={{ width: 30, height: 30, padding: 0 }}
-            />
+            {archived && onRestore && (
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon="refresh"
+                aria-label={`Restore ${task.title}`}
+                title="Restore session"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRestore(task.id);
+                }}
+                style={{ width: 30, height: 30, padding: 0 }}
+              />
+            )}
+            {!archived && onArchive && (
+              <HotkeyTooltip
+                action="session.closeWindow"
+                label="Archive session"
+                disabled={!selected}
+              >
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  icon="archive"
+                  aria-label={`Archive ${task.title}`}
+                  title={selected ? undefined : "Archive session"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Running sessions lose the live terminal + agent on
+                    // archive, so confirm first; parked ones archive silently.
+                    if (isRunning) setConfirmArchiveOpen(true);
+                    else onArchive(task.id);
+                  }}
+                  style={{ width: 30, height: 30, padding: 0 }}
+                />
+              </HotkeyTooltip>
+            )}
+            {onDelete && (
+              <HotkeyTooltip
+                action="session.closeWindow"
+                label="Delete session"
+                disabled={!selected}
+              >
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  icon="trash"
+                  aria-label={`Delete ${task.title}`}
+                  title={selected ? undefined : "Delete session"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmOpen(true);
+                  }}
+                  style={{ width: 30, height: 30, padding: 0 }}
+                />
+              </HotkeyTooltip>
+            )}
           </div>
         )}
 
@@ -286,6 +346,33 @@ export function TaskCard({
         )}
 
       </div>
+
+      {onArchive && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <ConfirmDialog
+            open={confirmArchiveOpen}
+            onClose={() => setConfirmArchiveOpen(false)}
+            onConfirm={() => {
+              onArchive(task.id);
+              setConfirmArchiveOpen(false);
+            }}
+            title="Archive running session?"
+            confirmLabel="Archive"
+            variant="danger"
+            icon="archive"
+            width={420}
+          >
+            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+              &ldquo;{task.title}&rdquo; is still running.
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              Archiving disconnects its terminal and stops the in-progress agent.
+              You can restore the session later, but the current run won&rsquo;t
+              resume.
+            </div>
+          </ConfirmDialog>
+        </div>
+      )}
 
       {onDelete && (
         <div onClick={(e) => e.stopPropagation()}>

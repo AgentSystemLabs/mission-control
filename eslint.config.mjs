@@ -10,6 +10,7 @@ export default tseslint.config(
       "artifacts/**",
       "build/**",
       "dist/**",
+      "mc-agent/dist/**",
       "dist-electron/**",
       "dist-electron-out/**",
       "dist-server/**",

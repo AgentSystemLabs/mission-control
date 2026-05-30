@@ -15,6 +15,15 @@ export function findProjectIds(): { id: string }[] {
   return getDb().select({ id: projects.id }).from(projects).all();
 }
 
+export function findProjectIdsBySandboxId(sandboxId: string): string[] {
+  return getDb()
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.sandboxId, sandboxId))
+    .all()
+    .map((row) => row.id);
+}
+
 export function findProjectNameById(id: string): string | null {
   const row = getDb()
     .select({ name: projects.name })

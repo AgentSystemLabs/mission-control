@@ -46,6 +46,46 @@ describe("terminal clipboard chords", () => {
     ).toBe("paste");
   });
 
+  it("maps plain Ctrl+C to copy only when a selection exists", () => {
+    const event = keyEvent({ ctrlKey: true, code: "KeyC", key: "c" });
+
+    expect(terminalClipboardAction(event, { hasSelection: true })).toBe("copy");
+    expect(terminalClipboardAction(event, { hasSelection: false })).toBeNull();
+  });
+
+  it("suppresses plain Ctrl+C follow-up events after the keydown path", () => {
+    expect(
+      terminalClipboardAction(
+        keyEvent({ type: "keypress", ctrlKey: true, code: "KeyC", key: "c" }),
+        { hasSelection: false },
+      ),
+    ).toBe("copy");
+    expect(
+      terminalClipboardAction(
+        keyEvent({ type: "keyup", ctrlKey: true, code: "KeyC", key: "c" }),
+        { hasSelection: false },
+      ),
+    ).toBe("copy");
+  });
+
+  it("maps plain Ctrl+V to paste", () => {
+    expect(terminalClipboardAction(keyEvent({ ctrlKey: true, code: "KeyV", key: "v" }))).toBe(
+      "paste",
+    );
+  });
+
+  it("maps Cmd+C with selection and Cmd+V for macOS", () => {
+    expect(terminalClipboardAction(keyEvent({ metaKey: true, code: "KeyC", key: "c" }))).toBeNull();
+    expect(
+      terminalClipboardAction(keyEvent({ metaKey: true, code: "KeyC", key: "c" }), {
+        hasSelection: true,
+      }),
+    ).toBe("copy");
+    expect(terminalClipboardAction(keyEvent({ metaKey: true, code: "KeyV", key: "v" }))).toBe(
+      "paste",
+    );
+  });
+
   it("maps Ctrl+Insert to copy and Shift+Insert to paste", () => {
     expect(terminalClipboardAction(keyEvent({ ctrlKey: true, key: "Insert", code: "Insert" }))).toBe(
       "copy",
@@ -63,14 +103,8 @@ describe("terminal clipboard chords", () => {
     ).toBe("copy");
   });
 
-  it("leaves macOS Cmd+C / Cmd+V to the OS menu (metaKey excluded)", () => {
-    expect(terminalClipboardAction(keyEvent({ metaKey: true, code: "KeyC", key: "c" }))).toBeNull();
-    expect(terminalClipboardAction(keyEvent({ metaKey: true, code: "KeyV", key: "v" }))).toBeNull();
-  });
-
-  it("does not hijack plain Ctrl+C (SIGINT) or plain Ctrl+V (quoted insert)", () => {
+  it("does not hijack plain Ctrl+C without selection", () => {
     expect(terminalClipboardAction(keyEvent({ ctrlKey: true, code: "KeyC", key: "c" }))).toBeNull();
-    expect(terminalClipboardAction(keyEvent({ ctrlKey: true, code: "KeyV", key: "v" }))).toBeNull();
   });
 
   it("ignores Ctrl+Shift with other letters and Alt combos", () => {

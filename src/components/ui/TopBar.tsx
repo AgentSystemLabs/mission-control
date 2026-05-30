@@ -93,7 +93,9 @@ export function TopBar({
             />
             <span style={{ color: "var(--accent)" }}>Control</span>
           </span>
-          {leading && (
+        </button>
+        {leading && (
+          <>
             <span
               aria-hidden
               style={{
@@ -102,9 +104,18 @@ export function TopBar({
                 background: "var(--border-strong)",
               }}
             />
-          )}
-          {leading}
-        </button>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                pointerEvents: "auto",
+                ["WebkitAppRegion" as any]: "no-drag",
+              }}
+            >
+              {leading}
+            </span>
+          </>
+        )}
         {crumbs && crumbs.length > 0 && (
           <>
             <Icon name="chevron-right" size={11} style={{ color: "var(--text-faint)" }} />

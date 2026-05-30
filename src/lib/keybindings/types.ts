@@ -52,8 +52,9 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "terminal.cycleNext": { label: "Next terminal tab", description: "Switch to the next terminal tab." },
   "terminal.cyclePrev": { label: "Previous terminal tab", description: "Switch to the previous terminal tab." },
   "session.closeWindow": {
-    label: "Close session window",
-    description: "Close the focused session terminal tab when the panel is open.",
+    label: "Archive session",
+    description:
+      "Archive the open session (no confirmation). If it is already archived, permanently delete it instead.",
   },
   "session.clone": { label: "Clone session", description: "Duplicate the active agent session with the same settings." },
   "session.cycleNext": { label: "Next session", description: "Cycle to the next open session in the panel." },

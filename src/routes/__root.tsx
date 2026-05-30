@@ -29,8 +29,9 @@ import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
-import { apiTokenQueryOptions, useSettings, useProjects, useLicense } from "~/queries";
+import { apiTokenQueryOptions, useSettings, useScopedProjects, useLicense } from "~/queries";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
+import { ScopeDropdown } from "~/components/views/ScopeDropdown";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
 import {
   ACCENT_CACHE_KEY,
@@ -53,6 +54,7 @@ const SETTINGS_PANEL_IDS: readonly SettingsPanelId[] = [
   "defaults",
   "terminal",
   "theme",
+  "beta",
   "license",
   "keybindings",
   "session-debug",
@@ -230,7 +232,7 @@ function Shell() {
   }, [router]);
   useTheme();
   const { data: settings } = useSettings();
-  const { data: projects } = useProjects();
+  const { data: projects } = useScopedProjects();
   const { data: license } = useLicense();
   const { activeFor, close, deselect, setPtyId } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -477,7 +479,7 @@ function Shell() {
     const electron = getElectron();
     if (!electron) return;
     return electron.onCloseIntent(() => {
-      if (userTerminalPanelOpen && focusedUserTerminalId) {
+      if (userTerminalPanelOpen && focusedUserTerminalId && isUserTerminalXtermFocused()) {
         setCloseIntentTargetId(focusedUserTerminalId);
       }
     });
@@ -502,7 +504,12 @@ function Shell() {
         <TopBar
           crumbs={crumbs}
           onHome={goHome}
-          leading={<LicenseBadge />}
+          leading={
+            <>
+              <LicenseBadge />
+              <ScopeDropdown />
+            </>
+          }
           centerActions={<HeaderActionsSlot />}
           leadingInset={topBarLeadingInset}
           right={

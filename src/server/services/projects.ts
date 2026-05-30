@@ -184,6 +184,8 @@ export function createProject(input: {
   icon?: string;
   iconColor?: string;
   groupId?: string | null;
+  /** Scope to create the project in: a sandbox id, or null/undefined = Local. */
+  sandboxId?: string | null;
 }): Project {
   const localPath = validateWorkingDirectory(input.path ?? "");
 
@@ -207,6 +209,8 @@ export function createProject(input: {
     iconColor: input.iconColor || "#ff5a1f",
     imagePath: null,
     groupId: input.groupId ?? null,
+    // Inherits the scope the project was created in (Local when null/undefined).
+    sandboxId: input.sandboxId ?? null,
     pinned: false,
     pinnedOrder: null,
     branch,
@@ -267,7 +271,9 @@ export function updateProject(
       ? {
           pinned: rest.pinned,
           pinnedOrder: rest.pinned
-            ? rest.pinnedOrder ?? existing.pinnedOrder ?? nextPinnedOrder(findAllProjects())
+            ? rest.pinnedOrder ??
+              existing.pinnedOrder ??
+              nextPinnedOrder(projectsInScope(findAllProjects(), existing.sandboxId))
             : null,
         }
       : {}),
@@ -308,13 +314,19 @@ function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
   return cleaned.length === 0 ? null : JSON.stringify(cleaned);
 }
 
+function projectsInScope(all: readonly Project[], sandboxId: string | null): Project[] {
+  return all.filter((p) => p.sandboxId === sandboxId);
+}
+
 export function togglePin(id: string): Project | null {
   const togglePinned = getSqlite().transaction(() => {
     const existing = findProjectById(id);
     if (!existing) return null;
     const pinning = !existing.pinned;
     const now = Date.now();
-    const pinnedOrder = pinning ? nextPinnedOrder(findAllProjects()) : null;
+    const pinnedOrder = pinning
+      ? nextPinnedOrder(projectsInScope(findAllProjects(), existing.sandboxId))
+      : null;
     const next = { ...existing, pinned: pinning, pinnedOrder, updatedAt: now };
     updateProjectRow(id, { pinned: pinning, pinnedOrder, updatedAt: now });
     return next;
@@ -326,8 +338,11 @@ export function togglePin(id: string): Project | null {
 
 export function reorderPinnedProjects(order: string[]): ProjectWithCounts[] {
   const updatePinnedOrder = getSqlite().transaction(() => {
-    const all = findAllProjects();
-    const pinned = getPinnedProjects(all);
+    if (order.length === 0) return;
+    const anchor = findProjectById(order[0]!);
+    if (!anchor) throw new ValidationError("invalid pinned order");
+    const scoped = projectsInScope(findAllProjects(), anchor.sandboxId);
+    const pinned = getPinnedProjects(scoped);
     try {
       validatePinnedReorder(order, pinned);
     } catch (error) {

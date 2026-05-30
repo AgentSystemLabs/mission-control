@@ -12,6 +12,11 @@ export function TextField({
   type = "text",
   autoFocus,
   inputRef,
+  autoComplete,
+  spellCheck,
+  required,
+  ariaInvalid,
+  onBlur,
 }: {
   label?: string;
   hint?: string;
@@ -24,6 +29,11 @@ export function TextField({
   type?: string;
   autoFocus?: boolean;
   inputRef?: Ref<HTMLInputElement>;
+  autoComplete?: string;
+  spellCheck?: boolean;
+  required?: boolean;
+  ariaInvalid?: boolean;
+  onBlur?: () => void;
 }) {
   const generatedId = useId();
   const inputId = `mc-text-field-${generatedId}`;
@@ -65,6 +75,11 @@ export function TextField({
           autoFocus={autoFocus}
           ref={inputRef}
           aria-describedby={hintId}
+          autoComplete={autoComplete}
+          spellCheck={spellCheck}
+          required={required}
+          aria-invalid={ariaInvalid}
+          onBlur={onBlur}
           style={{
             flex: 1,
             background: "transparent",

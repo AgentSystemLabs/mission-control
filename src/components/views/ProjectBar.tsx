@@ -4,7 +4,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
 import { toast } from "sonner";
-import { useGroups, useProjects, useSettings, queryKeys } from "~/queries";
+import { useGroups, useSandboxes, useScopedProjects, useSettings, queryKeys } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
 import type { Group } from "~/db/schema";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -37,7 +37,8 @@ type PointerReorderState = {
 export function ProjectBar() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data: projects } = useProjects();
+  const { data: projects } = useScopedProjects();
+  const { data: sandboxState } = useSandboxes();
   const { data: groups = [] } = useGroups();
   const { data: settings } = useSettings();
   const { hasRunningLaunchForProject } = useUserTerminals();
@@ -91,6 +92,13 @@ export function ProjectBar() {
   pinnedIdsRef.current = pinned.map((project) => project.id);
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
+
+  useEffect(() => {
+    setDragOrder(null);
+    dragOrderRef.current = null;
+    setDraggingProjectId(null);
+    setMenu(null);
+  }, [sandboxState?.activeScopeId, sandboxState?.enabled]);
   useServerEvents(
     useCallback(
       (e) => {

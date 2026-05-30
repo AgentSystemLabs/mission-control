@@ -2,6 +2,7 @@ import type { Project, UserTerminal } from "~/db/schema";
 import { newClientId } from "~/shared/client-id";
 import { getElectron } from "~/lib/electron";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
+import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { normalizePtySize } from "~/shared/pty-size";
 
 type ScopedProject = Project & { activeWorktreeId?: string | null };
@@ -82,6 +83,10 @@ export async function prepareUserTerminalWarmSlot(input: {
 }): Promise<UserTerminalWarmSlot | null> {
   const electron = getElectron();
   if (!electron || !input.cwd) return null;
+  if (await isDockerSandboxRuntime(electron)) {
+    await discardUserTerminalWarmSlotQuiet();
+    return null;
+  }
 
   const signature = userTerminalWarmSignature(input.cwd);
   if (warmSlot?.signature === signature) return warmSlot;

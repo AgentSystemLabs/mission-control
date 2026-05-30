@@ -20,6 +20,7 @@ function makeScopedProject(
     iconColor: "#ffffff",
     imagePath: null,
     groupId: null,
+    sandboxId: null,
     pinned: false,
     pinnedOrder: pinnedOrder ?? null,
     branch: "main",

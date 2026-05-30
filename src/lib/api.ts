@@ -26,6 +26,7 @@ import type {
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
+import type { SandboxPublicView } from "~/shared/sandbox";
 import { getClientRuntime } from "~/lib/runtime";
 import { MISSION_CONTROL_RUNTIME_HEADER } from "~/shared/runtime";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
@@ -193,6 +194,7 @@ export const api = {
     icon?: string;
     iconColor?: string;
     groupId?: string | null;
+    sandboxId?: string | null;
   }) =>
     req<{ project: Project }>("/api/projects", {
       method: "POST",
@@ -227,6 +229,39 @@ export const api = {
     await req<void>(`/api/projects/${id}`, { method: "DELETE" });
     pruneStoredSessionFinishNotifications({ type: "project", projectId: id });
   },
+
+  // Sandboxes (isolated execution scopes). Desktop-only; on web this returns a
+  // disabled, empty state.
+  listSandboxes: () =>
+    req<{ sandboxes: SandboxPublicView[]; enabled: boolean; activeScopeId: string }>("/api/sandboxes"),
+  createSandbox: (body: {
+    name: string;
+    color?: string | null;
+    kind?: string;
+    remoteAgentUrl?: string;
+    apiKey?: string;
+  }) =>
+    req<{ sandbox: SandboxPublicView }>("/api/sandboxes", { method: "POST", body: JSON.stringify(body) }),
+  updateSandbox: (id: string, body: Record<string, unknown>) =>
+    req<{ sandbox: SandboxPublicView }>(`/api/sandboxes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteSandbox: async (id: string) => {
+    await req<void>(`/api/sandboxes/${id}`, { method: "DELETE" });
+  },
+  revealSandboxApiKey: (id: string) =>
+    req<{ apiKey: string }>(`/api/sandboxes/${id}/api-key`),
+  setActiveScope: (scopeId: string) =>
+    req<{ activeScopeId: string }>("/api/sandboxes/active", {
+      method: "PUT",
+      body: JSON.stringify({ scopeId }),
+    }),
+  setSandboxesEnabled: (enabled: boolean) =>
+    req<{ enabled: boolean }>("/api/sandboxes/enabled", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
 
   listWorktrees: (projectId: string) =>
     req<{ worktrees: WorktreeInfo[] }>(`/api/projects/${projectId}/worktrees`),

@@ -14,6 +14,7 @@ import {
 } from "~/queries";
 import { isWebDaytonaRuntime } from "~/lib/runtime";
 import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
+import { scopeToSandboxId } from "~/shared/sandbox";
 import type { Group } from "~/db/schema";
 
 type Ctx = {
@@ -79,8 +80,17 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
         onCreateGroup={createGroupForSelection}
         onSave={async (data) => {
           const { pendingImage, imagePath: _ignore, ...createBody } = data;
+          // New projects are created into the active scope (Local when the
+          // feature is off / Local is selected). Hosted (web) ignores this.
+          const sandboxState = queryClient.getQueryData<{
+            enabled: boolean;
+            activeScopeId: string;
+          }>(queryKeys.sandboxes);
+          const sandboxId = sandboxState?.enabled
+            ? scopeToSandboxId(sandboxState.activeScopeId)
+            : null;
           try {
-            const { project: created } = await api.createProject(createBody);
+            const { project: created } = await api.createProject({ ...createBody, sandboxId });
             if (pendingImage) {
               const electron = (await import("~/lib/electron")).getElectron();
               const result = await electron?.saveProjectImage({

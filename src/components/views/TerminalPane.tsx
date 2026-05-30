@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
@@ -9,6 +9,9 @@ import {
   STATUS_META,
 } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
+import { consumeIntentionalSessionClose } from "~/lib/intentional-session-close";
+import { isRemotePtyId } from "~/lib/pty-id";
+import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import {
   attachTerminalKeyHandler,
   wireTerminalFileDrop,
@@ -46,7 +49,7 @@ import {
 import { queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
-import { HOSTED_WORKSPACE_ROOT } from "~/shared/hosted-workspace";
+import { HOSTED_WORKSPACE_ROOT, sandboxWorkspacePath, workspaceSlug } from "~/shared/hosted-workspace";
 import { AGENT_REGISTRY } from "~/shared/agents";
 
 async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
@@ -60,6 +63,27 @@ async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>
   } catch {
     return undefined;
   }
+}
+
+function displayCloneRemote(remote: string): string {
+  try {
+    const url = new URL(remote);
+    if (
+      url.password ||
+      url.search ||
+      url.hash ||
+      ((url.protocol === "http:" || url.protocol === "https:") && url.username)
+    ) {
+      url.username = "";
+      url.password = "";
+      url.search = "";
+      url.hash = "";
+      return url.toString();
+    }
+  } catch {
+    // SCP-style SSH remotes don't parse as URLs and don't carry URL userinfo.
+  }
+  return remote;
 }
 
 export type TerminalDescriptor = {
@@ -100,6 +124,11 @@ export function TerminalPane({
   const [liveStatus, setLiveStatus] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [isSandboxTerminal, setIsSandboxTerminal] = useState(false);
+  // When a sandbox project's repo isn't cloned into the container yet, offer to
+  // clone it (remote detected from the host project) instead of opening empty.
+  const [cloneOffer, setCloneOffer] = useState<{ remote: string; slug: string } | null>(null);
+  const [cloning, setCloning] = useState(false);
   const {
     level: zoomLevel,
     fontSize: terminalFontSize,
@@ -135,6 +164,17 @@ export function TerminalPane({
       const { Terminal, FitAddon } = await prefetchTerminalModules();
       if (cancelled || !containerRef.current) return;
 
+      // Sandbox terminals (Terminal runtime = Docker sandbox) talk to the
+      // in-container agent via `remotePty`; host terminals use the local PTY.
+      // `remotePty` mirrors `pty`'s method shape, so only spawn differs below.
+      // Read the runtime setting fresh at terminal start; default to host.
+      const useSandbox = !!electron && (await isDockerSandboxRuntime(electron));
+      if (cancelled) return;
+      setIsSandboxTerminal(useSandbox);
+      const ptyApi = electron ? (useSandbox ? electron.remotePty : electron.pty) : null;
+      const sandboxPathName = project.path.split("/").filter(Boolean).pop() ?? project.name;
+      const sandboxCwd = sandboxWorkspacePath(sandboxPathName);
+
       const cursorColor = meta?.color;
       const term = new Terminal(
         createTerminalOptions({
@@ -166,6 +206,29 @@ export function TerminalPane({
       let fallbackRunningPosted = false;
       let promptCaptureBuffer = "";
       let promptTitlePosted = false;
+      // Sandbox spawns are fire-and-forget over the WS; if the agent never acks
+      // (spawned/output/exit), the terminal would otherwise sit blank forever.
+      // Arm a watchdog on spawn and clear it on the first sign of life.
+      const SANDBOX_SPAWN_ACK_MS = 12_000;
+      let spawnAckTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearSpawnAck = () => {
+        if (spawnAckTimer) {
+          clearTimeout(spawnAckTimer);
+          spawnAckTimer = null;
+        }
+      };
+      const armSpawnAck = (ptyId: string) => {
+        clearSpawnAck();
+        spawnAckTimer = setTimeout(() => {
+          spawnAckTimer = null;
+          if (cancelled || activePtyId !== ptyId) return;
+          const hint =
+            "sandbox isn't responding — the agent never acknowledged the terminal. Check the sandbox is connected, then retry.";
+          setStartError(hint);
+          setLiveStatus(hint);
+          term.writeln(`\x1b[33m[${hint}]\x1b[0m`);
+        }, SANDBOX_SPAWN_ACK_MS);
+      };
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
       });
@@ -246,6 +309,9 @@ export function TerminalPane({
           term.writeln(`\x1b[31m[${message}]\x1b[0m`);
           return;
         }
+        if (cancelled || consumeIntentionalSessionClose(descriptor.taskId)) {
+          return;
+        }
         void (async () => {
           try {
             await api.deleteTask(descriptor.taskId);
@@ -259,10 +325,11 @@ export function TerminalPane({
         })();
       };
 
-      if (electron) {
+      if (ptyApi) {
         subscriptions.push(
-          electron.pty.onData((msg) => {
+          ptyApi.onData((msg) => {
             if (activePtyId === msg.ptyId) {
+              clearSpawnAck(); // the agent is alive
               if (electronReplayPtyId === msg.ptyId) {
                 appendBoundedSequencedData(
                   electronReplayData,
@@ -282,8 +349,9 @@ export function TerminalPane({
             );
             pendingElectronData.set(msg.ptyId, chunks);
           }),
-          electron.pty.onExit((msg) => {
+          ptyApi.onExit((msg) => {
             if (activePtyId === msg.ptyId) {
+              clearSpawnAck();
               if (electronReplayPtyId === msg.ptyId) {
                 electronReplayExit = msg;
                 return;
@@ -296,9 +364,26 @@ export function TerminalPane({
         );
       }
 
+      // Remote spawns fail asynchronously via spawnError (the agent rejected the
+      // spawn — e.g. the agent binary isn't installed in the image). Surface it so
+      // the terminal doesn't just sit blank.
+      if (electron && useSandbox) {
+        subscriptions.push(
+          electron.remotePty.onSpawnError((msg) => {
+            if (activePtyId !== msg.ptyId) return;
+            clearSpawnAck();
+            const hint = `sandbox spawn failed (${msg.code})${msg.message ? `: ${msg.message}` : ""}`;
+            clearActivePty();
+            setStartError(hint);
+            setLiveStatus(hint);
+            term.writeln(`\x1b[31m[${hint}]\x1b[0m`);
+          })
+        );
+      }
+
       const resizeElectronPtyToSurface = (ptyId: string) => {
-        if (!electron) return Promise.resolve(false);
-        return resizePtyToTerminal(term, (cols, rows) => electron.pty.resize(ptyId, cols, rows));
+        if (!ptyApi) return Promise.resolve(false);
+        return resizePtyToTerminal(term, (cols, rows) => ptyApi.resize(ptyId, cols, rows));
       };
 
       const resizeRemotePtyToSurface = (ptyId: string) =>
@@ -347,16 +432,16 @@ export function TerminalPane({
               }
             })();
           }
-          if (electron) {
-            electron.pty.write(ptyId, data);
+          if (ptyApi) {
+            ptyApi.write(ptyId, data);
           } else {
             void api.writeRemotePty(ptyId, data);
           }
         });
         term.onResize(({ cols, rows }) => {
           const ptySize = normalizePtySize({ cols, rows });
-          if (electron) {
-            electron.pty.resize(ptyId, ptySize.cols, ptySize.rows);
+          if (ptyApi) {
+            ptyApi.resize(ptyId, ptySize.cols, ptySize.rows);
           } else {
             void api.resizeRemotePty(ptyId, ptySize.cols, ptySize.rows);
           }
@@ -364,7 +449,7 @@ export function TerminalPane({
       };
 
       const wireNewElectronPty = (ptyId: string): boolean => {
-        if (!electron) return false;
+        if (!ptyApi) return false;
         activePtyId = ptyId;
         for (const chunk of pendingElectronData.get(ptyId) ?? []) {
           term.write(chunk.data);
@@ -381,7 +466,7 @@ export function TerminalPane({
       };
 
       const wireExistingElectronPty = async (ptyId: string): Promise<boolean> => {
-        if (!electron) return false;
+        if (!ptyApi) return false;
 
         electronReplayPtyId = ptyId;
         electronReplayData = [];
@@ -396,7 +481,7 @@ export function TerminalPane({
         void resizeElectronPtyToSurface(ptyId);
         let replay: PtyReplaySnapshot = { data: "", nextSeq: 0 };
         try {
-          replay = await electron.pty.replay(ptyId);
+          replay = await ptyApi.replay(ptyId);
         } finally {
           if (electronReplayPtyId === ptyId) {
             electronReplayPtyId = null;
@@ -503,34 +588,47 @@ export function TerminalPane({
           term.writeln("\x1b[36m[starting cloud workspace...]\x1b[0m");
         }
         const ptySize = normalizePtySize({ cols: term.cols, rows: term.rows });
-        const { ptyId } = electron
-          ? await electron.pty.spawn({
-              taskId: descriptor.taskId,
-              cwd: descriptor.cwd,
-              command,
-              cols: ptySize.cols,
-              rows: ptySize.rows,
-              agent: task.agent,
-              dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
-              mcEnv: await resolveMcEnv(electron),
-              missionControlTheme: getTerminalColorScheme(),
-            })
-          : await api.createRemotePty({
+        const { ptyId } = !electron
+          ? await api.createRemotePty({
               taskId: descriptor.taskId,
               cwd: descriptor.cwd || HOSTED_WORKSPACE_ROOT,
               command,
               agent: task.agent,
               cols: ptySize.cols,
               rows: ptySize.rows,
-            });
+            })
+          : useSandbox
+            ? await electron.remotePty.spawn({
+                taskId: descriptor.taskId,
+                cwd: sandboxCwd, // in-container clone path (/workspace/<slug>)
+                command,
+                cols: ptySize.cols,
+                rows: ptySize.rows,
+                agent: task.agent,
+                dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
+                missionControlTheme: getTerminalColorScheme(),
+                // mcEnv is injected by the main process for sandbox spawns.
+              })
+            : await electron.pty.spawn({
+                taskId: descriptor.taskId,
+                cwd: descriptor.cwd,
+                command,
+                cols: ptySize.cols,
+                rows: ptySize.rows,
+                agent: task.agent,
+                dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
+                mcEnv: await resolveMcEnv(electron),
+                missionControlTheme: getTerminalColorScheme(),
+              });
         spawnAt = Date.now();
         spawnedAsResume = isResume;
         if (cancelled) {
-          if (electron) await electron.pty.kill(ptyId).catch(() => undefined);
+          if (ptyApi) await ptyApi.kill(ptyId).catch(() => undefined);
           else await api.killRemotePty(ptyId).catch(() => undefined);
           return;
         }
         if (electron) {
+          if (useSandbox) armSpawnAck(ptyId); // surfaces a stuck/never-acked sandbox spawn
           if (wireNewElectronPty(ptyId)) onPtyReady(ptyId);
         } else {
           await wireRemotePty(ptyId);
@@ -542,18 +640,45 @@ export function TerminalPane({
         if (cancelled) return;
         if (descriptor.awaitingCreate) return;
         setStartError(null);
+        setCloneOffer(null);
         try {
           fitTerminalSurface(term, fit);
 
           if (descriptor.ptyId) {
-            // Re-attach to a live PTY: subscribe BEFORE replay so any chunk
-            // emitted between the calls is queued, not lost.
-            if (electron) {
-              await wireExistingElectronPty(descriptor.ptyId);
+            if (useSandbox && electron && !isRemotePtyId(descriptor.ptyId)) {
+              await electron.pty.kill(descriptor.ptyId).catch(() => undefined);
             } else {
-              await wireRemotePty(descriptor.ptyId);
+              // Re-attach to a live PTY: subscribe BEFORE replay so any chunk
+              // emitted between the calls is queued, not lost.
+              if (electron) {
+                await wireExistingElectronPty(descriptor.ptyId);
+              } else {
+                await wireRemotePty(descriptor.ptyId);
+              }
+              return;
             }
-            return;
+          }
+
+          // Clone-on-open: a sandbox project whose repo isn't cloned into the
+          // container yet gets a clone offer (remote detected from the host repo)
+          // instead of an empty terminal. No remote → fall through (empty dir).
+          if (useSandbox && electron) {
+            let repoPresent = true;
+            try {
+              await electron.remoteGit.status(sandboxCwd);
+            } catch {
+              repoPresent = false;
+            }
+            if (cancelled) return;
+            if (!repoPresent) {
+              const remote = await electron.sandbox.detectRemote(project.path).catch(() => null);
+              if (cancelled) return;
+              if (remote) {
+                setCloneOffer({ remote, slug: workspaceSlug(sandboxPathName) });
+                setLiveStatus("This project isn't in the sandbox yet — clone it to start.");
+                return;
+              }
+            }
           }
 
           const isResume = isAgentResumeCommand(task.agent, descriptor.startCommand);
@@ -590,6 +715,7 @@ export function TerminalPane({
 
       cleanup = () => {
         cancelAnimationFrame(rafHandle);
+        clearSpawnAck();
         for (const off of subscriptions) off();
         stopWatchingColorScheme();
         detachLinks();
@@ -607,12 +733,29 @@ export function TerminalPane({
     };
   }, [descriptor.taskId, descriptor.awaitingCreate, retryNonce]);
 
+  const confirmClone = useCallback(async () => {
+    const electron = getElectron();
+    if (!electron || !cloneOffer) return;
+    setCloning(true);
+    setStartError(null);
+    try {
+      await electron.remoteGit.clone(cloneOffer.remote, cloneOffer.slug);
+      setCloneOffer(null);
+      setRetryNonce((n) => n + 1); // re-run: repo now present → the agent spawns
+    } catch (e) {
+      setStartError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCloning(false);
+    }
+  }, [cloneOffer]);
+
   return (
     <div
       ref={paneRef}
       style={{
         flex: 1,
         minHeight: 120,
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         borderBottom: isLast ? "none" : "1px solid var(--border)",
@@ -664,6 +807,38 @@ export function TerminalPane({
           </Btn>
         </div>
       )}
+      {cloneOffer && (
+        <div
+          role="region"
+          aria-label="Clone into sandbox"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            padding: "8px 12px",
+            borderBottom: "1px solid var(--border)",
+            color: "var(--text)",
+            background: "var(--accent-faint, var(--accent-dim))",
+            fontFamily: "var(--mono)",
+            fontSize: 11.5,
+          }}
+        >
+          <span
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Not in the sandbox yet — clone {displayCloneRemote(cloneOffer.remote)}?
+          </span>
+          <Btn variant="primary" size="sm" disabled={cloning} onClick={() => void confirmClone()}>
+            {cloning ? "Cloning…" : "Clone into sandbox"}
+          </Btn>
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -702,6 +877,25 @@ export function TerminalPane({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {isSandboxTerminal && (
+            <span
+              title="This terminal runs inside the Docker sandbox"
+              style={{
+                padding: "1px 7px",
+                borderRadius: 999,
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                color: "var(--accent)",
+                background: "var(--accent-faint, var(--accent-dim))",
+                border: "1px solid var(--accent-border)",
+                whiteSpace: "nowrap",
+                opacity: 0.85,
+                marginRight: 6,
+              }}
+            >
+              sandbox
+            </span>
+          )}
           <TerminalZoomControls
             level={zoomLevel}
             canZoomIn={canZoomIn}

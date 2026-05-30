@@ -177,6 +177,8 @@ function mapProject(row: HostedProjectRow): Project {
     iconColor: row.iconColor || "#ff5a1f",
     imagePath: row.imagePath,
     groupId: row.groupId,
+    // Hosted (web/Daytona) projects have no local-sandbox scope.
+    sandboxId: null,
     pinned: !!row.pinned,
     pinnedOrder: row.pinnedOrder ?? null,
     branch: row.branch || DEFAULT_BRANCH,

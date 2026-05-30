@@ -86,6 +86,29 @@ export function restoreTasksCache(
   queryClient.setQueryData<Task[]>(tasksQueryKey(projectId, worktreeId), tasks);
 }
 
+export function setTaskArchivedInCache(
+  queryClient: QueryClient,
+  projectId: string,
+  worktreeId: string | null,
+  taskId: string,
+  archived: boolean,
+) {
+  setTasksArchivedInCache(queryClient, projectId, worktreeId, [taskId], archived);
+}
+
+export function setTasksArchivedInCache(
+  queryClient: QueryClient,
+  projectId: string,
+  worktreeId: string | null,
+  taskIds: Iterable<string>,
+  archived: boolean,
+) {
+  const ids = taskIds instanceof Set ? taskIds : new Set(taskIds);
+  queryClient.setQueryData<Task[]>(tasksQueryKey(projectId, worktreeId), (current) =>
+    (current ?? []).map((t) => (ids.has(t.id) ? { ...t, archived } : t)),
+  );
+}
+
 export function appendOptimisticTask(
   queryClient: QueryClient,
   projectId: string,

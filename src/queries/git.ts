@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { api } from "~/lib/api";
+import { fetchGitStatus, fetchGitDiff } from "~/lib/project-git";
 import { isWebDaytonaRuntime } from "~/lib/runtime";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
@@ -25,11 +26,13 @@ export const gitKeys = {
 export const gitStatusQueryOptions = (
   projectId: string,
   worktreeId?: string | null,
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean; sandboxRepoPath?: string } = {},
 ) =>
   queryOptions({
     queryKey: gitKeys.status(projectId, worktreeId),
-    queryFn: () => api.getGitStatus(projectId, worktreeId),
+    // Routes to the in-container repo (remoteGit) when sandboxRepoPath is given
+    // AND the Terminal runtime is Docker; host HTTP API otherwise.
+    queryFn: () => fetchGitStatus(projectId, worktreeId, opts.sandboxRepoPath),
     enabled: !isWebDaytonaRuntime() && (opts.enabled ?? true),
     placeholderData: keepPreviousData,
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
@@ -54,20 +57,20 @@ export const gitDiffQueryOptions = (
   worktreeId: string | null | undefined,
   file: string | null,
   staged: boolean,
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean; sandboxRepoPath?: string } = {},
 ) =>
   queryOptions({
     queryKey: file
       ? gitKeys.diff(projectId, worktreeId, file, staged)
       : (["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", "__none__"] as const),
-    queryFn: () => api.getGitDiff(projectId, file!, staged, worktreeId),
+    queryFn: () => fetchGitDiff(projectId, file!, staged, worktreeId, opts.sandboxRepoPath),
     enabled: !!file && !isWebDaytonaRuntime() && (opts.enabled ?? true),
   });
 
 export const useGitStatus = (
   projectId: string,
   worktreeId?: string | null,
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean; sandboxRepoPath?: string } = {},
 ) => useQuery(gitStatusQueryOptions(projectId, worktreeId, opts));
 
 export const useGitBranches = (
@@ -81,7 +84,7 @@ export const useGitDiff = (
   worktreeId: string | null | undefined,
   file: string | null,
   staged: boolean,
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean; sandboxRepoPath?: string } = {},
 ) => useQuery(gitDiffQueryOptions(projectId, worktreeId, file, staged, opts));
 
 function useInvalidateGit(projectId: string, worktreeId?: string | null) {

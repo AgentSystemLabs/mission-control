@@ -16,6 +16,7 @@ import {
   type FileSelection,
 } from "./ChangedFilesList";
 import { DiffPane } from "./DiffPane";
+import { sandboxContainerRoot } from "~/lib/project-fs";
 
 export function GitDiffView({
   projectId,
@@ -30,8 +31,12 @@ export function GitDiffView({
   enabled?: boolean;
   onBack: () => void;
 }) {
+  // For a sandbox project the repo lives in the container; status/diff read over
+  // remoteGit (the host HTTP path is used otherwise). Derived from the host dir.
+  const sandboxRepoPath = sandboxContainerRoot(projectPath);
   const { data: status, isLoading, error } = useGitStatus(projectId, worktreeId, {
     enabled,
+    sandboxRepoPath,
   });
   const stageM = useStageFiles(projectId, worktreeId);
   const unstageM = useUnstageFiles(projectId, worktreeId);
@@ -105,7 +110,7 @@ export function GitDiffView({
     worktreeId,
     selection?.path ?? null,
     selection?.staged ?? false,
-    { enabled },
+    { enabled, sandboxRepoPath },
   );
   const selectedDisplay = selection ? displayPath(selection.path) : null;
 

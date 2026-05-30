@@ -17,7 +17,6 @@ describe("hostedCleanupStatusForCurrentRuntime", () => {
 
     expect(hostedCleanupStatusForCurrentRuntime("session")).toBeNull();
     expect(hostedCleanupStatusForCurrentRuntime("project")).toBeNull();
-    expect(hostedCleanupStatusForCurrentRuntime("finishedSessions")).toBeNull();
-    expect(hostedCleanupStatusForCurrentRuntime("disconnectedSessions")).toBeNull();
+    expect(hostedCleanupStatusForCurrentRuntime("archivedSessions")).toBeNull();
   });
 });

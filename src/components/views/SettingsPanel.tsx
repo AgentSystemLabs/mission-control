@@ -27,6 +27,26 @@ export type SettingsPanelId =
   | "terms";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
+const SETTINGS_PANEL_IDS: readonly SettingsPanelId[] = [
+  "general",
+  "defaults",
+  "terminal",
+  "theme",
+  "beta",
+  "license",
+  "keybindings",
+  "session-debug",
+  "terms",
+];
+
+function normalizeStoredPanel(stored: string | null, fallback: SettingsPanelId): SettingsPanelId {
+  if (stored === "sandbox") return "beta";
+  if (stored && SETTINGS_PANEL_IDS.includes(stored as SettingsPanelId)) {
+    return stored as SettingsPanelId;
+  }
+  return fallback;
+}
+
 // Settings panel slides in slightly slower than it slides out so the entrance
 // feels weightier than the dismissal. Same timings used for the left nav and
 // the right content pane.
@@ -48,10 +68,8 @@ export function SettingsPanel({
 }) {
   const [activePanel, setActivePanel] = useState<SettingsPanelId>(() => {
     if (typeof window === "undefined") return initialPanel;
-    const stored = window.localStorage.getItem(
-      "mc-settings-active-panel",
-    ) as SettingsPanelId | null;
-    return stored ?? initialPanel;
+    const stored = window.localStorage.getItem("mc-settings-active-panel");
+    return normalizeStoredPanel(stored, initialPanel);
   });
   const [isExiting, setIsExiting] = useState(false);
 

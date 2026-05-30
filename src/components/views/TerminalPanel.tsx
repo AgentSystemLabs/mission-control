@@ -1,17 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { ARCHIVE_ACTIVE_SESSION_EVENT } from "~/lib/design-meta";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { getElectron, isElectron } from "~/lib/electron";
 import { useHotkey } from "~/lib/use-hotkey";
+import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { api } from "~/lib/api";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
 import type { Project, Task } from "~/db/schema";
 
-export type OpenTerminal = TerminalDescriptor & { project: Project; task: Task };
+export type OpenTerminal = TerminalDescriptor & {
+  project: Project & { activeWorktreeId?: string | null };
+  task: Task;
+};
 
 const MIN_WIDTH = 380;
 
@@ -33,33 +38,43 @@ export function TerminalPanel({
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const archivingRef = useRef(false);
 
-  // Cmd/Ctrl+W is intercepted in the Electron main process and forwarded as
-  // `app:close-intent`. The user-terminal panel claims it first when a user
-  // terminal is focused; otherwise, when an agent session panel is open, we
-  // open the delete-confirm dialog.
-  useEffect(() => {
-    const electron = getElectron();
-    if (!electron || !active) return;
-    return electron.onCloseIntent(() => {
-      if (userTerminals.panelOpen && userTerminals.focusedId) return;
-      setConfirmDelete(true);
-    });
-  }, [active, userTerminals.panelOpen, userTerminals.focusedId]);
+  // Archive the open session via the project page handler so repointing,
+  // optimistic cache updates, and PTY teardown stay in one place.
+  const archiveActive = useCallback(() => {
+    if (!active || archivingRef.current) return;
+    archivingRef.current = true;
+    try {
+      window.dispatchEvent(
+        new CustomEvent(ARCHIVE_ACTIVE_SESSION_EVENT, {
+          detail: { taskId: active.taskId },
+        }),
+      );
+    } finally {
+      archivingRef.current = false;
+    }
+  }, [active]);
 
-  useHotkey(
-    "session.closeWindow",
-    () => {
-      if (!active) return;
-      if (userTerminals.panelOpen && userTerminals.focusedId) return;
-      setConfirmDelete(true);
-    },
-    { enabled: !isElectron() && !!active, capture: true },
-  );
+  const currentActiveTask = useCallback((): Task | null => {
+    if (!active) return null;
+    const tasks = queryClient.getQueryData<Task[]>(
+      queryKeys.tasks(active.project.id, active.project.activeWorktreeId ?? null),
+    );
+    return tasks?.find((task) => task.id === active.taskId) ?? active.task;
+  }, [active, queryClient]);
 
+  // Permanently delete the open session. Used when it is already archived —
+  // archiving again is a no-op, so Cmd/Ctrl+W escalates to a confirmed delete.
   const handleDelete = async () => {
     if (!active) return;
+    if (!currentActiveTask()?.archived) {
+      setConfirmDelete(false);
+      return;
+    }
     setDeleting(true);
     try {
       await Promise.all([onClose(active.taskId), api.deleteTask(active.taskId)]);
@@ -71,6 +86,44 @@ export function TerminalPanel({
       setConfirmDelete(false);
     }
   };
+
+  // Confirmed archive for a running session: archiving kills the live terminal
+  // and stops the in-progress agent, so we warn before tearing it down.
+  const confirmArchiveActive = useCallback(async () => {
+    setArchiving(true);
+    try {
+      archiveActive();
+    } finally {
+      setArchiving(false);
+      setConfirmArchive(false);
+    }
+  }, [archiveActive]);
+
+  // Cmd/Ctrl+W: archive the open session, or — when it is already archived —
+  // open the confirmed permanent-delete dialog. A running session warns first,
+  // since archiving disconnects its terminal and stops the agent. In Electron
+  // the keystroke is intercepted in the main process and forwarded as
+  // `app:close-intent`; in the browser we bind the hotkey directly. A focused
+  // user terminal claims it first.
+  const handleCloseIntent = useCallback(() => {
+    if (!active) return;
+    if (userTerminals.panelOpen && isUserTerminalXtermFocused()) return;
+    const task = currentActiveTask();
+    if (task?.archived) setConfirmDelete(true);
+    else if (task?.status === "running") setConfirmArchive(true);
+    else void archiveActive();
+  }, [active, userTerminals.panelOpen, currentActiveTask, archiveActive]);
+
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron || !active) return;
+    return electron.onCloseIntent(handleCloseIntent);
+  }, [active, handleCloseIntent]);
+
+  useHotkey("session.closeWindow", handleCloseIntent, {
+    enabled: !isElectron() && !!active,
+    capture: true,
+  });
 
   const rootRef = useRef<HTMLElement | null>(null);
   const [focused, setFocused] = useState(false);
@@ -148,6 +201,20 @@ export function TerminalPanel({
         />
       </div>
       <ConfirmDialog
+        open={confirmArchive}
+        onClose={() => setConfirmArchive(false)}
+        onConfirm={confirmArchiveActive}
+        title="Archive running session?"
+        confirmLabel="Archive"
+        variant="danger"
+        icon="archive"
+        loading={archiving}
+      >
+        This session is still running. Archiving disconnects its terminal and
+        stops the in-progress agent. You can restore it later, but the current
+        run won&rsquo;t resume.
+      </ConfirmDialog>
+      <ConfirmDialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={handleDelete}
@@ -157,8 +224,8 @@ export function TerminalPanel({
         icon="trash"
         loading={deleting}
       >
-        This will permanently delete the session and kill its terminal. This
-        cannot be undone.
+        This will permanently delete the archived session and its terminal
+        history. This cannot be undone.
       </ConfirmDialog>
     </CardFrame>
   );

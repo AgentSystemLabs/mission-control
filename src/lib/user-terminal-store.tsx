@@ -21,6 +21,8 @@ import {
   replenishUserTerminalWarmSlot,
   takeUserTerminalWarmSlot,
 } from "./user-terminal-warm-pool";
+import { isRemotePtyId } from "./pty-id";
+import { isDockerSandboxRuntime } from "./sandbox-runtime";
 import type { Project, UserTerminal } from "~/db/schema";
 import { worktreeScopeKey } from "~/shared/worktrees";
 
@@ -60,6 +62,8 @@ type Ctx = {
     commands: string[],
     opts?: { ports?: number[] }
   ) => Promise<void>;
+  /** Permanently close every user terminal for a project (kills PTYs). */
+  closeForProject: (projectId: string) => Promise<void>;
   killTerminal: (id: string) => Promise<void>;
   hiddenIds: Set<string>;
   toggleHidden: (id: string) => void;
@@ -267,8 +271,14 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       const key = scopeKeyForProject(targetProject);
       const cwd = targetProject.path;
       const startCommand = opts?.startCommand ?? null;
+      const electron = getElectron();
+      const canUseWarmSlot =
+        !startCommand &&
+        !!cwd &&
+        !!electron &&
+        !(await isDockerSandboxRuntime(electron));
 
-      if (!startCommand && cwd && getElectron()) {
+      if (canUseWarmSlot) {
         const warmSlot = takeUserTerminalWarmSlot(cwd);
         if (warmSlot) {
           const draftTerminal: UserTerminal = {
@@ -296,7 +306,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
               );
               replenishUserTerminalWarmSlot({ project: targetProject, cwd });
             } catch {
-              const electron = getElectron();
               if (electron) await electron.pty.kill(warmSlot.ptyId).catch(() => undefined);
               updateSessions(key, (prev) =>
                 prev.filter((s) => s.terminal.id !== warmSlot.clientTerminalId),
@@ -376,7 +385,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       }
 
       if (killedPtyId && electron) {
-        await electron.pty.kill(killedPtyId).catch(() => undefined);
+        const ptyApi = isRemotePtyId(killedPtyId) ? electron.remotePty : electron.pty;
+        await ptyApi.kill(killedPtyId).catch(() => undefined);
       } else if (killedPtyId) {
         await api.killRemotePty(killedPtyId).catch(() => undefined);
       }
@@ -387,6 +397,40 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       }
     },
     []
+  );
+
+  const closeForProject = useCallback(
+    async (projectId: string) => {
+      const ids = (sessionsByProjectRef.current[projectId] ?? []).map((s) => s.terminal.id);
+      for (const id of ids) {
+        await killTerminal(id);
+      }
+      setSessionsByProject((prev) => {
+        if (!(projectId in prev)) return prev;
+        const next = { ...prev };
+        delete next[projectId];
+        return next;
+      });
+      setFocusedByProject((prev) => {
+        if (!(projectId in prev)) return prev;
+        const next = { ...prev };
+        delete next[projectId];
+        return next;
+      });
+      setHiddenIdsByProject((prev) => {
+        if (!(projectId in prev)) return prev;
+        const next = { ...prev };
+        delete next[projectId];
+        return next;
+      });
+      setPanelOpenByProject((prev) => {
+        if (!(projectId in prev)) return prev;
+        const next = { ...prev };
+        delete next[projectId];
+        return next;
+      });
+    },
+    [killTerminal],
   );
 
   const renameTerminal = useCallback(async (id: string, name: string) => {
@@ -523,6 +567,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusedId,
       focusTerminal,
       createTerminal,
+      closeForProject,
       killTerminal,
       hiddenIds,
       toggleHidden,
@@ -547,6 +592,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusedId,
       focusTerminal,
       createTerminal,
+      closeForProject,
       killTerminal,
       hiddenIds,
       toggleHidden,

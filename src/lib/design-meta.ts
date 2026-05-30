@@ -38,6 +38,10 @@ export function pickByPriority<T extends { status: TaskStatus }>(tasks: T[]): T 
 
 export const DUPLICATE_ACTIVE_SESSION_EVENT = "mc:duplicate-active-session";
 
+/** Dispatched when Cmd+W archives the focused agent session (TerminalPanel). */
+export const ARCHIVE_ACTIVE_SESSION_EVENT = "mc:archive-active-session";
+export type ArchiveActiveSessionEventDetail = { taskId: string };
+
 /** Dispatched when Cmd+K (terminal.expandToggle) fires while a bottom user TTY has focus. */
 export const CLEAR_USER_TERMINAL_EVENT = "mc:clear-user-terminal";
 

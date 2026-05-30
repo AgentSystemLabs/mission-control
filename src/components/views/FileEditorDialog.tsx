@@ -7,6 +7,13 @@ import { HotkeyTooltip, StaticHotkeyTooltip, EscTooltip } from "~/components/ui/
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { languageForFilename } from "~/lib/file-language";
+import {
+  readProjectFile,
+  writeProjectFile,
+  writeProjectFileSensitive,
+  watchProjectFile,
+  type ProjectFileWatch,
+} from "~/lib/project-fs";
 import type { FileReadError, FileReadResult } from "~/shared/electron-contract";
 
 type FileReadSuccess = Extract<FileReadResult, { ok: true }>;
@@ -70,7 +77,7 @@ export function FileEditorDialog({
     setExternalChanged(false);
     setSaveError(null);
     void (async () => {
-      const r = await window.electronAPI!.files.read(projectRoot, relPath);
+      const r = await readProjectFile(projectRoot, relPath);
       if (cancelled) return;
       if (r.ok) {
         const next = toLoadedFile(r);
@@ -93,16 +100,18 @@ export function FileEditorDialog({
     if (!open || !relPath || !hasLoaded || !window.electronAPI) return;
     let active = true;
     let unsub: (() => void) | undefined;
+    let activeWatch: ProjectFileWatch | null = null;
     void (async () => {
-      const r = await window.electronAPI!.files.watch(projectRoot, relPath);
+      const r = await watchProjectFile(projectRoot, relPath);
       if (!active) {
-        if (r.ok) void window.electronAPI!.files.unwatch(r.watchId);
+        if (r.ok) r.watch.unwatch();
         return;
       }
       if (!r.ok) return;
-      watchIdRef.current = r.watchId;
-      unsub = window.electronAPI!.files.onChanged((msg) => {
-        if (msg.watchId !== r.watchId) return;
+      activeWatch = r.watch;
+      watchIdRef.current = r.watch.watchId;
+      unsub = r.watch.onChanged((msg) => {
+        if (msg.watchId !== r.watch.watchId) return;
         if (savingRef.current) return;
         if (msg.mtimeMs <= mtimeRef.current) return;
         void handleExternalChange();
@@ -111,9 +120,8 @@ export function FileEditorDialog({
     return () => {
       active = false;
       unsub?.();
-      const id = watchIdRef.current;
       watchIdRef.current = null;
-      if (id) void window.electronAPI?.files.unwatch(id);
+      activeWatch?.unwatch();
     };
   }, [open, projectRoot, relPath, hasLoaded]);
 
@@ -122,7 +130,7 @@ export function FileEditorDialog({
 
   const handleExternalChange = useCallback(async () => {
     if (!relPath || !window.electronAPI) return;
-    const r = await window.electronAPI.files.read(projectRoot, relPath);
+    const r = await readProjectFile(projectRoot, relPath);
     if (!r.ok) return;
     const next = toLoadedFile(r);
     // Our own save can race the watcher: disk already matches the editor.
@@ -166,24 +174,14 @@ export function FileEditorDialog({
       setSaving(true);
       setSaveError(null);
       const expectedMtime = forceOverwrite ? null : loaded.mtimeMs;
-      let r = await window.electronAPI.files.write(
-        projectRoot,
-        relPath,
-        content,
-        expectedMtime,
-      );
+      let r = await writeProjectFile(projectRoot, relPath, content, expectedMtime);
       // Sensitive paths (.claude/settings.local.json, .git/hooks/*, package.json,
       // .vscode/tasks.json, etc.) are rejected by `files:write` and must go
       // through `files:writeSensitive`, which surfaces a native OS confirm
       // dialog in the main process. The retry is silent — the user sees one
       // dialog, not an error followed by a re-click.
       if (!r.ok && r.error === "protected-path") {
-        r = await window.electronAPI.files.writeSensitive(
-          projectRoot,
-          relPath,
-          content,
-          expectedMtime,
-        );
+        r = await writeProjectFileSensitive(projectRoot, relPath, content, expectedMtime);
       }
       if (r.ok) {
         mtimeRef.current = r.mtimeMs;
@@ -221,7 +219,7 @@ export function FileEditorDialog({
 
   const discardAndReload = useCallback(async () => {
     if (!relPath || !window.electronAPI) return;
-    const r = await window.electronAPI.files.read(projectRoot, relPath);
+    const r = await readProjectFile(projectRoot, relPath);
     if (!r.ok) return;
     const next = toLoadedFile(r);
     setLoaded(next);

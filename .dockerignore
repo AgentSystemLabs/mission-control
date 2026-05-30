@@ -1,0 +1,11 @@
+*
+!package.json
+!pnpm-lock.yaml
+!mc-agent
+!mc-agent/**
+!src
+!src/shared
+!src/shared/**
+!docker
+!docker/sandbox-agent
+!docker/sandbox-agent/**

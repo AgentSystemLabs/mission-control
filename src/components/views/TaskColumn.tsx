@@ -8,6 +8,8 @@ export function TaskColumn({
   tasks,
   activeId,
   onToggle,
+  onArchive,
+  onRestore,
   onDelete,
   headerAction,
 }: {
@@ -16,6 +18,8 @@ export function TaskColumn({
   tasks: Task[];
   activeId: string | null;
   onToggle: (id: string) => void;
+  onArchive?: (id: string) => void;
+  onRestore?: (id: string) => void;
   onDelete?: (id: string) => void;
   headerAction?: React.ReactNode;
 }) {
@@ -69,6 +73,8 @@ export function TaskColumn({
             task={t}
             selected={activeId === t.id}
             onToggle={onToggle}
+            onArchive={onArchive}
+            onRestore={onRestore}
             onDelete={onDelete}
           />
         ))}

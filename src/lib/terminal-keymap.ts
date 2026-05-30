@@ -33,28 +33,34 @@ export function shouldSuppressTerminalKey(e: KeyboardEvent): boolean {
 export type TerminalClipboardAction = "copy" | "paste";
 
 /**
- * Recognize the terminal copy/paste chords. In a terminal, plain Ctrl+C/Ctrl+V
- * are control codes (SIGINT / quoted-insert) the PTY needs, so they can't double
- * as copy/paste — hence the cross-platform convention used by VS Code, GNOME
- * Terminal, and Windows Terminal: Ctrl+Shift+C to copy, Ctrl+Shift+V to paste,
- * with Ctrl+Insert / Shift+Insert as the classic aliases.
+ * Recognize terminal copy/paste chords. Ctrl+C is only copy when a selection is
+ * present; otherwise it stays available for SIGINT. Ctrl+V always means paste in
+ * the embedded terminal on Windows/Linux, matching the desktop app convention.
  *
- * macOS copy/paste stays on Cmd+C/Cmd+V (driven by the OS Edit menu, untouched
- * here): Cmd sets metaKey, which we explicitly exclude, and these chords never
- * collide with it — so this map is correct on every platform and needs no
- * platform branch.
- *
- * Matches on every event type (keydown/keypress/keyup) so the caller can both
- * act on keydown and swallow the follow-up events, keeping xterm from turning
- * the chord into a stray control byte.
+ * Matches on every event type so the caller can act on keydown and swallow
+ * follow-up events, keeping xterm from turning the chord into a stray byte.
  */
-export function terminalClipboardAction(e: KeyboardEvent): TerminalClipboardAction | null {
-  if (e.altKey || e.metaKey) return null;
+export function terminalClipboardAction(
+  e: KeyboardEvent,
+  opts: { hasSelection?: boolean } = {},
+): TerminalClipboardAction | null {
+  if (e.altKey) return null;
+
+  if (e.metaKey && !e.ctrlKey && !e.shiftKey) {
+    if (isKey(e, "c")) return opts.hasSelection || e.type !== "keydown" ? "copy" : null;
+    if (isKey(e, "v")) return "paste";
+    return null;
+  }
 
   if (e.ctrlKey && e.shiftKey) {
-    if (e.code === "KeyC" || e.key === "c" || e.key === "C") return "copy";
-    if (e.code === "KeyV" || e.key === "v" || e.key === "V") return "paste";
+    if (isKey(e, "c")) return "copy";
+    if (isKey(e, "v")) return "paste";
     return null;
+  }
+
+  if (e.ctrlKey && !e.metaKey && !e.shiftKey) {
+    if (isKey(e, "c")) return opts.hasSelection || e.type !== "keydown" ? "copy" : null;
+    if (isKey(e, "v")) return "paste";
   }
 
   if (e.code === "Insert" || e.key === "Insert") {
@@ -67,4 +73,8 @@ export function terminalClipboardAction(e: KeyboardEvent): TerminalClipboardActi
 
 function isShiftEnter(e: KeyboardEvent): boolean {
   return e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+}
+
+function isKey(e: KeyboardEvent, key: "c" | "v"): boolean {
+  return e.code === `Key${key.toUpperCase()}` || e.key === key || e.key === key.toUpperCase();
 }

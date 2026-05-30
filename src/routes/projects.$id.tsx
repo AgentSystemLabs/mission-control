@@ -30,6 +30,7 @@ import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
 import { api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import {
@@ -40,6 +41,8 @@ import {
   removeTasksFromCache,
   replaceOptimisticTask,
   restoreTasksCache,
+  setTaskArchivedInCache,
+  setTasksArchivedInCache,
 } from "~/lib/optimistic-task";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
 import { newClientId } from "~/shared/client-id";
@@ -110,9 +113,11 @@ import {
   type SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import {
+  ARCHIVE_ACTIVE_SESSION_EVENT,
   DUPLICATE_ACTIVE_SESSION_EVENT,
   pickByPriority,
   STATUS_META,
+  type ArchiveActiveSessionEventDetail,
 } from "~/lib/design-meta";
 import { useSyncProjectDiagrams } from "~/lib/use-diagram-events";
 import { useGitDiffViewOpen } from "~/lib/git-diff-view-store";
@@ -391,6 +396,7 @@ function ProjectPage() {
   }, [id, selectedWorktreeKey, worktreesQuery.data]);
   const tasksQuery = useTasks(id, selectedWorktreeId);
   const tasks = tasksQuery.data ?? [];
+  const hasArchivedTasks = tasks.some((t) => t.archived);
   const groups = groupsQuery.data ?? [];
   useApiToken();
   const { data: entitlements } = useEntitlements();
@@ -415,8 +421,13 @@ function ProjectPage() {
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [confirmClearFinished, setConfirmClearFinished] = useState(false);
-  const [confirmClearDisconnected, setConfirmClearDisconnected] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDeleteArchived, setConfirmDeleteArchived] = useState(false);
+  // Leave the archived view automatically once it empties (last one restored
+  // or deleted) so the toggle never strands the user on a blank list.
+  useEffect(() => {
+    if (showArchived && !hasArchivedTasks) setShowArchived(false);
+  }, [showArchived, hasArchivedTasks]);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
@@ -621,11 +632,21 @@ function ProjectPage() {
   const lastActiveRef = useRef<{ projectId: string; taskId: string } | null>(null);
   const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
   const lastHiddenSessionRef = useRef<{ projectId: string; taskId: string } | null>(null);
+  const archiveSessionRef = useRef<(taskId: string) => void>(() => undefined);
   const previousSessionScopeRef = useRef<{ projectId: string; scopeKey: string }>({
     projectId: id,
     scopeKey: selectedScopeKey,
   });
   const pendingWorktreeSessionSelectRef = useRef<string | null>(null);
+  useEffect(() => {
+    const onArchiveRequest = (e: Event) => {
+      const taskId = (e as CustomEvent<ArchiveActiveSessionEventDetail>).detail?.taskId;
+      if (typeof taskId !== "string") return;
+      archiveSessionRef.current(taskId);
+    };
+    window.addEventListener(ARCHIVE_ACTIVE_SESSION_EVENT, onArchiveRequest);
+    return () => window.removeEventListener(ARCHIVE_ACTIVE_SESSION_EVENT, onArchiveRequest);
+  }, []);
   useEffect(() => {
     const previous = previousSessionScopeRef.current;
     previousSessionScopeRef.current = { projectId: id, scopeKey: selectedScopeKey };
@@ -980,7 +1001,7 @@ function ProjectPage() {
   );
 
   const createSession = useCallback(
-    (payload: SessionCreatePayload) => {
+    async (payload: SessionCreatePayload) => {
       if (!project || !terminalProject) return;
       const selectedAvailability = availabilityFor(cliAvailability, payload.agent);
       if (selectedAvailability.status === "outdated") {
@@ -995,7 +1016,9 @@ function ProjectPage() {
       const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
       void queryClient.cancelQueries({ queryKey: tasksKey });
 
-      const warmSlot = takeSessionWarmSlot(payload, terminalProject.path);
+      const warmSlot = (await isDockerSandboxRuntime())
+        ? null
+        : takeSessionWarmSlot(payload, terminalProject.path);
       if (warmSlot) {
         appendOptimisticTask(queryClient, project.id, selectedWorktreeId, warmSlot.draftTask);
         terminals.openSession(terminalProject, warmSlot.draftTask, { ptyId: warmSlot.ptyId });
@@ -1176,6 +1199,7 @@ function ProjectPage() {
     showWorktreeSetupConfig ||
     showInstallDiagramSkill ||
     showLaunchEmpty ||
+    confirmDeleteArchived ||
     !!projectPathIssue ||
     projectPathCheck.state === "error" ||
     showCodexHooksNotice ||
@@ -1364,7 +1388,9 @@ function ProjectPage() {
     );
   }
 
-  const visibleTasks = tasks.filter((t) => !t.archived);
+  const activeTasks = tasks.filter((t) => !t.archived);
+  const archivedTasks = tasks.filter((t) => t.archived);
+  const visibleTasks = showArchived ? archivedTasks : activeTasks;
   const tasksByStatus = TASK_STATUSES.reduce(
     (acc, s) => {
       acc[s] = [];
@@ -1507,25 +1533,43 @@ function ProjectPage() {
     router.navigate({ to: "/" });
   };
 
-  const clearFinished = () => {
-    setConfirmClearFinished(false);
-    if (!project) return;
-    const finished = tasksByStatus.finished;
-    if (finished.length === 0) return;
+  // Archive one or more active sessions: kill each tty, flip the archived flag,
+  // and repoint the terminal panel if the active session is being archived.
+  // No confirmation — archiving is reversible via Restore.
+  const archiveTasks = (targets: Task[]) => {
+    if (!project || targets.length === 0) return;
+    const ids = new Set(targets.map((t) => t.id));
 
     const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
     void queryClient.cancelQueries({ queryKey: tasksKey });
     const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
-    const finishedIds = new Set(finished.map((t) => t.id));
-    removeTasksFromCache(queryClient, project.id, selectedWorktreeId, finishedIds);
+
+    const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
+    const archivingActive = !!activeTaskId && ids.has(activeTaskId);
+    const next = archivingActive
+      ? pickByPriority(tasks.filter((t) => !t.archived && !ids.has(t.id)))
+      : undefined;
+
+    // Repoint the panel at the replacement session before the PTY is torn down,
+    // mirroring deleteTask so the panel doesn't briefly unmount.
+    if (archivingActive && terminalProject) {
+      if (next) terminals.openSession(terminalProject, next);
+      else terminals.deselect(selectedScopeKey);
+    }
+
+    setTasksArchivedInCache(queryClient, project.id, selectedWorktreeId, ids, true);
 
     void (async () => {
-      showHostedCleanupStatus("finishedSessions");
       try {
         await Promise.all(
-          finished.map(async (t) => {
-            await terminals.close(t.id).catch(() => undefined);
-            await api.deleteTask(t.id).catch(() => undefined);
+          targets.map(async (t) => {
+            await terminals
+              .close(
+                t.id,
+                t.id === activeTaskId ? { activateTaskId: next?.id ?? null } : undefined,
+              )
+              .catch(() => undefined);
+            await api.archiveTask(t.id);
           }),
         );
         void invalidateTasks();
@@ -1533,30 +1577,57 @@ function ProjectPage() {
         if (previousTasks) {
           restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
         }
-        toast.error(e instanceof Error ? e.message : "Could not clear finished sessions");
-      } finally {
-        setCleanupStatus(null);
+        toast.error(e instanceof Error ? e.message : "Could not archive session");
       }
     })();
   };
 
-  const clearDisconnected = () => {
-    setConfirmClearDisconnected(false);
+  const archiveSession = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) archiveTasks([task]);
+  };
+  archiveSessionRef.current = archiveSession;
+
+  const restoreSession = (taskId: string) => {
     if (!project) return;
-    const disconnected = tasksByStatus.disconnected;
-    if (disconnected.length === 0) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
 
     const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
     void queryClient.cancelQueries({ queryKey: tasksKey });
     const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
-    const disconnectedIds = new Set(disconnected.map((t) => t.id));
-    removeTasksFromCache(queryClient, project.id, selectedWorktreeId, disconnectedIds);
+    setTaskArchivedInCache(queryClient, project.id, selectedWorktreeId, taskId, false);
 
     void (async () => {
-      showHostedCleanupStatus("disconnectedSessions");
+      try {
+        await api.restoreTask(taskId);
+        void invalidateTasks();
+      } catch (e: unknown) {
+        if (previousTasks) {
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+        }
+        toast.error(e instanceof Error ? e.message : "Could not restore session");
+      }
+    })();
+  };
+
+  const deleteAllArchived = () => {
+    setConfirmDeleteArchived(false);
+    if (!project) return;
+    const archived = tasks.filter((t) => t.archived);
+    if (archived.length === 0) return;
+
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    void queryClient.cancelQueries({ queryKey: tasksKey });
+    const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
+    const archivedIds = new Set(archived.map((t) => t.id));
+    removeTasksFromCache(queryClient, project.id, selectedWorktreeId, archivedIds);
+
+    void (async () => {
+      showHostedCleanupStatus("archivedSessions");
       try {
         await Promise.all(
-          disconnected.map(async (t) => {
+          archived.map(async (t) => {
             await terminals.close(t.id).catch(() => undefined);
             await api.deleteTask(t.id).catch(() => undefined);
           }),
@@ -1566,7 +1637,7 @@ function ProjectPage() {
         if (previousTasks) {
           restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
         }
-        toast.error(e instanceof Error ? e.message : "Could not clear disconnected sessions");
+        toast.error(e instanceof Error ? e.message : "Could not delete archived sessions");
       } finally {
         setCleanupStatus(null);
       }
@@ -2024,7 +2095,7 @@ function ProjectPage() {
           </div>
         )}
 
-        {!showDiffView && visibleTasks.length > 0 && (
+        {!showDiffView && tasks.length > 0 && (
           <div
             style={{
               display: "flex",
@@ -2036,7 +2107,7 @@ function ProjectPage() {
               boxSizing: "border-box",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div
                 style={{
                   fontSize: 22,
@@ -2047,16 +2118,37 @@ function ProjectPage() {
               >
                 Sessions
               </div>
+              {(hasArchivedTasks || showArchived) && (
+                <SessionScopeToggle
+                  showArchived={showArchived}
+                  activeCount={activeTasks.length}
+                  archivedCount={archivedTasks.length}
+                  onChange={setShowArchived}
+                />
+              )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <NewAgentButton
-                project={project}
-                onPrimary={onNewAgentPrimary}
-                disabled={!projectPathReady}
-                onConfigure={() => {
-                  if (projectPathReady) setShowNewAgent(true);
-                }}
-              />
+              {showArchived ? (
+                archivedTasks.length > 0 ? (
+                  <Btn
+                    variant="danger"
+                    icon="trash"
+                    onClick={() => setConfirmDeleteArchived(true)}
+                    title="Permanently delete all archived sessions"
+                  >
+                    Delete all archived
+                  </Btn>
+                ) : null
+              ) : (
+                <NewAgentButton
+                  project={project}
+                  onPrimary={onNewAgentPrimary}
+                  disabled={!projectPathReady}
+                  onConfigure={() => {
+                    if (projectPathReady) setShowNewAgent(true);
+                  }}
+                />
+              )}
             </div>
           </div>
         )}
@@ -2098,6 +2190,17 @@ function ProjectPage() {
                 </Btn>
               }
             />
+          ) : showArchived && visibleTasks.length === 0 ? (
+            <EmptyState
+              title="No archived sessions"
+              subtitle="Archive a finished session to keep it around without cluttering your active list."
+              icon="archive"
+              action={
+                <Btn variant="primary" icon="list" onClick={() => setShowArchived(false)}>
+                  Back to active
+                </Btn>
+              }
+            />
           ) : visibleTasks.length === 0 ? (
             <EmptyState
               title="No active sessions"
@@ -2107,14 +2210,21 @@ function ProjectPage() {
                   : "Start a new session to begin working on this project."
               }
               action={
-                <NewAgentButton
-                  project={project}
-                  onPrimary={onNewAgentPrimary}
-                  disabled={!projectPathReady}
-                  onConfigure={() => {
-                    if (projectPathReady) setShowNewAgent(true);
-                  }}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <NewAgentButton
+                    project={project}
+                    onPrimary={onNewAgentPrimary}
+                    disabled={!projectPathReady}
+                    onConfigure={() => {
+                      if (projectPathReady) setShowNewAgent(true);
+                    }}
+                  />
+                  {hasArchivedTasks && (
+                    <Btn variant="ghost" icon="archive" onClick={() => setShowArchived(true)}>
+                      View archived ({archivedTasks.length})
+                    </Btn>
+                  )}
+                </div>
               }
             />
           ) : (
@@ -2126,25 +2236,29 @@ function ProjectPage() {
                 tasks={tasksByStatus[status]}
                 activeId={activeId}
                 onToggle={toggleTerminal}
-                onDelete={deleteTask}
+                onArchive={showArchived ? undefined : archiveSession}
+                onRestore={showArchived ? restoreSession : undefined}
+                onDelete={showArchived ? deleteTask : undefined}
                 headerAction={
-                  status === "finished" && tasksByStatus.finished.length > 0 ? (
+                  !showArchived && status === "finished" && tasksByStatus.finished.length > 0 ? (
                     <Btn
                       variant="ghost"
-                      icon="trash"
-                      onClick={() => setConfirmClearFinished(true)}
-                      title="Remove all finished sessions"
+                      icon="archive"
+                      onClick={() => archiveTasks(tasksByStatus.finished)}
+                      title="Archive all finished sessions"
                     >
-                      Clear all
+                      Archive all
                     </Btn>
-                  ) : status === "disconnected" && tasksByStatus.disconnected.length > 0 ? (
+                  ) : !showArchived &&
+                    status === "disconnected" &&
+                    tasksByStatus.disconnected.length > 0 ? (
                     <Btn
                       variant="ghost"
-                      icon="trash"
-                      onClick={() => setConfirmClearDisconnected(true)}
-                      title="Remove all disconnected sessions"
+                      icon="archive"
+                      onClick={() => archiveTasks(tasksByStatus.disconnected)}
+                      title="Archive all disconnected sessions"
                     >
-                      Clear all
+                      Archive all
                     </Btn>
                   ) : undefined
                 }
@@ -2615,40 +2729,96 @@ function ProjectPage() {
       </Modal>
 
       <ConfirmDialog
-        open={confirmClearFinished}
-        onClose={() => setConfirmClearFinished(false)}
-        onConfirm={clearFinished}
-        title="Clear finished sessions"
-        confirmLabel="Clear all"
+        open={confirmDeleteArchived}
+        onClose={() => setConfirmDeleteArchived(false)}
+        onConfirm={deleteAllArchived}
+        title="Delete archived sessions"
+        confirmLabel="Delete all"
         icon="trash"
         width={460}
       >
         <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Remove all finished sessions in &ldquo;{project.name}&rdquo;?
+          Permanently delete all archived sessions in &ldquo;{project.name}&rdquo;?
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          {tasksByStatus.finished.length} finished session{tasksByStatus.finished.length === 1 ? "" : "s"} will be deleted. Other sessions are unaffected.
-        </div>
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={confirmClearDisconnected}
-        onClose={() => setConfirmClearDisconnected(false)}
-        onConfirm={clearDisconnected}
-        title="Clear disconnected sessions"
-        confirmLabel="Clear all"
-        icon="trash"
-        width={460}
-      >
-        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Remove all disconnected sessions in &ldquo;{project.name}&rdquo;?
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          {tasksByStatus.disconnected.length} disconnected session{tasksByStatus.disconnected.length === 1 ? "" : "s"} will be deleted. Other sessions are unaffected.
+          {archivedTasks.length} archived session{archivedTasks.length === 1 ? "" : "s"} will be deleted. This cannot be undone. Active sessions are unaffected.
         </div>
       </ConfirmDialog>
       </div>
     </>
+  );
+}
+
+function SessionScopeToggle({
+  showArchived,
+  activeCount,
+  archivedCount,
+  onChange,
+}: {
+  showArchived: boolean;
+  activeCount: number;
+  archivedCount: number;
+  onChange: (showArchived: boolean) => void;
+}) {
+  const segment = (selected: boolean): CSSProperties => ({
+    appearance: "none",
+    border: 0,
+    background: selected ? "var(--surface-2)" : "transparent",
+    color: selected ? "var(--text)" : "var(--text-dim)",
+    fontFamily: "var(--mono)",
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    padding: "5px 12px",
+    borderRadius: 7,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    boxShadow: selected
+      ? "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 2px rgba(0,0,0,0.3)"
+      : "none",
+  });
+  const countStyle: CSSProperties = {
+    color: "var(--text-faint)",
+    fontVariantNumeric: "tabular-nums",
+  };
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Show active or archived sessions"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        padding: 3,
+        borderRadius: 9,
+        background: "var(--surface-0)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={!showArchived}
+        style={segment(!showArchived)}
+        onClick={() => onChange(false)}
+      >
+        Active
+        <span style={countStyle}>{activeCount}</span>
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={showArchived}
+        style={segment(showArchived)}
+        onClick={() => onChange(true)}
+      >
+        Archived
+        <span style={countStyle}>{archivedCount}</span>
+      </button>
+    </div>
   );
 }
 

@@ -18,6 +18,7 @@ type ConfirmDialogProps = {
   variant?: ConfirmVariant;
   icon?: IconName;
   loading?: boolean;
+  confirmDisabled?: boolean;
   width?: number;
 };
 
@@ -32,6 +33,7 @@ export function ConfirmDialog({
   variant = "danger",
   icon,
   loading = false,
+  confirmDisabled = false,
   width,
 }: ConfirmDialogProps) {
   useHotkey(
@@ -41,7 +43,7 @@ export function ConfirmDialog({
       e.stopPropagation();
       void onConfirm();
     },
-    { enabled: open && !loading }
+    { enabled: open && !loading && !confirmDisabled }
   );
 
   useHotkey(
@@ -51,7 +53,7 @@ export function ConfirmDialog({
       e.stopPropagation();
       void onConfirm();
     },
-    { enabled: open && !loading }
+    { enabled: open && !loading && !confirmDisabled }
   );
 
   return (
@@ -72,7 +74,7 @@ export function ConfirmDialog({
               variant={variant}
               icon={icon}
               onClick={() => void onConfirm()}
-              disabled={loading}
+              disabled={loading || confirmDisabled}
             >
               {loading ? `${confirmLabel}…` : confirmLabel}
             </Btn>

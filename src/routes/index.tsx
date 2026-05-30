@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
@@ -32,7 +32,7 @@ import {
   useEntitlements,
   useGroups,
   useLicense,
-  useProjects,
+  useScopedProjects,
   useSettings,
 } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
@@ -53,7 +53,7 @@ export const Route = createFileRoute("/")({
 function MissionControlPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const projectsQuery = useProjects();
+  const projectsQuery = useScopedProjects();
   const groupsQuery = useGroups();
   const projects = projectsQuery.data ?? [];
   const groups = groupsQuery.data ?? [];

@@ -4,6 +4,7 @@ import { Modal } from "~/components/ui/Modal";
 import { Icon } from "~/components/ui/Icon";
 import { Kbd } from "~/components/ui/Kbd";
 import { rankFiles } from "~/lib/file-fuzzy";
+import { listProjectFiles } from "~/lib/project-fs";
 
 const VISIBLE_LIMIT = 200;
 
@@ -27,8 +28,8 @@ export function FileFinderDialog({
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["files:list", projectRoot],
     queryFn: async () => {
-      if (!window.electronAPI) throw new Error("Not running in Electron");
-      const r = await window.electronAPI.files.list(projectRoot);
+      // Routes to the in-container clone (remoteFs) when Terminal runtime = Docker.
+      const r = await listProjectFiles(projectRoot);
       if (!r.ok) throw new Error(r.error);
       return r.files;
     },

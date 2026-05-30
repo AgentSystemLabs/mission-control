@@ -16,6 +16,12 @@ const shouldStartPostgres = process.argv.includes("--postgres");
 const env = { ...process.env };
 env.MC_DEV_HOST ||= "127.0.0.1";
 env.MC_DEV_PORT = String(parsePort(env.MC_DEV_PORT, DEFAULT_DEV_PORT));
+// Isolate dev's SQLite store + app state from an INSTALLED MissionControl.app,
+// which uses the default ~/Library/.../MissionControl path and may run a
+// schema-divergent build against the same DB file (corrupting both). Honor an
+// explicit override for CI / custom setups.
+env.MC_USER_DATA_DIR ||= resolve(root, ".dev-userdata");
+console.log(`[dev] user data dir: ${env.MC_USER_DATA_DIR}`);
 
 if (mode !== "electron" && mode !== "web") {
   console.error(`[dev] unknown mode "${mode}". Expected "electron" or "web".`);

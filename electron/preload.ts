@@ -20,6 +20,67 @@ export type UpdateStateBridge =
   | { kind: "ready-to-install"; version: string }
   | { kind: "error"; message: string };
 
+// Mirror of SandboxState in sandbox-manager.ts (structural — renderer never
+// imports main-process code). Drift caught by reviewer-contracts.
+export type SandboxStateBridge =
+  | { status: "disabled" }
+  | { status: "stopped"; dockerAvailable: boolean }
+  | { status: "starting"; step: string }
+  | { status: "running" }
+  | { status: "connected"; version: string; agents: Record<string, string | null> }
+  | {
+      status: "update-required";
+      version: string;
+      expectedVersion: string;
+      agents: Record<string, string | null>;
+    }
+  | { status: "error"; message: string };
+
+export type SandboxSettingsBridge = {
+  enabled: boolean;
+  runtimeMode: "host" | "docker";
+  dockerfilePath: string | null;
+  buildArgKeys: string[];
+  hasBuildArgs: boolean;
+  imageTag: string | null;
+  publishedPorts: number[];
+  workspaceVolume: string;
+  projectPaths: Record<string, string>;
+  agentPort: number;
+  agentConfigVolume: string;
+  gitAuthMode: "none" | "copy-host" | "generate";
+  /** The pairing token itself is never sent to the renderer. */
+  hasPairingToken: boolean;
+};
+
+export type SandboxSettingsPatchBridge = Partial<{
+  enabled: boolean;
+  runtimeMode: "host" | "docker";
+  dockerfilePath: string | null;
+  buildArgs: Record<string, string>;
+  imageTag: string | null;
+  publishedPorts: string | number[];
+  workspaceVolume: string;
+  projectPaths: Record<string, string>;
+  agentPort: number;
+  agentConfigVolume: string;
+  gitAuthMode: "none" | "copy-host" | "generate";
+}>;
+
+export type RemotePtySpawnOptionsBridge = {
+  taskId: string;
+  /** Absolute in-container path (e.g. /workspace/<slug>). */
+  cwd: string;
+  command: string;
+  agent?: string;
+  shell?: boolean;
+  args?: string[];
+  cols?: number;
+  rows?: number;
+  dangerouslySkipPermissions?: boolean;
+  missionControlTheme?: "dark" | "light";
+};
+
 export type SessionTerminalDebugLogInputBridge = {
   level?: "error" | "warn";
   stage: string;
@@ -51,6 +112,119 @@ const electronAPI = {
     getToken: (): Promise<string> => ipcRenderer.invoke(IPC.settingsGetToken),
     regenerateToken: (): Promise<string> =>
       ipcRenderer.invoke(IPC.settingsRegenerateToken),
+  },
+  sandbox: {
+    // Phase 2: lifecycle is per-sandbox (sandboxId; falls back to the active scope).
+    getState: (sandboxId?: string): Promise<SandboxStateBridge> =>
+      ipcRenderer.invoke(IPC.sandboxGetState, sandboxId),
+    getSettings: (): Promise<SandboxSettingsBridge> => ipcRenderer.invoke(IPC.sandboxGetSettings),
+    updateSettings: (patch: SandboxSettingsPatchBridge): Promise<SandboxSettingsBridge> =>
+      ipcRenderer.invoke(IPC.sandboxUpdateSettings, patch),
+    up: (sandboxId?: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.sandboxUp, sandboxId),
+    rebuild: (sandboxId?: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.sandboxRebuild, sandboxId),
+    down: (sandboxId?: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.sandboxDown, sandboxId),
+    destroy: (sandboxId: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.sandboxDestroy, sandboxId),
+    /** Set the scope the renderer is showing; routes remote PTY/fs/git. null = Local. */
+    setActive: (sandboxId: string | null): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC.sandboxSetActive, sandboxId),
+    connect: (sandboxId?: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC.sandboxConnect, sandboxId),
+    disconnect: (sandboxId?: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC.sandboxDisconnect, sandboxId),
+    status: (): Promise<{
+      dockerAvailable: boolean;
+      states: Array<{ sandboxId: string; state: SandboxStateBridge }>;
+    }> => ipcRenderer.invoke(IPC.sandboxStatus),
+    validateDockerfile: (
+      p: string,
+    ): Promise<{ ok: true; exists: boolean; isDirectory: boolean }> =>
+      ipcRenderer.invoke(IPC.sandboxValidateDockerfile, p),
+    diagnostics: (): Promise<string> => ipcRenderer.invoke(IPC.sandboxDiagnostics),
+    setupGitAuth: (sandboxId?: string): Promise<{ publicKey?: string }> =>
+      ipcRenderer.invoke(IPC.sandboxSetupGitAuth, sandboxId),
+    revealApiKey: (
+      sandboxId: string,
+    ): Promise<{ ok: true; apiKey: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.sandboxRevealApiKey, sandboxId),
+    detectRemote: (projectPath: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.sandboxDetectRemote, projectPath),
+    onStateChange: (cb: (e: { sandboxId: string; state: SandboxStateBridge }) => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        e: { sandboxId: string; state: SandboxStateBridge },
+      ) => cb(e);
+      ipcRenderer.on(IPC.sandboxStateChange, listener);
+      return () => ipcRenderer.removeListener(IPC.sandboxStateChange, listener);
+    },
+    onLog: (cb: (line: string) => void) => {
+      const listener = (_: Electron.IpcRendererEvent, line: string) => cb(line);
+      ipcRenderer.on(IPC.sandboxLog, listener);
+      return () => ipcRenderer.removeListener(IPC.sandboxLog, listener);
+    },
+  },
+  remotePty: {
+    spawn: (opts: RemotePtySpawnOptionsBridge): Promise<{ ptyId: string }> =>
+      ipcRenderer.invoke(IPC.remotePtySpawn, opts),
+    write: (ptyId: string, data: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.remotePtyWrite, ptyId, data),
+    resize: (ptyId: string, cols: number, rows: number): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.remotePtyResize, ptyId, cols, rows),
+    kill: (ptyId: string): Promise<boolean> => ipcRenderer.invoke(IPC.remotePtyKill, ptyId),
+    replay: (ptyId: string): Promise<{ data: string; nextSeq: number }> =>
+      ipcRenderer.invoke(IPC.remotePtyReplay, ptyId),
+    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => {
+      const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; data: string; seq: number }) =>
+        cb(msg);
+      ipcRenderer.on(IPC.remotePtyData, listener);
+      return () => ipcRenderer.removeListener(IPC.remotePtyData, listener);
+    },
+    onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        msg: { ptyId: string; exitCode: number; signal?: number },
+      ) => cb(msg);
+      ipcRenderer.on(IPC.remotePtyExit, listener);
+      return () => ipcRenderer.removeListener(IPC.remotePtyExit, listener);
+    },
+    onSpawned: (cb: (msg: { ptyId: string }) => void) => {
+      const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string }) => cb(msg);
+      ipcRenderer.on(IPC.remotePtySpawned, listener);
+      return () => ipcRenderer.removeListener(IPC.remotePtySpawned, listener);
+    },
+    onSpawnError: (cb: (msg: { ptyId: string; code: string; message: string }) => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        msg: { ptyId: string; code: string; message: string },
+      ) => cb(msg);
+      ipcRenderer.on(IPC.remotePtySpawnError, listener);
+      return () => ipcRenderer.removeListener(IPC.remotePtySpawnError, listener);
+    },
+  },
+  remoteFs: {
+    list: (path: string) => ipcRenderer.invoke(IPC.remoteFsList, path),
+    read: (path: string) => ipcRenderer.invoke(IPC.remoteFsRead, path),
+    write: (path: string, content: string, expectedMtimeMs: number | null) =>
+      ipcRenderer.invoke(IPC.remoteFsWrite, path, content, expectedMtimeMs),
+    watch: (path: string) => ipcRenderer.invoke(IPC.remoteFsWatch, path),
+    unwatch: (watchId: string) => ipcRenderer.invoke(IPC.remoteFsUnwatch, watchId),
+    onChange: (cb: (msg: { watchId: string; path: string; mtimeMs: number }) => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        msg: { watchId: string; path: string; mtimeMs: number },
+      ) => cb(msg);
+      ipcRenderer.on(IPC.remoteFsChange, listener);
+      return () => ipcRenderer.removeListener(IPC.remoteFsChange, listener);
+    },
+  },
+  remoteGit: {
+    status: (repo: string) => ipcRenderer.invoke(IPC.remoteGitStatus, repo),
+    diff: (repo: string, file: string, staged: boolean) =>
+      ipcRenderer.invoke(IPC.remoteGitDiff, repo, file, staged),
+    clone: (remote: string, slug: string) => ipcRenderer.invoke(IPC.remoteGitClone, remote, slug),
   },
   debugLog: {
     listSessionTerminalErrors: (): Promise<SessionTerminalDebugLogEntryBridge[]> =>

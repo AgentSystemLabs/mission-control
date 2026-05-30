@@ -41,6 +41,16 @@ export function getStringAppSetting(userDataDir: string, key: string): string | 
   return row?.value ?? null;
 }
 
+export function setAppSetting(userDataDir: string, key: string, value: string): void {
+  const db = openDb(userDataDir);
+  db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)").run(key, value);
+}
+
+export function deleteAppSetting(userDataDir: string, key: string): void {
+  const db = openDb(userDataDir);
+  db.prepare("DELETE FROM app_settings WHERE key = ?").run(key);
+}
+
 export function disposeAppSettingsStore(): void {
   if (_db) {
     try {

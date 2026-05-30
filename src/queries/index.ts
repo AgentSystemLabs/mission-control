@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { api, setApiToken } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
@@ -6,14 +7,17 @@ import {
   readCachedGroups,
   readCachedLicense,
   readCachedProjects,
+  readCachedSandboxes,
   readCachedSettings,
 } from "~/lib/shell-query-cache";
 import type { LicenseState } from "~/shared/license";
+import { filterProjectsByScope } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 export const queryKeys = {
   projects: ["projects"] as const,
   project: (id: string) => ["projects", id] as const,
+  sandboxes: ["sandboxes"] as const,
   groups: ["groups"] as const,
   tasks: (projectId: string, worktreeId?: string | null) =>
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "tasks"] as const,
@@ -51,6 +55,17 @@ export const projectQueryOptions = (id: string) =>
     queryKey: queryKeys.project(id),
     queryFn: async () => (await api.getProject(id)).project,
   });
+
+// Full sandbox state for the header scope dropdown: the sandboxes, whether the
+// feature is enabled (gates the dropdown), and the selected scope.
+export const sandboxesQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.sandboxes,
+    queryFn: async () => api.listSandboxes(),
+    placeholderData: () => readCachedSandboxes(),
+  });
+
+export const useSandboxes = () => useQuery(sandboxesQueryOptions());
 
 export const groupsQueryOptions = () =>
   queryOptions({
@@ -133,6 +148,17 @@ export const usageQueryOptions = (days: number = DEFAULT_USAGE_DAYS) =>
   });
 
 export const useProjects = () => useQuery(projectsQueryOptions());
+
+/** Projects visible in the active sandbox scope (Local or one sandbox). */
+export const useScopedProjects = () => {
+  const query = useProjects();
+  const { data: sandboxState } = useSandboxes();
+  const data = useMemo(() => {
+    if (query.data === undefined) return undefined;
+    return filterProjectsByScope(query.data, sandboxState);
+  }, [query.data, sandboxState]);
+  return { ...query, data };
+};
 export const useProject = (id: string) => useQuery(projectQueryOptions(id));
 export const useGroups = () => useQuery(groupsQueryOptions());
 export const useTasks = (projectId: string, worktreeId?: string | null) =>

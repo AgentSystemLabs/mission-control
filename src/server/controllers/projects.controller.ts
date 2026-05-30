@@ -40,6 +40,7 @@ const createProjectBody = z.object({
   icon: z.string().optional(),
   iconColor: z.string().optional(),
   groupId: z.string().nullable().optional(),
+  sandboxId: z.string().nullable().optional(),
 });
 
 const updateProjectBody = z

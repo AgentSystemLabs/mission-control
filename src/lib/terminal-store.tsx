@@ -4,10 +4,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { getElectron } from "./electron";
+import { markIntentionalSessionClose } from "./intentional-session-close";
+import { isRemotePtyId } from "./pty-id";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import {
   agentLaunchMode,
@@ -122,6 +125,32 @@ export function nextActiveTaskId(
     : requestedTaskId;
 }
 
+/** Grace period before an un-selected archived session's PTY is reaped. */
+export const ARCHIVED_SESSION_REAP_DELAY_MS = 60_000;
+
+/**
+ * Opened archived sessions whose PTY is eligible to be reaped right now.
+ *
+ * Clicking an archived card resumes its PTY so the user can inspect history,
+ * but a left-open archived terminal leaks memory. A session qualifies once it
+ * is archived AND is no longer the active selection in its scope (the user
+ * closed it or switched to another card). An archived session that is still
+ * selected is kept alive — reaping is deferred until they switch away.
+ */
+export function archivedSessionsEligibleForReap(
+  sessions: OpenTerminal[],
+  activeByProject: Record<string, string | null>,
+): string[] {
+  const eligible: string[] = [];
+  for (const session of sessions) {
+    if (!session.task.archived) continue;
+    const scopeKey = scopeKeyForProject(session.project);
+    if ((activeByProject[scopeKey] ?? null) === session.taskId) continue;
+    eligible.push(session.taskId);
+  }
+  return eligible;
+}
+
 function loadActiveByProject(): Record<string, string | null> {
   if (typeof window === "undefined") return {};
   try {
@@ -178,8 +207,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const killPty = async (id: string | null) => {
     if (!id) return;
     const electron = getElectron();
-    if (electron) await electron.pty.kill(id).catch(() => undefined);
-    else await api.killRemotePty(id).catch(() => undefined);
+    if (electron) {
+      const ptyApi = isRemotePtyId(id) ? electron.remotePty : electron.pty;
+      await ptyApi.kill(id).catch(() => undefined);
+    } else {
+      await api.killRemotePty(id).catch(() => undefined);
+    }
   };
 
   const toggle = useCallback(
@@ -340,6 +373,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const close = useCallback(async (taskId: string, opts?: { activateTaskId?: string | null }) => {
+    markIntentionalSessionClose(taskId);
     setSessions((prev) => {
       const target = prev.find((p) => p.taskId === taskId);
       if (target) void killPty(target.ptyId);
@@ -361,12 +395,49 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Reap opened archived sessions. Clicking an archived card resumes its PTY
+  // so its history can be inspected; once the user closes it or switches to
+  // another card, kill the PTY after a grace period to reclaim memory.
+  // Re-selecting the session before the timer fires cancels the kill (it drops
+  // out of the eligible set); switching away again reschedules it. Reaping only
+  // ever targets non-active sessions, so it never disturbs the visible panel.
+  const reapTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  useEffect(() => {
+    const timers = reapTimersRef.current;
+    const eligible = new Set(archivedSessionsEligibleForReap(sessions, activeByProject));
+    for (const taskId of eligible) {
+      if (timers.has(taskId)) continue;
+      timers.set(
+        taskId,
+        setTimeout(() => {
+          timers.delete(taskId);
+          void close(taskId);
+        }, ARCHIVED_SESSION_REAP_DELAY_MS),
+      );
+    }
+    for (const [taskId, timer] of timers) {
+      if (eligible.has(taskId)) continue;
+      clearTimeout(timer);
+      timers.delete(taskId);
+    }
+  }, [sessions, activeByProject, close]);
+
+  useEffect(() => {
+    const timers = reapTimersRef.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+
   const closeForProject = useCallback(async (projectId: string) => {
     setSessions((prev) => {
       const remaining: OpenTerminal[] = [];
       for (const t of prev) {
-        if (t.project.id === projectId) void killPty(t.ptyId);
-        else remaining.push(t);
+        if (t.project.id === projectId) {
+          markIntentionalSessionClose(t.taskId);
+          void killPty(t.ptyId);
+        } else remaining.push(t);
       }
       return remaining;
     });
