@@ -19,7 +19,21 @@ import { findProjectIdsBySandboxId } from "../repositories/projects.repo";
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { getBooleanSetting, getSetting, setBooleanSetting, setSetting } from "./settings";
+import { FREE_SANDBOX_CAP, isProTier } from "~/shared/license";
+import { readLicenseState } from "./license";
 import { newId } from "./_ids";
+
+export class SandboxCapExceededError extends Error {
+  constructor(
+    public readonly limit: number,
+    public readonly current: number,
+  ) {
+    super(
+      `Mission Control Lite is limited to ${limit} sandbox${limit === 1 ? "" : "es"} (plus Local). Upgrade to Pro for unlimited sandboxes.`,
+    );
+    this.name = "SandboxCapExceededError";
+  }
+}
 
 // CRUD + scope-selection for sandboxes (isolated execution environments). The
 // container lifecycle is owned by the Electron main; Phase 1 manages only the
@@ -111,6 +125,13 @@ export type CreateSandboxInput = {
 };
 
 export function createSandbox(input: CreateSandboxInput): SandboxPublicView {
+  if (!isProTier(readLicenseState())) {
+    const existing = findAllSandboxes();
+    if (existing.length >= FREE_SANDBOX_CAP) {
+      throw new SandboxCapExceededError(FREE_SANDBOX_CAP, existing.length);
+    }
+  }
+
   const now = Date.now();
   const kind = input.kind ?? "local-docker";
   const remoteAgentUrl =

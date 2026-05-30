@@ -9,9 +9,10 @@ import { getElectron } from "~/lib/electron";
 import { api } from "~/lib/api";
 import { queryKeys } from "~/queries";
 import { ACADEMY_BASE_URL } from "~/shared/academy";
-import { FREE_PROJECT_CAP, type LicenseState } from "~/shared/license";
+import { FREE_PROJECT_CAP, FREE_SANDBOX_CAP, type LicenseState } from "~/shared/license";
 
 export type LicenseEntryReason = "manage" | "paywall";
+export type PaywallContext = "projects" | "sandboxes";
 
 const PURCHASE_URL = `${ACADEMY_BASE_URL}/mission-control`;
 
@@ -19,10 +20,12 @@ export function LicenseEntryModal({
   open,
   onClose,
   reason = "manage",
+  paywallContext = "projects",
 }: {
   open: boolean;
   onClose: () => void;
   reason?: LicenseEntryReason;
+  paywallContext?: PaywallContext;
 }) {
   const queryClient = useQueryClient();
   const [key, setKey] = useState("");
@@ -92,6 +95,9 @@ export function LicenseEntryModal({
   };
 
   const isPaywall = reason === "paywall";
+  const paywallLimit = paywallContext === "sandboxes" ? FREE_SANDBOX_CAP : FREE_PROJECT_CAP;
+  const paywallUnit = paywallContext === "sandboxes" ? "sandbox" : "project";
+  const paywallUnitPlural = paywallContext === "sandboxes" ? "sandboxes" : "projects";
   const title = isPaywall ? "Upgrade to Mission Control Pro" : "Activate Mission Control Pro";
   const submitLabel = isPaywall ? "Activate Pro" : "Activate";
 
@@ -144,10 +150,12 @@ export function LicenseEntryModal({
               }}
             >
               <Icon name="sparkles" size={14} />
-              You've reached the {FREE_PROJECT_CAP}-project Lite limit
+              {paywallContext === "sandboxes"
+                ? `You've reached the Lite limit (Local + ${paywallLimit} ${paywallUnit})`
+                : `You've reached the ${paywallLimit}-${paywallUnit} Lite limit`}
             </div>
             <p style={{ margin: 0, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
-              Upgrade to Pro for unlimited projects and the curated skills bundle.
+              Upgrade to Pro for unlimited {paywallUnitPlural} and the curated skills bundle.
               One-time purchase, lifetime updates — no subscription.
             </p>
             <a
@@ -172,7 +180,7 @@ export function LicenseEntryModal({
         <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.5 }}>
           {isPaywall
             ? "Already have a key? Paste it below to activate Pro instantly."
-            : `Paste your license key from agentsystem.dev to unlock Pro features. Lite includes up to ${FREE_PROJECT_CAP} projects.`}
+            : `Paste your license key from agentsystem.dev to unlock Pro features. Lite includes up to ${FREE_PROJECT_CAP} projects and Local + ${FREE_SANDBOX_CAP} sandbox.`}
         </p>
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <span

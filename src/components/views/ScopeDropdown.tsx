@@ -6,9 +6,11 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { NewSandboxModal, type NewSandboxPayload } from "~/components/views/NewSandboxModal";
 import { SandboxConfigModal } from "~/components/views/SandboxConfigModal";
-import { api } from "~/lib/api";
+import { LicenseEntryModal } from "~/components/views/LicenseEntryModal";
+import { api, ApiError } from "~/lib/api";
 import { getElectron, isElectron } from "~/lib/electron";
-import { queryKeys, useSandboxes } from "~/queries";
+import { licenseQueryOptions, queryKeys, sandboxesQueryOptions, useSandboxes } from "~/queries";
+import { FREE_SANDBOX_CAP, isProTier } from "~/shared/license";
 import { LOCAL_SCOPE_ID, scopeToSandboxId } from "~/shared/sandbox";
 
 const LOCAL_DOT = "var(--text-faint)";
@@ -65,6 +67,7 @@ export function ScopeDropdown() {
   const { data } = useSandboxes();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -111,10 +114,30 @@ export function ScopeDropdown() {
   };
 
   const create = async (payload: NewSandboxPayload) => {
-    const { sandbox } = await api.createSandbox(payload);
-    await api.setActiveScope(sandbox.id);
-    void qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-    void router.navigate({ to: "/" });
+    try {
+      const { sandbox } = await api.createSandbox(payload);
+      await api.setActiveScope(sandbox.id);
+      void qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
+      void router.navigate({ to: "/" });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) {
+        setCreating(false);
+        setPaywallOpen(true);
+        return;
+      }
+      throw e;
+    }
+  };
+
+  const openCreateSandbox = async () => {
+    setOpen(false);
+    const latestLicense = await qc.ensureQueryData(licenseQueryOptions());
+    const latestSandboxes = await qc.ensureQueryData(sandboxesQueryOptions());
+    if (!isProTier(latestLicense) && latestSandboxes.sandboxes.length >= FREE_SANDBOX_CAP) {
+      setPaywallOpen(true);
+      return;
+    }
+    setCreating(true);
   };
 
   const showConfig = !isLocal && activeSandbox;
@@ -178,10 +201,7 @@ export function ScopeDropdown() {
               <div style={{ borderTop: "1px solid var(--border)", marginTop: 4, paddingTop: 4 }}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    setCreating(true);
-                  }}
+                  onClick={() => void openCreateSandbox()}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -228,6 +248,13 @@ export function ScopeDropdown() {
         open={creating}
         onClose={() => setCreating(false)}
         onCreate={create}
+      />
+
+      <LicenseEntryModal
+        open={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        reason="paywall"
+        paywallContext="sandboxes"
       />
     </>
   );

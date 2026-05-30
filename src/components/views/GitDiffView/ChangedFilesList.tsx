@@ -7,7 +7,10 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
@@ -46,6 +49,7 @@ const STATUS_META: Record<GitFileStatus, { letter: string; color: string }> = {
 
 export type FileSelection = { path: string; staged: boolean } | null;
 type FileListView = GitDiffChangedFilesView;
+type FileContextMenu = { x: number; y: number; path: string; staged: boolean };
 type MutableTreeDir = {
   name: string;
   path: string;
@@ -89,9 +93,7 @@ export function ChangedFilesList({
   const storedViewMode = settings?.gitDiffChangedFilesView ?? null;
   const storedWidth = settings?.gitDiffChangedFilesWidth ?? null;
   const [shipError, setShipError] = useState<string | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(
-    null,
-  );
+  const [menu, setMenu] = useState<FileContextMenu | null>(null);
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
   const initialCachedViewRef = useRef<FileListView | null>(null);
   const [viewMode, setViewMode] = useState<FileListView>(() =>
@@ -184,10 +186,10 @@ export function ChangedFilesList({
     });
   }, []);
 
-  const openMenu = (e: React.MouseEvent, path: string) => {
+  const openMenu = (e: React.MouseEvent, path: string, staged: boolean) => {
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ x: e.clientX, y: e.clientY, path });
+    setMenu({ x: e.clientX, y: e.clientY, path, staged });
   };
 
   return (
@@ -261,7 +263,7 @@ export function ChangedFilesList({
               onToggleFolder={toggleFolder}
               onSelect={(file) => onSelect({ path: file.path, staged: true })}
               onAction={(file) => onUnstage([file.path])}
-              onContextMenu={(e, file) => openMenu(e, file.path)}
+              onContextMenu={(e, file) => openMenu(e, file.path, true)}
             />
           ) : (
             staged.map((f) => (
@@ -275,7 +277,7 @@ export function ChangedFilesList({
                 isBusy={busyPaths.has(f.path)}
                 onSelect={() => onSelect({ path: f.path, staged: true })}
                 onAction={() => onUnstage([f.path])}
-                onContextMenu={(e) => openMenu(e, f.path)}
+                onContextMenu={(e) => openMenu(e, f.path, true)}
               />
             ))
           )}
@@ -301,7 +303,7 @@ export function ChangedFilesList({
               onToggleFolder={toggleFolder}
               onSelect={(file) => onSelect({ path: file.path, staged: false })}
               onAction={(file) => onStage([file.path])}
-              onContextMenu={(e, file) => openMenu(e, file.path)}
+              onContextMenu={(e, file) => openMenu(e, file.path, false)}
             />
           ) : (
             unstaged.map((f) => (
@@ -315,7 +317,7 @@ export function ChangedFilesList({
                 isBusy={busyPaths.has(f.path)}
                 onSelect={() => onSelect({ path: f.path, staged: false })}
                 onAction={() => onStage([f.path])}
-                onContextMenu={(e) => openMenu(e, f.path)}
+                onContextMenu={(e) => openMenu(e, f.path, false)}
               />
             ))
           )}
@@ -335,60 +337,79 @@ export function ChangedFilesList({
           zIndex: 10,
         }}
       />
-      {menu && (
-        <div
-          role="menu"
-          aria-label="File actions"
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            top: menu.y,
-            left: menu.x,
-            zIndex: 1000,
-            background: "var(--surface-2)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: 4,
-            minWidth: 140,
-            boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
-          }}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            autoFocus
-            onClick={(e) => {
-              e.stopPropagation();
-              const p = menu.path;
-              setMenu(null);
-              setConfirmPath(p);
-            }}
+      {menu &&
+        createPortal(
+          <CardFrame
+            role="menu"
+            aria-label="File actions"
+            solid
+            className="mc-project-actions-menu"
+            onClick={(e) => e.stopPropagation()}
             style={{
+              position: "fixed",
+              top: menu.y,
+              left: menu.x,
+              minWidth: 168,
+              padding: 4,
               display: "flex",
-              alignItems: "center",
-              gap: 8,
-              width: "100%",
-              padding: "7px 10px",
-              background: "transparent",
-              border: 0,
-              borderRadius: 4,
-              cursor: "pointer",
-              color: "var(--status-failed, #e06c75)",
-              fontSize: 12,
-              fontFamily: "var(--mono)",
-              textAlign: "left",
+              flexDirection: "column",
+              alignItems: "stretch",
+              gap: 0,
+              boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
+              zIndex: 10000,
             }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = "var(--surface-3)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.background = "transparent")
-            }
           >
-            <Icon name="trash" size={12} /> Delete
-          </button>
-        </div>
-      )}
+            {menu.staged ? (
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon="x"
+                autoFocus
+                disabled={busyPaths.has(menu.path)}
+                onClick={() => {
+                  const path = menu.path;
+                  setMenu(null);
+                  onUnstage([path]);
+                }}
+                style={{ justifyContent: "flex-start" }}
+              >
+                Unaccept
+              </Btn>
+            ) : (
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon="plus"
+                autoFocus
+                disabled={busyPaths.has(menu.path)}
+                onClick={() => {
+                  const path = menu.path;
+                  setMenu(null);
+                  onStage([path]);
+                }}
+                style={{ justifyContent: "flex-start" }}
+              >
+                Accept
+              </Btn>
+            )}
+            <FileActionsMenuSeparator />
+            <Btn
+              variant="danger"
+              size="sm"
+              icon="trash"
+              disabled={busyPaths.has(menu.path)}
+              onClick={() => {
+                const path = menu.path;
+                setMenu(null);
+                setConfirmPath(path);
+              }}
+              style={{ justifyContent: "flex-start" }}
+            >
+              Delete
+            </Btn>
+          </CardFrame>,
+          document.body,
+        )}
       <ConfirmDialog
         open={confirmPath !== null}
         onClose={() => setConfirmPath(null)}
@@ -895,6 +916,19 @@ function FileRow({
         <Icon name={isStaged ? "x" : "plus"} size={11} />
       </button>
     </div>
+  );
+}
+
+function FileActionsMenuSeparator() {
+  return (
+    <div
+      className="mc-project-actions-menu-separator"
+      style={{
+        height: 1,
+        background: "var(--border)",
+        margin: "2px 2px",
+      }}
+    />
   );
 }
 

@@ -20,6 +20,8 @@ export type LicenseState = {
 };
 
 export const FREE_PROJECT_CAP = 2;
+/** Non-local sandboxes (Docker, remote VM, etc.). Local scope is always free. */
+export const FREE_SANDBOX_CAP = 1;
 
 export function isLicensePayloadExpired(
   payload: Pick<LicensePayload, "expiresAt">,

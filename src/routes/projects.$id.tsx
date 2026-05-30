@@ -2013,7 +2013,7 @@ function ProjectPage() {
                 </HotkeyTooltip>
                 <MenuSeparator />
                 <Btn
-                  variant="ghost"
+                  variant="danger"
                   icon="trash"
                   onClick={() => {
                     setOverflowOpen(false);

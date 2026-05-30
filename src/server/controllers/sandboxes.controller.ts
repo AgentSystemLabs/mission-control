@@ -5,12 +5,13 @@ import {
   deleteSandbox,
   getSandboxState,
   revealSandboxApiKey,
+  SandboxCapExceededError,
   setActiveScope,
   setSandboxesEnabled,
   updateSandbox,
 } from "../services/sandboxes";
 import { idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
-import { HTTP_BAD_REQUEST, HTTP_CREATED } from "~/shared/http-status";
+import { HTTP_BAD_REQUEST, HTTP_CREATED, HTTP_PAYMENT_REQUIRED } from "~/shared/http-status";
 import { isElectronLocalApiRequest } from "../request-runtime";
 
 // Sandboxes are a local-desktop feature; hosted (web) requests get a disabled,
@@ -90,8 +91,23 @@ export async function create(request: Request): Promise<Response> {
   if (blocked) return blocked;
   const parsed = await parseJsonBody(request, createBody);
   if (!parsed.ok) return parsed.response;
-  const sandbox = createSandbox(parsed.data);
-  return json({ sandbox }, { status: HTTP_CREATED });
+  try {
+    const sandbox = createSandbox(parsed.data);
+    return json({ sandbox }, { status: HTTP_CREATED });
+  } catch (e) {
+    if (e instanceof SandboxCapExceededError) {
+      return new Response(
+        JSON.stringify({
+          error: e.message,
+          code: "free_tier_sandbox_cap",
+          limit: e.limit,
+          current: e.current,
+        }),
+        { status: HTTP_PAYMENT_REQUIRED, headers: { "content-type": "application/json" } },
+      );
+    }
+    throw e;
+  }
 }
 
 export async function update(rawId: string, request: Request): Promise<Response> {

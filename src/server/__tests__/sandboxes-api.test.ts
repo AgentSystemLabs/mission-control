@@ -1,18 +1,25 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { generateKeyPairSync, sign } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-sandboxes-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
+const keypair = generateKeyPairSync("ed25519");
+process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
+  .export({ type: "spki", format: "pem" })
+  .toString();
 
 const { handleApiRequest } = await import("../api-router");
 const { getDb } = await import("~/db/client");
 const { sandboxes, projects, appSettings } = await import("~/db/schema");
 const { getOrCreateApiToken } = await import("../services/settings");
 const { insertProject } = await import("../repositories/projects.repo");
+const { setLicenseKey, clearLicense } = await import("../services/license-storage");
 const { MISSION_CONTROL_RUNTIME_HEADER } = await import("~/shared/runtime");
 const { eq } = await import("drizzle-orm");
+const { HTTP_PAYMENT_REQUIRED } = await import("~/shared/http-status");
 
 async function body(res: Response | null | undefined) {
   return (await res!.json()) as Record<string, any>;
@@ -62,11 +69,30 @@ function makeProject(id: string, sandboxId: string | null) {
   });
 }
 
+function signedLicense(overrides: Record<string, unknown> = {}): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      licenseId: "lic_test",
+      customerId: "cus_test",
+      product: "mission-control-pro",
+      tier: "pro",
+      expiresAt: null,
+      maxMachines: 3,
+      issuedAt: "2026-05-07T17:10:17.000Z",
+      ...overrides,
+    }),
+    "utf8",
+  );
+  const signature = sign(null, payload, keypair.privateKey);
+  return `MC-PRO-v1.${payload.toString("base64url")}.${signature.toString("base64url")}`;
+}
+
 describe("sandboxes API", () => {
   beforeEach(() => {
     getDb().delete(projects).run();
     getDb().delete(sandboxes).run();
     getDb().delete(appSettings).run();
+    clearLicense();
   });
 
   it("creates a sandbox, enables the feature, and lists it with the active scope", async () => {
@@ -238,5 +264,33 @@ describe("sandboxes API", () => {
       webRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "X" }) }),
     );
     expect(create?.status).toBe(400);
+  });
+
+  it("returns 402 when a lite user tries to create a second sandbox", async () => {
+    await handleApiRequest(
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "First" }) }),
+    );
+
+    const second = await handleApiRequest(
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "Second" }) }),
+    );
+    expect(second?.status).toBe(HTTP_PAYMENT_REQUIRED);
+    const payload = await body(second);
+    expect(payload.code).toBe("free_tier_sandbox_cap");
+  });
+
+  it("allows multiple sandboxes when an active license is on file", async () => {
+    setLicenseKey(signedLicense());
+
+    await handleApiRequest(
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "First" }) }),
+    );
+    const second = await handleApiRequest(
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "Second" }) }),
+    );
+    expect(second?.status).toBe(201);
+
+    const list = await body(await handleApiRequest(electronRequest("/api/sandboxes")));
+    expect(list.sandboxes).toHaveLength(2);
   });
 });

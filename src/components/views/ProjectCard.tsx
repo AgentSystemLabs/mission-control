@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Btn } from "~/components/ui/Btn";
-import { Icon } from "~/components/ui/Icon";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { StatusDot, StatusPill } from "~/components/ui/StatusDot";
 import { ProjectStatusBadge } from "~/components/ui/ProjectStatusBadge";
@@ -12,8 +12,8 @@ import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
 
 type ProjectCardMenu = { x: number; y: number } | null;
-const MENU_WIDTH = 184;
-const MENU_HEIGHT = 96;
+const MENU_WIDTH = 196;
+const MENU_HEIGHT = 120;
 
 function menuPosition(x: number, y: number): NonNullable<ProjectCardMenu> {
   return {
@@ -229,90 +229,55 @@ export function ProjectCard({
           </div>
         )}
       </div>
-      {menu && (
-        <div
-          role="menu"
-          aria-label={`${project.name} actions`}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            top: menu.y,
-            left: menu.x,
-            zIndex: 1000,
-            background: "var(--surface-2)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: 4,
-            minWidth: 176,
-            boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
-          }}
-        >
-          <ProjectCardMenuItem
-            autoFocus
-            icon="settings"
-            label="Edit project"
-            onSelect={() => {
-              setMenu(null);
-              onEdit();
+      {menu &&
+        createPortal(
+          <CardFrame
+            role="menu"
+            aria-label={`${project.name} actions`}
+            solid
+            className="mc-project-actions-menu"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              top: menu.y,
+              left: menu.x,
+              minWidth: MENU_WIDTH,
+              padding: 8,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "stretch",
+              gap: 4,
+              boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
+              zIndex: 10000,
             }}
-          />
-          <ProjectCardMenuItem
-            icon="trash"
-            label="Remove project"
-            danger
-            onSelect={() => {
-              setMenu(null);
-              onRemove();
-            }}
-          />
-        </div>
-      )}
+          >
+            <Btn
+              variant="ghost"
+              icon="settings"
+              autoFocus
+              onClick={() => {
+                setMenu(null);
+                onEdit();
+              }}
+              style={{ justifyContent: "flex-start" }}
+            >
+              Edit project
+            </Btn>
+            <Btn
+              variant="danger"
+              icon="trash"
+              onClick={() => {
+                setMenu(null);
+                onRemove();
+              }}
+              style={{ justifyContent: "flex-start" }}
+              title="Remove this project from Mission Control. The folder on disk is not touched."
+            >
+              Remove project
+            </Btn>
+          </CardFrame>,
+          document.body,
+        )}
     </CardFrame>
-  );
-}
-
-function ProjectCardMenuItem({
-  icon,
-  label,
-  onSelect,
-  danger = false,
-  autoFocus = false,
-}: {
-  icon: "settings" | "trash";
-  label: string;
-  onSelect: () => void;
-  danger?: boolean;
-  autoFocus?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      autoFocus={autoFocus}
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect();
-      }}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        width: "100%",
-        padding: "7px 10px",
-        background: "transparent",
-        border: 0,
-        borderRadius: 4,
-        cursor: "pointer",
-        color: danger ? "var(--status-failed, #e06c75)" : "var(--text)",
-        fontSize: 12,
-        fontFamily: "var(--mono)",
-        textAlign: "left",
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-    >
-      <Icon name={icon} size={12} />
-      {label}
-    </button>
   );
 }
