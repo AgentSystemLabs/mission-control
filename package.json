@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "0.38.0",
+  "version": "0.39.0",
   "description": "Desktop control surface for managing agentic coding work across many projects.",
   "private": true,
   "main": "dist-electron/electron/main.js",
@@ -147,12 +147,16 @@
       {
         "from": "docker/sandbox-base",
         "to": "docker/sandbox-base",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "mc-agent/dist",
         "to": "mc-agent/dist",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       "mc-agent/package.json",
       "mc-agent/docker-entrypoint.sh"
