@@ -136,6 +136,159 @@ export function ensureColumn(
   sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }
 
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+function indexColumns(sqlite: Database.Database, indexName: string): string[] {
+  return (
+    sqlite.prepare(`PRAGMA index_info(${quoteIdent(indexName)})`).all() as {
+      name: string;
+    }[]
+  ).map((c) => c.name);
+}
+
+function uniqueSandboxIndexes(sqlite: Database.Database): { name: string }[] {
+  return (
+    sqlite.prepare("PRAGMA index_list(projects)").all() as {
+      name: string;
+      unique: number;
+    }[]
+  ).filter((idx) => idx.unique === 1 && indexColumns(sqlite, idx.name).join(",") === "sandbox_id");
+}
+
+type TableColumn = {
+  name: string;
+};
+
+function splitSqlList(input: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(input.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(input.slice(start));
+  return out;
+}
+
+function isSandboxColumnDef(definition: string): boolean {
+  return /^(?:"sandbox_id"|`sandbox_id`|\[sandbox_id\]|sandbox_id)(?:\s|$)/i.test(
+    definition.trimStart(),
+  );
+}
+
+function isSandboxUniqueConstraint(definition: string): boolean {
+  const withoutName = definition
+    .trimStart()
+    .replace(/^CONSTRAINT\s+(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|\w+)\s+/i, "");
+  return /^UNIQUE\s*\(\s*(?:"sandbox_id"|`sandbox_id`|\[sandbox_id\]|sandbox_id)\s*\)/i.test(
+    withoutName,
+  );
+}
+
+function projectTableSqlWithoutSandboxUnique(sqlite: Database.Database): string {
+  const row = sqlite
+    .prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'projects'")
+    .get() as { sql: string } | undefined;
+  if (!row?.sql) throw new Error("Cannot repair projects schema: missing CREATE TABLE SQL");
+
+  const open = row.sql.indexOf("(");
+  const close = row.sql.lastIndexOf(")");
+  if (open < 0 || close < open) throw new Error("Cannot repair projects schema: invalid CREATE TABLE SQL");
+
+  const body = row.sql.slice(open + 1, close);
+  const suffix = row.sql.slice(close + 1);
+  const definitions = splitSqlList(body)
+    .map((definition) =>
+      isSandboxColumnDef(definition)
+        ? definition.replace(
+            /\bUNIQUE\b(?:\s+ON\s+CONFLICT\s+(?:ROLLBACK|ABORT|FAIL|IGNORE|REPLACE))?/i,
+            "",
+          )
+        : definition,
+    )
+    .filter((definition) => !isSandboxUniqueConstraint(definition));
+
+  return `CREATE TABLE projects_without_sandbox_unique (${definitions.join(",")})${suffix}`;
+}
+
+function rebuildProjectsWithoutSandboxUnique(
+  sqlite: Database.Database,
+  sandboxUniqueIndexNames: Set<string>,
+): void {
+  const existingColumns = sqlite.prepare("PRAGMA table_info(projects)").all() as TableColumn[];
+  const copyColumns = existingColumns.map((column) => quoteIdent(column.name)).join(", ");
+  const createReplacementTable = projectTableSqlWithoutSandboxUnique(sqlite);
+  const schemaEntries = (
+    sqlite
+      .prepare(
+        "SELECT type, name, sql FROM sqlite_schema WHERE tbl_name = 'projects' AND sql IS NOT NULL AND type IN ('index', 'trigger')",
+      )
+      .all() as { type: string; name: string; sql: string }[]
+  ).filter((entry) => !sandboxUniqueIndexNames.has(entry.name));
+  const replaySchemaSql = schemaEntries.map((entry) => entry.sql).join(";\n");
+
+  const foreignKeys = sqlite.pragma("foreign_keys", { simple: true }) as number;
+  let inTransaction = false;
+  sqlite.pragma("foreign_keys = OFF");
+  try {
+    sqlite.exec("BEGIN IMMEDIATE");
+    inTransaction = true;
+    sqlite.exec(`
+      DROP TABLE IF EXISTS projects_without_sandbox_unique;
+      ${createReplacementTable};
+      INSERT INTO projects_without_sandbox_unique (${copyColumns})
+        SELECT ${copyColumns} FROM projects;
+      DROP TABLE projects;
+      ALTER TABLE projects_without_sandbox_unique RENAME TO projects;
+      ${replaySchemaSql ? `${replaySchemaSql};` : ""}
+    `);
+    const violations = sqlite.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length) {
+      throw new Error("Project schema repair failed foreign key validation");
+    }
+    sqlite.exec("COMMIT");
+    inTransaction = false;
+  } catch (error) {
+    if (inTransaction) sqlite.exec("ROLLBACK");
+    throw error;
+  } finally {
+    sqlite.pragma(`foreign_keys = ${foreignKeys ? "ON" : "OFF"}`);
+  }
+}
+
+export function ensureProjectSandboxIndex(sqlite: Database.Database): void {
+  const uniqueIndexes = uniqueSandboxIndexes(sqlite);
+  const uniqueIndexNames = new Set(uniqueIndexes.map((idx) => idx.name));
+  if (uniqueIndexes.some((idx) => idx.name.startsWith("sqlite_autoindex_"))) {
+    rebuildProjectsWithoutSandboxUnique(sqlite, uniqueIndexNames);
+  } else {
+    for (const idx of uniqueIndexes) {
+      sqlite.exec(`DROP INDEX IF EXISTS ${quoteIdent(idx.name)}`);
+    }
+  }
+
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS projects_group_idx ON projects(group_id);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS projects_pinned_idx ON projects(pinned);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS projects_sandbox_idx ON projects(sandbox_id);`);
+}
+
 export function getSqlite() {
   if (!_sqlite) getDb();
   return _sqlite!;
@@ -318,7 +471,7 @@ function ensureSchema(sqlite: Database.Database) {
   // (a schema-divergent build may already define `sandbox_id`), so the index is
   // created only after the column is guaranteed present. See docs/multi-sandbox-plan.md.
   ensureColumn(sqlite, "projects", "sandbox_id", "TEXT REFERENCES sandboxes(id) ON DELETE CASCADE");
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS projects_sandbox_idx ON projects(sandbox_id);`);
+  ensureProjectSandboxIndex(sqlite);
 
   // Keep pre-release sandbox tables moving forward even if they were created by
   // an earlier branch before all remote/local config columns existed.
