@@ -49,6 +49,7 @@ export class SshRpc {
     }
 
     if (params.mode === "copy") {
+      let wroteAny = false;
       for (const f of params.files ?? []) {
         if (!f || typeof f.name !== "string" || typeof f.content !== "string") continue;
         if (!SAFE_SSH_FILENAME.test(f.name) || f.name === "." || f.name === "..") continue;
@@ -59,8 +60,9 @@ export class SshRpc {
         } catch {
           /* best effort */
         }
+        wroteAny = true;
       }
-      this.ensureKnownHost("github.com");
+      if (wroteAny) this.ensureKnownHost("github.com");
       return {};
     }
 
