@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { Icon } from "~/components/ui/Icon";
 import { TextField } from "~/components/ui/TextField";
 import { SandboxApiKeyField } from "~/components/views/SandboxApiKeyField";
 import { api } from "~/lib/api";
@@ -15,11 +16,21 @@ import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import type { SandboxGitAuthMode } from "~/shared/sandbox";
 import type { SandboxState } from "~/shared/electron-contract";
 
+function formatConnectElapsed(since: number, now: number): string {
+  const secs = Math.max(0, Math.floor((now - since) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`;
+}
+
 function statusBadge(
   state: SandboxState,
   kind: "local-docker" | "remote-vm" | undefined,
-): { label: string; color: string } {
+  now = Date.now(),
+): { label: string; color: string; connecting?: boolean } {
   const isRemote = kind === "remote-vm";
+  const connectingColor = "var(--status-running)";
   switch (state.status) {
     case "disabled":
       return { label: "Not configured", color: "var(--text-dim)" };
@@ -28,10 +39,24 @@ function statusBadge(
         label: isRemote ? "Offline" : state.dockerAvailable ? "Stopped" : "Docker unavailable",
         color: "var(--text-dim)",
       };
-    case "starting":
-      return { label: isRemote ? `Connecting… ${state.step}` : `Starting… ${state.step}`, color: "var(--accent)" };
-    case "running":
-      return { label: isRemote ? "Connecting to agent…" : "Starting agent…", color: "var(--accent)" };
+    case "starting": {
+      const elapsed = state.since ? formatConnectElapsed(state.since, now) : null;
+      const base = isRemote ? `Connecting… ${state.step}` : `Starting… ${state.step}`;
+      return {
+        label: elapsed ? `${base} (${elapsed})` : base,
+        color: connectingColor,
+        connecting: true,
+      };
+    }
+    case "running": {
+      const elapsed = state.since ? formatConnectElapsed(state.since, now) : null;
+      const base = isRemote ? "Connecting to agent…" : "Starting agent…";
+      return {
+        label: elapsed ? `${base} (${elapsed})` : base,
+        color: connectingColor,
+        connecting: true,
+      };
+    }
     case "connected":
       return { label: `Connected · agent ${state.version}`, color: "var(--accent)" };
     case "update-required":
@@ -40,7 +65,7 @@ function statusBadge(
         color: "var(--status-warning, var(--accent))",
       };
     case "error":
-      return { label: "Error", color: "var(--status-failed)" };
+      return { label: state.message, color: "var(--status-failed)" };
   }
 }
 
@@ -194,7 +219,7 @@ function gitAuthHint(
   return "Uploads your local SSH keys from ~/.ssh into this sandbox.";
 }
 
-type SandboxConfigTab = "overview" | "setup" | "git" | "logs";
+type SandboxConfigTab = "overview" | "setup" | "git" | "danger" | "logs";
 
 function TabBar({
   tabs,
@@ -269,11 +294,27 @@ function TabBar({
   );
 }
 
+function StatusSpinner({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-flex",
+        flexShrink: 0,
+        color,
+        animation: "spin 0.8s linear infinite",
+      }}
+    >
+      <Icon name="refresh" size={12} />
+    </span>
+  );
+}
+
 function StatusStrip({
   badge,
   kindLabel,
 }: {
-  badge: { label: string; color: string };
+  badge: { label: string; color: string; connecting?: boolean };
   kindLabel: string;
 }) {
   return (
@@ -293,6 +334,7 @@ function StatusStrip({
         role="status"
         aria-live="polite"
         aria-atomic="true"
+        aria-busy={badge.connecting || undefined}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -303,10 +345,14 @@ function StatusStrip({
           minWidth: 0,
         }}
       >
-        <span
-          style={{ width: 8, height: 8, borderRadius: 999, background: badge.color, flexShrink: 0 }}
-          aria-hidden
-        />
+        {badge.connecting ? (
+          <StatusSpinner color={badge.color} />
+        ) : (
+          <span
+            style={{ width: 8, height: 8, borderRadius: 999, background: badge.color, flexShrink: 0 }}
+            aria-hidden
+          />
+        )}
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{badge.label}</span>
       </span>
       <span
@@ -368,13 +414,13 @@ export function SandboxConfigPanel({
   const [remoteUrlInput, setRemoteUrlInput] = useState("");
   const [remoteApiKeyInput, setRemoteApiKeyInput] = useState("");
   const [dfStatus, setDfStatus] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [gitPubKey, setGitPubKey] = useState<string | null>(null);
   const [gitAuthBusy, setGitAuthBusy] = useState(false);
   const [gitKeyCopied, setGitKeyCopied] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [connectClock, setConnectClock] = useState(() => Date.now());
   const logRef = useRef<HTMLDivElement | null>(null);
   const sandboxIdRef = useRef(sandboxId);
 
@@ -421,6 +467,13 @@ export function SandboxConfigPanel({
       offLog();
     };
   }, [sandbox, sandboxId]);
+
+  useEffect(() => {
+    if (state.status !== "starting" && state.status !== "running") return;
+    setConnectClock(Date.now());
+    const timer = window.setInterval(() => setConnectClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [state.status, state.status === "starting" || state.status === "running" ? state.since : null]);
 
   useEffect(() => {
     if (activeTab !== "logs") return;
@@ -499,6 +552,7 @@ export function SandboxConfigPanel({
   };
 
   const saveRemoteConfig = async () => {
+    if (!selectedSandbox) return;
     const remoteAgentUrl = remoteUrlInput.trim();
     const apiKey = remoteApiKeyInput.trim();
     if (!remoteAgentUrl) {
@@ -509,11 +563,31 @@ export function SandboxConfigPanel({
       setError("Remote API key must be at least 16 characters.");
       return;
     }
+    const urlChanged = remoteAgentUrl !== (selectedSandbox.remoteAgentUrl ?? "");
     const next = await patchSelected({
       remoteAgentUrl,
       ...(apiKey ? { apiKey } : {}),
     });
-    if (next) setRemoteApiKeyInput("");
+    if (!next) return;
+    setRemoteApiKeyInput("");
+
+    if (!urlChanged && !apiKey) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const down = await sandbox.down(sandboxId);
+      if (!down.ok) {
+        setError(down.error);
+        return;
+      }
+      const up = await sandbox.up(sandboxId);
+      if (!up.ok) setError(up.error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const validateDockerfile = async () => {
@@ -541,13 +615,6 @@ export function SandboxConfigPanel({
     } finally {
       setGitAuthBusy(false);
     }
-  };
-
-  const copyDiagnostics = async () => {
-    const text = await sandbox.diagnostics();
-    await clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
   };
 
   const setGitAuthMode = async (gitAuthMode: SandboxGitAuthMode) => {
@@ -621,7 +688,7 @@ export function SandboxConfigPanel({
   }
 
   const isRemote = selectedSandbox.kind === "remote-vm";
-  const badge = statusBadge(state, selectedSandbox.kind);
+  const badge = statusBadge(state, selectedSandbox.kind, connectClock);
   const connected = state.status === "connected";
   const canStart = state.status === "stopped" || state.status === "error";
   const connecting = state.status === "running" || state.status === "starting";
@@ -632,9 +699,7 @@ export function SandboxConfigPanel({
   // Remote VMs auto-reconnect on terminal/session use — only offer cancel while connecting.
   const canStop = isRemote ? connecting : canStopLocal;
   const stopLabel = isRemote ? "Cancel connection" : "Stop sandbox";
-  const busyOrStarting = busy || state.status === "starting" || state.status === "running";
   const needsUpdate = state.status === "update-required";
-  const showRetry = state.status === "running";
   const gitHint = gitAuthHint(selectedSandbox.gitAuthMode, connected, isRemote);
 
   const remoteDirty =
@@ -649,8 +714,9 @@ export function SandboxConfigPanel({
 
   const tabs: { id: SandboxConfigTab; label: string; badge?: number }[] = [
     { id: "overview", label: "Overview" },
-    { id: "setup", label: isRemote ? "Agent" : "Docker" },
+    ...(isRemote ? [] : [{ id: "setup" as const, label: "Docker" }]),
     { id: "git", label: "Git" },
+    { id: "danger", label: "Danger" },
     ...(logs.length > 0 ? [{ id: "logs" as const, label: "Logs", badge: logs.length }] : []),
   ];
 
@@ -700,7 +766,11 @@ export function SandboxConfigPanel({
                     disabled={busy}
                     onClick={() => void run(() => sandbox.up(selectedSandbox.id))}
                   >
-                    {isRemote ? "Connect" : "Start sandbox"}
+                    {state.status === "error"
+                      ? "Retry connection"
+                      : isRemote
+                        ? "Connect"
+                        : "Start sandbox"}
                   </Btn>
                 )}
                 {canStop && (
@@ -713,21 +783,6 @@ export function SandboxConfigPanel({
                     {stopLabel}
                   </Btn>
                 )}
-                {showRetry && (
-                  <Btn
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await sandbox.connect(selectedSandbox.id);
-                        return { ok: true } as const;
-                      })
-                    }
-                  >
-                    Retry connection
-                  </Btn>
-                )}
                 {needsUpdate && !isRemote && (
                   <Btn
                     variant="primary"
@@ -738,48 +793,17 @@ export function SandboxConfigPanel({
                     Restart to update
                   </Btn>
                 )}
-                <Btn variant="ghost" size="sm" disabled={busyOrStarting} onClick={() => void copyDiagnostics()}>
-                  {copied ? "Diagnostics copied" : "Copy diagnostics"}
-                </Btn>
               </>
             }
           />
 
-          <ConfigSection
-            title="Danger zone"
-            description="Permanently remove this sandbox and everything scoped to it."
-            footer={
-              <Btn
-                variant="danger"
-                size="sm"
-                disabled={deleting}
-                onClick={() => {
-                  setDeleteConfirmName("");
-                  setDeleteOpen(true);
-                }}
-              >
-                Delete sandbox…
-              </Btn>
-            }
-          />
-
-        </div>
-      )}
-
-      {activeTab === "setup" && (
-        <div
-          role="tabpanel"
-          id="sandbox-panel-setup"
-          aria-labelledby="sandbox-tab-setup"
-          style={{ display: "flex", flexDirection: "column", gap: 12 }}
-        >
-          {isRemote ? (
+          {isRemote && (
             <ConfigSection
               title="Remote agent"
               description="Use wss:// for public deployments. HTTP(S) URLs are converted automatically."
               footer={
                 <div style={{ width: "100%", display: "flex", justifyContent: "flex-end" }}>
-                  <Btn variant="primary" size="sm" disabled={saving || !remoteDirty} onClick={() => void saveRemoteConfig()}>
+                  <Btn variant="primary" size="sm" disabled={saving || busy || !remoteDirty} onClick={() => void saveRemoteConfig()}>
                     Save
                   </Btn>
                 </div>
@@ -807,73 +831,106 @@ export function SandboxConfigPanel({
                 ariaInvalid={!!error && !!remoteApiKeyInput.trim() && remoteApiKeyInput.trim().length < 16}
               />
             </ConfigSection>
-          ) : (
-            <>
-              <ConfigSection
-                title="Docker image"
-                description="Leave fields blank to use the bundled default sandbox image."
-                footer={
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <Btn variant="primary" size="sm" disabled={saving || !dockerDirty} onClick={() => void saveDockerImage()}>
-                      Save image settings
-                    </Btn>
-                    <Btn variant="ghost" size="sm" disabled={saving} onClick={() => void validateDockerfile()}>
-                      Validate Dockerfile
-                    </Btn>
-                  </div>
-                }
-              >
-                <TextField
-                  label="Image tag"
-                  ariaLabel="Custom image tag"
-                  value={imageTagInput}
-                  onChange={setImageTagInput}
-                  placeholder="mission-control/sandbox-base:latest"
-                  mono
-                />
-                <TextField
-                  label="Dockerfile path"
-                  ariaLabel="Custom Dockerfile"
-                  value={dockerfileInput}
-                  onChange={setDockerfileInput}
-                  placeholder="/path/to/Dockerfile or build dir"
-                  hint={dfStatus ?? undefined}
-                  mono
-                />
-                <TextField
-                  label="Build args"
-                  ariaLabel="Build args"
-                  value={buildArgsInput}
-                  onChange={setBuildArgsInput}
-                  placeholder="NODE_VERSION=22, PNPM_VERSION=10"
-                  hint={
-                    selectedSandbox.buildArgKeys.length
-                      ? `Existing keys: ${selectedSandbox.buildArgKeys.join(", ")}. Saving replaces the full set.`
-                      : "Comma-separated KEY=value pairs."
-                  }
-                  mono
-                />
-              </ConfigSection>
-
-              <ConfigSection
-                title="Published ports"
-                description="Each sandbox gets its own localhost port mapping. Services inside the container must listen on 0.0.0.0."
-                footer={
-                  <Btn variant="primary" size="sm" disabled={saving || !portsDirty} onClick={() => void savePorts()}>
-                    Save ports
-                  </Btn>
-                }
-              >
-                <TextField
-                  ariaLabel="Published ports"
-                  value={portsInput}
-                  onChange={setPortsInput}
-                  placeholder="3000,5173,8000 or 3000-3010"
-                  mono
-                />
-              </ConfigSection>
-            </>
           )}
+        </div>
+      )}
+
+      {activeTab === "setup" && !isRemote && (
+        <div
+          role="tabpanel"
+          id="sandbox-panel-setup"
+          aria-labelledby="sandbox-tab-setup"
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <ConfigSection
+            title="Docker image"
+            description="Leave fields blank to use the bundled default sandbox image."
+            footer={
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Btn variant="primary" size="sm" disabled={saving || !dockerDirty} onClick={() => void saveDockerImage()}>
+                  Save image settings
+                </Btn>
+                <Btn variant="ghost" size="sm" disabled={saving} onClick={() => void validateDockerfile()}>
+                  Validate Dockerfile
+                </Btn>
+              </div>
+            }
+          >
+            <TextField
+              label="Image tag"
+              ariaLabel="Custom image tag"
+              value={imageTagInput}
+              onChange={setImageTagInput}
+              placeholder="mission-control/sandbox-base:latest"
+              mono
+            />
+            <TextField
+              label="Dockerfile path"
+              ariaLabel="Custom Dockerfile"
+              value={dockerfileInput}
+              onChange={setDockerfileInput}
+              placeholder="/path/to/Dockerfile or build dir"
+              hint={dfStatus ?? undefined}
+              mono
+            />
+            <TextField
+              label="Build args"
+              ariaLabel="Build args"
+              value={buildArgsInput}
+              onChange={setBuildArgsInput}
+              placeholder="NODE_VERSION=22, PNPM_VERSION=10"
+              hint={
+                selectedSandbox.buildArgKeys.length
+                  ? `Existing keys: ${selectedSandbox.buildArgKeys.join(", ")}. Saving replaces the full set.`
+                  : "Comma-separated KEY=value pairs."
+              }
+              mono
+            />
+          </ConfigSection>
+
+          <ConfigSection
+            title="Published ports"
+            description="Each sandbox gets its own localhost port mapping. Services inside the container must listen on 0.0.0.0."
+            footer={
+              <Btn variant="primary" size="sm" disabled={saving || !portsDirty} onClick={() => void savePorts()}>
+                Save ports
+              </Btn>
+            }
+          >
+            <TextField
+              ariaLabel="Published ports"
+              value={portsInput}
+              onChange={setPortsInput}
+              placeholder="3000,5173,8000 or 3000-3010"
+              mono
+            />
+          </ConfigSection>
+        </div>
+      )}
+
+      {activeTab === "danger" && (
+        <div
+          role="tabpanel"
+          id="sandbox-panel-danger"
+          aria-labelledby="sandbox-tab-danger"
+        >
+          <ConfigSection
+            title="Danger zone"
+            description="Permanently remove this sandbox and everything scoped to it."
+            footer={
+              <Btn
+                variant="danger"
+                size="sm"
+                disabled={deleting}
+                onClick={() => {
+                  setDeleteConfirmName("");
+                  setDeleteOpen(true);
+                }}
+              >
+                Delete sandbox…
+              </Btn>
+            }
+          />
         </div>
       )}
 

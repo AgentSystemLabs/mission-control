@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 import { isPaired } from "../server";
 import type { AgentConfig } from "../config";
 
-function config(allowQueryToken = false): AgentConfig {
+function config(): AgentConfig {
   return {
     port: 9333,
     bindHost: "0.0.0.0",
@@ -11,7 +11,6 @@ function config(allowQueryToken = false): AgentConfig {
     pairingToken: "secret",
     hookApiHost: "host.docker.internal",
     allowInsecure: false,
-    allowQueryToken,
   };
 }
 
@@ -24,8 +23,7 @@ describe("agent WebSocket auth", () => {
     expect(isPaired(req({ authorization: "Bearer secret" }), config())).toBe(true);
   });
 
-  it("rejects query-string tokens unless explicitly enabled", () => {
+  it("rejects query-string tokens", () => {
     expect(isPaired(req({}, "/?token=secret"), config())).toBe(false);
-    expect(isPaired(req({}, "/?token=secret"), config(true))).toBe(true);
   });
 });

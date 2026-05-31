@@ -24,6 +24,7 @@ export function Modal({
   footer,
   placement = "center",
   zIndex = 9999,
+  closeOnBackdropClick = true,
   contentStyle,
   footerStyle,
 }: {
@@ -38,6 +39,7 @@ export function Modal({
   footer?: ReactNode;
   placement?: "center" | "top";
   zIndex?: number;
+  closeOnBackdropClick?: boolean;
   contentStyle?: CSSProperties;
   footerStyle?: CSSProperties;
 }) {
@@ -183,7 +185,7 @@ export function Modal({
   const modal = (
     <div
       data-modal-open
-      onClick={onClose}
+      onClick={closeOnBackdropClick ? onClose : undefined}
       style={{
         position: "fixed",
         inset: 0,

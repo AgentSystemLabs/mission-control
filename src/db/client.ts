@@ -148,13 +148,18 @@ function indexColumns(sqlite: Database.Database, indexName: string): string[] {
   ).map((c) => c.name);
 }
 
-function uniqueSandboxIndexes(sqlite: Database.Database): { name: string }[] {
+const STALE_PROJECT_UNIQUE_COLUMNS = new Set(["path", "sandbox_id"]);
+
+function uniqueProjectIndexesToRepair(sqlite: Database.Database): { name: string }[] {
   return (
     sqlite.prepare("PRAGMA index_list(projects)").all() as {
       name: string;
       unique: number;
     }[]
-  ).filter((idx) => idx.unique === 1 && indexColumns(sqlite, idx.name).join(",") === "sandbox_id");
+  ).filter((idx) => {
+    const columns = indexColumns(sqlite, idx.name);
+    return idx.unique === 1 && columns.length === 1 && STALE_PROJECT_UNIQUE_COLUMNS.has(columns[0]);
+  });
 }
 
 type TableColumn = {
@@ -187,22 +192,24 @@ function splitSqlList(input: string): string[] {
   return out;
 }
 
-function isSandboxColumnDef(definition: string): boolean {
-  return /^(?:"sandbox_id"|`sandbox_id`|\[sandbox_id\]|sandbox_id)(?:\s|$)/i.test(
-    definition.trimStart(),
-  );
+function staleProjectUniqueColumnPattern(): string {
+  return [...STALE_PROJECT_UNIQUE_COLUMNS]
+    .map((column) => `(?:"${column}"|\`${column}\`|\\[${column}\\]|${column})`)
+    .join("|");
 }
 
-function isSandboxUniqueConstraint(definition: string): boolean {
+function isStaleUniqueColumnDef(definition: string): boolean {
+  return new RegExp(`^(?:${staleProjectUniqueColumnPattern()})(?:\\s|$)`, "i").test(definition.trimStart());
+}
+
+function isStaleUniqueConstraint(definition: string): boolean {
   const withoutName = definition
     .trimStart()
     .replace(/^CONSTRAINT\s+(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|\w+)\s+/i, "");
-  return /^UNIQUE\s*\(\s*(?:"sandbox_id"|`sandbox_id`|\[sandbox_id\]|sandbox_id)\s*\)/i.test(
-    withoutName,
-  );
+  return new RegExp(`^UNIQUE\\s*\\(\\s*(?:${staleProjectUniqueColumnPattern()})\\s*\\)`, "i").test(withoutName);
 }
 
-function projectTableSqlWithoutSandboxUnique(sqlite: Database.Database): string {
+function projectTableSqlWithoutStaleUniques(sqlite: Database.Database): string {
   const row = sqlite
     .prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'projects'")
     .get() as { sql: string } | undefined;
@@ -216,32 +223,32 @@ function projectTableSqlWithoutSandboxUnique(sqlite: Database.Database): string 
   const suffix = row.sql.slice(close + 1);
   const definitions = splitSqlList(body)
     .map((definition) =>
-      isSandboxColumnDef(definition)
+      isStaleUniqueColumnDef(definition)
         ? definition.replace(
             /\bUNIQUE\b(?:\s+ON\s+CONFLICT\s+(?:ROLLBACK|ABORT|FAIL|IGNORE|REPLACE))?/i,
             "",
           )
         : definition,
     )
-    .filter((definition) => !isSandboxUniqueConstraint(definition));
+    .filter((definition) => !isStaleUniqueConstraint(definition));
 
-  return `CREATE TABLE projects_without_sandbox_unique (${definitions.join(",")})${suffix}`;
+  return `CREATE TABLE projects_without_stale_uniques (${definitions.join(",")})${suffix}`;
 }
 
-function rebuildProjectsWithoutSandboxUnique(
+function rebuildProjectsWithoutStaleUniques(
   sqlite: Database.Database,
-  sandboxUniqueIndexNames: Set<string>,
+  uniqueIndexNames: Set<string>,
 ): void {
   const existingColumns = sqlite.prepare("PRAGMA table_info(projects)").all() as TableColumn[];
   const copyColumns = existingColumns.map((column) => quoteIdent(column.name)).join(", ");
-  const createReplacementTable = projectTableSqlWithoutSandboxUnique(sqlite);
+  const createReplacementTable = projectTableSqlWithoutStaleUniques(sqlite);
   const schemaEntries = (
     sqlite
       .prepare(
         "SELECT type, name, sql FROM sqlite_schema WHERE tbl_name = 'projects' AND sql IS NOT NULL AND type IN ('index', 'trigger')",
       )
       .all() as { type: string; name: string; sql: string }[]
-  ).filter((entry) => !sandboxUniqueIndexNames.has(entry.name));
+  ).filter((entry) => !uniqueIndexNames.has(entry.name));
   const replaySchemaSql = schemaEntries.map((entry) => entry.sql).join(";\n");
 
   const foreignKeys = sqlite.pragma("foreign_keys", { simple: true }) as number;
@@ -251,12 +258,12 @@ function rebuildProjectsWithoutSandboxUnique(
     sqlite.exec("BEGIN IMMEDIATE");
     inTransaction = true;
     sqlite.exec(`
-      DROP TABLE IF EXISTS projects_without_sandbox_unique;
+      DROP TABLE IF EXISTS projects_without_stale_uniques;
       ${createReplacementTable};
-      INSERT INTO projects_without_sandbox_unique (${copyColumns})
+      INSERT INTO projects_without_stale_uniques (${copyColumns})
         SELECT ${copyColumns} FROM projects;
       DROP TABLE projects;
-      ALTER TABLE projects_without_sandbox_unique RENAME TO projects;
+      ALTER TABLE projects_without_stale_uniques RENAME TO projects;
       ${replaySchemaSql ? `${replaySchemaSql};` : ""}
     `);
     const violations = sqlite.prepare("PRAGMA foreign_key_check").all();
@@ -274,10 +281,10 @@ function rebuildProjectsWithoutSandboxUnique(
 }
 
 export function ensureProjectSandboxIndex(sqlite: Database.Database): void {
-  const uniqueIndexes = uniqueSandboxIndexes(sqlite);
+  const uniqueIndexes = uniqueProjectIndexesToRepair(sqlite);
   const uniqueIndexNames = new Set(uniqueIndexes.map((idx) => idx.name));
   if (uniqueIndexes.some((idx) => idx.name.startsWith("sqlite_autoindex_"))) {
-    rebuildProjectsWithoutSandboxUnique(sqlite, uniqueIndexNames);
+    rebuildProjectsWithoutStaleUniques(sqlite, uniqueIndexNames);
   } else {
     for (const idx of uniqueIndexes) {
       sqlite.exec(`DROP INDEX IF EXISTS ${quoteIdent(idx.name)}`);

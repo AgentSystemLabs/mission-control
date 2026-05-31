@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "0.39.1",
+  "version": "0.40.0",
   "description": "Desktop control surface for managing agentic coding work across many projects.",
   "private": true,
   "main": "dist-electron/electron/main.js",
@@ -48,6 +48,7 @@
     "postinstall": "pnpm native:electron || true"
   },
   "dependencies": {
+    "@agentsystemlabs/mission-control-agent": "0.2.1",
     "@codemirror/lang-javascript": "6.2.5",
     "@codemirror/lang-json": "6.0.2",
     "@codemirror/language": "6.12.3",

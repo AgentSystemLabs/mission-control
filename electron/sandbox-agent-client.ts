@@ -141,7 +141,10 @@ export class SandboxAgentClient {
     this.closed = true;
     this.rejectAllPending(new Error("agent connection closed"));
     try {
-      this.socket.removeAllListeners();
+      // Keep our error listener installed while closing. `ws.close()` can emit
+      // "WebSocket was closed before the connection was established" for a
+      // CONNECTING socket; removing listeners first turns that into an uncaught
+      // exception during app shutdown.
       this.socket.close();
     } catch {
       /* best effort */
@@ -173,6 +176,7 @@ export class SandboxAgentClient {
   }
 
   private onMessage(data: unknown): void {
+    if (this.closed) return;
     let msg: Record<string, unknown>;
     try {
       msg = JSON.parse(typeof data === "string" ? data : String(data));

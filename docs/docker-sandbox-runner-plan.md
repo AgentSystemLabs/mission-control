@@ -493,7 +493,7 @@ Hook extraction
 
 `mc-agent` binary (`mc-agent/`)
 - [x] Scaffold `mc-agent` (Node) with a WS server on `0.0.0.0:${MC_AGENT_PORT:-9333}`.
-  → `mc-agent/src/server.ts` + `index.ts` (pairing via `Authorization: Bearer` / `?token=`;
+  → `mc-agent/src/server.ts` + `index.ts` (pairing via `Authorization: Bearer`;
   **fails closed** if no token unless `MC_AGENT_INSECURE=1`).
 - [x] Implement spawn/write/resize/kill per the [WS protocol sketch](#websocket-protocol-sketch);
   reuse `node-pty` as in `electron/pty-manager.ts`. → `mc-agent/src/pty-host.ts`, `protocol.ts`

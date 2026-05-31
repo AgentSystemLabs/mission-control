@@ -36,7 +36,6 @@ the in-container repos. Part of the Docker Sandbox Runner
 | `MC_WORKSPACE_ROOT` | `/workspace` | Confinement root for spawns + RPC |
 | `MC_AGENT_API_KEY` | _(empty)_ | Required bearer secret for remote deployments |
 | `MC_PAIRING_TOKEN` | _(empty)_ | Local Docker compatibility fallback for the same bearer secret |
-| `MC_AGENT_ALLOW_QUERY_TOKEN` | `0` | Legacy opt-in for `?token=` auth; keep off for remote agents |
 | `MC_HOOK_API_HOST` | `host.docker.internal` | Host the in-container hooks POST to |
 
 `MC_AGENT_API_KEY` and `MC_PAIRING_TOKEN` are equivalent at runtime. Prefer

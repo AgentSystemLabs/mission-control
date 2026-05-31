@@ -3,7 +3,7 @@
 // captures cleanly. No heavyweight dep (keeps the bundle small).
 //
 // SECURITY: never pass secrets here — no pairing token, no MC_API_TOKEN, no raw
-// request URLs (the token rides in `?token=`), no file contents, no spawn env.
+// request URLs, no file contents, no spawn env.
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 

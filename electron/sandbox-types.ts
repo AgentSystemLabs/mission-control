@@ -7,8 +7,8 @@
 export type SandboxState =
   | { status: "disabled" }
   | { status: "stopped"; dockerAvailable: boolean }
-  | { status: "starting"; step: string }
-  | { status: "running" }
+  | { status: "starting"; step: string; since?: number }
+  | { status: "running"; since?: number }
   | { status: "connected"; version: string; agents: Record<string, string | null> }
   | {
       status: "update-required";
@@ -39,9 +39,10 @@ export type SandboxConfig = {
 
 export type OpResult = { ok: true } | { ok: false; error: string };
 
-// The mc-agent protocol version this host build speaks. Must match mc-agent's
-// AGENT_VERSION; a mismatch surfaces as `update-required`.
-export const EXPECTED_SANDBOX_AGENT_VERSION = "0.3.0";
+import { AGENT_VERSION } from "@agentsystemlabs/mission-control-agent";
+
+// Must match the published sandbox agent; a mismatch surfaces as `update-required`.
+export const EXPECTED_SANDBOX_AGENT_VERSION = AGENT_VERSION;
 
 export function isSandboxAgentVersionCurrent(version: string): boolean {
   return version === EXPECTED_SANDBOX_AGENT_VERSION;

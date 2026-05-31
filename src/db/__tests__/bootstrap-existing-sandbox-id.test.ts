@@ -24,6 +24,7 @@ function projectIndexes(d: Database.Database): Array<{ name: string; unique: num
 function createCurrentProjectsTable(
   d: Database.Database,
   sandboxColumnDdl: string,
+  pathColumnDdl = "TEXT NOT NULL",
   extraTableSql = "",
 ) {
   d.exec(`
@@ -31,7 +32,7 @@ function createCurrentProjectsTable(
     CREATE TABLE projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      path TEXT NOT NULL,
+      path ${pathColumnDdl},
       icon TEXT NOT NULL,
       icon_color TEXT NOT NULL,
       image_path TEXT,
@@ -54,12 +55,12 @@ function createCurrentProjectsTable(
   `);
 }
 
-function insertProject(d: Database.Database, id: string, sandboxId: string) {
+function insertProject(d: Database.Database, id: string, sandboxId: string, projectPath = `/tmp/${id}`) {
   d.prepare(`
     INSERT INTO projects (
       id, name, path, icon, icon_color, sandbox_id, created_at, updated_at
     ) VALUES (?, ?, ?, 'PR', '#fff', ?, 1, 1)
-  `).run(id, id, `/tmp/${id}`, sandboxId);
+  `).run(id, id, projectPath, sandboxId);
 }
 
 describe("ensureColumn", () => {
@@ -137,6 +138,7 @@ describe("ensureColumn", () => {
     createCurrentProjectsTable(
       d,
       "TEXT REFERENCES sandboxes(id) ON DELETE CASCADE",
+      "TEXT NOT NULL",
       ", UNIQUE(sandbox_id)",
     );
     d.prepare("INSERT INTO sandboxes (id) VALUES ('sb-1')").run();
@@ -145,6 +147,35 @@ describe("ensureColumn", () => {
     ensureProjectSandboxIndex(d);
 
     insertProject(d, "p2", "sb-1");
+    expect(projectIndexes(d).find((idx) => idx.name === "projects_sandbox_idx")?.unique).toBe(0);
+  });
+
+  it("drops a legacy explicit unique path index", () => {
+    const d = db();
+    createCurrentProjectsTable(d, "TEXT REFERENCES sandboxes(id) ON DELETE CASCADE");
+    d.exec(`CREATE UNIQUE INDEX legacy_projects_path_unique ON projects(path);`);
+    d.prepare("INSERT INTO sandboxes (id) VALUES ('sb-1')").run();
+    insertProject(d, "p-local", "sb-1", "/tmp/repo");
+
+    ensureProjectSandboxIndex(d);
+
+    insertProject(d, "p-sandbox", "sb-1", "/tmp/repo");
+    expect(projectIndexes(d).some((idx) => idx.name === "legacy_projects_path_unique")).toBe(false);
+  });
+
+  it("rebuilds a legacy inline unique path column", () => {
+    const d = db();
+    createCurrentProjectsTable(
+      d,
+      "TEXT REFERENCES sandboxes(id) ON DELETE CASCADE",
+      "TEXT NOT NULL UNIQUE",
+    );
+    d.prepare("INSERT INTO sandboxes (id) VALUES ('sb-1')").run();
+    insertProject(d, "p-local", "sb-1", "/tmp/repo");
+
+    ensureProjectSandboxIndex(d);
+
+    insertProject(d, "p-sandbox", "sb-1", "/tmp/repo");
     expect(projectIndexes(d).find((idx) => idx.name === "projects_sandbox_idx")?.unique).toBe(0);
   });
 });

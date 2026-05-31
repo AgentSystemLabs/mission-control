@@ -25,8 +25,8 @@ export type UpdateStateBridge =
 export type SandboxStateBridge =
   | { status: "disabled" }
   | { status: "stopped"; dockerAvailable: boolean }
-  | { status: "starting"; step: string }
-  | { status: "running" }
+  | { status: "starting"; step: string; since?: number }
+  | { status: "running"; since?: number }
   | { status: "connected"; version: string; agents: Record<string, string | null> }
   | {
       status: "update-required";
@@ -131,7 +131,7 @@ const electronAPI = {
     /** Set the scope the renderer is showing; routes remote PTY/fs/git. null = Local. */
     setActive: (sandboxId: string | null): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC.sandboxSetActive, sandboxId),
-    connect: (sandboxId?: string): Promise<{ ok: true }> =>
+    connect: (sandboxId?: string): Promise<{ ok: true } | { ok: false; error: string }> =>
       ipcRenderer.invoke(IPC.sandboxConnect, sandboxId),
     disconnect: (sandboxId?: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC.sandboxDisconnect, sandboxId),

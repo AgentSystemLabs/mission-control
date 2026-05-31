@@ -7,7 +7,7 @@ class FakeSocket {
   readyState = 1;
   sent: string[] = [];
   closed = false;
-  private listeners: Record<string, Listener[]> = {};
+  protected listeners: Record<string, Listener[]> = {};
   send(data: string): void {
     this.sent.push(data);
   }
@@ -24,6 +24,9 @@ class FakeSocket {
   }
   emit(event: string, ...args: unknown[]): void {
     for (const cb of this.listeners[event] ?? []) cb(...args);
+  }
+  listenerCount(event: string): number {
+    return this.listeners[event]?.length ?? 0;
   }
   deliver(obj: unknown): void {
     this.emit("message", JSON.stringify(obj));
@@ -153,5 +156,29 @@ describe("SandboxAgentClient close", () => {
     const before = fake.sent.length;
     client.write("p1", "x");
     expect(fake.sent.length).toBe(before); // no send after close
+  });
+
+  it("keeps an error listener while closing a connecting socket", () => {
+    class ConnectingSocket extends FakeSocket {
+      readyState = 0;
+      sawErrorListenerOnClose = false;
+      close(): void {
+        this.sawErrorListenerOnClose = this.listenerCount("error") > 0;
+        this.emit("error", new Error("WebSocket was closed before the connection was established"));
+        this.closed = true;
+        this.readyState = 3;
+        this.emit("close");
+      }
+    }
+
+    const fake = new ConnectingSocket();
+    const onError = vi.fn();
+    const client = new SandboxAgentClient("ws://x", "tok", { onError }, {
+      createSocket: () => fake as unknown as WebSocketLike,
+    });
+
+    expect(() => client.close()).not.toThrow();
+    expect(fake.sawErrorListenerOnClose).toBe(true);
+    expect(onError).toHaveBeenCalledOnce();
   });
 });

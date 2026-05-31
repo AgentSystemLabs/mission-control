@@ -1,6 +1,6 @@
 {
   "name": "@mission-control/sandbox-agent",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Mission Control sandbox runner agent: WebSocket PTY + file/git RPC that runs inside the Docker sandbox container and connects back to the Electron host.",

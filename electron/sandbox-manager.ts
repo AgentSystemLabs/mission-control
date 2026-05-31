@@ -453,7 +453,11 @@ function connectAgent(
   config: SandboxConfig,
   agentUrl: string,
   token: string,
-  cb: { onReady: (v: string, a: Record<string, string | null>) => void; onClose: () => void },
+  cb: {
+    onReady: (v: string, a: Record<string, string | null>) => void;
+    onClose: () => void;
+    onError?: (err: Error) => void;
+  },
 ): { close: () => void } {
   activeTokens.add(token);
   const id = config.id;
@@ -475,8 +479,10 @@ function connectAgent(
       if (clients.get(id) === client) clients.delete(id);
       cb.onClose();
     },
-    onError: (err) =>
-      log.warn("sandbox.ws.error", { event: "sandbox.ws.error", sandboxId: id, err: describe(err) }),
+    onError: (err) => {
+      cb.onError?.(err);
+      log.warn("sandbox.ws.error", { event: "sandbox.ws.error", sandboxId: id, err: describe(err) });
+    },
     onSpawned: (ptyId) => send(IPC.remotePtySpawned, { ptyId }),
     onSpawnError: (ptyId, code, message) => send(IPC.remotePtySpawnError, { ptyId, code, message }),
     onOutput: (ptyId, seq, data) => send(IPC.remotePtyData, { ptyId, data, seq }),
@@ -874,9 +880,15 @@ export function registerSandboxManager(
   );
   safeHandle(
     IPC.sandboxConnect,
-    (_e, sandboxId?: string) => {
+    async (_e, sandboxId?: string) => {
       const id = resolveId(sandboxId);
-      if (id) void ensureSandboxStarted(id);
+      if (!id) return { ok: true as const };
+      const state = getRegistry().getState(id);
+      if (state?.status === "running" || state?.status === "error") {
+        const config = configFor(id);
+        return config ? getRegistry().retryConnect(config) : { ok: false as const, error: "unknown sandbox" };
+      }
+      void ensureSandboxStarted(id);
       return { ok: true as const };
     },
     ipcMain,

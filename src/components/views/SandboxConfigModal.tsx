@@ -179,6 +179,7 @@ export function SandboxConfigModal({
     <Modal
       open={open && !!sandboxId}
       onClose={onClose}
+      closeOnBackdropClick={false}
       title={title}
       width={560}
       maxHeight="90vh"

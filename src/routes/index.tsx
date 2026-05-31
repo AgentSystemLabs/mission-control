@@ -481,10 +481,9 @@ function MissionControlPage() {
       <LaunchKitDialog
         open={showLaunchKit}
         onClose={() => setShowLaunchKit(false)}
-        onCreated={(projectId) => {
+        onCreated={() => {
           setShowLaunchKit(false);
           void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-          void router.navigate({ to: "/projects/$id", params: { id: projectId } });
         }}
       />
       {editingProject && (

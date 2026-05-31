@@ -9,11 +9,9 @@ import { probeAgentVersions } from "./health";
 import { parseClientMessage, type ServerMessage, type RpcMessage } from "./protocol";
 import type { AgentConfig } from "./config";
 import { log } from "./logger";
+import { AGENT_VERSION } from "./version";
 
-// Bump on any WS protocol change so a stale in-container bundle is detectable via
-// the `ready`/diagnostics version. 0.3.0 adds SSH clone support and startup
-// reconciliation/update detection on the Electron side.
-export const AGENT_VERSION = "0.3.0";
+export { AGENT_VERSION } from "./version";
 
 let connSeq = 0;
 const authFailures = new Map<string, { count: number; resetAt: number }>();
@@ -54,26 +52,18 @@ function clearAuthFailures(req: IncomingMessage): void {
   authFailures.delete(authFailureKey(req));
 }
 
-/**
- * Pull the pairing token from the `Authorization: Bearer` header. Query-string
- * tokens are disabled by default because public proxies commonly log URLs.
- */
-function extractToken(req: IncomingMessage, allowQueryToken: boolean): string {
+/** Pull the pairing token from the `Authorization: Bearer` header only. */
+function extractToken(req: IncomingMessage): string {
   const auth = req.headers["authorization"];
   if (typeof auth === "string" && auth.startsWith("Bearer ")) {
     return auth.slice("Bearer ".length);
   }
-  if (!allowQueryToken) return "";
-  try {
-    return new URL(req.url ?? "/", "http://localhost").searchParams.get("token") ?? "";
-  } catch {
-    return "";
-  }
+  return "";
 }
 
 export function isPaired(req: IncomingMessage, config: AgentConfig): boolean {
   if (config.pairingToken === "") return true; // only reachable in MC_AGENT_INSECURE mode
-  return constantTimeEqual(extractToken(req, config.allowQueryToken), config.pairingToken);
+  return constantTimeEqual(extractToken(req), config.pairingToken);
 }
 
 function handleConnection(ws: WebSocket, config: AgentConfig): void {

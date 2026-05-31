@@ -6,6 +6,12 @@ import {
   type SandboxState,
   type ScopedSandboxState,
 } from "./sandbox-types";
+import {
+  classifyConnectError,
+  connectBudgetMs,
+  connectTimeoutMessage,
+  isFailFastConnectError,
+} from "./sandbox-connect-errors";
 
 // Phase 2 core: one container + agent connection per sandbox, all running
 // concurrently. This module owns the per-sandbox state machine + the staleness
@@ -16,6 +22,7 @@ import {
 export type AgentCallbacks = {
   onReady: (version: string, agents: Record<string, string | null>) => void;
   onClose: () => void;
+  onError?: (err: Error) => void;
 };
 
 export type AgentHandle = { close: () => void };
@@ -38,6 +45,8 @@ export type RegistryDeps = {
   ) => AgentHandle;
   /** Push a state change to the renderer, tagged with the sandbox id. */
   emitState: (sandboxId: string, state: SandboxState) => void;
+  /** Override connect retry budget (tests). */
+  connectBudgetMs?: (kind: SandboxConfig["kind"]) => number;
 };
 
 const DOCKER_DOWN_ERROR = "Docker isn't running. Start Docker Desktop / the Docker daemon and try again.";
@@ -61,6 +70,7 @@ export class SandboxInstance {
   // up. Last successful URL/token are kept so a reconnect targets the same agent.
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
+  private connectStartedAt: number | null = null;
   private lastAgentUrl: string | null = null;
   private lastToken: string | null = null;
 
@@ -88,6 +98,36 @@ export class SandboxInstance {
     this.deps.emitState(this.id, next);
   }
 
+  private budgetMs(): number {
+    return this.deps.connectBudgetMs?.(this.config.kind) ?? connectBudgetMs(this.config.kind);
+  }
+
+  private beginConnectAttempt(): void {
+    this.connectStartedAt = Date.now();
+    this.reconnectAttempts = 0;
+  }
+
+  private connectElapsedMs(): number {
+    return this.connectStartedAt == null ? 0 : Date.now() - this.connectStartedAt;
+  }
+
+  private isConnectBudgetExceeded(): boolean {
+    return this.connectStartedAt != null && this.connectElapsedMs() >= this.budgetMs();
+  }
+
+  private failConnect(message: string, epoch: number): void {
+    if (this.manualStop || epoch !== this.opEpoch || this._state.status === "error") return;
+    this.clearReconnect();
+    this.closeAgent();
+    this.set({ status: "error", message });
+  }
+
+  private failConnectIfBudgetExceeded(epoch: number): boolean {
+    if (!this.isConnectBudgetExceeded()) return false;
+    this.failConnect(connectTimeoutMessage(this.config.kind, this.budgetMs()), epoch);
+    return true;
+  }
+
   async start(force = false): Promise<OpResult> {
     if (this.opInFlight) return { ok: false, error: "A sandbox operation is already in progress." };
     this.opInFlight = true;
@@ -101,7 +141,7 @@ export class SandboxInstance {
           this.set({ status: "error", message: REMOTE_CONFIG_ERROR });
           return { ok: false, error: REMOTE_CONFIG_ERROR };
         }
-        this.set({ status: "starting", step: "connecting to remote agent" });
+        this.set({ status: "starting", step: "connecting to remote agent", since: Date.now() });
         agentUrl = this.config.remoteAgentUrl;
         token = this.config.pairingToken;
       } else {
@@ -109,7 +149,11 @@ export class SandboxInstance {
           this.set({ status: "error", message: DOCKER_DOWN_ERROR });
           return { ok: false, error: DOCKER_DOWN_ERROR };
         }
-        this.set({ status: "starting", step: force ? "rebuilding image" : "starting container" });
+        this.set({
+          status: "starting",
+          step: force ? "rebuilding image" : "starting container",
+          since: Date.now(),
+        });
         const up = await this.deps.composeUp(this.config, force);
         if (!up.ok) {
           if (this.isStale(epoch)) return { ok: true };
@@ -122,10 +166,10 @@ export class SandboxInstance {
       // A stop / destroy / newer start landed while the (possibly long) compose
       // ran — don't clobber that newer state or start connecting.
       if (this.isStale(epoch)) return { ok: true };
-      this.set({ status: "running" });
+      this.beginConnectAttempt();
+      this.set({ status: "running", since: this.connectStartedAt ?? Date.now() });
       this.lastAgentUrl = agentUrl;
       this.lastToken = token;
-      this.reconnectAttempts = 0;
       this.connect(agentUrl, token, epoch);
       return { ok: true };
     } finally {
@@ -138,11 +182,13 @@ export class SandboxInstance {
   }
 
   private connect(agentUrl: string, token: string, epoch: number): void {
+    if (this.failConnectIfBudgetExceeded(epoch)) return;
     this.closeAgent();
     const handle = this.deps.connectAgent(this.config, agentUrl, token, {
       onReady: (version, agents) => {
         if (this.agent !== handle || this.manualStop || epoch !== this.opEpoch) return;
-        this.reconnectAttempts = 0; // connected — reset backoff
+        this.reconnectAttempts = 0;
+        this.connectStartedAt = null;
         if (isSandboxAgentVersionCurrent(version)) {
           this.set({ status: "connected", version, agents });
         } else {
@@ -156,18 +202,41 @@ export class SandboxInstance {
       },
       onClose: () => {
         if (this.agent === handle) this.agent = null;
-        if (this.manualStop || epoch !== this.opEpoch) return;
-        if (this.hasAgent || this._state.status === "running") this.set({ status: "running" });
-        // The container is up but the agent dropped / wasn't ready — keep retrying.
+        if (this.manualStop || epoch !== this.opEpoch || this._state.status === "error") return;
+
+        const wasConnected = this.hasAgent;
+        if (wasConnected) {
+          this.connectStartedAt = Date.now();
+        } else if (this.connectStartedAt == null) {
+          this.connectStartedAt = Date.now();
+        }
+
+        if (this.failConnectIfBudgetExceeded(epoch)) return;
+
+        if (wasConnected || this._state.status === "running") {
+          this.set({ status: "running", since: this.connectStartedAt });
+        }
         this.scheduleReconnect(epoch);
+      },
+      onError: (err) => {
+        if (this.agent !== handle || this.manualStop || epoch !== this.opEpoch || this._state.status === "error") {
+          return;
+        }
+        const failure = classifyConnectError(err);
+        if (isFailFastConnectError(failure.kind)) {
+          this.failConnect(failure.message, epoch);
+        }
       },
     });
     this.agent = handle;
   }
 
   private scheduleReconnect(epoch: number): void {
-    if (this.reconnectTimer || this.manualStop || epoch !== this.opEpoch) return;
+    if (this.reconnectTimer || this.manualStop || epoch !== this.opEpoch || this._state.status === "error") {
+      return;
+    }
     if (!this.lastAgentUrl || !this.lastToken) return;
+    if (this.failConnectIfBudgetExceeded(epoch)) return;
     const delay = Math.min(RECONNECT_BASE_MS * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
@@ -205,6 +274,7 @@ export class SandboxInstance {
           return r;
         }
       }
+      this.connectStartedAt = null;
       this.set({ status: "stopped", dockerAvailable: true });
       return { ok: true };
     } finally {
@@ -216,6 +286,21 @@ export class SandboxInstance {
     const stopped = await this.stop();
     if (!stopped.ok) return stopped;
     return this.start(true);
+  }
+
+  /** Reset the connect budget and try the agent again without tearing down Docker. */
+  retryConnect(): Promise<OpResult> {
+    if (this.opInFlight) return Promise.resolve({ ok: false, error: "A sandbox operation is already in progress." });
+    if (this._state.status !== "running" && this._state.status !== "error") {
+      return Promise.resolve({ ok: false, error: "Sandbox is not waiting to connect." });
+    }
+    if (!this.lastAgentUrl || !this.lastToken) return this.start();
+    this.manualStop = false;
+    this.clearReconnect();
+    this.beginConnectAttempt();
+    this.set({ status: "running", since: this.connectStartedAt ?? Date.now() });
+    this.connect(this.lastAgentUrl, this.lastToken, this.opEpoch);
+    return Promise.resolve({ ok: true });
   }
 
   /** Stop + remove volumes (and never reconnect). Used by sandbox deletion. */
@@ -278,6 +363,10 @@ export class SandboxRegistry {
 
   rebuild(config: SandboxConfig): Promise<OpResult> {
     return this.ensure(config).rebuild();
+  }
+
+  retryConnect(config: SandboxConfig): Promise<OpResult> {
+    return this.ensure(config).retryConnect();
   }
 
   async destroy(config: SandboxConfig): Promise<OpResult> {

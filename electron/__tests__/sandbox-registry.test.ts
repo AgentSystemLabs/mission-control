@@ -36,6 +36,7 @@ type Harness = {
   setDockerAvailable: (v: boolean) => void;
   setComposeUp: (fn: RegistryDeps["composeUp"]) => void;
   composeDownCalls: () => Array<{ id: string; destroyVolumes: boolean }>;
+  setConnectBudgetMs: (ms: number) => void;
 };
 
 function harness(): Harness {
@@ -43,6 +44,7 @@ function harness(): Harness {
   let dockerUp = true;
   let agentCb: AgentCallbacks | null = null;
   let connects = 0;
+  let budgetMs = 180_000;
   const downCalls: Array<{ id: string; destroyVolumes: boolean }> = [];
   let composeUp: RegistryDeps["composeUp"] = async () => ({
     ok: true as const,
@@ -67,6 +69,7 @@ function harness(): Harness {
       arr.push(state.status);
       emitted.set(id, arr);
     },
+    connectBudgetMs: () => budgetMs,
   };
 
   return {
@@ -77,6 +80,7 @@ function harness(): Harness {
     setDockerAvailable: (v) => (dockerUp = v),
     setComposeUp: (fn) => (composeUp = fn),
     composeDownCalls: () => downCalls,
+    setConnectBudgetMs: (ms) => (budgetMs = ms),
   };
 }
 
@@ -178,6 +182,62 @@ describe("SandboxInstance lifecycle", () => {
       await inst.stop();
       await vi.advanceTimersByTimeAsync(30_000);
       expect(h.connectCount()).toBe(2); // no further reconnect attempts
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up after the connect budget is exceeded", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      h.setConnectBudgetMs(5_000);
+      const inst = new SandboxInstance(remoteConfig("sb-remote"), h.deps);
+      await inst.start();
+
+      while (inst.state.status !== "error") {
+        h.lastAgentCb()!.onClose();
+        await vi.advanceTimersByTimeAsync(15_000);
+      }
+
+      expect(inst.state).toMatchObject({
+        status: "error",
+        message: expect.stringMatching(/Couldn't connect to the remote agent after 5s/i),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails fast on auth errors without waiting for the connect budget", async () => {
+    const h = harness();
+    const inst = new SandboxInstance(remoteConfig("sb-remote"), h.deps);
+    await inst.start();
+    h.lastAgentCb()!.onError?.(new Error("Unexpected server response: 401"));
+    expect(inst.state).toMatchObject({
+      status: "error",
+      message: expect.stringMatching(/Invalid API key/i),
+    });
+  });
+
+  it("retryConnect resets the budget and tries again", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      h.setConnectBudgetMs(1_000);
+      const inst = new SandboxInstance(remoteConfig("sb-remote"), h.deps);
+      await inst.start();
+      h.lastAgentCb()!.onClose();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(inst.state.status).toBe("error");
+
+      const retry = await inst.retryConnect();
+      expect(retry).toEqual({ ok: true });
+      expect(inst.state.status).toBe("running");
+      expect(h.connectCount()).toBe(2);
+
+      h.lastAgentCb()!.onReady(EXPECTED_SANDBOX_AGENT_VERSION, {});
+      expect(inst.state.status).toBe("connected");
     } finally {
       vi.useRealTimers();
     }

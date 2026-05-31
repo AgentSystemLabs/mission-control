@@ -152,8 +152,8 @@ export type SandboxGitAuthMode = "none" | "copy-host" | "generate";
 export type SandboxState =
   | { status: "disabled" }
   | { status: "stopped"; dockerAvailable: boolean }
-  | { status: "starting"; step: string }
-  | { status: "running" }
+  | { status: "starting"; step: string; since?: number }
+  | { status: "running"; since?: number }
   | { status: "connected"; version: string; agents: Record<string, string | null> }
   | {
       status: "update-required";
@@ -296,7 +296,7 @@ export type ElectronBridge = {
     destroy: (sandboxId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     /** Set the scope the renderer shows; routes remote PTY/fs/git. null = Local (host). */
     setActive: (sandboxId: string | null) => Promise<{ ok: true }>;
-    connect: (sandboxId?: string) => Promise<{ ok: true }>;
+    connect: (sandboxId?: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     disconnect: (sandboxId?: string) => Promise<{ ok: true }>;
     status: () => Promise<{
       dockerAvailable: boolean;
