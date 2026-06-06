@@ -193,7 +193,6 @@ export function TerminalPanel({
           task={active.task}
           descriptor={active}
           isLast
-          onClose={() => onClose(active.taskId)}
           onHide={onHide}
           expanded={expanded}
           onToggleExpanded={onToggleExpanded}

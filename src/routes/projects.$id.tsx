@@ -63,7 +63,8 @@ import {
   hostedCleanupStatusForCurrentRuntime,
   type HostedCleanupStatusScope,
 } from "~/lib/hosted-cleanup-status";
-import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER, TASK_STATUSES } from "~/shared/domain";
+import { groupTasksByStatusForDisplay } from "~/lib/task-display-order";
+import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER } from "~/shared/domain";
 import { hasRunningLaunchSessions } from "~/lib/project-launch-running";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
@@ -933,6 +934,14 @@ function ProjectPage() {
     queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
       current?.filter((worktree) => worktree.id !== selectedWorktree.id) ?? current
     );
+    // Kill any terminals/agents running inside this worktree first. On Windows
+    // their open file handles (notably Claude Code's `.claude/` dir) would
+    // otherwise hold a lock that makes `git worktree remove` fail with
+    // "Permission denied", leaving the worktree half-deleted.
+    const electron = getElectron();
+    if (electron && selectedWorktree.path) {
+      await electron.pty.killUnderPath(selectedWorktree.path).catch(() => undefined);
+    }
     try {
       await api.deleteWorktree(
         project.id,
@@ -1391,14 +1400,7 @@ function ProjectPage() {
   const activeTasks = tasks.filter((t) => !t.archived);
   const archivedTasks = tasks.filter((t) => t.archived);
   const visibleTasks = showArchived ? archivedTasks : activeTasks;
-  const tasksByStatus = TASK_STATUSES.reduce(
-    (acc, s) => {
-      acc[s] = [];
-      return acc;
-    },
-    {} as Record<TaskStatus, Task[]>
-  );
-  for (const t of visibleTasks) tasksByStatus[t.status].push(t);
+  const tasksByStatus = groupTasksByStatusForDisplay(visibleTasks);
 
   const activeId = terminals.activeTaskIdFor(selectedScopeKey);
   const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
@@ -2049,6 +2051,7 @@ function ProjectPage() {
               projectId={id}
               worktreeId={selectedWorktreeId}
               size="md"
+              variant={gitStatus?.changedCount === 0 ? "gray-frame" : "primary"}
               splitTrailing
               enabled={projectPathUsable}
             />

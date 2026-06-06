@@ -525,6 +525,60 @@ describe("resolveSpawnPlan — cwd confinement", () => {
   });
 });
 
+describe("resolveSpawnPlan — home shell roots (dashboard home terminals)", () => {
+  const HOME_DIR = "/Users/me";
+
+  it("accepts a shell terminal started in an allowed home root", () => {
+    const plan = resolveSpawnPlan(
+      { taskId: "t", cwd: HOME_DIR, command: "", shell: true, home: true },
+      depsFor({ homeShellRoots: () => [HOME_DIR] }),
+    );
+    expect(plan.mode).toBe("shell");
+    if (plan.mode !== "shell") throw new Error("wrong mode");
+    expect(plan.cwd).toBe(HOME_DIR);
+  });
+
+  it("accepts a subdirectory of the home root", () => {
+    expect(() =>
+      resolveSpawnPlan(
+        { taskId: "t", cwd: path.join(HOME_DIR, "Downloads"), command: "", shell: true, home: true },
+        depsFor({ homeShellRoots: () => [HOME_DIR] }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects the home dir when no homeShellRoots are provided", () => {
+    // The allowance is opt-in: without homeShellRoots a shell at ~ is still
+    // confined to project roots, exactly like before this feature.
+    expectRejected(
+      { taskId: "t", cwd: HOME_DIR, command: "", shell: true },
+      depsFor(),
+      "cwd-outside-project-roots",
+    );
+  });
+
+  it("does NOT extend the home allowance to agent spawns", () => {
+    // homeShellRoots is shell-only; an agent must never start outside a project
+    // root even when a home root is configured.
+    expectRejected(
+      spawnReq({ cwd: HOME_DIR }),
+      depsFor({ homeShellRoots: () => [HOME_DIR] }),
+      "cwd-outside-project-roots",
+    );
+  });
+
+  it("realpaths home roots so a symlinked home cwd can't escape", () => {
+    expectRejected(
+      { taskId: "t", cwd: path.join(HOME_DIR, "evil-link"), command: "", shell: true, home: true },
+      depsFor({
+        homeShellRoots: () => [HOME_DIR],
+        realpath: (p) => (p === path.join(HOME_DIR, "evil-link") ? "/etc" : p),
+      }),
+      "cwd-outside-project-roots",
+    );
+  });
+});
+
 describe("SpawnPolicyError surfaces typed codes", () => {
   it("attaches a stable .code field for callers to switch on", () => {
     try {

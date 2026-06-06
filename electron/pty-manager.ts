@@ -96,6 +96,7 @@ const LSOF_PROBE_TIMEOUT_MS = 2_000;
 const SIGTERM_GRACE_MS = 1_500;
 const PORT_KILL_POLL_INTERVAL_MS = 100;
 const PTY_EXIT_POLL_INTERVAL_MS = 50;
+const TASKKILL_TIMEOUT_MS = 5_000;
 const LOG_VALUE_MAX_LENGTH = 160;
 
 function safeLogValue(value: unknown): unknown {
@@ -218,6 +219,40 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * True when `cwd` is `root` or a path nested inside it. Used to find every PTY
+ * whose working directory lives under a worktree that's about to be deleted.
+ * Case-insensitive on Windows because a PTY's resolved cwd and the worktree
+ * path the renderer sends can differ in drive-letter / segment casing.
+ */
+export function isCwdWithin(cwd: string, root: string): boolean {
+  if (!cwd || !root) return false;
+  const norm = (p: string) => {
+    const resolved = path.resolve(p);
+    return os.platform() === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  const rel = path.relative(norm(root), norm(cwd));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/**
+ * node-pty's `proc.kill()` only signals the immediate shell. On Windows that
+ * leaves grandchild processes alive — notably the `node.exe` running Claude
+ * Code, which keeps a handle on the worktree's `.claude/` dir and blocks the
+ * delete with "Permission denied". taskkill /T tears down the whole tree so the
+ * handles are released before we try to remove the worktree.
+ */
+function killProcessTreeWindows(pid: number | undefined): void {
+  if (os.platform() !== "win32" || !pid || pid <= 0) return;
+  try {
+    spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      timeout: TASKKILL_TIMEOUT_MS,
+    });
+  } catch {
+    /* best-effort — proc.kill() below is the fallback */
+  }
+}
+
 function pidsListeningOnPort(port: number): number[] {
   if (!Number.isInteger(port) || port <= 0 || port > MAX_TCP_PORT) return [];
   if (os.platform() === "win32") return [];
@@ -298,6 +333,7 @@ async function killPty(p: Pty): Promise<boolean> {
       exited = true;
     });
     p.killedByUser = true;
+    killProcessTreeWindows(p.proc?.pid);
     p.proc.kill();
     const deadline = Date.now() + SIGTERM_GRACE_MS;
     while (!exited && Date.now() < deadline) {
@@ -310,6 +346,18 @@ async function killPty(p: Pty): Promise<boolean> {
   } finally {
     ptys.delete(p.id);
   }
+}
+
+/**
+ * Kill every live PTY whose working directory is inside `root`, awaiting their
+ * exit. Called before a worktree is deleted so no terminal, agent, or launch
+ * process keeps a handle that would block removal on Windows. Returns how many
+ * PTYs were terminated.
+ */
+async function killPtysUnderPath(root: string): Promise<number> {
+  const targets = [...ptys.values()].filter((p) => isCwdWithin(p.cwd, root));
+  await Promise.all(targets.map((p) => killPty(p)));
+  return targets.length;
 }
 
 export function registerPtyHandlers(
@@ -332,10 +380,18 @@ export function registerPtyHandlers(
       // and get full local execution. The policy module rejects anything that
       // isn't an allow-listed agent binary spawned with a clean argv array, or
       // an explicitly opted-in user-shell terminal confined to a project root.
+      // Project-less "home" shell terminals (dashboard terminals) resolve to the
+      // host's home dir HERE — the renderer never supplies it — and the policy is
+      // told to allow that dir for shell spawns only (see homeShellRoots).
+      const spawnReq: SpawnRequest =
+        opts.shell === true && opts.home
+          ? ({ ...opts, cwd: os.homedir() } as SpawnRequest)
+          : opts;
       let plan: ReturnType<typeof resolveSpawnPlan>;
       try {
-        plan = resolveSpawnPlan(opts, {
+        plan = resolveSpawnPlan(spawnReq, {
           projectRoots: loadProjectRoots,
+          homeShellRoots: () => [os.homedir()],
           resolveCommand: (name) => resolveAgentCommandOnPath(name, sanitizedProcessEnv()),
           resolveShell: () => ({
             shell: resolveShell(),
@@ -579,6 +635,15 @@ export function registerPtyHandlers(
         )
       );
       return { ptyCount: targets.length, ports: portResults };
+    },
+    ipcMain,
+  );
+
+  safeHandle(
+    IPC.ptyKillUnderPath,
+    async (_evt, { cwd }: { cwd: string }): Promise<{ ptyCount: number }> => {
+      const ptyCount = await killPtysUnderPath(cwd);
+      return { ptyCount };
     },
     ipcMain,
   );

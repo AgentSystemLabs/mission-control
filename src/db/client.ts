@@ -324,6 +324,7 @@ function ensureSchema(sqlite: Database.Database) {
       dockerfile_path TEXT,
       build_args TEXT,
       git_auth_mode TEXT NOT NULL DEFAULT 'none',
+      copy_agent_creds INTEGER NOT NULL DEFAULT 0,
       declared_ports TEXT,
       env TEXT,
       host_agent_port INTEGER,
@@ -433,6 +434,20 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS user_terminals_project_worktree_idx ON user_terminals(project_id, worktree_id);
     CREATE INDEX IF NOT EXISTS user_terminals_worktree_idx ON user_terminals(worktree_id);
 
+    -- Project-less "home" terminals (dashboard). Separate table so user_terminals
+    -- never needs a destructive rebuild to relax its NOT NULL project_id FK.
+    -- scope_id scopes each terminal to the sandbox (or "local") it runs on.
+    CREATE TABLE IF NOT EXISTS home_terminals (
+      id TEXT PRIMARY KEY,
+      scope_id TEXT NOT NULL DEFAULT 'local',
+      name TEXT NOT NULL,
+      cwd TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS home_terminals_scope_idx ON home_terminals(scope_id);
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -489,6 +504,7 @@ function ensureSchema(sqlite: Database.Database) {
   ensureColumn(sqlite, "sandboxes", "dockerfile_path", "TEXT");
   ensureColumn(sqlite, "sandboxes", "build_args", "TEXT");
   ensureColumn(sqlite, "sandboxes", "git_auth_mode", "TEXT NOT NULL DEFAULT 'none'");
+  ensureColumn(sqlite, "sandboxes", "copy_agent_creds", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(sqlite, "sandboxes", "declared_ports", "TEXT");
   ensureColumn(sqlite, "sandboxes", "env", "TEXT");
   ensureColumn(sqlite, "sandboxes", "host_agent_port", "INTEGER");
@@ -497,6 +513,11 @@ function ensureSchema(sqlite: Database.Database) {
   ensureColumn(sqlite, "sandboxes", "remote_config", "TEXT");
   ensureColumn(sqlite, "sandboxes", "created_at", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(sqlite, "sandboxes", "updated_at", "INTEGER NOT NULL DEFAULT 0");
+
+  // Home terminals gained a per-sandbox scope after their first ship; tolerate a
+  // pre-existing home_terminals table created without it.
+  ensureColumn(sqlite, "home_terminals", "scope_id", "TEXT NOT NULL DEFAULT 'local'");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS home_terminals_scope_idx ON home_terminals(scope_id);");
 
   // Legacy builds briefly modeled "shell" as a task agent even though shell
   // terminals are not persisted tasks. Normalize stale rows before the narrowed

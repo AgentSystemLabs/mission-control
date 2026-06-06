@@ -34,6 +34,7 @@ function readStoredWeights(): PaneWeights {
 export function UserTerminalPanel() {
   const {
     project,
+    homeActive,
     panelOpen,
     setPanelOpen,
     sessions,
@@ -47,6 +48,10 @@ export function UserTerminalPanel() {
     updateLaunchUrl,
     setPtyId,
   } = useUserTerminals();
+
+  // The panel is shared by project terminals and project-less "home" (dashboard)
+  // terminals; `active` is true whenever either scope is current.
+  const active = !!project || homeActive;
 
   const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.terminal.id));
 
@@ -145,7 +150,7 @@ export function UserTerminalPanel() {
     [paneWeights],
   );
 
-  if (!project) return null;
+  if (!active) return null;
 
   return (
     <CardFrame
@@ -207,7 +212,7 @@ export function UserTerminalPanel() {
               flex: "0 0 auto",
             }}
           >
-            Project Terminals
+            {homeActive ? "Terminals" : "Project Terminals"}
           </span>
           {sessions.length > 0 && (
             <span
@@ -306,9 +311,9 @@ export function UserTerminalPanel() {
               variant="ghost"
               size="sm"
               icon="plus"
-              disabled={!project}
+              disabled={!active}
               onClick={() => {
-                if (project) void createTerminal();
+                if (active) void createTerminal();
               }}
             >
               New
@@ -355,13 +360,15 @@ export function UserTerminalPanel() {
               fontSize: 12,
             }}
           >
-            {project ? (
+            {active ? (
               <EmptyState
                 icon="terminal"
                 title={sessions.length === 0 ? "No terminals yet" : "All terminals hidden"}
                 subtitle={
                   sessions.length === 0
-                    ? "Open a terminal to run commands in this project."
+                    ? homeActive
+                      ? "Open a terminal at your home directory on the active scope (local machine or remote VM)."
+                      : "Open a terminal to run commands in this project."
                     : "Click a tab above to bring a terminal back into view."
                 }
                 action={
@@ -409,6 +416,7 @@ export function UserTerminalPanel() {
                     terminal={s.terminal}
                     ptyId={s.ptyId}
                     cwd={s.terminal.cwd || project?.path || ""}
+                    isHome={homeActive}
                     focused={focusedId === s.terminal.id}
                     onFocus={() => focusTerminal(s.terminal.id)}
                     onPtyReady={(ptyId) => setPtyId(s.terminal.id, ptyId)}

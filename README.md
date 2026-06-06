@@ -78,6 +78,22 @@ pnpm dev:web            # runs hosted web dev server with local Postgres via Doc
 
 The first run creates `~/Library/Application Support/MissionControl/missioncontrol.db` (macOS) or the equivalent on Linux/Windows.
 
+### Remote VM Sandboxes
+
+Mission Control can provision AWS EC2 instances or DigitalOcean Droplets with
+`mission-control-agent` installed directly on the VM host:
+
+Use the header scope menu: **New sandbox → Remote VM → AWS EC2** or
+**DigitalOcean**. The same flow is available from the CLI:
+
+```bash
+pnpm remote-vm deploy aws --name client-vm --region us-east-1
+pnpm remote-vm deploy do --name client-vm --region nyc1
+```
+
+See [docs/remote-vm-cli.md](docs/remote-vm-cli.md) for provider flags,
+bootstrap details, and cleanup commands.
+
 ### Build
 
 ```bash

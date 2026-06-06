@@ -57,7 +57,7 @@ function ActivityCounts({ project, size = 6 }: { project: ProjectWithCounts; siz
   );
 }
 
-export function ProjectPicker({ projectId }: { projectId?: string }) {
+export function ProjectPicker({ projectId, disabled = false }: { projectId?: string; disabled?: boolean }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { hasRunningLaunchForProject } = useUserTerminals();
@@ -119,12 +119,18 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
   useHotkey(
     "project.picker",
     (e) => {
+      if (disabled) return;
       if (isEditableTarget(e.target) && !wrapRef.current?.contains(e.target as Node)) return;
       e.preventDefault();
       setOpen((o) => !o);
     },
     { preventDefault: false },
   );
+
+  // Force-close if the picker becomes disabled (e.g. the active sandbox starts resuming).
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   // Reset state when opening; focus input.
   useEffect(() => {
@@ -191,6 +197,7 @@ export function ProjectPicker({ projectId }: { projectId?: string }) {
         <Btn
           variant="gray-frame"
           onClick={() => setOpen((o) => !o)}
+          disabled={disabled}
           aria-haspopup="listbox"
           aria-expanded={open}
         >

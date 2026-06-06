@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
@@ -8,13 +9,22 @@ import { TextField } from "~/components/ui/TextField";
 import { SandboxApiKeyField } from "~/components/views/SandboxApiKeyField";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import {
+  mergeRemoteVmDeployLogs,
+  remoteVmDeployJobForSandbox,
+  remoteVmDeployStatusCopy,
+} from "~/lib/remote-vm-deploy";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys, useProjects, useSandboxes } from "~/queries";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
-import type { SandboxGitAuthMode } from "~/shared/sandbox";
-import type { SandboxState } from "~/shared/electron-contract";
+import type { RemoteVmLifecycleStatus, SandboxGitAuthMode } from "~/shared/sandbox";
+import type {
+  RemoteVmDeployJobSnapshot,
+  RemoteVmDeployLogEntry,
+  SandboxState,
+} from "~/shared/electron-contract";
 
 function formatConnectElapsed(since: number, now: number): string {
   const secs = Math.max(0, Math.floor((now - since) / 1000));
@@ -67,6 +77,47 @@ function statusBadge(
     case "error":
       return { label: state.message, color: "var(--status-failed)" };
   }
+}
+
+function remoteVmStatusCopy(status: RemoteVmLifecycleStatus | string | null | undefined): {
+  label: string;
+  color: string;
+} {
+  switch (status) {
+    case "provisioning":
+      return { label: "Provisioning", color: "var(--status-running)" };
+    case "ready":
+      return { label: "Ready", color: "var(--accent)" };
+    case "provisioning_failed":
+      return { label: "Provisioning failed", color: "var(--status-failed)" };
+    case "pausing":
+      return { label: "Pausing", color: "var(--status-running)" };
+    case "paused":
+      return { label: "Paused", color: "var(--text-dim)" };
+    case "pause_failed":
+      return { label: "Pause failed", color: "var(--status-failed)" };
+    case "resuming":
+      return { label: "Resuming", color: "var(--status-running)" };
+    case "resume_failed":
+      return { label: "Resume failed", color: "var(--status-failed)" };
+    case "destroy_failed":
+      return { label: "Destroy failed", color: "var(--status-failed)" };
+    default:
+      return { label: status ? String(status) : "Unknown", color: "var(--text-dim)" };
+  }
+}
+
+function providerPauseHint(provider: string | null | undefined): string {
+  if (provider === "aws") {
+    return "EC2 compute billing stops after the instance reaches stopped, but EBS storage charges continue. AWS may assign a new public IP on resume.";
+  }
+  if (provider === "digitalocean") {
+    return "DigitalOcean can still bill powered-off Droplet resources. Pause keeps the Droplet disk and IP reserved.";
+  }
+  if (provider === "railway") {
+    return "Railway compute stops while the service, domain, and attached volume stay configured.";
+  }
+  return "Compute will stop while the remote workspace data remains configured.";
 }
 
 const sectionStyle: CSSProperties = {
@@ -219,7 +270,7 @@ function gitAuthHint(
   return "Uploads your local SSH keys from ~/.ssh into this sandbox.";
 }
 
-type SandboxConfigTab = "overview" | "setup" | "git" | "danger" | "logs";
+type SandboxConfigTab = "overview" | "agent" | "setup" | "git" | "danger" | "logs";
 
 function TabBar({
   tabs,
@@ -313,62 +364,95 @@ function StatusSpinner({ color }: { color: string }) {
 function StatusStrip({
   badge,
   kindLabel,
+  subtitle,
+  detail,
+  actions,
 }: {
   badge: { label: string; color: string; connecting?: boolean };
   kindLabel: string;
+  subtitle?: ReactNode;
+  detail?: ReactNode;
+  actions?: ReactNode;
 }) {
   return (
     <div
       style={{
         display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        padding: "10px 12px",
+        flexDirection: "column",
+        gap: 10,
+        padding: "12px 14px",
         borderRadius: 8,
         border: "1px solid var(--border)",
         background: "var(--surface-0)",
       }}
     >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
+          <span
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-busy={badge.connecting || undefined}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontFamily: "var(--mono)",
+              fontSize: 12,
+              color: badge.color,
+              minWidth: 0,
+            }}
+          >
+            {badge.connecting ? (
+              <StatusSpinner color={badge.color} />
+            ) : (
+              <span
+                style={{ width: 8, height: 8, borderRadius: 999, background: badge.color, flexShrink: 0 }}
+                aria-hidden
+              />
+            )}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{badge.label}</span>
+          </span>
+          {subtitle}
+        </div>
+        <span
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 10,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            color: "var(--text-faint)",
+            padding: "3px 8px",
+            borderRadius: 999,
+            border: "1px solid var(--border)",
+            flexShrink: 0,
+          }}
+        >
+          {kindLabel}
+        </span>
+      </div>
+      {detail}
+      {actions && <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{actions}</div>}
+    </div>
+  );
+}
+
+function OverviewMetaRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+      <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0 }}>{label}</span>
       <span
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        aria-busy={badge.connecting || undefined}
         style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 8,
           fontFamily: "var(--mono)",
           fontSize: 12,
-          color: badge.color,
-          minWidth: 0,
+          color: valueColor ?? "var(--text)",
+          textAlign: "right",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         }}
       >
-        {badge.connecting ? (
-          <StatusSpinner color={badge.color} />
-        ) : (
-          <span
-            style={{ width: 8, height: 8, borderRadius: 999, background: badge.color, flexShrink: 0 }}
-            aria-hidden
-          />
-        )}
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{badge.label}</span>
-      </span>
-      <span
-        style={{
-          fontFamily: "var(--mono)",
-          fontSize: 10,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          color: "var(--text-faint)",
-          padding: "3px 8px",
-          borderRadius: 999,
-          border: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        {kindLabel}
+        {value}
       </span>
     </div>
   );
@@ -402,7 +486,9 @@ export function SandboxConfigPanel({
   );
 
   const [state, setState] = useState<SandboxState>({ status: "disabled" });
-  const [logs, setLogs] = useState<string[]>([]);
+  const [connectionLogs, setConnectionLogs] = useState<string[]>([]);
+  const [deployJobs, setDeployJobs] = useState<RemoteVmDeployJobSnapshot[]>([]);
+  const [deployLogs, setDeployLogs] = useState<RemoteVmDeployLogEntry[]>([]);
   const [activeTab, setActiveTab] = useState<SandboxConfigTab>("overview");
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -420,13 +506,21 @@ export function SandboxConfigPanel({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState<"pausing" | "resuming" | null>(null);
   const [connectClock, setConnectClock] = useState(() => Date.now());
   const logRef = useRef<HTMLDivElement | null>(null);
+  const deployLogJobIdRef = useRef<string | null>(null);
   const sandboxIdRef = useRef(sandboxId);
 
   useEffect(() => {
     sandboxIdRef.current = sandboxId;
   }, [sandboxId]);
+
+  const deployJob = useMemo(
+    () => remoteVmDeployJobForSandbox(deployJobs, sandboxId),
+    [deployJobs, sandboxId],
+  );
 
   useEffect(() => {
     setActiveTab("overview");
@@ -437,7 +531,22 @@ export function SandboxConfigPanel({
     setError(null);
     setDeleteOpen(false);
     setDeleteConfirmName("");
+    setPauseOpen(false);
+    setCloudBusy(null);
+    setDeployLogs([]);
   }, [sandboxId]);
+
+  useEffect(() => {
+    if (!deployJob) return;
+    if (
+      deployJob.status === "queued" ||
+      deployJob.status === "running" ||
+      deployJob.status === "failed" ||
+      deployJob.status === "canceled"
+    ) {
+      setActiveTab("logs");
+    }
+  }, [sandboxId, deployJob?.id, deployJob?.status]);
 
   useEffect(() => {
     if (!selectedSandbox || selectedSandbox.id !== sandboxId) return;
@@ -460,13 +569,69 @@ export function SandboxConfigPanel({
     const offState = sandbox.onStateChange((e) => {
       if (e.sandboxId === sandboxIdRef.current) setState(e.state);
     });
-    const offLog = sandbox.onLog((line) => setLogs((prev) => [...prev.slice(-300), line]));
+    const offLog = sandbox.onLog((line) =>
+      setConnectionLogs((prev) => [...prev.slice(-300), line]),
+    );
     return () => {
       active = false;
       offState();
       offLog();
     };
   }, [sandbox, sandboxId]);
+
+  useEffect(() => {
+    deployLogJobIdRef.current = deployJob?.id ?? null;
+  }, [deployJob?.id]);
+
+  useEffect(() => {
+    const remoteVm = electron.remoteVm;
+    if (!remoteVm) {
+      setDeployJobs([]);
+      setDeployLogs([]);
+      return;
+    }
+    let active = true;
+    void remoteVm.listDeployJobs().then((nextJobs) => {
+      if (active) setDeployJobs(nextJobs);
+    });
+    const offUpdate = remoteVm.onDeployUpdate((job) => {
+      setDeployJobs((current) => {
+        const without = current.filter((item) => item.id !== job.id);
+        return [job, ...without].sort((a, b) => b.createdAt - a.createdAt);
+      });
+    });
+    const offLog = remoteVm.onDeployLog((entry) => {
+      if (entry.jobId !== deployLogJobIdRef.current) return;
+      setDeployLogs((current) => mergeRemoteVmDeployLogs(current, [entry]));
+    });
+    return () => {
+      active = false;
+      offUpdate();
+      offLog();
+    };
+  }, [electron]);
+
+  useEffect(() => {
+    const remoteVm = electron.remoteVm;
+    if (!remoteVm || !deployJob) {
+      setDeployLogs([]);
+      return;
+    }
+    setDeployLogs((current) => current.filter((entry) => entry.jobId === deployJob.id));
+    let active = true;
+    void remoteVm.getDeployLogs(deployJob.id, 0).then((result) => {
+      if (!active) return;
+      setDeployLogs((current) =>
+        mergeRemoteVmDeployLogs(
+          current.filter((entry) => entry.jobId === deployJob.id),
+          result.entries,
+        ),
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [deployJob?.id, electron]);
 
   useEffect(() => {
     if (state.status !== "starting" && state.status !== "running") return;
@@ -481,7 +646,13 @@ export function SandboxConfigPanel({
     if (!el) return;
     const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
     if (pinned) el.scrollTop = el.scrollHeight;
-  }, [logs, activeTab]);
+  }, [connectionLogs, deployLogs, activeTab]);
+
+  const cancelRemoteDeploy = useCallback(async () => {
+    if (!deployJob || !electron.remoteVm) return;
+    const result = await electron.remoteVm.cancelDeploy(deployJob.id);
+    if (!result.ok) toast.error(result.error);
+  }, [deployJob, electron]);
 
   const patchSelected = useCallback(
     async (patch: Record<string, unknown>) => {
@@ -639,6 +810,21 @@ export function SandboxConfigPanel({
       const destroy = await sandbox.destroy(sandboxId);
       if (!destroy.ok) throw new Error(destroy.error);
 
+      // Managed cloud VMs (AWS/DO/Railway) need provider teardown so billing stops.
+      // Bring-your-own agents only store a URL + API key — skip the cloud CLI.
+      const isManagedRemote =
+        selectedSandbox.kind === "remote-vm" && !!selectedSandbox.remoteProvider;
+      if (isManagedRemote && electron.remoteVm) {
+        if (
+          deployJob &&
+          (deployJob.status === "queued" || deployJob.status === "running")
+        ) {
+          await electron.remoteVm.cancelDeploy(deployJob.id);
+        }
+        const terminated = await electron.remoteVm.destroy(sandboxId, { keepRow: true });
+        if (!terminated.ok) throw new Error(terminated.error);
+      }
+
       if (scopes?.activeScopeId === sandboxId) {
         await api.setActiveScope(LOCAL_SCOPE_ID);
         await sandbox.setActive(null);
@@ -666,7 +852,9 @@ export function SandboxConfigPanel({
     }
   }, [
     deleteConfirmName,
+    deployJob,
     deleting,
+    electron,
     onDeleted,
     queryClient,
     router,
@@ -679,9 +867,70 @@ export function SandboxConfigPanel({
     userTerminals,
   ]);
 
+  const pauseRemoteVm = useCallback(async () => {
+    if (!selectedSandbox || cloudBusy || !electron.remoteVm) return;
+    setCloudBusy("pausing");
+    setError(null);
+    try {
+      for (const project of scopedProjects) {
+        await terminals.closeForProject(project.id);
+        await userTerminals.closeForProject(project.id);
+      }
+      const down = await sandbox.down(sandboxId);
+      if (!down.ok) throw new Error(down.error);
+      const paused = await electron.remoteVm.pause(sandboxId);
+      if (!paused.ok) throw new Error(paused.error);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.sandboxes });
+      setPauseOpen(false);
+      toast.success("Remote VM paused");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCloudBusy(null);
+    }
+  }, [
+    cloudBusy,
+    electron.remoteVm,
+    queryClient,
+    sandbox,
+    sandboxId,
+    scopedProjects,
+    selectedSandbox,
+    terminals,
+    userTerminals,
+  ]);
+
+  const resumeRemoteVm = useCallback(async () => {
+    if (!selectedSandbox || cloudBusy || !electron.remoteVm) return;
+    setCloudBusy("resuming");
+    setError(null);
+    try {
+      const resumed = await electron.remoteVm.resume(sandboxId);
+      if (!resumed.ok) throw new Error(resumed.error);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.sandboxes });
+      const up = await sandbox.up(sandboxId);
+      if (!up.ok) throw new Error(up.error);
+      toast.success("Remote VM resumed");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCloudBusy(null);
+    }
+  }, [cloudBusy, electron.remoteVm, queryClient, sandbox, sandboxId, selectedSandbox]);
+
   useEffect(() => {
-    if (activeTab === "logs" && logs.length === 0) setActiveTab("overview");
-  }, [activeTab, logs.length]);
+    const isRemoteSandbox = selectedSandbox?.kind === "remote-vm";
+    if (activeTab === "logs" && !isRemoteSandbox && connectionLogs.length === 0 && !deployJob) {
+      setActiveTab("overview");
+    }
+  }, [activeTab, connectionLogs.length, deployJob, selectedSandbox?.kind]);
+
+  useEffect(() => {
+    const managed = selectedSandbox?.kind === "remote-vm" && !!selectedSandbox.remoteProvider;
+    if (activeTab === "agent" && managed) {
+      setActiveTab("overview");
+    }
+  }, [activeTab, selectedSandbox?.id, selectedSandbox?.kind, selectedSandbox?.remoteProvider]);
 
   if (!selectedSandbox) {
     return <p style={{ color: "var(--text-dim)", fontSize: 13, margin: 0 }}>Sandbox not found.</p>;
@@ -711,14 +960,112 @@ export function SandboxConfigPanel({
   const portsDirty = portsInput.trim() !== selectedSandbox.declaredPorts.join(", ");
   const pinnedCount = scopedProjects.filter((project) => project.pinned).length;
   const deleteNameMatches = deleteConfirmName.trim() === selectedSandbox.name;
+  const deployStatus = deployJob ? remoteVmDeployStatusCopy(deployJob) : null;
+  const cloudStatus = remoteVmStatusCopy(selectedSandbox.remoteStatus);
+  const managedRemote = isRemote && !!selectedSandbox.remoteProvider;
+  const cloudActionBusy =
+    cloudBusy !== null ||
+    selectedSandbox.remoteStatus === "pausing" ||
+    selectedSandbox.remoteStatus === "resuming";
+  const canPauseVm =
+    managedRemote &&
+    selectedSandbox.remoteStatus !== "paused" &&
+    selectedSandbox.remoteStatus !== "pausing" &&
+    selectedSandbox.remoteStatus !== "resuming";
+  const canResumeVm =
+    managedRemote &&
+    (selectedSandbox.remoteStatus === "paused" || selectedSandbox.remoteStatus === "resume_failed");
+  const canCancelDeploy =
+    deployJob?.status === "queued" || deployJob?.status === "running";
+  const deployLogText =
+    deployLogs.length > 0
+      ? deployLogs.map((entry) => entry.data).join("")
+      : deployJob
+        ? "Waiting for deploy logs..."
+        : "";
+  const showLogsTab = isRemote || connectionLogs.length > 0;
+  const logsTabBadge =
+    deployJob?.status === "queued" || deployJob?.status === "running"
+      ? undefined
+      : connectionLogs.length > 0
+        ? connectionLogs.length
+        : deployLogs.length > 0
+          ? deployLogs.length
+          : undefined;
+
+  const providerLabel = selectedSandbox.remoteProviderName ?? selectedSandbox.remoteProvider;
+  const hasRemoteInfraIssue =
+    managedRemote &&
+    (!!selectedSandbox.remoteStatusMessage ||
+      selectedSandbox.remoteStatus === "destroy_failed" ||
+      selectedSandbox.remoteStatus === "provisioning_failed" ||
+      selectedSandbox.remoteStatus === "pause_failed" ||
+      selectedSandbox.remoteStatus === "resume_failed");
+  // Managed deploys persist URL + API key via the cloud CLI; BYO needs the Agent tab until both are saved.
+  const needsAgentConfig =
+    isRemote &&
+    !managedRemote &&
+    (!selectedSandbox.remoteAgentUrl || !selectedSandbox.hasApiKey);
+  const showAgentTabBadge = needsAgentConfig && remoteDirty;
 
   const tabs: { id: SandboxConfigTab; label: string; badge?: number }[] = [
     { id: "overview", label: "Overview" },
+    ...(needsAgentConfig ? [{ id: "agent" as const, label: "Agent", badge: showAgentTabBadge ? 1 : undefined }] : []),
     ...(isRemote ? [] : [{ id: "setup" as const, label: "Docker" }]),
     { id: "git", label: "Git" },
+    ...(showLogsTab ? [{ id: "logs" as const, label: "Logs", badge: logsTabBadge }] : []),
     { id: "danger", label: "Danger" },
-    ...(logs.length > 0 ? [{ id: "logs" as const, label: "Logs", badge: logs.length }] : []),
   ];
+
+  const connectionActions = (
+    <>
+      {canStart && (
+        <Btn
+          variant="primary"
+          size="sm"
+          disabled={busy}
+          onClick={() => void run(() => sandbox.up(selectedSandbox.id))}
+        >
+          {state.status === "error" ? "Retry connection" : isRemote ? "Connect" : "Start sandbox"}
+        </Btn>
+      )}
+      {canStop && (
+        <Btn variant="danger" size="sm" disabled={busy} onClick={() => void run(() => sandbox.down(selectedSandbox.id))}>
+          {stopLabel}
+        </Btn>
+      )}
+      {needsUpdate && !isRemote && (
+        <Btn variant="primary" size="sm" disabled={busy} onClick={() => void run(() => sandbox.rebuild(selectedSandbox.id))}>
+          Restart to update
+        </Btn>
+      )}
+      {managedRemote && canPauseVm && (
+        <Btn
+          variant="gray-frame"
+          size="sm"
+          icon="stop"
+          disabled={busy || cloudActionBusy || canCancelDeploy}
+          onClick={() => setPauseOpen(true)}
+        >
+          {cloudBusy === "pausing" ? "Pausing…" : "Pause VM"}
+        </Btn>
+      )}
+      {managedRemote && canResumeVm && (
+        <Btn
+          variant="primary"
+          size="sm"
+          icon="play"
+          disabled={busy || cloudActionBusy || canCancelDeploy}
+          onClick={() => void resumeRemoteVm()}
+        >
+          {cloudBusy === "resuming" ? "Resuming…" : "Resume VM"}
+        </Btn>
+      )}
+    </>
+  );
+
+  const hasConnectionActions =
+    canStart || canStop || (needsUpdate && !isRemote) || (managedRemote && (canPauseVm || canResumeVm));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -739,7 +1086,36 @@ export function SandboxConfigPanel({
         </p>
       )}
 
-      <StatusStrip badge={badge} kindLabel={isRemote ? "Remote VM" : "Local Docker"} />
+      <StatusStrip
+        badge={badge}
+        kindLabel={isRemote ? "Remote VM" : "Local Docker"}
+        subtitle={
+          managedRemote ? (
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+              {providerLabel}
+              <span style={{ color: "var(--text-faint)", margin: "0 6px" }}>·</span>
+              <span style={{ color: cloudStatus.color }}>VM {cloudStatus.label}</span>
+            </span>
+          ) : undefined
+        }
+        detail={
+          hasRemoteInfraIssue ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 12,
+                color: "var(--status-failed)",
+                lineHeight: 1.45,
+                fontFamily: "var(--mono)",
+                wordBreak: "break-word",
+              }}
+            >
+              {selectedSandbox.remoteStatusMessage}
+            </p>
+          ) : undefined
+        }
+        actions={hasConnectionActions ? connectionActions : undefined}
+      />
 
       <TabBar tabs={tabs} active={activeTab} onChange={setActiveTab} />
 
@@ -750,88 +1126,108 @@ export function SandboxConfigPanel({
           aria-labelledby="sandbox-tab-overview"
           style={{ display: "flex", flexDirection: "column", gap: 12 }}
         >
-          <ConfigSection
-            title="Connection"
-            description={
-              isRemote
-                ? "Connect to your deployed mc-agent over WebSocket."
-                : "Start the local Docker container for this sandbox."
-            }
-            footer={
-              <>
-                {canStart && (
-                  <Btn
-                    variant="primary"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void run(() => sandbox.up(selectedSandbox.id))}
-                  >
-                    {state.status === "error"
-                      ? "Retry connection"
-                      : isRemote
-                        ? "Connect"
-                        : "Start sandbox"}
-                  </Btn>
-                )}
-                {canStop && (
-                  <Btn
-                    variant="danger"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void run(() => sandbox.down(selectedSandbox.id))}
-                  >
-                    {stopLabel}
-                  </Btn>
-                )}
-                {needsUpdate && !isRemote && (
-                  <Btn
-                    variant="primary"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void run(() => sandbox.rebuild(selectedSandbox.id))}
-                  >
-                    Restart to update
-                  </Btn>
-                )}
-              </>
-            }
-          />
-
-          {isRemote && (
+          {managedRemote ? (
             <ConfigSection
-              title="Remote agent"
-              description="Use wss:// for public deployments. HTTP(S) URLs are converted automatically."
-              footer={
-                <div style={{ width: "100%", display: "flex", justifyContent: "flex-end" }}>
-                  <Btn variant="primary" size="sm" disabled={saving || busy || !remoteDirty} onClick={() => void saveRemoteConfig()}>
-                    Save
-                  </Btn>
-                </div>
-              }
+              title="Provisioned agent"
+              description="URL and API key were generated when this VM was deployed. Mission Control reconnects automatically after resume."
             >
-              <TextField
-                label="Agent URL"
-                ariaLabel="Remote agent URL"
-                value={remoteUrlInput}
-                onChange={setRemoteUrlInput}
-                placeholder="https://your-agent.up.railway.app"
-                mono
-                required
-                ariaInvalid={!!error && !remoteUrlInput.trim()}
-              />
-              <SandboxApiKeyField
-                key={`${selectedSandbox.id}:${selectedSandbox.updatedAt}`}
-                sandboxId={selectedSandbox.id}
-                value={remoteApiKeyInput}
-                onChange={setRemoteApiKeyInput}
-                hasSavedKey={selectedSandbox.hasApiKey}
-                onWriteClipboard={async (text) => {
-                  await clipboard.writeText(text);
-                }}
-                ariaInvalid={!!error && !!remoteApiKeyInput.trim() && remoteApiKeyInput.trim().length < 16}
-              />
+              {selectedSandbox.remoteAgentUrl && (
+                <OverviewMetaRow label="Agent URL" value={selectedSandbox.remoteAgentUrl} />
+              )}
+              {selectedSandbox.remotePublicAddress && (
+                <OverviewMetaRow label="Public host" value={selectedSandbox.remotePublicAddress} />
+              )}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {selectedSandbox.remoteAgentUrl && (
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    icon="copy"
+                    onClick={() => {
+                      void clipboard.writeText(selectedSandbox.remoteAgentUrl!);
+                      toast.success("Agent URL copied");
+                    }}
+                  >
+                    Copy agent URL
+                  </Btn>
+                )}
+                {selectedSandbox.hasApiKey && (
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    icon="copy"
+                    onClick={async () => {
+                      const revealed = await sandbox.revealApiKey(selectedSandbox.id);
+                      if (!revealed.ok) {
+                        toast.error(revealed.error);
+                        return;
+                      }
+                      await clipboard.writeText(revealed.apiKey);
+                      toast.success("API key copied");
+                    }}
+                  >
+                    Copy API key
+                  </Btn>
+                )}
+                {showLogsTab && (hasRemoteInfraIssue || state.status === "error" || connectionLogs.length > 0) && (
+                  <Btn variant="ghost" size="sm" onClick={() => setActiveTab("logs")}>
+                    View connection logs
+                  </Btn>
+                )}
+              </div>
             </ConfigSection>
+          ) : (
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+              {needsAgentConfig
+                ? "Connection controls are in the status card above. Set the agent URL and API key on the Agent tab."
+                : isRemote
+                  ? "Connection controls are in the status card above."
+                  : "Use the status card above to start or stop this sandbox. Image, ports, and build settings are on the Docker tab."}
+            </p>
           )}
+        </div>
+      )}
+
+      {activeTab === "agent" && needsAgentConfig && (
+        <div
+          role="tabpanel"
+          id="sandbox-panel-agent"
+          aria-labelledby="sandbox-tab-agent"
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <ConfigSection
+            title="Agent endpoint"
+            description="For agents you host yourself (not AWS/DO/Railway deploy). Use wss:// for public deployments."
+            footer={
+              <div style={{ width: "100%", display: "flex", justifyContent: "flex-end" }}>
+                <Btn variant="primary" size="sm" disabled={saving || busy || !remoteDirty} onClick={() => void saveRemoteConfig()}>
+                  Save
+                </Btn>
+              </div>
+            }
+          >
+            <TextField
+              label="Agent URL"
+              ariaLabel="Remote agent URL"
+              value={remoteUrlInput}
+              onChange={setRemoteUrlInput}
+              placeholder="https://your-agent.up.railway.app"
+              mono
+              required
+              ariaInvalid={!!error && !remoteUrlInput.trim()}
+            />
+            <SandboxApiKeyField
+              key={`${selectedSandbox.id}:${selectedSandbox.updatedAt}`}
+              sandboxId={selectedSandbox.id}
+              value={remoteApiKeyInput}
+              onChange={setRemoteApiKeyInput}
+              hasSavedKey={selectedSandbox.hasApiKey}
+              onWriteClipboard={async (text) => {
+                await clipboard.writeText(text);
+              }}
+              ariaInvalid={!!error && !!remoteApiKeyInput.trim() && remoteApiKeyInput.trim().length < 16}
+            />
+          </ConfigSection>
         </div>
       )}
 
@@ -1014,31 +1410,158 @@ export function SandboxConfigPanel({
         </div>
       )}
 
-      {activeTab === "logs" && logs.length > 0 && (
+      {activeTab === "logs" && showLogsTab && (
         <div
           role="tabpanel"
           id="sandbox-panel-logs"
           aria-labelledby="sandbox-tab-logs"
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
         >
-          <div
-            ref={logRef}
-            style={{
-              maxHeight: 320,
-              overflow: "auto",
-              background: "var(--surface-0)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: 12,
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              whiteSpace: "pre-wrap",
-              color: "var(--text-dim)",
-            }}
-          >
-            {logs.join("\n")}
-          </div>
+          {isRemote && deployJob && deployStatus && (
+            <ConfigSection
+              title="Remote VM deploy"
+              description={
+                deployJob.input.provider === "railway"
+                  ? `${deployJob.input.name} · Railway`
+                  : `${deployJob.input.name} · ${
+                      deployJob.input.provider === "aws" ? "AWS EC2" : "DigitalOcean"
+                    } · ${deployJob.input.region}`
+              }
+              footer={
+                canCancelDeploy ? (
+                  <Btn variant="ghost" size="sm" onClick={() => void cancelRemoteDeploy()}>
+                    Cancel deploy
+                  </Btn>
+                ) : undefined
+              }
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 11,
+                    color: deployStatus.color,
+                  }}
+                >
+                  {deployStatus.label}
+                </span>
+                {deployJob.error && (
+                  <p
+                    role="alert"
+                    style={{
+                      margin: 0,
+                      flex: "1 1 100%",
+                      fontSize: 12,
+                      lineHeight: 1.45,
+                      color: "var(--status-failed)",
+                    }}
+                  >
+                    {deployJob.error}
+                  </p>
+                )}
+              </div>
+              <pre
+                role="log"
+                aria-label="Remote VM deploy logs"
+                aria-live="polite"
+                aria-relevant="additions text"
+                tabIndex={0}
+                style={{
+                  margin: 0,
+                  maxHeight: 280,
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  background: "var(--surface-1)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: 12,
+                  color: "var(--text-dim)",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  lineHeight: 1.45,
+                }}
+              >
+                {deployLogText}
+              </pre>
+            </ConfigSection>
+          )}
+
+          {connectionLogs.length > 0 && (
+            <ConfigSection
+              title={isRemote ? "Connection logs" : "Sandbox logs"}
+              description={
+                isRemote ? "Output from connecting to the remote mc-agent." : undefined
+              }
+            >
+              <div
+                ref={logRef}
+                style={{
+                  maxHeight: 280,
+                  overflow: "auto",
+                  background: "var(--surface-1)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: 12,
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  whiteSpace: "pre-wrap",
+                  color: "var(--text-dim)",
+                }}
+              >
+                {connectionLogs.join("\n")}
+              </div>
+            </ConfigSection>
+          )}
+
+          {isRemote && !deployJob && connectionLogs.length === 0 && (
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}>
+              No deploy or connection logs yet for this sandbox.
+            </p>
+          )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pauseOpen}
+        onClose={() => {
+          if (!cloudBusy) setPauseOpen(false);
+        }}
+        onConfirm={() => void pauseRemoteVm()}
+        title={`Pause ${selectedSandbox.name}?`}
+        confirmLabel="Pause VM"
+        icon="stop"
+        loading={cloudBusy === "pausing"}
+        width={480}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
+            Mission Control will close the open terminals for this sandbox, disconnect from the agent, and stop provider compute.
+          </p>
+          <div
+            style={{
+              margin: 0,
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: "1px solid color-mix(in srgb, var(--status-warning, var(--accent)) 35%, var(--border))",
+              background: "color-mix(in srgb, var(--status-warning, var(--accent)) 8%, var(--surface-0))",
+              fontSize: 12,
+              color: "var(--text-dim)",
+              lineHeight: 1.55,
+            }}
+          >
+            <strong style={{ color: "var(--text)", fontWeight: 600 }}>This keeps:</strong>
+            <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+              <li>The sandbox configuration and scoped projects</li>
+              <li>Disk or volume data for the remote workspace</li>
+              <li>The ability to resume from this panel later</li>
+            </ul>
+            <p style={{ margin: "8px 0 0" }}>{providerPauseHint(selectedSandbox.remoteProvider)}</p>
+          </div>
+        </div>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={deleteOpen}
@@ -1088,7 +1611,12 @@ export function SandboxConfigPanel({
               {!isRemote && (
                 <li>Stop the Docker container and delete its volumes (cloned repos and workspace data)</li>
               )}
-              {isRemote && <li>Disconnect from the remote agent and remove saved connection settings</li>}
+              {managedRemote && (
+                <li>Terminate the cloud VM and remove saved connection settings</li>
+              )}
+              {isRemote && !managedRemote && (
+                <li>Remove saved agent URL and API key (your hosted agent is not stopped or deleted)</li>
+              )}
             </ul>
           </div>
           <TextField

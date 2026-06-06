@@ -9,9 +9,50 @@ export type SandboxKind = (typeof SANDBOX_KINDS)[number];
 
 export type SandboxGitAuthMode = "none" | "copy-host" | "generate";
 
+export type RemoteVmLifecycleStatus =
+  | "provisioning"
+  | "ready"
+  | "provisioning_failed"
+  | "pausing"
+  | "paused"
+  | "pause_failed"
+  | "resuming"
+  | "resume_failed"
+  | "destroy_failed";
+
 export type SandboxRemoteConfig = {
   /** WebSocket endpoint for a user-managed mc-agent. Stored without secrets. */
   agentUrl: string;
+  /**
+   * Managed cloud VMs can expose the raw ws:// agent port behind a cloud
+   * firewall rule because there is no domain/certificate at creation time.
+   * Manual remote URLs still require wss:// unless they are loopback.
+   */
+  allowPlaintextPublic?: boolean;
+  /** Managed cloud VMs terminate TLS on-box with a self-signed cert (`wss://`). */
+  tls?: boolean;
+  /**
+   * PEM of the VM's self-signed cert, captured at deploy time. The desktop
+   * client pins this exact cert instead of trusting a public CA. Not a secret.
+   */
+  agentCa?: string | null;
+  /** SHA-256 fingerprint of `agentCa` (informational / future pin-by-hash). */
+  agentCertSha256?: string | null;
+  /** Managed provider metadata. Present only for Mission Control-provisioned remotes. */
+  provider?: "aws" | "digitalocean" | "railway" | string;
+  providerId?: string | null;
+  providerName?: string | null;
+  status?: RemoteVmLifecycleStatus | string | null;
+  statusMessage?: string | null;
+  publicIp?: string | null;
+  region?: string | null;
+  size?: string | null;
+  image?: string | null;
+  localPort?: number | null;
+  agentPort?: number | null;
+  cloud?: Record<string, unknown>;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type SandboxPublicView = {
@@ -26,6 +67,11 @@ export type SandboxPublicView = {
   gitAuthMode: SandboxGitAuthMode;
   declaredPorts: number[];
   remoteAgentUrl: string | null;
+  remoteProvider: string | null;
+  remoteProviderName: string | null;
+  remoteStatus: RemoteVmLifecycleStatus | string | null;
+  remoteStatusMessage: string | null;
+  remotePublicAddress: string | null;
   createdAt: number;
   updatedAt: number;
   hasPairingToken: boolean;
@@ -38,13 +84,16 @@ function isLoopbackHost(hostname: string): boolean {
   return host === "localhost" || host === "::1" || host === "127.0.0.1";
 }
 
-export function normalizeRemoteAgentUrl(value: string): string | null {
+export function normalizeRemoteAgentUrl(
+  value: string,
+  opts: { allowPlaintextPublic?: boolean } = {},
+): string | null {
   const raw = value.trim();
   if (!raw) return null;
   try {
     const url = new URL(raw);
     const isPlaintext = url.protocol === "http:" || url.protocol === "ws:";
-    if (isPlaintext && !isLoopbackHost(url.hostname)) return null;
+    if (isPlaintext && !isLoopbackHost(url.hostname) && !opts.allowPlaintextPublic) return null;
     if (url.protocol === "http:") url.protocol = "ws:";
     else if (url.protocol === "https:") url.protocol = "wss:";
     else if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;

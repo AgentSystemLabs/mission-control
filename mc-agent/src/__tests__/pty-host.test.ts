@@ -143,4 +143,14 @@ describe("PtyHost spawn + lifecycle", () => {
     }
     expect(created.length).toBe(0);
   });
+
+  it("opens a project-less home terminal at the agent's home dir, ignoring the supplied cwd", () => {
+    // A dashboard "home" terminal targeting a Remote VM: the renderer sends an
+    // empty cwd + home flag; the agent resolves it to its own home and spawns
+    // there even though that's outside the workspace root.
+    host.spawn(shellSpawn({ ptyId: "p9", cwd: "", home: true }));
+    expect(messages).toContainEqual({ type: "spawned", ptyId: "p9" });
+    expect(messages.find((m) => m.type === "spawnError")).toBeUndefined();
+    expect(created.length).toBe(1);
+  });
 });

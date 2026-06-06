@@ -19,6 +19,12 @@ describe("normalizeRemoteAgentUrl", () => {
     expect(normalizeRemoteAgentUrl("https://user:pass@agent.example.com")).toBeNull();
     expect(normalizeRemoteAgentUrl("https://agent.example.com?token=secret")).toBeNull();
   });
+
+  it("allows managed VM plaintext public WebSocket URLs when explicitly requested", () => {
+    expect(normalizeRemoteAgentUrl("http://203.0.113.10:9333", { allowPlaintextPublic: true })).toBe(
+      "ws://203.0.113.10:9333/",
+    );
+  });
 });
 
 describe("filterProjectsByScope", () => {

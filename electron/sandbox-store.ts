@@ -39,6 +39,7 @@ type SandboxRow = {
   build_args: string | null;
   env: string | null;
   git_auth_mode: string | null;
+  copy_agent_creds: number | null;
   declared_ports: string | null;
   host_agent_port: number | null;
   port_map: string | null;
@@ -53,7 +54,11 @@ function toGitAuthMode(v: string | null): "none" | "copy-host" | "generate" {
 function toConfig(row: SandboxRow): SandboxConfig {
   const remote = parseJson<SandboxRemoteConfig | null>(row.remote_config, null);
   const remoteAgentUrl =
-    remote && typeof remote.agentUrl === "string" ? normalizeRemoteAgentUrl(remote.agentUrl) : null;
+    remote && typeof remote.agentUrl === "string"
+      ? normalizeRemoteAgentUrl(remote.agentUrl, {
+          allowPlaintextPublic: remote.allowPlaintextPublic === true,
+        })
+      : null;
   return {
     id: row.id,
     kind: row.kind === "remote-vm" ? "remote-vm" : "local-docker",
@@ -62,11 +67,14 @@ function toConfig(row: SandboxRow): SandboxConfig {
     buildArgs: parseJson(row.build_args, {}),
     env: parseJson(row.env, {}),
     gitAuthMode: toGitAuthMode(row.git_auth_mode),
+    copyAgentCreds: row.copy_agent_creds === 1,
     declaredPorts: parseJson(row.declared_ports, []),
     hostAgentPort: row.host_agent_port,
     portMap: parseJson(row.port_map, null),
     remoteAgentUrl,
     pairingToken: row.pairing_token,
+    remoteAgentCa: remote && typeof remote.agentCa === "string" ? remote.agentCa : null,
+    remoteStatus: remote && typeof remote.status === "string" ? remote.status : null,
   };
 }
 

@@ -82,7 +82,7 @@ function MissionControlPage() {
     readCachedProjectsDashboardView() ?? DEFAULT_PROJECTS_DASHBOARD_VIEW,
   );
   const terminals = useTerminals();
-  const { setProject: setActiveUserTerminalProject } = useUserTerminals();
+  const { setProject: setActiveUserTerminalProject, setHomeActive } = useUserTerminals();
   const { open: openAddProject } = useAddProject();
 
   const persistDashboardView = useCallback(
@@ -116,10 +116,14 @@ function MissionControlPage() {
   }, [persistDashboardView, settingsLoaded, storedDashboardView]);
 
   // Dashboard has no project context — detach the user-terminal panel from
-  // whichever project we were just viewing.
+  // whichever project we were just viewing and activate the project-less "home"
+  // terminal scope so the user can open terminals at ~ on the active scope
+  // (local machine or remote VM). Deactivate home mode when leaving the dashboard.
   useEffect(() => {
     setActiveUserTerminalProject(null);
-  }, [setActiveUserTerminalProject]);
+    setHomeActive(true);
+    return () => setHomeActive(false);
+  }, [setActiveUserTerminalProject, setHomeActive]);
 
   useHotkey("search.focus", () => {
     searchRef.current?.focus();

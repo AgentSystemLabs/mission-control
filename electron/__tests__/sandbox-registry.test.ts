@@ -11,11 +11,14 @@ function config(id: string): SandboxConfig {
     buildArgs: {},
     env: {},
     gitAuthMode: "none",
+    copyAgentCreds: false,
     declaredPorts: [],
     hostAgentPort: null,
     portMap: null,
     remoteAgentUrl: null,
     pairingToken: null,
+    remoteAgentCa: null,
+    remoteStatus: null,
   };
 }
 
@@ -122,6 +125,18 @@ describe("SandboxInstance lifecycle", () => {
     expect(r.ok).toBe(true);
     expect(h.states("sb-remote")).toEqual(["starting", "running", "connected"]);
     expect(h.composeDownCalls()).toEqual([]);
+  });
+
+  it("does not connect a paused remote VM sandbox", async () => {
+    const h = harness();
+    const paused = { ...remoteConfig("sb-remote"), remoteStatus: "paused" };
+    const inst = new SandboxInstance(paused, h.deps);
+
+    const r = await inst.start();
+
+    expect(r.ok).toBe(false);
+    expect(inst.state).toMatchObject({ status: "stopped" });
+    expect(h.connectCount()).toBe(0);
   });
 
   it("errors when compose up fails", async () => {

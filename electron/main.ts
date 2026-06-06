@@ -1,4 +1,16 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, clipboard } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  protocol,
+  net,
+  session,
+  clipboard,
+  nativeImage,
+  type NativeImage,
+} from "electron";
 import log from "electron-log/main";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
@@ -26,6 +38,8 @@ import {
   regenerateApiToken,
 } from "./api-token-store";
 import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
+import { extractRemoteVmDeployError } from "../src/shared/remote-vm-deploy-error";
+import { checkRailwayPreflight } from "./railway-preflight";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
@@ -102,6 +116,8 @@ const devUrl = process.env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPor
 const DEV_SERVER_READY_TIMEOUT_MS = 30_000;
 const HTTP_POLL_INTERVAL_MS = 200;
 const GIT_CONFIG_PROBE_TIMEOUT_MS = 2_000;
+const REMOTE_VM_DEPLOY_TIMEOUT_MS = 30 * 60_000;
+const REMOTE_VM_OUTPUT_MAX_CHARS = 80_000;
 
 // Window sizing for the main BrowserWindow.
 const MAIN_WINDOW_DEFAULT_WIDTH = 1440;
@@ -154,6 +170,651 @@ function readPreviousRuntimePort(portFile: string): number | null {
   } catch {
     return null;
   }
+}
+
+type RemoteVmDeployInput =
+  | {
+      provider: "aws";
+      sandboxId?: string;
+      name: string;
+      region: string;
+      size?: string;
+      keyName?: string;
+      identityFile?: string;
+      accessCidr?: string;
+      sshCidr?: string;
+      localPort?: number;
+      profile?: string;
+      imageId?: string;
+      subnetId?: string;
+      securityGroupId?: string;
+      noWait?: boolean;
+      activate?: boolean;
+      setupScript?: string;
+      gitAuthMode?: "none" | "copy-host" | "generate";
+      copyAgentCreds?: boolean;
+      idleTimeoutMinutes?: number;
+    }
+  | {
+      provider: "digitalocean";
+      sandboxId?: string;
+      name: string;
+      region: string;
+      size?: string;
+      sshKey?: string;
+      identityFile?: string;
+      accessCidr?: string;
+      sshCidr?: string;
+      localPort?: number;
+      image?: string;
+      noMonitoring?: boolean;
+      noWait?: boolean;
+      activate?: boolean;
+    }
+  | {
+      // Railway is usage-based — no region/size. A name is the only required input.
+      provider: "railway";
+      sandboxId?: string;
+      name: string;
+      noWait?: boolean;
+      activate?: boolean;
+    };
+
+type RemoteVmDeploySuccess = {
+  ok: true;
+  sandboxId: string;
+  name: string;
+  provider: string;
+  publicIp: string;
+  agentUrl: string;
+  localPort: number | null;
+  output: string;
+};
+
+type RemoteVmReconcileResult =
+  | {
+      ok: true;
+      sandboxId: string;
+      instanceState: string | null;
+      status: string | null;
+      changed: boolean;
+    }
+  | { ok: false; error: string };
+
+type RemoteVmDeployJobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
+
+type RemoteVmDeployJobResult = Omit<RemoteVmDeploySuccess, "ok" | "output">;
+
+type RemoteVmDeployLogEntry = {
+  jobId: string;
+  seq: number;
+  ts: number;
+  stream: "stdout" | "stderr" | "system";
+  data: string;
+};
+
+type RemoteVmDeployJobSnapshot = {
+  id: string;
+  input: RemoteVmDeployInput;
+  status: RemoteVmDeployJobStatus;
+  createdAt: number;
+  startedAt: number | null;
+  updatedAt: number;
+  finishedAt: number | null;
+  nextSeq: number;
+  result?: RemoteVmDeployJobResult;
+  error?: string;
+  exitCode?: number | null;
+  signal?: NodeJS.Signals | null;
+};
+
+type RemoteVmDeployFailure = { ok: false; error: string; output?: string };
+
+type RemoteVmDeployJob = RemoteVmDeployJobSnapshot & {
+  child: ChildProcess | null;
+  timeout: NodeJS.Timeout | null;
+  logs: RemoteVmDeployLogEntry[];
+  output: string;
+  cancelRequested: boolean;
+  timedOut: boolean;
+  resolveDone: (result: RemoteVmDeploySuccess | RemoteVmDeployFailure) => void;
+  done: Promise<RemoteVmDeploySuccess | RemoteVmDeployFailure>;
+};
+
+const REMOTE_VM_JOB_LOG_MAX_ENTRIES = 1_000;
+const remoteVmDeployJobs = new Map<string, RemoteVmDeployJob>();
+
+function trimRemoteVmOutput(output: string): string {
+  return output.length > REMOTE_VM_OUTPUT_MAX_CHARS
+    ? output.slice(output.length - REMOTE_VM_OUTPUT_MAX_CHARS)
+    : output;
+}
+
+function appendArg(args: string[], flag: string, value: string | number | null | undefined): void {
+  if (value === undefined || value === null || value === "") return;
+  args.push(flag, String(value));
+}
+
+function appendBool(args: string[], flag: string, enabled: boolean | null | undefined): void {
+  if (enabled) args.push(flag);
+}
+
+function remoteVmScriptCandidates(): string[] {
+  const appPath = app.getAppPath();
+  return Array.from(
+    new Set([
+      path.join(appPath, "scripts", "remote-vm.mjs"),
+      path.resolve(appPath, "..", "scripts", "remote-vm.mjs"),
+      path.resolve(process.cwd(), "scripts", "remote-vm.mjs"),
+      path.join(process.resourcesPath, "app.asar", "scripts", "remote-vm.mjs"),
+      path.join(process.resourcesPath, "app.asar.unpacked", "scripts", "remote-vm.mjs"),
+      path.join(process.resourcesPath, "app", "scripts", "remote-vm.mjs"),
+    ]),
+  );
+}
+
+function remoteVmScriptPath(): string | null {
+  return remoteVmScriptCandidates().find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+function remoteVmSpawnCwd(script: string): string {
+  const appPath = app.getAppPath();
+  if (appPath.endsWith(".asar")) return path.dirname(appPath);
+  const scriptRoot = path.dirname(path.dirname(script));
+  return fs.existsSync(path.join(scriptRoot, "package.json")) ? scriptRoot : appPath;
+}
+
+function buildRemoteVmDeployArgs(input: RemoteVmDeployInput): string[] {
+  const name = typeof input?.name === "string" ? input.name.trim() : "";
+  if (!name) throw new Error("VM name is required.");
+
+  // Railway is usage-based and has no region/size — a name is the only input.
+  if (input.provider === "railway") {
+    const args = ["deploy", "railway", "--name", name, "--json"];
+    appendArg(args, "--sandbox-id", input.sandboxId?.trim());
+    appendBool(args, "--activate", input.activate);
+    appendBool(args, "--no-wait", input.noWait);
+    return args;
+  }
+
+  const region = typeof input.region === "string" ? input.region.trim() : "";
+  if (!region) throw new Error("Region is required.");
+  const providerArg = input.provider === "aws" ? "aws" : "do";
+
+  const args = ["deploy", providerArg, "--name", name, "--region", region, "--json"];
+  appendArg(args, "--sandbox-id", input.sandboxId?.trim());
+  appendArg(args, "--size", input.size?.trim());
+  appendArg(args, "--identity-file", input.identityFile?.trim());
+  appendArg(args, "--access-cidr", input.accessCidr?.trim() || input.sshCidr?.trim());
+  appendArg(args, "--local-port", input.localPort);
+  appendBool(args, "--activate", input.activate);
+  appendBool(args, "--no-wait", input.noWait);
+
+  if (input.provider === "aws") {
+    const keyName = input.keyName?.trim();
+    appendArg(args, "--key-name", keyName);
+    appendArg(args, "--profile", input.profile?.trim());
+    appendArg(args, "--image-id", input.imageId?.trim());
+    appendArg(args, "--subnet-id", input.subnetId?.trim());
+    appendArg(args, "--security-group-id", input.securityGroupId?.trim());
+    appendArg(args, "--git-auth-mode", input.gitAuthMode?.trim());
+    appendBool(args, "--copy-agent-creds", input.copyAgentCreds);
+    // Idle auto-stop window in minutes (0 disables). Default lives in the CLI.
+    if (typeof input.idleTimeoutMinutes === "number" && Number.isFinite(input.idleTimeoutMinutes)) {
+      appendArg(args, "--idle-timeout", Math.max(0, Math.floor(input.idleTimeoutMinutes)));
+    }
+    // Multi-line user setup script: base64 so newlines/quoting survive argv + the
+    // bootstrap heredoc untouched. The CLI decodes and writes it to a file on the VM.
+    const setupScript = input.setupScript?.trim();
+    if (setupScript) {
+      appendArg(args, "--setup-script-b64", Buffer.from(setupScript, "utf8").toString("base64"));
+    }
+  } else {
+    const sshKey = input.sshKey?.trim();
+    appendArg(args, "--ssh-key", sshKey);
+    appendArg(args, "--image", input.image?.trim());
+    appendBool(args, "--no-monitoring", input.noMonitoring);
+  }
+  return args;
+}
+
+function parseRemoteVmDeployResult(output: string): RemoteVmDeploySuccess | null {
+  const line = output
+    .split(/\r?\n/)
+    .reverse()
+    .find((entry) => entry.startsWith("REMOTE_VM_RESULT_JSON="));
+  if (!line) return null;
+  try {
+    const parsed = JSON.parse(line.slice("REMOTE_VM_RESULT_JSON=".length)) as {
+      sandboxId?: unknown;
+      name?: unknown;
+      provider?: unknown;
+      publicIp?: unknown;
+      agentUrl?: unknown;
+      localPort?: unknown;
+    };
+    if (
+      typeof parsed.sandboxId !== "string" ||
+      typeof parsed.name !== "string" ||
+      typeof parsed.provider !== "string" ||
+      typeof parsed.publicIp !== "string" ||
+      typeof parsed.agentUrl !== "string" ||
+      (typeof parsed.localPort !== "number" && parsed.localPort !== null)
+    ) {
+      return null;
+    }
+    return {
+      ok: true,
+      sandboxId: parsed.sandboxId,
+      name: parsed.name,
+      provider: parsed.provider,
+      publicIp: parsed.publicIp,
+      agentUrl: parsed.agentUrl,
+      localPort: parsed.localPort,
+      output: trimRemoteVmOutput(output),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function newRemoteVmDeployJobId(): string {
+  return `remote-vm-deploy-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function newRemoteVmSandboxId(): string {
+  return `sb-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function remoteVmDeployInputWithSandboxId(input: RemoteVmDeployInput): RemoteVmDeployInput {
+  const sandboxId = typeof input.sandboxId === "string" ? input.sandboxId.trim() : "";
+  return {
+    ...input,
+    sandboxId: sandboxId || newRemoteVmSandboxId(),
+  };
+}
+
+function snapshotRemoteVmDeployJob(job: RemoteVmDeployJob): RemoteVmDeployJobSnapshot {
+  const {
+    child: _child,
+    timeout: _timeout,
+    logs: _logs,
+    output: _output,
+    cancelRequested: _cancelRequested,
+    timedOut: _timedOut,
+    resolveDone: _resolveDone,
+    done: _done,
+    ...snapshot
+  } = job;
+  return snapshot;
+}
+
+function emitRemoteVmDeployUpdate(job: RemoteVmDeployJob): void {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send(IPC.remoteVmDeployUpdate, snapshotRemoteVmDeployJob(job));
+}
+
+function emitRemoteVmDeployLog(entry: RemoteVmDeployLogEntry): void {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send(IPC.remoteVmDeployLog, entry);
+}
+
+function appendRemoteVmDeployLog(
+  job: RemoteVmDeployJob,
+  stream: RemoteVmDeployLogEntry["stream"],
+  data: string,
+): void {
+  if (!data) return;
+  const entry: RemoteVmDeployLogEntry = {
+    jobId: job.id,
+    seq: job.nextSeq,
+    ts: Date.now(),
+    stream,
+    data,
+  };
+  job.nextSeq += 1;
+  job.updatedAt = entry.ts;
+  job.logs.push(entry);
+  if (job.logs.length > REMOTE_VM_JOB_LOG_MAX_ENTRIES) {
+    job.logs.splice(0, job.logs.length - REMOTE_VM_JOB_LOG_MAX_ENTRIES);
+  }
+  if (stream !== "system") {
+    job.output = trimRemoteVmOutput(job.output + data);
+  } else {
+    job.output = trimRemoteVmOutput(`${job.output}${data.endsWith("\n") ? data : `${data}\n`}`);
+  }
+  emitRemoteVmDeployLog(entry);
+}
+
+function finishRemoteVmDeployJob(
+  job: RemoteVmDeployJob,
+  patch: Pick<RemoteVmDeployJobSnapshot, "status"> &
+    Partial<Pick<RemoteVmDeployJobSnapshot, "result" | "error" | "exitCode" | "signal">>,
+): void {
+  if (job.finishedAt !== null) return;
+  if (job.timeout) {
+    clearTimeout(job.timeout);
+    job.timeout = null;
+  }
+  job.child = null;
+  job.status = patch.status;
+  job.result = patch.result;
+  job.error = patch.error;
+  job.exitCode = patch.exitCode;
+  job.signal = patch.signal;
+  job.finishedAt = Date.now();
+  job.updatedAt = job.finishedAt;
+  emitRemoteVmDeployUpdate(job);
+
+  if (patch.status === "succeeded" && patch.result) {
+    job.resolveDone({ ok: true, ...patch.result, output: trimRemoteVmOutput(job.output) });
+    return;
+  }
+
+  job.resolveDone({
+    ok: false,
+    error: patch.error ?? "Remote VM deploy failed.",
+    output: trimRemoteVmOutput(job.output).trim() || undefined,
+  });
+}
+
+function createRemoteVmDeployJob(input: RemoteVmDeployInput): RemoteVmDeployJob {
+  const now = Date.now();
+  const deployInput = remoteVmDeployInputWithSandboxId(input);
+  let resolveDone!: (result: RemoteVmDeploySuccess | RemoteVmDeployFailure) => void;
+  const done = new Promise<RemoteVmDeploySuccess | RemoteVmDeployFailure>((resolve) => {
+    resolveDone = resolve;
+  });
+  const job: RemoteVmDeployJob = {
+    id: newRemoteVmDeployJobId(),
+    input: deployInput,
+    status: "queued",
+    createdAt: now,
+    startedAt: null,
+    updatedAt: now,
+    finishedAt: null,
+    nextSeq: 1,
+    child: null,
+    timeout: null,
+    logs: [],
+    output: "",
+    cancelRequested: false,
+    timedOut: false,
+    resolveDone,
+    done,
+  };
+  remoteVmDeployJobs.set(job.id, job);
+  emitRemoteVmDeployUpdate(job);
+  return job;
+}
+
+function startRemoteVmDeployJob(input: RemoteVmDeployInput): RemoteVmDeployJob {
+  const job = createRemoteVmDeployJob(input);
+  const script = remoteVmScriptPath();
+  let args: string[];
+  try {
+    if (!script) {
+      throw new Error("Remote VM deploy script is missing from this Mission Control build.");
+    }
+    args = buildRemoteVmDeployArgs(job.input);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    appendRemoteVmDeployLog(job, "system", `[remote-vm] ${error}\n`);
+    finishRemoteVmDeployJob(job, { status: "failed", error });
+    return job;
+  }
+
+  job.status = "running";
+  job.startedAt = Date.now();
+  job.updatedAt = job.startedAt;
+  emitRemoteVmDeployUpdate(job);
+  appendRemoteVmDeployLog(job, "system", `[remote-vm] starting deploy job ${job.id}\n`);
+
+  const child = spawn(process.execPath, [script, ...args], {
+    cwd: remoteVmSpawnCwd(script),
+    env: {
+      ...sanitizedProcessEnv(),
+      ELECTRON_RUN_AS_NODE: "1",
+      MC_USER_DATA_DIR: missionControlUserDataDir,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  job.child = child;
+  job.timeout = setTimeout(() => {
+    job.timedOut = true;
+    appendRemoteVmDeployLog(job, "system", "[remote-vm] deploy timed out after 30 minutes\n");
+    child.kill();
+  }, REMOTE_VM_DEPLOY_TIMEOUT_MS);
+
+  child.stdout.on("data", (chunk: Buffer) => appendRemoteVmDeployLog(job, "stdout", chunk.toString("utf8")));
+  child.stderr.on("data", (chunk: Buffer) => appendRemoteVmDeployLog(job, "stderr", chunk.toString("utf8")));
+  child.on("error", (err) => {
+    appendRemoteVmDeployLog(job, "system", `[remote-vm] ${err.message}\n`);
+    finishRemoteVmDeployJob(job, { status: "failed", error: err.message });
+  });
+  child.on("exit", (code, signal) => {
+    const parsed = parseRemoteVmDeployResult(job.output);
+    if (code === 0 && parsed) {
+      if (job.input.sandboxId && parsed.sandboxId !== job.input.sandboxId) {
+        const error = `Remote VM deploy returned sandbox ${parsed.sandboxId}, expected ${job.input.sandboxId}.`;
+        appendRemoteVmDeployLog(job, "system", `[remote-vm] ${error}\n`);
+        finishRemoteVmDeployJob(job, { status: "failed", error, exitCode: code, signal });
+        return;
+      }
+      finishRemoteVmDeployJob(job, {
+        status: "succeeded",
+        result: {
+          sandboxId: parsed.sandboxId,
+          name: parsed.name,
+          provider: parsed.provider,
+          publicIp: parsed.publicIp,
+          agentUrl: parsed.agentUrl,
+          localPort: parsed.localPort,
+        },
+        exitCode: code,
+        signal,
+      });
+      return;
+    }
+    const detail = extractRemoteVmDeployError(job.output);
+    const error = job.cancelRequested
+      ? "Remote VM deploy canceled."
+      : job.timedOut
+      ? "Remote VM deploy timed out after 30 minutes."
+      : signal
+      ? `Remote VM deploy exited by signal ${signal}.`
+      : detail ??
+        `Remote VM deploy failed${code === null ? "" : ` with exit code ${code}`}.`;
+    finishRemoteVmDeployJob(job, {
+      status: job.cancelRequested ? "canceled" : "failed",
+      error,
+      exitCode: code,
+      signal,
+    });
+  });
+
+  return job;
+}
+
+function cancelRemoteVmDeployJob(jobId: string): { ok: true } | { ok: false; error: string } {
+  const job = remoteVmDeployJobs.get(jobId);
+  if (!job) return { ok: false, error: "Unknown remote VM deploy job." };
+  if (job.status !== "queued" && job.status !== "running") {
+    return { ok: false, error: "Remote VM deploy job is not running." };
+  }
+  appendRemoteVmDeployLog(job, "system", "[remote-vm] cancel requested\n");
+  job.cancelRequested = true;
+  if (job.child && !job.child.killed) {
+    job.child.kill();
+    return { ok: true };
+  }
+  finishRemoteVmDeployJob(job, { status: "canceled", error: "Remote VM deploy canceled." });
+  return { ok: true };
+}
+
+function runRemoteVmDeploy(input: RemoteVmDeployInput): Promise<
+  RemoteVmDeploySuccess | { ok: false; error: string; output?: string }
+> {
+  return startRemoteVmDeployJob(input).done;
+}
+
+/**
+ * Tear down a cloud VM: terminate the underlying instance and remove its sandbox
+ * row. Delegates to the remote-vm CLI's `destroy` command (region/profile come
+ * from the stored config + AWS_PROFILE), so a cancelled or stuck deploy never
+ * leaves a billing instance behind.
+ */
+function destroyRemoteVm(
+  sandboxId: string,
+  opts?: { keepRow?: boolean },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const id = typeof sandboxId === "string" ? sandboxId.trim() : "";
+  if (!id) return Promise.resolve({ ok: false, error: "A sandbox id is required to terminate a VM." });
+  const script = remoteVmScriptPath();
+  if (!script) {
+    return Promise.resolve({
+      ok: false,
+      error: "Remote VM script is missing from this Mission Control build.",
+    });
+  }
+  const args = [script, "destroy", id, "--yes"];
+  // Terminate-only: leave the sandbox row for the server's delete path to clean up.
+  if (opts?.keepRow) args.push("--keep-row");
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, args, {
+      cwd: remoteVmSpawnCwd(script),
+      env: {
+        ...sanitizedProcessEnv(),
+        ELECTRON_RUN_AS_NODE: "1",
+        MC_USER_DATA_DIR: missionControlUserDataDir,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    const collect = (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    child.on("error", (err) => resolve({ ok: false, error: err.message }));
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve({ ok: true });
+        return;
+      }
+      const lastLine =
+        output.trim().split(/\r?\n/).filter(Boolean).pop() ||
+        `Terminate failed${code === null ? "" : ` with exit code ${code}`}.`;
+      resolve({ ok: false, error: lastLine });
+    });
+  });
+}
+
+function runRemoteVmLifecycle(
+  command: "pause" | "resume",
+  sandboxId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const id = typeof sandboxId === "string" ? sandboxId.trim() : "";
+  if (!id) {
+    return Promise.resolve({ ok: false, error: `A sandbox id is required to ${command} a VM.` });
+  }
+  const script = remoteVmScriptPath();
+  if (!script) {
+    return Promise.resolve({
+      ok: false,
+      error: "Remote VM script is missing from this Mission Control build.",
+    });
+  }
+  const args = [script, command, id];
+  if (command === "pause") args.push("--yes");
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, args, {
+      cwd: remoteVmSpawnCwd(script),
+      env: {
+        ...sanitizedProcessEnv(),
+        ELECTRON_RUN_AS_NODE: "1",
+        MC_USER_DATA_DIR: missionControlUserDataDir,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    const collect = (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    child.on("error", (err) => resolve({ ok: false, error: err.message }));
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve({ ok: true });
+        return;
+      }
+      const lastLine =
+        output.trim().split(/\r?\n/).filter(Boolean).pop() ||
+        `Remote VM ${command} failed${code === null ? "" : ` with exit code ${code}`}.`;
+      resolve({ ok: false, error: lastLine });
+    });
+  });
+}
+
+function runRemoteVmReconcile(sandboxId: string): Promise<RemoteVmReconcileResult> {
+  const id = typeof sandboxId === "string" ? sandboxId.trim() : "";
+  if (!id) return Promise.resolve({ ok: false, error: "A sandbox id is required to reconcile a VM." });
+  const script = remoteVmScriptPath();
+  if (!script) {
+    return Promise.resolve({
+      ok: false,
+      error: "Remote VM script is missing from this Mission Control build.",
+    });
+  }
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [script, "reconcile", id, "--json"], {
+      cwd: remoteVmSpawnCwd(script),
+      env: {
+        ...sanitizedProcessEnv(),
+        ELECTRON_RUN_AS_NODE: "1",
+        MC_USER_DATA_DIR: missionControlUserDataDir,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    const collect = (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    child.on("error", (err) => resolve({ ok: false, error: err.message }));
+    child.on("exit", (code) => {
+      const line = output
+        .split(/\r?\n/)
+        .reverse()
+        .find((entry) => entry.startsWith("REMOTE_VM_RECONCILE_JSON="));
+      if (line) {
+        try {
+          const parsed = JSON.parse(line.slice("REMOTE_VM_RECONCILE_JSON=".length)) as {
+            sandboxId?: unknown;
+            instanceState?: unknown;
+            status?: unknown;
+            changed?: unknown;
+          };
+          resolve({
+            ok: true,
+            sandboxId: typeof parsed.sandboxId === "string" ? parsed.sandboxId : id,
+            instanceState: typeof parsed.instanceState === "string" ? parsed.instanceState : null,
+            status: typeof parsed.status === "string" ? parsed.status : null,
+            changed: parsed.changed === true,
+          });
+          return;
+        } catch {
+          /* fall through to error path */
+        }
+      }
+      const lastLine =
+        output.trim().split(/\r?\n/).filter(Boolean).pop() ||
+        `Remote VM reconcile failed${code === null ? "" : ` with exit code ${code}`}.`;
+      resolve({ ok: false, error: lastLine });
+    });
+  });
 }
 
 function waitForHttp(url: string, timeoutMs = DEV_SERVER_READY_TIMEOUT_MS): Promise<void> {
@@ -343,11 +1004,103 @@ protocol.registerSchemesAsPrivileged([
 
 const ALLOWED_IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const TERMINAL_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
+const TERMINAL_IMAGE_MAX_TOTAL_BYTES = 200 * 1024 * 1024;
+const TERMINAL_IMAGE_MAX_FILES = 100;
+const TERMINAL_IMAGE_MAX_DIMENSION_PX = 10_000;
+const TERMINAL_IMAGE_MAX_PIXELS = 25_000_000;
+const TERMINAL_IMAGE_MIME_EXT = new Map([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/jpg", "jpg"],
+  ["image/webp", "webp"],
+  ["image/gif", "gif"],
+  ["image/bmp", "bmp"],
+]);
 const DIRECTORY_GRANTS_FILE = "directory-grants.json";
 const DIRECTORY_GRANT_TTL_MS = 15 * 60_000;
 
 function projectImagesDir(): string {
   return path.join(missionControlUserDataDir, "project-images");
+}
+
+function terminalImagesDir(): string {
+  return path.join(missionControlUserDataDir, "terminal-images");
+}
+
+function terminalImageExtension(mimeType: string, name: string): string | null {
+  const fromMime = TERMINAL_IMAGE_MIME_EXT.get(mimeType.toLowerCase());
+  if (fromMime) return fromMime;
+  const ext = path.extname(name).slice(1).toLowerCase();
+  return [...TERMINAL_IMAGE_MIME_EXT.values()].includes(ext) ? ext : null;
+}
+
+function sanitizedTerminalImageName(name: string): string {
+  const parsed = path.parse(path.basename(name || "image"));
+  return parsed.name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "image";
+}
+
+function pruneTerminalImagesDir(dir: string): void {
+  try {
+    const entries = fs
+      .readdirSync(dir)
+      .map((name) => {
+        const file = path.join(dir, name);
+        const stat = fs.statSync(file);
+        return stat.isFile() ? { file, size: stat.size, mtimeMs: stat.mtimeMs } : null;
+      })
+      .filter((entry): entry is { file: string; size: number; mtimeMs: number } => Boolean(entry))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    let totalBytes = 0;
+    entries.forEach((entry, index) => {
+      totalBytes += entry.size;
+      if (index < TERMINAL_IMAGE_MAX_FILES && totalBytes <= TERMINAL_IMAGE_MAX_TOTAL_BYTES) return;
+      try {
+        fs.unlinkSync(entry.file);
+      } catch {}
+    });
+  } catch (err) {
+    log.warn("terminal-images.prune-failed", { error: String(err) });
+  }
+}
+
+function terminalImageSizeError(image: NativeImage): string | null {
+  const { width, height } = image.getSize();
+  if (width <= 0 || height <= 0) return "invalid image data";
+  if (width > TERMINAL_IMAGE_MAX_DIMENSION_PX || height > TERMINAL_IMAGE_MAX_DIMENSION_PX) {
+    return `image dimensions exceed ${TERMINAL_IMAGE_MAX_DIMENSION_PX}px`;
+  }
+  if (width * height > TERMINAL_IMAGE_MAX_PIXELS) {
+    return `image exceeds ${TERMINAL_IMAGE_MAX_PIXELS.toLocaleString("en-US")} pixels`;
+  }
+  return null;
+}
+
+function saveTerminalImageBuffer(
+  data: Buffer,
+  ext: string,
+  name = "image",
+): { path: string } | { error: string } {
+  if (data.byteLength === 0) return { error: "image is empty" };
+  if (data.byteLength > TERMINAL_IMAGE_MAX_BYTES) {
+    return { error: `image exceeds ${TERMINAL_IMAGE_MAX_BYTES / 1024 / 1024}MB` };
+  }
+  const dir = terminalImagesDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const filename = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}-${sanitizedTerminalImageName(name)}.${ext}`;
+  const target = path.join(dir, filename);
+  fs.writeFileSync(target, data, { mode: 0o600 });
+  pruneTerminalImagesDir(dir);
+  return { path: target };
+}
+
+function saveTerminalNativeImage(
+  image: NativeImage,
+  name: string,
+): { path: string } | { error: string } {
+  const sizeError = terminalImageSizeError(image);
+  if (sizeError) return { error: sizeError };
+  return saveTerminalImageBuffer(image.toPNG(), "png", name);
 }
 
 function registerProjectImageProtocol() {
@@ -495,6 +1248,34 @@ safeHandle(IPC.clipboardWriteText, (_evt, text: string) => {
   clipboard.writeText(value);
   return { ok: true as const };
 });
+safeHandle(
+  IPC.terminalSaveDroppedImage,
+  (_evt, input: { name?: unknown; mimeType?: unknown; data?: unknown }) => {
+    const name = typeof input?.name === "string" ? input.name : "dropped-image";
+    const mimeType = typeof input?.mimeType === "string" ? input.mimeType.split(";")[0]!.trim() : "";
+    const ext = terminalImageExtension(mimeType, name);
+    if (!ext) return { error: "unsupported image type" };
+    const raw = input?.data;
+    const data =
+      raw instanceof ArrayBuffer
+        ? Buffer.from(raw)
+        : ArrayBuffer.isView(raw)
+          ? Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength)
+          : null;
+    if (!data) return { error: "invalid image data" };
+    if (data.byteLength > TERMINAL_IMAGE_MAX_BYTES) {
+      return { error: `image exceeds ${TERMINAL_IMAGE_MAX_BYTES / 1024 / 1024}MB` };
+    }
+    const image = nativeImage.createFromBuffer(data);
+    if (image.isEmpty()) return { error: "invalid image data" };
+    return saveTerminalNativeImage(image, name);
+  },
+);
+safeHandle(IPC.terminalSaveClipboardImage, () => {
+  const image = clipboard.readImage();
+  if (image.isEmpty()) return null;
+  return saveTerminalNativeImage(image, "clipboard-image");
+});
 
 safeHandle(IPC.appGetRuntimePort, () => runtimePort);
 safeHandle(IPC.appGetUserDataDir, () => missionControlUserDataDir);
@@ -538,6 +1319,53 @@ safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolea
     return { ok: true, path: resolved };
   }
   return { ok: false, reason: "not-found" };
+});
+
+safeHandle(IPC.remoteVmDeploy, (_evt, input: RemoteVmDeployInput) => {
+  return runRemoteVmDeploy(input);
+});
+
+safeHandle(IPC.remoteVmCheckRailwayPreflight, () => {
+  return checkRailwayPreflight(sanitizedProcessEnv());
+});
+
+safeHandle(IPC.remoteVmStartDeploy, (_evt, input: RemoteVmDeployInput) => {
+  const job = startRemoteVmDeployJob(input);
+  return { jobId: job.id };
+});
+
+safeHandle(IPC.remoteVmListDeployJobs, () => {
+  return Array.from(remoteVmDeployJobs.values())
+    .map(snapshotRemoteVmDeployJob)
+    .sort((a, b) => b.createdAt - a.createdAt);
+});
+
+safeHandle(IPC.remoteVmGetDeployLogs, (_evt, jobId: string, afterSeq?: number) => {
+  const job = remoteVmDeployJobs.get(jobId);
+  if (!job) return { entries: [], nextSeq: 1 };
+  const minSeq = Number.isInteger(afterSeq) ? Number(afterSeq) : 0;
+  const entries = job.logs.filter((entry) => entry.seq > minSeq);
+  return { entries, nextSeq: job.nextSeq };
+});
+
+safeHandle(IPC.remoteVmCancelDeploy, (_evt, jobId: string) => {
+  return cancelRemoteVmDeployJob(jobId);
+});
+
+safeHandle(IPC.remoteVmPause, (_evt, sandboxId: string) => {
+  return runRemoteVmLifecycle("pause", sandboxId);
+});
+
+safeHandle(IPC.remoteVmResume, (_evt, sandboxId: string) => {
+  return runRemoteVmLifecycle("resume", sandboxId);
+});
+
+safeHandle(IPC.remoteVmReconcile, (_evt, sandboxId: string): Promise<RemoteVmReconcileResult> => {
+  return runRemoteVmReconcile(sandboxId);
+});
+
+safeHandle(IPC.remoteVmDestroy, (_evt, sandboxId: string, opts?: { keepRow?: boolean }) => {
+  return destroyRemoteVm(sandboxId, opts);
 });
 
 registerPtyHandlers(

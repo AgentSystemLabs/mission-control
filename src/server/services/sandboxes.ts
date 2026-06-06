@@ -76,8 +76,24 @@ function normalizePorts(value: number[] | null | undefined): number[] | null {
 function parseRemoteConfig(raw: string | null | undefined): SandboxRemoteConfig | null {
   const parsed = parseJson<SandboxRemoteConfig | null>(raw, null);
   if (!parsed || typeof parsed.agentUrl !== "string") return null;
-  const agentUrl = normalizeRemoteAgentUrl(parsed.agentUrl);
-  return agentUrl ? { agentUrl } : null;
+  const allowPlaintextPublic = parsed.allowPlaintextPublic === true;
+  const agentUrl = normalizeRemoteAgentUrl(parsed.agentUrl, { allowPlaintextPublic });
+  return agentUrl ? { ...parsed, agentUrl, ...(allowPlaintextPublic ? { allowPlaintextPublic } : {}) } : null;
+}
+
+function normalizeRemoteAgentUrlForPatch(
+  value: string,
+  existing: SandboxRemoteConfig | null,
+): { agentUrl: string; allowPlaintextPublic: boolean } | null {
+  const allowExistingPlaintext = existing?.allowPlaintextPublic === true;
+  const agentUrl =
+    normalizeRemoteAgentUrl(value, { allowPlaintextPublic: allowExistingPlaintext }) ??
+    normalizeRemoteAgentUrl(value, { allowPlaintextPublic: true });
+  if (!agentUrl) return null;
+  return {
+    agentUrl,
+    allowPlaintextPublic: allowExistingPlaintext || agentUrl.startsWith("ws://"),
+  };
 }
 
 function toPublicSandbox(row: Sandbox): SandboxPublicView {
@@ -95,6 +111,11 @@ function toPublicSandbox(row: Sandbox): SandboxPublicView {
     gitAuthMode: row.gitAuthMode,
     declaredPorts: parseJson(row.declaredPorts, []),
     remoteAgentUrl: remote?.agentUrl ?? null,
+    remoteProvider: typeof remote?.provider === "string" ? remote.provider : null,
+    remoteProviderName: typeof remote?.providerName === "string" ? remote.providerName : null,
+    remoteStatus: typeof remote?.status === "string" ? remote.status : null,
+    remoteStatusMessage: typeof remote?.statusMessage === "string" ? remote.statusMessage : null,
+    remotePublicAddress: typeof remote?.publicIp === "string" ? remote.publicIp : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     hasPairingToken: !!row.pairingToken,
@@ -147,6 +168,7 @@ export function createSandbox(input: CreateSandboxInput): SandboxPublicView {
     dockerfilePath: null,
     buildArgs: null,
     gitAuthMode: "none",
+    copyAgentCreds: false,
     declaredPorts: null,
     env: null,
     hostAgentPort: null,
@@ -181,7 +203,8 @@ export function revealSandboxApiKey(id: string): string | null {
 }
 
 export function updateSandbox(id: string, patch: UpdateSandboxPatch): SandboxPublicView | null {
-  if (!findSandboxById(id)) return null;
+  const current = findSandboxById(id);
+  if (!current) return null;
   const rowPatch: Partial<Sandbox> = { updatedAt: Date.now() };
   if (patch.name !== undefined) rowPatch.name = patch.name;
   if (patch.color !== undefined) rowPatch.color = patch.color;
@@ -197,8 +220,17 @@ export function updateSandbox(id: string, patch: UpdateSandboxPatch): SandboxPub
     rowPatch.declaredPorts = ports ? JSON.stringify(ports) : null;
   }
   if (patch.remoteAgentUrl !== undefined) {
-    const agentUrl = patch.remoteAgentUrl ? normalizeRemoteAgentUrl(patch.remoteAgentUrl) : null;
-    rowPatch.remoteConfig = agentUrl ? JSON.stringify({ agentUrl } satisfies SandboxRemoteConfig) : null;
+    const existing = parseRemoteConfig(current.remoteConfig);
+    const normalized = patch.remoteAgentUrl
+      ? normalizeRemoteAgentUrlForPatch(patch.remoteAgentUrl, existing)
+      : null;
+    rowPatch.remoteConfig = normalized
+      ? JSON.stringify({
+          ...(existing ?? {}),
+          agentUrl: normalized.agentUrl,
+          ...(normalized.allowPlaintextPublic ? { allowPlaintextPublic: true } : {}),
+        } satisfies SandboxRemoteConfig)
+      : null;
   }
   if (patch.apiKey !== undefined) {
     rowPatch.pairingToken = patch.apiKey?.trim() || null;

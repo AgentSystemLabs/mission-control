@@ -29,7 +29,8 @@ import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
-import { apiTokenQueryOptions, useSettings, useScopedProjects, useLicense } from "~/queries";
+import { apiTokenQueryOptions, useSettings, useScopedProjects, useLicense, useSandboxes } from "~/queries";
+import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
 import { ScopeDropdown } from "~/components/views/ScopeDropdown";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
@@ -234,6 +235,14 @@ function Shell() {
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
   const { data: license } = useLicense();
+  // While the active sandbox's remote VM is resuming, the workspace isn't usable
+  // yet: cover the route with a spinner and disable project navigation.
+  const { data: sandboxState } = useSandboxes();
+  const activeSandbox =
+    sandboxState?.enabled
+      ? sandboxState.sandboxes.find((s) => s.id === sandboxState.activeScopeId) ?? null
+      : null;
+  const activeResuming = activeSandbox?.remoteStatus === "resuming";
   const { activeFor, close, deselect, setPtyId } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
@@ -324,12 +333,12 @@ function Shell() {
   const sessionExpanded =
     !!projectId && terminalExpanded && !!activeFor(projectId);
   const crumbs: Crumb[] = projectMatch
-    ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} /> }]
+    ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> }]
     : path === "/settings"
       ? [{ label: "Settings" }]
       : activePanel === "usage"
         ? [{ label: "Usage" }]
-      : [{ label: "Project", node: <ProjectPicker /> }];
+      : [{ label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
 
   const closePanel = () => setActivePanel(null);
 
@@ -456,6 +465,8 @@ function Shell() {
         return;
       }
       if (!e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+        // Pinned-project nav is disabled while the active sandbox resumes.
+        if (activeResuming) return;
         const pinned = getPinnedProjects(projects ?? []);
         const idx = Number(e.key) - 1;
         const target = pinned[idx];
@@ -469,7 +480,7 @@ function Shell() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [createTerminal, cycleNext, cyclePrev, projects, router]);
+  }, [activeResuming, createTerminal, cycleNext, cyclePrev, projects, router]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
   // default app menu's "Close Window" item closes the BrowserWindow before any
@@ -504,13 +515,14 @@ function Shell() {
         <TopBar
           crumbs={crumbs}
           onHome={goHome}
-          leading={
+          leading={<LicenseBadge />}
+          centerActions={
             <>
-              <LicenseBadge />
+              {/* Sandbox switcher sits to the right of the selected project. */}
               <ScopeDropdown />
+              <HeaderActionsSlot />
             </>
           }
-          centerActions={<HeaderActionsSlot />}
           leadingInset={topBarLeadingInset}
           right={
             <>
@@ -542,9 +554,10 @@ function Shell() {
           }}
         >
           <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
-            <ProjectBar />
+            <ProjectBar disabled={activeResuming} />
             <div
               style={{
+                position: "relative",
                 flex: 1,
                 display: sessionExpanded ? "none" : "flex",
                 flexDirection: "column",
@@ -554,6 +567,7 @@ function Shell() {
               }}
             >
               <Outlet />
+              {activeResuming && activeSandbox && <SandboxResumingOverlay name={activeSandbox.name} />}
             </div>
             {projectMatch && (
               <TerminalPanel
@@ -575,6 +589,10 @@ function Shell() {
           toastOptions={{
             unstyled: true,
             classNames: {
+              default: "mc-toast-panel",
+              info: "mc-toast-panel",
+              warning: "mc-toast-panel mc-toast-warning",
+              loading: "mc-toast-panel mc-toast-loading",
               success: "mc-toast-panel mc-toast-success",
               error: "mc-toast-panel mc-toast-error",
             },

@@ -30,11 +30,17 @@ export type SandboxConfig = {
   buildArgs: Record<string, string>;
   env: Record<string, string>;
   gitAuthMode: "none" | "copy-host" | "generate";
+  /** When true, push the host's AI-CLI logins to the VM over the agent WS on connect. */
+  copyAgentCreds: boolean;
   declaredPorts: number[];
   hostAgentPort: number | null;
   portMap: Record<number, number> | null;
   remoteAgentUrl: string | null;
   pairingToken: string | null;
+  /** PEM of the VM's self-signed cert to pin for `wss://` connections, if any. */
+  remoteAgentCa: string | null;
+  /** Managed remote VM lifecycle status from `remote_config.status`, if present. */
+  remoteStatus: string | null;
 };
 
 export type OpResult = { ok: true } | { ok: false; error: string };

@@ -81,6 +81,103 @@ export type RemotePtySpawnOptionsBridge = {
   missionControlTheme?: "dark" | "light";
 };
 
+export type RemoteVmDeployInputBridge =
+  | {
+      provider: "aws";
+      sandboxId?: string;
+      name: string;
+      region: string;
+      size?: string;
+      keyName?: string;
+      identityFile?: string;
+      accessCidr?: string;
+      sshCidr?: string;
+      localPort?: number;
+      profile?: string;
+      imageId?: string;
+      subnetId?: string;
+      securityGroupId?: string;
+      noWait?: boolean;
+      activate?: boolean;
+      setupScript?: string;
+      gitAuthMode?: "none" | "copy-host" | "generate";
+      copyAgentCreds?: boolean;
+      idleTimeoutMinutes?: number;
+    }
+  | {
+      provider: "digitalocean";
+      sandboxId?: string;
+      name: string;
+      region: string;
+      size?: string;
+      sshKey?: string;
+      identityFile?: string;
+      accessCidr?: string;
+      sshCidr?: string;
+      localPort?: number;
+      image?: string;
+      noMonitoring?: boolean;
+      noWait?: boolean;
+      activate?: boolean;
+    }
+  | {
+      // Railway is usage-based — no region/size. A name is the only required input.
+      provider: "railway";
+      sandboxId?: string;
+      name: string;
+      noWait?: boolean;
+      activate?: boolean;
+    };
+
+export type RemoteVmDeployResultBridge =
+  | {
+      ok: true;
+      sandboxId: string;
+      name: string;
+      provider: string;
+      publicIp: string;
+      agentUrl: string;
+      localPort: number | null;
+      output: string;
+    }
+  | { ok: false; error: string; output?: string };
+
+export type RailwayPreflightResultBridge = { ok: true } | { ok: false; error: string };
+
+export type RemoteVmDeployJobStatusBridge = "queued" | "running" | "succeeded" | "failed" | "canceled";
+
+export type RemoteVmDeployJobResultBridge = {
+  sandboxId: string;
+  name: string;
+  provider: string;
+  publicIp: string;
+  agentUrl: string;
+  localPort: number | null;
+};
+
+export type RemoteVmDeployLogEntryBridge = {
+  jobId: string;
+  seq: number;
+  ts: number;
+  stream: "stdout" | "stderr" | "system";
+  data: string;
+};
+
+export type RemoteVmDeployJobSnapshotBridge = {
+  id: string;
+  input: RemoteVmDeployInputBridge;
+  status: RemoteVmDeployJobStatusBridge;
+  createdAt: number;
+  startedAt: number | null;
+  updatedAt: number;
+  finishedAt: number | null;
+  nextSeq: number;
+  result?: RemoteVmDeployJobResultBridge;
+  error?: string;
+  exitCode?: number | null;
+  signal?: string | null;
+};
+
 export type SessionTerminalDebugLogInputBridge = {
   level?: "error" | "warn";
   stage: string;
@@ -166,6 +263,48 @@ const electronAPI = {
       return () => ipcRenderer.removeListener(IPC.sandboxLog, listener);
     },
   },
+  remoteVm: {
+    deploy: (input: RemoteVmDeployInputBridge): Promise<RemoteVmDeployResultBridge> =>
+      ipcRenderer.invoke(IPC.remoteVmDeploy, input),
+    checkRailwayPreflight: (): Promise<RailwayPreflightResultBridge> =>
+      ipcRenderer.invoke(IPC.remoteVmCheckRailwayPreflight),
+    startDeploy: (input: RemoteVmDeployInputBridge): Promise<{ jobId: string }> =>
+      ipcRenderer.invoke(IPC.remoteVmStartDeploy, input),
+    listDeployJobs: (): Promise<RemoteVmDeployJobSnapshotBridge[]> =>
+      ipcRenderer.invoke(IPC.remoteVmListDeployJobs),
+    getDeployLogs: (
+      jobId: string,
+      afterSeq?: number,
+    ): Promise<{ entries: RemoteVmDeployLogEntryBridge[]; nextSeq: number }> =>
+      ipcRenderer.invoke(IPC.remoteVmGetDeployLogs, jobId, afterSeq),
+    cancelDeploy: (jobId: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.remoteVmCancelDeploy, jobId),
+    pause: (sandboxId: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.remoteVmPause, sandboxId),
+    resume: (sandboxId: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.remoteVmResume, sandboxId),
+    reconcile: (
+      sandboxId: string,
+    ): Promise<
+      | { ok: true; sandboxId: string; instanceState: string | null; status: string | null; changed: boolean }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke(IPC.remoteVmReconcile, sandboxId),
+    destroy: (
+      sandboxId: string,
+      opts?: { keepRow?: boolean },
+    ): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.remoteVmDestroy, sandboxId, opts),
+    onDeployUpdate: (cb: (job: RemoteVmDeployJobSnapshotBridge) => void) => {
+      const listener = (_: Electron.IpcRendererEvent, job: RemoteVmDeployJobSnapshotBridge) => cb(job);
+      ipcRenderer.on(IPC.remoteVmDeployUpdate, listener);
+      return () => ipcRenderer.removeListener(IPC.remoteVmDeployUpdate, listener);
+    },
+    onDeployLog: (cb: (entry: RemoteVmDeployLogEntryBridge) => void) => {
+      const listener = (_: Electron.IpcRendererEvent, entry: RemoteVmDeployLogEntryBridge) => cb(entry);
+      ipcRenderer.on(IPC.remoteVmDeployLog, listener);
+      return () => ipcRenderer.removeListener(IPC.remoteVmDeployLog, listener);
+    },
+  },
   remotePty: {
     spawn: (opts: RemotePtySpawnOptionsBridge): Promise<{ ptyId: string }> =>
       ipcRenderer.invoke(IPC.remotePtySpawn, opts),
@@ -246,6 +385,16 @@ const electronAPI = {
     readText: (): Promise<string> => ipcRenderer.invoke(IPC.clipboardReadText),
     writeText: (text: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC.clipboardWriteText, text),
+  },
+  terminalImages: {
+    saveDropped: (input: {
+      name?: string;
+      mimeType: string;
+      data: ArrayBuffer;
+    }): Promise<{ path: string } | { error: string }> =>
+      ipcRenderer.invoke(IPC.terminalSaveDroppedImage, input),
+    saveClipboard: (): Promise<{ path: string } | { error: string } | null> =>
+      ipcRenderer.invoke(IPC.terminalSaveClipboardImage),
   },
   pickImage: (): Promise<
     { sourcePath: string; extension: string } | { error: string } | null
@@ -335,6 +484,8 @@ const electronAPI = {
     kill: (ptyId: string) => ipcRenderer.invoke(IPC.ptyKill, { ptyId }),
     killLaunchProcesses: (opts: { cwd: string; commands: string[]; ports?: number[] }) =>
       ipcRenderer.invoke(IPC.ptyKillLaunchProcesses, opts),
+    killUnderPath: (cwd: string) =>
+      ipcRenderer.invoke(IPC.ptyKillUnderPath, { cwd }) as Promise<{ ptyCount: number }>,
     onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => {
       const listener = (
         _: Electron.IpcRendererEvent,

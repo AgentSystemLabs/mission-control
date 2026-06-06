@@ -35,6 +35,13 @@ export type ShellSpawnRequest = BaseSpawnRequest & {
   shell: true;
   agent?: never;
   dangerouslySkipPermissions?: never;
+  // Project-less "home" shell terminal (the dashboard terminals). When set, the
+  // spawn HANDLER — not this pure policy — replaces cwd with its own
+  // os.homedir() and passes that dir through `homeShellRoots` so the cwd-root
+  // check accepts it. This lets a dashboard terminal open at ~ on whichever
+  // runtime it lands on (local host or remote agent) without the renderer ever
+  // learning or supplying a host filesystem path.
+  home?: boolean;
 };
 
 export type SpawnRequest = AgentSpawnRequest | ShellSpawnRequest;
@@ -64,6 +71,11 @@ export type SpawnPolicyDeps = {
   realpath?: (p: string) => string;
   // Snapshot of registered project roots. Already canonicalized by caller.
   projectRoots: () => string[];
+  // Extra roots a *shell* terminal may start in beyond the project roots —
+  // currently just the host's home directory, which enables project-less "home"
+  // terminals (req.home === true). Agent spawns ignore this list and stay
+  // confined to project roots. Resolved through realpath like project roots.
+  homeShellRoots?: () => string[];
   // Resolve a command name (claude/codex/cursor-agent) to an absolute path on PATH.
   resolveCommand: (name: string) => string | null;
   // Returns the user's login shell and its argv for the given command.
@@ -262,6 +274,19 @@ export function resolveSpawnPlan(req: SpawnRequest, deps: SpawnPolicyDeps): Spaw
       return null;
     }
   }).filter((r): r is string => !!r);
+
+  // An explicit project-less "home" shell terminal (shell + home) may also start
+  // in an allowed home root. Gated on req.home so ordinary shell terminals stay
+  // confined to project roots, and on req.shell so agent spawns never qualify.
+  if (req.shell === true && req.home === true && deps.homeShellRoots) {
+    for (const r of deps.homeShellRoots()) {
+      try {
+        roots.push(realpath(r));
+      } catch {
+        /* unresolvable home root — skip it rather than widen the check */
+      }
+    }
+  }
 
   if (!roots.some((root) => withinRoot(realCwd, root))) {
     throw new SpawnPolicyError(

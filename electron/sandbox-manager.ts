@@ -2,7 +2,7 @@ import type { BrowserWindow, IpcMain } from "electron";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fs from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import log from "electron-log/main";
 import { IPC } from "./ipc-channels";
@@ -473,6 +473,13 @@ function connectAgent(
             err: describe(err),
           }),
         );
+        void provisionAgentCredsFor(id).catch((err) =>
+          log.warn("sandbox.agent-creds.fail", {
+            event: "sandbox.agent-creds.fail",
+            sandboxId: id,
+            err: describe(err),
+          }),
+        );
       }
     },
     onClose: () => {
@@ -496,7 +503,7 @@ function connectAgent(
       }
     },
     onFsChange: (watchId, p, mtimeMs) => send(IPC.remoteFsChange, { watchId, path: p, mtimeMs }),
-  });
+  }, { tlsCa: config.remoteAgentCa ?? undefined });
   clients.set(id, client);
   return {
     close: () => {
@@ -611,6 +618,56 @@ async function provisionGitAuthFor(
   }
   return {};
 }
+
+/** Push the host's AI-CLI logins to a connected sandbox when copyAgentCreds is on. */
+async function provisionAgentCredsFor(
+  id: string,
+  options: { requireConfigured?: boolean } = {},
+): Promise<{ wrote: number }> {
+  const client = clients.get(id);
+  if (!client?.isOpen) {
+    if (options.requireConfigured) throw new Error("sandbox is not connected");
+    return { wrote: 0 };
+  }
+  const config = configFor(id);
+  if (!config?.copyAgentCreds) {
+    if (options.requireConfigured) {
+      throw new Error("This sandbox is not set to copy AI tool credentials.");
+    }
+    return { wrote: 0 };
+  }
+  const items = readHostAgentCreds();
+  if (!items.length) {
+    const message =
+      "No AI tool credentials were found on the host. Log in locally with claude / codex / cursor-agent / opencode first.";
+    if (options.requireConfigured) throw new Error(message);
+    log.warn("sandbox.agent-creds.empty", { event: "sandbox.agent-creds.empty", sandboxId: id });
+    return { wrote: 0 };
+  }
+  try {
+    const r = (await client.rpc("creds.setup", { items })) as { wrote?: number };
+    // Log counts + tool names only — never the credential bytes.
+    log.info("sandbox.agent-creds", {
+      event: "sandbox.agent-creds",
+      sandboxId: id,
+      sent: items.length,
+      wrote: r?.wrote ?? 0,
+      tools: [...new Set(items.map((i) => i.tool))],
+    });
+    return { wrote: r?.wrote ?? 0 };
+  } catch (err) {
+    log.warn("sandbox.agent-creds.fail", {
+      event: "sandbox.agent-creds.fail",
+      sandboxId: id,
+      err: describe(err),
+    });
+    if (options.requireConfigured) {
+      throw new Error(`Failed to copy AI tool credentials to this sandbox: ${describe(err)}`);
+    }
+    return { wrote: 0 };
+  }
+}
+
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -735,6 +792,119 @@ function readHostSshFiles(): Array<{ name: string; content: string }> {
   return out;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI-CLI credential copy (US: "Copy my AI tool credentials"). Reads the host's
+// local logins and labels each item { tool, kind, content }; the agent owns
+// where it lands on the VM (see mc-agent/src/creds-rpc.ts). Mirrors the SSH copy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AgentCredItem = {
+  tool: "claude" | "codex" | "cursor" | "opencode";
+  kind: "credentials" | "state";
+  content: string;
+};
+
+const MAX_CRED_BYTES = 256 * 1024;
+
+// Only the global auth/onboarding keys of ~/.claude.json — deliberately NOT
+// `projects` (host paths), `mcpServers`, or history. Just enough for the VM to
+// recognize the account and skip first-run onboarding.
+const CLAUDE_STATE_KEYS = [
+  "oauthAccount",
+  "userID",
+  "hasCompletedOnboarding",
+  "lastOnboardingVersion",
+  "firstStartTime",
+  "installMethod",
+  "subscriptionNoticeCount",
+  "hasAvailableSubscription",
+] as const;
+
+/** Read a macOS Keychain generic-password item's secret, or null if absent. */
+function readKeychainSecret(service: string): string | null {
+  if (process.platform !== "darwin") return null;
+  try {
+    const out = execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const trimmed = out.replace(/\r?\n$/, "");
+    return trimmed.length ? trimmed : null;
+  } catch {
+    return null; // item missing or access denied — skip silently
+  }
+}
+
+/** Read a small text file under $HOME, capped, or null if absent/oversized. */
+function readHostCredFile(...segments: string[]): string | null {
+  const full = path.join(os.homedir(), ...segments);
+  try {
+    const st = fs.lstatSync(full);
+    if (!st.isFile() || st.size > MAX_CRED_BYTES) return null;
+    const content = fs.readFileSync(full, "utf8");
+    return content.length ? content : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Trim ~/.claude.json down to the allow-listed auth/onboarding keys (JSON). */
+function readClaudeState(): string | null {
+  const raw = readHostCredFile(".claude.json");
+  if (!raw) return null;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const trimmed: Record<string, unknown> = {};
+  for (const key of CLAUDE_STATE_KEYS) {
+    if (parsed[key] !== undefined) trimmed[key] = parsed[key];
+  }
+  return Object.keys(trimmed).length ? JSON.stringify(trimmed) : null;
+}
+
+/** Read the host's AI-CLI logins to push into a sandbox (copyAgentCreds mode). */
+export function readHostAgentCreds(): AgentCredItem[] {
+  const out: AgentCredItem[] = [];
+  const push = (item: AgentCredItem | null): void => {
+    if (item && item.content && Buffer.byteLength(item.content, "utf8") <= MAX_CRED_BYTES) out.push(item);
+  };
+
+  // Claude Code: token in the macOS Keychain, or ~/.claude/.credentials.json on
+  // a Linux host. Plus a trimmed copy of the onboarding/account state.
+  const claudeCred = readKeychainSecret("Claude Code-credentials") ?? readHostCredFile(".claude", ".credentials.json");
+  if (claudeCred) push({ tool: "claude", kind: "credentials", content: claudeCred });
+  const claudeState = readClaudeState();
+  if (claudeState) push({ tool: "claude", kind: "state", content: claudeState });
+
+  // Codex: plain file at ~/.codex/auth.json on every platform.
+  const codexCred = readHostCredFile(".codex", "auth.json");
+  if (codexCred) push({ tool: "codex", kind: "credentials", content: codexCred });
+
+  // Cursor: access + refresh tokens live in the macOS Keychain; the VM reads a
+  // file-based auth.json. On a Linux host, copy that file directly.
+  const cursorAccess = readKeychainSecret("cursor-access-token");
+  const cursorRefresh = readKeychainSecret("cursor-refresh-token");
+  if (cursorAccess) {
+    push({
+      tool: "cursor",
+      kind: "credentials",
+      content: JSON.stringify({ accessToken: cursorAccess, refreshToken: cursorRefresh ?? cursorAccess }),
+    });
+  } else {
+    const cursorFile = readHostCredFile(".config", "cursor-agent", "auth.json");
+    if (cursorFile) push({ tool: "cursor", kind: "credentials", content: cursorFile });
+  }
+
+  // OpenCode: plain file at ~/.local/share/opencode/auth.json.
+  const opencodeCred = readHostCredFile(".local", "share", "opencode", "auth.json");
+  if (opencodeCred) push({ tool: "opencode", kind: "credentials", content: opencodeCred });
+
+  return out;
+}
+
 /** Read a host project's origin remote so a sandbox clone can prefill the URL. */
 function sanitizeDetectedRemote(remote: string): string | null {
   try {
@@ -766,6 +936,7 @@ type RemotePtySpawnOpts = {
   command: string;
   agent?: string;
   shell?: boolean;
+  home?: boolean;
   args?: string[];
   cols?: number;
   rows?: number;
@@ -937,6 +1108,7 @@ export function registerSandboxManager(
         command: opts.command,
         agent: opts.agent,
         shell: opts.shell,
+        home: opts.home,
         args: opts.args,
         cols: opts.cols,
         rows: opts.rows,

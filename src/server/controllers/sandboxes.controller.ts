@@ -27,6 +27,15 @@ const remoteAgentUrl = z
     message: "Remote agent URL must use wss:// or https:// unless it is a localhost/private ws:// URL.",
   });
 
+const remoteAgentUrlPatch = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2_048)
+  .refine((value) => !!normalizeRemoteAgentUrl(value, { allowPlaintextPublic: true }), {
+    message: "Remote agent URL must be a valid ws://, wss://, http://, or https:// URL.",
+  });
+
 const remoteApiKey = z.string().trim().min(16).max(512);
 
 const createBody = z
@@ -64,7 +73,7 @@ const updateBody = z
     gitAuthMode: z.enum(["none", "copy-host", "generate"]),
     buildArgs: z.record(z.string(), z.string()).nullable(),
     declaredPorts: z.array(z.number().int().min(1).max(65535)).nullable(),
-    remoteAgentUrl,
+    remoteAgentUrl: remoteAgentUrlPatch,
     apiKey: remoteApiKey,
   })
   .partial();

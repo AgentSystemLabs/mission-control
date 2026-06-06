@@ -383,6 +383,30 @@ export const api = {
   deleteUserTerminal: (id: string) =>
     req<void>(`/api/user-terminals/${id}`, { method: "DELETE" }),
 
+  // Project-less "home" terminals (the dashboard terminals). Returned shaped as
+  // UserTerminal (sentinel projectId) so the same terminal store/panel render them.
+  listHomeTerminals: (scopeId: string) =>
+    req<{ terminals: UserTerminal[] }>(
+      `/api/home/user-terminals?scopeId=${encodeURIComponent(scopeId)}`,
+    ),
+  createHomeTerminal: (body: {
+    id?: string;
+    name?: string;
+    cwd?: string | null;
+    scopeId: string;
+  }) =>
+    req<{ terminal: UserTerminal }>("/api/home/user-terminals", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  renameHomeTerminal: (id: string, name: string) =>
+    req<{ terminal: UserTerminal }>(`/api/home/user-terminals/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+  deleteHomeTerminal: (id: string) =>
+    req<void>(`/api/home/user-terminals/${id}`, { method: "DELETE" }),
+
   getKeybindings: () => req<{ bindings: BindingMap }>("/api/keybindings"),
   setKeybinding: (action: HotkeyAction, binding: Binding) =>
     req<{ bindings: BindingMap }>("/api/keybindings", {

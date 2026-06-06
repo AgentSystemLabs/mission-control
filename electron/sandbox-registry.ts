@@ -51,6 +51,7 @@ export type RegistryDeps = {
 
 const DOCKER_DOWN_ERROR = "Docker isn't running. Start Docker Desktop / the Docker daemon and try again.";
 const REMOTE_CONFIG_ERROR = "Remote sandbox is missing an agent URL or API key.";
+const REMOTE_PAUSED_ERROR = "Remote VM is paused. Resume the VM before connecting.";
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 15_000;
 
@@ -137,6 +138,10 @@ export class SandboxInstance {
       let agentUrl: string;
       let token: string;
       if (this.config.kind === "remote-vm") {
+        if (this.config.remoteStatus === "paused" || this.config.remoteStatus === "pausing") {
+          this.set({ status: "stopped", dockerAvailable: true });
+          return { ok: false, error: REMOTE_PAUSED_ERROR };
+        }
         if (!this.config.remoteAgentUrl || !this.config.pairingToken) {
           this.set({ status: "error", message: REMOTE_CONFIG_ERROR });
           return { ok: false, error: REMOTE_CONFIG_ERROR };

@@ -9,6 +9,7 @@ import {
   shouldSuppressTerminalKey,
   terminalClipboardAction,
 } from "./terminal-keymap";
+import type { TaskStatus } from "~/shared/domain";
 
 type Electron = NonNullable<ReturnType<typeof getElectron>>;
 
@@ -20,6 +21,11 @@ type TerminalLike = {
   clearSelection(): void;
   paste(data: string): void;
 };
+
+const TERMINAL_IMAGE_MIME = /^image\/(?:png|jpe?g|webp|gif|bmp)$/i;
+const TERMINAL_IMAGE_EXT = /\.(?:png|jpe?g|webp|gif|bmp)$/i;
+const TERMINAL_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
+const TERMINAL_DROP_MAX_FILES = 10;
 
 const ANSI_ESCAPE_REGEX =
   /(?:\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[PX^_].*?(?:\x1b\\)|\x1b[@-_])/g;
@@ -48,6 +54,10 @@ export function isSessionTerminalXtermFocused(): boolean {
 
 export function isTerminalXtermFocused(): boolean {
   return isUserTerminalXtermFocused() || isSessionTerminalXtermFocused();
+}
+
+export function terminalExitTaskStatus(exitCode?: number): TaskStatus {
+  return exitCode === 0 ? "finished" : "terminated";
 }
 
 /** Cmd/Ctrl + =/+ zoom in, Cmd/Ctrl + - zoom out; null when not a zoom chord. */
@@ -92,13 +102,17 @@ export function wireTerminalFileDrop(opts: {
 
     const files = Array.from(e.dataTransfer?.files ?? []);
     if (!files.length) return;
-    const paths = files
-      .map((f) => electron.getPathForFile(f))
-      .filter(Boolean)
-      .map((p) => formatPathForTerminalPaste(p));
-    if (!paths.length) return;
-    electron.pty.write(activePtyId, paths.join(" ") + " ");
-    onFocus();
+    void (async () => {
+      const resolved: string[] = [];
+      for (const file of files.slice(0, TERMINAL_DROP_MAX_FILES)) {
+        const path = await resolveTerminalDropPath(electron, file);
+        if (path) resolved.push(path);
+      }
+      const paths = resolved.map((p) => formatPathForTerminalPaste(p));
+      if (!paths.length) return;
+      electron.pty.write(activePtyId, paths.join(" ") + " ");
+      onFocus();
+    })();
   };
   host.addEventListener("dragover", onDragOver);
   host.addEventListener("drop", onDrop);
@@ -106,6 +120,23 @@ export function wireTerminalFileDrop(opts: {
     host.removeEventListener("dragover", onDragOver);
     host.removeEventListener("drop", onDrop);
   };
+}
+
+function isTerminalImageFile(file: File): boolean {
+  return TERMINAL_IMAGE_MIME.test(file.type) || TERMINAL_IMAGE_EXT.test(file.name);
+}
+
+async function resolveTerminalDropPath(electron: Electron, file: File): Promise<string | null> {
+  const nativePath = electron.getPathForFile(file);
+  if (nativePath) return nativePath;
+  if (!isTerminalImageFile(file)) return null;
+  if (file.size > TERMINAL_IMAGE_MAX_BYTES) return null;
+  const result = await electron.terminalImages.saveDropped({
+    name: file.name,
+    mimeType: file.type,
+    data: await file.arrayBuffer(),
+  });
+  return "path" in result ? result.path : null;
 }
 
 /**
@@ -149,8 +180,15 @@ export function attachTerminalKeyHandler(opts: {
         } else {
           void electron.clipboard
             .readText()
-            .then((text) => {
-              if (text) term.paste(text);
+            .then(async (text) => {
+              if (text) {
+                term.paste(text);
+                return;
+              }
+              const image = await electron.terminalImages.saveClipboard();
+              if (image && "path" in image) {
+                term.paste(formatPathForTerminalPaste(image.path) + " ");
+              }
             })
             .catch(() => undefined);
         }

@@ -93,15 +93,11 @@ export function defaultSessionPayload(project: {
   savedSkipPermissions?: boolean;
   savedBareSession?: boolean;
 }): SessionCreatePayload {
-  const agent =
-    project.rememberAgentSettings && project.savedAgent ? project.savedAgent : "claude-code";
+  const agent = project.savedAgent ?? "claude-code";
   return {
     agent,
     branch: project.branch || DEFAULT_BRANCH,
-    skipPermissions:
-      project.rememberAgentSettings && project.savedAgent
-        ? !!project.savedSkipPermissions
-        : false,
+    skipPermissions: !!project.savedSkipPermissions,
     bareSession:
       project.rememberAgentSettings && project.savedAgent === "claude-code"
         ? !!project.savedBareSession

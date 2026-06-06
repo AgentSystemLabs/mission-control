@@ -18,6 +18,7 @@ import * as worktreesController from "./controllers/worktrees.controller";
 import * as tasksController from "./controllers/tasks.controller";
 import * as groupsController from "./controllers/groups.controller";
 import * as userTerminalsController from "./controllers/user-terminals.controller";
+import * as homeTerminalsController from "./controllers/home-terminals.controller";
 import * as settingsController from "./controllers/settings.controller";
 import * as licenseController from "./controllers/license.controller";
 import * as keybindingsController from "./controllers/keybindings.controller";
@@ -64,6 +65,7 @@ const TASK_STATUS_PATH = /^\/api\/tasks\/([^\/]+)\/status$/;
 const TASK_ARCHIVE_PATH = /^\/api\/tasks\/([^\/]+)\/archive$/;
 const TASK_RESTORE_PATH = /^\/api\/tasks\/([^\/]+)\/restore$/;
 const USER_TERMINAL_PATH = /^\/api\/user-terminals\/([^\/]+)$/;
+const HOME_USER_TERMINAL_PATH = /^\/api\/home\/user-terminals\/([^\/]+)$/;
 const REMOTE_PTY_PATH = /^\/api\/remote-pty\/([^\/]+)\/([^\/]+)$/;
 const REQUEST_ID_HEADER = "x-request-id";
 const CORRELATION_ID_HEADER = "x-correlation-id";
@@ -501,6 +503,18 @@ async function dispatch(
     const id = decode(m[1]);
     if (method === "PATCH") return userTerminalsController.rename(id, request);
     if (method === "DELETE") return userTerminalsController.remove(id, request);
+  }
+
+  // Home terminals (project-less dashboard terminals)
+  if (pathname === "/api/home/user-terminals") {
+    if (method === "GET") return homeTerminalsController.listAll(request);
+    if (method === "POST") return homeTerminalsController.create(request);
+  }
+  m = pathname.match(HOME_USER_TERMINAL_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "PATCH") return homeTerminalsController.rename(id, request);
+    if (method === "DELETE") return homeTerminalsController.remove(id, request);
   }
 
   // Settings

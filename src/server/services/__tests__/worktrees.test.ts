@@ -133,6 +133,51 @@ describe("worktree helpers", () => {
     );
   });
 
+  it("deletes a clean worktree and removes its directory and row", async () => {
+    const { project, worktree } = await createProjectWorktree();
+
+    await expect(
+      deleteWorktree({ projectId: project.id, worktreeId: worktree.id }),
+    ).resolves.toBe(true);
+
+    expect(fs.existsSync(worktree.path)).toBe(false);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(0);
+  });
+
+  it("recovers a half-removed worktree whose git link is already gone", async () => {
+    // Reproduce the Windows wedge: a prior delete failed partway (a process held
+    // a handle inside the worktree), so git already removed the worktree's admin
+    // dir — `git status` in the worktree now reports "is not a working tree" —
+    // but leftover files (e.g. `.claude/`) and the DB row remain. The delete must
+    // recover instead of throwing forever.
+    const { project, root, worktree } = await createProjectWorktree();
+    fs.mkdirSync(path.join(worktree.path, ".claude"), { recursive: true });
+    fs.writeFileSync(path.join(worktree.path, ".claude", "settings.json"), "{}\n");
+    fs.rmSync(path.join(root, ".git", "worktrees", worktree.name), {
+      recursive: true,
+      force: true,
+    });
+    // Sanity-check we actually reproduced the wedge that used to throw.
+    expect(() => git(worktree.path, ["status", "--porcelain"])).toThrow();
+
+    await expect(
+      deleteWorktree({ projectId: project.id, worktreeId: worktree.id }),
+    ).resolves.toBe(true);
+
+    expect(fs.existsSync(worktree.path)).toBe(false);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(0);
+  });
+
+  it("deletes the row even when the worktree directory is already gone", async () => {
+    const { project, worktree } = await createProjectWorktree();
+    fs.rmSync(worktree.path, { recursive: true, force: true });
+
+    await expect(
+      deleteWorktree({ projectId: project.id, worktreeId: worktree.id }),
+    ).resolves.toBe(true);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(0);
+  });
+
   it("accepts stashChanges from the delete route query string", async () => {
     const { project, root, worktree } = await createProjectWorktree();
     fs.writeFileSync(path.join(worktree.path, "dirty.txt"), "dirty\n");

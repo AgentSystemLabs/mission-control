@@ -37,6 +37,9 @@ export const sandboxes = sqliteTable("sandboxes", {
   dockerfilePath: text("dockerfile_path"),
   buildArgs: text("build_args"), // JSON: Record<string,string>
   gitAuthMode: text("git_auth_mode").$type<SandboxGitAuthMode>().notNull().default("none"),
+  // When true, the host's AI-CLI logins (Claude/Codex/Cursor/OpenCode) are pushed
+  // to the VM over the agent WS on connect — mirrors gitAuthMode's copy-host.
+  copyAgentCreds: integer("copy_agent_creds", { mode: "boolean" }).notNull().default(false),
   declaredPorts: text("declared_ports"), // JSON: number[] (container ports)
   env: text("env"), // JSON: Record<string,string>
   // --- managed (MC-derived) ---
@@ -199,6 +202,30 @@ export const userTerminals = sqliteTable(
   })
 );
 
+// Project-less "home" terminals shown on the dashboard. Deliberately a separate
+// table (not a nullable project_id on user_terminals) so the FK-heavy
+// user_terminals table never needs a destructive rebuild — this is purely
+// additive. Rows are surfaced to the renderer shaped as UserTerminal (with a
+// sentinel projectId) so the existing terminal store/panel/pane can render them.
+export const homeTerminals = sqliteTable(
+  "home_terminals",
+  {
+    id: text("id").primaryKey(),
+    // The scope (sandbox) the terminal belongs to: "local" for the host, or a
+    // sandbox id. A home terminal runs a shell ON that scope's machine, so it is
+    // only shown while that scope is active. Defaults to "local".
+    scopeId: text("scope_id").notNull().default("local"),
+    name: text("name").notNull(),
+    cwd: text("cwd"),
+    position: integer("position").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    scopeIdx: index("home_terminals_scope_idx").on(t.scopeId),
+  })
+);
+
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -293,6 +320,8 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type UserTerminal = typeof userTerminals.$inferSelect;
 export type NewUserTerminal = typeof userTerminals.$inferInsert;
+export type HomeTerminal = typeof homeTerminals.$inferSelect;
+export type NewHomeTerminal = typeof homeTerminals.$inferInsert;
 export {
   DEFAULT_BRANCH,
   DEFAULT_TASK_STATUS,

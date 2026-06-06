@@ -47,4 +47,17 @@ describe("parseClientMessage", () => {
       parseClientMessage(JSON.stringify({ type: "rpc", reqId: "r1", method: "fs.read" })),
     ).toBeNull(); // missing params
   });
+
+  it("accepts the creds.setup rpc method", () => {
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: "rpc",
+          reqId: "r1",
+          method: "creds.setup",
+          params: { items: [{ tool: "claude", kind: "credentials", content: "x" }] },
+        }),
+      )?.type,
+    ).toBe("rpc");
+  });
 });

@@ -5,9 +5,11 @@ import { PtyHost } from "./pty-host";
 import { FileRpc } from "./file-rpc";
 import { GitRpc } from "./git-rpc";
 import { SshRpc } from "./ssh-rpc";
+import { CredsRpc } from "./creds-rpc";
 import { probeAgentVersions } from "./health";
 import { parseClientMessage, type ServerMessage, type RpcMessage } from "./protocol";
 import type { AgentConfig } from "./config";
+import { ActivityTracker } from "./activity-tracker";
 import { log } from "./logger";
 import { AGENT_VERSION } from "./version";
 
@@ -66,16 +68,28 @@ export function isPaired(req: IncomingMessage, config: AgentConfig): boolean {
   return constantTimeEqual(extractToken(req), config.pairingToken);
 }
 
-function handleConnection(ws: WebSocket, config: AgentConfig): void {
+type PtyEmitter = (msg: ServerMessage) => void;
+type AttachPtyEmitter = (emit: PtyEmitter) => () => void;
+
+function handleConnection(
+  ws: WebSocket,
+  config: AgentConfig,
+  ptyHost: PtyHost,
+  attachPtyEmitter: AttachPtyEmitter,
+  activity: ActivityTracker,
+): void {
   const connId = `c${++connSeq}`;
+  // A new pairing is activity; reset the idle clock before any work flows.
+  activity.touchNow();
   const emit = (msg: ServerMessage): void => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
   };
+  const detachPtyEmitter = attachPtyEmitter(emit);
 
-  const ptyHost = new PtyHost(emit, { workspaceRoot: config.workspaceRoot, connId });
   const fileRpc = new FileRpc(config.workspaceRoot, emit);
   const gitRpc = new GitRpc(config.workspaceRoot);
   const sshRpc = new SshRpc();
+  const credsRpc = new CredsRpc();
   log("info", "ws.open", { connId });
 
   const dispatchRpc = async (msg: RpcMessage): Promise<void> => {
@@ -109,6 +123,9 @@ function handleConnection(ws: WebSocket, config: AgentConfig): void {
         case "ssh.setup":
           result = await sshRpc.setup(msg.params);
           break;
+        case "creds.setup":
+          result = await credsRpc.setup(msg.params);
+          break;
       }
       emit({ type: "rpcResult", reqId: msg.reqId, ok: true, result });
     } catch (err) {
@@ -132,6 +149,8 @@ function handleConnection(ws: WebSocket, config: AgentConfig): void {
   ws.on("message", (raw: RawData) => {
     const msg = parseClientMessage(raw.toString());
     if (!msg) return;
+    // Any client traffic (PTY input, resize, RPC) counts as activity.
+    activity.touch();
     switch (msg.type) {
       case "spawn":
         ptyHost.spawn(msg);
@@ -158,7 +177,7 @@ function handleConnection(ws: WebSocket, config: AgentConfig): void {
   const cleanup = (): void => {
     if (cleanedUp) return;
     cleanedUp = true;
-    ptyHost.killAll();
+    detachPtyEmitter();
     fileRpc.closeAll();
     log("info", "ws.close", { connId });
   };
@@ -185,6 +204,20 @@ function handleConnection(ws: WebSocket, config: AgentConfig): void {
  * endpoint requires the pairing token and drives PTYs + file/git RPC.
  */
 export function createAgentServer(config: AgentConfig): Server {
+  const activity = new ActivityTracker(config.activityFile);
+  // Stamp once at startup so the on-VM idle watchdog knows the agent came up and
+  // starts its idle clock from now (the watchdog no-ops until this file exists).
+  activity.touchNow();
+  const ptyEmitters = new Set<PtyEmitter>();
+  const ptyHost = new PtyHost(
+    (msg) => {
+      // PTY output (a running build/server printing) is activity too.
+      activity.touch();
+      for (const emit of ptyEmitters) emit(msg);
+    },
+    { workspaceRoot: config.workspaceRoot, connId: "server" },
+  );
+
   const httpServer = createServer((req, res) => {
     if (req.method === "GET" && (req.url ?? "").split("?")[0] === "/health") {
       // Unauthenticated liveness probe — keep it to ok/version only. The workspace
@@ -198,6 +231,12 @@ export function createAgentServer(config: AgentConfig): Server {
   });
 
   const wss = new WebSocketServer({ noServer: true });
+  let ptysClosed = false;
+  httpServer.once("close", () => {
+    if (ptysClosed) return;
+    ptysClosed = true;
+    ptyHost.killAll();
+  });
 
   httpServer.on("upgrade", (req, socket, head) => {
     if (isRateLimited(req)) {
@@ -216,7 +255,16 @@ export function createAgentServer(config: AgentConfig): Server {
     }
     clearAuthFailures(req);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      handleConnection(ws, config);
+      handleConnection(
+        ws,
+        config,
+        ptyHost,
+        (emit) => {
+          ptyEmitters.add(emit);
+          return () => ptyEmitters.delete(emit);
+        },
+        activity,
+      );
     });
   });
 

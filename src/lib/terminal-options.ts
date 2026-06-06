@@ -178,15 +178,58 @@ export async function waitForTerminalFont(): Promise<void> {
   }
 }
 
+type TerminalViewportSnapshot = {
+  viewportY: number;
+  atBottom: boolean;
+};
+
+type ScrollPreservingTerminal = {
+  buffer?: {
+    active?: {
+      viewportY: number;
+      baseY: number;
+    };
+  };
+  scrollToBottom?: () => void;
+  scrollToLine?: (line: number) => void;
+};
+
+function captureTerminalViewport(term: ScrollPreservingTerminal): TerminalViewportSnapshot | null {
+  const active = term.buffer?.active;
+  if (!active) return null;
+  return {
+    viewportY: active.viewportY,
+    atBottom: active.viewportY >= active.baseY,
+  };
+}
+
+function restoreTerminalViewport(
+  term: ScrollPreservingTerminal,
+  snapshot: TerminalViewportSnapshot | null,
+): void {
+  if (!snapshot) return;
+  if (snapshot.atBottom) {
+    term.scrollToBottom?.();
+    return;
+  }
+  term.scrollToLine?.(snapshot.viewportY);
+}
+
 export function fitTerminalSurface(
-  term: { cols: number; rows: number; refresh: (start: number, end: number) => void },
+  term: {
+    cols: number;
+    rows: number;
+    refresh: (start: number, end: number) => void;
+  } & ScrollPreservingTerminal,
   fit: { fit: () => void },
 ): void {
+  const viewport = captureTerminalViewport(term);
   try {
     fit.fit();
   } catch {
     /* container not measured yet */
   }
+  restoreTerminalViewport(term, viewport);
   if (term.rows > 0) {
     term.refresh(0, term.rows - 1);
   }
@@ -198,7 +241,7 @@ export function applyTerminalFontSize(
     cols: number;
     rows: number;
     refresh: (start: number, end: number) => void;
-  },
+  } & ScrollPreservingTerminal,
   fit: { fit: () => void },
   fontSize: number,
 ): void {

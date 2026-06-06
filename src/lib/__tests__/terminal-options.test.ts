@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  applyTerminalFontSize,
   createTerminalOptions,
   createTerminalTheme,
   getTerminalColorScheme,
@@ -35,5 +36,50 @@ describe("terminal options", () => {
 
   it("falls back to dark outside the browser", () => {
     expect(getTerminalColorScheme()).toBe("dark");
+  });
+
+  it("preserves the viewport line when zoom refits a scrolled terminal", () => {
+    const term = {
+      options: { fontSize: 12 },
+      cols: 100,
+      rows: 30,
+      buffer: { active: { viewportY: 42, baseY: 120 } },
+      refresh: vi.fn(),
+      scrollToLine: vi.fn(),
+      scrollToBottom: vi.fn(),
+    };
+    const fit = {
+      fit: vi.fn(() => {
+        term.buffer.active.viewportY = 0;
+      }),
+    };
+
+    applyTerminalFontSize(term, fit, 14);
+
+    expect(fit.fit).toHaveBeenCalledOnce();
+    expect(term.scrollToLine).toHaveBeenCalledWith(42);
+    expect(term.scrollToBottom).not.toHaveBeenCalled();
+  });
+
+  it("keeps the terminal pinned to bottom when zoom refits at the live prompt", () => {
+    const term = {
+      options: { fontSize: 12 },
+      cols: 100,
+      rows: 30,
+      buffer: { active: { viewportY: 120, baseY: 120 } },
+      refresh: vi.fn(),
+      scrollToLine: vi.fn(),
+      scrollToBottom: vi.fn(),
+    };
+    const fit = {
+      fit: vi.fn(() => {
+        term.buffer.active.viewportY = 0;
+      }),
+    };
+
+    applyTerminalFontSize(term, fit, 14);
+
+    expect(term.scrollToBottom).toHaveBeenCalledOnce();
+    expect(term.scrollToLine).not.toHaveBeenCalled();
   });
 });

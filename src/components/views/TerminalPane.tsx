@@ -14,6 +14,7 @@ import { isRemotePtyId } from "~/lib/pty-id";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import {
   attachTerminalKeyHandler,
+  terminalExitTaskStatus,
   wireTerminalFileDrop,
 } from "~/lib/terminal-pane-helpers";
 import {
@@ -25,6 +26,7 @@ import {
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
 import { useTerminalZoom, useTerminalPaneZoomShortcuts } from "~/lib/use-terminal-zoom";
+import { SandboxCloneOfferBanner } from "~/components/views/SandboxCloneOfferBanner";
 import { TerminalZoomControls } from "~/components/views/TerminalZoomControls";
 import { ApiError, api, resolveApiToken } from "~/lib/api";
 import {
@@ -36,6 +38,10 @@ import {
 import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
+import {
+  terminalSurfaceCache,
+  type PaneTerminalSurface,
+} from "~/lib/terminal-surface-cache";
 import { attachTerminalLinks } from "~/lib/terminal-links";
 import { resizePtyToTerminal } from "~/lib/terminal-resize";
 import {
@@ -65,27 +71,6 @@ async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>
   }
 }
 
-function displayCloneRemote(remote: string): string {
-  try {
-    const url = new URL(remote);
-    if (
-      url.password ||
-      url.search ||
-      url.hash ||
-      ((url.protocol === "http:" || url.protocol === "https:") && url.username)
-    ) {
-      url.username = "";
-      url.password = "";
-      url.search = "";
-      url.hash = "";
-      return url.toString();
-    }
-  } catch {
-    // SCP-style SSH remotes don't parse as URLs and don't carry URL userinfo.
-  }
-  return remote;
-}
-
 export type TerminalDescriptor = {
   taskId: string;
   ptyId: string | null;
@@ -95,10 +80,15 @@ export type TerminalDescriptor = {
   awaitingCreate?: boolean;
 };
 
+/** The session pane's cached xterm surface; carries the sandbox flag so the
+ *  "sandbox" badge can be restored on reattach without re-detecting the runtime. */
+interface SessionTerminalSurface extends PaneTerminalSurface {
+  useSandbox: boolean;
+}
+
 export function TerminalPane({
   project,
   task,
-  onClose,
   onHide,
   expanded = false,
   onToggleExpanded,
@@ -108,7 +98,6 @@ export function TerminalPane({
 }: {
   project: Project & { activeWorktreeId?: string | null };
   task: Task;
-  onClose: () => void;
   onHide?: () => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
@@ -154,11 +143,47 @@ export function TerminalPane({
   }, [terminalFontSize]);
 
   useEffect(() => {
-    const electron = getElectron();
-    if (!containerRef.current) return;
+    const cache = terminalSurfaceCache;
+    const surfaceId = descriptor.taskId;
+    // awaitingCreate (task row not yet persisted) and the retry nonce both mean
+    // "build fresh"; a plain remount (navigating back to this session) keeps the
+    // same buildKey and reattaches the existing surface instantly — no replay.
+    const buildKey = `${descriptor.awaitingCreate ? 1 : 0} ${retryNonce}`;
+    const container = containerRef.current;
+    if (!container) return;
 
     let cancelled = false;
-    let cleanup: (() => void) | undefined;
+    let detachMount: (() => void) | undefined;
+
+    // Bind THIS mount to a (new or reattached) surface. The returned cleanup
+    // PARKS the surface (offscreen, still subscribed) instead of disposing it, so
+    // leaving and returning to this session is a DOM move rather than a teardown +
+    // scrollback replay.
+    const bindMount = (surface: SessionTerminalSurface) => {
+      termSurfaceRef.current = surface.controls;
+      setIsSandboxTerminal(surface.useSandbox);
+      surface.controls.setFontSize(terminalFontSize);
+      const ro = new ResizeObserver(() => surface.fit());
+      ro.observe(container);
+      surface.fit();
+      if (surface.ptyId) onPtyReady(surface.ptyId);
+      return () => {
+        ro.disconnect();
+        if (termSurfaceRef.current === surface.controls) termSurfaceRef.current = null;
+        cache.park(surface.id);
+      };
+    };
+
+    const existing = cache.get(surfaceId) as SessionTerminalSurface | null;
+    if (existing && existing.buildKey === buildKey) {
+      container.appendChild(existing.el);
+      const detach = bindMount(existing);
+      return () => detach();
+    }
+    // A stale build (Retry / task just persisted) must not reattach the old one.
+    if (existing) cache.destroy(surfaceId);
+
+    const electron = getElectron();
 
     void (async () => {
       const { Terminal, FitAddon } = await prefetchTerminalModules();
@@ -169,13 +194,19 @@ export function TerminalPane({
       // `remotePty` mirrors `pty`'s method shape, so only spawn differs below.
       // Read the runtime setting fresh at terminal start; default to host.
       const useSandbox = !!electron && (await isDockerSandboxRuntime(electron));
-      if (cancelled) return;
-      setIsSandboxTerminal(useSandbox);
+      if (cancelled || !containerRef.current) return;
       const ptyApi = electron ? (useSandbox ? electron.remotePty : electron.pty) : null;
       const sandboxPathName = project.path.split("/").filter(Boolean).pop() ?? project.name;
       const sandboxCwd = sandboxWorkspacePath(sandboxPathName);
 
       const cursorColor = meta?.color;
+      // xterm renders into a surface-owned element so it survives unmounts and is
+      // re-parented between this container and the offscreen holder. Attach it to
+      // the live container BEFORE open() so xterm measures real dimensions.
+      const el = document.createElement("div");
+      el.style.width = "100%";
+      el.style.height = "100%";
+      container.appendChild(el);
       const term = new Terminal(
         createTerminalOptions({
           cursorColor,
@@ -186,13 +217,34 @@ export function TerminalPane({
       const fit = new FitAddon();
       fitRef.current = fit;
       term.loadAddon(fit);
-      term.open(containerRef.current);
-      term.focus();
+      term.open(el);
 
-      const host = containerRef.current;
+      const surface: SessionTerminalSurface = {
+        id: surfaceId,
+        el,
+        buildKey,
+        useSandbox,
+        ptyId: null,
+        destroyed: false,
+        controls: {
+          focus: () => term.focus(),
+          clear: () => term.clear(),
+          setFontSize: () => undefined,
+        },
+        fit: () => fitTerminalSurface(term, fit),
+        teardown: () => undefined,
+      };
+
+      const host = el;
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
+      // The PTY subscription stays wired while parked; mirror the active pty onto
+      // the surface so reattach + the session list's running state stay correct.
+      const setActivePty = (id: string | null) => {
+        activePtyId = id;
+        surface.ptyId = id;
+      };
       const pendingElectronData = new Map<string, SequencedPtyData[]>();
       const pendingElectronExit = new Map<
         string,
@@ -221,7 +273,7 @@ export function TerminalPane({
         clearSpawnAck();
         spawnAckTimer = setTimeout(() => {
           spawnAckTimer = null;
-          if (cancelled || activePtyId !== ptyId) return;
+          if (surface.destroyed || activePtyId !== ptyId) return;
           const hint =
             "sandbox isn't responding — the agent never acknowledged the terminal. Check the sandbox is connected, then retry.";
           setStartError(hint);
@@ -261,7 +313,7 @@ export function TerminalPane({
       let spawnedAsResume = false;
 
       const clearActivePty = () => {
-        activePtyId = null;
+        setActivePty(null);
         onPtyReady(null);
       };
 
@@ -309,19 +361,32 @@ export function TerminalPane({
           term.writeln(`\x1b[31m[${message}]\x1b[0m`);
           return;
         }
-        if (cancelled || consumeIntentionalSessionClose(descriptor.taskId)) {
+        if (surface.destroyed || consumeIntentionalSessionClose(descriptor.taskId)) {
           return;
         }
+        clearActivePty();
+        const status = terminalExitTaskStatus(exitCode);
+        const code = exitCode ?? "unknown";
+        const message =
+          status === "finished"
+            ? `Session finished (code=${code}).`
+            : `Session terminated (code=${code}).`;
+        setLiveStatus(message);
+        term.writeln("");
+        term.writeln(`\x1b[2m[${message}]\x1b[0m`);
         void (async () => {
           try {
-            await api.deleteTask(descriptor.taskId);
+            await api.updateTaskStatus(descriptor.taskId, { status });
           } catch {
             /* best effort */
           }
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.tasks(project.id, project.activeWorktreeId ?? null),
-          });
-          onClose();
+          await Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.tasks(project.id, project.activeWorktreeId ?? null),
+            }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+          ]);
         })();
       };
 
@@ -389,7 +454,9 @@ export function TerminalPane({
       const resizeRemotePtyToSurface = (ptyId: string) =>
         resizePtyToTerminal(term, (cols, rows) => api.resizeRemotePty(ptyId, cols, rows));
 
-      termSurfaceRef.current = {
+      surface.controls = {
+        focus: () => term.focus(),
+        clear: () => term.clear(),
         setFontSize: (nextFontSize) => {
           applyTerminalFontSize(term, fit, nextFontSize);
           const id = activePtyId;
@@ -450,7 +517,7 @@ export function TerminalPane({
 
       const wireNewElectronPty = (ptyId: string): boolean => {
         if (!ptyApi) return false;
-        activePtyId = ptyId;
+        setActivePty(ptyId);
         for (const chunk of pendingElectronData.get(ptyId) ?? []) {
           term.write(chunk.data);
         }
@@ -473,7 +540,7 @@ export function TerminalPane({
         electronReplayExit = pendingElectronExit.get(ptyId) ?? null;
         pendingElectronExit.delete(ptyId);
 
-        activePtyId = ptyId;
+        setActivePty(ptyId);
         const pendingBeforeReplay = pendingElectronData.get(ptyId) ?? [];
         pendingElectronData.delete(ptyId);
         wireTerminalInput(ptyId);
@@ -487,7 +554,11 @@ export function TerminalPane({
             electronReplayPtyId = null;
           }
         }
-        if (cancelled || activePtyId !== ptyId) return false;
+        if (surface.destroyed || activePtyId !== ptyId) return false;
+        if (replay.nextSeq === 0) {
+          clearActivePty();
+          return false;
+        }
 
         const replayData = replayDataOrFallback(replay, pendingBeforeReplay);
         if (replayData) term.write(replayData);
@@ -499,13 +570,13 @@ export function TerminalPane({
         electronReplayExit = null;
         if (replayExit) {
           handlePtyExit(replayExit.exitCode);
-          return false;
+          return true;
         }
         return true;
       };
 
       const wireRemotePty = async (ptyId: string) => {
-        activePtyId = ptyId;
+        setActivePty(ptyId);
         const { ticket } = await api.createRemotePtyTicket(ptyId);
         const source = new EventSource(
           `/api/remote-pty/${encodeURIComponent(ptyId)}/events?ticket=${encodeURIComponent(ticket)}`
@@ -538,6 +609,8 @@ export function TerminalPane({
             if (msg.type === "exit") {
               exitedBeforeReady = true;
               handlePtyExit(msg.exitCode);
+              source.close();
+              return;
             }
             if (msg.type === "error") {
               const message = `remote pty error: ${msg.error ?? "unknown"}`;
@@ -575,7 +648,7 @@ export function TerminalPane({
         term.writeln("\x1b[36m[connected to remote runtime]\x1b[0m");
         await resizeRemotePtyToSurface(ptyId).catch(() => undefined);
         const replay = await api.replayRemotePty(ptyId, { beforeSeq: replayBeforeSeq });
-        if (!cancelled && replay.data) term.write(replay.data);
+        if (!surface.destroyed && replay.data) term.write(replay.data);
         replaying = false;
         for (const chunk of pendingLive) term.write(chunk);
         pendingLive.length = 0;
@@ -622,7 +695,7 @@ export function TerminalPane({
               });
         spawnAt = Date.now();
         spawnedAsResume = isResume;
-        if (cancelled) {
+        if (surface.destroyed) {
           if (ptyApi) await ptyApi.kill(ptyId).catch(() => undefined);
           else await api.killRemotePty(ptyId).catch(() => undefined);
           return;
@@ -637,7 +710,7 @@ export function TerminalPane({
       };
 
       const ensurePty = async () => {
-        if (cancelled) return;
+        if (surface.destroyed) return;
         if (descriptor.awaitingCreate) return;
         setStartError(null);
         setCloneOffer(null);
@@ -650,12 +723,14 @@ export function TerminalPane({
             } else {
               // Re-attach to a live PTY: subscribe BEFORE replay so any chunk
               // emitted between the calls is queued, not lost.
+              let attached = false;
               if (electron) {
-                await wireExistingElectronPty(descriptor.ptyId);
+                attached = await wireExistingElectronPty(descriptor.ptyId);
               } else {
                 await wireRemotePty(descriptor.ptyId);
+                attached = true;
               }
-              return;
+              if (attached) return;
             }
           }
 
@@ -669,14 +744,32 @@ export function TerminalPane({
             } catch {
               repoPresent = false;
             }
-            if (cancelled) return;
+            if (surface.destroyed) return;
             if (!repoPresent) {
               const remote = await electron.sandbox.detectRemote(project.path).catch(() => null);
-              if (cancelled) return;
+              if (surface.destroyed) return;
               if (remote) {
-                setCloneOffer({ remote, slug: workspaceSlug(sandboxPathName) });
-                setLiveStatus("This project isn't in the sandbox yet — clone it to start.");
-                return;
+                // Auto-clone on launch: the repo isn't in the sandbox yet, so pull
+                // it in before spawning the agent. The manager provisions git auth
+                // (copy-host SSH keys) first, so private repos work. On failure we
+                // fall back to the manual banner so the user can retry/see why.
+                const slug = workspaceSlug(sandboxPathName);
+                setCloneOffer({ remote, slug });
+                setCloning(true);
+                setLiveStatus("Cloning the project into the sandbox…");
+                try {
+                  await electron.remoteGit.clone(remote, slug);
+                  if (surface.destroyed) return;
+                  setCloneOffer(null);
+                  setCloning(false);
+                  // Repo is present now — fall through to spawn the agent.
+                } catch (cloneErr) {
+                  if (surface.destroyed) return;
+                  setCloning(false);
+                  setStartError(cloneErr instanceof Error ? cloneErr.message : String(cloneErr));
+                  setLiveStatus("Couldn't clone automatically — use the banner to retry.");
+                  return;
+                }
               }
             }
           }
@@ -706,30 +799,26 @@ export function TerminalPane({
         }
       };
 
-      rafHandle = window.requestAnimationFrame(() => ensurePty());
-
-      const ro = new ResizeObserver(() => {
-        fitTerminalSurface(term, fit);
-      });
-      ro.observe(containerRef.current);
-
-      cleanup = () => {
+      surface.teardown = () => {
         cancelAnimationFrame(rafHandle);
         clearSpawnAck();
         for (const off of subscriptions) off();
         stopWatchingColorScheme();
         detachLinks();
         detachFileDrop();
-        ro.disconnect();
         fitRef.current = null;
-        termSurfaceRef.current = null;
         term.dispose();
       };
+
+      cache.set(surface);
+      term.focus();
+      rafHandle = window.requestAnimationFrame(() => ensurePty());
+      detachMount = bindMount(surface);
     })();
 
     return () => {
       cancelled = true;
-      cleanup?.();
+      detachMount?.();
     };
   }, [descriptor.taskId, descriptor.awaitingCreate, retryNonce]);
 
@@ -808,36 +897,11 @@ export function TerminalPane({
         </div>
       )}
       {cloneOffer && (
-        <div
-          role="region"
-          aria-label="Clone into sandbox"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            padding: "8px 12px",
-            borderBottom: "1px solid var(--border)",
-            color: "var(--text)",
-            background: "var(--accent-faint, var(--accent-dim))",
-            fontFamily: "var(--mono)",
-            fontSize: 11.5,
-          }}
-        >
-          <span
-            style={{
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Not in the sandbox yet — clone {displayCloneRemote(cloneOffer.remote)}?
-          </span>
-          <Btn variant="primary" size="sm" disabled={cloning} onClick={() => void confirmClone()}>
-            {cloning ? "Cloning…" : "Clone into sandbox"}
-          </Btn>
-        </div>
+        <SandboxCloneOfferBanner
+          remote={cloneOffer.remote}
+          cloning={cloning}
+          onConfirm={() => void confirmClone()}
+        />
       )}
       <div
         style={{

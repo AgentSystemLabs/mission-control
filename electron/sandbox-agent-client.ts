@@ -41,6 +41,8 @@ export type SpawnArgs = {
   command: string;
   agent?: string;
   shell?: boolean;
+  /** Project-less "home" shell terminal: open at the remote agent's home dir. */
+  home?: boolean;
   args?: string[];
   cols?: number;
   rows?: number;
@@ -58,7 +60,8 @@ export type RpcMethod =
   | "git.status"
   | "git.diff"
   | "git.clone"
-  | "ssh.setup";
+  | "ssh.setup"
+  | "creds.setup";
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
 
@@ -68,12 +71,14 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-export type CreateSocket = (url: string, token: string) => WebSocketLike;
+export type CreateSocket = (url: string, token: string, opts?: { ca?: string }) => WebSocketLike;
 
 export type SandboxAgentClientOptions = {
   /** Injectable socket factory (tests). Default: a real `ws` WebSocket with Bearer auth. */
   createSocket?: CreateSocket;
   rpcTimeoutMs?: number;
+  /** PEM of a self-signed cert to pin for `wss://` connections (managed cloud VMs). */
+  tlsCa?: string | null;
 };
 
 export class SandboxAgentClient {
@@ -93,7 +98,7 @@ export class SandboxAgentClient {
     this.handlers = handlers;
     this.rpcTimeoutMs = opts.rpcTimeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
     const create = opts.createSocket ?? defaultCreateSocket;
-    this.socket = create(url, token);
+    this.socket = create(url, token, opts.tlsCa ? { ca: opts.tlsCa } : undefined);
     this.socket.on("message", (data) => this.onMessage(data));
     this.socket.on("close", () => this.onCloseEvent());
     this.socket.on("error", (err) => this.handlers.onError?.(err));
@@ -255,9 +260,17 @@ export class SandboxAgentClient {
 
 const OPEN_STATE = 1; // ws.OPEN
 
-function defaultCreateSocket(url: string, token: string): WebSocketLike {
+function defaultCreateSocket(url: string, token: string, opts?: { ca?: string }): WebSocketLike {
   // Lazy require so this module stays importable in tests without `ws` semantics.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { WebSocket } = require("ws") as typeof import("ws");
-  return new WebSocket(url, { headers: { Authorization: `Bearer ${token}` } }) as unknown as WebSocketLike;
+  const wsOptions: Record<string, unknown> = { headers: { Authorization: `Bearer ${token}` } };
+  if (opts?.ca) {
+    // Managed cloud VMs terminate TLS with a self-signed cert. Pin it by value:
+    // trust exactly this cert (as its own CA) and skip the hostname check, since
+    // the cert is issued for an opaque CN rather than the raw IP we dial.
+    wsOptions.ca = [opts.ca];
+    wsOptions.checkServerIdentity = () => undefined;
+  }
+  return new WebSocket(url, wsOptions) as unknown as WebSocketLike;
 }

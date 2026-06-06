@@ -34,7 +34,7 @@ type PointerReorderState = {
   moved: boolean;
 };
 
-export function ProjectBar() {
+export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: projects } = useScopedProjects();
@@ -321,6 +321,7 @@ export function ProjectBar() {
       glow
       role="navigation"
       aria-label="Pinned projects"
+      aria-disabled={disabled || undefined}
       style={{
         width: BAR_WIDTH,
         flexShrink: 0,
@@ -331,6 +332,11 @@ export function ProjectBar() {
         padding: `${PAD_TOP}px ${PAD_X}px`,
         overflowX: "hidden",
         overflowY: "auto",
+        // Inert + dimmed while the active sandbox resumes — its projects aren't
+        // usable until the agent is back.
+        opacity: disabled ? 0.5 : undefined,
+        pointerEvents: disabled ? "none" : undefined,
+        transition: "opacity 0.15s",
       }}
     >
       {activeIndex >= 0 && (
@@ -401,6 +407,7 @@ export function ProjectBar() {
             onPointerDown={(e) => startPointerReorder(project.id, e)}
             onDragStart={(e) => e.preventDefault()}
             onKeyDown={(e) => {
+              if (disabled) return;
               if (!e.shiftKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
               e.preventDefault();
               movePinnedProjectByKeyboard(project.id, e.key === "ArrowUp" ? -1 : 1);

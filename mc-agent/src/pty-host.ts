@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as pty from "node-pty";
 import { installAgentHooks } from "../../src/shared/agent-hooks";
 import {
@@ -79,6 +80,9 @@ export class PtyHost {
     this.spawnFn = opts.spawnFn ?? pty.spawn;
     this.policyDeps = {
       projectRoots: () => [this.workspaceRoot],
+      // Project-less "home" shell terminals open at the agent's own home dir on
+      // the remote VM (parity with the desktop host's home terminals).
+      homeShellRoots: () => [os.homedir()],
       resolveCommand: (name) => resolveAgentCommandOnPath(name, this.baseEnv),
       resolveShell: () => {
         const shell = this.baseEnv.SHELL || "/bin/bash";
@@ -95,11 +99,16 @@ export class PtyHost {
 
   /** Resolve, hook-bootstrap, and spawn. Emits spawned/spawnError; returns nothing. */
   spawn(msg: SpawnMessage): void {
+    // A project-less "home" terminal opens at this agent's home dir, resolved
+    // here (the renderer never knows the VM's home path) and whitelisted via
+    // policyDeps.homeShellRoots.
+    const homeShell = msg.shell === true && msg.home === true;
     const req: SpawnRequest = msg.shell
       ? {
           shell: true,
+          home: msg.home,
           taskId: msg.taskId,
-          cwd: msg.cwd,
+          cwd: homeShell ? os.homedir() : msg.cwd,
           command: msg.command,
           cols: msg.cols,
           rows: msg.rows,
@@ -123,7 +132,8 @@ export class PtyHost {
     // A project that hasn't been cloned yet has no /workspace/<slug> dir, which
     // would make the spawn policy's cwd check fail. Create the slot (confined to
     // the workspace) so a terminal still opens; the user can then clone into it.
-    this.ensureWorkspaceCwd(msg.cwd);
+    // Home terminals open at the agent's existing home dir, so skip this.
+    if (!homeShell) this.ensureWorkspaceCwd(msg.cwd);
 
     let plan: SpawnPlan;
     try {

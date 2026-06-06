@@ -45,7 +45,6 @@ export function LicenseBadge({ onClick }: { onClick?: () => void }) {
     display: "inline-flex",
     alignItems: "center",
     gap: 4,
-    marginRight: 10,
     height: 22,
     minWidth: 44,
     justifyContent: "center",

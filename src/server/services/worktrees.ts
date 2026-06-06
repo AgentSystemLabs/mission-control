@@ -15,6 +15,12 @@ import { newId } from "./_ids";
 import { events } from "../events";
 
 const GIT_WORKTREE_TIMEOUT_MS = 30_000;
+// Windows keeps a file locked for a short window after the process holding it
+// exits. `fs.rm` retries on EBUSY/EMFILE/ENFILE/ENOTEMPTY/EPERM, which covers
+// the lag between killing a worktree's terminals/agents and the OS releasing
+// their handles (commonly on `.claude/`). ~1s of total backoff at 100ms steps.
+const WORKTREE_RM_MAX_RETRIES = 10;
+const WORKTREE_RM_RETRY_DELAY_MS = 100;
 const NAME_PARTS = [
   "amber",
   "arctic",
@@ -246,9 +252,18 @@ export async function deleteWorktree(input: {
   const expectedPath = resolveWorktreePath(projectRoot, row.name);
   const worktreePath = path.resolve(row.path);
   if (worktreePath !== expectedPath) throw new Error("worktree path is invalid");
-  const dirty = await gitOk(worktreePath, ["status", "--porcelain"]);
+
+  // A previous delete that failed partway (e.g. Windows "Permission denied"
+  // while a process held a handle) can leave a half-removed worktree whose
+  // `.git` link is already gone, so `git status` no longer recognises it as a
+  // working tree. Don't let that wedge future deletes: only consult/enforce
+  // dirtiness when the worktree is still a healthy tree we can actually inspect.
+  const worktreeOnDisk = fs.existsSync(worktreePath);
+  const status = worktreeOnDisk
+    ? await runGit(worktreePath, ["status", "--porcelain"])
+    : null;
   const info = toInfo(row);
-  const isDirty = dirty.trim().length > 0;
+  const isDirty = status?.code === 0 && status.stdout.trim().length > 0;
   if (isDirty && input.stashChanges) {
     await gitOk(worktreePath, [
       "stash",
@@ -261,13 +276,29 @@ export async function deleteWorktree(input: {
     throw new WorktreeDirtyError(info);
   }
 
-  await gitOk(projectRoot, [
-    "worktree",
-    "remove",
-    ...(input.force || input.stashChanges ? ["--force"] : []),
-    worktreePath,
-  ]);
-  await fs.promises.rm(worktreePath, { recursive: true, force: true });
+  // `git worktree remove` deletes the working dir AND the admin entry under
+  // `.git/worktrees/<name>`. On Windows it aborts with "Permission denied" when
+  // any process still holds a handle inside the dir, leaving it half-removed —
+  // and the next attempt then fails with "is not a working tree". So treat git's
+  // removal as best-effort: ignore its failure, force-delete the dir ourselves
+  // (retrying through the brief post-exit handle-release lag), then prune the
+  // now-stale admin entry so the registration doesn't linger.
+  if (worktreeOnDisk) {
+    await runGit(projectRoot, [
+      "worktree",
+      "remove",
+      ...(input.force || input.stashChanges ? ["--force"] : []),
+      worktreePath,
+    ]).catch(() => undefined);
+  }
+  await fs.promises.rm(worktreePath, {
+    recursive: true,
+    force: true,
+    maxRetries: WORKTREE_RM_MAX_RETRIES,
+    retryDelay: WORKTREE_RM_RETRY_DELAY_MS,
+  });
+  await runGit(projectRoot, ["worktree", "prune"]).catch(() => undefined);
+
   const deleted = deleteWorktreeRow(row.id) > 0;
   if (deleted) {
     events.emit("worktree:deleted", { id: row.id, projectId: input.projectId });

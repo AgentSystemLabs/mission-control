@@ -68,16 +68,22 @@ export function NewAgentDialog({
   const [submitting, setSubmitting] = useState(false);
   const cliAvailability = useCliAvailability();
 
+  const buildSessionSettingsPatch = (
+    nextRememberSettings: boolean,
+    nextAgent: TaskAgent,
+    nextSkipPermissions: boolean
+  ): RememberPatch => ({
+    rememberAgentSettings: nextRememberSettings,
+    savedAgent: nextAgent,
+    savedSkipPermissions: nextSkipPermissions,
+    savedBareSession: false,
+  });
+
   const persistRememberedSettings = async (
     nextAgent: TaskAgent,
     nextSkipPermissions: boolean
   ) => {
-    await onPersistRemember({
-      rememberAgentSettings: true,
-      savedAgent: nextAgent,
-      savedSkipPermissions: agentSupportsSkipPermissions(nextAgent) ? nextSkipPermissions : false,
-      savedBareSession: false,
-    });
+    await onPersistRemember(buildSessionSettingsPatch(true, nextAgent, nextSkipPermissions));
   };
 
   useEffect(() => {
@@ -97,9 +103,8 @@ export function NewAgentDialog({
       setSubmitting(false);
       return;
     }
-    const seedAgent: TaskAgent =
-      project?.rememberAgentSettings && project?.savedAgent ? project.savedAgent : "claude-code";
-    const seedSkip = project?.rememberAgentSettings ? !!project.savedSkipPermissions : false;
+    const seedAgent: TaskAgent = project?.savedAgent ?? "claude-code";
+    const seedSkip = !!project?.savedSkipPermissions;
     setAgent(seedAgent);
     setDangerouslySkipPermissions(seedSkip);
     setRememberSettings(!!project?.rememberAgentSettings);
@@ -111,21 +116,7 @@ export function NewAgentDialog({
 
   const toggleRemember = async (next: boolean) => {
     setRememberSettings(next);
-    await onPersistRemember(
-      next
-        ? {
-            rememberAgentSettings: true,
-            savedAgent: agent,
-            savedSkipPermissions: agentSupportsSkipPermissions(agent) ? dangerouslySkipPermissions : false,
-            savedBareSession: false,
-          }
-        : {
-            rememberAgentSettings: false,
-            savedAgent: null,
-            savedSkipPermissions: false,
-            savedBareSession: false,
-        }
-    );
+    await onPersistRemember(buildSessionSettingsPatch(next, agent, dangerouslySkipPermissions));
   };
 
   const selectAgent = (nextAgent: TaskAgent) => {
@@ -134,16 +125,12 @@ export function NewAgentDialog({
       nextAvailability.status === "outdated";
     if (!canSelect) return;
     setAgent(nextAgent);
-    if (rememberSettings) {
-      void persistRememberedSettings(nextAgent, dangerouslySkipPermissions);
-    }
+    void onPersistRemember(buildSessionSettingsPatch(rememberSettings, nextAgent, dangerouslySkipPermissions));
   };
 
   const setSkipPermissions = (nextSkipPermissions: boolean) => {
     setDangerouslySkipPermissions(nextSkipPermissions);
-    if (rememberSettings) {
-      void persistRememberedSettings(agent, nextSkipPermissions);
-    }
+    void onPersistRemember(buildSessionSettingsPatch(rememberSettings, agent, nextSkipPermissions));
   };
 
   const submit = () => {
@@ -163,12 +150,9 @@ export function NewAgentDialog({
       const supportsSkip = agentSupportsSkipPermissions(agent);
       const skip = supportsSkip && dangerouslySkipPermissions;
       if (rememberSettings) {
-        void onPersistRemember({
-          rememberAgentSettings: true,
-          savedAgent: agent,
-          savedSkipPermissions: skip,
-          savedBareSession: false,
-        });
+        void persistRememberedSettings(agent, dangerouslySkipPermissions);
+      } else {
+        void onPersistRemember(buildSessionSettingsPatch(false, agent, dangerouslySkipPermissions));
       }
       onStart({
         agent,

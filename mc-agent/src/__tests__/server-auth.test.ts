@@ -11,6 +11,7 @@ function config(): AgentConfig {
     pairingToken: "secret",
     hookApiHost: "host.docker.internal",
     allowInsecure: false,
+    activityFile: "",
   };
 }
 

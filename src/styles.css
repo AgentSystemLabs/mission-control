@@ -375,7 +375,8 @@ select,
 .mc-btn-primary.mc-btn-attached-left,
 .mc-btn-frame.mc-btn-attached-left,
 .mc-btn-ghost.mc-btn-attached-left,
-.mc-btn-gray-frame.mc-btn-attached-left {
+.mc-btn-gray-frame.mc-btn-attached-left,
+.mc-btn-danger.mc-btn-attached-left {
   height: var(--mc-btn-height);
   min-height: 0;
   min-width: 0;
@@ -385,8 +386,9 @@ select,
 .mc-btn-primary.mc-btn-attached-left::before,
 .mc-btn-frame.mc-btn-attached-left::before,
 .mc-btn-ghost.mc-btn-attached-left::before,
-.mc-btn-gray-frame.mc-btn-attached-left::before {
-  border-left-width: 0;
+.mc-btn-gray-frame.mc-btn-attached-left::before,
+.mc-btn-danger.mc-btn-attached-left::before {
+  border-left: 0;
   border-image-width:
     var(--mc-btn-frame-border)
     var(--mc-btn-frame-border)
@@ -397,7 +399,8 @@ select,
 .mc-btn-ghost.mc-btn-attached-right,
 .mc-btn-frame.mc-btn-attached-right,
 .mc-btn-primary.mc-btn-attached-right,
-.mc-btn-gray-frame.mc-btn-attached-right {
+.mc-btn-gray-frame.mc-btn-attached-right,
+.mc-btn-danger.mc-btn-attached-right {
   height: var(--mc-btn-height);
   min-height: 0;
   min-width: 0;
@@ -406,13 +409,31 @@ select,
 .mc-btn-ghost.mc-btn-attached-right::before,
 .mc-btn-frame.mc-btn-attached-right::before,
 .mc-btn-primary.mc-btn-attached-right::before,
-.mc-btn-gray-frame.mc-btn-attached-right::before {
-  border-right-width: 0;
+.mc-btn-gray-frame.mc-btn-attached-right::before,
+.mc-btn-danger.mc-btn-attached-right::before {
+  border-right: 0;
   border-image-width:
     var(--mc-btn-frame-border)
     0
     var(--mc-btn-frame-border)
     var(--mc-btn-frame-border);
+}
+
+/* A button wedged between two others: drop BOTH side frames. The single-side
+   rules above each set the full border-image-width shorthand, so when both
+   classes are present they collide and one side's frame reappears. */
+.mc-btn-ghost.mc-btn-attached-left.mc-btn-attached-right::before,
+.mc-btn-frame.mc-btn-attached-left.mc-btn-attached-right::before,
+.mc-btn-primary.mc-btn-attached-left.mc-btn-attached-right::before,
+.mc-btn-gray-frame.mc-btn-attached-left.mc-btn-attached-right::before,
+.mc-btn-danger.mc-btn-attached-left.mc-btn-attached-right::before {
+  border-left: 0;
+  border-right: 0;
+  border-image-width:
+    var(--mc-btn-frame-border)
+    0
+    var(--mc-btn-frame-border)
+    0;
 }
 
 .mc-btn:focus-visible {
@@ -531,7 +552,30 @@ select,
   --mc-toast-frame: url("/borders/square_red.png");
 }
 
+.mc-toast-loading {
+  --mc-toast-tone: var(--status-running, var(--accent));
+}
+
+.mc-toast-warning {
+  --mc-toast-tone: var(--status-warning, var(--accent));
+}
+
+/* Sonner's loading spinner sits in [data-icon]; tint it to the toast tone and
+   let it spin inside the circular badge instead of the default bare loader. */
+.mc-toast-panel [data-icon] .sonner-loading-wrapper,
+.mc-toast-panel [data-icon] [data-sonner-spinner],
+.mc-toast-panel [data-icon] .sonner-spinner {
+  width: 16px;
+  height: 16px;
+  color: color-mix(in srgb, var(--mc-toast-tone) 82%, white);
+}
+
+.mc-toast-panel [data-icon] .sonner-loading-bar {
+  background: currentColor;
+}
+
 .mc-toast-panel [data-icon] {
+  position: relative;
   width: 28px;
   height: 28px;
   border-radius: 999px;
@@ -542,6 +586,15 @@ select,
   align-items: center;
   justify-content: center;
   flex: 0 0 28px;
+}
+
+/* Sonner's loading wrapper is position:absolute; inset:0, relying on its
+   default [data-icon]{position:relative} — which `unstyled` disables. Let the
+   badge's flex centering place the 16px spinner instead of pinning it to the
+   toast corner. */
+.mc-toast-panel [data-icon] .sonner-loading-wrapper {
+  position: relative;
+  inset: auto;
 }
 
 .mc-toast-panel [data-icon] svg {
@@ -1666,6 +1719,26 @@ body[data-card-glow] .cursor-glow {
 }
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session:focus-visible {
   box-shadow: var(--mm-ring);
+}
+
+[data-minimal="true"] .mc-btn-primary.mc-btn-attached-left,
+[data-minimal="true"] .mc-btn-frame.mc-btn-attached-left,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-attached-left,
+[data-minimal="true"] .mc-btn-gray-frame.mc-btn-attached-left,
+[data-minimal="true"] .mc-btn-danger.mc-btn-attached-left {
+  border-left: none;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+[data-minimal="true"] .mc-btn-primary.mc-btn-attached-right,
+[data-minimal="true"] .mc-btn-frame.mc-btn-attached-right,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-attached-right,
+[data-minimal="true"] .mc-btn-gray-frame.mc-btn-attached-right,
+[data-minimal="true"] .mc-btn-danger.mc-btn-attached-right {
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 /* Inputs: subtle inset depth, halo on focus */

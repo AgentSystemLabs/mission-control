@@ -208,7 +208,7 @@ export function CommitPushButton({
   title?: string;
   autoStage?: boolean;
   showAheadBadge?: boolean;
-  variant?: "primary" | "ghost";
+  variant?: "primary" | "ghost" | "gray-frame";
   size?: "sm" | "md";
   /** Right segment of a pill-style split next to the Git status control (toolbar). */
   splitTrailing?: boolean;

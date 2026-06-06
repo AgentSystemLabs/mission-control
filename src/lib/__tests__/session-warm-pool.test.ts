@@ -36,6 +36,37 @@ describe("session-warm-pool", () => {
     });
   });
 
+  it("remembers skip permissions without remembered agent settings", () => {
+    expect(
+      defaultSessionPayload({
+        branch: "dev",
+        rememberAgentSettings: false,
+        savedSkipPermissions: true,
+      }),
+    ).toEqual({
+      agent: "claude-code",
+      branch: "dev",
+      skipPermissions: true,
+      bareSession: false,
+    });
+  });
+
+  it("uses the last selected agent without remembered agent settings", () => {
+    expect(
+      defaultSessionPayload({
+        branch: "dev",
+        rememberAgentSettings: false,
+        savedAgent: "cursor-cli",
+        savedSkipPermissions: true,
+      }),
+    ).toEqual({
+      agent: "cursor-cli",
+      branch: "dev",
+      skipPermissions: true,
+      bareSession: false,
+    });
+  });
+
   it("does not pre-spawn a host session while Docker sandbox runtime is active", async () => {
     const spawn = vi.fn();
     vi.stubGlobal("window", {

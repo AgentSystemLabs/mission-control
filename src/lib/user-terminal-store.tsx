@@ -23,10 +23,27 @@ import {
 } from "./user-terminal-warm-pool";
 import { isRemotePtyId } from "./pty-id";
 import { isDockerSandboxRuntime } from "./sandbox-runtime";
+import { terminalSurfaceCache } from "./terminal-surface-cache";
 import type { Project, UserTerminal } from "~/db/schema";
 import { worktreeScopeKey } from "~/shared/worktrees";
+import { HOME_TERMINAL_PROJECT_ID } from "~/shared/home-terminal";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 type ScopedProject = Project & { activeWorktreeId?: string | null };
+
+// Scope-key namespace for project-less "home" terminals (the dashboard
+// terminals). Each home terminal runs a shell ON a specific scope's machine, so
+// it is keyed by the active scope id (`__home__:<scopeId>`) — switching sandboxes
+// shows that sandbox's terminals, not another's. Sessions/focus/hidden/panel
+// state live in the same per-scope records as project terminals, so they persist
+// across navigation just like project terminals.
+const HOME_SCOPE_PREFIX = `${HOME_TERMINAL_PROJECT_ID}:`;
+function homeScopeKeyFor(scopeId: string): string {
+  return `${HOME_SCOPE_PREFIX}${scopeId}`;
+}
+function isHomeScopeKey(key: string): boolean {
+  return key.startsWith(HOME_SCOPE_PREFIX);
+}
 
 type Session = {
   terminal: UserTerminal;
@@ -36,6 +53,11 @@ type Session = {
 type Ctx = {
   project: ScopedProject | null;
   setProject: (project: ScopedProject | null) => void;
+  /** Whether the project-less "home" (dashboard) terminal scope is active. */
+  homeActive: boolean;
+  setHomeActive: (active: boolean) => void;
+  /** The active sandbox/scope id home terminals are bucketed under. */
+  setHomeScopeId: (scopeId: string) => void;
   panelOpen: boolean;
   togglePanel: () => void;
   setPanelOpen: (open: boolean) => void;
@@ -82,6 +104,16 @@ function scopeKeyForProject(project: ScopedProject): string {
 
 export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const [project, setProjectState] = useState<ScopedProject | null>(null);
+  // The dashboard activates this so a project-less "home" terminal scope becomes
+  // current. A real project always wins (see scopeKey) so a lingering home flag
+  // can never shadow a project's terminals.
+  const [homeActive, setHomeActive] = useState(false);
+  // The active scope (sandbox id or "local") that home terminals bucket under.
+  // Pushed by ScopeDropdown so switching sandboxes switches the visible set.
+  const [homeScopeId, setHomeScopeIdState] = useState<string>(LOCAL_SCOPE_ID);
+  const setHomeScopeId = useCallback((scopeId: string) => {
+    setHomeScopeIdState((prev) => (prev === scopeId ? prev : scopeId || LOCAL_SCOPE_ID));
+  }, []);
   // Sessions for every project visited this app run, keyed by projectId.
   // Sessions stay alive across project switches so PTYs are not killed when
   // the user navigates away and back.
@@ -138,21 +170,28 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     sessionsByProjectRef.current = sessionsByProject;
   }, [sessionsByProject]);
 
-  const scopeKey = project ? scopeKeyForProject(project) : null;
+  // Active scope key: a real project takes precedence over the home flag, so a
+  // stale homeActive can never shadow a project's terminals. Home is current only
+  // when no project is selected.
+  const scopeKey = project
+    ? scopeKeyForProject(project)
+    : homeActive
+      ? homeScopeKeyFor(homeScopeId)
+      : null;
   const panelOpen = scopeKey ? (panelOpenByProject[scopeKey] ?? false) : false;
   const setPanelOpen = useCallback(
     (open: boolean) => {
-      if (!project) return;
-      const key = scopeKeyForProject(project);
-      setPanelOpenByProject((prev) => (prev[key] === open ? prev : { ...prev, [key]: open }));
+      if (!scopeKey) return;
+      setPanelOpenByProject((prev) =>
+        prev[scopeKey] === open ? prev : { ...prev, [scopeKey]: open }
+      );
     },
-    [project]
+    [scopeKey]
   );
   const togglePanel = useCallback(() => {
-    if (!project) return;
-    const key = scopeKeyForProject(project);
-    setPanelOpenByProject((prev) => ({ ...prev, [key]: !(prev[key] ?? true) }));
-  }, [project]);
+    if (!scopeKey) return;
+    setPanelOpenByProject((prev) => ({ ...prev, [scopeKey]: !(prev[scopeKey] ?? true) }));
+  }, [scopeKey]);
 
   const setProject = useCallback((next: ScopedProject | null) => {
     setProjectState((prev) =>
@@ -191,6 +230,37 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     };
   }, [project]);
 
+  // Lazy-load persisted home terminals the first time each scope's home bucket is
+  // active. Mirrors the per-project loader; home sessions then survive navigation
+  // and scope switches in the same sessionsByProject bucket keyed per scope.
+  useEffect(() => {
+    if (!homeActive) return;
+    const key = homeScopeKeyFor(homeScopeId);
+    if (loadedProjectsRef.current.has(key)) return;
+    loadedProjectsRef.current.add(key);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { terminals } = await api.listHomeTerminals(homeScopeId);
+        if (cancelled) return;
+        setSessionsByProject((prev) => {
+          if (prev[key]) return prev; // a createTerminal call beat us to it
+          return { ...prev, [key]: terminals.map((t) => ({ terminal: t, ptyId: null })) };
+        });
+        setFocusedByProject((prev) => {
+          if (prev[key] !== undefined) return prev;
+          return { ...prev, [key]: terminals[0]?.id ?? null };
+        });
+      } catch {
+        loadedProjectsRef.current.delete(key);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [homeActive, homeScopeId]);
+
   const warmPrepareKey = project?.path
     ? `${scopeKeyForProject(project)}:${project.path}`
     : null;
@@ -225,8 +295,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   );
   const toggleHidden = useCallback(
     (id: string) => {
-      if (!project) return;
-      const key = scopeKeyForProject(project);
+      if (!scopeKey) return;
+      const key = scopeKey;
       const hiddenIds = hiddenIdsByProject[key] ?? [];
       const hiding = !hiddenIds.includes(id);
       setHiddenIdsByProject((prev) => {
@@ -249,7 +319,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         );
       }
     },
-    [hiddenIdsByProject, project]
+    [hiddenIdsByProject, scopeKey]
   );
 
   const updateSessions = useCallback(
@@ -266,6 +336,21 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const createTerminal = useCallback(
     async (opts?: { name?: string; startCommand?: string | null; project?: ScopedProject }) => {
       const targetProject = opts?.project ?? project;
+      // Home mode: no project context → create a project-less home terminal. The
+      // cwd is resolved at spawn time per-runtime (host/remote home dir), so we
+      // persist no host path here. Home terminals are never launch/ephemeral, so
+      // startCommand and the warm-slot fast path don't apply.
+      if (!targetProject && homeActive) {
+        const key = homeScopeKeyFor(homeScopeId);
+        const { terminal } = await api.createHomeTerminal({
+          name: opts?.name,
+          scopeId: homeScopeId,
+        });
+        updateSessions(key, (prev) => [...prev, { terminal, ptyId: null }]);
+        setFocusFor(key, terminal.id);
+        setPanelOpenByProject((prev) => ({ ...prev, [key]: true }));
+        return terminal;
+      }
       if (!targetProject) return null;
       const projectId = targetProject.id;
       const key = scopeKeyForProject(targetProject);
@@ -331,7 +416,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       }
       return terminal;
     },
-    [project, updateSessions, setFocusFor]
+    [project, homeActive, homeScopeId, updateSessions, setFocusFor]
   );
 
   const killTerminal = useCallback(
@@ -360,6 +445,10 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         break;
       }
       if (!ownerProjectId) return;
+
+      // Dispose the cached xterm surface — a kill is a real teardown, not a
+      // parkable scope switch, so the persistent subscription + Terminal go too.
+      terminalSurfaceCache.destroy(id);
 
       setSessionsByProject((prev) => ({
         ...prev,
@@ -391,7 +480,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         await api.killRemotePty(killedPtyId).catch(() => undefined);
       }
       try {
-        await api.deleteUserTerminal(id);
+        if (isHomeScopeKey(ownerProjectId)) await api.deleteHomeTerminal(id);
+        else await api.deleteUserTerminal(id);
       } catch {
         /* swallow */
       }
@@ -436,6 +526,12 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const renameTerminal = useCallback(async (id: string, name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
+    // Resolve home-vs-project from the latest snapshot synchronously (not inside
+    // the setState updater, which can run lazily) so the persistence call routes
+    // to the right endpoint. Home terminals live under any `__home__:<scope>` key.
+    const isHome = Object.entries(sessionsByProjectRef.current).some(
+      ([key, list]) => isHomeScopeKey(key) && list.some((s) => s.terminal.id === id)
+    );
     setSessionsByProject((prev) => {
       const next = { ...prev };
       for (const [pid, list] of Object.entries(prev)) {
@@ -447,7 +543,8 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       return next;
     });
     try {
-      await api.renameUserTerminal(id, trimmed);
+      if (isHome) await api.renameHomeTerminal(id, trimmed);
+      else await api.renameUserTerminal(id, trimmed);
     } catch {
       /* swallow */
     }
@@ -515,17 +612,17 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
 
   const focusTerminal = useCallback(
     (id: string) => {
-      if (!project) return;
-      setFocusFor(scopeKeyForProject(project), id);
+      if (!scopeKey) return;
+      setFocusFor(scopeKey, id);
     },
-    [project, setFocusFor]
+    [scopeKey, setFocusFor]
   );
 
   const cycle = useCallback(
     (delta: 1 | -1) => {
-      if (!project) return;
+      if (!scopeKey) return;
       // No-op when the panel is closed — don't open it as a side effect of cycling.
-      const key = scopeKeyForProject(project);
+      const key = scopeKey;
       if (!(panelOpenByProject[key] ?? false)) return;
       const list = sessionsByProject[key] ?? [];
       if (list.length === 0) return;
@@ -534,7 +631,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       const nextIdx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
       setFocusFor(key, list[nextIdx]!.terminal.id);
     },
-    [project, panelOpenByProject, sessionsByProject, focusedByProject, setFocusFor]
+    [scopeKey, panelOpenByProject, sessionsByProject, focusedByProject, setFocusFor]
   );
 
   const cycleNext = useCallback(() => cycle(1), [cycle]);
@@ -555,6 +652,9 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     () => ({
       project,
       setProject,
+      homeActive,
+      setHomeActive,
+      setHomeScopeId,
       panelOpen,
       togglePanel,
       setPanelOpen,
@@ -581,6 +681,9 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     [
       project,
       setProject,
+      homeActive,
+      setHomeActive,
+      setHomeScopeId,
       panelOpen,
       togglePanel,
       sessions,

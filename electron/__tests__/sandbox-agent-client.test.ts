@@ -93,6 +93,45 @@ describe("SandboxAgentClient RPC correlation", () => {
   });
 });
 
+describe("SandboxAgentClient TLS pinning", () => {
+  it("forwards the pinned CA to the socket factory as { ca }", () => {
+    let received: { ca?: string } | undefined = { ca: "sentinel" };
+    const fake = new FakeSocket();
+    new SandboxAgentClient(
+      "wss://1.2.3.4:443/",
+      "tok",
+      {},
+      {
+        createSocket: (_url, _token, socketOpts) => {
+          received = socketOpts;
+          return fake as unknown as WebSocketLike;
+        },
+        tlsCa: "-----BEGIN CERTIFICATE-----\nPEM\n-----END CERTIFICATE-----\n",
+      },
+    );
+    expect(received).toEqual({
+      ca: "-----BEGIN CERTIFICATE-----\nPEM\n-----END CERTIFICATE-----\n",
+    });
+  });
+
+  it("passes no socket opts when no CA is pinned", () => {
+    let received: unknown = "sentinel";
+    const fake = new FakeSocket();
+    new SandboxAgentClient(
+      "ws://x",
+      "tok",
+      {},
+      {
+        createSocket: (_url, _token, socketOpts) => {
+          received = socketOpts;
+          return fake as unknown as WebSocketLike;
+        },
+      },
+    );
+    expect(received).toBeUndefined();
+  });
+});
+
 describe("SandboxAgentClient PTY control frames", () => {
   it("sends spawn/write/resize/kill/replay frames", () => {
     const { client, fake } = makeClient();

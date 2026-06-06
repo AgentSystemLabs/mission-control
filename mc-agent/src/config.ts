@@ -20,6 +20,12 @@ export type AgentConfig = {
   hookApiHost: string;
   /** Explicit opt-in to run with pairing disabled (local manual testing only). */
   allowInsecure: boolean;
+  /**
+   * Path the agent stamps on every PTY/RPC so an on-VM idle watchdog can read its
+   * mtime and stop the instance after inactivity. Empty disables heartbeat writes
+   * (Docker sandboxes, local testing).
+   */
+  activityFile: string;
 };
 
 function intFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -38,5 +44,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
     pairingToken: env.MC_AGENT_API_KEY || env.MC_PAIRING_TOKEN || "",
     hookApiHost: env.MC_HOOK_API_HOST || DEFAULT_HOOK_API_HOST,
     allowInsecure: env.MC_AGENT_INSECURE === "1",
+    activityFile: env.MC_AGENT_ACTIVITY_FILE || "",
   };
 }
