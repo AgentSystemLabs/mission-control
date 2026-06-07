@@ -45,7 +45,7 @@ jobs:
           fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ steps.ref.outputs.ref }}
           fetch-depth: 0
@@ -75,7 +75,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
@@ -213,7 +213,7 @@ jobs:
     needs: [resolve, release-gate]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
@@ -264,7 +264,7 @@ jobs:
     # upsert is idempotent on (releaseId, platform).
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
@@ -350,7 +350,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
