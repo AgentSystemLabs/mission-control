@@ -38,3 +38,16 @@ export class ConflictError extends DomainError {
     this.name = "ConflictError";
   }
 }
+
+/** A free-tier resource cap was hit. Controllers map this to HTTP 402. */
+export class CapExceededError extends Error {
+  constructor(
+    public readonly code: string,
+    public readonly limit: number,
+    public readonly current: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CapExceededError";
+  }
+}

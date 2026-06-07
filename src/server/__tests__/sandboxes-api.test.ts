@@ -17,7 +17,6 @@ const { sandboxes, projects, appSettings, tasks, userTerminals, homeTerminals } 
 const { getOrCreateApiToken } = await import("../services/settings");
 const { insertProject } = await import("../repositories/projects.repo");
 const { setLicenseKey, clearLicense } = await import("../services/license-storage");
-const { MISSION_CONTROL_RUNTIME_HEADER } = await import("~/shared/runtime");
 const { eq } = await import("drizzle-orm");
 const { HTTP_PAYMENT_REQUIRED } = await import("~/shared/http-status");
 
@@ -28,17 +27,6 @@ async function body(res: Response | null | undefined) {
 function electronRequest(input: string, init: RequestInit = {}): Request {
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${getOrCreateApiToken()}`);
-  headers.set(MISSION_CONTROL_RUNTIME_HEADER, "electron-local");
-  if (init.body) headers.set("content-type", "application/json");
-  return new Request(`http://localhost${input}`, { ...init, headers });
-}
-
-// Authenticated, but tagged as the web runtime — exercises the controller's
-// "not electron-local" branch (the auth gate itself is tested elsewhere).
-function webRequest(input: string, init: RequestInit = {}): Request {
-  const headers = new Headers(init.headers);
-  headers.set("authorization", `Bearer ${getOrCreateApiToken()}`);
-  headers.set(MISSION_CONTROL_RUNTIME_HEADER, "web-daytona");
   if (init.body) headers.set("content-type", "application/json");
   return new Request(`http://localhost${input}`, { ...init, headers });
 }
@@ -219,9 +207,6 @@ describe("sandboxes API", () => {
       await handleApiRequest(electronRequest(`/api/sandboxes/${id}/api-key`)),
     );
     expect(revealed).toEqual({ apiKey: "0123456789abcdef0123456789abcdef" });
-
-    const webReveal = await handleApiRequest(webRequest(`/api/sandboxes/${id}/api-key`));
-    expect(webReveal?.status).toBe(400);
   });
 
   it("requires URL and API key when creating a remote VM sandbox", async () => {
@@ -323,16 +308,6 @@ describe("sandboxes API", () => {
     );
     // setActiveScope rejects unknown ids → resolves to local
     expect((await body(await handleApiRequest(electronRequest("/api/sandboxes")))).activeScopeId).toBe("local");
-  });
-
-  it("is disabled on web (no electron-local runtime): empty state + create rejected", async () => {
-    const list = await body(await handleApiRequest(webRequest("/api/sandboxes")));
-    expect(list).toEqual({ sandboxes: [], enabled: false, activeScopeId: "local" });
-
-    const create = await handleApiRequest(
-      webRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "X" }) }),
-    );
-    expect(create?.status).toBe(400);
   });
 
   it("returns 402 when a lite user tries to create a second sandbox", async () => {

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
 import {
   copyFileSync,
   mkdirSync,
@@ -7,9 +6,10 @@ import {
   rmSync,
   statSync,
   writeFileSync,
-  createReadStream,
 } from "node:fs";
 import { basename, join } from "node:path";
+import { makeFail } from "./lib/cli.mjs";
+import { digestFile } from "./lib/hash.mjs";
 
 const {
   RELEASE_PLATFORM: platform,
@@ -18,23 +18,10 @@ const {
   ARTIFACTS_DIR = "artifacts",
 } = process.env;
 
-function fail(message) {
-  console.error(`[stage-release-artifacts] ${message}`);
-  process.exit(1);
-}
+const fail = makeFail("stage-release-artifacts");
 
 if (!platform) fail("RELEASE_PLATFORM is required");
 if (!artifactExt) fail("RELEASE_ARTIFACT_EXT is required");
-
-function digestFile(path, algorithm) {
-  return new Promise((resolve, reject) => {
-    const hash = createHash(algorithm);
-    const stream = createReadStream(path);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("error", reject);
-    stream.on("end", () => resolve(hash.digest("hex")));
-  });
-}
 
 function contentTypeFor(fileName) {
   if (fileName.endsWith(".dmg")) return "application/x-apple-diskimage";

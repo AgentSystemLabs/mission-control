@@ -1,5 +1,6 @@
 import { Btn } from "./Btn";
 import { isElectron } from "~/lib/electron";
+import { openExternal } from "~/lib/open-external";
 import { useLatestMissionControlVersion } from "~/queries/mission-control-version";
 import {
   useAutoUpdaterState,
@@ -77,7 +78,7 @@ export function UpdateAvailableButton() {
               // user isn't stranded on "Restart to install" forever.
               const api = (window as any).electronAPI;
               if (api?.openExternal) void api.openExternal(academy.downloadUrl);
-              else window.open(academy.downloadUrl, "_blank", "noopener,noreferrer");
+              else openExternal(academy.downloadUrl);
             }
           }}
         >
@@ -106,7 +107,7 @@ export function UpdateAvailableButton() {
           if (api?.openExternal) {
             void api.openExternal(academy.downloadUrl);
           } else {
-            window.open(academy.downloadUrl, "_blank", "noopener,noreferrer");
+            openExternal(academy.downloadUrl);
           }
         };
         return (

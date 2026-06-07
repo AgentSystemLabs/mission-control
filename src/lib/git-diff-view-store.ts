@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { readJson, writeJson } from "./local-storage-json";
 
 export type GitDiffViewOpenByProject = Record<string, boolean>;
 
@@ -17,22 +18,11 @@ function normalizeGitDiffViewOpenByProject(value: unknown): GitDiffViewOpenByPro
 }
 
 function loadGitDiffViewOpenByProject(): GitDiffViewOpenByProject {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? normalizeGitDiffViewOpenByProject(JSON.parse(raw)) : {};
-  } catch {
-    return {};
-  }
+  return normalizeGitDiffViewOpenByProject(readJson<unknown>(STORAGE_KEY, {}));
 }
 
 function saveGitDiffViewOpenByProject(next: GitDiffViewOpenByProject): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  } catch {
-    /* localStorage unavailable */
-  }
+  writeJson(STORAGE_KEY, next);
 }
 
 let snapshot: GitDiffViewOpenByProject = loadGitDiffViewOpenByProject();

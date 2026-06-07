@@ -14,29 +14,18 @@ import {
   type SandboxSettings,
   type SandboxSettingsPatch,
 } from "./sandbox-settings";
-import {
-  DEFAULT_IMAGE_TAG,
-  renderSandboxCompose,
-  sandboxResources,
-} from "./sandbox-compose";
-import { allocateSandboxPorts } from "./sandbox-ports";
 import { SandboxRegistry, type RegistryDeps } from "./sandbox-registry";
 import {
-  ensureSandboxPairingToken,
   isSandboxesEnabled,
   listSandboxConfigs,
-  persistSandboxPorts,
   readActiveSandboxId,
   readSandboxConfig,
-  rotateSandboxPairingToken,
 } from "./sandbox-store";
 import type { SandboxConfig } from "./sandbox-types";
 import { SandboxAgentClient } from "./sandbox-agent-client";
 
-const LOG_TAIL_MAX = 500;
-const DOCKER_CHECK_TIMEOUT_MS = 5_000;
-const DOCKER_GIT_CLONE_TIMEOUT_MS = 120_000;
-const SAFE_CLONE_SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+const GIT_CLONE_TIMEOUT_MS = 120_000;
+const REMOTE_PTY_REPLAY_TIMEOUT_MS = 5_000;
 const SSH_USER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SSH_HOST = /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/;
 const SSH_REPO_PATH = /^(?:[A-Za-z0-9._~-]+\/)+[A-Za-z0-9._~-]+(?:\.git)?$/;
@@ -53,23 +42,17 @@ export { EXPECTED_SANDBOX_AGENT_VERSION, isSandboxAgentVersionCurrent };
 
 let getWindow: (() => BrowserWindow | null) | null = null;
 let userDataDir = "";
-// Repo root (dev) / app root (packaged) — used to locate the bundled default-image
-// build files (docker/sandbox-base/Dockerfile + the mc-agent build context).
-let appRootPath = "";
 let initialized = false;
 // Supplies the MC API port + token so remote agent spawns can POST hooks back to
-// the host via host.docker.internal:<port>. Injected by main.ts (never trusted
-// from the renderer).
+// the host. Injected by main.ts (never trusted from the renderer).
 let getSandboxHookEnv: (() => { port: number; token: string } | null) | null = null;
 // remotePty:replay is request/response, but the agent answers with a streamed
 // replayResult frame — correlate the pending invoke by ptyId.
 const pendingReplays = new Map<string, (r: { data: string; nextSeq: number }) => void>();
 
-const logTail: string[] = [];
-
-// Phase 2: one container + agent connection per sandbox. The registry owns the
+// Phase 2: one remote agent connection per sandbox. The registry owns the
 // per-sandbox state machine (sandbox-registry.ts); this module supplies the
-// Docker/agent side effects and routes IPC.
+// agent side effects and routes IPC.
 let registry: SandboxRegistry | null = null;
 // Live agent clients keyed by sandbox id (populated on connect, removed on close).
 const clients = new Map<string, SandboxAgentClient>();
@@ -79,42 +62,6 @@ let activeSandboxId: string | null = null;
 // ptyId → owning sandbox id, so write/resize/kill/replay reach the right agent
 // even if the active scope changed since the pty was spawned.
 const ptyOwner = new Map<string, string>();
-// Host ports currently claimed by running sandboxes — the allocator avoids these
-// so concurrent sandboxes never bind the same host port.
-const usedHostPorts = new Set<number>();
-// All live pairing tokens, redacted from logs.
-const activeTokens = new Set<string>();
-
-function redact(text: string): string {
-  let out = text;
-  for (const token of activeTokens) {
-    if (token && token.length >= 8) out = out.split(token).join("***");
-  }
-  return out;
-}
-
-function redactCloneRemote(remote: string): string {
-  try {
-    const url = new URL(remote);
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    url.hash = "";
-    return `${url.protocol}//${url.host}${url.pathname}`;
-  } catch {
-    const scp = remote.match(SSH_SCP_REMOTE);
-    return scp ? `${scp[1] === "git" ? "git" : "<user>"}@${scp[2]}:${scp[3]}` : "<unparseable>";
-  }
-}
-
-function scrubCloneError(stderr: string, remote: string): string {
-  return stderr
-    .split(remote)
-    .join(redactCloneRemote(remote))
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi, "$1")
-    .replace(/([a-z][a-z0-9+.-]*:\/\/[^\s?#'"]+)[?#][^\s'"]+/gi, "$1")
-    .trim();
-}
 
 export function isSafeSshCloneRemote(remote: string): boolean {
   if (SSH_SCP_REMOTE.test(remote)) return true;
@@ -127,10 +74,6 @@ export function isSafeSshCloneRemote(remote: string): boolean {
   } catch {
     return false;
   }
-}
-
-export function isLegacyHttpOnlyCloneError(err: unknown): boolean {
-  return describe(err).includes("invalid remote: must be an http(s) URL");
 }
 
 export function gitAuthCloneFailureHint(
@@ -159,291 +102,12 @@ function emitState(sandboxId: string, next: SandboxState): void {
   send(IPC.sandboxStateChange, { sandboxId, state: next });
 }
 
-function pushLog(line: string): void {
-  const trimmed = redact(line.replace(/\r?\n$/, ""));
-  if (!trimmed) return;
-  logTail.push(trimmed);
-  if (logTail.length > LOG_TAIL_MAX) logTail.shift();
-  // Persist compose output to electron-log too — the in-memory tail dies with
-  // the process, so post-hoc "why did start fail" needs the durable copy.
-  log.info("sandbox.compose", { event: "sandbox.compose", line: trimmed });
-  send(IPC.sandboxLog, trimmed);
-}
-
 function kv() {
   return appSettingsKV(userDataDir);
 }
 
-function sandboxDir(): string {
-  return path.join(userDataDir, "sandbox");
-}
-
-type DockerResult = { code: number; stdout: string; stderr: string };
-
-function runDocker(args: string[], opts: { timeoutMs?: number; onLine?: (l: string) => void } = {}): Promise<DockerResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    const timer = opts.timeoutMs
-      ? setTimeout(() => {
-          child.kill("SIGTERM");
-          reject(new Error(`docker ${args[0]} timed out`));
-        }, opts.timeoutMs)
-      : null;
-    const onChunk = (buf: Buffer, sink: "out" | "err") => {
-      const text = buf.toString();
-      if (sink === "out") stdout += text;
-      else stderr += text;
-      if (opts.onLine) for (const l of text.split("\n")) if (l.trim()) opts.onLine(l);
-    };
-    child.stdout.on("data", (b: Buffer) => onChunk(b, "out"));
-    child.stderr.on("data", (b: Buffer) => onChunk(b, "err"));
-    child.on("error", (e) => {
-      if (timer) clearTimeout(timer);
-      reject(e);
-    });
-    child.on("close", (code) => {
-      if (timer) clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr });
-    });
-  });
-}
-
-async function dockerAvailable(): Promise<boolean> {
-  try {
-    const r = await runDocker(["info", "--format", "{{.ServerVersion}}"], {
-      timeoutMs: DOCKER_CHECK_TIMEOUT_MS,
-    });
-    return r.code === 0;
-  } catch {
-    return false;
-  }
-}
-
-
-async function imageExists(tag: string): Promise<boolean> {
-  try {
-    const r = await runDocker(["image", "inspect", tag], { timeoutMs: DOCKER_CHECK_TIMEOUT_MS });
-    return r.code === 0;
-  } catch {
-    return false;
-  }
-}
-
-// The default image is built locally from the public agent package when present
-// (node_modules/@agentsystemlabs/mission-control-agent). During the extraction
-// rollout, keep the legacy in-repo mc-agent shape as a fallback so this private
-// repo remains buildable until the first npm publish is available.
-const DEFAULT_IMAGE_DOCKERFILE_REL = path.join("docker", "sandbox-base", "Dockerfile");
-const AGENT_PACKAGE_REL = path.join("node_modules", "@agentsystemlabs", "mission-control-agent");
-const DEFAULT_IMAGE_CONTEXT_REL = "mc-agent";
-const DEFAULT_IMAGE_BUNDLE_PROBE = path.join("mc-agent", "dist", "mc-agent.cjs");
-const PACKAGE_AGENT_BUNDLE_PROBE = path.join("dist", "cli.cjs");
-
-/**
- * Pick the first root that holds BOTH the Dockerfile and the built mc-agent
- * bundle (so we never point `docker build` at a half-staged tree). Pure for
- * tests; the live caller passes the dev/packaged candidate roots + fs.existsSync.
- */
-export function resolveDefaultImageBuildIn(
-  roots: string[],
-  exists: (p: string) => boolean,
-): { dockerfile: string; context: string } | null {
-  for (const root of roots) {
-    if (!root) continue;
-    const packageRoot = path.join(root, AGENT_PACKAGE_REL);
-    const packageDockerfile = path.join(packageRoot, DEFAULT_IMAGE_DOCKERFILE_REL);
-    const packageBundle = path.join(packageRoot, PACKAGE_AGENT_BUNDLE_PROBE);
-    if (exists(packageDockerfile) && exists(packageBundle)) {
-      return { dockerfile: packageDockerfile, context: packageRoot };
-    }
-    const dockerfile = path.join(root, DEFAULT_IMAGE_DOCKERFILE_REL);
-    const bundle = path.join(root, DEFAULT_IMAGE_BUNDLE_PROBE);
-    if (exists(dockerfile) && exists(bundle)) {
-      return { dockerfile, context: path.join(root, DEFAULT_IMAGE_CONTEXT_REL) };
-    }
-  }
-  return null;
-}
-
-function resolveDefaultImageBuild(): { dockerfile: string; context: string } | null {
-  return resolveDefaultImageBuildIn(
-    [appRootPath, process.resourcesPath, process.cwd()],
-    fs.existsSync,
-  );
-}
-
-/**
- * Build the bundled default base image (mission-control/sandbox-base:latest).
- * `docker compose up` only PULLS the default image — it never rebuilds it — so a
- * stale local image (older mc-agent baked in) would otherwise survive every
- * restart, which is exactly why "Restart sandbox to update" appeared to no-op.
- * `force` rebuilds unconditionally (the update path); otherwise we build only
- * when the image is missing (first start / US-1.2). Returns ok:true when build
- * files aren't bundled BUT a prebuilt image already exists, so a manually-built
- * image still works.
- */
-async function buildDefaultImage(
-  force: boolean,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const loc = resolveDefaultImageBuild();
-  if (!loc) {
-    log.warn("sandbox.image.build.skipped", {
-      event: "sandbox.image.build.skipped",
-      reason: "default-image-build-files-missing",
-    });
-    if (await imageExists(DEFAULT_IMAGE_TAG)) return { ok: true };
-    return {
-      ok: false,
-      error:
-        "Default sandbox image is missing and its build files aren't bundled. Install @agentsystemlabs/mission-control-agent or build it manually from the agent package.",
-    };
-  }
-  if (!force && (await imageExists(DEFAULT_IMAGE_TAG))) return { ok: true };
-  log.info("sandbox.image.build", {
-    event: "sandbox.image.build",
-    force,
-    context: loc.context,
-  });
-  const startedAt = Date.now();
-  try {
-    const r = await runDocker(
-      ["build", "-f", loc.dockerfile, "-t", DEFAULT_IMAGE_TAG, loc.context],
-      { onLine: pushLog },
-    );
-    if (r.code !== 0) {
-      log.error("sandbox.image.build.failed", {
-        event: "sandbox.image.build.failed",
-        code: r.code,
-        stderrTail: redact(r.stderr).slice(-2000),
-      });
-      return { ok: false, error: `docker build failed (exit ${r.code}). See logs.` };
-    }
-    log.info("sandbox.image.build.ok", {
-      event: "sandbox.image.build.ok",
-      durationMs: Date.now() - startedAt,
-    });
-    return { ok: true };
-  } catch (err) {
-    log.error("sandbox.image.build.errored", {
-      event: "sandbox.image.build.errored",
-      err: describe(err),
-    });
-    return { ok: false, error: `docker build errored: ${describe(err)}` };
-  }
-}
-
-// ── Per-sandbox compose file (0600; embeds MC_PAIRING_TOKEN in plaintext) ──
-function sandboxComposeFile(id: string): string {
-  return path.join(sandboxDir(), "sandboxes", id, "docker-compose.yml");
-}
-
-function writeSandboxComposeFile(id: string, yaml: string): string {
-  const file = sandboxComposeFile(id);
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, yaml, { encoding: "utf8", mode: 0o600 });
-  try {
-    fs.chmodSync(file, 0o600);
-  } catch {
-    /* best effort */
-  }
-  return file;
-}
-
 function configFor(id: string): SandboxConfig | null {
   return readSandboxConfig(userDataDir, id);
-}
-
-// Bring a sandbox's container up: (re)build the default image if needed, allocate
-// host ports (skipping ports other running sandboxes hold), render + write its
-// compose, then `docker compose up`. Resolves the host agent port + pairing token.
-async function composeUp(
-  config: SandboxConfig,
-  force: boolean,
-): Promise<{ ok: true; hostAgentPort: number; token: string } | { ok: false; error: string }> {
-  const token = ensureSandboxPairingToken(userDataDir, config.id);
-  activeTokens.add(token);
-
-  if (!config.dockerfilePath) {
-    const built = await buildDefaultImage(force);
-    if (!built.ok) return built;
-  }
-
-  const alloc = allocateSandboxPorts({
-    declaredPorts: config.declaredPorts,
-    prev: { hostAgentPort: config.hostAgentPort, portMap: config.portMap },
-    isFree: (p) => !usedHostPorts.has(p),
-  });
-  persistSandboxPorts(userDataDir, config.id, alloc.hostAgentPort, alloc.portMap);
-
-  const yaml = renderSandboxCompose({
-    id: config.id,
-    imageTag: config.imageTag,
-    dockerfilePath: config.dockerfilePath,
-    buildArgs: config.buildArgs,
-    env: config.env,
-    hostAgentPort: alloc.hostAgentPort,
-    portMap: alloc.portMap,
-    pairingToken: token,
-  });
-  let file: string;
-  try {
-    file = writeSandboxComposeFile(config.id, yaml);
-  } catch (err) {
-    return { ok: false, error: `Failed to write compose file: ${describe(err)}` };
-  }
-
-  const res = sandboxResources(config.id);
-  const args = ["compose", "-p", res.project, "-f", file, "up", "-d"];
-  if (config.dockerfilePath) args.push("--build");
-  if (force) args.push("--force-recreate");
-  try {
-    const r = await runDocker(args, { onLine: pushLog });
-    if (r.code !== 0) {
-      log.error("sandbox.compose.failed", {
-        event: "sandbox.compose.failed",
-        op: "up",
-        sandboxId: config.id,
-        code: r.code,
-        stderrTail: redact(r.stderr).slice(-2000),
-      });
-      return { ok: false, error: `docker compose up failed (exit ${r.code}). See logs.` };
-    }
-  } catch (err) {
-    return { ok: false, error: `docker compose up errored: ${describe(err)}` };
-  }
-  usedHostPorts.add(alloc.hostAgentPort);
-  for (const p of Object.values(alloc.portMap)) usedHostPorts.add(p);
-  return { ok: true, hostAgentPort: alloc.hostAgentPort, token };
-}
-
-async function composeDown(
-  config: SandboxConfig,
-  destroyVolumes: boolean,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const res = sandboxResources(config.id);
-  const file = sandboxComposeFile(config.id);
-  if (config.hostAgentPort) usedHostPorts.delete(config.hostAgentPort);
-  for (const p of Object.values(config.portMap ?? {})) usedHostPorts.delete(p);
-  if (!fs.existsSync(file)) {
-    rotateSandboxPairingToken(userDataDir, config.id);
-    return { ok: true };
-  }
-  const args = ["compose", "-p", res.project, "-f", file, "down"];
-  if (destroyVolumes) args.push("-v");
-  try {
-    const r = await runDocker(args, { onLine: pushLog });
-    if (r.code !== 0) {
-      return { ok: false, error: `docker compose down failed (exit ${r.code}).` };
-    }
-  } catch (err) {
-    return { ok: false, error: `docker compose down errored: ${describe(err)}` };
-  }
-  // Rotate AFTER teardown — avoids a window where a fresh token mismatches a
-  // still-running agent holding the old one.
-  rotateSandboxPairingToken(userDataDir, config.id);
-  return { ok: true };
 }
 
 // Open the agent WS for a running sandbox. Streams are keyed by globally-unique
@@ -459,7 +123,6 @@ function connectAgent(
     onError?: (err: Error) => void;
   },
 ): { close: () => void } {
-  activeTokens.add(token);
   const id = config.id;
   log.info("sandbox.ws.connect", { event: "sandbox.ws.connect", sandboxId: id, kind: config.kind });
   const client = new SandboxAgentClient(agentUrl, token, {
@@ -473,7 +136,7 @@ function connectAgent(
             err: describe(err),
           }),
         );
-        void ensureAgentCredsProvisionedFor(id).catch((err) =>
+        void provisionAgentCredsFor(id).catch((err) =>
           log.warn("sandbox.agent-creds.fail", {
             event: "sandbox.agent-creds.fail",
             sandboxId: id,
@@ -515,7 +178,7 @@ function connectAgent(
 
 function getRegistry(): SandboxRegistry {
   if (registry) return registry;
-  const deps: RegistryDeps = { dockerAvailable, composeUp, composeDown, connectAgent, emitState };
+  const deps: RegistryDeps = { connectAgent, emitState };
   registry = new SandboxRegistry(deps);
   return registry;
 }
@@ -529,8 +192,17 @@ function ownerClient(ptyId: string): SandboxAgentClient | null {
   return owner ? clients.get(owner) ?? null : null;
 }
 
+/** Route a remote-pty op to the pty's owner client (falling back to the active
+ *  client). Returns false when no client is available. */
+function withOwnerClient(ptyId: string, fn: (client: SandboxAgentClient) => void): boolean {
+  const client = ownerClient(ptyId) ?? activeClient();
+  if (!client) return false;
+  fn(client);
+  return true;
+}
+
 // Ensure the active sandbox is started, then wait (briefly) for its agent WS to
-// connect — a freshly-started container needs a few seconds before mc-agent is
+// connect — a freshly-started remote agent can take a few seconds before it is
 // listening, during which the registry is reconnecting. Returns null on timeout.
 const AGENT_CONNECT_WAIT_MS = 12_000;
 async function waitForActiveClient(timeoutMs = AGENT_CONNECT_WAIT_MS): Promise<SandboxAgentClient | null> {
@@ -548,11 +220,9 @@ async function waitForActiveClient(timeoutMs = AGENT_CONNECT_WAIT_MS): Promise<S
   return c?.isOpen ? c : null;
 }
 
-/** "Keep all running": local Docker sandboxes are adopted via compose; remote
- *  sandboxes reconnect to their configured agent URL. */
+/** "Keep all running": remote sandboxes reconnect to their configured agent URL. */
 async function reconcile(): Promise<void> {
   const configs = listSandboxConfigs(userDataDir);
-  if (!configs.some((c) => c.kind === "remote-vm") && !(await dockerAvailable())) return;
   await getRegistry().reconcile(configs);
 }
 
@@ -709,62 +379,6 @@ function credToolLabel(tool: AgentCredItem["tool"]): string {
   return tool[0]!.toUpperCase() + tool.slice(1);
 }
 
-async function ensureAgentCredsProvisionedFor(
-  id: string,
-  options: { requireConfigured?: boolean; requireTool?: AgentCredItem["tool"] } = {},
-): Promise<{ wrote: number }> {
-  return provisionAgentCredsFor(id, options);
-}
-
-async function cloneViaDockerExec(
-  container: string,
-  remote: string,
-  slug: string,
-  branch?: string,
-): Promise<{ slug: string; path: string }> {
-  if (!SAFE_CLONE_SLUG.test(slug)) throw new Error("invalid slug");
-  if (!isSafeSshCloneRemote(remote)) {
-    throw new Error("invalid remote: must be an SSH remote");
-  }
-
-  log.warn("sandbox.git.clone.compat", {
-    event: "sandbox.git.clone.compat",
-    reason: "legacy-agent-http-only-validator",
-    slug,
-    remote: redactCloneRemote(remote),
-  });
-  const gitArgs = ["clone"];
-  if (branch) gitArgs.push("-b", branch);
-  gitArgs.push("--", remote, slug);
-  const r = await runDocker(
-    [
-      "exec",
-      "--user",
-      "workspace",
-      "--workdir",
-      "/workspace",
-      "-e",
-      "HOME=/home/workspace",
-      "-e",
-      "GIT_ALLOW_PROTOCOL=http:https:ssh",
-      "-e",
-      "GIT_PROTOCOL_FROM_USER=0",
-      "-e",
-      "GIT_TERMINAL_PROMPT=0",
-      "-e",
-      "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new",
-      container,
-      "git",
-      ...gitArgs,
-    ],
-    { timeoutMs: DOCKER_GIT_CLONE_TIMEOUT_MS },
-  );
-  if (r.code !== 0) {
-    throw new Error(`git clone failed: ${scrubCloneError(r.stderr, remote) || `exit ${r.code}`}`);
-  }
-  return { slug, path: `/workspace/${slug}` };
-}
-
 /** Renderer-safe view of the legacy global settings: never expose tokens or secret-like build arg values. */
 function publicSettings(
   s: SandboxSettings,
@@ -792,10 +406,6 @@ function buildDiagnostics(): string {
         : "";
     lines.push(`- ${sandboxId}: ${state.status}${detail}`);
   }
-  lines.push(`default image: ${DEFAULT_IMAGE_TAG}`);
-  lines.push("");
-  lines.push(`last ${Math.min(logTail.length, 50)} log lines:`);
-  lines.push(...logTail.slice(-50));
   return lines.join("\n");
 }
 
@@ -839,8 +449,8 @@ function readHostSshFiles(): Array<{ name: string; content: string }> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI-CLI credential copy (US: "Copy my AI tool credentials"). Reads the host's
-// local logins and labels each item { tool, kind, content }; the agent owns
-// where it lands on the VM (see mc-agent/src/creds-rpc.ts). Mirrors the SSH copy.
+// local logins and labels each item { tool, kind, content }; the remote agent
+// owns where it lands on the VM (creds.setup RPC). Mirrors the SSH copy.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AgentCredItem = {
@@ -993,14 +603,13 @@ export function registerSandboxManager(
   ipcMain: IpcMain,
   windowAccessor: () => BrowserWindow | null,
   appUserDataDir: string,
-  appRoot: string,
+  _appRoot: string,
   hookEnvAccessor?: () => { port: number; token: string } | null,
 ): void {
   if (initialized) return;
   initialized = true;
   getWindow = windowAccessor;
   userDataDir = appUserDataDir;
-  appRootPath = appRoot;
   getSandboxHookEnv = hookEnvAccessor ?? null;
   // Restore the persisted active scope so runtime routing is correct from launch.
   activeSandboxId = isSandboxesEnabled(userDataDir) ? readActiveSandboxId(userDataDir) : null;
@@ -1122,7 +731,7 @@ export function registerSandboxManager(
     IPC.sandboxStatus,
     async () => {
       await reconcile();
-      return { dockerAvailable: await dockerAvailable(), states: getRegistry().allStates() };
+      return { dockerAvailable: true, states: getRegistry().allStates() };
     },
     ipcMain,
   );
@@ -1146,7 +755,7 @@ export function registerSandboxManager(
       const config = id ? configFor(id) : null;
       const requiredTool = requiredCredToolForAgent(opts.agent);
       if (id && config?.copyAgentCreds && requiredTool) {
-        await ensureAgentCredsProvisionedFor(id, { requireConfigured: true, requireTool: requiredTool });
+        await provisionAgentCredsFor(id, { requireConfigured: true, requireTool: requiredTool });
         if (activeSandboxId !== id || clients.get(id) !== client) {
           throw new Error("Active sandbox changed before the terminal started.");
         }
@@ -1174,23 +783,14 @@ export function registerSandboxManager(
     ipcMain,
   );
   safeHandle(IPC.remotePtyWrite, (_e, ptyId: string, data: string) => {
-    const c = ownerClient(ptyId) ?? activeClient();
-    if (!c) return false;
-    c.write(ptyId, data);
-    return true;
+    return withOwnerClient(ptyId, (c) => c.write(ptyId, data));
   }, ipcMain);
   safeHandle(IPC.remotePtyResize, (_e, ptyId: string, cols: number, rows: number) => {
-    const c = ownerClient(ptyId) ?? activeClient();
-    if (!c) return false;
-    c.resize(ptyId, cols, rows);
-    return true;
+    return withOwnerClient(ptyId, (c) => c.resize(ptyId, cols, rows));
   }, ipcMain);
   safeHandle(IPC.remotePtyKill, (_e, ptyId: string) => {
-    const c = ownerClient(ptyId) ?? activeClient();
     ptyOwner.delete(ptyId);
-    if (!c) return false;
-    c.kill(ptyId);
-    return true;
+    return withOwnerClient(ptyId, (c) => c.kill(ptyId));
   }, ipcMain);
   safeHandle(IPC.remotePtyReplay, (_e, ptyId: string) => {
     const current = ownerClient(ptyId) ?? activeClient();
@@ -1204,7 +804,7 @@ export function registerSandboxManager(
       const timer = setTimeout(() => {
         pendingReplays.delete(ptyId);
         resolve({ data: "", nextSeq: 0 });
-      }, 5_000);
+      }, REMOTE_PTY_REPLAY_TIMEOUT_MS);
       pendingReplays.set(ptyId, (r) => {
         clearTimeout(timer);
         resolve(r);
@@ -1240,7 +840,7 @@ export function registerSandboxManager(
     const client = await waitForActiveClient();
     if (!client) throw new Error("sandbox is not connected");
     return client.rpc(method, params, {
-      timeoutMs: method === "git.clone" ? DOCKER_GIT_CLONE_TIMEOUT_MS : undefined,
+      timeoutMs: method === "git.clone" ? GIT_CLONE_TIMEOUT_MS : undefined,
     });
   };
   safeHandle(IPC.remoteGitStatus, (_e, repo: string) => activeGitRpc("git.status", { repo }), ipcMain);
@@ -1261,9 +861,6 @@ export function registerSandboxManager(
         return await activeGitRpc("git.clone", cloneParams);
       } catch (err) {
         const cfg = id ? configFor(id) : null;
-        if (id && cfg?.kind === "local-docker" && isSafeSshCloneRemote(remote) && isLegacyHttpOnlyCloneError(err)) {
-          return cloneViaDockerExec(sandboxResources(id).container, remote, slug, branch);
-        }
         if (id && isSafeSshCloneRemote(remote)) {
           const hint = gitAuthCloneFailureHint(cfg?.gitAuthMode ?? "none", err);
           if (hint) throw new Error(`${describe(err)}\n\n${hint}`);

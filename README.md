@@ -72,8 +72,7 @@ mission-control/
 
 ```bash
 pnpm install            # installs deps; postinstall rebuilds Electron PTY bindings
-pnpm dev:electron       # runs Vite dev server + Electron without Docker
-pnpm dev:web            # runs hosted web dev server with local Postgres via Docker
+pnpm dev:electron       # runs Vite dev server + Electron
 ```
 
 The first run creates `~/Library/Application Support/MissionControl/missioncontrol.db` (macOS) or the equivalent on Linux/Windows.
@@ -97,31 +96,15 @@ bootstrap details, and cleanup commands.
 ### Build
 
 ```bash
-pnpm build              # builds web client + server + Electron
+pnpm build              # builds web client + Electron
 pnpm package            # rebuilds native deps for Electron and produces dist/
 ```
-
-### Hosted Web
-
-The hosted SaaS web app uses the web build only:
-
-```bash
-pnpm build:web
-pnpm start:hosted
-```
-
-Hosted mode is enabled by `DATABASE_URL` and uses Postgres, Academy-managed
-login/billing, and Daytona remote runtime. See
-[docs/hosted-deployment.md](docs/hosted-deployment.md) for environment
-variables, migration commands, health checks, and rollback notes.
-Operational support procedures live in
-[docs/hosted-operations-runbook.md](docs/hosted-operations-runbook.md).
 
 ### Native module rebuild
 
 `better-sqlite3` and `node-pty` have native bindings, but they do not need the same ABI in development:
 
-- `better-sqlite3` is loaded by the Vite/TanStack server under stock Node, so `pnpm dev`, `pnpm dev:electron`, `pnpm dev:web`, `pnpm test`, and `pnpm db:*` first rebuild it for the current Node runtime.
+- `better-sqlite3` is loaded by the Vite/TanStack server under stock Node, so `pnpm dev`, `pnpm dev:electron`, `pnpm test`, and `pnpm db:*` first rebuild it for the current Node runtime.
 - `node-pty` only runs inside Electron, so postinstall rebuilds it for Electron.
 
 When you need both native modules rebuilt for Electron (for example before packaging), run:

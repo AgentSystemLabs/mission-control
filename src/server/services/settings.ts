@@ -4,6 +4,7 @@ import {
   getAppSetting,
   setAppSetting,
 } from "../repositories/app-settings.repo";
+import { safeJsonParse } from "~/shared/safe-json";
 
 export function getSetting(key: string): string | null {
   return getAppSetting(key);
@@ -28,13 +29,7 @@ export function setBooleanSetting(key: string, value: boolean): void {
 }
 
 export function readJsonSetting<T>(key: string): T | null {
-  const raw = getAppSetting(key);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
+  return safeJsonParse<T | null>(getAppSetting(key), null);
 }
 
 const API_TOKEN_KEY = "api_token";

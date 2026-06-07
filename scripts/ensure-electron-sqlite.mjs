@@ -2,6 +2,11 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  betterSqliteRoot,
+  prebuildInstallBin,
+  canLoadNodeBetterSqlite,
+} from "./lib/better-sqlite.mjs";
 
 const requireFromHere = createRequire(import.meta.url);
 const packageJson = requireFromHere("../package.json");
@@ -28,11 +33,7 @@ if (abiResult.error || abiResult.status !== 0) {
 
 const electronRuntime = JSON.parse(abiResult.stdout);
 const electronAbi = electronRuntime.abi;
-const betterSqlitePackageJson = requireFromHere.resolve("better-sqlite3/package.json");
-const betterSqliteRoot = path.dirname(betterSqlitePackageJson);
-const betterSqliteRequire = createRequire(betterSqlitePackageJson);
 const electronVersion = requireFromHere("electron/package.json").version;
-const prebuildInstallBin = betterSqliteRequire.resolve("prebuild-install/bin.js");
 const electronBindingPath = path.join(
   betterSqliteRoot,
   "bin",
@@ -60,24 +61,6 @@ function canLoadElectronBetterSqlite() {
       cwd: betterSqliteRoot,
       encoding: "utf8",
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    },
-  );
-
-  return result.status === 0;
-}
-
-function canLoadNodeBetterSqlite() {
-  const result = spawnSync(
-    process.execPath,
-    [
-      "-e",
-      "const Database = require(process.argv[1]); const db = new Database(':memory:'); db.prepare('select 1').get(); db.close();",
-      betterSqliteRoot,
-    ],
-    {
-      cwd: betterSqliteRoot,
-      encoding: "utf8",
-      env: process.env,
     },
   );
 

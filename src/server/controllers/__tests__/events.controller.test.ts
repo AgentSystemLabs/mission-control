@@ -1,32 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
-import type { HostedAuthContext } from "../../hosted-auth-context";
-
-const getHostedAuthContext = vi.hoisted(() => vi.fn());
-const isHostedDatabaseEnabled = vi.hoisted(() => vi.fn());
-const isElectronLocalApiRequest = vi.hoisted(() => vi.fn());
-
-vi.mock("../../hosted-auth-context", () => ({
-  getHostedAuthContext,
-}));
-
-vi.mock("../../hosted-pg", () => ({
-  isHostedDatabaseEnabled,
-}));
-
-vi.mock("../../request-runtime", () => ({
-  isElectronLocalApiRequest,
-}));
-
-const { issueTicket, stream } = await import("../events.controller");
-const { events } = await import("../../events");
-
-const context: HostedAuthContext = {
-  sessionId: "hs-1",
-  academyUserId: "academy-user-1",
-  userId: "user-1",
-  email: "user@example.com",
-  organizationId: null,
-};
+import { describe, expect, it } from "vitest";
+import { issueTicket, stream } from "../events.controller";
+import { events } from "../../events";
 
 async function readNextEvent(response: Response): Promise<{
   reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -41,92 +15,58 @@ async function readNextEvent(response: Response): Promise<{
 }
 
 describe("events controller", () => {
-  it("rejects hosted ticket issuance when no hosted session owns the request", async () => {
-    isHostedDatabaseEnabled.mockReturnValue(true);
-    isElectronLocalApiRequest.mockReturnValue(false);
-    getHostedAuthContext.mockResolvedValue(null);
-
-    const response = await issueTicket(
-      new Request("http://127.0.0.1/api/events/ticket", {
-        headers: { authorization: "Bearer local-token" },
-      }),
-    );
-
+  it("rejects stream requests without a valid ticket", () => {
+    const response = stream(new URL("http://127.0.0.1/api/events?ticket=nope"));
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
   });
 
-  it("only emits scoped app events to the hosted user that owns them", async () => {
-    isHostedDatabaseEnabled.mockReturnValue(true);
-    isElectronLocalApiRequest.mockReturnValue(false);
-    getHostedAuthContext.mockResolvedValue(context);
-
-    const ticketResponse = await issueTicket(
-      new Request("http://127.0.0.1/api/events/ticket"),
-    );
+  it("issues a single-use ticket that opens the SSE stream once", async () => {
+    const ticketResponse = issueTicket();
+    expect(ticketResponse.status).toBe(200);
     const { ticket } = (await ticketResponse.json()) as { ticket: string };
+    expect(ticket).toMatch(/^[0-9a-f]{64}$/);
+
+    const opened = stream(new URL(`http://127.0.0.1/api/events?ticket=${ticket}`));
+    expect(opened.status).toBe(200);
+    await opened.body?.cancel();
+
+    const reused = stream(new URL(`http://127.0.0.1/api/events?ticket=${ticket}`));
+    expect(reused.status).toBe(401);
+  });
+
+  it("delivers emitted app events to a subscribed stream", async () => {
+    const { ticket } = (await issueTicket().json()) as { ticket: string };
     const response = stream(new URL(`http://127.0.0.1/api/events?ticket=${ticket}`));
     const { reader } = await readNextEvent(response);
 
-    events.emit("task:updated", {
-      id: "other-task",
-      projectId: "other-project",
-      scope: { organizationId: null, userId: "user-2" },
-    });
-    events.emit("task:updated", {
-      id: "owned-task",
-      projectId: "owned-project",
-      scope: { organizationId: null, userId: "user-1" },
-    });
+    events.emit("task:updated", { id: "task-1", projectId: "project-1" });
 
     const next = await reader.read();
     await reader.cancel();
     const text = new TextDecoder().decode(next.value);
-    expect(text).toContain("owned-task");
-    expect(text).not.toContain("other-task");
+    expect(text).toContain("task-1");
   });
 
-  it("delivers diagram:show events that carry hosted scope", async () => {
-    isHostedDatabaseEnabled.mockReturnValue(true);
-    isElectronLocalApiRequest.mockReturnValue(false);
-    getHostedAuthContext.mockResolvedValue(context);
-
-    const ticketResponse = await issueTicket(
-      new Request("http://127.0.0.1/api/events/ticket"),
-    );
-    const { ticket } = (await ticketResponse.json()) as { ticket: string };
+  it("delivers diagram:show events to a subscribed stream", async () => {
+    const { ticket } = (await issueTicket().json()) as { ticket: string };
     const response = stream(new URL(`http://127.0.0.1/api/events?ticket=${ticket}`));
     const { reader } = await readNextEvent(response);
 
     events.emit("diagram:show", {
       id: "diagram-1",
-      taskId: "owned-task",
-      projectId: "owned-project",
+      taskId: "task-1",
+      projectId: "project-1",
       title: "Flow",
       source: "flowchart LR\n  A --> B",
       format: "mermaid",
-      projectName: "Owned",
-      taskTitle: "Owned task",
+      projectName: "Project",
+      taskTitle: "Task",
       worktreeId: null,
-      scope: { organizationId: null, userId: "user-1" },
-    });
-    events.emit("diagram:show", {
-      id: "diagram-2",
-      taskId: "other-task",
-      projectId: "other-project",
-      title: "Other",
-      source: "flowchart LR\n  X --> Y",
-      format: "mermaid",
-      projectName: "Other",
-      taskTitle: "Other task",
-      worktreeId: null,
-      scope: { organizationId: null, userId: "user-2" },
     });
 
     const next = await reader.read();
     await reader.cancel();
     const text = new TextDecoder().decode(next.value);
     expect(text).toContain("diagram-1");
-    expect(text).not.toContain("diagram-2");
   });
 });

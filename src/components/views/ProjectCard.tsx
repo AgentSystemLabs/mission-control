@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { Z_INDEX } from "~/lib/z-index";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Btn } from "~/components/ui/Btn";
@@ -248,7 +249,7 @@ export function ProjectCard({
               alignItems: "stretch",
               gap: 4,
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-              zIndex: 10000,
+              zIndex: Z_INDEX.popover,
             }}
           >
             <Btn

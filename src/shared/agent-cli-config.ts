@@ -107,12 +107,6 @@ export const AGENT_CLI_CONFIG_BY_COMMAND = Object.fromEntries(
   Object.values(AGENT_CLI_CONFIG).map((config) => [config.command, config]),
 ) as Readonly<Record<string, AgentCliConfig | undefined>>;
 
-/** @deprecated Use AGENT_CLI_CONFIG */
-export const AGENT_CLI_VERSION_REQUIREMENTS = AGENT_CLI_CONFIG;
-
-/** @deprecated Use AGENT_CLI_CONFIG_BY_COMMAND */
-export const AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND = AGENT_CLI_CONFIG_BY_COMMAND;
-
 function isStructuredUpdateCommands(
   updateCommands: AgentCliUpdateCommands,
 ): updateCommands is Exclude<AgentCliUpdateCommands, readonly string[]> {

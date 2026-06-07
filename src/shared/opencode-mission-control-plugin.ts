@@ -4,6 +4,9 @@ import * as path from "node:path";
 /** Marker comment — MC replaces this file on every OpenCode spawn. */
 export const OPENCODE_MISSION_CONTROL_PLUGIN_MARKER = "@mission-control-managed";
 
+/** Env vars the host injects so a spawned agent can reach the MC hook API. */
+export const MC_AGENT_ENV_KEYS = ["MC_TASK_ID", "MC_API_URL", "MC_API_TOKEN"] as const;
+
 export const OPENCODE_MISSION_CONTROL_PLUGIN_SEGMENTS = [
   ".opencode",
   "plugins",
@@ -61,9 +64,9 @@ async function postMissionControlHook(hookEventName, body = {}) {
 export const MissionControlStatus = async () => {
   return {
     "shell.env": async (_input, output) => {
-      if (process.env.MC_TASK_ID) output.env.MC_TASK_ID = process.env.MC_TASK_ID;
-      if (process.env.MC_API_URL) output.env.MC_API_URL = process.env.MC_API_URL;
-      if (process.env.MC_API_TOKEN) output.env.MC_API_TOKEN = process.env.MC_API_TOKEN;
+      ${MC_AGENT_ENV_KEYS.map(
+        (key) => `if (process.env.${key}) output.env.${key} = process.env.${key};`,
+      ).join("\n      ")}
     },
     "chat.message": async (input, output) => {
       if (output.message?.role !== "user") return;

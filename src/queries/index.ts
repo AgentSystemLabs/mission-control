@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { api, setApiToken } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
-import { isWebDaytonaRuntime } from "~/lib/runtime";
 import {
   readCachedGroups,
   readCachedLicense,
@@ -10,7 +9,6 @@ import {
   readCachedSandboxes,
   readCachedSettings,
 } from "~/lib/shell-query-cache";
-import type { LicenseState } from "~/shared/license";
 import { filterProjectsByScope, LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
@@ -33,7 +31,6 @@ export const queryKeys = {
   settings: ["settings"] as const,
   apiToken: ["api-token"] as const,
   license: ["license"] as const,
-  entitlements: ["entitlements"] as const,
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
     ["projects", projectId, "user-terminals"] as const,
@@ -48,15 +45,6 @@ export const queryKeys = {
       "user-terminals",
     ] as const,
   usage: (days: number) => ["usage", days] as const,
-};
-
-const HOSTED_LICENSE_STATE: LicenseState = {
-  hasKey: false,
-  maskedKey: null,
-  status: null,
-  plan: null,
-  lastValidatedAt: null,
-  payload: null,
 };
 
 export const projectsQueryOptions = () =>
@@ -136,19 +124,8 @@ export const apiTokenQueryOptions = () =>
 export const licenseQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.license,
-    queryFn: async () => {
-      if (!import.meta.env.SSR && isWebDaytonaRuntime()) {
-        return HOSTED_LICENSE_STATE;
-      }
-      return (await api.getLicense()).license;
-    },
+    queryFn: async () => (await api.getLicense()).license,
     placeholderData: readCachedLicense,
-  });
-
-export const entitlementsQueryOptions = () =>
-  queryOptions({
-    queryKey: queryKeys.entitlements,
-    queryFn: async () => (await api.getEntitlements()).entitlements,
   });
 
 export const userTerminalsQueryOptions = (
@@ -191,7 +168,6 @@ export const useWorktrees = (projectId: string) => useQuery(worktreesQueryOption
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useApiToken = () => useQuery(apiTokenQueryOptions());
 export const useLicense = () => useQuery(licenseQueryOptions());
-export const useEntitlements = () => useQuery(entitlementsQueryOptions());
 export const useUserTerminalsQuery = (
   projectId: string,
   worktreeId?: string | null,

@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { IPC } from "./ipc-channels";
 
+/** Subscribe to a main→renderer IPC channel; returns an unsubscribe fn. */
+function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
+  const listener = (_e: Electron.IpcRendererEvent, payload: T) => cb(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 // Mirror of UpdateState in update-manager.ts. Kept structural here so the renderer
 // bundle never imports main-process code. Drift between the two is caught by the
 // reviewer-contracts subagent.
@@ -47,7 +54,6 @@ export type SandboxSettingsBridge = {
   workspaceVolume: string;
   projectPaths: Record<string, string>;
   agentPort: number;
-  agentConfigVolume: string;
   gitAuthMode: "none" | "copy-host" | "generate";
   /** The pairing token itself is never sent to the renderer. */
   hasPairingToken: boolean;
@@ -63,7 +69,6 @@ export type SandboxSettingsPatchBridge = Partial<{
   workspaceVolume: string;
   projectPaths: Record<string, string>;
   agentPort: number;
-  agentConfigVolume: string;
   gitAuthMode: "none" | "copy-host" | "generate";
 }>;
 
@@ -103,6 +108,7 @@ export type RemoteVmDeployInputBridge =
       gitAuthMode?: "none" | "copy-host" | "generate";
       copyAgentCreds?: boolean;
       idleTimeoutMinutes?: number;
+      imageStrategy?: "golden" | "full-install";
       projectId?: string;
     }
   | {
@@ -250,19 +256,9 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.sandboxRevealApiKey, sandboxId),
     detectRemote: (projectPath: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.sandboxDetectRemote, projectPath),
-    onStateChange: (cb: (e: { sandboxId: string; state: SandboxStateBridge }) => void) => {
-      const listener = (
-        _: Electron.IpcRendererEvent,
-        e: { sandboxId: string; state: SandboxStateBridge },
-      ) => cb(e);
-      ipcRenderer.on(IPC.sandboxStateChange, listener);
-      return () => ipcRenderer.removeListener(IPC.sandboxStateChange, listener);
-    },
-    onLog: (cb: (line: string) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, line: string) => cb(line);
-      ipcRenderer.on(IPC.sandboxLog, listener);
-      return () => ipcRenderer.removeListener(IPC.sandboxLog, listener);
-    },
+    onStateChange: (cb: (e: { sandboxId: string; state: SandboxStateBridge }) => void) =>
+      subscribe(IPC.sandboxStateChange, cb),
+    onLog: (cb: (line: string) => void) => subscribe(IPC.sandboxLog, cb),
   },
   remoteVm: {
     deploy: (input: RemoteVmDeployInputBridge): Promise<RemoteVmDeployResultBridge> =>
@@ -295,16 +291,10 @@ const electronAPI = {
       opts?: { keepRow?: boolean },
     ): Promise<{ ok: true } | { ok: false; error: string }> =>
       ipcRenderer.invoke(IPC.remoteVmDestroy, sandboxId, opts),
-    onDeployUpdate: (cb: (job: RemoteVmDeployJobSnapshotBridge) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, job: RemoteVmDeployJobSnapshotBridge) => cb(job);
-      ipcRenderer.on(IPC.remoteVmDeployUpdate, listener);
-      return () => ipcRenderer.removeListener(IPC.remoteVmDeployUpdate, listener);
-    },
-    onDeployLog: (cb: (entry: RemoteVmDeployLogEntryBridge) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, entry: RemoteVmDeployLogEntryBridge) => cb(entry);
-      ipcRenderer.on(IPC.remoteVmDeployLog, listener);
-      return () => ipcRenderer.removeListener(IPC.remoteVmDeployLog, listener);
-    },
+    onDeployUpdate: (cb: (job: RemoteVmDeployJobSnapshotBridge) => void) =>
+      subscribe(IPC.remoteVmDeployUpdate, cb),
+    onDeployLog: (cb: (entry: RemoteVmDeployLogEntryBridge) => void) =>
+      subscribe(IPC.remoteVmDeployLog, cb),
   },
   remotePty: {
     spawn: (opts: RemotePtySpawnOptionsBridge): Promise<{ ptyId: string }> =>
@@ -316,33 +306,13 @@ const electronAPI = {
     kill: (ptyId: string): Promise<boolean> => ipcRenderer.invoke(IPC.remotePtyKill, ptyId),
     replay: (ptyId: string): Promise<{ data: string; nextSeq: number }> =>
       ipcRenderer.invoke(IPC.remotePtyReplay, ptyId),
-    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; data: string; seq: number }) =>
-        cb(msg);
-      ipcRenderer.on(IPC.remotePtyData, listener);
-      return () => ipcRenderer.removeListener(IPC.remotePtyData, listener);
-    },
-    onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => {
-      const listener = (
-        _: Electron.IpcRendererEvent,
-        msg: { ptyId: string; exitCode: number; signal?: number },
-      ) => cb(msg);
-      ipcRenderer.on(IPC.remotePtyExit, listener);
-      return () => ipcRenderer.removeListener(IPC.remotePtyExit, listener);
-    },
-    onSpawned: (cb: (msg: { ptyId: string }) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string }) => cb(msg);
-      ipcRenderer.on(IPC.remotePtySpawned, listener);
-      return () => ipcRenderer.removeListener(IPC.remotePtySpawned, listener);
-    },
-    onSpawnError: (cb: (msg: { ptyId: string; code: string; message: string }) => void) => {
-      const listener = (
-        _: Electron.IpcRendererEvent,
-        msg: { ptyId: string; code: string; message: string },
-      ) => cb(msg);
-      ipcRenderer.on(IPC.remotePtySpawnError, listener);
-      return () => ipcRenderer.removeListener(IPC.remotePtySpawnError, listener);
-    },
+    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) =>
+      subscribe(IPC.remotePtyData, cb),
+    onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) =>
+      subscribe(IPC.remotePtyExit, cb),
+    onSpawned: (cb: (msg: { ptyId: string }) => void) => subscribe(IPC.remotePtySpawned, cb),
+    onSpawnError: (cb: (msg: { ptyId: string; code: string; message: string }) => void) =>
+      subscribe(IPC.remotePtySpawnError, cb),
   },
   remoteFs: {
     list: (path: string) => ipcRenderer.invoke(IPC.remoteFsList, path),
@@ -351,14 +321,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.remoteFsWrite, path, content, expectedMtimeMs),
     watch: (path: string) => ipcRenderer.invoke(IPC.remoteFsWatch, path),
     unwatch: (watchId: string) => ipcRenderer.invoke(IPC.remoteFsUnwatch, watchId),
-    onChange: (cb: (msg: { watchId: string; path: string; mtimeMs: number }) => void) => {
-      const listener = (
-        _: Electron.IpcRendererEvent,
-        msg: { watchId: string; path: string; mtimeMs: number },
-      ) => cb(msg);
-      ipcRenderer.on(IPC.remoteFsChange, listener);
-      return () => ipcRenderer.removeListener(IPC.remoteFsChange, listener);
-    },
+    onChange: (cb: (msg: { watchId: string; path: string; mtimeMs: number }) => void) =>
+      subscribe(IPC.remoteFsChange, cb),
   },
   remoteGit: {
     status: (repo: string) => ipcRenderer.invoke(IPC.remoteGitStatus, repo),
@@ -431,14 +395,7 @@ const electronAPI = {
         taskId: string;
         worktreeId: string | null;
       }) => void,
-    ) => {
-      const listener = (
-        _: Electron.IpcRendererEvent,
-        payload: { projectId: string; taskId: string; worktreeId: string | null },
-      ) => cb(payload);
-      ipcRenderer.on(IPC.notificationsSessionFinishedClick, listener);
-      return () => ipcRenderer.removeListener(IPC.notificationsSessionFinishedClick, listener);
-    },
+    ) => subscribe(IPC.notificationsSessionFinishedClick, cb),
   },
   cliCheck: (command: string, opts?: { verifyVersion?: boolean }): Promise<
     | {
@@ -488,39 +445,19 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.ptyKillLaunchProcesses, opts),
     killUnderPath: (cwd: string) =>
       ipcRenderer.invoke(IPC.ptyKillUnderPath, { cwd }) as Promise<{ ptyCount: number }>,
-    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => {
-      const listener = (
-        _: Electron.IpcRendererEvent,
-        msg: { ptyId: string; data: string; seq: number },
-      ) => cb(msg);
-      ipcRenderer.on(IPC.ptyData, listener);
-      return () => ipcRenderer.removeListener(IPC.ptyData, listener);
-    },
-    onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, msg: { ptyId: string; exitCode: number; signal?: number }) =>
-        cb(msg);
-      ipcRenderer.on(IPC.ptyExit, listener);
-      return () => ipcRenderer.removeListener(IPC.ptyExit, listener);
-    },
+    onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) =>
+      subscribe(IPC.ptyData, cb),
+    onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) =>
+      subscribe(IPC.ptyExit, cb),
     replay: (ptyId: string): Promise<{ data: string; nextSeq: number }> =>
       ipcRenderer.invoke(IPC.ptyReplay, { ptyId }) as Promise<{ data: string; nextSeq: number }>,
   },
-  onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => {
-    const listener = (_: Electron.IpcRendererEvent, direction: "left" | "right" | "up" | "down") => cb(direction);
-    ipcRenderer.on(IPC.appSwipe, listener);
-    return () => ipcRenderer.removeListener(IPC.appSwipe, listener);
-  },
+  onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) =>
+    subscribe(IPC.appSwipe, cb),
   isFullScreen: (): Promise<boolean> => ipcRenderer.invoke(IPC.appIsFullScreen),
-  onFullScreenChange: (cb: (isFullScreen: boolean) => void) => {
-    const listener = (_: Electron.IpcRendererEvent, isFullScreen: boolean) => cb(isFullScreen);
-    ipcRenderer.on(IPC.appFullScreenChange, listener);
-    return () => ipcRenderer.removeListener(IPC.appFullScreenChange, listener);
-  },
-  onCloseIntent: (cb: () => void) => {
-    const listener = () => cb();
-    ipcRenderer.on(IPC.appCloseIntent, listener);
-    return () => ipcRenderer.removeListener(IPC.appCloseIntent, listener);
-  },
+  onFullScreenChange: (cb: (isFullScreen: boolean) => void) =>
+    subscribe(IPC.appFullScreenChange, cb),
+  onCloseIntent: (cb: () => void) => subscribe(IPC.appCloseIntent, cb),
   updater: {
     getState: (): Promise<UpdateStateBridge> =>
       ipcRenderer.invoke(IPC.updateGetState) as Promise<UpdateStateBridge>,
@@ -529,11 +466,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.updateDownload),
     installNow: (): Promise<{ ok: true } | { ok: false; error: string }> =>
       ipcRenderer.invoke(IPC.updateInstall),
-    onStateChange: (cb: (state: UpdateStateBridge) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, state: UpdateStateBridge) => cb(state);
-      ipcRenderer.on(IPC.updateStateChange, listener);
-      return () => ipcRenderer.removeListener(IPC.updateStateChange, listener);
-    },
+    onStateChange: (cb: (state: UpdateStateBridge) => void) =>
+      subscribe(IPC.updateStateChange, cb),
   },
   files: {
     list: (projectRoot: string): Promise<{ ok: true; files: string[] } | { ok: false; error: string }> =>
@@ -603,11 +537,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.filesWatch, projectRoot, relPath),
     unwatch: (watchId: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC.filesUnwatch, watchId),
-    onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) => {
-      const listener = (_: Electron.IpcRendererEvent, msg: { watchId: string; mtimeMs: number }) => cb(msg);
-      ipcRenderer.on(IPC.filesChanged, listener);
-      return () => ipcRenderer.removeListener(IPC.filesChanged, listener);
-    },
+    onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) =>
+      subscribe(IPC.filesChanged, cb),
   },
 };
 

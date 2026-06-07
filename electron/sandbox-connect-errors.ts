@@ -1,17 +1,14 @@
 export const CONNECT_BUDGET_REMOTE_MS = 90_000;
-export const CONNECT_BUDGET_LOCAL_MS = 180_000;
 
 export type ConnectFailureKind = "auth" | "host" | "tls" | "transient";
 
-export function connectBudgetMs(kind: "local-docker" | "remote-vm"): number {
-  return kind === "remote-vm" ? CONNECT_BUDGET_REMOTE_MS : CONNECT_BUDGET_LOCAL_MS;
+export function connectBudgetMs(_kind: "remote-vm"): number {
+  return CONNECT_BUDGET_REMOTE_MS;
 }
 
-export function connectTimeoutMessage(kind: "local-docker" | "remote-vm", budgetMs: number): string {
+export function connectTimeoutMessage(_kind: "remote-vm", budgetMs: number): string {
   const budgetSec = Math.round(budgetMs / 1000);
-  return kind === "remote-vm"
-    ? `Couldn't connect to the remote agent after ${budgetSec}s. Check the agent URL and API key, then try again.`
-    : `Couldn't connect to the sandbox agent after ${budgetSec}s. Try again or check Docker logs.`;
+  return `Couldn't connect to the remote agent after ${budgetSec}s. Check the agent URL and API key, then try again.`;
 }
 
 export function classifyConnectError(err: Error): { kind: ConnectFailureKind; message: string } {

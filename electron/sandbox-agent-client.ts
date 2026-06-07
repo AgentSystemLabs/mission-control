@@ -1,13 +1,13 @@
-// Reusable request/subscription layer over the mc-agent WebSocket.
+// Reusable request/subscription layer over the remote sandbox agent WebSocket.
 //
 // The sandbox manager owns ONE of these per live connection. It turns the raw
 // agent protocol into: (a) promise-based RPC (reqId ⇄ rpcResult correlation)
 // for fs.* / git.* and (b) fire-and-forget PTY control with callback streams for
 // output/exit. The remotePty / remoteFs / remoteGit IPC bridges call into this.
 //
-// Message shapes mirror mc-agent/src/protocol.ts structurally (kept inline so
-// the Electron build doesn't import the mc-agent package's runtime deps — same
-// convention as the preload bridge types).
+// Message shapes mirror the published @agentsystemlabs/mission-control-agent
+// protocol structurally (kept inline so the Electron build doesn't import the
+// agent package's runtime deps — same convention as the preload bridge types).
 
 export interface WebSocketLike {
   readonly readyState: number;

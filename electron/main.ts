@@ -39,12 +39,14 @@ import {
 } from "./api-token-store";
 import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
 import { extractRemoteVmDeployError } from "../src/shared/remote-vm-deploy-error";
+import { shortId } from "../src/shared/short-id";
+import { errMsg } from "../src/shared/err-msg";
 import { checkRailwayPreflight } from "./railway-preflight";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
 import { checkAgentCliVersion } from "./agent-cli-version";
-import { AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND } from "./agent-cli-version-requirements";
+import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore } from "./app-settings-store";
 import { getBinding, matchElectronInput } from "./keybindings-reader";
 import { resolveProductionServerEntry } from "./production-server-entry";
@@ -87,6 +89,15 @@ function configureUserDataDir(): string {
 }
 
 const missionControlUserDataDir = configureUserDataDir();
+
+/** Env for spawning the bundled remote-vm CLI as a plain Node process. */
+function remoteVmSpawnEnv(): NodeJS.ProcessEnv {
+  return {
+    ...sanitizedProcessEnv(),
+    ELECTRON_RUN_AS_NODE: "1",
+    MC_USER_DATA_DIR: missionControlUserDataDir,
+  };
+}
 
 // Persists to ~/Library/Logs/<AppName>/main.log on macOS, %USERPROFILE%/AppData/Roaming/<AppName>/logs/main.log on Windows,
 // and ~/.config/<AppName>/logs/main.log on Linux. This is the file users grep when
@@ -425,11 +436,11 @@ function parseRemoteVmDeployResult(output: string): RemoteVmDeploySuccess | null
 }
 
 function newRemoteVmDeployJobId(): string {
-  return `remote-vm-deploy-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+  return shortId("remote-vm-deploy");
 }
 
 function newRemoteVmSandboxId(): string {
-  return `sb-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+  return shortId("sb");
 }
 
 function remoteVmDeployInputWithSandboxId(input: RemoteVmDeployInput): RemoteVmDeployInput {
@@ -564,7 +575,7 @@ function startRemoteVmDeployJob(input: RemoteVmDeployInput): RemoteVmDeployJob {
     }
     args = buildRemoteVmDeployArgs(job.input);
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = errMsg(err);
     appendRemoteVmDeployLog(job, "system", `[remote-vm] ${error}\n`);
     finishRemoteVmDeployJob(job, { status: "failed", error });
     return job;
@@ -578,11 +589,7 @@ function startRemoteVmDeployJob(input: RemoteVmDeployInput): RemoteVmDeployJob {
 
   const child = spawn(process.execPath, [script, ...args], {
     cwd: remoteVmSpawnCwd(script),
-    env: {
-      ...sanitizedProcessEnv(),
-      ELECTRON_RUN_AS_NODE: "1",
-      MC_USER_DATA_DIR: missionControlUserDataDir,
-    },
+    env: remoteVmSpawnEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
   job.child = child;
@@ -689,11 +696,7 @@ function destroyRemoteVm(
   return new Promise((resolve) => {
     const child = spawn(process.execPath, args, {
       cwd: remoteVmSpawnCwd(script),
-      env: {
-        ...sanitizedProcessEnv(),
-        ELECTRON_RUN_AS_NODE: "1",
-        MC_USER_DATA_DIR: missionControlUserDataDir,
-      },
+      env: remoteVmSpawnEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -736,11 +739,7 @@ function runRemoteVmLifecycle(
   return new Promise((resolve) => {
     const child = spawn(process.execPath, args, {
       cwd: remoteVmSpawnCwd(script),
-      env: {
-        ...sanitizedProcessEnv(),
-        ELECTRON_RUN_AS_NODE: "1",
-        MC_USER_DATA_DIR: missionControlUserDataDir,
-      },
+      env: remoteVmSpawnEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -776,11 +775,7 @@ function runRemoteVmReconcile(sandboxId: string): Promise<RemoteVmReconcileResul
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [script, "reconcile", id, "--json"], {
       cwd: remoteVmSpawnCwd(script),
-      env: {
-        ...sanitizedProcessEnv(),
-        ELECTRON_RUN_AS_NODE: "1",
-        MC_USER_DATA_DIR: missionControlUserDataDir,
-      },
+      env: remoteVmSpawnEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -1041,9 +1036,16 @@ function terminalImageExtension(mimeType: string, name: string): string | null {
   return [...TERMINAL_IMAGE_MIME_EXT.values()].includes(ext) ? ext : null;
 }
 
+const TERMINAL_IMAGE_NAME_MAX_LEN = 80;
+
 function sanitizedTerminalImageName(name: string): string {
   const parsed = path.parse(path.basename(name || "image"));
-  return parsed.name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "image";
+  return (
+    parsed.name
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, TERMINAL_IMAGE_NAME_MAX_LEN) || "image"
+  );
 }
 
 function pruneTerminalImagesDir(dir: string): void {
@@ -1313,7 +1315,7 @@ safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolea
   const env = sanitizedProcessEnv();
   const resolved = resolveAgentCommandOnPath(command, env);
   if (resolved) {
-    const requirement = AGENT_CLI_VERSION_REQUIREMENTS_BY_COMMAND[command];
+    const requirement = AGENT_CLI_CONFIG_BY_COMMAND[command];
     if (requirement && opts?.verifyVersion) {
       const versionCheck = checkAgentCliVersion(resolved, env, requirement, os.platform());
       if (!versionCheck.ok) {

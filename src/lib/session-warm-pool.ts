@@ -1,19 +1,20 @@
-import type { Project, Task } from "~/db/schema";
+import type { Task } from "~/db/schema";
 import type { TaskAgent } from "~/shared/domain";
+import type { ScopedProject } from "~/lib/scoped-project";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import { newClientId } from "~/shared/client-id";
 import { newSessionId } from "~/lib/agent-command";
+import { buildOptimisticTask } from "~/lib/optimistic-task";
 import { commandForTask } from "~/lib/terminal-store";
 import { getElectron } from "~/lib/electron";
 import { api, resolveApiToken } from "~/lib/api";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { getTerminalColorScheme } from "~/lib/terminal-options";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
-import { normalizePtySize } from "~/shared/pty-size";
+import { DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS } from "~/shared/pty-size";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
-type ScopedProject = Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
 export type SessionCreatePayload = {
   agent: TaskAgent;
   branch: string;
@@ -64,28 +65,19 @@ function buildDraftTask(
   payload: SessionCreatePayload,
   claudeSessionId: string | null,
 ): Task {
-  const now = Date.now();
-  return {
+  return buildOptimisticTask({
     id: clientTaskId,
     projectId: project.id,
     worktreeId: project.activeWorktreeId ?? null,
-    scopeId: project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
-    title: TITLE_WAITING,
-    icon: null,
+    scopeId: project.activeRuntimeScopeId,
     agent: payload.agent,
-    status: "ready",
-    branch: payload.branch || DEFAULT_BRANCH,
-    preview: "",
-    lines: 0,
-    archived: false,
+    branch: payload.branch,
     claudeSessionId,
     claudeSkipPermissions: agentSupportsSkipPermissions(payload.agent)
       ? payload.skipPermissions
       : false,
     claudeBareSession: payload.agent === "claude-code" ? payload.bareSession : false,
-    createdAt: now,
-    updatedAt: now,
-  };
+  });
 }
 
 export function defaultSessionPayload(project: {
@@ -108,14 +100,9 @@ export function defaultSessionPayload(project: {
 }
 
 export async function discardSessionWarmSlot(): Promise<void> {
+  // Bump the generation so any in-flight prepare is invalidated, then tear down.
   warmGeneration += 1;
-  warmPreparing = null;
-  const slot = warmSlot;
-  warmSlot = null;
-  const electron = getElectron();
-  if (slot && electron) {
-    await electron.pty.kill(slot.ptyId).catch(() => undefined);
-  }
+  await discardSessionWarmSlotQuiet();
 }
 
 async function discardSessionWarmSlotQuiet(): Promise<void> {
@@ -186,8 +173,8 @@ export async function prepareSessionWarmSlot(input: {
         taskId: clientTaskId,
         cwd: input.project.path,
         command: commandForTask(draftTask),
-        cols: normalizePtySize({ cols: 100, rows: 30 }).cols,
-        rows: normalizePtySize({ cols: 100, rows: 30 }).rows,
+        cols: DEFAULT_PTY_COLS,
+        rows: DEFAULT_PTY_ROWS,
         agent: draftTask.agent,
         dangerouslySkipPermissions: draftTask.claudeSkipPermissions,
         mcEnv,

@@ -1,35 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import path from "node:path";
+import {
+  betterSqliteRoot,
+  prebuildInstallBin,
+  canLoadNodeBetterSqlite,
+} from "./lib/better-sqlite.mjs";
 
 const requireFromHere = createRequire(import.meta.url);
 const packageJson = requireFromHere("../package.json");
 const packageManagerSpec = packageJson.packageManager ?? "pnpm";
 const packageManagerCommand = process.platform === "win32" ? "corepack.cmd" : "corepack";
-const betterSqlitePackageJson = requireFromHere.resolve("better-sqlite3/package.json");
-const betterSqliteRoot = path.dirname(betterSqlitePackageJson);
-const betterSqliteRequire = createRequire(betterSqlitePackageJson);
-const prebuildInstallBin = betterSqliteRequire.resolve("prebuild-install/bin.js");
 
-function canLoadBetterSqlite() {
-  const result = spawnSync(
-    process.execPath,
-    [
-      "-e",
-      "const Database = require(process.argv[1]); const db = new Database(':memory:'); db.prepare('select 1').get(); db.close();",
-      betterSqliteRoot,
-    ],
-    {
-      cwd: betterSqliteRoot,
-      encoding: "utf8",
-      env: process.env,
-    },
-  );
-
-  return result.status === 0;
-}
-
-if (canLoadBetterSqlite()) {
+if (canLoadNodeBetterSqlite()) {
   process.exit(0);
 }
 
@@ -58,7 +40,7 @@ if (prebuildResult.error) {
   console.error(prebuildResult.error);
 }
 
-if (prebuildResult.status === 0 && canLoadBetterSqlite()) {
+if (prebuildResult.status === 0 && canLoadNodeBetterSqlite()) {
   process.exit(0);
 }
 

@@ -30,7 +30,7 @@ export const groups = sqliteTable("groups", {
 export const sandboxes = sqliteTable("sandboxes", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  kind: text("kind").$type<SandboxKind>().notNull().default("local-docker"),
+  kind: text("kind").$type<SandboxKind>().notNull().default("remote-vm"),
   color: text("color"),
   // --- fully-independent runtime config (user-set) ---
   imageTag: text("image_tag"),
@@ -46,7 +46,7 @@ export const sandboxes = sqliteTable("sandboxes", {
   hostAgentPort: integer("host_agent_port"),
   portMap: text("port_map"), // JSON: Record<containerPort, hostPort>
   pairingToken: text("pairing_token"),
-  // --- remote-vm (future, unused while kind = local-docker) ---
+  // --- remote-vm config ---
   remoteConfig: text("remote_config"), // JSON
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
@@ -228,7 +228,7 @@ export const homeTerminals = sqliteTable(
     // The scope (sandbox) the terminal belongs to: "local" for the host, or a
     // sandbox id. A home terminal runs a shell ON that scope's machine, so it is
     // only shown while that scope is active. Defaults to "local".
-    scopeId: text("scope_id").notNull().default("local"),
+    scopeId: text("scope_id").notNull().default(LOCAL_SCOPE_ID),
     name: text("name").notNull(),
     cwd: text("cwd"),
     position: integer("position").notNull().default(0),

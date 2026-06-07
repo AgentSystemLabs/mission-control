@@ -17,7 +17,6 @@ import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types"
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { LicenseState } from "~/shared/license";
-import type { Entitlements } from "~/shared/entitlements";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import type {
@@ -27,8 +26,6 @@ import type {
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
 import type { SandboxPublicView } from "~/shared/sandbox";
-import { getClientRuntime } from "~/lib/runtime";
-import { MISSION_CONTROL_RUNTIME_HEADER } from "~/shared/runtime";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 
 // The api bearer token is intentionally NOT part of this HTTP-derived shape.
@@ -62,17 +59,6 @@ export type AppSettings = {
   /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
   terminalZoomLevel: TerminalZoomLevel;
 };
-
-type RemotePtyCreateBody = {
-  cwd: string;
-  command: string;
-  agent?: string;
-  cols?: number;
-  rows?: number;
-} & (
-  | { taskId: string; projectId?: never }
-  | { projectId: string; taskId?: never }
-);
 
 export class ApiError extends Error {
   constructor(
@@ -148,9 +134,6 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
       ? DEV_SERVER_ORIGIN + url
       : url;
   const baseHeaders: Record<string, string> = { "content-type": "application/json" };
-  if (!import.meta.env.SSR) {
-    baseHeaders[MISSION_CONTROL_RUNTIME_HEADER] = getClientRuntime();
-  }
   if (!hasAuthHeader(init?.headers)) {
     const token = await resolveApiToken();
     if (token) baseHeaders.authorization = `Bearer ${token}`;
@@ -197,11 +180,6 @@ export const api = {
     sandboxId?: string | null;
   }) =>
     req<{ project: Project }>("/api/projects", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  createLaunchKitProject: (body: { parentDir: string; projectName: string }) =>
-    req<{ project: Project; version: string }>("/api/launch-kit/projects", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -425,40 +403,6 @@ export const api = {
   getSettings: () => req<AppSettings>("/api/settings"),
 
   getLicense: () => req<{ license: LicenseState }>("/api/license"),
-  getEntitlements: () => req<{ entitlements: Entitlements }>("/api/entitlements"),
-  createRemotePty: (body: RemotePtyCreateBody) =>
-    req<{ ptyId: string }>("/api/remote-pty", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  writeRemotePty: (ptyId: string, data: string) =>
-    req<{ ok: true }>(`/api/remote-pty/${encodeURIComponent(ptyId)}/write`, {
-      method: "POST",
-      body: JSON.stringify({ data }),
-    }),
-  resizeRemotePty: (ptyId: string, cols: number, rows: number) =>
-    req<{ ok: true }>(`/api/remote-pty/${encodeURIComponent(ptyId)}/resize`, {
-      method: "POST",
-      body: JSON.stringify({ cols, rows }),
-    }),
-  killRemotePty: (ptyId: string) =>
-    req<{ ok: true }>(`/api/remote-pty/${encodeURIComponent(ptyId)}/kill`, {
-      method: "POST",
-    }),
-  replayRemotePty: (ptyId: string, opts: { afterSeq?: number; beforeSeq?: number } = {}) => {
-    const params = new URLSearchParams();
-    if (opts.afterSeq !== undefined) params.set("afterSeq", String(opts.afterSeq));
-    if (opts.beforeSeq !== undefined) params.set("beforeSeq", String(opts.beforeSeq));
-    const suffix = params.size ? `?${params.toString()}` : "";
-    return req<{ data: string; nextSeq: number }>(
-      `/api/remote-pty/${encodeURIComponent(ptyId)}/replay${suffix}`,
-    );
-  },
-  createRemotePtyTicket: (ptyId: string) =>
-    req<{ ticket: string; expiresAt: number }>(
-      `/api/remote-pty/${encodeURIComponent(ptyId)}/ticket`,
-      { method: "POST" },
-    ),
   validateLicense: (key: string) =>
     req<{ license: LicenseState }>("/api/license/validate", {
       method: "POST",
@@ -466,9 +410,6 @@ export const api = {
     }),
   removeLicense: () =>
     req<{ license: LicenseState }>("/api/license", { method: "DELETE" }),
-
-  getLaunchKitAccess: () =>
-    req<{ hasAccess: boolean }>("/api/launch-kit/access"),
 
   updateSettings: (
     body: Partial<

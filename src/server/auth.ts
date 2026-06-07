@@ -25,10 +25,7 @@ function tokensEqual(a: string, b: string): boolean {
   return timingSafeEqual(ba, bb);
 }
 
-const UNAUTHORIZED: Response = new Response(JSON.stringify({ error: "unauthorized" }), {
-  status: HTTP_UNAUTHORIZED,
-  headers: { "content-type": "application/json" },
-});
+const UNAUTHORIZED: Response = jsonError(HTTP_UNAUTHORIZED, "unauthorized");
 
 function unauthorized(): { ok: false; response: Response } {
   // Clone so the body stream is fresh for every caller.
@@ -86,15 +83,6 @@ function isLoopback(hostname: string | null | undefined): boolean {
   return LOOPBACK_HOSTS.has(hostname.toLowerCase());
 }
 
-function isHostedMode(): boolean {
-  return !!process.env.DATABASE_URL?.trim();
-}
-
-function sameHost(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (!a || !b) return false;
-  return a.toLowerCase() === b.toLowerCase();
-}
-
 /**
  * Reject cross-origin browser fetches and DNS-rebinding attacks against the
  * local API server. Browsers send `Origin` on every cross-origin request and
@@ -106,24 +94,6 @@ function sameHost(a: string | null | undefined, b: string | null | undefined): b
  */
 export function isSameOriginRequest(request: Request): boolean {
   const origin = request.headers.get("origin");
-  const requestHost =
-    hostnameFromHostHeader(request.headers.get("host") ?? "") ||
-    (() => {
-      try {
-        return new URL(request.url).hostname;
-      } catch {
-        return null;
-      }
-    })();
-
-  if (isHostedMode()) {
-    if (origin !== null) {
-      if (origin === "null") return false;
-      return sameHost(hostnameFromOrigin(origin), requestHost);
-    }
-    return !!requestHost;
-  }
-
   if (origin !== null) {
     if (origin === "null") return false;
     return isLoopback(hostnameFromOrigin(origin));
@@ -145,10 +115,7 @@ export function requireLocalOrigin(
   if (isSameOriginRequest(request)) return { ok: true };
   return {
     ok: false,
-    response: new Response(JSON.stringify({ error: "forbidden" }), {
-      status: HTTP_FORBIDDEN,
-      headers: { "content-type": "application/json" },
-    }),
+    response: jsonError(HTTP_FORBIDDEN, "forbidden"),
   };
 }
 

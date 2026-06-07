@@ -11,7 +11,6 @@ import {
   queryKeys,
   useGroups,
 } from "~/queries";
-import { isWebDaytonaRuntime } from "~/lib/runtime";
 import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
 import type { Group } from "~/db/schema";
 
@@ -32,10 +31,6 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
   const open = useCallback(async () => {
     void queryClient.ensureQueryData(groupsQueryOptions());
     const latestProjects = await queryClient.ensureQueryData(projectsQueryOptions());
-    if (isWebDaytonaRuntime()) {
-      setIsOpen(true);
-      return;
-    }
     const latestLicense = await queryClient.ensureQueryData(licenseQueryOptions());
     if (!isProTier(latestLicense) && latestProjects.length >= FREE_PROJECT_CAP) {
       setPaywallOpen(true);

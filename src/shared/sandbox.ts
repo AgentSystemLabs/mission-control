@@ -4,7 +4,7 @@
 // See docs/multi-sandbox-plan.md.
 
 /** Execution backend for a sandbox. */
-export const SANDBOX_KINDS = ["local-docker", "remote-vm"] as const;
+export const SANDBOX_KINDS = ["remote-vm"] as const;
 
 export type SandboxKind = (typeof SANDBOX_KINDS)[number];
 
@@ -33,7 +33,7 @@ export type RemoteVmLifecycleStatus =
   | "missing";
 
 export type SandboxRemoteConfig = {
-  /** WebSocket endpoint for a user-managed mc-agent. Stored without secrets. */
+  /** WebSocket endpoint for a user-managed remote agent. Stored without secrets. */
   agentUrl: string;
   /**
    * Managed cloud VMs can expose the raw ws:// agent port behind a cloud
@@ -133,6 +133,11 @@ export type ScopeId = string;
 
 export function isLocalScope(scope: ScopeId | null | undefined): boolean {
   return !scope || scope === LOCAL_SCOPE_ID;
+}
+
+/** Coerce a blank/missing scope id to the Local sentinel. */
+export function normalizeScopeId(scopeId: string | null | undefined): string {
+  return scopeId?.trim() || LOCAL_SCOPE_ID;
 }
 
 export function scopeToSandboxId(scope: ScopeId | null | undefined): string | null {

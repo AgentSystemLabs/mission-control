@@ -1,5 +1,6 @@
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
+import { openExternal } from "~/lib/open-external";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { getElectron } from "~/lib/electron";
@@ -37,7 +38,7 @@ export function AgentUpdateRequiredDialog({
       void electron.openExternal(packageUrl);
       return;
     }
-    window.open(packageUrl, "_blank", "noopener,noreferrer");
+    openExternal(packageUrl);
   };
 
   return (

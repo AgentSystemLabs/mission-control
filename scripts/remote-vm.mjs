@@ -1033,7 +1033,7 @@ export function ensureRemoteVmSchema(db) {
     CREATE TABLE IF NOT EXISTS sandboxes (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'local-docker',
+      kind TEXT NOT NULL DEFAULT 'remote-vm',
       color TEXT,
       image_tag TEXT,
       dockerfile_path TEXT,
@@ -1056,7 +1056,7 @@ export function ensureRemoteVmSchema(db) {
     );
   `);
   ensureColumn(db, "sandboxes", "name", "TEXT NOT NULL DEFAULT 'Sandbox'");
-  ensureColumn(db, "sandboxes", "kind", "TEXT NOT NULL DEFAULT 'local-docker'");
+  ensureColumn(db, "sandboxes", "kind", "TEXT NOT NULL DEFAULT 'remote-vm'");
   ensureColumn(db, "sandboxes", "color", "TEXT");
   ensureColumn(db, "sandboxes", "image_tag", "TEXT");
   ensureColumn(db, "sandboxes", "dockerfile_path", "TEXT");

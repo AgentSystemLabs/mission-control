@@ -1,10 +1,14 @@
 import http from "node:http";
 import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
+// Read the pinned package manager from package.json so it can't drift from the
+// repo's `packageManager` field.
+const packageManager =
+  JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).packageManager ?? "pnpm";
 const MAX_TCP_PORT = 65535;
 const DEFAULT_DEV_PORT = 5173;
 const HTTP_READY_TIMEOUT_MS = 30_000;
@@ -12,7 +16,6 @@ const HTTP_POLL_INTERVAL_MS = 200;
 const STALE_SERVER_GRACE_MS = 1_500;
 
 const mode = process.argv[2] ?? "electron";
-const shouldStartPostgres = process.argv.includes("--postgres");
 const env = { ...process.env };
 env.MC_DEV_HOST ||= "127.0.0.1";
 env.MC_DEV_PORT = String(parsePort(env.MC_DEV_PORT, DEFAULT_DEV_PORT));
@@ -23,15 +26,9 @@ env.MC_DEV_PORT = String(parsePort(env.MC_DEV_PORT, DEFAULT_DEV_PORT));
 env.MC_USER_DATA_DIR ||= resolve(root, ".dev-userdata");
 console.log(`[dev] user data dir: ${env.MC_USER_DATA_DIR}`);
 
-if (mode !== "electron" && mode !== "web") {
-  console.error(`[dev] unknown mode "${mode}". Expected "electron" or "web".`);
+if (mode !== "electron") {
+  console.error(`[dev] unknown mode "${mode}". Expected "electron".`);
   process.exit(1);
-}
-
-if (mode === "electron") {
-  // Electron dev uses the embedded SQLite store. Keep any shell-exported
-  // hosted DATABASE_URL from turning on Postgres-backed web services.
-  env.DATABASE_URL = "";
 }
 
 const port = await chooseDevPort(Number(env.MC_DEV_PORT), env.MC_DEV_HOST);
@@ -42,18 +39,7 @@ env.MC_SERVER_ORIGIN ||= origin;
 
 console.log(`[dev] using Mission Control dev server on ${origin}`);
 
-if (shouldStartPostgres) {
-  env.POSTGRES_PORT ||= inferPostgresPortFromDotenv() || "55432";
-  console.log(`[dev] starting local Postgres on localhost:${env.POSTGRES_PORT}`);
-  run("docker", ["compose", "up", "-d", "--wait", "postgres"]);
-  run("docker", ["compose", "run", "--rm", "postgres-migrate"]);
-}
-
-if (mode === "web") {
-  run("corepack", ["pnpm@11.1.2", "dev:server"]);
-} else {
-  await runElectronDev(origin);
-}
+await runElectronDev(origin);
 
 function parsePort(value, fallback) {
   const port = Number(value);
@@ -79,26 +65,8 @@ function isPortAvailable(port, host) {
   });
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, {
-    cwd: root,
-    env,
-    stdio: "inherit",
-    shell: process.platform === "win32",
-  });
-
-  if (result.error) {
-    console.error(`[dev] failed to run ${command}:`, result.error);
-    process.exit(1);
-  }
-
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
-
 async function runElectronDev(origin) {
-  const vite = spawnChild("vite", "corepack", ["pnpm@11.1.2", "dev:server"]);
+  const vite = spawnChild("vite", "corepack", [packageManager, "dev:server"]);
   let electron = null;
   let stopping = false;
 
@@ -133,7 +101,7 @@ async function runElectronDev(origin) {
     process.exit(1);
   }
 
-  electron = spawnChild("electron", "corepack", ["pnpm@11.1.2", "dev:electron:main"]);
+  electron = spawnChild("electron", "corepack", [packageManager, "dev:electron:main"]);
   electron.on("exit", (code, signal) => exitFromChild("electron", code, signal));
 }
 
@@ -283,52 +251,4 @@ function processCwd(pid) {
 
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function inferPostgresPortFromDotenv() {
-  const dotenvPath = resolve(root, ".env");
-  if (!existsSync(dotenvPath)) return null;
-
-  const values = parseDotenv(readFileSync(dotenvPath, "utf8"));
-  if (values.POSTGRES_PORT) return values.POSTGRES_PORT;
-  if (!values.DATABASE_URL) return null;
-
-  try {
-    const url = new URL(values.DATABASE_URL);
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-      return url.port || "5432";
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-function parseDotenv(contents) {
-  const values = {};
-
-  for (const line of contents.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    const separatorIndex = trimmed.indexOf("=");
-    if (separatorIndex === -1) continue;
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    values[key] = unquote(trimmed.slice(separatorIndex + 1).trim());
-  }
-
-  return values;
-}
-
-function unquote(value) {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
-  }
-
-  return value;
 }

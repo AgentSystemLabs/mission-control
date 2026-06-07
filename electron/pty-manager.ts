@@ -15,6 +15,9 @@ import {
   shellArgsForCommand,
 } from "./shell-env";
 import { loadProjectRoots } from "./project-roots";
+import { MAX_TCP_PORT } from "../src/shared/tcp-port";
+import { shortId } from "../src/shared/short-id";
+import { errMsg } from "../src/shared/err-msg";
 import {
   resolveSpawnPlan,
   SpawnPolicyError,
@@ -23,7 +26,7 @@ import {
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
 import { recordSessionTerminalDebugLog } from "./session-terminal-debug-log";
 import { checkAgentCliVersion, agentVersionErrorMessage } from "./agent-cli-version";
-import { AGENT_CLI_VERSION_REQUIREMENTS } from "./agent-cli-version-requirements";
+import { AGENT_CLI_CONFIG } from "./agent-cli-version-requirements";
 import { applyAgentPtyEnv } from "../src/shared/agent-pty-env";
 
 function sanitizeEnv(): Record<string, string> {
@@ -89,7 +92,6 @@ const SCAN_TAIL_MAX = 256;
 const SESSION_START_FAST_EXIT_MS = 3000;
 const SESSION_START_OUTPUT_TAIL_MAX = 12_000;
 
-const MAX_TCP_PORT = 65535;
 const LSOF_PROBE_TIMEOUT_MS = 2_000;
 // Time we'll wait for SIGTERM to take before escalating to SIGKILL (port-kill)
 // or before giving up the wait (pty kill). Same grace for both: 1.5s.
@@ -429,7 +431,7 @@ export function registerPtyHandlers(
         }
         recordSessionTerminalDebugLog({
           stage: "spawn-policy-error",
-          message: err instanceof Error ? err.message : String(err),
+          message: errMsg(err),
           source: "pty-manager",
           agent: opts.agent,
           taskId: opts.taskId,
@@ -442,7 +444,7 @@ export function registerPtyHandlers(
 
       const env = sanitizeEnv();
       if (plan.mode === "agent") {
-        const requirement = AGENT_CLI_VERSION_REQUIREMENTS[plan.agent];
+        const requirement = AGENT_CLI_CONFIG[plan.agent];
         const versionCheck = checkAgentCliVersion(plan.binary, env, requirement, platform);
         if (!versionCheck.ok) {
           const message = agentVersionErrorMessage(versionCheck);
@@ -520,7 +522,7 @@ export function registerPtyHandlers(
         throw err;
       }
 
-      const id = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const id = shortId("pty");
       const p: Pty = {
         id,
         taskId: opts.taskId,

@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
 import {
-  createReadStream,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -10,6 +8,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { makeFail } from "./lib/cli.mjs";
+import { digestFile } from "./lib/hash.mjs";
 
 const {
   RELEASE_VERSION,
@@ -17,22 +17,9 @@ const {
   ARTIFACTS_DIR = "artifacts-mac-metadata",
 } = process.env;
 
-function fail(message) {
-  console.error(`[compose-mac-update-manifest] ${message}`);
-  process.exit(1);
-}
+const fail = makeFail("compose-mac-update-manifest");
 
 if (!RELEASE_VERSION) fail("RELEASE_VERSION is required");
-
-function digestFile(path, algorithm) {
-  return new Promise((resolve, reject) => {
-    const hash = createHash(algorithm);
-    const stream = createReadStream(path);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("error", reject);
-    stream.on("end", () => resolve(hash.digest("hex")));
-  });
-}
 
 function collectManifestPaths(dir) {
   const paths = [];

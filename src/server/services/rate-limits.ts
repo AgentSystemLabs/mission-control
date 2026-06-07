@@ -12,6 +12,9 @@ type RateLimitResult =
 
 const buckets = new Map<string, Bucket>();
 
+/** Rate-limit window: one minute (matches the per-minute env limits). */
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
 function envNumber(name: string, fallback: number): number {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -52,35 +55,11 @@ export function requestIp(request: Request): string {
   }
 }
 
-export function academyAuthRateLimit(request: Request, pathname: string): RateLimitResult {
-  return rateLimit(`academy-auth:${requestIp(request)}:${pathname}`, {
-    limit: envNumber("MC_AUTH_RATE_LIMIT_PER_MINUTE", 30),
-    windowMs: 60_000,
-    message: "too many auth attempts",
-  });
-}
-
 export function hookCallRateLimit(request: Request, taskId: string): RateLimitResult {
   return rateLimit(`hook-call:${requestIp(request)}:${taskId || "no-task"}`, {
     limit: envNumber("MC_HOOK_RATE_LIMIT_PER_MINUTE", 120),
-    windowMs: 60_000,
+    windowMs: RATE_LIMIT_WINDOW_MS,
     message: "too many hook calls",
-  });
-}
-
-export function remotePtySpawnRateLimit(scopeKey: string): RateLimitResult {
-  return rateLimit(`remote-pty-spawn:${scopeKey}`, {
-    limit: envNumber("MC_REMOTE_PTY_SPAWN_RATE_LIMIT_PER_MINUTE", 10),
-    windowMs: 60_000,
-    message: "too many remote terminal starts",
-  });
-}
-
-export function remotePtyWriteRateLimit(scopeKey: string, ptyId: string): RateLimitResult {
-  return rateLimit(`remote-pty-write:${scopeKey}:${ptyId}`, {
-    limit: envNumber("MC_REMOTE_PTY_WRITE_RATE_LIMIT_PER_MINUTE", 600),
-    windowMs: 60_000,
-    message: "too many terminal writes",
   });
 }
 

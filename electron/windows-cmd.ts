@@ -1,6 +1,6 @@
-// Moved to src/shared/windows-cmd.ts so the sandbox runner's mc-agent can reuse
-// the same Windows command-script quoting without importing from electron/.
-// Re-exported here to preserve existing electron/ + server import paths.
+// Windows command-script quoting lives in src/shared/windows-cmd.ts as the
+// single source of truth. Re-exported here to preserve existing electron/ +
+// server import paths.
 export {
   isWindowsCommandScript,
   buildCmdScriptCommand,

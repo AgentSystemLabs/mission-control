@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
 import { Notification } from "electron";
+import { errMsg } from "../src/shared/err-msg";
 
 export type SessionFinishOsNotificationPayload = {
   tag: string;
@@ -43,6 +44,6 @@ export function showSessionFinishOsNotification(
     notification.show();
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, error: errMsg(error) };
   }
 }

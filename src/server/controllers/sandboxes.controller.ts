@@ -5,13 +5,22 @@ import {
   deleteSandbox,
   getSandboxState,
   revealSandboxApiKey,
-  SandboxCapExceededError,
   setActiveScope,
   setSandboxesEnabled,
   updateSandbox,
 } from "../services/sandboxes";
-import { idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
-import { HTTP_BAD_REQUEST, HTTP_CREATED, HTTP_PAYMENT_REQUIRED } from "~/shared/http-status";
+import { CapExceededError } from "../errors";
+import {
+  capExceededResponse,
+  idParam,
+  json,
+  jsonError,
+  noContent,
+  notFound,
+  parseJsonBody,
+} from "./_helpers";
+import { HTTP_BAD_REQUEST, HTTP_CREATED } from "~/shared/http-status";
+import { MAX_TCP_PORT } from "~/shared/tcp-port";
 import { isElectronLocalApiRequest } from "../request-runtime";
 
 // Sandboxes are a local-desktop feature; hosted (web) requests get a disabled,
@@ -79,7 +88,7 @@ const updateBody = z
     dockerfilePath: z.string().nullable(),
     gitAuthMode: z.enum(["none", "copy-host", "generate"]),
     buildArgs: z.record(z.string(), z.string()).nullable(),
-    declaredPorts: z.array(z.number().int().min(1).max(65535)).nullable(),
+    declaredPorts: z.array(z.number().int().min(1).max(MAX_TCP_PORT)).nullable(),
     remoteAgentUrl: remoteAgentUrlPatch,
     apiKey: remoteApiKey,
   })
@@ -91,10 +100,7 @@ const enabledBody = z.object({ enabled: z.boolean() });
 function localOnly(request: Request): Response | null {
   return isElectronLocalApiRequest(request)
     ? null
-    : new Response(JSON.stringify({ error: "Sandboxes are only available in the desktop app." }), {
-        status: HTTP_BAD_REQUEST,
-        headers: { "content-type": "application/json" },
-      });
+    : jsonError(HTTP_BAD_REQUEST, "Sandboxes are only available in the desktop app.");
 }
 
 export async function list(request: Request): Promise<Response> {
@@ -111,17 +117,7 @@ export async function create(request: Request): Promise<Response> {
     const sandbox = createSandbox(parsed.data);
     return json({ sandbox }, { status: HTTP_CREATED });
   } catch (e) {
-    if (e instanceof SandboxCapExceededError) {
-      return new Response(
-        JSON.stringify({
-          error: e.message,
-          code: "free_tier_sandbox_cap",
-          limit: e.limit,
-          current: e.current,
-        }),
-        { status: HTTP_PAYMENT_REQUIRED, headers: { "content-type": "application/json" } },
-      );
-    }
+    if (e instanceof CapExceededError) return capExceededResponse(e);
     throw e;
   }
 }

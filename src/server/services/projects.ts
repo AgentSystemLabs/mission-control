@@ -7,7 +7,7 @@ import type { Project, Task } from "~/db/schema";
 import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
 import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
 import { events } from "../events";
-import { ValidationError } from "../errors";
+import { CapExceededError, ValidationError } from "../errors";
 import {
   deleteProjectRow,
   findAllProjects,
@@ -24,12 +24,12 @@ import { newId } from "./_ids";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 import { getPinnedProjects, nextPinnedOrder, validatePinnedReorder } from "~/lib/pinned-project-order";
 
-export class ProjectCapExceededError extends Error {
-  constructor(
-    public readonly limit: number,
-    public readonly current: number,
-  ) {
+export class ProjectCapExceededError extends CapExceededError {
+  constructor(limit: number, current: number) {
     super(
+      "free_tier_project_cap",
+      limit,
+      current,
       `Mission Control Lite is limited to ${limit} projects. Upgrade to Pro for unlimited projects.`,
     );
     this.name = "ProjectCapExceededError";

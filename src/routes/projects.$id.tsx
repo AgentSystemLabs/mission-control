@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
+import { Z_INDEX } from "~/lib/z-index";
+import { openExternal } from "~/lib/open-external";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
@@ -26,6 +28,7 @@ import { CursorGlow } from "~/components/ui/CursorGlow";
 import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
 import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ApiError, api, type AppSettings } from "~/lib/api";
@@ -59,10 +62,6 @@ import {
 import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import {
-  hostedCleanupStatusForCurrentRuntime,
-  type HostedCleanupStatusScope,
-} from "~/lib/hosted-cleanup-status";
 import { groupTasksByStatusForDisplay } from "~/lib/task-display-order";
 import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER } from "~/shared/domain";
 import { hasRunningLaunchSessions } from "~/lib/project-launch-running";
@@ -70,7 +69,6 @@ import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
   queryKeys,
   useApiToken,
-  useEntitlements,
   useGroups,
   useProject,
   useSandboxes,
@@ -432,7 +430,6 @@ function ProjectPage() {
   const hasArchivedTasks = tasks.some((t) => t.archived);
   const groups = groupsQuery.data ?? [];
   useApiToken();
-  const { data: entitlements } = useEntitlements();
   const { data: gitStatus, refetch: refetchGitStatus } = useGitStatus(id, selectedWorktreeId, {
     enabled: projectPathUsable,
   });
@@ -480,10 +477,6 @@ function ProjectPage() {
   const [removingMissingProject, setRemovingMissingProject] = useState(false);
   const [retryingProjectPath, setRetryingProjectPath] = useState(false);
   const [projectPathActionError, setProjectPathActionError] = useState<string | null>(null);
-  const showHostedCleanupStatus = (scope: HostedCleanupStatusScope) => {
-    const status = hostedCleanupStatusForCurrentRuntime(scope);
-    if (status) setCleanupStatus(status);
-  };
   useEffect(() => {
     setProjectPathActionError(null);
   }, [projectPathCheck.state, projectPathIssue?.path]);
@@ -922,12 +915,12 @@ function ProjectPage() {
         });
       }
       toast.success(`Created worktree ${result.worktree.name}`);
-    } catch (e: any) {
+    } catch (e: unknown) {
       queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
         current?.filter((worktree) => worktree.id !== optimisticWorktree.id) ?? current
       );
       void invalidateWorktrees();
-      toast.error(e?.message || "Could not create worktree");
+      toast.error(e instanceof Error ? e.message : "Could not create worktree");
     } finally {
       creatingWorktreeRef.current = false;
       setCreatingWorktree(false);
@@ -1000,19 +993,20 @@ function ProjectPage() {
           ? `Stashed changes and deleted worktree ${selectedWorktree.name}`
           : `Deleted worktree ${selectedWorktree.name}`,
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (previousWorktrees) {
         queryClient.setQueryData(worktreesKey, previousWorktrees);
       } else {
         void invalidateWorktrees();
       }
       selectWorktree(previousSelectedWorktreeKey);
-      if (e?.status === 409) void refetchGitStatus();
+      const isConflict = e instanceof ApiError && e.status === 409;
+      if (isConflict) void refetchGitStatus();
       setConfirmDeleteWorktree(true);
       toast.error(
-        e?.status === 409
+        isConflict
           ? "This worktree has changes. Choose how to handle them before deleting."
-          : e?.message || "Could not delete worktree",
+          : e instanceof Error ? e.message : "Could not delete worktree",
       );
     } finally {
       setDeletingWorktree(false);
@@ -1477,7 +1471,6 @@ function ProjectPage() {
   const tasksByStatus = groupTasksByStatusForDisplay(visibleTasks);
 
   const activeId = terminals.activeTaskIdFor(selectedScopeKey);
-  const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
   const pathIssueIsWorktree = projectPathIssue?.scope === "worktree";
 
   const toggleTerminal = (taskId: string) => {
@@ -1514,7 +1507,6 @@ function ProjectPage() {
     removeTaskFromCache(queryClient, project.id, selectedWorktreeId, taskId, activeRuntimeScopeId);
 
     void (async () => {
-      showHostedCleanupStatus("session");
       try {
         await terminals.close(
           taskId,
@@ -1536,7 +1528,6 @@ function ProjectPage() {
   const confirmRemoveProject = async () => {
     if (!project) return;
     setConfirmRemove(false);
-    showHostedCleanupStatus("project");
     try {
       await terminals.closeForProject(project.id);
       await api.deleteProject(project.id);
@@ -1561,8 +1552,8 @@ function ProjectPage() {
       setProjectPathCheck({ state: "checking" });
       await Promise.all([refresh(), invalidateWorktrees()]);
       toast.success("Project path updated");
-    } catch (e: any) {
-      const message = e?.message || "Could not update this project path";
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Could not update this project path";
       setProjectPathActionError(message);
       toast.error(message);
     } finally {
@@ -1579,8 +1570,8 @@ function ProjectPage() {
       await terminals.closeForProject(project.id);
       await api.deleteProject(project.id);
       router.navigate({ to: "/" });
-    } catch (e: any) {
-      const message = e?.message || "Could not remove project";
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Could not remove project";
       setProjectPathActionError(message);
       toast.error(message);
     } finally {
@@ -1595,10 +1586,10 @@ function ProjectPage() {
     try {
       const { status } = await api.getProjectPathStatus(project.id, selectedWorktreeId);
       setProjectPathCheck(status.ok ? { state: "valid" } : { state: "invalid", status });
-    } catch (e: any) {
+    } catch (e: unknown) {
       setProjectPathCheck({
         state: "error",
-        message: e?.message || "Could not verify this project path.",
+        message: e instanceof Error ? e.message : "Could not verify this project path.",
       });
     } finally {
       setRetryingProjectPath(false);
@@ -1700,7 +1691,6 @@ function ProjectPage() {
     removeTasksFromCache(queryClient, project.id, selectedWorktreeId, archivedIds, activeRuntimeScopeId);
 
     void (async () => {
-      showHostedCleanupStatus("archivedSessions");
       try {
         await Promise.all(
           archived.map(async (t) => {
@@ -1931,7 +1921,7 @@ function ProjectPage() {
                   alignItems: "stretch",
                   gap: 4,
                   boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-                  zIndex: 10000,
+                  zIndex: Z_INDEX.popover,
                 }}
               >
                 {hasRunningLaunch ? (
@@ -1999,7 +1989,7 @@ function ProjectPage() {
                       icon="github"
                       onClick={() => {
                         setOverflowOpen(false);
-                        window.open(project.githubUrl!, "_blank", "noreferrer");
+                        openExternal(project.githubUrl!);
                       }}
                       style={{ justifyContent: "flex-start" }}
                     >
@@ -2132,26 +2122,6 @@ function ProjectPage() {
           </div>
         </div>
 
-        {hostedRuntime && !hostedRuntime.allowed && (
-          <div
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            style={{
-              margin: "0 12px 28px",
-              padding: "10px 12px",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              background: "var(--surface-1)",
-              color: "var(--text-dim)",
-              fontSize: 12,
-              fontFamily: "var(--mono)",
-            }}
-          >
-            Remote terminals and agents are unavailable until Academy grants hosted runtime for this account
-            or the compute usage window resets.
-          </div>
-        )}
         {cleanupStatus && (
           <div
             role="status"
@@ -2288,11 +2258,7 @@ function ProjectPage() {
           ) : visibleTasks.length === 0 ? (
             <EmptyState
               title="No active sessions"
-              subtitle={
-                hostedRuntime
-                  ? "Start a cloud-backed agent session when you are ready to work on this hosted project."
-                  : "Start a new session to begin working on this project."
-              }
+              subtitle="Start a new session to begin working on this project."
               action={
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <NewAgentButton
@@ -2555,22 +2521,13 @@ function ProjectPage() {
         projectPath={selectedWorktreePath || project.path}
       />
 
-      <ConfirmDialog
+      <RemoveProjectConfirmDialog
         open={confirmRemove}
         onClose={() => setConfirmRemove(false)}
         onConfirm={confirmRemoveProject}
-        title="Remove project"
-        confirmLabel="Remove"
-        icon="trash"
-        width={460}
-      >
-        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Remove &ldquo;{project.name}&rdquo; from MissionControl?
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          This only unlinks the project — the files at {project.path} are not touched.
-        </div>
-      </ConfirmDialog>
+        projectName={project.name}
+        projectPath={project.path}
+      />
 
       {selectedWorktree && !selectedWorktree.isMain && (
         <Modal

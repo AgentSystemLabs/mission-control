@@ -8,15 +8,10 @@ import {
   updateHomeTerminalRow,
 } from "../repositories/home-terminals.repo";
 import { isClientDomainId } from "~/shared/client-id";
-import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { normalizeScopeId } from "~/shared/sandbox";
 import { newId } from "./_ids";
 
 const DEFAULT_TERMINAL_NAME_RE = /^Terminal (\d+)$/;
-
-function normalizeScopeId(scopeId: string | null | undefined): string {
-  const trimmed = scopeId?.trim();
-  return trimmed || LOCAL_SCOPE_ID;
-}
 
 /** Pick the lowest unused "Terminal N" name within one scope. */
 function nextDefaultHomeTerminalName(rows: HomeTerminal[]): string {

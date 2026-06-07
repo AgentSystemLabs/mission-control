@@ -71,10 +71,10 @@ describe("scopedSandboxesForProject", () => {
     expect(result.map((s) => s.id).sort()).toEqual(["sb-1", "sb-3"]);
   });
 
-  it("excludes old Docker sandboxes even when they reference the project", () => {
+  it("excludes non-AWS sandboxes even when they reference the project", () => {
     const result = scopedSandboxesForProject(
       [
-        { id: "sb-docker", kind: "local-docker", remoteProvider: null, projectId: "p-local" },
+        { id: "sb-other", kind: "remote-vm", remoteProvider: null, projectId: "p-local" },
         { id: "sb-aws", kind: "remote-vm", remoteProvider: "aws", projectId: "p-local" },
       ],
       [],

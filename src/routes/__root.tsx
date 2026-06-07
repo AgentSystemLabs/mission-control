@@ -13,7 +13,6 @@ import { getElectron } from "~/lib/electron";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
-import { Icon } from "~/components/ui/Icon";
 import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
@@ -29,7 +28,7 @@ import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
-import { apiTokenQueryOptions, useSettings, useScopedProjects, useLicense, useSandboxes } from "~/queries";
+import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } from "~/queries";
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
 import { LicenseBadge } from "~/components/views/LicenseBadge";
 import { ScopeDropdown } from "~/components/views/ScopeDropdown";
@@ -40,29 +39,14 @@ import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
 } from "~/lib/accent-colors";
-import { type SettingsPanelId } from "~/components/views/SettingsPanel";
+import { SETTINGS_PANEL_IDS, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 import {
   openSettingsRoute,
   toggleSettingsRoute,
 } from "~/lib/settings-navigation";
 
-/** Source of truth for which panel ids the OPEN_SETTINGS_EVENT handler will
- * accept from untrusted dispatchers (any leaf component). Keep in sync with
- * SettingsPanelId. */
-const SETTINGS_PANEL_IDS: readonly SettingsPanelId[] = [
-  "general",
-  "defaults",
-  "terminal",
-  "theme",
-  "beta",
-  "license",
-  "keybindings",
-  "session-debug",
-  "terms",
-];
 import { UsagePanel } from "~/components/views/UsagePanel";
-import { AuthGate, useHostedSession } from "~/components/views/AuthGate";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
@@ -171,11 +155,9 @@ function RootComponent() {
             <UserTerminalProvider>
               <AddProjectProvider>
                 <HeaderActionsProvider>
-                  <AuthGate>
-                    <DiagramDialogHost>
-                      <Shell />
-                    </DiagramDialogHost>
-                  </AuthGate>
+                  <DiagramDialogHost>
+                    <Shell />
+                  </DiagramDialogHost>
                 </HeaderActionsProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
@@ -235,7 +217,6 @@ function Shell() {
   useTheme();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
-  const { data: license } = useLicense();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable
   // yet: cover the route with a spinner and disable project navigation.
   const { data: sandboxState } = useSandboxes();
@@ -257,13 +238,6 @@ function Shell() {
     killTerminal: killUserTerminal,
     sessions: userTerminalSessions,
   } = userTerminals;
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-  useEffect(() => {
-    if (settings?.agentSystemBannerDisabled) setBannerDismissed(false);
-  }, [settings?.agentSystemBannerDisabled]);
-  // Banner is currently always hidden (mount gated below). Treat layout
-  // accordingly so the top bar's leading inset is applied in minimal mode.
-  const bannerHidden = true;
   // Bootstrap from the same localStorage cache the pre-hydration script reads,
   // so the inset applies on first paint instead of waiting for settings to load.
   const cachedMinimal =
@@ -276,8 +250,8 @@ function Shell() {
       }
     })();
   const effectiveMinimal = settings?.minimalTheme ?? cachedMinimal;
-  const topBarLeadingInset =
-    effectiveMinimal && bannerHidden ? 130 : undefined;
+  // The top bar's leading inset applies in minimal mode.
+  const topBarLeadingInset = effectiveMinimal ? 130 : undefined;
   const [closeIntentTargetId, setCloseIntentTargetId] = useState<string | null>(null);
   const closeIntentTarget = closeIntentTargetId
     ? userTerminalSessions.find((s) => s.terminal.id === closeIntentTargetId)?.terminal ?? null
@@ -527,7 +501,6 @@ function Shell() {
           leadingInset={topBarLeadingInset}
           right={
             <>
-              <AuthUserButton />
               <UpdateAvailableButton />
               <SessionNotificationsButton
                 notifications={appNotifications}
@@ -685,171 +658,6 @@ function LaunchOverlay({
         <span className="launch-overlay__fog-floor launch-overlay__fog-floor--top" />
         <span className="launch-overlay__fog-floor launch-overlay__fog-floor--bottom" />
       </div>
-    </div>
-  );
-}
-
-function AuthUserButton() {
-  const { session, pending, refresh } = useHostedSession();
-  if (pending || !session?.hostedEnabled || !session.authenticated) return null;
-  const label = session.user?.email || "Academy account";
-  const accountUrl = session.academyAccountUrl || "/api/academy-auth/login";
-
-  return (
-    <>
-      <Btn
-        variant="ghost"
-        size="sm"
-        icon="external-link"
-        onClick={() => window.open(accountUrl, "_blank", "noopener,noreferrer")}
-        title={`Open Academy account and billing for ${label}`}
-        aria-label={`Open Academy account and billing for ${label}`}
-      >
-        {label}
-      </Btn>
-      <Btn
-        variant="ghost"
-        size="sm"
-        icon="shield"
-        onClick={async () => {
-          const res = await fetch("/api/academy-auth/logout", {
-            method: "POST",
-            credentials: "same-origin",
-          }).catch(() => undefined);
-          const body = res?.ok
-            ? await res.json().catch(() => null) as { academyLogoutUrl?: string } | null
-            : null;
-          if (body?.academyLogoutUrl) {
-            window.location.href = body.academyLogoutUrl;
-            return;
-          }
-          await refresh();
-        }}
-        title={`Sign out ${label}`}
-        aria-label={`Sign out ${label}`}
-      >
-        Sign out
-      </Btn>
-    </>
-  );
-}
-
-function AgentSystemBanner({
-  dismissed,
-  onDismiss,
-  onOpenSettings,
-}: {
-  dismissed: boolean;
-  onDismiss: () => void;
-  onOpenSettings: () => void;
-}) {
-  const { data: settings } = useSettings();
-
-  if (settings?.agentSystemBannerDisabled || dismissed) return null;
-
-  return (
-    <div
-      role="region"
-      aria-label="AgentSystem.dev promotion"
-      style={{
-        minHeight: 42,
-        padding: "8px 16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 12,
-        flexWrap: "wrap",
-        background: "transparent",
-        borderBottom: "1px solid var(--border-strong)",
-        color: "var(--text)",
-        flexShrink: 0,
-        position: "relative",
-        zIndex: 11,
-        userSelect: "none",
-        ["WebkitAppRegion" as any]: "drag",
-      }}
-    >
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 24,
-          height: 24,
-          borderRadius: 6,
-          background: "var(--banner-icon-bg)",
-          color: "var(--banner-link)",
-          border: "1px solid var(--accent-border)",
-          flexShrink: 0,
-        }}
-      >
-        <Icon name="sparkles" size={14} />
-      </div>
-      <div
-        style={{
-          fontSize: 13,
-          lineHeight: 1.35,
-          color: "var(--banner-muted)",
-          textAlign: "center",
-        }}
-      >
-        <strong style={{ color: "var(--text)", fontWeight: 600 }}>Level up your agentic coding game.</strong>{" "}
-        Get the powerful skill pack and complete walkthrough at{" "}
-        <a
-          href="https://agentsystem.dev"
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            color: "var(--banner-link)",
-            fontWeight: 600,
-            textDecoration: "none",
-            ["WebkitAppRegion" as any]: "no-drag",
-          }}
-        >
-          AgentSystem.dev
-        </a>
-        .
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          style={{
-            marginLeft: 8,
-            color: "var(--banner-muted)",
-            fontSize: 11.5,
-            fontWeight: 500,
-            textDecoration: "underline",
-            textUnderlineOffset: 3,
-            border: 0,
-            padding: 0,
-            background: "transparent",
-            cursor: "pointer",
-            ["WebkitAppRegion" as any]: "no-drag",
-          }}
-        >
-          Disable banner in settings
-        </button>
-      </div>
-      <button
-        type="button"
-        aria-label="Dismiss AgentSystem.dev banner"
-        onClick={onDismiss}
-        style={{
-          width: 28,
-          height: 28,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 6,
-          border: "1px solid var(--border)",
-          background: "var(--surface-1)",
-          color: "var(--banner-muted)",
-          cursor: "pointer",
-          flexShrink: 0,
-          ["WebkitAppRegion" as any]: "no-drag",
-        }}
-      >
-        <Icon name="x" size={13} />
-      </button>
     </div>
   );
 }

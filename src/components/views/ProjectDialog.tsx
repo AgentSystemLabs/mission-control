@@ -7,18 +7,7 @@ import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ICON_COLORS } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
-import { isWebDaytonaRuntime } from "~/lib/runtime";
-import { hostedWorkspacePath } from "~/shared/hosted-workspace";
 import type { Group, Project } from "~/db/schema";
-
-function repoNameFromGithubUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  const ssh = trimmed.match(/^git@github\.com:([^/]+)\/([^/\s?#]+?)(?:\.git)?$/i);
-  if (ssh) return ssh[2];
-  const url = trimmed.match(/^(?:https?|ssh):\/\/(?:git@)?github\.com\/([^/\s]+)\/([^/\s?#]+?)(?:\.git)?(?:[/?#].*)?$/i);
-  return url?.[2] ?? "";
-}
 
 export function ProjectDialog({
   open,
@@ -40,7 +29,6 @@ export function ProjectDialog({
     groupId: string | null;
     imagePath?: string | null;
     pendingImage?: { sourcePath: string; extension: string } | null;
-    githubUrl?: string;
     worktreeSetupCommand?: string | null;
   }) => Promise<void> | void;
   onCreateGroup?: (name: string) => Promise<Group> | Group;
@@ -61,9 +49,6 @@ export function ProjectDialog({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const hostedRuntime = isWebDaytonaRuntime();
-  const hostedCreate = hostedRuntime && !project;
-  const hostedRepoName = hostedCreate ? repoNameFromGithubUrl(path) : "";
   const selectedGroup = groupId ? groups.find((group) => group.id === groupId) ?? null : null;
   const normalizedGroupQuery = groupQuery.trim().toLowerCase();
   const exactGroupMatch = normalizedGroupQuery
@@ -209,20 +194,14 @@ export function ProjectDialog({
     try {
       const effectiveGroupId = await resolveGroupIdForSave();
       const effectiveName =
-        name.trim() ||
-        hostedRepoName ||
-        (path.trim().split(/[\\/]/).filter(Boolean).pop() ?? "");
-      const effectivePath = hostedCreate
-        ? hostedWorkspacePath(hostedRepoName || effectiveName)
-        : path;
+        name.trim() || (path.trim().split(/[\\/]/).filter(Boolean).pop() ?? "");
       await onSave({
         name: name.trim() || undefined,
-        path: effectivePath,
+        path,
         icon: icon || effectiveName.slice(0, 2).toUpperCase(),
         iconColor,
         groupId: effectiveGroupId,
         ...(project ? { imagePath } : { pendingImage }),
-        ...(hostedCreate && path.trim() ? { githubUrl: path.trim() } : {}),
         ...(project ? { worktreeSetupCommand: worktreeSetupCommand.trim() || null } : {}),
       });
     } catch (e: any) {
@@ -265,15 +244,11 @@ export function ProjectDialog({
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         <TextField
-          label={hostedCreate ? "Name (optional — defaults to repository name)" : "Name (optional — defaults to folder name)"}
+          label="Name (optional — defaults to folder name)"
           value={name}
           onChange={setName}
           inputRef={nameRef}
-          placeholder={
-            hostedCreate
-              ? hostedRepoName || "my-project"
-              : path.trim().split(/[\\/]/).filter(Boolean).pop() || "my-project"
-          }
+          placeholder={path.trim().split(/[\\/]/).filter(Boolean).pop() || "my-project"}
         />
 
         <div>
@@ -289,42 +264,20 @@ export function ProjectDialog({
               marginBottom: 6,
             }}
           >
-            {hostedCreate ? "GitHub repository URL" : hostedRuntime ? "Hosted workspace path" : "Working directory"}
+            Working directory
           </label>
-          {hostedCreate && (
-            <div
-              style={{
-                marginBottom: 8,
-                color: "var(--text-dim)",
-                fontFamily: "var(--mono)",
-                fontSize: 11.5,
-                lineHeight: 1.45,
-              }}
-            >
-              Paste a GitHub repository link. Mission Control will clone it into
-              a workspace directory inside the hosted environment.
-            </div>
-          )}
           <div style={{ display: "flex", gap: 8 }}>
             <div style={{ flex: 1 }}>
               <TextField
                 mono
                 value={path}
                 onChange={setPath}
-                placeholder={
-                  hostedCreate
-                    ? "https://github.com/owner/repo"
-                    : hostedRuntime
-                    ? hostedWorkspacePath(name || "my-project")
-                    : "/Users/me/dev/my-project"
-                }
+                placeholder="/Users/me/dev/my-project"
               />
             </div>
-            {!hostedRuntime && (
-              <Btn variant="solid" icon="folder" onClick={browse}>
-                Browse…
-              </Btn>
-            )}
+            <Btn variant="solid" icon="folder" onClick={browse}>
+              Browse…
+            </Btn>
           </div>
         </div>
 

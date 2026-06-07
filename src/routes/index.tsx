@@ -1,10 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
-import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -17,7 +17,6 @@ import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { ProjectsDashboardViewToggle } from "~/components/views/ProjectsDashboardViewToggle";
 import { ProjectsTable } from "~/components/views/ProjectsTable";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
-import { LaunchKitDialog } from "~/components/views/LaunchKitDialog";
 import { useAddProject } from "~/lib/add-project-store";
 import { useTerminals } from "~/lib/terminal-store";
 import { api, type AppSettings } from "~/lib/api";
@@ -29,17 +28,11 @@ import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import {
   queryKeys,
-  useEntitlements,
   useGroups,
-  useLicense,
   useScopedProjects,
   useSettings,
 } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
-import { isAcademyTier } from "~/shared/license";
-import { useHostedSession } from "~/components/views/AuthGate";
-import type { Entitlements } from "~/shared/entitlements";
-import { isWebDaytonaRuntime } from "~/lib/runtime";
 import {
   DEFAULT_PROJECTS_DASHBOARD_VIEW,
   type ProjectsDashboardView,
@@ -57,20 +50,8 @@ function MissionControlPage() {
   const groupsQuery = useGroups();
   const projects = projectsQuery.data ?? [];
   const groups = groupsQuery.data ?? [];
-  const { data: license } = useLicense();
-  const { data: entitlements } = useEntitlements();
-  const { session } = useHostedSession();
-  const hostedWorkspaceCopy = isWebDaytonaRuntime();
-  const launchKitAccess = useQuery({
-    queryKey: ["launch-kit-access", license?.maskedKey ?? null, license?.status ?? null],
-    queryFn: () => api.getLaunchKitAccess(),
-    enabled: !!license?.hasKey && license.status === "active",
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
   const [search, setSearch] = useState("");
   const [showGroups, setShowGroups] = useState(false);
-  const [showLaunchKit, setShowLaunchKit] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
   const [removingProject, setRemovingProject] = useState<ProjectWithCounts | null>(null);
   const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
@@ -181,9 +162,7 @@ function MissionControlPage() {
   const dashboardSummary = search
     ? `${visibleProjectCount} of ${projects.length} ${projects.length === 1 ? "project" : "projects"} shown`
     : projects.length === 0
-      ? hostedWorkspaceCopy
-        ? "Create a hosted project to start remote sessions and agents."
-        : "Add a project to start local sessions and agents."
+      ? "Add a project to start local sessions and agents."
       : [
           `${projects.length} ${projects.length === 1 ? "project" : "projects"}`,
           `${groups.length} ${groups.length === 1 ? "group" : "groups"}`,
@@ -217,9 +196,6 @@ function MissionControlPage() {
       setRemovingProjectId(null);
     }
   };
-  const canUseLaunchKit =
-    (!!license && isAcademyTier(license)) || !!launchKitAccess.data?.hasAccess;
-  const hostedRuntime = entitlements?.hosted.enabled ? entitlements.remoteRuntime : null;
   const renderProjectCard = (project: ProjectWithCounts) => (
     <ProjectCard
       key={project.id}
@@ -315,15 +291,6 @@ function MissionControlPage() {
               <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
                 Groups
               </Btn>
-              {canUseLaunchKit && (
-                <Btn
-                  variant="accent"
-                  icon="sparkles"
-                  onClick={() => setShowLaunchKit(true)}
-                >
-                  Launch Kit
-                </Btn>
-              )}
               <HotkeyTooltip action="project.add">
                 <Btn variant="primary" icon="plus" onClick={openAddProject}>
                   Add project
@@ -332,21 +299,10 @@ function MissionControlPage() {
             </div>
           </div>
 
-          {hostedRuntime && (
-            <HostedRuntimeNotice
-              remoteRuntime={hostedRuntime}
-              academyAccountUrl={session?.academyAccountUrl ?? null}
-            />
-          )}
-
           {(projectsQuery.isLoading || groupsQuery.isLoading) && (
             <EmptyState
               title="Loading projects"
-              subtitle={
-                hostedWorkspaceCopy
-                  ? "Fetching your hosted projects, groups, and runtime state."
-                  : "Fetching your local projects, groups, and runtime state."
-              }
+              subtitle="Fetching your local projects, groups, and runtime state."
               icon="sparkles"
             />
           )}
@@ -354,11 +310,7 @@ function MissionControlPage() {
           {(projectsQuery.isError || groupsQuery.isError) && (
             <EmptyState
               title="Could not load projects"
-              subtitle={
-                hostedWorkspaceCopy
-                  ? "Mission Control could not load your hosted workspace. Check your connection, then retry."
-                  : "Mission Control could not load your local workspace. Restart Mission Control, then retry."
-              }
+              subtitle="Mission Control could not load your local workspace. Restart Mission Control, then retry."
               icon="shield"
               action={
                 <Btn
@@ -374,7 +326,7 @@ function MissionControlPage() {
             />
           )}
 
-          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && dashboardView === "table" && filteredProjects.length > 0 && (
+          {showProjectContent && dashboardView === "table" && filteredProjects.length > 0 && (
             <Section
               label="All projects"
               count={filteredProjects.length}
@@ -437,15 +389,13 @@ function MissionControlPage() {
             </Section>
           )}
 
-          {!projectsQuery.isLoading && !groupsQuery.isLoading && !projectsQuery.isError && !groupsQuery.isError && filteredProjects.length === 0 && (
+          {showProjectContent && filteredProjects.length === 0 && (
             <EmptyState
               title={search ? "No matches" : "No projects yet"}
               subtitle={
                 search
                   ? "Try a different search."
-                  : hostedRuntime
-                    ? "Create your first hosted project. Terminals and agents run in isolated cloud workspaces."
-                    : "Add your first project to start running sessions."
+                  : "Add your first project to start running sessions."
               }
               action={
                 !search && (
@@ -482,14 +432,6 @@ function MissionControlPage() {
           await Promise.all([invalidateProjects(), invalidateProject(projectId)]);
         }}
       />
-      <LaunchKitDialog
-        open={showLaunchKit}
-        onClose={() => setShowLaunchKit(false)}
-        onCreated={() => {
-          setShowLaunchKit(false);
-          void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-        }}
-      />
       {editingProject && (
         <ProjectDialog
           open
@@ -505,88 +447,16 @@ function MissionControlPage() {
           }}
         />
       )}
-      <ConfirmDialog
+      <RemoveProjectConfirmDialog
         open={removingProject !== null}
         onClose={() => {
           if (!removingProjectId) setRemovingProject(null);
         }}
         onConfirm={removeProject}
-        title="Remove project"
-        confirmLabel="Remove"
-        icon="trash"
         loading={removingProjectId !== null}
-        width={460}
-      >
-        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Remove &ldquo;{removingProject?.name}&rdquo; from MissionControl?
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          This only unlinks the project — the files at {removingProject?.path} are not touched.
-        </div>
-      </ConfirmDialog>
+        projectName={removingProject?.name}
+        projectPath={removingProject?.path}
+      />
     </>
-  );
-}
-
-function HostedRuntimeNotice({
-  remoteRuntime,
-  academyAccountUrl,
-}: {
-  remoteRuntime: Entitlements["remoteRuntime"];
-  academyAccountUrl: string | null;
-}) {
-  const router = useRouter();
-  const allowed = remoteRuntime.allowed;
-  if (allowed) {
-    return null;
-  }
-
-  const message = remoteRuntime.reason === "account-blocked"
-      ? "Hosted runtime is blocked for this account. Contact support if this looks wrong."
-      : remoteRuntime.reason === "auth-required"
-        ? "Sign in through Academy to use hosted runtime."
-        : "Hosted runtime needs an active Academy plan before remote compute can start. If you hit a compute limit, Mission Control will pause new remote sessions until the window resets or your Academy plan changes.";
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        margin: "0 12px 28px",
-        padding: "10px 12px",
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-        background: "var(--surface-1)",
-        color: "var(--text-dim)",
-        fontSize: 12,
-        fontFamily: "var(--mono)",
-      }}
-    >
-      <span>{message}</span>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <Btn
-          variant="ghost"
-          size="sm"
-          onClick={() => router.navigate({ to: "/plans" })}
-        >
-          Compare plans
-        </Btn>
-        {!allowed && academyAccountUrl && (
-          <Btn
-            variant="ghost"
-            size="sm"
-            icon="external-link"
-            onClick={() => window.open(academyAccountUrl, "_blank", "noopener,noreferrer")}
-          >
-            Academy billing
-          </Btn>
-        )}
-      </div>
-    </div>
   );
 }

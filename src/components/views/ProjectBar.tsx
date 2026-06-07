@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
+import { Z_INDEX } from "~/lib/z-index";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
@@ -18,12 +19,13 @@ import { useServerEvents } from "~/lib/use-events";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { useBinding } from "~/lib/keybindings/store";
 import { formatBinding } from "~/lib/keybindings/format";
+import { PINNED_SLOT_COUNT } from "~/lib/keybindings/match";
 import { api } from "~/lib/api";
 import { getPinnedProjects, reorderPinnedIds } from "~/lib/pinned-project-order";
 import { shouldFlashPinnedProjectLogo } from "./project-bar-activity";
 import { getPinnedProjectStatusDots } from "./project-bar-status-dots";
 
-const HOTKEY_LIMIT = 9;
+const HOTKEY_LIMIT = PINNED_SLOT_COUNT;
 const DRAG_THRESHOLD_PX = 4;
 
 type PointerReorderState = {
@@ -599,7 +601,7 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
               alignItems: "stretch",
               gap: 4,
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-              zIndex: 10000,
+              zIndex: Z_INDEX.popover,
             }}
           >
             <Btn

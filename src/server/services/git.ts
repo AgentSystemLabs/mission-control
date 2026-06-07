@@ -31,7 +31,7 @@ const PR_BASE_BRANCH = DEFAULT_BRANCH;
 const COMMIT_MESSAGE_DIFF_BUDGET = 200_000;
 
 // Git result types + diff caps now live in src/shared/git-status.ts so the
-// sandbox runner's mc-agent shares the exact wire contract. Imported for this
+// remote sandbox agent shares the exact wire contract. Imported for this
 // module's own signatures and re-exported for existing importers (GitDiffView,
 // ~/queries/git, git.test.ts).
 import type { GitFileStatus, GitChangedFile, GitStatus, GitDiff } from "~/shared/git-status";
@@ -174,7 +174,7 @@ async function gitOk(cwd: string, args: string[], timeoutMs?: number): Promise<s
 }
 
 // mapStatusCode + parsePorcelainZ now live in ~/shared/git-status (imported and
-// re-exported above) so mc-agent's git RPC parses identically.
+// re-exported above) so the remote agent's git RPC parses identically.
 
 export async function getGitStatus(projectId: string, worktreeId?: string | null): Promise<GitStatus> {
   const cwd = projectCwd(projectId, worktreeId);

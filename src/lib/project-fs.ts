@@ -2,7 +2,7 @@
 // runtime) or to the in-container clone over RPC (Docker sandbox runtime),
 // behind one `(projectRoot, relPath)` interface. Defaults to host — when the
 // Terminal runtime isn't "docker", every call is exactly the prior behavior.
-import { sandboxWorkspacePath } from "~/shared/hosted-workspace";
+import { sandboxWorkspacePath } from "~/shared/sandbox-workspace";
 import { readSandboxRuntimeMode } from "~/lib/sandbox-runtime";
 import type {
   FileListResult,

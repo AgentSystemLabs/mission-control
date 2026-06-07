@@ -1,14 +1,10 @@
-import {
-  MISSION_CONTROL_RUNTIME_HEADER,
-  type MissionControlRuntime,
-} from "~/shared/runtime";
 import { requireBearerToken } from "./auth";
 
-export function getRequestRuntime(request: Request): MissionControlRuntime | null {
-  const runtime = request.headers.get(MISSION_CONTROL_RUNTIME_HEADER);
-  return runtime === "electron-local" || runtime === "web-daytona" ? runtime : null;
-}
-
+/**
+ * A request is "trusted local" when it carries the local API bearer token.
+ * Mission Control is a local desktop app — there is no untrusted web runtime —
+ * so a valid bearer is sufficient proof the request originates from the app.
+ */
 export function isElectronLocalApiRequest(request: Request): boolean {
-  return getRequestRuntime(request) === "electron-local" && requireBearerToken(request).ok;
+  return requireBearerToken(request).ok;
 }

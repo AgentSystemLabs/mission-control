@@ -2,11 +2,7 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { userTerminals } from "~/db/schema";
 import type { UserTerminal } from "~/db/schema";
-import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
-
-function normalizeScopeId(scopeId: string | null | undefined): string {
-  return scopeId?.trim() || LOCAL_SCOPE_ID;
-}
+import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 
 export function findVisibleUserTerminalsByProject(
   projectId: string,

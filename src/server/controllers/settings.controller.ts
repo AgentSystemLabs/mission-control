@@ -26,6 +26,7 @@ import {
   normalizeProjectsDashboardView,
   normalizeSelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
+import { safeJsonParse } from "~/shared/safe-json";
 import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
   TERMINAL_ZOOM_MAX,
@@ -98,12 +99,7 @@ function getProjectsDashboardViewSetting() {
 
 function getSelectedWorktreeByProjectSetting() {
   const raw = getSetting(SELECTED_WORKTREE_BY_PROJECT_KEY);
-  if (!raw) return null;
-  try {
-    return normalizeSelectedWorktreeByProject(JSON.parse(raw));
-  } catch {
-    return null;
-  }
+  return normalizeSelectedWorktreeByProject(safeJsonParse<unknown>(raw, null));
 }
 
 function getTerminalZoomLevelSetting() {

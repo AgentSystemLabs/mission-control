@@ -1,11 +1,16 @@
 import { randomBytes } from "node:crypto";
 import { getStringAppSetting, setAppSetting } from "./app-settings-store";
+import { MAX_TCP_PORT } from "../src/shared/tcp-port";
 
-// Typed accessors for the Docker sandbox runner's settings (Electron-only).
-// See docs/docker-sandbox-runner-plan.md "Settings model". These live in the
-// main-process app_settings store (not the server /api/settings) because the
-// sandbox is Electron-only and the main process owns the compose lifecycle.
-
+// Typed accessors for the legacy global sandbox settings (Electron-only). These
+// live in the main-process app_settings store (not the server /api/settings)
+// because the sandbox runtime is Electron-only and the main process owns its
+// lifecycle. Vestigial under multi-sandbox; kept so the existing Settings page
+// config fields don't crash.
+//
+// `runtimeMode` is the renderer's host-vs-sandbox routing signal ("docker" means
+// "route fs/git/pty through the active sandbox's remote RPC", NOT a Docker
+// runtime). See src/lib/sandbox-runtime.ts.
 export type SandboxRuntimeMode = "host" | "docker";
 
 /** How git/SSH auth gets into the sandbox VM (US: in-container SSH key setup). */
@@ -23,13 +28,11 @@ export type SandboxSettings = {
   agentPort: number;
   /** null until first generated; never logged or sent to the renderer. */
   pairingToken: string | null;
-  agentConfigVolume: string;
   gitAuthMode: SandboxGitAuthMode;
 };
 
 export const DEFAULT_AGENT_PORT = 9333;
 export const DEFAULT_WORKSPACE_VOLUME = "mc-workspace";
-export const DEFAULT_AGENT_CONFIG_VOLUME = "mc-agent-config";
 
 const KEYS = {
   enabled: "sandbox.enabled",
@@ -42,7 +45,6 @@ const KEYS = {
   projectPaths: "sandbox.projectPaths",
   agentPort: "sandbox.agentPort",
   pairingToken: "sandbox.pairingToken",
-  agentConfigVolume: "sandbox.agentConfigVolume",
   gitAuthMode: "sandbox.gitAuthMode",
 } as const;
 
@@ -59,8 +61,6 @@ export function appSettingsKV(userDataDir: string): SettingsKV {
     set: (key, value) => setAppSetting(userDataDir, key, value),
   };
 }
-
-const MAX_TCP_PORT = 65535;
 
 // Docker ARG name grammar — guards against compose-YAML key injection (a key
 // with a newline could inject sibling service keys like `privileged: true`).
@@ -174,7 +174,6 @@ export function readSandboxSettings(kv: SettingsKV): SandboxSettings {
     projectPaths: parseJsonRecord(kv.get(KEYS.projectPaths)),
     agentPort: parseIntOr(kv.get(KEYS.agentPort), DEFAULT_AGENT_PORT),
     pairingToken: kv.get(KEYS.pairingToken) || null,
-    agentConfigVolume: safeVolume(kv.get(KEYS.agentConfigVolume), DEFAULT_AGENT_CONFIG_VOLUME),
     gitAuthMode: parseGitAuthMode(kv.get(KEYS.gitAuthMode)),
   };
 }
@@ -190,7 +189,6 @@ export type SandboxSettingsPatch = Partial<{
   workspaceVolume: string;
   projectPaths: Record<string, string>;
   agentPort: number;
-  agentConfigVolume: string;
   gitAuthMode: SandboxGitAuthMode;
 }>;
 
@@ -216,9 +214,6 @@ export function writeSandboxSettings(kv: SettingsKV, patch: SandboxSettingsPatch
   if (patch.projectPaths !== undefined) kv.set(KEYS.projectPaths, JSON.stringify(patch.projectPaths));
   if (patch.agentPort !== undefined && isValidPort(patch.agentPort)) {
     kv.set(KEYS.agentPort, String(patch.agentPort));
-  }
-  if (patch.agentConfigVolume !== undefined && isValidVolumeName(patch.agentConfigVolume)) {
-    kv.set(KEYS.agentConfigVolume, patch.agentConfigVolume);
   }
   if (patch.gitAuthMode !== undefined && GIT_AUTH_MODES.has(patch.gitAuthMode)) {
     kv.set(KEYS.gitAuthMode, patch.gitAuthMode);

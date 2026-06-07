@@ -7,8 +7,6 @@ import {
 } from "../services/home-terminals";
 import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_CREATED } from "~/shared/http-status";
-import { isHostedDatabaseEnabled } from "../hosted-pg";
-import { isElectronLocalApiRequest } from "../request-runtime";
 
 const createHomeTerminalBody = z.object({
   id: z.string().optional(),
@@ -21,25 +19,12 @@ const renameHomeTerminalBody = z.object({
   name: z.string().min(1, "name required"),
 });
 
-/**
- * Project-less "home" terminals only exist in the local (SQLite) runtime — the
- * desktop app and the local dev server. A hosted Postgres deployment has no
- * "local machine", so the feature is unavailable there (and must never touch the
- * SQLite client).
- */
-function homeTerminalsAvailable(request: Request): boolean {
-  if (isElectronLocalApiRequest(request)) return true;
-  return !isHostedDatabaseEnabled();
-}
-
 export async function listAll(request: Request): Promise<Response> {
-  if (!homeTerminalsAvailable(request)) return json({ terminals: [] });
   const scopeId = new URL(request.url).searchParams.get("scopeId");
   return json({ terminals: listHomeTerminals(scopeId) });
 }
 
 export async function create(request: Request): Promise<Response> {
-  if (!homeTerminalsAvailable(request)) return notFound();
   const parsed = await parseJsonBody(request, createHomeTerminalBody);
   if (!parsed.ok) return parsed.response;
   try {
@@ -58,7 +43,6 @@ export async function create(request: Request): Promise<Response> {
 }
 
 export async function rename(rawId: string, request: Request): Promise<Response> {
-  if (!homeTerminalsAvailable(request)) return notFound();
   const idParsed = idParam.safeParse(rawId);
   if (!idParsed.success) return notFound();
   const parsed = await parseJsonBody(request, renameHomeTerminalBody);
@@ -75,7 +59,6 @@ export async function rename(rawId: string, request: Request): Promise<Response>
 }
 
 export async function remove(rawId: string, request: Request): Promise<Response> {
-  if (!homeTerminalsAvailable(request)) return notFound();
   const parsed = idParam.safeParse(rawId);
   if (!parsed.success) return notFound();
   return deleteHomeTerminal(parsed.data) ? noContent() : notFound();

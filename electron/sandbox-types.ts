@@ -2,8 +2,8 @@
 // Phase 2 per-sandbox registry. Keeping the state union here avoids a duplicate
 // definition / import cycle between the two.
 
-// State machine surfaced to the renderer. `running` = container up but the WS
-// isn't paired yet; `connected` = mc-agent `ready` received.
+// State machine surfaced to the renderer. `running` = remote VM up but the WS
+// isn't paired yet; `connected` = remote agent `ready` received.
 export type SandboxState =
   | { status: "disabled" }
   | { status: "stopped"; dockerAvailable: boolean }
@@ -21,10 +21,10 @@ export type SandboxState =
 /** A sandbox state tagged with the sandbox it belongs to (for registry fan-out). */
 export type ScopedSandboxState = { sandboxId: string; state: SandboxState };
 
-/** The subset of a `sandboxes` DB row the runtime needs to start a container. */
+/** The subset of a `sandboxes` DB row the runtime needs to start a sandbox. */
 export type SandboxConfig = {
   id: string;
-  kind: "local-docker" | "remote-vm";
+  kind: "remote-vm";
   imageTag: string | null;
   dockerfilePath: string | null;
   buildArgs: Record<string, string>;

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { makeFail } from "./lib/cli.mjs";
 // Local release script — mirrors what .github/workflows/release.yml does, but
 // for the platforms you can actually build on your laptop.
 //
@@ -32,10 +33,7 @@ import { platform as osPlatform } from "node:os";
 const REPO_ROOT = resolve(new URL("..", import.meta.url).pathname);
 process.chdir(REPO_ROOT);
 
-function fail(msg) {
-  console.error(`[release-local] ${msg}`);
-  process.exit(1);
-}
+const fail = makeFail("release-local");
 
 // ---------- tiny .env loader (no external dep) ----------
 function loadDotEnv(file) {

@@ -12,7 +12,7 @@ function freshDb(): Database.Database {
   db.exec(`
     CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE sandboxes (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'local-docker',
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'remote-vm',
       color TEXT, image_tag TEXT, dockerfile_path TEXT, build_args TEXT,
       git_auth_mode TEXT NOT NULL DEFAULT 'none', declared_ports TEXT, env TEXT,
       host_agent_port INTEGER, port_map TEXT, pairing_token TEXT, remote_config TEXT,
@@ -60,7 +60,7 @@ describe("migrateMultiSandbox", () => {
     expect(sandboxes).toHaveLength(1);
     const sb = sandboxes[0];
     expect(sb.name).toBe("Default");
-    expect(sb.kind).toBe("local-docker");
+    expect(sb.kind).toBe("remote-vm");
     expect(sb.image_tag).toBe("acme/img:1");
     expect(sb.git_auth_mode).toBe("generate");
     expect(sb.declared_ports).toBe("[3000,5173]");

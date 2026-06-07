@@ -1,4 +1,7 @@
 import type { Sandbox } from "~/db/schema";
+import { MAX_TCP_PORT } from "~/shared/tcp-port";
+import { safeJsonParse } from "~/shared/safe-json";
+import { CapExceededError } from "../errors";
 import {
   LOCAL_SCOPE_ID,
   normalizeRemoteAgentUrl,
@@ -26,12 +29,12 @@ import { FREE_SANDBOX_CAP, isProTier } from "~/shared/license";
 import { readLicenseState } from "./license";
 import { newId } from "./_ids";
 
-export class SandboxCapExceededError extends Error {
-  constructor(
-    public readonly limit: number,
-    public readonly current: number,
-  ) {
+export class SandboxCapExceededError extends CapExceededError {
+  constructor(limit: number, current: number) {
     super(
+      "free_tier_sandbox_cap",
+      limit,
+      current,
       `Mission Control Lite is limited to ${limit} sandbox${limit === 1 ? "" : "es"} (plus Local). Upgrade to Pro for unlimited sandboxes.`,
     );
     this.name = "SandboxCapExceededError";
@@ -48,17 +51,7 @@ export type SandboxState = {
   activeScopeId: string;
 };
 
-const MAX_TCP_PORT = 65_535;
 const CONFIG_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-function parseJson<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 function sanitizeRecord(value: Record<string, string> | null | undefined): Record<string, string> | null {
   if (!value) return null;
@@ -77,7 +70,7 @@ function normalizePorts(value: number[] | null | undefined): number[] | null {
 }
 
 function parseRemoteConfig(raw: string | null | undefined): SandboxRemoteConfig | null {
-  const parsed = parseJson<SandboxRemoteConfig | null>(raw, null);
+  const parsed = safeJsonParse<SandboxRemoteConfig | null>(raw, null);
   if (!parsed || typeof parsed.agentUrl !== "string") return null;
   const allowPlaintextPublic = parsed.allowPlaintextPublic === true;
   const agentUrl = normalizeRemoteAgentUrl(parsed.agentUrl, { allowPlaintextPublic });
@@ -100,7 +93,7 @@ function normalizeRemoteAgentUrlForPatch(
 }
 
 function toPublicSandbox(row: Sandbox): SandboxPublicView {
-  const buildArgs = parseJson(row.buildArgs, {});
+  const buildArgs = safeJsonParse(row.buildArgs, {});
   const remote = parseRemoteConfig(row.remoteConfig);
   return {
     id: row.id,
@@ -112,7 +105,7 @@ function toPublicSandbox(row: Sandbox): SandboxPublicView {
     buildArgKeys: Object.keys(buildArgs).sort(),
     hasBuildArgs: Object.keys(buildArgs).length > 0,
     gitAuthMode: row.gitAuthMode,
-    declaredPorts: parseJson(row.declaredPorts, []),
+    declaredPorts: safeJsonParse(row.declaredPorts, []),
     remoteAgentUrl: remote?.agentUrl ?? null,
     remoteProvider: typeof remote?.provider === "string" ? remote.provider : null,
     remoteProviderName: typeof remote?.providerName === "string" ? remote.providerName : null,
@@ -158,7 +151,7 @@ export function createSandbox(input: CreateSandboxInput): SandboxPublicView {
   }
 
   const now = Date.now();
-  const kind = input.kind ?? "local-docker";
+  const kind = input.kind ?? "remote-vm";
   const remoteAgentUrl =
     kind === "remote-vm" && input.remoteAgentUrl
       ? normalizeRemoteAgentUrl(input.remoteAgentUrl)

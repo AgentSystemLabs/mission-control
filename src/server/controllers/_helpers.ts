@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { json, jsonError } from "../auth";
 import {
+  CapExceededError,
   ConflictError,
   DomainError,
   NotFoundError,
@@ -12,14 +13,29 @@ import {
   HTTP_CONFLICT,
   HTTP_NO_CONTENT,
   HTTP_NOT_FOUND,
+  HTTP_PAYMENT_REQUIRED,
   HTTP_UNAUTHORIZED,
 } from "~/shared/http-status";
+import { normalizeScopeId } from "~/shared/sandbox";
+import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 export { json, jsonError };
 
 // Standard `:id` path-parameter schema reused by every controller that
 // extracts an id from the URL.
 export const idParam = z.string().min(1);
+
+/** `?worktreeId=` → the id, `null` for main/empty, or `undefined` when the param is absent. */
+export function urlWorktreeId(request: Request): string | null | undefined {
+  const value = new URL(request.url).searchParams.get("worktreeId");
+  if (value === null) return undefined;
+  return value && value !== MAIN_WORKTREE_ID ? value : null;
+}
+
+/** `?scopeId=` → normalized scope id (falls back to the Local sentinel). */
+export function urlScopeId(request: Request): string {
+  return normalizeScopeId(new URL(request.url).searchParams.get("scopeId"));
+}
 
 export function noContent(): Response {
   return new Response(null, { status: HTTP_NO_CONTENT });
@@ -89,6 +105,14 @@ function zodMessage(error: z.ZodError): string {
   if (!first) return "invalid request";
   const path = first.path.length ? `${first.path.join(".")}: ` : "";
   return `${path}${first.message}`;
+}
+
+/** Build the standard 402 payload for a free-tier cap error. */
+export function capExceededResponse(e: CapExceededError): Response {
+  return json(
+    { error: e.message, code: e.code, limit: e.limit, current: e.current },
+    { status: HTTP_PAYMENT_REQUIRED },
+  );
 }
 
 /**

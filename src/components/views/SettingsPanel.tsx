@@ -15,19 +15,10 @@ import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
 
-export type SettingsPanelId =
-  | "general"
-  | "defaults"
-  | "terminal"
-  | "theme"
-  | "beta"
-  | "license"
-  | "keybindings"
-  | "session-debug"
-  | "terms";
-type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
-
-const SETTINGS_PANEL_IDS: readonly SettingsPanelId[] = [
+// Single source of truth for settings panel ids. The union type and the
+// settings route's zod enum both derive from this, and __root's OPEN_SETTINGS
+// allow-list imports it — so the three can't drift apart.
+export const SETTINGS_PANEL_IDS = [
   "general",
   "defaults",
   "terminal",
@@ -37,7 +28,10 @@ const SETTINGS_PANEL_IDS: readonly SettingsPanelId[] = [
   "keybindings",
   "session-debug",
   "terms",
-];
+] as const;
+
+export type SettingsPanelId = (typeof SETTINGS_PANEL_IDS)[number];
+type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
 function normalizeStoredPanel(stored: string | null, fallback: SettingsPanelId): SettingsPanelId {
   if (stored === "sandbox") return "beta";

@@ -1,12 +1,12 @@
-import type { Project, UserTerminal } from "~/db/schema";
+import type { UserTerminal } from "~/db/schema";
+import type { ScopedProject } from "~/lib/scoped-project";
 import { newClientId } from "~/shared/client-id";
 import { getElectron } from "~/lib/electron";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
-import { normalizePtySize } from "~/shared/pty-size";
+import { DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS } from "~/shared/pty-size";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
-type ScopedProject = Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
 
 export type UserTerminalWarmSlot = {
   signature: string;
@@ -46,14 +46,9 @@ function buildDraftTerminal(
 }
 
 export async function discardUserTerminalWarmSlot(): Promise<void> {
+  // Bump the generation so any in-flight prepare is invalidated, then tear down.
   warmGeneration += 1;
-  warmPreparing = null;
-  const slot = warmSlot;
-  warmSlot = null;
-  const electron = getElectron();
-  if (slot && electron) {
-    await electron.pty.kill(slot.ptyId).catch(() => undefined);
-  }
+  await discardUserTerminalWarmSlotQuiet();
 }
 
 async function discardUserTerminalWarmSlotQuiet(): Promise<void> {
@@ -112,7 +107,7 @@ export async function prepareUserTerminalWarmSlot(input: {
 
     const clientTerminalId = newClientId("ut");
     const draftTerminal = buildDraftTerminal(clientTerminalId, input.project, input.cwd);
-    const ptySize = normalizePtySize({ cols: 100, rows: 30 });
+    const ptySize = { cols: DEFAULT_PTY_COLS, rows: DEFAULT_PTY_ROWS };
 
     try {
       const { ptyId } = await electron.pty.spawn({

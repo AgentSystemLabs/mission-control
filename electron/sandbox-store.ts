@@ -61,7 +61,7 @@ function toConfig(row: SandboxRow): SandboxConfig {
       : null;
   return {
     id: row.id,
-    kind: row.kind === "remote-vm" ? "remote-vm" : "local-docker",
+    kind: "remote-vm",
     imageTag: row.image_tag,
     dockerfilePath: row.dockerfile_path,
     buildArgs: parseJson(row.build_args, {}),
@@ -95,21 +95,6 @@ export function listSandboxConfigs(userDataDir: string): SandboxConfig[] {
     return rows.map(toConfig);
   } catch {
     return [];
-  }
-}
-
-export function persistSandboxPorts(
-  userDataDir: string,
-  id: string,
-  hostAgentPort: number,
-  portMap: Record<number, number>,
-): void {
-  try {
-    db(userDataDir)
-      .prepare("UPDATE sandboxes SET host_agent_port = ?, port_map = ?, updated_at = ? WHERE id = ?")
-      .run(hostAgentPort, JSON.stringify(portMap), Date.now(), id);
-  } catch {
-    /* best effort — ports get re-assigned next start if this fails */
   }
 }
 

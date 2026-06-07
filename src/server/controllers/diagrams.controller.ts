@@ -6,14 +6,12 @@ import {
   DIAGRAM_TITLE_MAX_LENGTH,
 } from "~/shared/diagram";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
-import { events, type AppEventScope } from "../events";
-import { isHostedDatabaseEnabled } from "../hosted-pg";
+import { events } from "../events";
 import {
   appendDiagramForTask,
   listDiagramsForProject,
   listDiagramsForTask,
 } from "../services/diagram-store";
-import { eventScopeForHostedTask } from "../services/hosted-projects";
 import { getTask } from "../services/tasks";
 import { findProjectNameById } from "../repositories/projects.repo";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
@@ -63,11 +61,6 @@ export async function submit(url: URL, request: Request): Promise<Response> {
     format: parsed.data.format,
   });
 
-  let scope: AppEventScope | undefined;
-  if (isHostedDatabaseEnabled()) {
-    scope = (await eventScopeForHostedTask(taskId)) ?? undefined;
-  }
-
   const projectName = findProjectNameById(task.projectId) ?? "Project";
   const payload = {
     ...diagram,
@@ -76,7 +69,7 @@ export async function submit(url: URL, request: Request): Promise<Response> {
     worktreeId: task.worktreeId ?? null,
   };
 
-  events.emit("diagram:show", scope ? { ...payload, scope } : payload);
+  events.emit("diagram:show", payload);
 
   try {
     return json({ ok: true, id: diagram.id, appended: true });

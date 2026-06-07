@@ -143,7 +143,7 @@ describe("projects service", () => {
       .values({
         id: sandboxId,
         name: "Test sandbox",
-        kind: "local-docker",
+        kind: "remote-vm",
         color: null,
         imageTag: null,
         dockerfilePath: null,

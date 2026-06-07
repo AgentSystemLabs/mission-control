@@ -7,7 +7,6 @@ import {
 } from "@tanstack/react-query";
 import { api } from "~/lib/api";
 import { fetchGitStatus, fetchGitDiff } from "~/lib/project-git";
-import { isWebDaytonaRuntime } from "~/lib/runtime";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 const GIT_STATUS_REFETCH_INTERVAL_MS = 3000;
@@ -33,7 +32,7 @@ export const gitStatusQueryOptions = (
     // Routes to the in-container repo (remoteGit) when sandboxRepoPath is given
     // AND the Terminal runtime is Docker; host HTTP API otherwise.
     queryFn: () => fetchGitStatus(projectId, worktreeId, opts.sandboxRepoPath),
-    enabled: !isWebDaytonaRuntime() && (opts.enabled ?? true),
+    enabled: opts.enabled ?? true,
     placeholderData: keepPreviousData,
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
@@ -47,7 +46,7 @@ export const gitBranchesQueryOptions = (
   queryOptions({
     queryKey: gitKeys.branches(projectId, worktreeId),
     queryFn: () => api.getGitBranches(projectId, worktreeId),
-    enabled: !isWebDaytonaRuntime() && !!projectId && (opts.enabled ?? true),
+    enabled: !!projectId && (opts.enabled ?? true),
     staleTime: 5_000,
     retry: 1,
   });
@@ -64,7 +63,7 @@ export const gitDiffQueryOptions = (
       ? gitKeys.diff(projectId, worktreeId, file, staged)
       : (["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", "__none__"] as const),
     queryFn: () => fetchGitDiff(projectId, file!, staged, worktreeId, opts.sandboxRepoPath),
-    enabled: !!file && !isWebDaytonaRuntime() && (opts.enabled ?? true),
+    enabled: !!file && (opts.enabled ?? true),
   });
 
 export const useGitStatus = (

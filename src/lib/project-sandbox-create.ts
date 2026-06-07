@@ -12,12 +12,13 @@ import {
 import { waitForRemoteVmDeployJob } from "~/lib/remote-vm-deploy";
 import { queryKeys } from "~/queries";
 import { newClientId } from "~/shared/client-id";
-import { sandboxWorkspacePath, workspaceSlug } from "~/shared/hosted-workspace";
+import { sandboxWorkspacePath, workspaceSlug } from "~/shared/sandbox-workspace";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import type { Project } from "~/db/schema";
 import type { ProjectSandboxCreateInput } from "~/components/views/ProjectSandboxDialog";
 import { setupCommandNeedsPackageJson } from "~/lib/setup-command";
+const SANDBOX_POLL_INTERVAL_MS = 500;
 const DEFAULT_AWS_REGION = "us-east-1";
 const DEFAULT_AWS_SIZE = "t3.medium";
 const DEFAULT_IDLE_TIMEOUT_MINUTES = 30;
@@ -70,7 +71,7 @@ export async function waitForSandboxConnected(
         }
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, SANDBOX_POLL_INTERVAL_MS));
   }
   throw new Error(
     "The sandbox did not finish connecting in time. Open its settings → Logs for details.",
@@ -119,7 +120,7 @@ export async function waitForSandboxSetupReady(
         const packageJson = await electron.remoteFs.read(`${sandboxRoot}/package.json`);
         if (!packageJson.ok) {
           lastError = packageJson.error;
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, SANDBOX_POLL_INTERVAL_MS));
           continue;
         }
       }
@@ -127,7 +128,7 @@ export async function waitForSandboxSetupReady(
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, SANDBOX_POLL_INTERVAL_MS));
   }
   throw new Error(
     `The sandbox repo was not ready at ${sandboxRoot} before setup started${lastError ? `: ${lastError}` : "."}`,

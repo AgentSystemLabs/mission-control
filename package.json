@@ -14,13 +14,10 @@
     "preinstall": "node scripts/require-node-24.mjs",
     "predev": "node scripts/require-node-24.mjs",
     "predev:electron": "node scripts/require-node-24.mjs",
-    "predev:web": "node scripts/require-node-24.mjs",
     "predev:server": "node scripts/require-node-24.mjs",
-    "prestart:hosted": "node scripts/require-node-24.mjs",
     "prebuild": "node scripts/require-node-24.mjs",
     "prebuild:web": "node scripts/require-node-24.mjs",
     "prebuild:electron": "node scripts/require-node-24.mjs",
-    "prebuild:mc-agent": "node scripts/require-node-24.mjs",
     "predist:mac": "node scripts/require-node-24.mjs",
     "predist:win": "node scripts/require-node-24.mjs",
     "predist:linux": "node scripts/require-node-24.mjs",
@@ -29,8 +26,6 @@
     "pretypecheck": "node scripts/require-node-24.mjs",
     "prelint": "node scripts/require-node-24.mjs",
     "pretest": "node scripts/require-node-24.mjs",
-    "pretest:e2e": "node scripts/require-node-24.mjs",
-    "pretest:e2e:academy-auth": "node scripts/require-node-24.mjs",
     "prescan:secrets": "node scripts/require-node-24.mjs",
     "predb:generate": "node scripts/require-node-24.mjs",
     "predb:push": "node scripts/require-node-24.mjs",
@@ -46,17 +41,13 @@
     "prerelease:local": "node scripts/require-node-24.mjs",
     "preremote-vm": "node scripts/require-node-24.mjs",
     "pregen:theme-images": "node scripts/require-node-24.mjs",
-    "predaytona:snapshot": "node scripts/require-node-24.mjs",
     "dev": "corepack pnpm@11.1.2 dev:electron",
     "dev:electron": "node scripts/dev-local.mjs electron",
-    "dev:web": "node scripts/dev-local.mjs web --postgres",
     "dev:server": "corepack pnpm@11.1.2 native:node && vite --strictPort",
     "dev:electron:main": "node scripts/ensure-electron-sqlite.mjs && tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && cross-env NODE_ENV=development electron dist-electron/electron/main.js",
-    "build:web": "vite build && vite build -c vite.config.server-entry.ts && node scripts/copy-bundled-skills.mjs",
-    "start:hosted": "node scripts/serve-hosted.mjs",
+    "build:web": "vite build && node scripts/copy-bundled-skills.mjs",
     "build:electron": "tsc -p electron/tsconfig.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', JSON.stringify({type:'commonjs'}))\" && node -e \"require('fs').copyFileSync('electron/server-runner.mjs','dist-electron/electron/server-runner.mjs')\"",
-    "build": "pnpm build:web && pnpm build:electron && pnpm build:mc-agent",
-    "build:mc-agent": "node mc-agent/build.mjs",
+    "build": "pnpm build:web && pnpm build:electron",
     "package": "pnpm build && pnpm native:electron && electron-builder",
     "dist": "pnpm build && pnpm native:electron && electron-builder --publish never",
     "dist:mac": "pnpm build && pnpm native:electron && electron-builder --mac --publish never",
@@ -64,11 +55,9 @@
     "dist:linux": "pnpm build && pnpm native:electron && electron-builder --linux --publish never",
     "dist:all": "pnpm build && pnpm native:electron && electron-builder -mwl --publish never",
     "generate:routes": "node scripts/generate-routes.mjs",
-    "typecheck": "pnpm generate:routes && tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p mc-agent/tsconfig.json --noEmit",
-    "lint": "eslint src electron scripts e2e mc-agent *.config.ts",
+    "typecheck": "pnpm generate:routes && tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "lint": "eslint src electron scripts *.config.ts",
     "test": "pnpm native:node && vitest run",
-    "test:e2e": "playwright test",
-    "test:e2e:academy-auth": "playwright test -c playwright.academy-auth.config.ts",
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "db:generate": "pnpm native:node && drizzle-kit generate",
     "db:push": "pnpm native:node && drizzle-kit push",
@@ -82,7 +71,6 @@
     "release:local": "node scripts/release-local.mjs",
     "remote-vm": "pnpm native:node && node scripts/remote-vm.mjs",
     "gen:theme-images": "node scripts/gen-theme-images.mjs",
-    "daytona:snapshot": "node scripts/create-daytona-agent-snapshot.mjs",
     "postinstall": "pnpm native:electron || true"
   },
   "dependencies": {
@@ -91,7 +79,6 @@
     "@codemirror/lang-json": "6.0.2",
     "@codemirror/language": "6.12.3",
     "@codemirror/theme-one-dark": "6.1.3",
-    "@daytona/sdk": "0.175.0",
     "@fontsource/geist-mono": "5.2.7",
     "@fontsource/space-grotesk": "5.2.10",
     "@tanstack/react-query": "5.100.10",
@@ -110,7 +97,6 @@
     "lucide-react": "1.16.0",
     "mermaid": "11.12.0",
     "node-pty": "1.1.0",
-    "pg": "8.20.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-icons": "5.6.0",
@@ -122,12 +108,10 @@
   "devDependencies": {
     "@electron/rebuild": "4.0.4",
     "@eslint/js": "10.0.1",
-    "@playwright/test": "1.60.0",
     "@tailwindcss/vite": "4.3.0",
     "@tanstack/router-plugin": "1.167.35",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "25.8.0",
-    "@types/pg": "8.20.0",
     "@types/pngjs": "6.0.5",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
@@ -175,7 +159,6 @@
       "!dist/win*/**/*",
       "!dist/linux*/**/*",
       "dist-electron/**/*",
-      "dist-server/**/*",
       "scripts/remote-vm.mjs",
       "package.json"
     ],
@@ -183,24 +166,6 @@
       "output": "dist-electron-out",
       "buildResources": "build"
     },
-    "extraResources": [
-      {
-        "from": "docker/sandbox-base",
-        "to": "docker/sandbox-base",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "mc-agent/dist",
-        "to": "mc-agent/dist",
-        "filter": [
-          "**/*"
-        ]
-      },
-      "mc-agent/package.json",
-      "mc-agent/docker-entrypoint.sh"
-    ],
     "mac": {
       "target": [
         "dmg",

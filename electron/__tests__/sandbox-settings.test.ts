@@ -9,7 +9,6 @@ import {
   isValidVolumeName,
   DEFAULT_AGENT_PORT,
   DEFAULT_WORKSPACE_VOLUME,
-  DEFAULT_AGENT_CONFIG_VOLUME,
   type SettingsKV,
 } from "../sandbox-settings";
 
@@ -58,7 +57,6 @@ describe("readSandboxSettings defaults", () => {
       projectPaths: {},
       agentPort: DEFAULT_AGENT_PORT,
       pairingToken: null,
-      agentConfigVolume: DEFAULT_AGENT_CONFIG_VOLUME,
       gitAuthMode: "none",
     });
   });

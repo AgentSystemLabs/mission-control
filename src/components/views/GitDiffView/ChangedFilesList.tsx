@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { Z_INDEX } from "~/lib/z-index";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
@@ -356,7 +357,7 @@ export function ChangedFilesList({
               alignItems: "stretch",
               gap: 0,
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-              zIndex: 10000,
+              zIndex: Z_INDEX.popover,
             }}
           >
             {menu.staged ? (

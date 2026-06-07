@@ -21,14 +21,10 @@ import {
 } from "./agent-command";
 import { api } from "./api";
 import type { TaskAgent } from "~/shared/domain";
-import type { Project, Task } from "~/db/schema";
+import type { Task } from "~/db/schema";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
-
-type ScopedProject = Project & {
-  activeWorktreeId?: string | null;
-  activeRuntimeScopeId?: string | null;
-};
+import { scopeKeyForProject, type ScopedProject } from "./scoped-project";
 
 export type OpenTerminal = {
   taskId: string;
@@ -116,10 +112,6 @@ export function commandForTask(task: Task): string {
 
 const ACTIVE_BY_PROJECT_KEY = "mc.terminalActiveByProject";
 const REMOTE_PTY_BY_TASK_KEY = "mc.remotePtyByTask";
-
-function scopeKeyForProject(project: ScopedProject): string {
-  return `${worktreeScopeKey(project.id, project.activeWorktreeId)}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
-}
 
 function terminalSurfaceIdForProject(project: ScopedProject, taskId: string): string {
   return `${taskId}:${project.activeWorktreeId ?? MAIN_WORKTREE_ID}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
@@ -299,8 +291,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     if (electron) {
       const ptyApi = isRemotePtyId(id) ? electron.remotePty : electron.pty;
       await ptyApi.kill(id).catch(() => undefined);
-    } else {
-      await api.killRemotePty(id).catch(() => undefined);
     }
   };
 
@@ -603,8 +593,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       if (electron) {
         const ptyApi = isRemotePtyId(target.ptyId) ? electron.remotePty : electron.pty;
         await ptyApi.write(target.ptyId, command + "\r");
-      } else {
-        await api.writeRemotePty(target.ptyId, command + "\r").catch(() => undefined);
       }
     },
     [sessions]

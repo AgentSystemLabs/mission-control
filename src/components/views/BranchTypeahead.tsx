@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { Z_INDEX } from "~/lib/z-index";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "~/lib/api";
 import { Icon } from "~/components/ui/Icon";
@@ -304,7 +305,7 @@ export function BranchTypeahead({
               top: menuRect.top,
               left: menuRect.left,
               width: menuRect.width,
-              zIndex: 10000,
+              zIndex: Z_INDEX.popover,
               maxHeight: 360,
               display: "flex",
               flexDirection: "column",

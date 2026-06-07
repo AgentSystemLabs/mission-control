@@ -13,11 +13,11 @@ import {
   isFailFastConnectError,
 } from "./sandbox-connect-errors";
 
-// Phase 2 core: one container + agent connection per sandbox, all running
+// Phase 2 core: one remote agent connection per sandbox, all running
 // concurrently. This module owns the per-sandbox state machine + the staleness
-// guard that makes start/stop/rebuild safe to interleave. Docker + agent I/O are
-// injected (RegistryDeps) so the logic is unit-testable without Docker; the live
-// wiring lives in the manager. See docs/multi-sandbox-plan.md §5.
+// guard that makes start/stop/rebuild safe to interleave. Agent I/O is injected
+// (RegistryDeps) so the logic is unit-testable; the live wiring lives in the
+// manager. See docs/multi-sandbox-plan.md §5.
 
 export type AgentCallbacks = {
   onReady: (version: string, agents: Record<string, string | null>) => void;
@@ -28,15 +28,7 @@ export type AgentCallbacks = {
 export type AgentHandle = { close: () => void };
 
 export type RegistryDeps = {
-  dockerAvailable: () => Promise<boolean>;
-  /** Build (if needed) + compose up; resolves the host agent port + pairing token. */
-  composeUp: (
-    config: SandboxConfig,
-    force: boolean,
-  ) => Promise<{ ok: true; hostAgentPort: number; token: string } | { ok: false; error: string }>;
-  /** Compose down. destroyVolumes wipes the sandbox's data ("destroy everything"). */
-  composeDown: (config: SandboxConfig, destroyVolumes: boolean) => Promise<OpResult>;
-  /** Open the agent WS for a running container/remote VM; invokes callbacks; returns a handle. */
+  /** Open the agent WS for a remote VM; invokes callbacks; returns a handle. */
   connectAgent: (
     config: SandboxConfig,
     agentUrl: string,
@@ -49,7 +41,6 @@ export type RegistryDeps = {
   connectBudgetMs?: (kind: SandboxConfig["kind"]) => number;
 };
 
-const DOCKER_DOWN_ERROR = "Docker isn't running. Start Docker Desktop / the Docker daemon and try again.";
 const REMOTE_CONFIG_ERROR = "Remote sandbox is missing an agent URL or API key.";
 const REMOTE_PAUSED_ERROR = "Remote VM is paused. Resume the VM before connecting.";
 const RECONNECT_BASE_MS = 1_000;
@@ -66,7 +57,7 @@ export class SandboxInstance {
   private opEpoch = 0;
   private opInFlight = false;
   private manualStop = false;
-  // A freshly-started container's mc-agent takes a few seconds to listen, so the
+  // A freshly-started remote agent can take a few seconds to listen, so the
   // first WS connect often fails ("socket hang up"). Retry with backoff until it's
   // up. Last successful URL/token are kept so a reconnect targets the same agent.
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -129,47 +120,25 @@ export class SandboxInstance {
     return true;
   }
 
-  async start(force = false): Promise<OpResult> {
+  async start(): Promise<OpResult> {
     if (this.opInFlight) return { ok: false, error: "A sandbox operation is already in progress." };
     this.opInFlight = true;
     const epoch = ++this.opEpoch;
     this.manualStop = false;
     try {
-      let agentUrl: string;
-      let token: string;
-      if (this.config.kind === "remote-vm") {
-        if (this.config.remoteStatus === "paused" || this.config.remoteStatus === "pausing") {
-          this.set({ status: "stopped", dockerAvailable: true });
-          return { ok: false, error: REMOTE_PAUSED_ERROR };
-        }
-        if (!this.config.remoteAgentUrl || !this.config.pairingToken) {
-          this.set({ status: "error", message: REMOTE_CONFIG_ERROR });
-          return { ok: false, error: REMOTE_CONFIG_ERROR };
-        }
-        this.set({ status: "starting", step: "connecting to remote agent", since: Date.now() });
-        agentUrl = this.config.remoteAgentUrl;
-        token = this.config.pairingToken;
-      } else {
-        if (!(await this.deps.dockerAvailable())) {
-          this.set({ status: "error", message: DOCKER_DOWN_ERROR });
-          return { ok: false, error: DOCKER_DOWN_ERROR };
-        }
-        this.set({
-          status: "starting",
-          step: force ? "rebuilding image" : "starting container",
-          since: Date.now(),
-        });
-        const up = await this.deps.composeUp(this.config, force);
-        if (!up.ok) {
-          if (this.isStale(epoch)) return { ok: true };
-          this.set({ status: "error", message: up.error });
-          return up;
-        }
-        agentUrl = `ws://127.0.0.1:${up.hostAgentPort}/`;
-        token = up.token;
+      if (this.config.remoteStatus === "paused" || this.config.remoteStatus === "pausing") {
+        this.set({ status: "stopped", dockerAvailable: true });
+        return { ok: false, error: REMOTE_PAUSED_ERROR };
       }
-      // A stop / destroy / newer start landed while the (possibly long) compose
-      // ran — don't clobber that newer state or start connecting.
+      if (!this.config.remoteAgentUrl || !this.config.pairingToken) {
+        this.set({ status: "error", message: REMOTE_CONFIG_ERROR });
+        return { ok: false, error: REMOTE_CONFIG_ERROR };
+      }
+      this.set({ status: "starting", step: "connecting to remote agent", since: Date.now() });
+      const agentUrl = this.config.remoteAgentUrl;
+      const token = this.config.pairingToken;
+      // A stop / destroy / newer start landed while we set up — don't clobber
+      // that newer state or start connecting.
       if (this.isStale(epoch)) return { ok: true };
       this.beginConnectAttempt();
       this.set({ status: "running", since: this.connectStartedAt ?? Date.now() });
@@ -272,13 +241,6 @@ export class SandboxInstance {
     this.clearReconnect();
     try {
       this.closeAgent();
-      if (this.config.kind === "local-docker") {
-        const r = await this.deps.composeDown(this.config, false);
-        if (!r.ok) {
-          this.set({ status: "error", message: r.error });
-          return r;
-        }
-      }
       this.connectStartedAt = null;
       this.set({ status: "stopped", dockerAvailable: true });
       return { ok: true };
@@ -290,10 +252,10 @@ export class SandboxInstance {
   async rebuild(): Promise<OpResult> {
     const stopped = await this.stop();
     if (!stopped.ok) return stopped;
-    return this.start(true);
+    return this.start();
   }
 
-  /** Reset the connect budget and try the agent again without tearing down Docker. */
+  /** Reset the connect budget and try the agent again. */
   retryConnect(): Promise<OpResult> {
     if (this.opInFlight) return Promise.resolve({ ok: false, error: "A sandbox operation is already in progress." });
     if (this._state.status !== "running" && this._state.status !== "error") {
@@ -308,17 +270,16 @@ export class SandboxInstance {
     return Promise.resolve({ ok: true });
   }
 
-  /** Stop + remove volumes (and never reconnect). Used by sandbox deletion. */
+  /** Disconnect (and never reconnect). Used by sandbox deletion. */
   async destroy(): Promise<OpResult> {
     this.opEpoch += 1;
     this.manualStop = true;
     this.clearReconnect();
     this.closeAgent();
-    if (this.config.kind === "remote-vm") return { ok: true };
-    return this.deps.composeDown(this.config, true);
+    return { ok: true };
   }
 
-  /** Detach without touching Docker (app quit). */
+  /** Detach (app quit). */
   dispose(): void {
     this.opEpoch += 1;
     this.manualStop = true;
@@ -358,8 +319,8 @@ export class SandboxRegistry {
     return [...this.instances.values()].map((i) => ({ sandboxId: i.id, state: i.state }));
   }
 
-  start(config: SandboxConfig, force = false): Promise<OpResult> {
-    return this.ensure(config).start(force);
+  start(config: SandboxConfig): Promise<OpResult> {
+    return this.ensure(config).start();
   }
 
   stop(id: string): Promise<OpResult> {

@@ -4,7 +4,7 @@ import path from "node:path";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "electron/**/*.test.ts", "mc-agent/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "electron/**/*.test.ts"],
   },
   resolve: {
     alias: {

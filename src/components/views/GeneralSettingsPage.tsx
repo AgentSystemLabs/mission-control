@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { openExternal } from "~/lib/open-external";
 import { Btn } from "~/components/ui/Btn";
 import { Field, SettingsSection, ToggleRow } from "~/components/views/SettingsParts";
 import { getElectron } from "~/lib/electron";
@@ -343,7 +344,7 @@ function AboutSection() {
     if (!academy?.downloadUrl) return;
     const api = (window as any).electronAPI;
     if (api?.openExternal) void api.openExternal(academy.downloadUrl);
-    else window.open(academy.downloadUrl, "_blank", "noopener,noreferrer");
+    else openExternal(academy.downloadUrl);
   };
 
   let status: string;

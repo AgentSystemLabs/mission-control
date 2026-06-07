@@ -8,9 +8,6 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 
 const { handleApiRequest, ANONYMOUS_ROUTES, redactSensitiveErrorText } = await import("../api-router");
 const { getOrCreateApiToken } = await import("../services/settings");
-const { resetRateLimitsForTests } = await import("../services/rate-limits");
-const { resetHostedMetricsForTests } = await import("../services/hosted-metrics");
-const { MISSION_CONTROL_RUNTIME_HEADER } = await import("../../shared/runtime");
 
 const LOOPBACK_HEADERS = { origin: "http://127.0.0.1:5173" };
 
@@ -27,16 +24,6 @@ function authed(input: string, init: RequestInit = {}): Request {
     headers: {
       ...LOOPBACK_HEADERS,
       authorization: `Bearer ${getOrCreateApiToken()}`,
-      ...(init.headers as Record<string, string> | undefined),
-    },
-  });
-}
-
-function electronAuthed(input: string, init: RequestInit = {}): Request {
-  return authed(input, {
-    ...init,
-    headers: {
-      [MISSION_CONTROL_RUNTIME_HEADER]: "electron-local",
       ...(init.headers as Record<string, string> | undefined),
     },
   });
@@ -89,23 +76,11 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   { method: "POST", pathname: "/api/settings" },
   // License
   { method: "GET", pathname: "/api/license" },
-  { method: "GET", pathname: "/api/entitlements" },
-  { method: "GET", pathname: "/api/metrics" },
-  { method: "GET", pathname: "/api/support/diagnostics?academyUserId=academy-user-1" },
-  { method: "GET", pathname: "/api/support/cleanup-outbox" },
-  { method: "POST", pathname: "/api/support/cleanup-outbox/retry" },
-  { method: "POST", pathname: "/api/support/entitlements/adjust" },
-  { method: "POST", pathname: "/api/support/entitlements/replay" },
-  { method: "GET", pathname: "/api/support/remote-sessions" },
-  { method: "GET", pathname: "/api/support/runtime-usage" },
   { method: "DELETE", pathname: "/api/license" },
   { method: "POST", pathname: "/api/license/validate" },
   // Diagram skill
   { method: "GET", pathname: "/api/skills/install/diagram/installed" },
   { method: "POST", pathname: "/api/skills/install/diagram" },
-  // Launch kit
-  { method: "GET", pathname: "/api/launch-kit/access" },
-  { method: "POST", pathname: "/api/launch-kit/projects" },
   // Keybindings
   { method: "GET", pathname: "/api/keybindings" },
   { method: "PUT", pathname: "/api/keybindings" },
@@ -130,13 +105,8 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
 describe("api auth gate", () => {
   // Snapshots the explicit anonymous allow-list — the only way a route can
   // bypass bearer auth. CI must fail on any addition so a human approves it.
-  it("anonymous allow-list only contains Academy auth handoff routes", () => {
-    expect(ANONYMOUS_ROUTES).toEqual([
-      { method: "GET", pathname: "/api/academy-auth/login" },
-      { method: "GET", pathname: "/api/academy-auth/callback" },
-      { method: "GET", pathname: "/api/academy-auth/session" },
-      { method: "POST", pathname: "/api/academy-auth/logout" },
-    ]);
+  it("anonymous allow-list is empty", () => {
+    expect(ANONYMOUS_ROUTES).toEqual([]);
   });
 
   it("redacts sensitive query credentials before errors become response text", () => {
@@ -262,196 +232,18 @@ describe("api auth gate", () => {
     expect(res?.status).toBe(403);
   });
 
-  it("returns auth-required remote entitlements without a hosted Academy session", async () => {
-    const res = await handleApiRequest(authed("/api/entitlements", { method: "GET" }));
-    expect(res?.status).toBe(200);
-    const body = await res!.json() as {
-      entitlements: { remoteRuntime: { allowed: boolean; reason: string } };
-    };
-    expect(body.entitlements.remoteRuntime.allowed).toBe(false);
-    expect(body.entitlements.remoteRuntime.reason).toBe("auth-required");
-  });
-
-  it("routes local Electron bearer requests to SQLite when hosted DB env and cookies exist", async () => {
-    process.env.DATABASE_URL = "postgres://hosted-test";
-    try {
-      const anonymous = await handleApiRequest(unauth("/api/projects", { method: "GET" }));
-      expect(anonymous?.status).toBe(401);
-
-      const bearer = await handleApiRequest(
-        electronAuthed("/api/projects", {
-          method: "GET",
-          headers: { cookie: "mc_session=stale-hosted-session" },
-        }),
-      );
-      expect(bearer?.status).toBe(200);
-      const body = await bearer!.json() as { projects: unknown[] };
-      expect(Array.isArray(body.projects)).toBe(true);
-
-      const entitlements = await handleApiRequest(
-        electronAuthed("/api/entitlements", {
-          method: "GET",
-          headers: { cookie: "mc_session=stale-hosted-session" },
-        }),
-      );
-      expect(entitlements?.status).toBe(200);
-      const entitlementBody = await entitlements!.json() as {
-        entitlements: { hosted: { enabled: boolean } };
-      };
-      expect(entitlementBody.entitlements.hosted.enabled).toBe(false);
-    } finally {
-      delete process.env.DATABASE_URL;
-    }
-  });
-
-  it("keeps hosted auth, bearer auth, Academy handoff codes, and hook tokens scoped to their routes", async () => {
-    process.env.DATABASE_URL = "postgres://hosted-test";
-    try {
-      const bearerCannotStartRemoteRuntime = await handleApiRequest(
-        authed("/api/remote-pty", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ projectId: "hp-1", cwd: "/home/workspace", command: "pwd" }),
-        }),
-      );
-      expect(bearerCannotStartRemoteRuntime?.status).toBe(401);
-      expect(await bearerCannotStartRemoteRuntime!.json()).toEqual({ error: "unauthorized" });
-
-      const hostedCookieCannotUseSupportApi = await handleApiRequest(
-        unauth("/api/support/diagnostics?academyUserId=academy-user-1", {
-          headers: { cookie: "mc_session=fake-hosted-session" },
-        }),
-      );
-      expect(hostedCookieCannotUseSupportApi?.status).toBe(401);
-
-      const genericBearerCannotUseHostedSupportApi = await handleApiRequest(
-        authed("/api/support/remote-sessions", { method: "GET" }),
-      );
-      expect(genericBearerCannotUseHostedSupportApi?.status).toBe(401);
-
-      process.env.MC_SUPPORT_API_TOKEN = "support-token-1";
-      const supportBearerCanUseHostedSupportApi = await handleApiRequest(
-        unauth("/api/support/remote-sessions", {
-          method: "GET",
-          headers: { authorization: "Bearer support-token-1" },
-        }),
-      );
-      expect(supportBearerCanUseHostedSupportApi?.status).toBe(200);
-
-      const academyCodeCannotListProjects = await handleApiRequest(
-        unauth("/api/projects?code=academy-code-1", { method: "GET" }),
-      );
-      expect(academyCodeCannotListProjects?.status).toBe(401);
-
-      const hookToken = "a".repeat(64);
-      const hookTokenCannotListProjects = await handleApiRequest(
-        unauth("/api/projects", {
-          method: "GET",
-          headers: { authorization: `Bearer ${hookToken}` },
-        }),
-      );
-      expect(hookTokenCannotListProjects?.status).toBe(401);
-
-      const bearerCannotReplaceHostedHookToken = await handleApiRequest(
-        authed("/api/hooks/claude?taskId=ht-1", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ hook_event_name: "UserPromptSubmit" }),
-        }),
-      );
-      expect(bearerCannotReplaceHostedHookToken?.status).toBe(401);
-
-      const hostedCookieCannotReplaceHostedHookToken = await handleApiRequest(
-        unauth("/api/hooks/claude?taskId=ht-1", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            cookie: "mc_session=fake-hosted-session",
-          },
-          body: JSON.stringify({ hook_event_name: "UserPromptSubmit" }),
-        }),
-      );
-      expect(hostedCookieCannotReplaceHostedHookToken?.status).toBe(401);
-    } finally {
-      delete process.env.DATABASE_URL;
-      delete process.env.MC_SUPPORT_API_TOKEN;
-    }
-  });
-
-  it("exposes protected hosted metrics", async () => {
-    resetHostedMetricsForTests();
-    const res = await handleApiRequest(authed("/api/metrics", { method: "GET" }));
-    expect(res?.status).toBe(200);
-    const body = await res!.json() as {
-      metrics: {
-        counters: Record<string, number>;
-        gauges: Record<string, number>;
-        uptimeSeconds: number;
-      };
-    };
-    expect(body.metrics.counters).toMatchObject({
-      academyEntitlementSyncFailures: 0,
-      cleanupFailures: 0,
-      hookFailures: 0,
-      remotePtyFailures: 0,
-      remotePtyStarts: 0,
-      serverExceptions: 0,
-    });
-    expect(body.metrics.gauges).toMatchObject({ activeRemotePtys: 0 });
-    expect(body.metrics.uptimeSeconds).toBeGreaterThanOrEqual(0);
-  });
-
   it("does not expose the removed Better Auth API surface", async () => {
     const res = await handleApiRequest(
       unauth("/api/auth/sign-up/email", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: "Hosted User",
-          email: `hosted-${Date.now()}@example.com`,
+          name: "Local User",
+          email: `local-${Date.now()}@example.com`,
           password: "password123",
         }),
       }),
     );
     expect(res?.status).toBe(401);
-  });
-
-  it("allows same-origin Academy session checks without the Electron bearer", async () => {
-    const res = await handleApiRequest(unauth("/api/academy-auth/session", { method: "GET" }));
-    expect(res?.status).toBe(200);
-    const body = await res!.json() as { hostedEnabled: boolean; authenticated: boolean };
-    expect(body).toMatchObject({ hostedEnabled: false, authenticated: true });
-  });
-
-  it("rate-limits Academy auth handoff attempts", async () => {
-    resetRateLimitsForTests();
-    process.env.MC_AUTH_RATE_LIMIT_PER_MINUTE = "1";
-    try {
-      expect((await handleApiRequest(unauth("/api/academy-auth/login", { method: "GET" })))?.status)
-        .toBe(302);
-      const limited = await handleApiRequest(unauth("/api/academy-auth/login", { method: "GET" }));
-      expect(limited?.status).toBe(429);
-      expect(limited?.headers.get("retry-after")).toBeTruthy();
-    } finally {
-      delete process.env.MC_AUTH_RATE_LIMIT_PER_MINUTE;
-      resetRateLimitsForTests();
-    }
-  });
-
-  it("can disable hosted remote runtime globally", async () => {
-    process.env.MC_REMOTE_RUNTIME_DISABLED = "true";
-    try {
-      const res = await handleApiRequest(
-        authed("/api/remote-pty", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ projectId: "hp-1", cwd: "/home/workspace", command: "pwd" }),
-        }),
-      );
-      expect(res?.status).toBe(503);
-      expect(await res!.json()).toEqual({ error: "remote runtime disabled" });
-    } finally {
-      delete process.env.MC_REMOTE_RUNTIME_DISABLED;
-    }
   });
 });

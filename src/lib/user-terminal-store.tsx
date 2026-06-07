@@ -24,15 +24,11 @@ import {
 import { isRemotePtyId } from "./pty-id";
 import { isDockerSandboxRuntime } from "./sandbox-runtime";
 import { terminalSurfaceCache } from "./terminal-surface-cache";
-import type { Project, UserTerminal } from "~/db/schema";
-import { worktreeScopeKey } from "~/shared/worktrees";
+import type { UserTerminal } from "~/db/schema";
 import { HOME_TERMINAL_PROJECT_ID } from "~/shared/home-terminal";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
-
-type ScopedProject = Project & {
-  activeWorktreeId?: string | null;
-  activeRuntimeScopeId?: string | null;
-};
+import { scopeKeyForProject, type ScopedProject } from "./scoped-project";
+import { readJson, writeJson } from "./local-storage-json";
 
 // Scope-key namespace for project-less "home" terminals (the dashboard
 // terminals). Each home terminal runs a shell ON a specific scope's machine, so
@@ -44,6 +40,11 @@ const HOME_SCOPE_PREFIX = `${HOME_TERMINAL_PROJECT_ID}:`;
 function homeScopeKeyFor(scopeId: string): string {
   return `${HOME_SCOPE_PREFIX}${scopeId}`;
 }
+
+// Persisted UI state. Hoisted so the read (init) and write (effect) of each key
+// can't drift apart.
+const HIDDEN_IDS_STORAGE_KEY = "mc.userTerminalHiddenIds";
+const PANEL_OPEN_STORAGE_KEY = "mc.userTerminalPanelOpen";
 function isHomeScopeKey(key: string): boolean {
   return key.startsWith(HOME_SCOPE_PREFIX);
 }
@@ -104,10 +105,6 @@ type Ctx = {
 
 const UserTerminalContext = createContext<Ctx | null>(null);
 
-function scopeKeyForProject(project: ScopedProject): string {
-  return `${worktreeScopeKey(project.id, project.activeWorktreeId)}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
-}
-
 export function terminalScopeKeysForProject(
   buckets: Record<string, unknown>,
   projectId: string,
@@ -115,6 +112,27 @@ export function terminalScopeKeysForProject(
   return Object.keys(buckets).filter(
     (key) => key === projectId || key.startsWith(`${projectId}:`),
   );
+}
+
+/** Bucket-state updater that drops every scope key belonging to `projectId`. */
+function dropProjectKeys<T>(projectId: string) {
+  return (prev: Record<string, T>): Record<string, T> => {
+    const keys = terminalScopeKeysForProject(prev, projectId);
+    if (keys.length === 0) return prev;
+    const next = { ...prev };
+    for (const key of keys) delete next[key];
+    return next;
+  };
+}
+
+/** Bucket-state updater that drops a single key if present. */
+function dropKey<T>(key: string) {
+  return (prev: Record<string, T>): Record<string, T> => {
+    if (!(key in prev)) return prev;
+    const next = { ...prev };
+    delete next[key];
+    return next;
+  };
 }
 
 export function UserTerminalProvider({ children }: { children: ReactNode }) {
@@ -134,45 +152,17 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   // the user navigates away and back.
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
   const [focusedByProject, setFocusedByProject] = useState<Record<string, string | null>>({});
-  const [hiddenIdsByProject, setHiddenIdsByProject] = useState<Record<string, string[]>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem("mc.userTerminalHiddenIds");
-      return raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [hiddenIdsByProject, setHiddenIdsByProject] = useState<Record<string, string[]>>(() =>
+    readJson<Record<string, string[]>>(HIDDEN_IDS_STORAGE_KEY, {}),
+  );
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        "mc.userTerminalHiddenIds",
-        JSON.stringify(hiddenIdsByProject)
-      );
-    } catch {
-      /* quota or disabled */
-    }
+    writeJson(HIDDEN_IDS_STORAGE_KEY, hiddenIdsByProject);
   }, [hiddenIdsByProject]);
-  const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem("mc.userTerminalPanelOpen");
-      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [panelOpenByProject, setPanelOpenByProject] = useState<Record<string, boolean>>(() =>
+    readJson<Record<string, boolean>>(PANEL_OPEN_STORAGE_KEY, {}),
+  );
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        "mc.userTerminalPanelOpen",
-        JSON.stringify(panelOpenByProject)
-      );
-    } catch {
-      /* quota or disabled */
-    }
+    writeJson(PANEL_OPEN_STORAGE_KEY, panelOpenByProject);
   }, [panelOpenByProject]);
   const loadedProjectsRef = useRef<Set<string>>(new Set());
   // Mirror of sessionsByProject. killTerminal reads this synchronously instead
@@ -504,8 +494,6 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       if (killedPtyId && electron) {
         const ptyApi = isRemotePtyId(killedPtyId) ? electron.remotePty : electron.pty;
         await ptyApi.kill(killedPtyId).catch(() => undefined);
-      } else if (killedPtyId) {
-        await api.killRemotePty(killedPtyId).catch(() => undefined);
       }
       try {
         if (isHomeScopeKey(ownerProjectId)) await api.deleteHomeTerminal(id);
@@ -527,34 +515,10 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         await killTerminal(id);
       }
       for (const key of keys) loadedProjectsRef.current.delete(key);
-      setSessionsByProject((prev) => {
-        const keys = terminalScopeKeysForProject(prev, projectId);
-        if (keys.length === 0) return prev;
-        const next = { ...prev };
-        for (const key of keys) delete next[key];
-        return next;
-      });
-      setFocusedByProject((prev) => {
-        const keys = terminalScopeKeysForProject(prev, projectId);
-        if (keys.length === 0) return prev;
-        const next = { ...prev };
-        for (const key of keys) delete next[key];
-        return next;
-      });
-      setHiddenIdsByProject((prev) => {
-        const keys = terminalScopeKeysForProject(prev, projectId);
-        if (keys.length === 0) return prev;
-        const next = { ...prev };
-        for (const key of keys) delete next[key];
-        return next;
-      });
-      setPanelOpenByProject((prev) => {
-        const keys = terminalScopeKeysForProject(prev, projectId);
-        if (keys.length === 0) return prev;
-        const next = { ...prev };
-        for (const key of keys) delete next[key];
-        return next;
-      });
+      setSessionsByProject(dropProjectKeys(projectId));
+      setFocusedByProject(dropProjectKeys(projectId));
+      setHiddenIdsByProject(dropProjectKeys(projectId));
+      setPanelOpenByProject(dropProjectKeys(projectId));
     },
     [killTerminal],
   );
@@ -567,30 +531,10 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         await killTerminal(id);
       }
       loadedProjectsRef.current.delete(key);
-      setSessionsByProject((prev) => {
-        if (!(key in prev)) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      setFocusedByProject((prev) => {
-        if (!(key in prev)) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      setHiddenIdsByProject((prev) => {
-        if (!(key in prev)) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      setPanelOpenByProject((prev) => {
-        if (!(key in prev)) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
+      setSessionsByProject(dropKey(key));
+      setFocusedByProject(dropKey(key));
+      setHiddenIdsByProject(dropKey(key));
+      setPanelOpenByProject(dropKey(key));
     },
     [killTerminal],
   );

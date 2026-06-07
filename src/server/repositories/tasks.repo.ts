@@ -2,14 +2,10 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { tasks } from "~/db/schema";
 import type { Task } from "~/db/schema";
-import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 
 export function findAllTasks(): Task[] {
   return getDb().select().from(tasks).all();
-}
-
-function normalizeScopeId(scopeId: string | null | undefined): string {
-  return scopeId?.trim() || LOCAL_SCOPE_ID;
 }
 
 export function findTasksByProjectId(

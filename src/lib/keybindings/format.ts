@@ -1,4 +1,5 @@
 import type { Binding } from "./types";
+import { PINNED_SLOT_COUNT } from "./match";
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
@@ -33,11 +34,11 @@ export function formatBinding(b: Binding): string {
   return formatBindingParts(b).join(" + ");
 }
 
-/** Display pinned-slot bindings as e.g. ⌘ + 1–4. */
+/** Display pinned-slot bindings as e.g. ⌘ + 1–9. */
 export function formatPinnedSlotBindingParts(base: Binding): string[] {
   const parts = formatBindingParts(base);
   const modParts = parts.slice(0, -1);
-  return [...modParts, "1–4"];
+  return [...modParts, `1–${PINNED_SLOT_COUNT}`];
 }
 
 export function formatPinnedSlotBinding(base: Binding): string {

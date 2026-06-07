@@ -7,6 +7,7 @@ import * as schema from "./schema";
 import { resolveElectronBetterSqlite3NativeBinding } from "./better-sqlite3-native-binding";
 import { migrateMultiSandbox } from "./migrate-multi-sandbox";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS } from "~/shared/domain";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 const migrationFiles = import.meta.glob("./migrations/*.sql", {
   eager: true,
@@ -318,7 +319,7 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE TABLE IF NOT EXISTS sandboxes (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'local-docker',
+      kind TEXT NOT NULL DEFAULT 'remote-vm',
       color TEXT,
       image_tag TEXT,
       dockerfile_path TEXT,
@@ -378,7 +379,7 @@ function ensureSchema(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       worktree_id TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
-      scope_id TEXT NOT NULL DEFAULT 'local',
+      scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
       title TEXT NOT NULL,
       icon TEXT,
       agent TEXT NOT NULL,
@@ -424,7 +425,7 @@ function ensureSchema(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       worktree_id TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
-      scope_id TEXT NOT NULL DEFAULT 'local',
+      scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
       name TEXT NOT NULL,
       cwd TEXT,
       start_command TEXT,
@@ -441,7 +442,7 @@ function ensureSchema(sqlite: Database.Database) {
     -- scope_id scopes each terminal to the sandbox (or "local") it runs on.
     CREATE TABLE IF NOT EXISTS home_terminals (
       id TEXT PRIMARY KEY,
-      scope_id TEXT NOT NULL DEFAULT 'local',
+      scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
       name TEXT NOT NULL,
       cwd TEXT,
       position INTEGER NOT NULL DEFAULT 0,
@@ -500,7 +501,7 @@ function ensureSchema(sqlite: Database.Database) {
   // Keep pre-release sandbox tables moving forward even if they were created by
   // an earlier branch before all remote/local config columns existed.
   ensureColumn(sqlite, "sandboxes", "name", "TEXT NOT NULL DEFAULT 'Sandbox'");
-  ensureColumn(sqlite, "sandboxes", "kind", "TEXT NOT NULL DEFAULT 'local-docker'");
+  ensureColumn(sqlite, "sandboxes", "kind", "TEXT NOT NULL DEFAULT 'remote-vm'");
   ensureColumn(sqlite, "sandboxes", "color", "TEXT");
   ensureColumn(sqlite, "sandboxes", "image_tag", "TEXT");
   ensureColumn(sqlite, "sandboxes", "dockerfile_path", "TEXT");
@@ -518,13 +519,13 @@ function ensureSchema(sqlite: Database.Database) {
 
   // Terminal/session rows gained per-runtime scope after their first ship;
   // tolerate pre-existing tables created without it.
-  ensureColumn(sqlite, "tasks", "scope_id", "TEXT NOT NULL DEFAULT 'local'");
+  ensureColumn(sqlite, "tasks", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_worktree_scope_idx ON tasks(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_scope_idx ON tasks(scope_id);");
-  ensureColumn(sqlite, "user_terminals", "scope_id", "TEXT NOT NULL DEFAULT 'local'");
+  ensureColumn(sqlite, "user_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_project_worktree_scope_idx ON user_terminals(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_scope_idx ON user_terminals(scope_id);");
-  ensureColumn(sqlite, "home_terminals", "scope_id", "TEXT NOT NULL DEFAULT 'local'");
+  ensureColumn(sqlite, "home_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS home_terminals_scope_idx ON home_terminals(scope_id);");
 
   // Legacy builds briefly modeled "shell" as a task agent even though shell

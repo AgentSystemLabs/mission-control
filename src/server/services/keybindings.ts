@@ -1,4 +1,5 @@
 import { getSetting, setSetting } from "./settings";
+import { safeJsonParse } from "~/shared/safe-json";
 import { DEFAULT_BINDINGS } from "~/lib/keybindings/defaults";
 import { HOTKEY_ACTIONS, type Binding, type BindingMap, type HotkeyAction } from "~/lib/keybindings/types";
 

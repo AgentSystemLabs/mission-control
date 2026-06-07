@@ -5,7 +5,7 @@ import { EXPECTED_SANDBOX_AGENT_VERSION, type SandboxConfig, type SandboxState }
 function config(id: string): SandboxConfig {
   return {
     id,
-    kind: "local-docker",
+    kind: "remote-vm",
     imageTag: null,
     dockerfilePath: null,
     buildArgs: {},
@@ -15,19 +15,10 @@ function config(id: string): SandboxConfig {
     declaredPorts: [],
     hostAgentPort: null,
     portMap: null,
-    remoteAgentUrl: null,
-    pairingToken: null,
-    remoteAgentCa: null,
-    remoteStatus: null,
-  };
-}
-
-function remoteConfig(id: string): SandboxConfig {
-  return {
-    ...config(id),
-    kind: "remote-vm",
     remoteAgentUrl: "wss://agent.example.com/",
     pairingToken: "remote-token",
+    remoteAgentCa: null,
+    remoteStatus: null,
   };
 }
 
@@ -36,32 +27,16 @@ type Harness = {
   states: (id: string) => string[];
   lastAgentCb: () => AgentCallbacks | null;
   connectCount: () => number;
-  setDockerAvailable: (v: boolean) => void;
-  setComposeUp: (fn: RegistryDeps["composeUp"]) => void;
-  composeDownCalls: () => Array<{ id: string; destroyVolumes: boolean }>;
   setConnectBudgetMs: (ms: number) => void;
 };
 
 function harness(): Harness {
   const emitted = new Map<string, string[]>();
-  let dockerUp = true;
   let agentCb: AgentCallbacks | null = null;
   let connects = 0;
   let budgetMs = 180_000;
-  const downCalls: Array<{ id: string; destroyVolumes: boolean }> = [];
-  let composeUp: RegistryDeps["composeUp"] = async () => ({
-    ok: true as const,
-    hostAgentPort: 19333,
-    token: "tok",
-  });
 
   const deps: RegistryDeps = {
-    dockerAvailable: async () => dockerUp,
-    composeUp: (c, f) => composeUp(c, f),
-    composeDown: async (c, destroyVolumes) => {
-      downCalls.push({ id: c.id, destroyVolumes });
-      return { ok: true };
-    },
     connectAgent: (_c, _p, _t, cb) => {
       agentCb = cb;
       connects += 1;
@@ -80,9 +55,6 @@ function harness(): Harness {
     states: (id) => emitted.get(id) ?? [],
     lastAgentCb: () => agentCb,
     connectCount: () => connects,
-    setDockerAvailable: (v) => (dockerUp = v),
-    setComposeUp: (fn) => (composeUp = fn),
-    composeDownCalls: () => downCalls,
     setConnectBudgetMs: (ms) => (budgetMs = ms),
   };
 }
@@ -105,31 +77,18 @@ describe("SandboxInstance lifecycle", () => {
     expect(inst.state).toMatchObject({ status: "update-required", expectedVersion: EXPECTED_SANDBOX_AGENT_VERSION });
   });
 
-  it("errors when Docker is unavailable", async () => {
+  it("errors when the remote agent URL or API key is missing", async () => {
     const h = harness();
-    h.setDockerAvailable(false);
-    const inst = new SandboxInstance(config("sb-1"), h.deps);
+    const inst = new SandboxInstance({ ...config("sb-1"), remoteAgentUrl: null }, h.deps);
     const r = await inst.start();
     expect(r.ok).toBe(false);
     expect(inst.state.status).toBe("error");
-  });
-
-  it("connects remote VM sandboxes without requiring Docker or compose", async () => {
-    const h = harness();
-    h.setDockerAvailable(false);
-    const inst = new SandboxInstance(remoteConfig("sb-remote"), h.deps);
-
-    const r = await inst.start();
-    h.lastAgentCb()!.onReady(EXPECTED_SANDBOX_AGENT_VERSION, {});
-
-    expect(r.ok).toBe(true);
-    expect(h.states("sb-remote")).toEqual(["starting", "running", "connected"]);
-    expect(h.composeDownCalls()).toEqual([]);
+    expect(h.connectCount()).toBe(0);
   });
 
   it("does not connect a paused remote VM sandbox", async () => {
     const h = harness();
-    const paused = { ...remoteConfig("sb-remote"), remoteStatus: "paused" };
+    const paused = { ...config("sb-remote"), remoteStatus: "paused" };
     const inst = new SandboxInstance(paused, h.deps);
 
     const r = await inst.start();
@@ -139,41 +98,26 @@ describe("SandboxInstance lifecycle", () => {
     expect(h.connectCount()).toBe(0);
   });
 
-  it("errors when compose up fails", async () => {
-    const h = harness();
-    h.setComposeUp(async () => ({ ok: false, error: "boom" }));
-    const inst = new SandboxInstance(config("sb-1"), h.deps);
-    const r = await inst.start();
-    expect(r).toEqual({ ok: false, error: "boom" });
-    expect(inst.state.status).toBe("error");
+  it("staleness guard: a dispose during start prevents a stale reconnect from connecting", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const inst = new SandboxInstance(config("sb-1"), h.deps);
+      await inst.start();
+      expect(h.connectCount()).toBe(1);
+
+      // The first connect drops; a reconnect is scheduled.
+      h.lastAgentCb()!.onClose();
+      inst.dispose(); // bumps the op epoch + sets manualStop
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(h.connectCount()).toBe(1); // the stale reconnect never fired
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("staleness guard: a destroy during compose-up prevents the start from connecting", async () => {
-    const h = harness();
-    let resolveUp!: (v: { ok: true; hostAgentPort: number; token: string }) => void;
-    h.setComposeUp(() => new Promise((res) => (resolveUp = res)));
-    const inst = new SandboxInstance(config("sb-1"), h.deps);
-
-    const startP = inst.start();
-    await new Promise((r) => setTimeout(r, 0)); // let dockerAvailable resolve → composeUp is now pending
-    inst.dispose(); // bumps the op epoch + sets manualStop (no opInFlight gate)
-    resolveUp({ ok: true, hostAgentPort: 19333, token: "tok" });
-    await startP;
-
-    expect(h.states("sb-1")).not.toContain("running"); // the stale start never advanced
-    expect(h.lastAgentCb()).toBeNull(); // connectAgent was never reached
-  });
-
-  it("serializes overlapping ops (second start is rejected)", async () => {
-    const h = harness();
-    h.setComposeUp(() => new Promise(() => {})); // never resolves
-    const inst = new SandboxInstance(config("sb-1"), h.deps);
-    void inst.start();
-    const second = await inst.start();
-    expect(second).toEqual({ ok: false, error: "A sandbox operation is already in progress." });
-  });
-
-  it("reconnects with backoff when the first agent connect drops (container not ready yet)", async () => {
+  it("reconnects with backoff when the first agent connect drops (agent not ready yet)", async () => {
     vi.useFakeTimers();
     try {
       const h = harness();
@@ -207,7 +151,7 @@ describe("SandboxInstance lifecycle", () => {
     try {
       const h = harness();
       h.setConnectBudgetMs(5_000);
-      const inst = new SandboxInstance(remoteConfig("sb-remote"), h.deps);
+      const inst = new SandboxInstance(config("sb-remote"), h.deps);
       await inst.start();
 
       while (inst.state.status !== "error") {
@@ -226,7 +170,7 @@ describe("SandboxInstance lifecycle", () => {
 
   it("fails fast on auth errors without waiting for the connect budget", async () => {
     const h = harness();
-    const inst = new SandboxInstance(remoteConfig("sb-remote"), h.deps);
+    const inst = new SandboxInstance(config("sb-remote"), h.deps);
     await inst.start();
     h.lastAgentCb()!.onError?.(new Error("Unexpected server response: 401"));
     expect(inst.state).toMatchObject({
@@ -240,7 +184,7 @@ describe("SandboxInstance lifecycle", () => {
     try {
       const h = harness();
       h.setConnectBudgetMs(1_000);
-      const inst = new SandboxInstance(remoteConfig("sb-remote"), h.deps);
+      const inst = new SandboxInstance(config("sb-remote"), h.deps);
       await inst.start();
       h.lastAgentCb()!.onClose();
       await vi.advanceTimersByTimeAsync(2_000);
@@ -258,18 +202,14 @@ describe("SandboxInstance lifecycle", () => {
     }
   });
 
-  it("rebuild stops then starts with force", async () => {
+  it("rebuild stops then starts again", async () => {
     const h = harness();
-    const forces: boolean[] = [];
-    h.setComposeUp(async (_c, f) => {
-      forces.push(f);
-      return { ok: true, hostAgentPort: 19333, token: "tok" };
-    });
     const inst = new SandboxInstance(config("sb-1"), h.deps);
     await inst.start();
+    h.lastAgentCb()!.onReady(EXPECTED_SANDBOX_AGENT_VERSION, {});
     await inst.rebuild();
-    expect(forces).toEqual([false, true]); // initial start, then forced rebuild
-    expect(h.composeDownCalls().some((c) => !c.destroyVolumes)).toBe(true);
+    expect(inst.state.status).toBe("running");
+    expect(h.connectCount()).toBe(2); // initial start, then rebuild reconnect
   });
 });
 
@@ -284,12 +224,12 @@ describe("SandboxRegistry", () => {
     expect(reg.getState("sb-b")!.status).toBe("running");
   });
 
-  it("destroy tears down with volume removal and drops the instance", async () => {
+  it("destroy drops the instance", async () => {
     const h = harness();
     const reg = new SandboxRegistry(h.deps);
     await reg.start(config("sb-x"));
-    await reg.destroy(config("sb-x"));
-    expect(h.composeDownCalls()).toContainEqual({ id: "sb-x", destroyVolumes: true });
+    const r = await reg.destroy(config("sb-x"));
+    expect(r.ok).toBe(true);
     expect(reg.get("sb-x")).toBeNull();
   });
 

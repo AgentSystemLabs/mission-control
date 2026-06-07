@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { makeFail } from "./lib/cli.mjs";
 // Per-platform mission-control publish helper.
 //
 // Subcommands:
@@ -28,10 +29,7 @@ const {
   ARTIFACTS_DIR = "artifacts",
 } = process.env;
 
-function fail(msg) {
-  console.error(`[publish-release] ${msg}`);
-  process.exit(1);
-}
+const fail = makeFail("publish-release");
 
 if (!MISSION_CONTROL_RELEASE_TOKEN)
   fail("MISSION_CONTROL_RELEASE_TOKEN is required");

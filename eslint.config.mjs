@@ -10,10 +10,8 @@ export default tseslint.config(
       "artifacts/**",
       "build/**",
       "dist/**",
-      "mc-agent/dist/**",
       "dist-electron/**",
       "dist-electron-out/**",
-      "dist-server/**",
       "node_modules/**",
       "publish/**",
       "test-results/**",
@@ -63,7 +61,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["electron/**/*.ts", "scripts/**/*.mjs", "vite*.ts", "playwright.config.ts"],
+    files: ["electron/**/*.ts", "scripts/**/*.mjs", "vite*.ts"],
     languageOptions: {
       globals: globals.node,
     },

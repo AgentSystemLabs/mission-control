@@ -1,9 +1,9 @@
+import { MAX_TCP_PORT } from "./tcp-port";
+
 export type PtyHookEnv = {
   apiUrl: string;
   token: string;
 };
-
-const MAX_TCP_PORT = 65535;
 
 /** Hostname a sandbox container uses to reach the Mission Control API on the host. */
 export const SANDBOX_HOOK_API_HOST = "host.docker.internal";

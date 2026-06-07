@@ -8,6 +8,7 @@ import { TextField } from "~/components/ui/TextField";
 import { SandboxApiKeyField } from "~/components/views/SandboxApiKeyField";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import { MAX_TCP_PORT } from "~/shared/tcp-port";
 import {
   markSandboxStoppedInCache,
   markSandboxStoppingInCache,
@@ -43,7 +44,7 @@ function formatConnectElapsed(since: number, now: number): string {
 
 function statusBadge(
   state: SandboxState,
-  kind: "local-docker" | "remote-vm" | undefined,
+  kind: "remote-vm" | undefined,
   now = Date.now(),
 ): { label: string; color: string; connecting?: boolean } {
   const isRemote = kind === "remote-vm";
@@ -240,13 +241,13 @@ function parsePortsInput(raw: string): number[] {
       const end = Number(range[2]);
       if (Number.isInteger(start) && Number.isInteger(end) && start <= end) {
         for (let port = start; port <= end; port += 1) {
-          if (port >= 1 && port <= 65535) ports.add(port);
+          if (port >= 1 && port <= MAX_TCP_PORT) ports.add(port);
         }
       }
       continue;
     }
     const port = Number(token);
-    if (Number.isInteger(port) && port >= 1 && port <= 65535) ports.add(port);
+    if (Number.isInteger(port) && port >= 1 && port <= MAX_TCP_PORT) ports.add(port);
   }
   return [...ports].sort((a, b) => a - b);
 }
@@ -1515,7 +1516,7 @@ export function SandboxConfigPanel({
             <ConfigSection
               title={isRemote ? "Connection logs" : "Sandbox logs"}
               description={
-                isRemote ? "Output from connecting to the remote mc-agent." : undefined
+                isRemote ? "Output from connecting to the remote agent." : undefined
               }
             >
               <div

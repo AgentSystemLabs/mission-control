@@ -1,18 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { json, jsonError } from "../auth";
-import { eventVisibleToScope, events, scopeForHostedContext, type AppEventScope } from "../events";
-import { getHostedAuthContext } from "../hosted-auth-context";
-import { isHostedDatabaseEnabled } from "../hosted-pg";
-import { isElectronLocalApiRequest } from "../request-runtime";
+import { events } from "../events";
 import { HTTP_OK, HTTP_UNAUTHORIZED } from "~/shared/http-status";
 
 const SSE_TICKET_TTL_MS = 30_000;
 const SSE_TICKET_BYTES = 32;
-const sseTickets = new Map<string, { expiresAt: number; scope: AppEventScope | null }>();
-
-function unauthorized(): { ok: false; response: Response } {
-  return { ok: false, response: jsonError(HTTP_UNAUTHORIZED, "unauthorized") };
-}
+const sseTickets = new Map<string, { expiresAt: number }>();
 
 function pruneExpiredTickets(now = Date.now()): void {
   for (const [ticket, entry] of sseTickets) {
@@ -20,39 +13,32 @@ function pruneExpiredTickets(now = Date.now()): void {
   }
 }
 
-async function scopeForRequest(request: Request): Promise<AppEventScope | null | undefined> {
-  if (!isHostedDatabaseEnabled() || isElectronLocalApiRequest(request)) return null;
-  const context = await getHostedAuthContext(request);
-  return context ? scopeForHostedContext(context) : undefined;
-}
-
-export async function issueTicket(request: Request): Promise<Response> {
+export function issueTicket(): Response {
   pruneExpiredTickets();
-  const scope = await scopeForRequest(request);
-  if (scope === undefined) return unauthorized().response;
   const ticket = randomBytes(SSE_TICKET_BYTES).toString("hex");
   const expiresAt = Date.now() + SSE_TICKET_TTL_MS;
-  sseTickets.set(ticket, { expiresAt, scope });
+  sseTickets.set(ticket, { expiresAt });
   return json({ ticket, expiresAt });
 }
 
-function consumeTicket(rawTicket: string | null | undefined): AppEventScope | null | undefined {
+function consumeTicket(rawTicket: string | null | undefined): boolean {
   const now = Date.now();
   pruneExpiredTickets(now);
   const ticket = (rawTicket ?? "").trim();
-  if (!ticket) return undefined;
+  if (!ticket) return false;
 
   const entry = sseTickets.get(ticket);
   sseTickets.delete(ticket);
-  if (!entry || entry.expiresAt <= now) return undefined;
-  return entry.scope;
+  if (!entry || entry.expiresAt <= now) return false;
+  return true;
 }
 
 const SSE_HEARTBEAT_INTERVAL_MS = 15_000;
 
 export function stream(url: URL): Response {
-  const scope = consumeTicket(url.searchParams.get("ticket"));
-  if (scope === undefined) return unauthorized().response;
+  if (!consumeTicket(url.searchParams.get("ticket"))) {
+    return jsonError(HTTP_UNAUTHORIZED, "unauthorized");
+  }
 
   let cleanup: (() => void) | null = null;
   const stream = new ReadableStream({
@@ -67,7 +53,6 @@ export function stream(url: URL): Response {
       };
       send({ type: "hello", at: Date.now() });
       const off = events.onAny((e) => {
-        if (scope && !eventVisibleToScope(e, scope)) return;
         send(e);
       });
       const heartbeat = setInterval(() => {

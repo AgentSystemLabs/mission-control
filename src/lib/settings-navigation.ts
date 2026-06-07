@@ -36,11 +36,6 @@ export function closeSettings(router: RegisteredRouter) {
     return;
   }
 
-  if (returnTo.pathname === "/plans") {
-    void router.navigate({ to: "/plans", search: returnTo.search });
-    return;
-  }
-
   void router.navigate({ to: "/", search: returnTo.search });
 }
 

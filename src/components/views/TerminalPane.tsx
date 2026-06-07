@@ -55,7 +55,7 @@ import {
 import { queryKeys, useTasks } from "~/queries";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
-import { HOSTED_WORKSPACE_ROOT, sandboxWorkspacePath, workspaceSlug } from "~/shared/hosted-workspace";
+import { sandboxWorkspacePath, workspaceSlug } from "~/shared/sandbox-workspace";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
@@ -462,9 +462,6 @@ export function TerminalPane({
         return resizePtyToTerminal(term, (cols, rows) => ptyApi.resize(ptyId, cols, rows));
       };
 
-      const resizeRemotePtyToSurface = (ptyId: string) =>
-        resizePtyToTerminal(term, (cols, rows) => api.resizeRemotePty(ptyId, cols, rows));
-
       surface.controls = {
         focus: () => term.focus(),
         clear: () => term.clear(),
@@ -472,8 +469,7 @@ export function TerminalPane({
           applyTerminalFontSize(term, fit, nextFontSize);
           const id = activePtyId;
           if (!id) return;
-          if (electron) void resizeElectronPtyToSurface(id);
-          else void resizeRemotePtyToSurface(id).catch(() => undefined);
+          void resizeElectronPtyToSurface(id);
         },
       };
 
@@ -516,16 +512,12 @@ export function TerminalPane({
           }
           if (ptyApi) {
             ptyApi.write(ptyId, data);
-          } else {
-            void api.writeRemotePty(ptyId, data);
           }
         });
         term.onResize(({ cols, rows }) => {
           const ptySize = normalizePtySize({ cols, rows });
           if (ptyApi) {
             ptyApi.resize(ptyId, ptySize.cols, ptySize.rows);
-          } else {
-            void api.resizeRemotePty(ptyId, ptySize.cols, ptySize.rows);
           }
         });
       };
@@ -590,138 +582,40 @@ export function TerminalPane({
         return true;
       };
 
-      const wireRemotePty = async (ptyId: string) => {
-        setActivePty(ptyId);
-        const { ticket } = await api.createRemotePtyTicket(ptyId);
-        const source = new EventSource(
-          `/api/remote-pty/${encodeURIComponent(ptyId)}/events?ticket=${encodeURIComponent(ticket)}`
-        );
-        let replaying = true;
-        const pendingLive: string[] = [];
-        let exitedBeforeReady = false;
-        let streamClosedBeforeReady = false;
-        let markReady: (replayBeforeSeq: number) => void = () => undefined;
-        const ready = new Promise<number>((resolve) => {
-          markReady = resolve;
-        });
-        source.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data) as {
-              type?: string;
-              data?: string;
-              exitCode?: number;
-              error?: string;
-              replayBeforeSeq?: number;
-            };
-            if (msg.type === "ready") {
-              markReady(msg.replayBeforeSeq ?? 0);
-              return;
-            }
-            if (msg.type === "output" && typeof msg.data === "string") {
-              if (replaying) pendingLive.push(msg.data);
-              else term.write(msg.data);
-            }
-            if (msg.type === "exit") {
-              exitedBeforeReady = true;
-              handlePtyExit(msg.exitCode);
-              source.close();
-              return;
-            }
-            if (msg.type === "error") {
-              const message = `remote pty error: ${msg.error ?? "unknown"}`;
-              if (replaying) {
-                streamClosedBeforeReady = true;
-                clearActivePty();
-                setStartError(message);
-              }
-              setLiveStatus(message);
-              term.writeln(`\x1b[31m[${message}]\x1b[0m`);
-            }
-          } catch {
-            /* ignore malformed SSE payloads */
-          }
-        };
-        source.onerror = () => {
-          const message = "remote pty stream disconnected";
-          if (replaying) {
-            streamClosedBeforeReady = true;
-            clearActivePty();
-            setStartError(message);
-          }
-          setLiveStatus(message);
-          term.writeln(`\x1b[31m[${message}]\x1b[0m`);
-          markReady(0);
-          source.close();
-        };
-        subscriptions.push(() => source.close());
-        const replayBeforeSeq = await Promise.race([
-          ready,
-          new Promise<number>((resolve) => setTimeout(() => resolve(0), 5000)),
-        ]);
-        if (exitedBeforeReady || streamClosedBeforeReady) return;
-        setLiveStatus("connected to remote runtime");
-        term.writeln("\x1b[36m[connected to remote runtime]\x1b[0m");
-        await resizeRemotePtyToSurface(ptyId).catch(() => undefined);
-        const replay = await api.replayRemotePty(ptyId, { beforeSeq: replayBeforeSeq });
-        if (!surface.destroyed && replay.data) term.write(replay.data);
-        replaying = false;
-        for (const chunk of pendingLive) term.write(chunk);
-        pendingLive.length = 0;
-        wireTerminalInput(ptyId);
-      };
-
       const spawnAndWire = async (command: string, isResume: boolean) => {
-        if (!electron) {
-          setLiveStatus("starting cloud workspace");
-          term.writeln("\x1b[36m[starting cloud workspace...]\x1b[0m");
-        }
+        if (!electron) return;
         const ptySize = normalizePtySize({ cols: term.cols, rows: term.rows });
-        const { ptyId } = !electron
-          ? await api.createRemotePty({
+        const { ptyId } = useSandbox
+          ? await electron.remotePty.spawn({
               taskId: descriptor.taskId,
-              cwd: descriptor.cwd || HOSTED_WORKSPACE_ROOT,
+              cwd: sandboxCwd, // in-container clone path (/workspace/<slug>)
               command,
-              agent: task.agent,
               cols: ptySize.cols,
               rows: ptySize.rows,
+              agent: task.agent,
+              dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
+              missionControlTheme: getTerminalColorScheme(),
+              // mcEnv is injected by the main process for sandbox spawns.
             })
-          : useSandbox
-            ? await electron.remotePty.spawn({
-                taskId: descriptor.taskId,
-                cwd: sandboxCwd, // in-container clone path (/workspace/<slug>)
-                command,
-                cols: ptySize.cols,
-                rows: ptySize.rows,
-                agent: task.agent,
-                dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
-                missionControlTheme: getTerminalColorScheme(),
-                // mcEnv is injected by the main process for sandbox spawns.
-              })
-            : await electron.pty.spawn({
-                taskId: descriptor.taskId,
-                cwd: descriptor.cwd,
-                command,
-                cols: ptySize.cols,
-                rows: ptySize.rows,
-                agent: task.agent,
-                dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
-                mcEnv: await resolveMcEnv(electron),
-                missionControlTheme: getTerminalColorScheme(),
-              });
+          : await electron.pty.spawn({
+              taskId: descriptor.taskId,
+              cwd: descriptor.cwd,
+              command,
+              cols: ptySize.cols,
+              rows: ptySize.rows,
+              agent: task.agent,
+              dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
+              mcEnv: await resolveMcEnv(electron),
+              missionControlTheme: getTerminalColorScheme(),
+            });
         spawnAt = Date.now();
         spawnedAsResume = isResume;
         if (surface.destroyed) {
           if (ptyApi) await ptyApi.kill(ptyId).catch(() => undefined);
-          else await api.killRemotePty(ptyId).catch(() => undefined);
           return;
         }
-        if (electron) {
-          if (useSandbox) armSpawnAck(ptyId); // surfaces a stuck/never-acked sandbox spawn
-          if (wireNewElectronPty(ptyId)) onPtyReady(ptyId);
-        } else {
-          await wireRemotePty(ptyId);
-          if (activePtyId === ptyId) onPtyReady(ptyId);
-        }
+        if (useSandbox) armSpawnAck(ptyId); // surfaces a stuck/never-acked sandbox spawn
+        if (wireNewElectronPty(ptyId)) onPtyReady(ptyId);
       };
 
       const ensurePty = async () => {
@@ -741,9 +635,6 @@ export function TerminalPane({
               let attached = false;
               if (electron) {
                 attached = await wireExistingElectronPty(descriptor.ptyId);
-              } else {
-                await wireRemotePty(descriptor.ptyId);
-                attached = true;
               }
               if (attached) return;
             }

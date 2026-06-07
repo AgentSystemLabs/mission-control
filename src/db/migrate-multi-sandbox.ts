@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { randomBytes } from "node:crypto";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 // One-time, idempotent data migration to the multi-sandbox model. Preserves
 // runtime parity: a user who was running the global Docker sandbox keeps their
@@ -11,7 +12,6 @@ import { randomBytes } from "node:crypto";
 const MIGRATED_FLAG = "multiSandbox.migrated";
 export const SANDBOXES_ENABLED_KEY = "multiSandbox.enabled";
 export const ACTIVE_SCOPE_KEY = "multiSandbox.activeScope";
-const LOCAL_SCOPE = "local";
 
 function getSetting(db: Database.Database, key: string): string | null {
   const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as
@@ -47,7 +47,7 @@ export function migrateMultiSandbox(db: Database.Database): void {
            (id, name, kind, color, image_tag, dockerfile_path, build_args,
             git_auth_mode, declared_ports, env, host_agent_port, port_map,
             pairing_token, remote_config, created_at, updated_at)
-         VALUES (?, 'Default', 'local-docker', NULL, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, NULL, ?, ?)`,
+         VALUES (?, 'Default', 'remote-vm', NULL, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, NULL, ?, ?)`,
       ).run(
         id,
         getSetting(db, "sandbox.imageTag"),
@@ -67,7 +67,7 @@ export function migrateMultiSandbox(db: Database.Database): void {
       setSetting(db, ACTIVE_SCOPE_KEY, id);
     } else {
       setSetting(db, SANDBOXES_ENABLED_KEY, wasEnabled ? "true" : "false");
-      setSetting(db, ACTIVE_SCOPE_KEY, LOCAL_SCOPE);
+      setSetting(db, ACTIVE_SCOPE_KEY, LOCAL_SCOPE_ID);
     }
     setSetting(db, MIGRATED_FLAG, "true");
   });

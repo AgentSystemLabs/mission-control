@@ -6,10 +6,7 @@ import {
   worktreeErrorPayload,
 } from "../services/worktrees";
 import { handleDomainError, idParam, json, jsonError, noContent, notFound, parseJsonBody } from "./_helpers";
-import { HTTP_BAD_REQUEST, HTTP_CONFLICT, HTTP_CREATED, HTTP_FORBIDDEN } from "~/shared/http-status";
-import { getHostedAuthContext } from "../hosted-auth-context";
-import { isHostedDatabaseEnabled } from "../hosted-pg";
-import { isElectronLocalApiRequest } from "../request-runtime";
+import { HTTP_BAD_REQUEST, HTTP_CONFLICT, HTTP_CREATED } from "~/shared/http-status";
 
 const deleteBody = z.object({
   force: z.boolean().optional(),
@@ -27,16 +24,7 @@ function asWorktreeErrorResponse(e: unknown): Response {
   return jsonError(payload.dirty ? HTTP_CONFLICT : HTTP_BAD_REQUEST, payload.stderr ?? payload.message);
 }
 
-async function rejectHostedWorktrees(request: Request): Promise<Response | null> {
-  if (isElectronLocalApiRequest(request)) return null;
-  if (!isHostedDatabaseEnabled()) return null;
-  const hosted = await getHostedAuthContext(request);
-  return hosted ? jsonError(HTTP_FORBIDDEN, "worktrees are only available for local projects") : null;
-}
-
-export async function list(rawProjectId: string, request: Request): Promise<Response> {
-  const hosted = await rejectHostedWorktrees(request);
-  if (hosted) return hosted;
+export async function list(rawProjectId: string, _request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawProjectId);
   if (!parsed.success) return notFound();
   try {
@@ -46,9 +34,7 @@ export async function list(rawProjectId: string, request: Request): Promise<Resp
   }
 }
 
-export async function create(rawProjectId: string, request: Request): Promise<Response> {
-  const hosted = await rejectHostedWorktrees(request);
-  if (hosted) return hosted;
+export async function create(rawProjectId: string, _request: Request): Promise<Response> {
   const parsed = idParam.safeParse(rawProjectId);
   if (!parsed.success) return notFound();
   try {
@@ -63,8 +49,6 @@ export async function remove(
   rawWorktreeId: string,
   request: Request,
 ): Promise<Response> {
-  const hosted = await rejectHostedWorktrees(request);
-  if (hosted) return hosted;
   const projectId = idParam.safeParse(rawProjectId);
   const worktreeId = z.string().min(1).safeParse(rawWorktreeId);
   if (!projectId.success || !worktreeId.success) return notFound();

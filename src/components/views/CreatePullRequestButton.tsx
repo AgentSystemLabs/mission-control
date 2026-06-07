@@ -4,7 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { Modal } from "~/components/ui/Modal";
 import { Icon } from "~/components/ui/Icon";
 import { formatCreatePullRequestError } from "~/lib/pull-request-errors";
-import { getElectron } from "~/lib/electron";
+import { openExternal } from "~/lib/open-external";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import { useGitCreatePullRequest } from "~/queries/git";
 
@@ -21,15 +21,6 @@ export type CreatePullRequestDialogState =
       title: string;
       message: string;
     };
-
-function openExternal(url: string) {
-  const electron = getElectron();
-  if (electron?.openExternal) {
-    void electron.openExternal(url);
-    return;
-  }
-  window.open(url, "_blank", "noreferrer");
-}
 
 function Spinner() {
   return (

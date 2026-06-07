@@ -1,22 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { z } from "zod";
-import { SettingsPanel, type SettingsPanelId } from "~/components/views/SettingsPanel";
+import { SettingsPanel, SETTINGS_PANEL_IDS, type SettingsPanelId } from "~/components/views/SettingsPanel";
 import { closeSettings } from "~/lib/settings-navigation";
 
 const settingsSearchSchema = z.object({
-  panel: z
-    .enum([
-      "general",
-      "defaults",
-      "terminal",
-      "theme",
-      "beta",
-      "license",
-      "keybindings",
-      "session-debug",
-      "terms",
-    ])
-    .optional(),
+  panel: z.enum(SETTINGS_PANEL_IDS).optional(),
 });
 
 export const Route = createFileRoute("/settings")({

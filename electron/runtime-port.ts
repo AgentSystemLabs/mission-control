@@ -1,4 +1,6 @@
-export const MAX_TCP_PORT = 65535;
+import { MAX_TCP_PORT } from "../src/shared/tcp-port";
+
+export { MAX_TCP_PORT };
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
 

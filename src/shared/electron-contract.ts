@@ -183,7 +183,6 @@ export type SandboxSettingsView = {
   workspaceVolume: string;
   projectPaths: Record<string, string>;
   agentPort: number;
-  agentConfigVolume: string;
   gitAuthMode: SandboxGitAuthMode;
   /** The pairing token itself is never sent to the renderer. */
   hasPairingToken: boolean;
@@ -199,7 +198,6 @@ export type SandboxSettingsPatch = Partial<{
   workspaceVolume: string;
   projectPaths: Record<string, string>;
   agentPort: number;
-  agentConfigVolume: string;
   gitAuthMode: SandboxGitAuthMode;
 }>;
 
