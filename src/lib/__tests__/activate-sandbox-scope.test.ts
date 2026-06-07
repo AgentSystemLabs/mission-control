@@ -5,6 +5,7 @@ import {
   projectRuntimeScopeId,
   scopeIdToActivate,
 } from "../activate-sandbox-scope";
+import { buildOptimisticRemoteVmSandbox } from "../optimistic-sandbox";
 import { queryKeys } from "~/queries";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
@@ -26,13 +27,12 @@ vi.mock("sonner", () => ({
 
 const sandboxState = {
   sandboxes: [
-    {
+    buildOptimisticRemoteVmSandbox({
       id: "sb-1",
       name: "AWS Dev",
-      kind: "remote-vm" as const,
-      remoteProvider: "aws" as const,
+      remoteProvider: "aws",
       projectId: "project-1",
-    },
+    }),
   ],
   enabled: true,
   activeScopeId: LOCAL_SCOPE_ID,
