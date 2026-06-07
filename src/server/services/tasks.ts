@@ -122,6 +122,7 @@ export function updateStatus(
       id,
       projectId: existing.projectId,
       worktreeId: existing.worktreeId ?? null,
+      scopeId: existing.scopeId,
       projectName: projectName ?? "Project",
       taskTitle: existing.title,
     });

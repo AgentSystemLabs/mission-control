@@ -100,6 +100,11 @@ import {
   useCliAvailability,
 } from "~/lib/cli-availability";
 import {
+  activateSandboxScope,
+  projectRuntimeScopeId,
+  scopeIdToActivate,
+} from "~/lib/activate-sandbox-scope";
+import {
   SESSION_NOTIFICATION_OPEN_EVENT,
   clearPendingSessionOpen,
   readPendingSessionOpen,
@@ -109,7 +114,7 @@ import type { Group, Task, TaskStatus } from "~/db/schema";
 import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
-import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 import {
   readCachedSelectedWorktreeByProject,
   writeCachedSelectedWorktreeByProject,
@@ -740,56 +745,101 @@ function ProjectPage() {
 
   const openRequestedSession = useCallback(
     (request: PendingSessionOpen) => {
-      if (!terminalProject || request.projectId !== id) return false;
-      if (!worktreesQuery.data) return false;
-      if (!worktreesEnabled && request.worktreeId && request.worktreeId !== MAIN_WORKTREE_ID) {
+      void (async () => {
+        if (!terminalProject || request.projectId !== id) return;
+        if (!worktreesQuery.data) return;
+        if (!worktreesEnabled && request.worktreeId && request.worktreeId !== MAIN_WORKTREE_ID) {
+          clearPendingSessionOpen(request);
+          return;
+        }
+
+        let resolvedScopeId = normalizeScopeId(request.scopeId);
+        let resolvedWorktreeId = request.worktreeId;
+        let task = tasks.find((entry) => entry.id === request.taskId && !entry.archived) ?? null;
+
+        if (task) {
+          resolvedScopeId = normalizeScopeId(task.scopeId);
+          resolvedWorktreeId = task.worktreeId ?? null;
+        } else if (tasksQuery.isLoading || sandboxProvisioning) {
+          return;
+        } else {
+          try {
+            const { task: remoteTask } = await api.getTask(request.taskId);
+            if (!remoteTask || remoteTask.projectId !== id || remoteTask.archived) {
+              clearPendingSessionOpen(request);
+              return;
+            }
+            task = remoteTask;
+            resolvedScopeId = normalizeScopeId(remoteTask.scopeId);
+            resolvedWorktreeId = remoteTask.worktreeId ?? null;
+          } catch {
+            clearPendingSessionOpen(request);
+            return;
+          }
+        }
+
+        const targetRuntimeScopeId = projectRuntimeScopeId(sandboxState, id, resolvedScopeId);
+        const activateTo = scopeIdToActivate(sandboxState, id, resolvedScopeId);
+        const globalActiveScopeId = normalizeScopeId(sandboxState?.activeScopeId ?? LOCAL_SCOPE_ID);
+
+        if (globalActiveScopeId !== activateTo) {
+          const switched = await activateSandboxScope(queryClient, activateTo);
+          if (!switched) clearPendingSessionOpen(request);
+          return;
+        }
+
+        if (activeRuntimeScopeId !== targetRuntimeScopeId) return;
+
+        const requestedWorktreeKey = resolvedWorktreeId ?? MAIN_WORKTREE_ID;
+        const requestedWorktreeExists =
+          requestedWorktreeKey === MAIN_WORKTREE_ID ||
+          worktreesQuery.data.some((worktree) => worktree.id === requestedWorktreeKey);
+        if (!requestedWorktreeExists) {
+          clearPendingSessionOpen(request);
+          return;
+        }
+
+        if (requestedWorktreeKey !== selectedWorktreeKey) {
+          setSelectedWorktreeByProject((prev) =>
+            prev[id] === requestedWorktreeKey
+              ? prev
+              : { ...prev, [id]: requestedWorktreeKey },
+          );
+          return;
+        }
+
+        if (!task) {
+          task = tasks.find((entry) => entry.id === request.taskId && !entry.archived) ?? null;
+        }
+        if (!task) {
+          if (tasksQuery.isLoading || sandboxProvisioning) return;
+          clearPendingSessionOpen(request);
+          return;
+        }
+
+        const active = terminals.activeFor(selectedScopeKey);
+        if (active?.taskId !== task.id) {
+          const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
+          if (activeTaskId === task.id) terminals.rehydrate(terminalProject, task);
+          else terminals.toggle(terminalProject, task);
+        }
         clearPendingSessionOpen(request);
-        return false;
-      }
-
-      const requestedWorktreeKey = request.worktreeId ?? MAIN_WORKTREE_ID;
-      const requestedWorktreeExists =
-        requestedWorktreeKey === MAIN_WORKTREE_ID ||
-        worktreesQuery.data.some((worktree) => worktree.id === requestedWorktreeKey);
-      if (!requestedWorktreeExists) {
-        clearPendingSessionOpen(request);
-        return false;
-      }
-
-      if (requestedWorktreeKey !== selectedWorktreeKey) {
-        setSelectedWorktreeByProject((prev) =>
-          prev[id] === requestedWorktreeKey
-            ? prev
-            : { ...prev, [id]: requestedWorktreeKey },
-        );
-        return false;
-      }
-
-      const task = tasks.find((t) => t.id === request.taskId && !t.archived);
-      if (!task) {
-        if (!tasksQuery.isLoading) clearPendingSessionOpen(request);
-        return false;
-      }
-
-      const active = terminals.activeFor(selectedScopeKey);
-      if (active?.taskId !== task.id) {
-        const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
-        if (activeTaskId === task.id) terminals.rehydrate(terminalProject, task);
-        else terminals.toggle(terminalProject, task);
-      }
-      clearPendingSessionOpen(request);
-      return true;
+      })();
     },
     [
       id,
       terminalProject,
       selectedScopeKey,
       selectedWorktreeKey,
+      activeRuntimeScopeId,
+      sandboxState,
       tasks,
       tasksQuery.isLoading,
+      sandboxProvisioning,
       terminals,
       worktreesEnabled,
       worktreesQuery.data,
+      queryClient,
     ],
   );
 

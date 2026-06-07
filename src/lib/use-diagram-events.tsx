@@ -7,9 +7,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { activateSandboxScope, scopeIdToActivate } from "~/lib/activate-sandbox-scope";
 import { playNotificationDing } from "~/lib/notification-sound";
 import { api } from "~/lib/api";
-import { useSettings } from "~/queries";
+import { useSandboxes, useSettings } from "~/queries";
 import {
   DIAGRAM_NOTIFICATION_OPEN_EVENT,
   clearPendingNotificationOpen,
@@ -24,6 +26,7 @@ import {
   type DiagramDialogSession,
 } from "~/components/views/DiagramDialog";
 import { DIAGRAM_FORMATS } from "~/shared/diagram";
+import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 
 type DiagramContextValue = {
   hasDiagram: (taskId: string) => boolean;
@@ -102,7 +105,9 @@ export function useSyncProjectDiagrams(projectId: string | undefined) {
 }
 
 export function DiagramDialogHost({ children }: { children?: ReactNode }) {
+  const queryClient = useQueryClient();
   const { data: settings } = useSettings();
+  const { data: sandboxState } = useSandboxes();
   const soundEnabled = settings?.notificationSoundEnabled ?? true;
   const [byTaskId, setByTaskId] = useState<Record<string, DiagramDialogPayload[]>>({});
   const [openSession, setOpenSession] = useState<DiagramDialogSession | null>(null);
@@ -177,24 +182,44 @@ export function DiagramDialogHost({ children }: { children?: ReactNode }) {
   );
 
   const openRequestedDiagram = useCallback(
-    (request: PendingNotificationOpen) => {
+    async (request: PendingNotificationOpen) => {
       if (request.kind !== "diagram-ready" || !request.diagramId) return false;
-      void openDiagram(request.taskId, request.diagramId);
+
+      let resolvedScopeId = normalizeScopeId(request.scopeId);
+      try {
+        const { task } = await api.getTask(request.taskId);
+        if (task?.projectId === request.projectId) {
+          resolvedScopeId = normalizeScopeId(task.scopeId);
+        }
+      } catch {
+        /* keep scope from notification */
+      }
+
+      const activateTo = scopeIdToActivate(sandboxState, request.projectId, resolvedScopeId);
+      const globalActiveScopeId = normalizeScopeId(sandboxState?.activeScopeId ?? LOCAL_SCOPE_ID);
+
+      if (globalActiveScopeId !== activateTo) {
+        const switched = await activateSandboxScope(queryClient, activateTo);
+        if (!switched) clearPendingNotificationOpen(request);
+        return false;
+      }
+
+      await openDiagram(request.taskId, request.diagramId);
       clearPendingNotificationOpen(request);
       return true;
     },
-    [openDiagram],
+    [openDiagram, queryClient, sandboxState],
   );
 
   useEffect(() => {
     const pending = readPendingDiagramOpen();
-    if (pending) openRequestedDiagram(pending);
-  }, [openRequestedDiagram]);
+    if (pending) void openRequestedDiagram(pending);
+  }, [openRequestedDiagram, sandboxState?.activeScopeId]);
 
   useEffect(() => {
     const onOpenRequest = (event: Event) => {
       const request = (event as CustomEvent<PendingNotificationOpen>).detail;
-      if (request) openRequestedDiagram(request);
+      if (request) void openRequestedDiagram(request);
     };
     window.addEventListener(DIAGRAM_NOTIFICATION_OPEN_EVENT, onOpenRequest);
     return () => {

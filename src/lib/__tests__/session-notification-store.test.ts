@@ -18,6 +18,7 @@ const notifications: SessionFinishNotification[] = [
     id: "task-1",
     projectId: "project-1",
     worktreeId: null,
+    scopeId: "local",
     projectName: "Core",
     taskTitle: "Answer name question",
     finishedAt: 3,
@@ -27,6 +28,7 @@ const notifications: SessionFinishNotification[] = [
     id: "task-2",
     projectId: "project-1",
     worktreeId: "worktree-1",
+    scopeId: "sb-1",
     projectName: "Core",
     taskTitle: "Investigate router error",
     finishedAt: 2,
@@ -36,6 +38,7 @@ const notifications: SessionFinishNotification[] = [
     id: "task-1",
     projectId: "project-2",
     worktreeId: null,
+    scopeId: "local",
     projectName: "Academy",
     taskTitle: "Generate title",
     finishedAt: 1,
@@ -149,6 +152,7 @@ describe("requestDiagramNotificationOpen", () => {
       taskId: "task-1",
       projectId: "project-1",
       worktreeId: null,
+      scopeId: "sb-1",
       projectName: "Core",
       taskTitle: "Build flow",
       diagramTitle: "Pipeline",
@@ -194,6 +198,7 @@ describe("requestDiagramNotificationOpen", () => {
         projectId: "project-1",
         taskId: "task-1",
         diagramId: "diagram-1",
+        scopeId: "sb-1",
       });
     } finally {
       globalThis.window = previousWindow;
@@ -239,7 +244,49 @@ describe("requestSessionNotificationOpen", () => {
         kind: "session-finished",
         projectId: "project-1",
         taskId: "task-1",
+        scopeId: "local",
       });
+    } finally {
+      globalThis.window = previousWindow;
+    }
+  });
+});
+
+describe("scopeId persistence", () => {
+  it("defaults missing scopeId to local when loading legacy notifications", () => {
+    const store = new Map<string, string>();
+    const previousWindow = globalThis.window;
+
+    globalThis.window = {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+      dispatchEvent: () => true,
+    } as unknown as Window & typeof globalThis;
+
+    try {
+      store.set(
+        "mc:sessionFinishNotifications",
+        JSON.stringify([
+          {
+            kind: "session-finished",
+            id: "task-legacy",
+            projectId: "project-1",
+            worktreeId: null,
+            projectName: "Core",
+            taskTitle: "Legacy session",
+            finishedAt: 1,
+          },
+        ]),
+      );
+
+      expect(loadSessionFinishNotifications()[0]?.scopeId).toBe("local");
     } finally {
       globalThis.window = previousWindow;
     }

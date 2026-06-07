@@ -19,6 +19,7 @@ export type AppEvent =
       id: string;
       projectId: string;
       worktreeId: string | null;
+      scopeId: string;
       projectName: string;
       taskTitle: string;
     }
@@ -33,6 +34,7 @@ export type AppEvent =
       projectName: string;
       taskTitle: string;
       worktreeId: string | null;
+      scopeId: string;
     };
 
 class TypedEmitter {

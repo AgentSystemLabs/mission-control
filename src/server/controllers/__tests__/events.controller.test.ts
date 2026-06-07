@@ -62,6 +62,7 @@ describe("events controller", () => {
       projectName: "Project",
       taskTitle: "Task",
       worktreeId: null,
+      scopeId: "local",
     });
 
     const next = await reader.read();

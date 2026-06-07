@@ -67,6 +67,7 @@ export async function submit(url: URL, request: Request): Promise<Response> {
     projectName,
     taskTitle: task.title,
     worktreeId: task.worktreeId ?? null,
+    scopeId: task.scopeId,
   };
 
   events.emit("diagram:show", payload);

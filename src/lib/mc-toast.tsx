@@ -1,12 +1,27 @@
-import type { CSSProperties, ReactElement } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 import { toast, type ExternalToast, type ToastClassnames } from "sonner";
 import { Btn } from "~/components/ui/Btn";
+import { Icon } from "~/components/ui/Icon";
 
 export const MC_TOAST_CLOSE_BTN_CLASS =
   "mc-btn mc-btn-ghost mc-btn-sm mc-toast-close-btn";
 
+export const MC_TOAST_CUSTOM_SHELL = "mc-toast-custom-shell";
+
+const MC_TOAST_CUSTOM_CLASS_NAMES = {
+  toast: MC_TOAST_CUSTOM_SHELL,
+  default: MC_TOAST_CUSTOM_SHELL,
+  info: MC_TOAST_CUSTOM_SHELL,
+  warning: MC_TOAST_CUSTOM_SHELL,
+  loading: MC_TOAST_CUSTOM_SHELL,
+  success: MC_TOAST_CUSTOM_SHELL,
+  error: MC_TOAST_CUSTOM_SHELL,
+} satisfies ToastClassnames;
+
 export const MC_TOAST_CLOSE_ICON = (
-  <span className="mc-btn-content">Close</span>
+  <span className="mc-btn-content">
+    <Icon name="x" size={12} />
+  </span>
 );
 
 export const MC_TOAST_CLASS_NAMES = {
@@ -51,6 +66,20 @@ export function mcToastLoading(message: string, options?: ExternalToast): string
   });
 }
 
+export function McToastActions({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  return (
+    <div className="mc-toast-actions" style={style}>
+      {children}
+    </div>
+  );
+}
+
 export function McToastCloseButton({
   toastId,
   style,
@@ -67,9 +96,8 @@ export function McToastCloseButton({
       className="mc-toast-close-btn"
       style={style}
       onClick={() => toast.dismiss(toastId)}
-    >
-      Close
-    </Btn>
+      icon="x"
+    />
   );
 }
 
@@ -77,8 +105,10 @@ export function mcToastCustom(
   render: (toastId: string | number) => ReactElement,
   options?: ExternalToast,
 ): string | number {
+  const { classNames, ...rest } = options ?? {};
   return toast.custom((toastId) => render(toastId), {
     ...MC_TOAST_OPTS,
-    ...options,
+    classNames: { ...MC_TOAST_CUSTOM_CLASS_NAMES, ...classNames },
+    ...rest,
   });
 }

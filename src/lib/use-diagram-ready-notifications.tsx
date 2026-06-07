@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 import type { ServerEvent } from "~/lib/use-events";
 import {
   getDiagramReadyNotificationsSnapshot,
@@ -30,6 +31,10 @@ export function persistDiagramReadyServerEvent(event: ServerEvent): boolean {
     typeof event.projectName === "string" ? event.projectName : "Project";
   const taskTitle = typeof event.taskTitle === "string" ? event.taskTitle : "Session";
   const diagramTitle = typeof event.title === "string" ? event.title : null;
+  const rawScopeId = event.scopeId;
+  const scopeId = normalizeScopeId(
+    typeof rawScopeId === "string" ? rawScopeId : LOCAL_SCOPE_ID,
+  );
   if (!diagramId || !taskId || !projectId) return false;
 
   const notification: DiagramReadyNotification = {
@@ -38,6 +43,7 @@ export function persistDiagramReadyServerEvent(event: ServerEvent): boolean {
     taskId,
     projectId,
     worktreeId,
+    scopeId,
     projectName,
     taskTitle,
     diagramTitle,

@@ -132,6 +132,7 @@ describe("diagram API", () => {
       projectName: "diagram-test",
       taskTitle: "Diagram task",
       worktreeId: null,
+      scopeId: "local",
     });
 
     const stored = listDiagramsForTask(taskId);

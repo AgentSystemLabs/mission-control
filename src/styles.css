@@ -663,6 +663,54 @@ select,
   outline-offset: 3px;
 }
 
+/* Custom toasts render their own CardFrame; strip the outer Sonner shell frame. */
+[data-sonner-toast].mc-toast-custom-shell {
+  border: none;
+  border-image: none;
+  background: transparent;
+  background-image: none;
+  padding: 0;
+  min-height: 0;
+  display: block;
+  gap: 0;
+  filter: none;
+  box-shadow: none;
+}
+
+[data-sonner-toast].mc-toast-custom-shell [data-content] {
+  display: block;
+  flex: none;
+  min-width: 0;
+}
+
+[data-sonner-toast].mc-toast-custom-shell [data-title] {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  overflow: visible;
+}
+
+.mc-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.mc-toast-actions .mc-toast-close-btn {
+  position: static;
+  top: auto;
+  right: auto;
+  transform: none;
+}
+
+.mc-toast-close-btn {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+}
+
 .mc-dashboard-hero {
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
   background: transparent;

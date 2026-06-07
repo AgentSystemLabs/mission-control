@@ -1,8 +1,11 @@
+import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
+
 export type SessionFinishNotification = {
   kind: "session-finished";
   id: string;
   projectId: string;
   worktreeId: string | null;
+  scopeId: string;
   projectName: string;
   taskTitle: string;
   finishedAt: number;
@@ -14,6 +17,7 @@ export type DiagramReadyNotification = {
   taskId: string;
   projectId: string;
   worktreeId: string | null;
+  scopeId: string;
   projectName: string;
   taskTitle: string;
   diagramTitle: string | null;
@@ -32,6 +36,7 @@ export type PendingNotificationOpen = {
   kind: "session-finished" | "diagram-ready";
   projectId: string;
   worktreeId: string | null;
+  scopeId: string;
   taskId: string;
   diagramId?: string;
   requestedAt: number;
@@ -51,6 +56,12 @@ const PENDING_DIAGRAM_OPEN_KEY = "mc:pendingDiagramOpen";
 const PENDING_OPEN_MAX_AGE_MS = 5 * 60_000;
 
 export const SESSION_FINISH_NOTIFICATIONS_STORAGE_KEY = NOTIFICATIONS_KEY;
+
+function parseStoredScopeId(value: Record<string, unknown>): string {
+  return normalizeScopeId(
+    typeof value.scopeId === "string" ? value.scopeId : LOCAL_SCOPE_ID,
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -78,6 +89,7 @@ function toSessionFinishNotification(
     id,
     projectId,
     worktreeId,
+    scopeId: parseStoredScopeId(value),
     projectName,
     taskTitle,
     finishedAt,
@@ -104,6 +116,7 @@ function toDiagramReadyNotification(
     taskId,
     projectId,
     worktreeId,
+    scopeId: parseStoredScopeId(value),
     projectName,
     taskTitle,
     diagramTitle,
@@ -129,7 +142,15 @@ function toPendingOpen(value: unknown): PendingNotificationOpen | null {
   const requestedAt = typeof value.requestedAt === "number" ? value.requestedAt : 0;
   if (!projectId || !taskId || !Number.isFinite(requestedAt)) return null;
   if (kind === "diagram-ready" && !diagramId) return null;
-  return { kind, projectId, worktreeId, taskId, diagramId, requestedAt };
+  return {
+    kind,
+    projectId,
+    worktreeId,
+    scopeId: parseStoredScopeId(value),
+    taskId,
+    diagramId,
+    requestedAt,
+  };
 }
 
 function sortNotifications(notifications: AppNotification[]): AppNotification[] {
@@ -462,6 +483,7 @@ export function requestSessionNotificationOpen(
     kind: "session-finished",
     projectId: notification.projectId,
     worktreeId: notification.worktreeId,
+    scopeId: notification.scopeId,
     taskId: notification.id,
     requestedAt: Date.now(),
   };
@@ -478,6 +500,7 @@ export function requestDiagramNotificationOpen(
     kind: "diagram-ready",
     projectId: notification.projectId,
     worktreeId: notification.worktreeId,
+    scopeId: notification.scopeId,
     taskId: notification.taskId,
     diagramId: notification.diagramId,
     requestedAt: Date.now(),
@@ -530,6 +553,7 @@ export function clearPendingNotificationOpen(request: PendingNotificationOpen) {
       current.kind === request.kind &&
       current.projectId === request.projectId &&
       current.taskId === request.taskId &&
+      current.scopeId === request.scopeId &&
       current.requestedAt === request.requestedAt &&
       current.diagramId === request.diagramId
     ) {

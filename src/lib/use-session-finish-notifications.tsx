@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { mcToastCustom, McToastCloseButton } from "~/lib/mc-toast";
+import { mcToastCustom, McToastActions, McToastCloseButton } from "~/lib/mc-toast";
 import { useSettings } from "~/queries";
 import { useServerEvents, type ServerEvent } from "~/lib/use-events";
 import { CardFrame } from "~/components/ui/CardFrame";
@@ -23,6 +23,7 @@ import {
   type SessionFinishNotification,
   type SessionNotificationPruneTarget,
 } from "~/lib/session-notification-store";
+import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 
 export function useSessionFinishNotifications() {
   const router = useRouter();
@@ -105,6 +106,7 @@ export function useSessionFinishNotifications() {
           id: taskId,
           projectId,
           worktreeId,
+          scopeId: LOCAL_SCOPE_ID,
           projectName: "Project",
           taskTitle: "Session",
           finishedAt: Date.now(),
@@ -158,6 +160,10 @@ export function useSessionFinishNotifications() {
       const worktreeId = typeof rawWorktreeId === "string" ? rawWorktreeId : null;
       const projectName = String(e.projectName ?? "Project");
       const taskTitle = String(e.taskTitle ?? "Session");
+      const rawScopeId = e.scopeId;
+      const scopeId = normalizeScopeId(
+        typeof rawScopeId === "string" ? rawScopeId : LOCAL_SCOPE_ID,
+      );
       if (!id || !projectId) return;
 
       const notification: SessionFinishNotification = {
@@ -165,6 +171,7 @@ export function useSessionFinishNotifications() {
         id,
         projectId,
         worktreeId,
+        scopeId,
         projectName,
         taskTitle,
         finishedAt: Date.now(),
@@ -194,7 +201,7 @@ export function useSessionFinishNotifications() {
                 position: "relative",
                 minWidth: 360,
                 maxWidth: 460,
-                padding: "14px 96px 14px 16px",
+                padding: "14px 16px",
                 display: "flex",
                 alignItems: "center",
                 gap: 14,
@@ -242,17 +249,19 @@ export function useSessionFinishNotifications() {
                   {taskTitle}
                 </div>
               </div>
-              <Btn
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  goToProject();
-                  toast.dismiss(t);
-                }}
-              >
-                Open
-              </Btn>
-              <McToastCloseButton toastId={t} />
+              <McToastActions>
+                <Btn
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    goToProject();
+                    toast.dismiss(t);
+                  }}
+                >
+                  Open
+                </Btn>
+                <McToastCloseButton toastId={t} />
+              </McToastActions>
             </CardFrame>
           ),
           { duration: 6000 },
