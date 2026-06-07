@@ -44,6 +44,16 @@ function item(items: ReturnType<typeof readHostAgentCreds>, tool: string, kind: 
 }
 
 describe("readHostAgentCreds — keychain present (darwin-style)", () => {
+  let platformSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  });
+
+  afterEach(() => {
+    platformSpy.mockRestore();
+  });
+
   it("prefers Keychain for Claude + Cursor and builds the cursor auth blob", () => {
     execFileSyncMock.mockImplementation((_file, args) => {
       const svc = args[args.indexOf("-s") + 1];
