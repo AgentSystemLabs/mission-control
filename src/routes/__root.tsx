@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ClientOnly,
   Outlet,
   createRootRouteWithContext,
   HeadContent,
@@ -156,7 +157,22 @@ function RootComponent() {
               <AddProjectProvider>
                 <HeaderActionsProvider>
                   <DiagramDialogHost>
-                    <Shell />
+                    {/*
+                     * The entire app shell reads client-only state — react-query
+                     * data seeded synchronously from localStorage (installShellQueryCache)
+                     * plus direct localStorage reads (theme, minimal mode, license).
+                     * The server has none of that, so server HTML and the first
+                     * client render disagree → hydration mismatch on every data-driven
+                     * node (LicenseBadge, ProjectPicker, …). ClientOnly renders the
+                     * fallback on the server AND the first client render so they match,
+                     * then mounts the real shell after hydration. Past this boundary
+                     * there's no SSR markup to match, so children are free to show
+                     * skeletons/loading states however they like. `fallback` is the
+                     * slot for an app-wide skeleton if we want one later.
+                     */}
+                    <ClientOnly fallback={null}>
+                      <Shell />
+                    </ClientOnly>
                   </DiagramDialogHost>
                 </HeaderActionsProvider>
               </AddProjectProvider>

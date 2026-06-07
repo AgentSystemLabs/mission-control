@@ -11,11 +11,17 @@ import {
   type SessionFinishNotification,
 } from "~/lib/session-notification-store";
 
+// Stable reference so getServerSnapshot returns the same value every call —
+// returning a fresh `[]` makes useSyncExternalStore loop (see React's
+// "getServerSnapshot should be cached" warning).
+const EMPTY_SERVER_SNAPSHOT: DiagramReadyNotification[] = [];
+const getServerSnapshot = (): DiagramReadyNotification[] => EMPTY_SERVER_SNAPSHOT;
+
 export function useDiagramReadyNotificationList(): DiagramReadyNotification[] {
   return useSyncExternalStore(
     subscribeAppNotifications,
     getDiagramReadyNotificationsSnapshot,
-    () => [],
+    getServerSnapshot,
   );
 }
 
