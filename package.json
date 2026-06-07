@@ -121,7 +121,7 @@
     "cross-env": "10.1.0",
     "drizzle-kit": "0.31.10",
     "electron": "41.6.1",
-    "electron-builder": "26.8.2",
+    "electron-builder": "26.15.0",
     "esbuild": "0.28.0",
     "eslint": "10.4.0",
     "eslint-plugin-react": "7.37.5",
