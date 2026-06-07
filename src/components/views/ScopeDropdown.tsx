@@ -525,10 +525,6 @@ export function ScopeDropdown() {
 
     const offDeployUpdate = electron.remoteVm.onDeployUpdate((job) => {
       const sandboxId = job.input.sandboxId;
-      const isManagedDeploy =
-        job.input.provider === "aws" ||
-        job.input.provider === "digitalocean" ||
-        job.input.provider === "railway";
       upsertPendingDeployJob(job);
       if (job.status === "succeeded" || job.status === "failed" || job.status === "canceled") {
         if (sandboxId) pendingDeploysRef.current.delete(sandboxId);
@@ -537,7 +533,7 @@ export function ScopeDropdown() {
           deployCacheRefreshRef.current = null;
         }
       }
-      if (job.status === "running" && sandboxId && isManagedDeploy) {
+      if (job.status === "running" && sandboxId) {
         if (deployCacheRefreshRef.current) clearTimeout(deployCacheRefreshRef.current);
         deployCacheRefreshRef.current = setTimeout(() => {
           deployCacheRefreshRef.current = null;

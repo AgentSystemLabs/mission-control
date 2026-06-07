@@ -157,7 +157,7 @@ describe("SandboxAgentClient stream dispatch", () => {
       onOutput: (id: string, seq: number, data: string) => calls.push(`out:${id}:${seq}:${data}`),
       onExit: (id: string, code?: number) => calls.push(`exit:${id}:${code}`),
       onFsChange: (w: string) => calls.push(`fs:${w}`),
-      onHook: (slug, taskId, hookEvent, body) =>
+      onHook: (slug: string, taskId: string, hookEvent: string | undefined, body: string) =>
         calls.push(`hook:${slug}:${taskId}:${hookEvent ?? ""}:${body}`),
     });
     fake.deliver({ type: "ready", version: "0.1.0", agents: {} });

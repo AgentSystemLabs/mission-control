@@ -21,9 +21,16 @@ import {
   readActiveSandboxId,
   readSandboxConfig,
 } from "./sandbox-store";
-import type { SandboxConfig } from "./sandbox-types";
+import type { SandboxConfig, OpResult } from "./sandbox-types";
 import { SandboxAgentClient } from "./sandbox-agent-client";
 import { buildSandboxHookRelayUrl } from "./pty-hook-env";
+import {
+  SANDBOX_AGENT_UPGRADE_COMMAND,
+  SANDBOX_AGENT_UPGRADE_PTY_PREFIX,
+  isSandboxAgentUpgradePty,
+  sandboxAgentUpgradeOutputLooksFailed,
+  sandboxAgentUpgradeOutputLooksSuccessful,
+} from "../src/shared/sandbox-agent-upgrade";
 
 const GIT_CLONE_TIMEOUT_MS = 120_000;
 const REMOTE_PTY_REPLAY_TIMEOUT_MS = 5_000;
@@ -93,6 +100,18 @@ let activeSandboxId: string | null = null;
 // ptyId → owning sandbox id, so write/resize/kill/replay reach the right agent
 // even if the active scope changed since the pty was spawned.
 const ptyOwner = new Map<string, string>();
+
+const AGENT_UPGRADE_TIMEOUT_MS = 5 * 60 * 1000;
+
+type PendingAgentUpgrade = {
+  sandboxId: string;
+  output: string;
+  sawNpmActivity: boolean;
+  resolve: (r: OpResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const pendingAgentUpgrades = new Map<string, PendingAgentUpgrade>();
 
 export function isSafeSshCloneRemote(remote: string): boolean {
   if (SSH_SCP_REMOTE.test(remote)) return true;
@@ -260,6 +279,9 @@ function connectAgent(
       }
     },
     onClose: () => {
+      failPendingUpgradesForSandbox(id, "Agent connection closed before upgrade finished.", {
+        onlyIfNoProgress: true,
+      });
       if (clients.get(id) === client) clients.delete(id);
       cb.onClose();
     },
@@ -267,11 +289,36 @@ function connectAgent(
       cb.onError?.(err);
       log.warn("sandbox.ws.error", { event: "sandbox.ws.error", sandboxId: id, err: describe(err) });
     },
-    onSpawned: (ptyId) => send(IPC.remotePtySpawned, { ptyId }),
-    onSpawnError: (ptyId, code, message) => send(IPC.remotePtySpawnError, { ptyId, code, message }),
-    onOutput: (ptyId, seq, data) => send(IPC.remotePtyData, { ptyId, data, seq }),
-    onExit: (ptyId, exitCode, signal) =>
-      send(IPC.remotePtyExit, { ptyId, exitCode: exitCode ?? 0, signal }),
+    onSpawned: (ptyId) => {
+      if (!isSandboxAgentUpgradePty(ptyId)) send(IPC.remotePtySpawned, { ptyId });
+    },
+    onSpawnError: (ptyId, code, message) => {
+      if (isSandboxAgentUpgradePty(ptyId)) {
+        completeAgentUpgrade(ptyId, { ok: false, error: message || code });
+        return;
+      }
+      send(IPC.remotePtySpawnError, { ptyId, code, message });
+    },
+    onOutput: (ptyId, seq, data) => {
+      noteUpgradeOutput(ptyId, data);
+      if (!isSandboxAgentUpgradePty(ptyId)) send(IPC.remotePtyData, { ptyId, data, seq });
+    },
+    onExit: (ptyId, exitCode, signal) => {
+      if (isSandboxAgentUpgradePty(ptyId)) {
+        const pending = pendingAgentUpgrades.get(ptyId);
+        if (pending) {
+          if (exitCode === 0 || pending.sawNpmActivity) completeAgentUpgrade(ptyId, { ok: true });
+          else {
+            completeAgentUpgrade(ptyId, {
+              ok: false,
+              error: `Agent upgrade command failed (exit ${exitCode ?? 1}).`,
+            });
+          }
+        }
+        return;
+      }
+      send(IPC.remotePtyExit, { ptyId, exitCode: exitCode ?? 0, signal });
+    },
     onReplayResult: (ptyId, data, nextSeq) => {
       const resolve = pendingReplays.get(ptyId);
       if (resolve) {
@@ -320,6 +367,120 @@ function withOwnerClient(ptyId: string, fn: (client: SandboxAgentClient) => void
 // connect — a freshly-started remote agent can take a few seconds before it is
 // listening, during which the registry is reconnecting. Returns null on timeout.
 const AGENT_CONNECT_WAIT_MS = 12_000;
+
+function completeAgentUpgrade(ptyId: string, result: OpResult): void {
+  const pending = pendingAgentUpgrades.get(ptyId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingAgentUpgrades.delete(ptyId);
+  ptyOwner.delete(ptyId);
+  pending.resolve(result);
+  if (result.ok) {
+    log.info("sandbox.agent-upgrade.ok", { event: "sandbox.agent-upgrade.ok", sandboxId: pending.sandboxId });
+    const config = configFor(pending.sandboxId);
+    if (config) void getRegistry().retryConnect(config);
+  } else {
+    log.warn("sandbox.agent-upgrade.fail", {
+      event: "sandbox.agent-upgrade.fail",
+      sandboxId: pending.sandboxId,
+      error: result.error,
+    });
+  }
+}
+
+function noteUpgradeOutput(ptyId: string, data: string): void {
+  const pending = pendingAgentUpgrades.get(ptyId);
+  if (!pending) return;
+  pending.output += data;
+  if (sandboxAgentUpgradeOutputLooksSuccessful(pending.output)) pending.sawNpmActivity = true;
+  if (sandboxAgentUpgradeOutputLooksFailed(data)) {
+    const tail = pending.output.trim().split("\n").slice(-4).join("\n").trim();
+    completeAgentUpgrade(ptyId, {
+      ok: false,
+      error: tail || "Agent upgrade command failed.",
+    });
+  }
+}
+
+function failPendingUpgradesForSandbox(
+  sandboxId: string,
+  error: string,
+  opts: { onlyIfNoProgress?: boolean } = {},
+): void {
+  for (const [ptyId, pending] of pendingAgentUpgrades) {
+    if (pending.sandboxId !== sandboxId) continue;
+    if (opts.onlyIfNoProgress && pending.sawNpmActivity) {
+      completeAgentUpgrade(ptyId, { ok: true });
+      continue;
+    }
+    completeAgentUpgrade(ptyId, { ok: false, error });
+  }
+}
+
+async function waitForSandboxClient(
+  sandboxId: string,
+  timeoutMs = AGENT_CONNECT_WAIT_MS,
+): Promise<SandboxAgentClient | null> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const client = clients.get(sandboxId);
+    if (client?.isOpen) return client;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  const client = clients.get(sandboxId);
+  return client?.isOpen ? client : null;
+}
+
+async function upgradeSandboxAgent(sandboxId: string): Promise<OpResult> {
+  const config = configFor(sandboxId);
+  if (!config) return { ok: false, error: "unknown sandbox" };
+  if (config.kind !== "remote-vm") {
+    return { ok: false, error: "Agent upgrade is only available for remote VM sandboxes." };
+  }
+
+  const started = await ensureSandboxStarted(sandboxId);
+  if (!started.ok) return started;
+
+  const client = await waitForSandboxClient(sandboxId);
+  if (!client) {
+    return { ok: false, error: "Sandbox agent is not connected. Connect first, then upgrade." };
+  }
+
+  const ptyId = `${SANDBOX_AGENT_UPGRADE_PTY_PREFIX}${randomUUID()}`;
+  ptyOwner.set(ptyId, sandboxId);
+  log.info("sandbox.agent-upgrade.start", { event: "sandbox.agent-upgrade.start", sandboxId, ptyId });
+
+  return new Promise<OpResult>((resolve) => {
+    const timer = setTimeout(() => {
+      const pending = pendingAgentUpgrades.get(ptyId);
+      if (pending?.sawNpmActivity) {
+        completeAgentUpgrade(ptyId, { ok: true });
+        return;
+      }
+      completeAgentUpgrade(ptyId, { ok: false, error: "Agent upgrade timed out after 5 minutes." });
+    }, AGENT_UPGRADE_TIMEOUT_MS);
+
+    pendingAgentUpgrades.set(ptyId, {
+      sandboxId,
+      output: "",
+      sawNpmActivity: false,
+      resolve,
+      timer,
+    });
+
+    client.spawn({
+      ptyId,
+      taskId: `agent-upgrade-${sandboxId}`,
+      cwd: "",
+      command: SANDBOX_AGENT_UPGRADE_COMMAND,
+      shell: true,
+      home: true,
+      cols: 100,
+      rows: 30,
+    });
+  });
+}
+
 async function waitForActiveClient(timeoutMs = AGENT_CONNECT_WAIT_MS): Promise<SandboxAgentClient | null> {
   const id = activeSandboxId;
   if (!id) return null;
@@ -1092,6 +1253,14 @@ export function registerSandboxManager(
     (_e, sandboxId?: string) => {
       const id = resolveId(sandboxId);
       return id ? provisionGitAuthFor(id, { requireConfigured: true }) : Promise.resolve({});
+    },
+    ipcMain,
+  );
+  safeHandle(
+    IPC.sandboxUpgradeAgent,
+    (_e, sandboxId?: string) => {
+      const id = resolveId(sandboxId);
+      return id ? upgradeSandboxAgent(id) : Promise.resolve({ ok: false as const, error: "no sandbox selected" });
     },
     ipcMain,
   );

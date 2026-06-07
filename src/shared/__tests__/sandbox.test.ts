@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { filterProjectsByScope, LOCAL_SCOPE_ID, normalizeRemoteAgentUrl } from "../sandbox";
+import {
+  filterProjectsByScope,
+  LOCAL_SCOPE_ID,
+  normalizeRemoteAgentUrl,
+  parseSandboxImageProvenance,
+} from "../sandbox";
 
 describe("normalizeRemoteAgentUrl", () => {
   it("normalizes HTTP(S) remote agent URLs to WebSocket URLs", () => {
@@ -24,6 +29,42 @@ describe("normalizeRemoteAgentUrl", () => {
     expect(normalizeRemoteAgentUrl("http://203.0.113.10:9333", { allowPlaintextPublic: true })).toBe(
       "ws://203.0.113.10:9333/",
     );
+  });
+});
+
+describe("parseSandboxImageProvenance", () => {
+  it("extracts golden AMI metadata from remote_config", () => {
+    expect(
+      parseSandboxImageProvenance({
+        agentUrl: "wss://agent.example.com/",
+        image: "ami-0d7282b5efaa3b1dc",
+        cloud: {
+          goldenImage: true,
+          imageManifestVersion: "2026.06.06-1",
+          imageAgentVersion: "0.2.1",
+        },
+      }),
+    ).toEqual({
+      imageId: "ami-0d7282b5efaa3b1dc",
+      goldenImage: true,
+      imageManifestVersion: "2026.06.06-1",
+      imageAgentVersion: "0.2.1",
+    });
+  });
+
+  it("returns nulls when launch metadata is absent", () => {
+    expect(parseSandboxImageProvenance({ agentUrl: "wss://agent.example.com/" })).toEqual({
+      imageId: null,
+      goldenImage: null,
+      imageManifestVersion: null,
+      imageAgentVersion: null,
+    });
+    expect(parseSandboxImageProvenance(null)).toEqual({
+      imageId: null,
+      goldenImage: null,
+      imageManifestVersion: null,
+      imageAgentVersion: null,
+    });
   });
 });
 

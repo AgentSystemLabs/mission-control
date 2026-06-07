@@ -5,13 +5,13 @@ describe("extractRemoteVmDeployError", () => {
   it("returns the last remote-vm CLI error line", () => {
     const output = [
       "[remote-vm] starting deploy job abc",
-      "[remote-vm] linked existing Railway project mission-control",
-      "error: unexpected argument '--service' found",
-      "[remote-vm] railway volume add --service foo failed: error: unexpected argument '--service' found",
+      "[remote-vm] launching EC2 instance in us-east-1",
+      "error: unexpected argument '--bad-flag' found",
+      "[remote-vm] aws ec2 run-instances failed: error: unexpected argument '--bad-flag' found",
     ].join("\n");
 
     expect(extractRemoteVmDeployError(output)).toBe(
-      "railway volume add --service foo failed: error: unexpected argument '--service' found",
+      "aws ec2 run-instances failed: error: unexpected argument '--bad-flag' found",
     );
   });
 

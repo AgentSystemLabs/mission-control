@@ -1,24 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { generateKeyPairSync, sign } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-sandboxes-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
-const keypair = generateKeyPairSync("ed25519");
-process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
-  .export({ type: "spki", format: "pem" })
-  .toString();
 
 const { handleApiRequest } = await import("../api-router");
 const { getDb } = await import("~/db/client");
 const { sandboxes, projects, appSettings, tasks, userTerminals, homeTerminals } = await import("~/db/schema");
 const { getOrCreateApiToken } = await import("../services/settings");
 const { insertProject } = await import("../repositories/projects.repo");
-const { setLicenseKey, clearLicense } = await import("../services/license-storage");
+const { insertSandbox } = await import("../repositories/sandboxes.repo");
 const { eq } = await import("drizzle-orm");
-const { HTTP_PAYMENT_REQUIRED } = await import("~/shared/http-status");
 
 async function body(res: Response | null | undefined) {
   return (await res!.json()) as Record<string, any>;
@@ -31,13 +25,39 @@ function electronRequest(input: string, init: RequestInit = {}): Request {
   return new Request(`http://localhost${input}`, { ...init, headers });
 }
 
-function remoteSandboxBody(name: string) {
-  return {
+let sbCounter = 0;
+
+/**
+ * Seed a remote-VM sandbox row directly. AWS sandboxes are provisioned by the
+ * Electron deploy CLI (which writes the row to SQLite), so the HTTP API has no
+ * create route — tests seed the row the same way the CLI would.
+ */
+function seedRemoteSandbox(
+  name: string,
+  opts: { remoteConfig?: string | null; pairingToken?: string | null } = {},
+): string {
+  const id = `sb-test-${++sbCounter}`;
+  const now = Date.now();
+  insertSandbox({
+    id,
     name,
     kind: "remote-vm",
-    remoteAgentUrl: "https://agent.example.com",
-    apiKey: "0123456789abcdef0123456789abcdef",
-  };
+    color: null,
+    imageTag: null,
+    dockerfilePath: null,
+    buildArgs: null,
+    gitAuthMode: "none",
+    copyAgentCreds: false,
+    declaredPorts: null,
+    env: null,
+    hostAgentPort: null,
+    portMap: null,
+    pairingToken: opts.pairingToken ?? null,
+    remoteConfig: opts.remoteConfig ?? null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
 }
 
 function makeProject(id: string, sandboxId: string | null) {
@@ -66,24 +86,6 @@ function makeProject(id: string, sandboxId: string | null) {
   });
 }
 
-function signedLicense(overrides: Record<string, unknown> = {}): string {
-  const payload = Buffer.from(
-    JSON.stringify({
-      licenseId: "lic_test",
-      customerId: "cus_test",
-      product: "mission-control-pro",
-      tier: "pro",
-      expiresAt: null,
-      maxMachines: 3,
-      issuedAt: "2026-05-07T17:10:17.000Z",
-      ...overrides,
-    }),
-    "utf8",
-  );
-  const signature = sign(null, payload, keypair.privateKey);
-  return `MC-PRO-v1.${payload.toString("base64url")}.${signature.toString("base64url")}`;
-}
-
 describe("sandboxes API", () => {
   beforeEach(() => {
     getDb().delete(homeTerminals).run();
@@ -92,20 +94,12 @@ describe("sandboxes API", () => {
     getDb().delete(projects).run();
     getDb().delete(sandboxes).run();
     getDb().delete(appSettings).run();
-    clearLicense();
   });
 
-  it("creates a sandbox, enables the feature, and lists it with the active scope", async () => {
-    const created = await body(
-      await handleApiRequest(
-        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Flexion")) }),
-      ),
-    );
-    expect(created.sandbox.name).toBe("Flexion");
-    const id = created.sandbox.id as string;
+  it("lists seeded sandboxes and selects the active scope", async () => {
+    const id = seedRemoteSandbox("Flexion");
 
     const list = await body(await handleApiRequest(electronRequest("/api/sandboxes")));
-    expect(list.enabled).toBe(true); // creating one turns the feature on
     expect(list.sandboxes.map((s: any) => s.id)).toContain(id);
 
     const active = await body(
@@ -118,19 +112,11 @@ describe("sandboxes API", () => {
   });
 
   it("updates per-sandbox config and returns only the public sandbox shape", async () => {
-    const created = await body(
-      await handleApiRequest(
-        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Flexion")) }),
-      ),
-    );
-    const id = created.sandbox.id as string;
+    const id = seedRemoteSandbox("Flexion", { pairingToken: "secret-token" });
 
     getDb()
       .update(sandboxes)
-      .set({
-        pairingToken: "secret-token",
-        portMap: JSON.stringify({ 5173: 15173 }),
-      })
+      .set({ portMap: JSON.stringify({ 5173: 15173 }) })
       .where(eq(sandboxes.id, id))
       .run();
 
@@ -173,35 +159,11 @@ describe("sandboxes API", () => {
     expect(listed.sandboxes[0].buildArgKeys).toEqual(["NODE_VERSION"]);
   });
 
-  it("creates remote VM sandboxes with URL/API-key redaction", async () => {
-    const created = await body(
-      await handleApiRequest(
-        electronRequest("/api/sandboxes", {
-          method: "POST",
-          body: JSON.stringify({
-            name: "Railway",
-            kind: "remote-vm",
-            remoteAgentUrl: "https://agent.example.com",
-            apiKey: "0123456789abcdef0123456789abcdef",
-          }),
-        }),
-      ),
-    );
-
-    expect(created.sandbox).toMatchObject({
-      name: "Railway",
-      kind: "remote-vm",
-      remoteAgentUrl: "wss://agent.example.com/",
-      hasApiKey: true,
-      hasPairingToken: true,
+  it("reveals the saved API key for a remote VM sandbox", async () => {
+    const id = seedRemoteSandbox("Client", {
+      pairingToken: "0123456789abcdef0123456789abcdef",
+      remoteConfig: JSON.stringify({ agentUrl: "wss://agent.example.com/" }),
     });
-    expect(created.sandbox.apiKey).toBeUndefined();
-    expect(created.sandbox.pairingToken).toBeUndefined();
-
-    const id = created.sandbox.id as string;
-    const stored = getDb().select().from(sandboxes).where(eq(sandboxes.id, id)).get();
-    expect(stored?.pairingToken).toBe("0123456789abcdef0123456789abcdef");
-    expect(stored?.remoteConfig).toContain("wss://agent.example.com/");
 
     const revealed = await body(
       await handleApiRequest(electronRequest(`/api/sandboxes/${id}/api-key`)),
@@ -209,28 +171,8 @@ describe("sandboxes API", () => {
     expect(revealed).toEqual({ apiKey: "0123456789abcdef0123456789abcdef" });
   });
 
-  it("requires URL and API key when creating a remote VM sandbox", async () => {
-    const create = await handleApiRequest(
-      electronRequest("/api/sandboxes", {
-        method: "POST",
-        body: JSON.stringify({
-          name: "Remote",
-          kind: "remote-vm",
-          remoteAgentUrl: "https://agent.example.com",
-        }),
-      }),
-    );
-
-    expect(create?.status).toBe(400);
-  });
-
   it("deleting a sandbox cascade-deletes its projects, scoped rows, and resets the active scope to Local", async () => {
-    const created = await body(
-      await handleApiRequest(
-        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Client")) }),
-      ),
-    );
-    const id = created.sandbox.id as string;
+    const id = seedRemoteSandbox("Client");
     makeProject("p-local", null);
     makeProject("p-client", id);
     const now = Date.now();
@@ -308,33 +250,5 @@ describe("sandboxes API", () => {
     );
     // setActiveScope rejects unknown ids → resolves to local
     expect((await body(await handleApiRequest(electronRequest("/api/sandboxes")))).activeScopeId).toBe("local");
-  });
-
-  it("returns 402 when a lite user tries to create a second sandbox", async () => {
-    await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("First")) }),
-    );
-
-    const second = await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Second")) }),
-    );
-    expect(second?.status).toBe(HTTP_PAYMENT_REQUIRED);
-    const payload = await body(second);
-    expect(payload.code).toBe("free_tier_sandbox_cap");
-  });
-
-  it("allows multiple sandboxes when an active license is on file", async () => {
-    setLicenseKey(signedLicense());
-
-    await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("First")) }),
-    );
-    const second = await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Second")) }),
-    );
-    expect(second?.status).toBe(201);
-
-    const list = await body(await handleApiRequest(electronRequest("/api/sandboxes")));
-    expect(list.sandboxes).toHaveLength(2);
   });
 });

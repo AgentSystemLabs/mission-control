@@ -75,6 +75,7 @@ function toConfig(row: SandboxRow): SandboxConfig {
     pairingToken: row.pairing_token,
     remoteAgentCa: remote && typeof remote.agentCa === "string" ? remote.agentCa : null,
     remoteStatus: remote && typeof remote.status === "string" ? remote.status : null,
+    remoteProvider: remote && typeof remote.provider === "string" ? remote.provider : null,
   };
 }
 

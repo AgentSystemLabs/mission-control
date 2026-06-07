@@ -6,12 +6,10 @@ import { LOCAL_SCOPE_ID, type RemoteVmLifecycleStatus, type SandboxPublicView } 
 
 export type SandboxesQueryData = Awaited<ReturnType<typeof api.listSandboxes>>;
 
-export type ManagedRemoteDeployProvider = "aws" | "digitalocean" | "railway";
+export type ManagedRemoteDeployProvider = "aws";
 
 const MANAGED_PROVIDER_LABELS: Record<ManagedRemoteDeployProvider, string> = {
   aws: "AWS EC2",
-  digitalocean: "DigitalOcean",
-  railway: "Railway",
 };
 
 function mergeSandboxPublicView(existing: SandboxPublicView, patch: SandboxPublicView): SandboxPublicView {
@@ -25,6 +23,11 @@ function mergeSandboxPublicView(existing: SandboxPublicView, patch: SandboxPubli
     remoteStatusMessage: patch.remoteStatusMessage ?? existing.remoteStatusMessage,
     remotePublicAddress: patch.remotePublicAddress ?? existing.remotePublicAddress,
     projectId: patch.projectId ?? existing.projectId,
+    remoteImageId: patch.remoteImageId ?? existing.remoteImageId,
+    remoteGoldenImage: patch.remoteGoldenImage ?? existing.remoteGoldenImage,
+    remoteImageManifestVersion:
+      patch.remoteImageManifestVersion ?? existing.remoteImageManifestVersion,
+    remoteImageAgentVersion: patch.remoteImageAgentVersion ?? existing.remoteImageAgentVersion,
     hasApiKey: patch.hasApiKey || existing.hasApiKey,
     hasPairingToken: patch.hasPairingToken || existing.hasPairingToken,
   };
@@ -33,12 +36,10 @@ function mergeSandboxPublicView(existing: SandboxPublicView, patch: SandboxPubli
 export function managedProviderFromDeployInput(
   provider: string | undefined,
 ): ManagedRemoteDeployProvider | null {
-  if (provider === "aws" || provider === "digitalocean" || provider === "railway") return provider;
-  return null;
+  return provider === "aws" ? "aws" : null;
 }
 
 function projectIdFromDeployInput(input: RemoteVmDeployInput): string | null {
-  if (input.provider !== "aws") return null;
   const projectId = input.projectId?.trim();
   return projectId || null;
 }
@@ -75,6 +76,10 @@ export function buildOptimisticRemoteVmSandbox(input: {
     remoteStatusMessage: input.remoteStatusMessage ?? null,
     remotePublicAddress: input.remotePublicAddress ?? null,
     projectId: input.projectId ?? null,
+    remoteImageId: null,
+    remoteGoldenImage: null,
+    remoteImageManifestVersion: null,
+    remoteImageAgentVersion: null,
     createdAt: now,
     updatedAt: now,
     hasPairingToken: input.hasApiKey ?? !!remoteProvider,

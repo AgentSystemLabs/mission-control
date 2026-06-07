@@ -10,30 +10,20 @@ const remoteVm = await import("../../scripts/remote-vm.mjs");
 const {
   buildAwsRunInstancesArgs,
   buildAwsInstanceLifecycleArgs,
-  buildDoctlDropletActionArgs,
-  buildDoctlDropletCreateArgs,
   buildSshArgs,
   createRemoteConfig,
   decodeSetupScript,
-  deepFindRailwayHost,
   ensureRemoteVmSchema,
-  extractJsonFromCliOutput,
   insertRemoteVmSandbox,
   isAwsInstanceMissingError,
   isGoneAwsInstanceState,
-  isRailwayDeploymentFailed,
-  isRailwayDeploymentReady,
-  isRailwayNoDeploymentsMessage,
-  latestRailwayDeploymentStatus,
   normalizeGitAuthMode,
   parseFlagArgs,
-  railwaySafeServiceName,
   renderIdleWatchdog,
   renderUserData,
   renderInstallScript,
   renderBootUserData,
   renderUserSetup,
-  selectRailwayWorkspaceId,
   shouldPersistAwsReconciledStatus,
   statusForAwsInstanceState,
   updateRemoteVmStatus,
@@ -88,7 +78,7 @@ describe("remote-vm CLI helpers", () => {
     expect(script).toContain("command -v mission-control-agent");
   });
 
-  it("does not emit the TLS sidecar when tls is off (DigitalOcean path)", () => {
+  it("does not emit the TLS sidecar when tls is off", () => {
     const script = renderUserData({ apiKey: "abc123" });
     expect(script).not.toContain("mc-tls-proxy.mjs");
     expect(script).not.toContain("mission-control-tls.service");
@@ -183,44 +173,6 @@ describe("remote-vm CLI helpers", () => {
       "--instance-ids",
       "i-123",
     ]);
-    expect(buildDoctlDropletActionArgs("power-on", "12345")).toEqual([
-      "compute",
-      "droplet-action",
-      "power-on",
-      "12345",
-      "--wait",
-    ]);
-  });
-
-  it("builds DigitalOcean droplet create args with cloud-init user-data and no required SSH key", () => {
-    const args = buildDoctlDropletCreateArgs(
-      {
-        name: "client-vm",
-        size: "s-2vcpu-4gb",
-        image: "ubuntu-24-04-x64",
-        region: "nyc1",
-        enableMonitoring: true,
-      },
-      { userDataFile: "/tmp/user-data.sh" },
-    );
-    expect(args).toEqual(
-      expect.arrayContaining([
-        "droplet",
-        "create",
-        "client-vm",
-        "--size",
-        "s-2vcpu-4gb",
-        "--image",
-        "ubuntu-24-04-x64",
-        "--region",
-        "nyc1",
-        "--user-data-file",
-        "/tmp/user-data.sh",
-        "--wait",
-        "--enable-monitoring",
-      ]),
-    );
-    expect(args).not.toContain("--ssh-keys");
   });
 
   it("builds SSH tunnel args without exposing the agent publicly", () => {
@@ -312,149 +264,11 @@ describe("remote-vm CLI helpers", () => {
     }
   });
 
-  it("builds a wss:// remote config for Railway over a public-CA TLS edge", () => {
-    // Railway terminates TLS with a real cert, so the config rides wss:// with
-    // standard trust — no self-signed pinning and NOT flagged plaintext-public.
-    const remoteConfig = createRemoteConfig({
-      provider: "railway",
-      providerId: "client-vm-1a2b",
-      providerName: "Railway",
-      name: "Client VM",
-      region: null,
-      size: null,
-      image: "AgentSystemLabs/mission-control-agent",
-      publicIp: "client-vm-1a2b.up.railway.app",
-      agentUrl: "wss://client-vm-1a2b.up.railway.app/",
-      agentPort: 443,
-      sshUser: null,
-      identityFile: null,
-      localPort: null,
-      accessMode: "direct",
-      tls: false,
-      allowPlaintextPublic: false,
-      status: "provisioning",
-      cloud: { projectName: "mission-control", serviceName: "client-vm-1a2b" },
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    expect(remoteConfig).toMatchObject({
-      agentUrl: "wss://client-vm-1a2b.up.railway.app/",
-      tls: false,
-      // The override must win over the default (!tls && direct === true).
-      allowPlaintextPublic: false,
-      provider: "railway",
-      agentCa: null,
-      agentCertSha256: null,
-    });
-  });
-
-  it("extracts the railway host from assorted CLI JSON shapes", () => {
-    expect(deepFindRailwayHost({ domain: "https://foo-bar.up.railway.app" })).toBe(
-      "foo-bar.up.railway.app",
-    );
-    expect(deepFindRailwayHost([{ serviceDomain: { domain: "baz.up.railway.app/" } }])).toBe(
-      "baz.up.railway.app",
-    );
-    expect(deepFindRailwayHost({ nested: { deep: ["qux.railway.app"] } })).toBe("qux.railway.app");
-    expect(deepFindRailwayHost({ url: "https://example.com" })).toBeNull();
-    expect(deepFindRailwayHost(null)).toBeNull();
-  });
-
-  it("slugifies a sandbox name into a unique railway service name", () => {
-    const a = railwaySafeServiceName("Client X!!");
-    expect(a).toMatch(/^client-x-[0-9a-f]{4}$/);
-    // Empty/symbol-only names still produce a valid service name.
-    expect(railwaySafeServiceName("   ")).toMatch(/^agent-[0-9a-f]{4}$/);
-    // Two calls with the same name don't collide (random suffix).
-    expect(railwaySafeServiceName("dup")).not.toBe(railwaySafeServiceName("dup"));
-  });
-
-  it("extracts JSON from Railway CLI stdout that prefixes status lines", () => {
-    const stdout = `> Select a workspace Web Dev Cody's Projects
-> Project Name mission-control
-{"id":"b9585a02-4988-4e1a-be55-6a676f74ee40","name":"mission-control"}`;
-    expect(extractJsonFromCliOutput(stdout, "railway init")).toEqual({
-      id: "b9585a02-4988-4e1a-be55-6a676f74ee40",
-      name: "mission-control",
-    });
-  });
-
-  it("selects a Railway workspace id from whoami output", () => {
-    const workspaces = [{ id: "ws-1", name: "Personal" }];
-    expect(selectRailwayWorkspaceId(workspaces, "")).toBe("ws-1");
-    expect(selectRailwayWorkspaceId(workspaces, "Personal")).toBe("ws-1");
-    expect(selectRailwayWorkspaceId(workspaces, "ws-1")).toBe("ws-1");
-    expect(() =>
-      selectRailwayWorkspaceId(
-        [
-          { id: "ws-1", name: "Personal" },
-          { id: "ws-2", name: "Team" },
-        ],
-        "",
-      ),
-    ).toThrow(/RAILWAY_WORKSPACE/);
-  });
-
-  it("recognizes Railway deployment readiness from CLI JSON", () => {
-    expect(isRailwayDeploymentReady("SUCCESS")).toBe(true);
-    expect(isRailwayDeploymentReady("active")).toBe(true);
-    expect(isRailwayDeploymentReady("COMPLETED")).toBe(true);
-    expect(isRailwayDeploymentReady("BUILDING")).toBe(false);
-    expect(isRailwayDeploymentFailed("CRASHED")).toBe(true);
-    expect(
-      latestRailwayDeploymentStatus([{ status: "DEPLOYING" }, { status: "SUCCESS" }]),
-    ).toBe("DEPLOYING");
-  });
-
-  it("treats missing Railway deployments or services as cleanup-safe", () => {
-    expect(isRailwayNoDeploymentsMessage("No deployments found. Deploy first with `railway up`.")).toBe(
-      true,
-    );
-    expect(isRailwayNoDeploymentsMessage("Service 'railway-8d02' not found")).toBe(true);
-    expect(isRailwayNoDeploymentsMessage("Unauthorized")).toBe(false);
-  });
-
-  it("allows destroy without cloud teardown for bring-your-own remote VMs", () => {
+  it("allows destroy without cloud teardown for remote VMs with no managed AWS instance", () => {
     const script = fs.readFileSync(path.join(process.cwd(), "scripts/remote-vm.mjs"), "utf8");
-    expect(script).toContain("bring-your-own remote VM — no cloud resources to terminate");
-  });
-
-  it("uses mount-path-only volume add for current Railway CLI", () => {
-    const script = fs.readFileSync(path.join(process.cwd(), "scripts/remote-vm.mjs"), "utf8");
-    expect(script).toContain("MC_RAILWAY_CONFIG_FILE");
-    expect(script).toContain("deploy/railway/railway.json");
-    expect(script).toContain("export async function ensureRailwayConfigFile");
-    expect(script).toContain('"configFile"');
-    expect(script).toContain('["volume", "add", "--mount-path", MC_RAILWAY_VOLUME_MOUNT]');
-    expect(script).not.toMatch(/volume", "add", "--service"/);
-    const configIdx = script.indexOf("await ensureRailwayConfigFile(work, { projectId, serviceName })");
-    const volumeIdx = script.indexOf('["volume", "add", "--mount-path", MC_RAILWAY_VOLUME_MOUNT]');
-    expect(configIdx).toBeGreaterThan(-1);
-    expect(volumeIdx).toBeGreaterThan(configIdx);
-    const persistIdx = script.indexOf("Deploying agent to Railway");
-    const domainIdx = script.indexOf("await ensureRailwayDomain(work, { projectId, workspaceId, serviceName })");
-    const apiKeyIdx = script.indexOf("ensureRailwayApiKey(work, serviceName, apiKey)");
-    const bootstrapIdx = script.indexOf("    bootstrapRailwayUpload(sourceDir, serviceName);");
-    const finalDeployIdx = script.indexOf("final Railway deploy (waiting for this deployment to succeed)");
-    expect(volumeIdx).toBeGreaterThan(-1);
-    expect(persistIdx).toBeGreaterThan(volumeIdx);
-    expect(domainIdx).toBeGreaterThan(persistIdx);
-    expect(apiKeyIdx).toBeGreaterThan(domainIdx);
-    expect(bootstrapIdx).toBeGreaterThan(apiKeyIdx);
-    expect(finalDeployIdx).toBeGreaterThan(bootstrapIdx);
-    expect(script).toContain("export async function ensureRailwayDomain");
-    expect(script).toContain('["variable", "set", `MC_AGENT_API_KEY=${apiKey}`');
-    expect(script).not.toContain("generateRailwayDomain");
-    expect(script).not.toContain('["domain", "--service", serviceName, "--json"], { cwd, allowFail: true }');
-    expect(script).toContain("bootstrap upload to Railway");
-    expect(script).toContain('["up", "--service", serviceName, "--ci"]');
-    expect(script).not.toContain('"--detach"');
-    expect(script).not.toContain('["redeploy", "--service", serviceName, "--yes"]');
-    expect(script).not.toContain('"--repo"');
-    expect(script).toContain("waitForRailwayDeployment(work, serviceName");
-    expect(script).toContain("cloneAgentRepo(sourceDir)");
-    expect(script).toContain("cleanupRailwaySandbox(cfg)");
-    expect(script).toContain("serviceDelete");
+    expect(script).toContain("no cloud resources to terminate");
+    // Legacy rows tagged with a removed provider must NOT throw on destroy.
+    expect(script).not.toContain('Unsupported remote VM provider');
   });
 
   it("always wires the activity heartbeat env + runtime dir for the idle watchdog", () => {

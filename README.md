@@ -79,18 +79,15 @@ The first run creates `~/Library/Application Support/MissionControl/missioncontr
 
 ### Remote VM Sandboxes
 
-Mission Control can provision AWS EC2 instances or DigitalOcean Droplets with
-`mission-control-agent` installed directly on the VM host:
-
-Use the header scope menu: **New sandbox → Remote VM → AWS EC2** or
-**DigitalOcean**. The same flow is available from the CLI:
+Mission Control can provision AWS EC2 instances with
+`mission-control-agent` installed directly on the VM host. Create one from a
+project page (**Create sandbox**), or use the CLI:
 
 ```bash
 pnpm remote-vm deploy aws --name client-vm --region us-east-1
-pnpm remote-vm deploy do --name client-vm --region nyc1
 ```
 
-See [docs/remote-vm-cli.md](docs/remote-vm-cli.md) for provider flags,
+See [docs/remote-vm-cli.md](docs/remote-vm-cli.md) for AWS flags,
 bootstrap details, and cleanup commands.
 
 ### Build

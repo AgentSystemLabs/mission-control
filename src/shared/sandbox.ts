@@ -50,8 +50,12 @@ export type SandboxRemoteConfig = {
   agentCa?: string | null;
   /** SHA-256 fingerprint of `agentCa` (informational / future pin-by-hash). */
   agentCertSha256?: string | null;
-  /** Managed provider metadata. Present only for Mission Control-provisioned remotes. */
-  provider?: "aws" | "digitalocean" | "railway" | string;
+  /**
+   * Managed provider metadata. Present only for Mission Control-provisioned
+   * remotes. Only "aws" is provisioned today; the `string` fallback keeps reads
+   * type-safe for legacy rows persisted under removed providers.
+   */
+  provider?: "aws" | string;
   providerId?: string | null;
   providerName?: string | null;
   status?: RemoteVmLifecycleStatus | string | null;
@@ -68,6 +72,35 @@ export type SandboxRemoteConfig = {
   createdAt?: number;
   updatedAt?: number;
 };
+
+/** Launch-image metadata stamped at managed AWS deploy time (from `remote_config.cloud`). */
+export type SandboxImageProvenance = {
+  /** EC2 AMI id used at launch (`remote_config.image`). */
+  imageId: string | null;
+  /** True when the instance launched from the maintained golden AMI. */
+  goldenImage: boolean | null;
+  /** Golden AMI manifest version (e.g. `2026.06.06-1`). */
+  imageManifestVersion: string | null;
+  /** Sandbox agent version baked into the golden AMI at build time. */
+  imageAgentVersion: string | null;
+};
+
+export function parseSandboxImageProvenance(
+  remote: SandboxRemoteConfig | null | undefined,
+): SandboxImageProvenance {
+  const cloud =
+    remote?.cloud && typeof remote.cloud === "object" && !Array.isArray(remote.cloud)
+      ? (remote.cloud as Record<string, unknown>)
+      : null;
+  return {
+    imageId: typeof remote?.image === "string" ? remote.image : null,
+    goldenImage: cloud && typeof cloud.goldenImage === "boolean" ? cloud.goldenImage : null,
+    imageManifestVersion:
+      cloud && typeof cloud.imageManifestVersion === "string" ? cloud.imageManifestVersion : null,
+    imageAgentVersion:
+      cloud && typeof cloud.imageAgentVersion === "string" ? cloud.imageAgentVersion : null,
+  };
+}
 
 export type SandboxPublicView = {
   id: string;
@@ -88,6 +121,14 @@ export type SandboxPublicView = {
   remotePublicAddress: string | null;
   /** Present when the sandbox was created from a project screen. */
   projectId: string | null;
+  /** EC2 AMI id when this sandbox was launched from a managed AWS deploy. */
+  remoteImageId: string | null;
+  /** True when the sandbox launched from the maintained golden AMI. */
+  remoteGoldenImage: boolean | null;
+  /** Golden AMI manifest version when `remoteGoldenImage` is true. */
+  remoteImageManifestVersion: string | null;
+  /** Agent version baked into the golden AMI at deploy time. */
+  remoteImageAgentVersion: string | null;
   createdAt: number;
   updatedAt: number;
   hasPairingToken: boolean;

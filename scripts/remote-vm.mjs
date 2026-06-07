@@ -18,8 +18,6 @@ const AGENT_PORT = 9333;
 const AGENT_TLS_PORT = 443;
 const DEFAULT_LOCAL_TUNNEL_PORT = 19333;
 const DEFAULT_AWS_SIZE = "t3.medium";
-const DEFAULT_DO_SIZE = "s-2vcpu-4gb";
-const DEFAULT_DO_IMAGE = "ubuntu-24-04-x64";
 const DEFAULT_AWS_IMAGE =
   "resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id";
 const DEFAULT_AWS_SECURITY_GROUP = "mission-control-remote-vm-agent";
@@ -56,14 +54,6 @@ const BUNDLED_GOLDEN_AMI_MANIFEST = path.join(
 // Override per-environment with MC_GOLDEN_AMI_OWNER.
 const GOLDEN_AMI_OWNER_DEFAULT = "493255580566";
 const GOLDEN_AMI_OWNER_PIN = process.env.MC_GOLDEN_AMI_OWNER?.trim() || GOLDEN_AMI_OWNER_DEFAULT;
-// Railway: a single shared project holds one service per sandbox. The agent is
-// deployed from the public GitHub repo and reached over Railway's edge TLS.
-const MC_RAILWAY_PROJECT_NAME = "mission-control";
-const MC_AGENT_REPO = "AgentSystemLabs/mission-control-agent";
-const MC_AGENT_REPO_URL = `https://github.com/${MC_AGENT_REPO}.git`;
-const MC_RAILWAY_VOLUME_MOUNT = "/home/workspace";
-/** Config-as-code path in mission-control-agent (see deploy/railway/README.md). */
-const MC_RAILWAY_CONFIG_FILE = "deploy/railway/railway.json";
 const REMOTE_CONFIG_VERSION = 1;
 const ACTIVE_SCOPE_KEY = "multiSandbox.activeScope";
 const SANDBOXES_ENABLED_KEY = "multiSandbox.enabled";
@@ -235,51 +225,6 @@ function parseJsonOutput(stdout, context) {
   }
 }
 
-// Railway prints interactive-looking status lines before JSON on stdout (e.g.
-// "> Select a workspace …"). Strip those so --json output is parseable.
-export function extractJsonFromCliOutput(stdout, context) {
-  const text = (stdout || "").trim();
-  if (!text) {
-    throw new CliError(`${context} returned no output`);
-  }
-  const start = text.search(/[\[{]/);
-  if (start === -1) {
-    throw new CliError(`${context} returned invalid JSON: no JSON object or array found in output`);
-  }
-  try {
-    return JSON.parse(text.slice(start));
-  } catch (err) {
-    throw new CliError(`${context} returned invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-export function selectRailwayWorkspaceId(workspaces, preferred) {
-  if (!Array.isArray(workspaces) || workspaces.length === 0) {
-    throw new CliError("Railway account has no workspaces. Create one at https://railway.com first.");
-  }
-  const pref = (preferred || "").trim();
-  if (pref) {
-    const match = workspaces.find(
-      (ws) => ws.id === pref || ws.name?.trim().toLowerCase() === pref.toLowerCase(),
-    );
-    if (!match) {
-      throw new CliError(
-        `Railway workspace "${pref}" not found. Run \`railway whoami --json\` to list workspaces, then set RAILWAY_WORKSPACE.`,
-      );
-    }
-    return match.id;
-  }
-  if (workspaces.length === 1) return workspaces[0].id;
-  throw new CliError(
-    `Railway account has ${workspaces.length} workspaces. Set RAILWAY_WORKSPACE to the workspace id or name before deploying.`,
-  );
-}
-
-function firstItem(value) {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
-
 function awsArgs(opts, args) {
   const out = [];
   if (opts.profile) out.push("--profile", opts.profile);
@@ -291,11 +236,6 @@ function awsArgs(opts, args) {
 function awsJson(opts, args) {
   const stdout = runChecked("aws", awsArgs(opts, [...args, "--output", "json"]));
   return parseJsonOutput(stdout, "aws");
-}
-
-function doctlJson(args) {
-  const stdout = runChecked("doctl", [...args, "--output", "json"]);
-  return parseJsonOutput(stdout, "doctl");
 }
 
 // --- Golden AMI resolution ----------------------------------------------------
@@ -929,37 +869,8 @@ export function buildAwsRunInstancesArgs(opts, { imageId, securityGroupId, userD
   return args;
 }
 
-export function buildDoctlDropletCreateArgs(opts, { userDataFile }) {
-  const args = [
-    "compute",
-    "droplet",
-    "create",
-    opts.name,
-    "--size",
-    opts.size,
-    "--image",
-    opts.image,
-    "--region",
-    opts.region,
-    "--user-data-file",
-    userDataFile,
-    "--tag-names",
-    "mission-control,mission-control-remote-vm",
-    "--format",
-    "ID,Name,PublicIPv4,Status",
-    "--wait",
-  ];
-  if (opts.sshKey) args.push("--ssh-keys", opts.sshKey);
-  if (opts.enableMonitoring) args.push("--enable-monitoring");
-  return args;
-}
-
 export function buildAwsInstanceLifecycleArgs(action, instanceId) {
   return ["ec2", action, "--instance-ids", instanceId];
-}
-
-export function buildDoctlDropletActionArgs(action, dropletId) {
-  return ["compute", "droplet-action", action, String(dropletId), "--wait"];
 }
 
 export function buildSshArgs({ host, user, identityFile, localPort, remoteCommand }) {
@@ -996,8 +907,8 @@ export function createRemoteConfig(input) {
     accessMode,
     tls,
     // Plaintext-over-public is only allowed when we are NOT terminating TLS.
-    // Providers that ride a real public-CA TLS edge (e.g. Railway over wss://)
-    // pass `allowPlaintextPublic: false` explicitly so the wss URL isn't flagged.
+    // Callers reaching the agent over a real TLS edge (wss://) pass
+    // `allowPlaintextPublic: false` explicitly so the wss URL isn't flagged.
     allowPlaintextPublic: input.allowPlaintextPublic ?? (!tls && accessMode === "direct"),
     // Self-signed cert (PEM) the desktop client pins; captured at deploy time.
     agentCa: input.agentCa ?? null,
@@ -1323,36 +1234,6 @@ function preflightAws(opts) {
   awsJson(opts, ["ec2", "describe-instance-types", "--instance-types", opts.size]);
 }
 
-function preflightDoctl(opts) {
-  assertCommand("doctl", "Install doctl and run doctl auth init or set DIGITALOCEAN_ACCESS_TOKEN.");
-  try {
-    doctlJson(["account", "get"]);
-  } catch (err) {
-    throw new CliError(`DigitalOcean credentials are not usable. ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  const sizes = doctlJson(["compute", "size", "list"]);
-  if (Array.isArray(sizes) && sizes.length > 0 && !sizes.some((s) => s.slug === opts.size || s.Slug === opts.size)) {
-    throw new CliError(`DigitalOcean size "${opts.size}" was not found. Run doctl compute size list.`);
-  }
-  const regions = doctlJson(["compute", "region", "list"]);
-  if (Array.isArray(regions) && regions.length > 0 && !regions.some((r) => r.slug === opts.region || r.Slug === opts.region)) {
-    throw new CliError(`DigitalOcean region "${opts.region}" was not found. Run doctl compute region list.`);
-  }
-}
-
-function resolveDoSshKey(value) {
-  const keys = doctlJson(["compute", "ssh-key", "list"]);
-  if (!Array.isArray(keys)) return value;
-  const exact = keys.find((key) => {
-    return key.name === value || key.Name === value || String(key.id ?? key.ID) === value || key.fingerprint === value || key.FingerPrint === value;
-  });
-  if (!exact) {
-    throw new CliError(`DigitalOcean SSH key "${value}" was not found. Run doctl compute ssh-key list.`);
-  }
-  return String(exact.id ?? exact.ID ?? exact.fingerprint ?? exact.FingerPrint ?? value);
-}
-
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -1435,772 +1316,6 @@ function fetchAwsConsoleOutput(opts, instanceId) {
   return text || null;
 }
 
-function createDigitalOceanFirewall(dropletId, accessCidr, { enableSsh = false } = {}) {
-  const name = `mc-remote-vm-${dropletId}`;
-  const inboundRules = [`protocol:tcp,ports:${AGENT_PORT},address:${accessCidr}`];
-  if (enableSsh) inboundRules.push(`protocol:tcp,ports:22,address:${accessCidr}`);
-  const result = run("doctl", [
-    "compute",
-    "firewall",
-    "create",
-    "--name",
-    name,
-    "--droplet-ids",
-    String(dropletId),
-    "--inbound-rules",
-    inboundRules.join(" "),
-    "--outbound-rules",
-    "protocol:tcp,ports:all,address:0.0.0.0/0 protocol:udp,ports:all,address:0.0.0.0/0 protocol:icmp,address:0.0.0.0/0",
-    "--format",
-    "ID,Name,Status",
-    "--output",
-    "json",
-  ]);
-  if (result.code !== 0) {
-    throw new CliError(`Failed to create DigitalOcean firewall: ${result.stderr.trim()}`);
-  }
-  const parsed = parseJsonOutput(result.stdout, "doctl firewall create");
-  return firstItem(parsed)?.ID ?? firstItem(parsed)?.id ?? null;
-}
-
-// --- Railway -----------------------------------------------------------------
-// The Railway CLI keeps project state per working directory, so every deploy runs
-// its commands inside a throwaway temp dir that is linked to the shared project.
-
-function railwayRun(args, { cwd, allowFail = false } = {}) {
-  // CI=1 / NO_COLOR keep the CLI from prompting or emitting ANSI in piped mode.
-  const env = { ...process.env, CI: "1", NO_COLOR: "1" };
-  // Stale CI tokens in the shell override `railway login` sessions and often
-  // lack the scopes needed for deploy mutations.
-  if (!process.env.MC_RAILWAY_API_TOKEN) {
-    delete env.RAILWAY_TOKEN;
-    delete env.RAILWAY_API_TOKEN;
-  }
-  const result = run("railway", args, { cwd, env, timeout: 10 * 60 * 1000 });
-  if (!allowFail && result.code !== 0) {
-    const detail = (result.stderr || result.stdout || result.error?.message || "command failed").trim();
-    throw new CliError(`railway ${args.join(" ")} failed: ${detail}`);
-  }
-  return result;
-}
-
-function railwayJson(args, opts = {}) {
-  const result = railwayRun([...args, "--json"], opts);
-  return extractJsonFromCliOutput(result.stdout, `railway ${args[0] ?? ""}`);
-}
-
-function resolveRailwayWorkspaceId() {
-  const preferred = process.env.RAILWAY_WORKSPACE || process.env.RAILWAY_TEAM || "";
-  const whoami = railwayJson(["whoami"]);
-  return selectRailwayWorkspaceId(whoami.workspaces, preferred);
-}
-
-function preflightRailway() {
-  assertCommand("railway", "Install the Railway CLI (https://docs.railway.com/cli) and run `railway login`.");
-  assertCommand("git", "Install Git so Mission Control can fetch the agent repository for Railway deploy.");
-  const who = railwayRun(["whoami"], { allowFail: true });
-  if (who.code !== 0) {
-    throw new CliError(
-      "Railway CLI is not logged in. Run `railway login` in your terminal so Mission Control can deploy, then retry.",
-    );
-  }
-}
-
-// Walk arbitrary CLI JSON collecting { id, name } pairs that look like Railway
-// resources, so project lookup survives shape differences across CLI versions.
-function deepCollectNamed(node, acc = []) {
-  if (!node || typeof node !== "object") return acc;
-  if (Array.isArray(node)) {
-    for (const item of node) deepCollectNamed(item, acc);
-    return acc;
-  }
-  const id = node.id ?? node.projectId;
-  const { name } = node;
-  if (typeof id === "string" && typeof name === "string" && /^[0-9a-f-]{16,}$/i.test(id)) {
-    acc.push({ id, name });
-  }
-  for (const value of Object.values(node)) deepCollectNamed(value, acc);
-  return acc;
-}
-
-function findRailwayProjectId(name) {
-  let parsed;
-  try {
-    parsed = railwayJson(["list"]);
-  } catch {
-    return null;
-  }
-  const match = deepCollectNamed(parsed).find(
-    (entry) => entry.name.trim().toLowerCase() === name.toLowerCase(),
-  );
-  return match?.id ?? null;
-}
-
-// Reuse the shared "mission-control" project when present; otherwise create it.
-// Either path leaves the temp dir linked to the project for follow-up commands.
-function ensureRailwayProject(cwd, workspaceId) {
-  const existingId = findRailwayProjectId(MC_RAILWAY_PROJECT_NAME);
-  if (existingId) {
-    railwayRun(
-      ["link", "--project", existingId, "--environment", "production", "--workspace", workspaceId],
-      { cwd },
-    );
-    console.log(`[remote-vm] linked existing Railway project ${MC_RAILWAY_PROJECT_NAME} (${existingId})`);
-    return existingId;
-  }
-  const created = railwayJson(
-    ["init", "--name", MC_RAILWAY_PROJECT_NAME, "--workspace", workspaceId],
-    { cwd },
-  );
-  const projectId =
-    deepCollectNamed(created).find(
-      (entry) => entry.name.trim().toLowerCase() === MC_RAILWAY_PROJECT_NAME.toLowerCase(),
-    )?.id ??
-    deepCollectNamed(created)[0]?.id ??
-    findRailwayProjectId(MC_RAILWAY_PROJECT_NAME);
-  console.log(`[remote-vm] created Railway project ${MC_RAILWAY_PROJECT_NAME}${projectId ? ` (${projectId})` : ""}`);
-  return projectId;
-}
-
-function cloneAgentRepo(destDir) {
-  assertCommand("git", "Install Git so Mission Control can fetch the agent repository for Railway deploy.");
-  if (fs.existsSync(destDir)) {
-    throw new CliError(`Refusing to clone into existing path: ${destDir}`);
-  }
-  console.log(`[remote-vm] cloning ${MC_AGENT_REPO} for Railway build`);
-  runChecked("git", ["clone", "--depth", "1", MC_AGENT_REPO_URL, destDir], {
-    timeout: 10 * 60 * 1000,
-  });
-}
-
-function linkRailwayService(cwd, { projectId, workspaceId, serviceName }) {
-  const args = ["link", "--environment", "production", "--service", serviceName];
-  if (projectId) args.push("--project", projectId);
-  if (workspaceId) args.push("--workspace", workspaceId);
-  railwayRun(args, { cwd });
-}
-
-function readRailwayUserToken() {
-  const configPath = path.join(os.homedir(), ".railway", "config.json");
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    return config?.user?.token || config?.user?.accessToken || null;
-  } catch {
-    return null;
-  }
-}
-
-export function isRailwayNoDeploymentsMessage(output) {
-  return /no deployments found/i.test(output) || /service\s+['"]?[^'"\s]+['"]?\s+not found/i.test(output);
-}
-
-function findRailwayServiceRecord(cwd, serviceName) {
-  const result = railwayRun(["service", "list", "--json"], { cwd, allowFail: true });
-  if ((result.code ?? 1) !== 0) return null;
-  try {
-    const services = extractJsonFromCliOutput(result.stdout, "railway service list");
-    if (!Array.isArray(services)) return null;
-    return (
-      services.find((service) => service?.name === serviceName || service?.id === serviceName) ?? null
-    );
-  } catch {
-    return null;
-  }
-}
-
-function railwayDownOptional(cwd, serviceName) {
-  const result = railwayRun(["down", "--service", String(serviceName), "--yes"], { cwd, allowFail: true });
-  const output = railwayCommandOutput(result);
-  if ((result.code ?? 1) === 0) {
-    console.log(`[remote-vm] removed Railway deployment for service ${serviceName}`);
-    return;
-  }
-  if (isRailwayNoDeploymentsMessage(output)) {
-    console.log(`[remote-vm] Railway service ${serviceName} has no deployment to remove`);
-    return;
-  }
-  throw new CliError(`railway down --service ${serviceName} --yes failed: ${output.slice(0, 800)}`);
-}
-
-function deleteRailwayVolumesForService(cwd, serviceName, serviceRecord) {
-  const deleted = new Set();
-  for (const vol of serviceRecord?.volumes ?? []) {
-    const volId = vol?.id ?? vol?.volumeId ?? vol?.name;
-    if (!volId || deleted.has(volId)) continue;
-    deleted.add(volId);
-    railwayRun(["volume", "delete", "--volume", String(volId), "--yes"], { cwd, allowFail: true });
-  }
-  const fallbackName = `${serviceName}-volume`;
-  if (!deleted.has(fallbackName)) {
-    railwayRun(["volume", "delete", "--volume", fallbackName, "--yes"], { cwd, allowFail: true });
-  }
-}
-
-async function deleteRailwayServiceGraphql(serviceId) {
-  const token =
-    process.env.MC_RAILWAY_API_TOKEN || process.env.RAILWAY_API_TOKEN || readRailwayUserToken();
-  if (!token) {
-    console.log("[remote-vm] skipping Railway service delete (no API token; run `railway login`)");
-    return;
-  }
-  const response = await fetch("https://backboard.railway.com/graphql/v2", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query: "mutation serviceDelete($id: String!) { serviceDelete(id: $id) }",
-      variables: { id: serviceId },
-    }),
-  });
-  const body = await response.json();
-  if (!response.ok || body.errors?.length) {
-    const detail = body.errors?.[0]?.message || `HTTP ${response.status}`;
-    console.log(`[remote-vm] Railway serviceDelete skipped: ${detail}`);
-    return;
-  }
-  console.log(`[remote-vm] deleted Railway service ${serviceId}`);
-}
-
-async function cleanupRailwaySandbox(cfg) {
-  preflightRailway();
-  const serviceName = String(cfg.cloud?.serviceName || cfg.providerId);
-  const projectId = cfg.cloud?.projectId ? String(cfg.cloud.projectId) : null;
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "mc-railway-"));
-  try {
-    let workspaceId = null;
-    try {
-      workspaceId = resolveRailwayWorkspaceId();
-    } catch {
-      // Linking by project id alone still works for many accounts.
-    }
-    if (projectId) {
-      const linkArgs = ["link", "--project", projectId, "--environment", "production"];
-      if (workspaceId) linkArgs.push("--workspace", workspaceId);
-      railwayRun(linkArgs, { cwd: work, allowFail: true });
-    }
-    railwayDownOptional(work, serviceName);
-    const serviceRecord = findRailwayServiceRecord(work, serviceName);
-    deleteRailwayVolumesForService(work, serviceName, serviceRecord);
-    if (serviceRecord?.id) {
-      await deleteRailwayServiceGraphql(serviceRecord.id);
-    } else {
-      console.log(`[remote-vm] Railway service ${serviceName} not found in project (may already be deleted)`);
-    }
-  } finally {
-    fs.rmSync(work, { recursive: true, force: true });
-  }
-}
-
-// Railway service names must be unique within the project and URL-safe; derive a
-// slug from the sandbox name plus a short suffix so repeat names don't collide.
-export function railwaySafeServiceName(name) {
-  const slug =
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 32) || "agent";
-  return `${slug}-${randomBytes(2).toString("hex")}`;
-}
-
-function railwayHostFromString(value) {
-  if (typeof value !== "string") return null;
-  const host = value.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").trim();
-  return /\.railway\.app$/i.test(host) ? host : null;
-}
-
-export function deepFindRailwayHost(node) {
-  const direct = railwayHostFromString(node);
-  if (direct) return direct;
-  if (!node || typeof node !== "object") return null;
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      const found = deepFindRailwayHost(item);
-      if (found) return found;
-    }
-    return null;
-  }
-  for (const key of ["domain", "serviceDomain", "host", "url"]) {
-    const found = deepFindRailwayHost(node[key]);
-    if (found) return found;
-  }
-  for (const value of Object.values(node)) {
-    const found = deepFindRailwayHost(value);
-    if (found) return found;
-  }
-  return null;
-}
-
-const RAILWAY_AGENT_CONTAINER_PORT = 9333;
-
-function parseRailwayDomainFromCliOutput(stdout, stderr = "") {
-  let host = null;
-  try {
-    host = deepFindRailwayHost(extractJsonFromCliOutput(stdout, "railway domain"));
-  } catch {
-    host = null;
-  }
-  if (!host) {
-    const raw = `${stdout}\n${stderr}`;
-    const match = raw.match(/([a-z0-9-]+\.up\.railway\.app)/i) || raw.match(/([a-z0-9-]+\.railway\.app)/i);
-    host = match ? match[1] : null;
-  }
-  return host;
-}
-
-function existingRailwayDomainFromServiceRecord(serviceRecord) {
-  if (!serviceRecord || typeof serviceRecord !== "object") return null;
-  const domains = serviceRecord.domains ?? serviceRecord.serviceDomains ?? serviceRecord.networking?.domains;
-  if (Array.isArray(domains)) {
-    for (const entry of domains) {
-      const host = deepFindRailwayHost(entry);
-      if (host) return host;
-    }
-  }
-  return deepFindRailwayHost(serviceRecord);
-}
-
-async function railwayGraphql(query, variables = {}) {
-  const token =
-    process.env.MC_RAILWAY_API_TOKEN || process.env.RAILWAY_API_TOKEN || readRailwayUserToken();
-  if (!token) {
-    throw new CliError("Railway API token is required for domain creation. Run `railway login` and retry.");
-  }
-  const response = await fetch("https://backboard.railway.com/graphql/v2", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  const body = await response.json();
-  if (!response.ok || body.errors?.length) {
-    const detail = body.errors?.[0]?.message || `HTTP ${response.status}`;
-    throw new CliError(`Railway API error: ${detail}`);
-  }
-  return body.data;
-}
-
-async function resolveRailwayProductionEnvironmentId(projectId) {
-  const data = await railwayGraphql(
-    `query projectEnvironments($id: String!) {
-      project(id: $id) {
-        environments { edges { node { id name } } }
-      }
-    }`,
-    { id: projectId },
-  );
-  const edges = data?.project?.environments?.edges ?? [];
-  const production =
-    edges.find((edge) => String(edge?.node?.name ?? "").toLowerCase() === "production")?.node ??
-    edges[0]?.node;
-  if (!production?.id) {
-    throw new CliError("Could not resolve the Railway production environment id for domain creation.");
-  }
-  return production.id;
-}
-
-async function createRailwayDomainGraphql({ projectId, serviceId, port }) {
-  const environmentId = await resolveRailwayProductionEnvironmentId(projectId);
-  const input = { serviceId, environmentId };
-  if (port) input.targetPort = port;
-  const data = await railwayGraphql(
-    `mutation serviceDomainCreate($input: ServiceDomainCreateInput!) {
-      serviceDomainCreate(input: $input) { id domain }
-    }`,
-    { input },
-  );
-  const host = railwayHostFromString(data?.serviceDomainCreate?.domain);
-  if (!host) {
-    throw new CliError("Railway domain API did not return a public hostname.");
-  }
-  return host;
-}
-
-function runRailwayDomainCreate(cwd, serviceName, port, { allowFail = false } = {}) {
-  const args = ["domain", "--service", serviceName, "--json"];
-  if (port) args.push("-p", String(port));
-  return railwayRun(args, { cwd, allowFail });
-}
-
-/** Create or reuse a *.up.railway.app domain before deploy; fail loudly if none is available. */
-export async function ensureRailwayDomain(cwd, { projectId, workspaceId, serviceName }) {
-  linkRailwayService(cwd, { projectId, workspaceId, serviceName });
-
-  const serviceRecord = findRailwayServiceRecord(cwd, serviceName);
-  let host = existingRailwayDomainFromServiceRecord(serviceRecord);
-  if (host) {
-    console.log(`[remote-vm] reusing Railway domain ${host}`);
-    return host;
-  }
-
-  console.log(`[remote-vm] generating public Railway domain for ${serviceName}`);
-  let result = runRailwayDomainCreate(cwd, serviceName, undefined, { allowFail: true });
-  host = parseRailwayDomainFromCliOutput(result.stdout, result.stderr);
-  if (!host) {
-    console.log("[remote-vm] retrying Railway domain creation with container port 9333");
-    result = runRailwayDomainCreate(cwd, serviceName, RAILWAY_AGENT_CONTAINER_PORT, { allowFail: true });
-    host = parseRailwayDomainFromCliOutput(result.stdout, result.stderr);
-  }
-  if (!host && serviceRecord?.id) {
-    try {
-      host = await createRailwayDomainGraphql({
-        projectId,
-        serviceId: serviceRecord.id,
-        port: RAILWAY_AGENT_CONTAINER_PORT,
-      });
-      console.log(`[remote-vm] created Railway domain via API: ${host}`);
-      return host;
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      throw new CliError(
-        `Could not create a Railway domain for ${serviceName}. CLI: ${railwayCommandOutput(result).slice(0, 400)}. API: ${detail}`,
-      );
-    }
-  }
-  if (!host) {
-    throw new CliError(
-      `Could not determine the Railway domain for ${serviceName}. railway domain output: ${railwayCommandOutput(result).slice(0, 500)}`,
-    );
-  }
-  console.log(`[remote-vm] Railway domain: https://${host}`);
-  return host;
-}
-
-/** Point the service at mission-control-agent's railway.json (volume + Dockerfile + health check). */
-export async function ensureRailwayConfigFile(cwd, { projectId, serviceName }) {
-  console.log(`[remote-vm] setting Railway config file to ${MC_RAILWAY_CONFIG_FILE}`);
-  const edit = railwayRun(
-    [
-      "environment",
-      "edit",
-      "--environment",
-      "production",
-      "--service-config",
-      serviceName,
-      "configFile",
-      MC_RAILWAY_CONFIG_FILE,
-      "--message",
-      "Mission Control: set mission-control-agent railway.json",
-      "--json",
-    ],
-    { cwd, allowFail: true },
-  );
-  if ((edit.code ?? 1) === 0) {
-    return;
-  }
-
-  const serviceRecord = findRailwayServiceRecord(cwd, serviceName);
-  const serviceId = serviceRecord?.id;
-  if (!serviceId) {
-    throw new CliError(
-      `Could not set Railway config file for ${serviceName}. CLI: ${railwayCommandOutput(edit).slice(0, 400)}`,
-    );
-  }
-  const environmentId = await resolveRailwayProductionEnvironmentId(projectId);
-  await railwayGraphql(
-    `mutation EnvironmentPatchCommit($environmentId: String!, $patch: EnvironmentConfig!, $commitMessage: String) {
-      environmentPatchCommit(environmentId: $environmentId, patch: $patch, commitMessage: $commitMessage)
-    }`,
-    {
-      environmentId,
-      commitMessage: "Mission Control: set mission-control-agent railway.json",
-      patch: {
-        services: {
-          [serviceId]: { configFile: MC_RAILWAY_CONFIG_FILE },
-        },
-      },
-    },
-  );
-  console.log("[remote-vm] Railway config file set via API");
-}
-
-/** Keep Railway runtime env aligned with the pairing token stored in Mission Control. */
-function ensureRailwayApiKey(cwd, serviceName, apiKey) {
-  console.log("[remote-vm] setting MC_AGENT_API_KEY on Railway service");
-  railwayRun(
-    ["variable", "set", `MC_AGENT_API_KEY=${apiKey}`, "-s", serviceName, "--skip-deploys"],
-    { cwd },
-  );
-}
-
-function railwayCommandOutput(result) {
-  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
-}
-
-export function isRailwayDeploymentReady(status) {
-  const normalized = String(status ?? "")
-    .trim()
-    .toUpperCase();
-  return (
-    normalized === "SUCCESS" ||
-    normalized === "SUCCEEDED" ||
-    normalized === "ACTIVE" ||
-    normalized === "COMPLETED"
-  );
-}
-
-export function isRailwayDeploymentFailed(status) {
-  const normalized = String(status ?? "")
-    .trim()
-    .toUpperCase();
-  return normalized === "FAILED" || normalized === "CRASHED" || normalized === "CANCELLED";
-}
-
-export function latestRailwayDeploymentStatus(parsed) {
-  const deployments = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray(parsed?.deployments)
-      ? parsed.deployments
-      : parsed?.deployment
-        ? [parsed.deployment]
-        : [];
-  const latest = deployments[0];
-  if (!latest || typeof latest !== "object") return null;
-  return latest.status ?? latest.state ?? latest.deploymentStatus ?? null;
-}
-
-function assertRailwayUpSucceeded(result) {
-  const output = railwayCommandOutput(result);
-  if (output.includes("Cannot redeploy without a snapshot")) {
-    throw new CliError(
-      "Railway could not create a deployment snapshot. In the Railway dashboard, open the service → Settings → enable the Metal build environment, then retry deploy.",
-    );
-  }
-  if ((result.code ?? 1) !== 0) {
-    throw new CliError(`railway up failed: ${output.slice(0, 800)}`);
-  }
-}
-
-/** Optional first upload — failures are ignored; the final deploy after domain + API key is authoritative. */
-function bootstrapRailwayUpload(sourceDir, serviceName) {
-  console.log("[remote-vm] bootstrap upload to Railway (non-fatal; final deploy follows)");
-  const result = railwayRun(["up", "--service", serviceName, "--ci"], { cwd: sourceDir, allowFail: true });
-  if ((result.code ?? 1) !== 0) {
-    const detail = railwayCommandOutput(result).slice(0, 600);
-    console.log(`[remote-vm] bootstrap upload exited ${result.code ?? "?"} — continuing: ${detail}`);
-    return;
-  }
-  console.log("[remote-vm] bootstrap upload finished");
-}
-
-async function waitForRailwayDeployment(cwd, serviceName, timeoutSec) {
-  const deadline = Date.now() + timeoutSec * 1000;
-  let lastStatus = "pending";
-  let attempts = 0;
-  while (Date.now() < deadline) {
-    const result = railwayRun(
-      ["deployment", "list", "--service", serviceName, "--limit", "1", "--json"],
-      { cwd, allowFail: true },
-    );
-    try {
-      const parsed = extractJsonFromCliOutput(result.stdout, "railway deployment list");
-      const status = latestRailwayDeploymentStatus(parsed);
-      if (status && isRailwayDeploymentReady(status)) {
-        if (attempts > 0) process.stdout.write("\n");
-        return status;
-      }
-      if (status && isRailwayDeploymentFailed(status)) {
-        throw new CliError(
-          `Railway deployment failed with status ${status}. Inspect build logs with: railway logs --service ${serviceName} --build`,
-        );
-      }
-      if (status && status !== lastStatus) {
-        lastStatus = status;
-        process.stdout.write(`\n[remote-vm] Railway deployment status: ${status} `);
-      } else {
-        process.stdout.write(".");
-      }
-    } catch (err) {
-      if (err instanceof CliError) throw err;
-      process.stdout.write(".");
-    }
-    attempts += 1;
-    await sleep(15_000);
-  }
-  process.stdout.write("\n");
-  throw new CliError(
-    `Timed out waiting for Railway deployment after ${timeoutSec}s (last status: ${lastStatus}). ` +
-      `Inspect build logs with: railway logs --service ${serviceName} --build`,
-  );
-}
-
-function buildRailwayRemoteConfig({
-  name,
-  serviceName,
-  projectId,
-  domain = null,
-  status = "provisioning",
-  statusMessage = null,
-  createdAt = Date.now(),
-}) {
-  const publicIp = domain ?? `${serviceName}.up.railway.app`;
-  const agentUrl = `wss://${publicIp}/`;
-  return createRemoteConfig({
-    provider: "railway",
-    providerId: serviceName,
-    providerName: "Railway",
-    name,
-    region: null,
-    size: null,
-    image: MC_AGENT_REPO,
-    publicIp,
-    agentUrl,
-    agentPort: AGENT_TLS_PORT,
-    sshUser: null,
-    identityFile: null,
-    localPort: null,
-    accessMode: "direct",
-    tls: false,
-    allowPlaintextPublic: false,
-    status,
-    statusMessage,
-    cloud: {
-      projectId,
-      projectName: MC_RAILWAY_PROJECT_NAME,
-      serviceName,
-      repo: MC_AGENT_REPO,
-      domain,
-      volumeMountPath: MC_RAILWAY_VOLUME_MOUNT,
-    },
-    createdAt,
-    updatedAt: Date.now(),
-  });
-}
-
-async function deployRailway(flags) {
-  const name = required(strFlag(flags, "name"), "--name is required.");
-  const opts = {
-    name,
-    waitTimeout: intFlag(flags, "wait-timeout", 900),
-    noWait: boolFlag(flags, "no-wait"),
-    activate: boolFlag(flags, "activate"),
-    json: boolFlag(flags, "json"),
-  };
-  preflightRailway();
-  const workspaceId = resolveRailwayWorkspaceId();
-  const db = openMissionControlDb();
-  const apiKey = randomSecret();
-  const sandboxId = strFlag(flags, "sandbox-id") || newId("sb");
-  const serviceName = railwaySafeServiceName(name);
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "mc-railway-"));
-  let sandboxPersisted = false;
-
-  try {
-    const projectId = ensureRailwayProject(work, workspaceId);
-    if (!projectId) {
-      throw new CliError(
-        `Could not determine the Railway project id for ${MC_RAILWAY_PROJECT_NAME}. Run \`railway list --json\` and retry.`,
-      );
-    }
-
-    // `railway add --repo` requires Railway's GitHub App integration and often
-    // returns Unauthorized even when `railway login` works. Create an empty
-    // service, clone the public agent repo locally, and upload with `railway up`.
-    console.log(`[remote-vm] creating Railway service "${serviceName}"`);
-    railwayRun(
-      [
-        "add",
-        "--service",
-        serviceName,
-        "--variables",
-        `MC_AGENT_API_KEY=${apiKey}`,
-      ],
-      { cwd: work },
-    );
-
-    linkRailwayService(work, { projectId, workspaceId, serviceName });
-
-    await ensureRailwayConfigFile(work, { projectId, serviceName });
-
-    // mission-control-agent deploy/railway/railway.json sets deploy.requiredMountPath to
-    // /home/workspace — the first deploy fails until that volume exists.
-    console.log(`[remote-vm] attaching volume at ${MC_RAILWAY_VOLUME_MOUNT}`);
-    railwayRun(["volume", "add", "--mount-path", MC_RAILWAY_VOLUME_MOUNT], { cwd: work });
-
-    // Persist immediately so Mission Control keeps the sandbox in the scope list
-    // even when a later Railway CLI step fails.
-    insertRemoteVmSandbox(db, {
-      id: sandboxId,
-      name,
-      apiKey,
-      remoteConfig: buildRailwayRemoteConfig({
-        name,
-        serviceName,
-        projectId,
-        statusMessage: "Deploying agent to Railway…",
-      }),
-      activate: opts.activate,
-    });
-    sandboxPersisted = true;
-
-    const sourceDir = path.join(work, "agent-source");
-    cloneAgentRepo(sourceDir);
-    linkRailwayService(sourceDir, { projectId, workspaceId, serviceName });
-
-    const domain = await ensureRailwayDomain(work, { projectId, workspaceId, serviceName });
-    const agentUrl = `wss://${domain}/`;
-    ensureRailwayApiKey(work, serviceName, apiKey);
-    updateRemoteVmStatus(db, sandboxId, "provisioning", "Deploying agent to Railway…", {
-      publicIp: domain,
-      agentUrl,
-      cloud: {
-        projectId,
-        projectName: MC_RAILWAY_PROJECT_NAME,
-        serviceName,
-        repo: MC_AGENT_REPO,
-        domain,
-        volumeMountPath: MC_RAILWAY_VOLUME_MOUNT,
-      },
-    });
-
-    bootstrapRailwayUpload(sourceDir, serviceName);
-
-    console.log("[remote-vm] final Railway deploy (waiting for this deployment to succeed)");
-    assertRailwayUpSucceeded(railwayRun(["up", "--service", serviceName, "--ci"], { cwd: sourceDir }));
-    await waitForRailwayDeployment(work, serviceName, opts.waitTimeout);
-
-    if (!opts.noWait) {
-      console.log("[remote-vm] waiting for the Railway build and agent health");
-      try {
-        await waitForRemoteAgentHttp({
-          host: domain,
-          port: AGENT_TLS_PORT,
-          tls: true,
-          timeoutSec: opts.waitTimeout,
-        });
-        updateRemoteVmStatus(db, sandboxId, "ready", null);
-      } catch (err) {
-        console.error(`[remote-vm] tip: inspect the build with: railway logs --service ${serviceName} --build`);
-        updateRemoteVmStatus(db, sandboxId, "provisioning_failed", err instanceof Error ? err.message : String(err));
-        throw err;
-      }
-    }
-
-    printDeployResult({
-      sandboxId,
-      name,
-      provider: "Railway",
-      publicIp: domain,
-      agentUrl,
-      json: opts.json,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (sandboxPersisted) {
-      updateRemoteVmStatus(db, sandboxId, "provisioning_failed", message);
-    }
-    throw err;
-  } finally {
-    db.close();
-    fs.rmSync(work, { recursive: true, force: true });
-  }
-}
-
 async function deployAws(flags) {
   const name = required(strFlag(flags, "name"), "--name is required.");
   const region = required(strFlag(flags, "region", process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || ""), "--region is required.");
@@ -2228,6 +1343,7 @@ async function deployAws(flags) {
   // Push the host's AI-CLI logins (Claude/Codex/Cursor/OpenCode) to the VM on
   // connect so sessions are usable immediately. Opt-in (off unless flagged).
   const copyAgentCreds = boolFlag(flags, "copy-agent-creds");
+  console.log(`[remote-vm] deploy options: copy_agent_creds=${copyAgentCreds ? 1 : 0} git_auth_mode=${gitAuthMode}`);
   // Idle auto-stop window. Default 30 min; 0 disables.
   const idleTimeoutMinutes = intFlag(flags, "idle-timeout", 30);
   const setupScript = decodeSetupScript(strFlag(flags, "setup-script-b64"));
@@ -2338,6 +1454,7 @@ async function deployAws(flags) {
         imageArch: arch,
         imageManifestSource: manifestSource,
         imageManifestVersion: golden?.version ?? null,
+        imageAgentVersion: golden?.agentVersion ?? null,
         goldenFallbackReason,
       },
       projectId: projectId || null,
@@ -2346,6 +1463,10 @@ async function deployAws(flags) {
     });
     try {
       insertRemoteVmSandbox(db, { id: sandboxId, name, apiKey, remoteConfig, activate: opts.activate, gitAuthMode, copyAgentCreds });
+      const stored = db.prepare("SELECT copy_agent_creds AS v FROM sandboxes WHERE id = ?").get(sandboxId);
+      console.log(
+        `[remote-vm] sandbox ${sandboxId}: persisted copy_agent_creds=${stored?.v ?? "?"} git_auth_mode=${gitAuthMode}`,
+      );
     } catch (err) {
       console.error(`[remote-vm] EC2 instance exists but SQLite write failed. Clean up with: aws ec2 terminate-instances --instance-ids ${instanceId} --region ${region}`);
       throw err;
@@ -2385,121 +1506,6 @@ async function deployAws(flags) {
       publicIp,
       localPort: opts.localPort,
       agentUrl: `wss://${publicIp}:${AGENT_TLS_PORT}/`,
-      json: opts.json,
-    });
-  } finally {
-    db.close();
-    fs.rmSync(userData.dir, { recursive: true, force: true });
-  }
-}
-
-async function deployDigitalOcean(flags) {
-  const name = required(strFlag(flags, "name"), "--name is required.");
-  const region = required(strFlag(flags, "region"), "--region is required.");
-  const sshKeyInput = strFlag(flags, "ssh-key");
-  const opts = {
-    name,
-    region,
-    size: strFlag(flags, "size", DEFAULT_DO_SIZE),
-    image: strFlag(flags, "image", DEFAULT_DO_IMAGE),
-    sshKey: sshKeyInput,
-    identityFile: strFlag(flags, "identity-file"),
-    localPort: intFlag(flags, "local-port", null),
-    waitTimeout: intFlag(flags, "wait-timeout", 900),
-    noWait: boolFlag(flags, "no-wait"),
-    activate: boolFlag(flags, "activate"),
-    json: boolFlag(flags, "json"),
-    enableMonitoring: !boolFlag(flags, "no-monitoring"),
-  };
-  const db = openMissionControlDb();
-  preflightDoctl(opts);
-  if (opts.sshKey) opts.sshKey = resolveDoSshKey(opts.sshKey);
-  opts.localPort = opts.sshKey ? chooseLocalPort(db, opts.localPort) : null;
-  const accessCidr = await accessCidrFor(flags);
-  const apiKey = randomSecret();
-  const sandboxId = strFlag(flags, "sandbox-id") || newId("sb");
-  const userData = writeTempUserData(renderUserData({ apiKey }));
-
-  try {
-    const created = doctlJson(buildDoctlDropletCreateArgs(opts, { userDataFile: userData.file }));
-    const droplet = firstItem(created);
-    const dropletId = String(droplet?.ID ?? droplet?.id ?? "");
-    if (!dropletId) throw new CliError("DigitalOcean did not return a droplet id.");
-    console.log(`[remote-vm] Droplet created: ${dropletId}`);
-    const refreshed = firstItem(
-      doctlJson([
-        "compute",
-        "droplet",
-        "get",
-        dropletId,
-        "--format",
-        "ID,Name,PublicIPv4,Status",
-      ]),
-    );
-    const publicIp = refreshed?.PublicIPv4 ?? refreshed?.public_ipv4 ?? droplet?.PublicIPv4 ?? "";
-    if (!publicIp) throw new CliError("Droplet is active but does not have a public IPv4 address.");
-    const now = Date.now();
-    const remoteConfig = createRemoteConfig({
-      provider: "digitalocean",
-      providerId: dropletId,
-      providerName: "DigitalOcean Droplet",
-      name,
-      region,
-      size: opts.size,
-      image: opts.image,
-      publicIp,
-      sshUser: opts.sshKey ? "root" : null,
-      identityFile: opts.identityFile,
-      localPort: opts.localPort,
-      accessMode: "direct",
-      status: "provisioning",
-      cloud: {
-        accessCidr,
-        sshEnabled: !!opts.sshKey,
-      },
-      createdAt: now,
-      updatedAt: now,
-    });
-    try {
-      insertRemoteVmSandbox(db, { id: sandboxId, name, apiKey, remoteConfig, activate: opts.activate });
-    } catch (err) {
-      console.error(`[remote-vm] Droplet exists but SQLite write failed. Clean up with: doctl compute droplet delete ${dropletId} --force`);
-      throw err;
-    }
-
-    try {
-      const firewallId = createDigitalOceanFirewall(dropletId, accessCidr, { enableSsh: !!opts.sshKey });
-      updateRemoteVmStatus(db, sandboxId, "provisioning", null, {
-        cloud: { ...remoteConfig.cloud, firewallId },
-      });
-    } catch (err) {
-      updateRemoteVmStatus(db, sandboxId, "provisioning_failed", err instanceof Error ? err.message : String(err));
-      throw err;
-    }
-
-    if (!opts.noWait) {
-      console.log("[remote-vm] waiting for cloud-init and agent health");
-      try {
-        await waitForRemoteAgentHttp({
-          host: publicIp,
-          port: AGENT_PORT,
-          tls: false,
-          timeoutSec: opts.waitTimeout,
-        });
-        updateRemoteVmStatus(db, sandboxId, "ready", null);
-      } catch (err) {
-        updateRemoteVmStatus(db, sandboxId, "provisioning_failed", err instanceof Error ? err.message : String(err));
-        throw err;
-      }
-    }
-
-    printDeployResult({
-      sandboxId,
-      name,
-      provider: "DigitalOcean Droplet",
-      publicIp,
-      localPort: opts.localPort,
-      agentUrl: `ws://${publicIp}:${AGENT_PORT}/`,
       json: opts.json,
     });
   } finally {
@@ -2726,41 +1732,6 @@ async function reconcile(id, flags) {
   }
 }
 
-function readDoDropletPublicIp(dropletId) {
-  const refreshed = firstItem(
-    doctlJson([
-      "compute",
-      "droplet",
-      "get",
-      String(dropletId),
-      "--format",
-      "ID,Name,PublicIPv4,Status",
-    ]),
-  );
-  return refreshed?.PublicIPv4 ?? refreshed?.public_ipv4 ?? "";
-}
-
-function withRailwayProject(cfg, fn) {
-  const serviceName = cfg.cloud?.serviceName || cfg.providerId;
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "mc-railway-"));
-  try {
-    let workspaceId = null;
-    try {
-      workspaceId = resolveRailwayWorkspaceId();
-    } catch {
-      // Linking by project id alone still works for many accounts.
-    }
-    if (cfg.cloud?.projectId) {
-      const linkArgs = ["link", "--project", String(cfg.cloud.projectId), "--environment", "production"];
-      if (workspaceId) linkArgs.push("--workspace", workspaceId);
-      railwayRun(linkArgs, { cwd: work, allowFail: true });
-    }
-    return fn({ cwd: work, serviceName });
-  } finally {
-    fs.rmSync(work, { recursive: true, force: true });
-  }
-}
-
 function printStatus(id, flags) {
   const db = openMissionControlDb();
   try {
@@ -2845,34 +1816,6 @@ async function pause(id, flags) {
       console.log(`[remote-vm] stopped EC2 instance ${cfg.providerId}`);
       return;
     }
-    if (cfg.provider === "digitalocean") {
-      assertCommand("doctl", "Install doctl.");
-      const graceful = run("doctl", buildDoctlDropletActionArgs("shutdown", cfg.providerId), {
-        timeout: 10 * 60 * 1000,
-      });
-      if (graceful.code !== 0) {
-        runChecked("doctl", buildDoctlDropletActionArgs("power-off", cfg.providerId), {
-          timeout: 10 * 60 * 1000,
-        });
-      }
-      updateRemoteVmStatus(
-        db,
-        id,
-        "paused",
-        "Droplet powered off. DigitalOcean may still bill reserved Droplet resources.",
-      );
-      console.log(`[remote-vm] powered off droplet ${cfg.providerId}`);
-      return;
-    }
-    if (cfg.provider === "railway") {
-      preflightRailway();
-      withRailwayProject(cfg, ({ cwd, serviceName }) => {
-        railwayDownOptional(cwd, serviceName);
-      });
-      updateRemoteVmStatus(db, id, "paused", "Railway deployment stopped. Volume data is preserved.");
-      console.log(`[remote-vm] stopped Railway deployment for service ${cfg.cloud?.serviceName || cfg.providerId}`);
-      return;
-    }
     throw new CliError(`Pause is not supported for provider ${cfg.provider}.`);
   } catch (err) {
     updateRemoteVmStatus(db, id, "pause_failed", err instanceof Error ? err.message : String(err));
@@ -2919,51 +1862,6 @@ async function resume(id, flags) {
       console.log(`[remote-vm] started EC2 instance ${cfg.providerId}`);
       return;
     }
-    if (cfg.provider === "digitalocean") {
-      assertCommand("doctl", "Install doctl.");
-      runChecked("doctl", buildDoctlDropletActionArgs("power-on", cfg.providerId), {
-        timeout: 10 * 60 * 1000,
-      });
-      const publicIp = readDoDropletPublicIp(cfg.providerId);
-      if (!publicIp) throw new CliError("Droplet is active but does not have a public IPv4 address.");
-      const agentUrl = remoteAgentUrlForHost(cfg, publicIp);
-      const patch = { publicIp, agentUrl };
-      if (!noWait) {
-        console.log("[remote-vm] waiting for agent health");
-        const cert = await waitForRemoteAgentHttp({
-          ...agentHealthOptionsForHost(cfg, publicIp),
-          timeoutSec: waitTimeout,
-        });
-        if (cert) {
-          patch.agentCa = cert.pem;
-          patch.agentCertSha256 = cert.sha256;
-        }
-      }
-      updateRemoteVmStatus(db, id, "ready", null, patch);
-      console.log(`[remote-vm] powered on droplet ${cfg.providerId}`);
-      return;
-    }
-    if (cfg.provider === "railway") {
-      preflightRailway();
-      const domain = cfg.cloud?.domain || cfg.publicIp;
-      if (!domain) throw new CliError("Railway sandbox is missing its public domain.");
-      withRailwayProject(cfg, ({ cwd, serviceName }) => {
-        railwayRun(["redeploy", "--service", String(serviceName), "--yes"], { cwd });
-      });
-      const agentUrl = `wss://${domain}/`;
-      if (!noWait) {
-        console.log("[remote-vm] waiting for Railway agent health");
-        await waitForRemoteAgentHttp({
-          host: domain,
-          port: AGENT_TLS_PORT,
-          tls: true,
-          timeoutSec: waitTimeout,
-        });
-      }
-      updateRemoteVmStatus(db, id, "ready", null, { publicIp: domain, agentUrl });
-      console.log(`[remote-vm] redeployed Railway service ${cfg.cloud?.serviceName || cfg.providerId}`);
-      return;
-    }
     throw new CliError(`Resume is not supported for provider ${cfg.provider}.`);
   } catch (err) {
     updateRemoteVmStatus(db, id, "resume_failed", err instanceof Error ? err.message : String(err));
@@ -3007,22 +1905,16 @@ async function destroy(id, flags) {
           throw new CliError(`aws ec2 terminate-instances failed: ${detail}`);
         }
       }
-    } else if (cfg.provider === "digitalocean") {
-      assertCommand("doctl", "Install doctl.");
-      if (cfg.cloud?.firewallId) {
-        run("doctl", ["compute", "firewall", "delete", String(cfg.cloud.firewallId), "--force"]);
-      }
-      runChecked("doctl", ["compute", "droplet", "delete", String(cfg.providerId), "--force"]);
-      console.log(`[remote-vm] deleted droplet ${cfg.providerId}`);
-    } else if (cfg.provider === "railway") {
-      await cleanupRailwaySandbox(cfg);
-      console.log(
-        `[remote-vm] cleaned up Railway resources for service ${cfg.cloud?.serviceName || cfg.providerId}`,
-      );
-    } else if (!cfg.provider || !cfg.providerId) {
-      console.log("[remote-vm] bring-your-own remote VM — no cloud resources to terminate");
     } else {
-      throw new CliError(`Unsupported remote VM provider "${cfg.provider}".`);
+      // No AWS instance to terminate: either an unmanaged row (no provider) or a
+      // legacy row tagged with a now-removed provider (railway/digitalocean).
+      // Nothing to tear down in the cloud — fall through to row cleanup so the row
+      // stays deletable.
+      console.log(
+        `[remote-vm] remote VM has no managed AWS instance${
+          cfg.provider ? ` (legacy provider "${cfg.provider}")` : ""
+        } — no cloud resources to terminate`,
+      );
     }
     // --keep-row terminates the instance but leaves the sandbox row for the caller
     // to delete (so Mission Control's server-side cleanup runs project teardown).
@@ -3045,8 +1937,6 @@ function printHelp() {
 
 Usage:
   pnpm remote-vm deploy aws --name <name> --region <region> [--size t3.medium]
-  pnpm remote-vm deploy do --name <name> --region <region> [--size s-2vcpu-4gb]
-  pnpm remote-vm deploy railway --name <name>
   pnpm remote-vm list [--json]
   pnpm remote-vm status <sandbox-id> [--json]
   pnpm remote-vm tunnel <sandbox-id> [--local-port 19333] [--identity-file ~/.ssh/key]
@@ -3077,20 +1967,6 @@ AWS flags:
   --no-golden                  Skip the golden AMI; force the full-install path.
   --subnet-id <subnet>         Optional subnet. Default VPC is used when omitted.
   --security-group-id <sg>     Optional user-managed security group.
-
-DigitalOcean flags:
-  --ssh-key <id|fingerprint|name> Optional SSH key for later SSH debugging.
-  --identity-file <path>          Optional private key path stored for tunnel command.
-  --local-port <port>             Optional local tunnel port when --ssh-key is used.
-  --image <slug>                  Default: ubuntu-24-04-x64
-  --no-monitoring                 Skip DigitalOcean monitoring agent.
-
-Railway:
-  Requires the host 'railway' CLI to be logged in (railway login) and Git to be
-  installed. Reuses or creates a "mission-control" project, clones the public
-  AgentSystemLabs/mission-control-agent repo, uploads it with railway up, sets an
-  auto-generated MC_AGENT_API_KEY, attaches the required /home/workspace volume,
-  and generates a public domain. No region/size flags — Railway is usage-based.
 `);
 }
 
@@ -3105,9 +1981,7 @@ async function main(argv = process.argv.slice(2)) {
     const provider = subcommand;
     const { flags } = parseFlagArgs(rest);
     if (provider === "aws") return deployAws(flags);
-    if (provider === "do" || provider === "digitalocean") return deployDigitalOcean(flags);
-    if (provider === "railway") return deployRailway(flags);
-    throw new CliError("deploy requires provider: aws, do, or railway.");
+    throw new CliError("deploy requires provider: aws.");
   }
 
   if (command === "list") {

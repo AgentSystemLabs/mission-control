@@ -212,14 +212,6 @@ export const api = {
   // disabled, empty state.
   listSandboxes: () =>
     req<{ sandboxes: SandboxPublicView[]; enabled: boolean; activeScopeId: string }>("/api/sandboxes"),
-  createSandbox: (body: {
-    name: string;
-    color?: string | null;
-    kind?: string;
-    remoteAgentUrl?: string;
-    apiKey?: string;
-  }) =>
-    req<{ sandbox: SandboxPublicView }>("/api/sandboxes", { method: "POST", body: JSON.stringify(body) }),
   updateSandbox: (id: string, body: Record<string, unknown>) =>
     req<{ sandbox: SandboxPublicView }>(`/api/sandboxes/${id}`, {
       method: "PATCH",
@@ -290,6 +282,7 @@ export const api = {
     req<{ tasks: Task[] }>(
       `/api/projects/${projectId}/tasks${scopedWorktreeQuery(worktreeId, scopeId)}`,
     ),
+  getTask: (id: string) => req<{ task: Task }>(`/api/tasks/${id}`),
   archiveTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>

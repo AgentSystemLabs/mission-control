@@ -1,7 +1,5 @@
 import { z } from "zod";
-import { normalizeRemoteAgentUrl, SANDBOX_KINDS } from "~/shared/sandbox";
 import {
-  createSandbox,
   deleteSandbox,
   getSandboxState,
   revealSandboxApiKey,
@@ -9,9 +7,7 @@ import {
   setSandboxesEnabled,
   updateSandbox,
 } from "../services/sandboxes";
-import { CapExceededError } from "../errors";
 import {
-  capExceededResponse,
   idParam,
   json,
   jsonError,
@@ -19,66 +15,13 @@ import {
   notFound,
   parseJsonBody,
 } from "./_helpers";
-import { HTTP_BAD_REQUEST, HTTP_CREATED } from "~/shared/http-status";
+import { HTTP_BAD_REQUEST } from "~/shared/http-status";
 import { MAX_TCP_PORT } from "~/shared/tcp-port";
 import { isElectronLocalApiRequest } from "../request-runtime";
 
 // Sandboxes are a local-desktop feature; hosted (web) requests get a disabled,
 // empty state and cannot mutate.
 const DISABLED_STATE = { sandboxes: [], enabled: false, activeScopeId: "local" } as const;
-
-const remoteAgentUrl = z
-  .string()
-  .trim()
-  .min(1)
-  .max(2_048)
-  .refine((value) => !!normalizeRemoteAgentUrl(value), {
-    message: "Remote agent URL must use wss:// or https:// unless it is a localhost/private ws:// URL.",
-  });
-
-const remoteAgentUrlPatch = z
-  .string()
-  .trim()
-  .min(1)
-  .max(2_048)
-  .refine((value) => !!normalizeRemoteAgentUrl(value, { allowPlaintextPublic: true }), {
-    message: "Remote agent URL must be a valid ws://, wss://, http://, or https:// URL.",
-  });
-
-const remoteApiKey = z.string().trim().min(16).max(512);
-
-const createBody = z
-  .object({
-    name: z.string().min(1).max(60),
-    color: z.string().max(32).nullable().optional(),
-    kind: z.enum(SANDBOX_KINDS).optional(),
-    remoteAgentUrl: remoteAgentUrl.optional(),
-    apiKey: remoteApiKey.optional(),
-  })
-  .superRefine((value, ctx) => {
-    if (value.kind !== "remote-vm") {
-      ctx.addIssue({
-        code: "custom",
-        path: ["kind"],
-        message: "Docker sandboxes are no longer supported. Create an AWS project sandbox from a project page.",
-      });
-      return;
-    }
-    if (!value.remoteAgentUrl) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["remoteAgentUrl"],
-        message: "Remote agent URL is required for remote VM sandboxes.",
-      });
-    }
-    if (!value.apiKey) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["apiKey"],
-        message: "API key is required for remote VM sandboxes.",
-      });
-    }
-  });
 
 const updateBody = z
   .object({
@@ -89,8 +32,6 @@ const updateBody = z
     gitAuthMode: z.enum(["none", "copy-host", "generate"]),
     buildArgs: z.record(z.string(), z.string()).nullable(),
     declaredPorts: z.array(z.number().int().min(1).max(MAX_TCP_PORT)).nullable(),
-    remoteAgentUrl: remoteAgentUrlPatch,
-    apiKey: remoteApiKey,
   })
   .partial();
 
@@ -106,20 +47,6 @@ function localOnly(request: Request): Response | null {
 export async function list(request: Request): Promise<Response> {
   if (!isElectronLocalApiRequest(request)) return json(DISABLED_STATE);
   return json(getSandboxState());
-}
-
-export async function create(request: Request): Promise<Response> {
-  const blocked = localOnly(request);
-  if (blocked) return blocked;
-  const parsed = await parseJsonBody(request, createBody);
-  if (!parsed.ok) return parsed.response;
-  try {
-    const sandbox = createSandbox(parsed.data);
-    return json({ sandbox }, { status: HTTP_CREATED });
-  } catch (e) {
-    if (e instanceof CapExceededError) return capExceededResponse(e);
-    throw e;
-  }
 }
 
 export async function update(rawId: string, request: Request): Promise<Response> {

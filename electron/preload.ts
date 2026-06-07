@@ -86,55 +86,30 @@ export type RemotePtySpawnOptionsBridge = {
   missionControlTheme?: "dark" | "light";
 };
 
-export type RemoteVmDeployInputBridge =
-  | {
-      provider: "aws";
-      sandboxId?: string;
-      name: string;
-      region: string;
-      size?: string;
-      keyName?: string;
-      identityFile?: string;
-      accessCidr?: string;
-      sshCidr?: string;
-      localPort?: number;
-      profile?: string;
-      imageId?: string;
-      subnetId?: string;
-      securityGroupId?: string;
-      noWait?: boolean;
-      activate?: boolean;
-      setupScript?: string;
-      gitAuthMode?: "none" | "copy-host" | "generate";
-      copyAgentCreds?: boolean;
-      idleTimeoutMinutes?: number;
-      imageStrategy?: "golden" | "full-install";
-      projectId?: string;
-    }
-  | {
-      provider: "digitalocean";
-      sandboxId?: string;
-      name: string;
-      region: string;
-      size?: string;
-      sshKey?: string;
-      identityFile?: string;
-      accessCidr?: string;
-      sshCidr?: string;
-      localPort?: number;
-      image?: string;
-      noMonitoring?: boolean;
-      noWait?: boolean;
-      activate?: boolean;
-    }
-  | {
-      // Railway is usage-based — no region/size. A name is the only required input.
-      provider: "railway";
-      sandboxId?: string;
-      name: string;
-      noWait?: boolean;
-      activate?: boolean;
-    };
+export type RemoteVmDeployInputBridge = {
+  provider: "aws";
+  sandboxId?: string;
+  name: string;
+  region: string;
+  size?: string;
+  keyName?: string;
+  identityFile?: string;
+  accessCidr?: string;
+  sshCidr?: string;
+  localPort?: number;
+  profile?: string;
+  imageId?: string;
+  subnetId?: string;
+  securityGroupId?: string;
+  noWait?: boolean;
+  activate?: boolean;
+  setupScript?: string;
+  gitAuthMode?: "none" | "copy-host" | "generate";
+  copyAgentCreds?: boolean;
+  idleTimeoutMinutes?: number;
+  imageStrategy?: "golden" | "full-install";
+  projectId?: string;
+};
 
 export type RemoteVmDeployResultBridge =
   | {
@@ -148,8 +123,6 @@ export type RemoteVmDeployResultBridge =
       output: string;
     }
   | { ok: false; error: string; output?: string };
-
-export type RailwayPreflightResultBridge = { ok: true } | { ok: false; error: string };
 
 export type RemoteVmDeployJobStatusBridge = "queued" | "running" | "succeeded" | "failed" | "canceled";
 
@@ -250,6 +223,10 @@ const electronAPI = {
     diagnostics: (): Promise<string> => ipcRenderer.invoke(IPC.sandboxDiagnostics),
     setupGitAuth: (sandboxId?: string): Promise<{ publicKey?: string }> =>
       ipcRenderer.invoke(IPC.sandboxSetupGitAuth, sandboxId),
+    upgradeAgent: (
+      sandboxId?: string,
+    ): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.sandboxUpgradeAgent, sandboxId),
     revealApiKey: (
       sandboxId: string,
     ): Promise<{ ok: true; apiKey: string } | { ok: false; error: string }> =>
@@ -263,8 +240,6 @@ const electronAPI = {
   remoteVm: {
     deploy: (input: RemoteVmDeployInputBridge): Promise<RemoteVmDeployResultBridge> =>
       ipcRenderer.invoke(IPC.remoteVmDeploy, input),
-    checkRailwayPreflight: (): Promise<RailwayPreflightResultBridge> =>
-      ipcRenderer.invoke(IPC.remoteVmCheckRailwayPreflight),
     startDeploy: (input: RemoteVmDeployInputBridge): Promise<{ jobId: string }> =>
       ipcRenderer.invoke(IPC.remoteVmStartDeploy, input),
     listDeployJobs: (): Promise<RemoteVmDeployJobSnapshotBridge[]> =>

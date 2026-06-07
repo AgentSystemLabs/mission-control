@@ -48,15 +48,15 @@ describe("optimistic-sandbox", () => {
 
   it("marks managed cloud deploys as provisioning with a provider label", () => {
     const sandbox = buildOptimisticRemoteVmSandbox({
-      id: "sb-rail",
-      name: "Railway Dev",
-      remoteProvider: "railway",
+      id: "sb-aws",
+      name: "AWS Dev",
+      remoteProvider: "aws",
       hasApiKey: true,
     });
 
     expect(sandbox).toMatchObject({
-      remoteProvider: "railway",
-      remoteProviderName: "Railway",
+      remoteProvider: "aws",
+      remoteProviderName: "AWS EC2",
       remoteStatus: "provisioning",
       hasApiKey: true,
     });
@@ -100,9 +100,10 @@ describe("optimistic-sandbox", () => {
     const job = {
       id: "job-1",
       input: {
-        provider: "railway",
+        provider: "aws",
         sandboxId: "sb-existing",
         name: "Existing",
+        region: "us-east-1",
       },
       status: "queued",
       createdAt: 123,
@@ -151,7 +152,7 @@ describe("optimistic-sandbox", () => {
       buildOptimisticRemoteVmSandbox({
         id: "sb-real",
         name: "Pending",
-        remoteProvider: "railway",
+        remoteProvider: "aws",
         hasApiKey: true,
       }),
       { activate: true },
@@ -159,7 +160,7 @@ describe("optimistic-sandbox", () => {
 
     const state = qc.getQueryData<{ sandboxes: SandboxPublicView[] }>(queryKeys.sandboxes)!;
     expect(state.sandboxes[0]).toMatchObject({
-      remoteProvider: "railway",
+      remoteProvider: "aws",
       remoteAgentUrl: "wss://agent.example.com/",
       hasApiKey: true,
     });

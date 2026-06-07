@@ -19,6 +19,7 @@ function config(id: string): SandboxConfig {
     pairingToken: "remote-token",
     remoteAgentCa: null,
     remoteStatus: null,
+    remoteProvider: null,
   };
 }
 

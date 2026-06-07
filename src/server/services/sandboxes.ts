@@ -1,12 +1,11 @@
 import type { Sandbox } from "~/db/schema";
 import { MAX_TCP_PORT } from "~/shared/tcp-port";
 import { safeJsonParse } from "~/shared/safe-json";
-import { CapExceededError } from "../errors";
 import {
   LOCAL_SCOPE_ID,
   normalizeRemoteAgentUrl,
+  parseSandboxImageProvenance,
   type SandboxGitAuthMode,
-  type SandboxKind,
   type SandboxPublicView,
   type SandboxRemoteConfig,
 } from "~/shared/sandbox";
@@ -15,7 +14,6 @@ import {
   deleteSandboxRow,
   findAllSandboxes,
   findSandboxById,
-  insertSandbox,
   updateSandboxRow,
 } from "../repositories/sandboxes.repo";
 import { findProjectIdsBySandboxId } from "../repositories/projects.repo";
@@ -25,21 +23,6 @@ import { deleteHomeTerminalsByScope } from "../repositories/home-terminals.repo"
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { getBooleanSetting, getSetting, setBooleanSetting, setSetting } from "./settings";
-import { FREE_SANDBOX_CAP, isProTier } from "~/shared/license";
-import { readLicenseState } from "./license";
-import { newId } from "./_ids";
-
-export class SandboxCapExceededError extends CapExceededError {
-  constructor(limit: number, current: number) {
-    super(
-      "free_tier_sandbox_cap",
-      limit,
-      current,
-      `Mission Control Lite is limited to ${limit} sandbox${limit === 1 ? "" : "es"} (plus Local). Upgrade to Pro for unlimited sandboxes.`,
-    );
-    this.name = "SandboxCapExceededError";
-  }
-}
 
 // CRUD + scope-selection for sandboxes (isolated execution environments). The
 // container lifecycle is owned by the Electron main; Phase 1 manages only the
@@ -77,24 +60,10 @@ function parseRemoteConfig(raw: string | null | undefined): SandboxRemoteConfig 
   return agentUrl ? { ...parsed, agentUrl, ...(allowPlaintextPublic ? { allowPlaintextPublic } : {}) } : null;
 }
 
-function normalizeRemoteAgentUrlForPatch(
-  value: string,
-  existing: SandboxRemoteConfig | null,
-): { agentUrl: string; allowPlaintextPublic: boolean } | null {
-  const allowExistingPlaintext = existing?.allowPlaintextPublic === true;
-  const agentUrl =
-    normalizeRemoteAgentUrl(value, { allowPlaintextPublic: allowExistingPlaintext }) ??
-    normalizeRemoteAgentUrl(value, { allowPlaintextPublic: true });
-  if (!agentUrl) return null;
-  return {
-    agentUrl,
-    allowPlaintextPublic: allowExistingPlaintext || agentUrl.startsWith("ws://"),
-  };
-}
-
 function toPublicSandbox(row: Sandbox): SandboxPublicView {
   const buildArgs = safeJsonParse(row.buildArgs, {});
   const remote = parseRemoteConfig(row.remoteConfig);
+  const image = parseSandboxImageProvenance(remote);
   return {
     id: row.id,
     name: row.name,
@@ -113,6 +82,10 @@ function toPublicSandbox(row: Sandbox): SandboxPublicView {
     remoteStatusMessage: typeof remote?.statusMessage === "string" ? remote.statusMessage : null,
     remotePublicAddress: typeof remote?.publicIp === "string" ? remote.publicIp : null,
     projectId: typeof remote?.projectId === "string" ? remote.projectId : null,
+    remoteImageId: image.imageId,
+    remoteGoldenImage: image.goldenImage,
+    remoteImageManifestVersion: image.imageManifestVersion,
+    remoteImageAgentVersion: image.imageAgentVersion,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     hasPairingToken: !!row.pairingToken,
@@ -134,53 +107,6 @@ export function getSandboxState(): SandboxState {
   return { sandboxes: list.map(toPublicSandbox), enabled, activeScopeId };
 }
 
-export type CreateSandboxInput = {
-  name: string;
-  kind?: SandboxKind;
-  color?: string | null;
-  remoteAgentUrl?: string | null;
-  apiKey?: string | null;
-};
-
-export function createSandbox(input: CreateSandboxInput): SandboxPublicView {
-  if (!isProTier(readLicenseState())) {
-    const existing = findAllSandboxes();
-    if (existing.length >= FREE_SANDBOX_CAP) {
-      throw new SandboxCapExceededError(FREE_SANDBOX_CAP, existing.length);
-    }
-  }
-
-  const now = Date.now();
-  const kind = input.kind ?? "remote-vm";
-  const remoteAgentUrl =
-    kind === "remote-vm" && input.remoteAgentUrl
-      ? normalizeRemoteAgentUrl(input.remoteAgentUrl)
-      : null;
-  const row: Sandbox = {
-    id: newId("sb"),
-    name: input.name.trim() || "Sandbox",
-    kind,
-    color: input.color ?? null,
-    imageTag: null,
-    dockerfilePath: null,
-    buildArgs: null,
-    gitAuthMode: "none",
-    copyAgentCreds: false,
-    declaredPorts: null,
-    env: null,
-    hostAgentPort: null,
-    portMap: null,
-    pairingToken: kind === "remote-vm" ? (input.apiKey?.trim() || null) : null,
-    remoteConfig: remoteAgentUrl ? JSON.stringify({ agentUrl: remoteAgentUrl } satisfies SandboxRemoteConfig) : null,
-    createdAt: now,
-    updatedAt: now,
-  };
-  insertSandbox(row);
-  // Creating a sandbox implies the feature is on, so the dropdown surfaces.
-  setBooleanSetting(SANDBOXES_ENABLED_KEY, true);
-  return toPublicSandbox(row);
-}
-
 export type UpdateSandboxPatch = Partial<{
   name: string;
   color: string | null;
@@ -189,8 +115,6 @@ export type UpdateSandboxPatch = Partial<{
   gitAuthMode: SandboxGitAuthMode;
   buildArgs: Record<string, string> | null;
   declaredPorts: number[] | null;
-    remoteAgentUrl: string | null;
-    apiKey: string | null;
 }>;
 
 export function revealSandboxApiKey(id: string): string | null {
@@ -215,22 +139,6 @@ export function updateSandbox(id: string, patch: UpdateSandboxPatch): SandboxPub
   if (patch.declaredPorts !== undefined) {
     const ports = normalizePorts(patch.declaredPorts);
     rowPatch.declaredPorts = ports ? JSON.stringify(ports) : null;
-  }
-  if (patch.remoteAgentUrl !== undefined) {
-    const existing = parseRemoteConfig(current.remoteConfig);
-    const normalized = patch.remoteAgentUrl
-      ? normalizeRemoteAgentUrlForPatch(patch.remoteAgentUrl, existing)
-      : null;
-    rowPatch.remoteConfig = normalized
-      ? JSON.stringify({
-          ...(existing ?? {}),
-          agentUrl: normalized.agentUrl,
-          ...(normalized.allowPlaintextPublic ? { allowPlaintextPublic: true } : {}),
-        } satisfies SandboxRemoteConfig)
-      : null;
-  }
-  if (patch.apiKey !== undefined) {
-    rowPatch.pairingToken = patch.apiKey?.trim() || null;
   }
   updateSandboxRow(id, rowPatch);
   const next = findSandboxById(id);

@@ -201,61 +201,36 @@ export type SandboxSettingsPatch = Partial<{
   gitAuthMode: SandboxGitAuthMode;
 }>;
 
-export type RemoteVmDeployInput =
-  | {
-      provider: "aws";
-      sandboxId?: string;
-      name: string;
-      region: string;
-      size?: string;
-      keyName?: string;
-      identityFile?: string;
-      accessCidr?: string;
-      sshCidr?: string;
-      localPort?: number;
-      profile?: string;
-      imageId?: string;
-      subnetId?: string;
-      securityGroupId?: string;
-      noWait?: boolean;
-      activate?: boolean;
-      /** Optional bootstrap script run on the VM after the agent is healthy (user_data.sh style). */
-      setupScript?: string;
-      /** When "copy-host", the user's ~/.ssh keys are pushed to the VM over the agent WS on connect. */
-      gitAuthMode?: SandboxGitAuthMode;
-      /** When true, the host's AI-CLI logins are pushed to the VM over the agent WS on connect. */
-      copyAgentCreds?: boolean;
-      /** Stop the EC2 instance after this many minutes with no agent activity. 0 disables. Default 30. */
-      idleTimeoutMinutes?: number;
-      /** Launch from the maintained golden AMI (default) or run the full setup script. */
-      imageStrategy?: SandboxImageStrategy;
-      /** Owning project when created from the project sandbox flow. */
-      projectId?: string;
-    }
-  | {
-      provider: "digitalocean";
-      sandboxId?: string;
-      name: string;
-      region: string;
-      size?: string;
-      sshKey?: string;
-      identityFile?: string;
-      accessCidr?: string;
-      sshCidr?: string;
-      localPort?: number;
-      image?: string;
-      noMonitoring?: boolean;
-      noWait?: boolean;
-      activate?: boolean;
-    }
-  | {
-      // Railway is usage-based — no region/size. A name is the only required input.
-      provider: "railway";
-      sandboxId?: string;
-      name: string;
-      noWait?: boolean;
-      activate?: boolean;
-    };
+export type RemoteVmDeployInput = {
+  provider: "aws";
+  sandboxId?: string;
+  name: string;
+  region: string;
+  size?: string;
+  keyName?: string;
+  identityFile?: string;
+  accessCidr?: string;
+  sshCidr?: string;
+  localPort?: number;
+  profile?: string;
+  imageId?: string;
+  subnetId?: string;
+  securityGroupId?: string;
+  noWait?: boolean;
+  activate?: boolean;
+  /** Optional bootstrap script run on the VM after the agent is healthy (user_data.sh style). */
+  setupScript?: string;
+  /** When "copy-host", the user's ~/.ssh keys are pushed to the VM over the agent WS on connect. */
+  gitAuthMode?: SandboxGitAuthMode;
+  /** When true, the host's AI-CLI logins are pushed to the VM over the agent WS on connect. */
+  copyAgentCreds?: boolean;
+  /** Stop the EC2 instance after this many minutes with no agent activity. 0 disables. Default 30. */
+  idleTimeoutMinutes?: number;
+  /** Launch from the maintained golden AMI (default) or run the full setup script. */
+  imageStrategy?: SandboxImageStrategy;
+  /** Owning project when created from the project sandbox flow. */
+  projectId?: string;
+};
 
 export type RemoteVmDeployResult =
   | {
@@ -269,8 +244,6 @@ export type RemoteVmDeployResult =
       output: string;
     }
   | { ok: false; error: string; output?: string };
-
-export type RailwayPreflightResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Result of reconciling a managed remote VM's saved status against the cloud
@@ -450,6 +423,8 @@ export type ElectronBridge = {
     diagnostics: () => Promise<string>;
     /** Provision git/SSH auth in a sandbox; returns the generated public key (generate mode). */
     setupGitAuth: (sandboxId?: string) => Promise<{ publicKey?: string }>;
+    /** npm install -g @agentsystemlabs/mission-control-agent@latest + systemctl restart on a remote VM. */
+    upgradeAgent: (sandboxId?: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     /** Read the saved remote VM bearer token (desktop-only). */
     revealApiKey: (
       sandboxId: string,
@@ -461,8 +436,6 @@ export type ElectronBridge = {
   };
   remoteVm: {
     deploy: (input: RemoteVmDeployInput) => Promise<RemoteVmDeployResult>;
-    /** Verify Railway CLI is installed and logged in before starting a deploy. */
-    checkRailwayPreflight: () => Promise<RailwayPreflightResult>;
     startDeploy: (input: RemoteVmDeployInput) => Promise<{ jobId: string }>;
     listDeployJobs: () => Promise<RemoteVmDeployJobSnapshot[]>;
     getDeployLogs: (

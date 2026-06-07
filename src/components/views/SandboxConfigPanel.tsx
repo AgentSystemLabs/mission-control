@@ -5,7 +5,6 @@ import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { TextField } from "~/components/ui/TextField";
-import { SandboxApiKeyField } from "~/components/views/SandboxApiKeyField";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { MAX_TCP_PORT } from "~/shared/tcp-port";
@@ -79,7 +78,7 @@ function statusBadge(
       return { label: `Connected · agent ${state.version}`, color: "var(--accent)" };
     case "update-required":
       return {
-        label: `Update available · ${state.version} → ${state.expectedVersion}`,
+        label: `Agent mismatch · expected ${state.expectedVersion} · sandbox ${state.version}`,
         color: "var(--status-warning, var(--accent))",
       };
     case "error":
@@ -120,12 +119,6 @@ function remoteVmStatusCopy(status: RemoteVmLifecycleStatus | string | null | un
 function providerPauseHint(provider: string | null | undefined): string {
   if (provider === "aws") {
     return "EC2 compute billing stops after the instance reaches stopped, but EBS storage charges continue. AWS may assign a new public IP on resume.";
-  }
-  if (provider === "digitalocean") {
-    return "DigitalOcean can still bill powered-off Droplet resources. Pause keeps the Droplet disk and IP reserved.";
-  }
-  if (provider === "railway") {
-    return "Railway compute stops while the service, domain, and attached volume stay configured.";
   }
   return "Compute will stop while the remote workspace data remains configured.";
 }
@@ -280,7 +273,7 @@ function gitAuthHint(
   return "Uploads your local SSH keys from ~/.ssh into this sandbox.";
 }
 
-type SandboxConfigTab = "overview" | "agent" | "setup" | "git" | "danger" | "logs";
+type SandboxConfigTab = "overview" | "setup" | "git" | "danger" | "logs";
 
 function TabBar({
   tabs,
@@ -447,6 +440,23 @@ function StatusStrip({
   );
 }
 
+function sandboxAgentVersionCopy(
+  state: SandboxState,
+  sandbox: { remoteImageAgentVersion: string | null },
+): { label: string; value: string; valueColor?: string } | null {
+  if (state.status === "connected") {
+    return { label: "Sandbox agent", value: state.version, valueColor: "var(--accent)" };
+  }
+  if (state.status === "update-required") return null;
+  if (sandbox.remoteImageAgentVersion) {
+    return {
+      label: "Sandbox agent",
+      value: `${sandbox.remoteImageAgentVersion} (baked in AMI)`,
+    };
+  }
+  return { label: "Sandbox agent", value: "Connect to view" };
+}
+
 function OverviewMetaRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
@@ -511,8 +521,6 @@ export function SandboxConfigPanel({
   const [buildArgsInput, setBuildArgsInput] = useState("");
   const [dockerfileInput, setDockerfileInput] = useState("");
   const [imageTagInput, setImageTagInput] = useState("");
-  const [remoteUrlInput, setRemoteUrlInput] = useState("");
-  const [remoteApiKeyInput, setRemoteApiKeyInput] = useState("");
   const [dfStatus, setDfStatus] = useState<string | null>(null);
   const [gitPubKey, setGitPubKey] = useState<string | null>(null);
   const [gitAuthBusy, setGitAuthBusy] = useState(false);
@@ -522,6 +530,7 @@ export function SandboxConfigPanel({
   const [deleting, setDeleting] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [cloudBusy, setCloudBusy] = useState<"pausing" | "resuming" | null>(null);
+  const [agentUpgradeBusy, setAgentUpgradeBusy] = useState(false);
   const [connectClock, setConnectClock] = useState(() => Date.now());
   const logRef = useRef<HTMLDivElement | null>(null);
   const deployLogJobIdRef = useRef<string | null>(null);
@@ -539,7 +548,6 @@ export function SandboxConfigPanel({
   useEffect(() => {
     setActiveTab("overview");
     setBuildArgsInput("");
-    setRemoteApiKeyInput("");
     setDfStatus(null);
     setGitPubKey(null);
     setError(null);
@@ -567,7 +575,6 @@ export function SandboxConfigPanel({
     setPortsInput(selectedSandbox.declaredPorts.join(", "));
     setDockerfileInput(selectedSandbox.dockerfilePath ?? "");
     setImageTagInput(selectedSandbox.imageTag ?? "");
-    setRemoteUrlInput(selectedSandbox.remoteAgentUrl ?? "");
   }, [sandboxId, selectedSandbox?.id]);
 
   useEffect(() => {
@@ -711,6 +718,27 @@ export function SandboxConfigPanel({
     [],
   );
 
+  const upgradeSandboxAgent = useCallback(async () => {
+    if (!selectedSandbox) return;
+    setAgentUpgradeBusy(true);
+    setError(null);
+    try {
+      const result = await sandbox.upgradeAgent(selectedSandbox.id);
+      if (!result.ok) {
+        setError(result.error);
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Agent upgraded. Reconnecting…");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setAgentUpgradeBusy(false);
+    }
+  }, [sandbox, selectedSandbox]);
+
   const savePorts = async () => {
     const declaredPorts = parsePortsInput(portsInput);
     await patchSelected({ declaredPorts });
@@ -734,45 +762,6 @@ export function SandboxConfigPanel({
     }
     await saveImageTag();
     if (buildArgsInput.trim()) await saveBuildArgs();
-  };
-
-  const saveRemoteConfig = async () => {
-    if (!selectedSandbox) return;
-    const remoteAgentUrl = remoteUrlInput.trim();
-    const apiKey = remoteApiKeyInput.trim();
-    if (!remoteAgentUrl) {
-      setError("Remote agent URL is required.");
-      return;
-    }
-    if (apiKey && apiKey.length < 16) {
-      setError("Remote API key must be at least 16 characters.");
-      return;
-    }
-    const urlChanged = remoteAgentUrl !== (selectedSandbox.remoteAgentUrl ?? "");
-    const next = await patchSelected({
-      remoteAgentUrl,
-      ...(apiKey ? { apiKey } : {}),
-    });
-    if (!next) return;
-    setRemoteApiKeyInput("");
-
-    if (!urlChanged && !apiKey) return;
-
-    setBusy(true);
-    setError(null);
-    try {
-      const down = await sandbox.down(sandboxId);
-      if (!down.ok) {
-        setError(down.error);
-        return;
-      }
-      const up = await sandbox.up(sandboxId);
-      if (!up.ok) setError(up.error);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
   };
 
   const validateDockerfile = async () => {
@@ -828,10 +817,11 @@ export function SandboxConfigPanel({
       const destroy = await sandbox.destroy(sandboxId);
       if (!destroy.ok) throw new Error(destroy.error);
 
-      // Managed cloud VMs (AWS/DO/Railway) need provider teardown so billing stops.
-      // Bring-your-own agents only store a URL + API key — skip the cloud CLI.
+      // Managed AWS VMs need provider teardown so billing stops. Legacy rows
+      // tagged with a removed provider (railway/digitalocean) or no provider have
+      // no AWS instance to tear down — skip the cloud CLI and just delete the row.
       const isManagedRemote =
-        selectedSandbox.kind === "remote-vm" && !!selectedSandbox.remoteProvider;
+        selectedSandbox.kind === "remote-vm" && selectedSandbox.remoteProvider === "aws";
       if (isManagedRemote && electron.remoteVm) {
         if (
           deployJob &&
@@ -948,13 +938,6 @@ export function SandboxConfigPanel({
     }
   }, [activeTab, connectionLogs.length, deployJob, selectedSandbox?.kind]);
 
-  useEffect(() => {
-    const managed = selectedSandbox?.kind === "remote-vm" && !!selectedSandbox.remoteProvider;
-    if (activeTab === "agent" && managed) {
-      setActiveTab("overview");
-    }
-  }, [activeTab, selectedSandbox?.id, selectedSandbox?.kind, selectedSandbox?.remoteProvider]);
-
   if (!selectedSandbox) {
     return <p style={{ color: "var(--text-dim)", fontSize: 13, margin: 0 }}>Sandbox not found.</p>;
   }
@@ -974,8 +957,6 @@ export function SandboxConfigPanel({
   const needsUpdate = state.status === "update-required";
   const gitHint = gitAuthHint(selectedSandbox.gitAuthMode, connected, isRemote);
 
-  const remoteDirty =
-    remoteUrlInput.trim() !== (selectedSandbox.remoteAgentUrl ?? "") || !!remoteApiKeyInput.trim();
   const dockerDirty =
     imageTagInput.trim() !== (selectedSandbox.imageTag ?? "") ||
     dockerfileInput.trim() !== (selectedSandbox.dockerfilePath ?? "") ||
@@ -1016,6 +997,11 @@ export function SandboxConfigPanel({
           : undefined;
 
   const providerLabel = selectedSandbox.remoteProviderName ?? selectedSandbox.remoteProvider;
+  const agentVersion = sandboxAgentVersionCopy(state, selectedSandbox);
+  const agentVersionMismatch = state.status === "update-required" ? state : null;
+  const showGoldenAmiVersion =
+    selectedSandbox.remoteGoldenImage === true && !!selectedSandbox.remoteImageManifestVersion;
+  const canUpgradeSandboxAgent = isRemote && (connected || needsUpdate);
   const hasRemoteInfraIssue =
     managedRemote &&
     (!!selectedSandbox.remoteStatusMessage ||
@@ -1024,16 +1010,8 @@ export function SandboxConfigPanel({
       selectedSandbox.remoteStatus === "pause_failed" ||
       selectedSandbox.remoteStatus === "resume_failed" ||
       selectedSandbox.remoteStatus === "missing");
-  // Managed deploys persist URL + API key via the cloud CLI; BYO needs the Agent tab until both are saved.
-  const needsAgentConfig =
-    isRemote &&
-    !managedRemote &&
-    (!selectedSandbox.remoteAgentUrl || !selectedSandbox.hasApiKey);
-  const showAgentTabBadge = needsAgentConfig && remoteDirty;
-
   const tabs: { id: SandboxConfigTab; label: string; badge?: number }[] = [
     { id: "overview", label: "Overview" },
-    ...(needsAgentConfig ? [{ id: "agent" as const, label: "Agent", badge: showAgentTabBadge ? 1 : undefined }] : []),
     ...(isRemote ? [] : [{ id: "setup" as const, label: "Docker" }]),
     { id: "git", label: "Git" },
     ...(showLogsTab ? [{ id: "logs" as const, label: "Logs", badge: logsTabBadge }] : []),
@@ -1149,6 +1127,57 @@ export function SandboxConfigPanel({
           aria-labelledby="sandbox-tab-overview"
           style={{ display: "flex", flexDirection: "column", gap: 12 }}
         >
+          <ConfigSection
+            title="Versions"
+            description={
+              agentVersionMismatch
+                ? "Mission Control and the sandbox agent versions do not match. Redeploy or rebuild the sandbox when the sandbox version is below expected."
+                : "Live sandbox agent version from the connected remote agent. Golden AMI version is recorded at deploy time."
+            }
+          >
+            {agentVersionMismatch ? (
+              <>
+                <OverviewMetaRow
+                  label="Expected agent"
+                  value={agentVersionMismatch.expectedVersion}
+                  valueColor="var(--status-warning, var(--accent))"
+                />
+                <OverviewMetaRow
+                  label="Sandbox agent"
+                  value={agentVersionMismatch.version}
+                  valueColor="var(--status-warning, var(--accent))"
+                />
+              </>
+            ) : agentVersion ? (
+              <OverviewMetaRow
+                label={agentVersion.label}
+                value={agentVersion.value}
+                valueColor={agentVersion.valueColor}
+              />
+            ) : null}
+            {showGoldenAmiVersion && (
+              <OverviewMetaRow
+                label="Golden AMI"
+                value={selectedSandbox.remoteImageManifestVersion!}
+              />
+            )}
+            {showGoldenAmiVersion && selectedSandbox.remoteImageId && (
+              <OverviewMetaRow label="AMI ID" value={selectedSandbox.remoteImageId} />
+            )}
+            {canUpgradeSandboxAgent && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+                <Btn
+                  variant={needsUpdate ? "primary" : "ghost"}
+                  size="sm"
+                  disabled={busy || agentUpgradeBusy}
+                  onClick={() => void upgradeSandboxAgent()}
+                >
+                  {agentUpgradeBusy ? "Upgrading agent…" : "Upgrade agent"}
+                </Btn>
+              </div>
+            )}
+          </ConfigSection>
+
           {managedRemote ? (
             <ConfigSection
               title="Provisioned agent"
@@ -1201,56 +1230,11 @@ export function SandboxConfigPanel({
             </ConfigSection>
           ) : (
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
-              {needsAgentConfig
-                ? "Connection controls are in the status card above. Set the agent URL and API key on the Agent tab."
-                : isRemote
-                  ? "Connection controls are in the status card above."
-                  : "Use the status card above to start or stop this sandbox. Image, ports, and build settings are on the Docker tab."}
+              {isRemote
+                ? "Connection controls are in the status card above."
+                : "Use the status card above to start or stop this sandbox. Image, ports, and build settings are on the Docker tab."}
             </p>
           )}
-        </div>
-      )}
-
-      {activeTab === "agent" && needsAgentConfig && (
-        <div
-          role="tabpanel"
-          id="sandbox-panel-agent"
-          aria-labelledby="sandbox-tab-agent"
-          style={{ display: "flex", flexDirection: "column", gap: 12 }}
-        >
-          <ConfigSection
-            title="Agent endpoint"
-            description="For agents you host yourself (not AWS/DO/Railway deploy). Use wss:// for public deployments."
-            footer={
-              <div style={{ width: "100%", display: "flex", justifyContent: "flex-end" }}>
-                <Btn variant="primary" size="sm" disabled={saving || busy || !remoteDirty} onClick={() => void saveRemoteConfig()}>
-                  Save
-                </Btn>
-              </div>
-            }
-          >
-            <TextField
-              label="Agent URL"
-              ariaLabel="Remote agent URL"
-              value={remoteUrlInput}
-              onChange={setRemoteUrlInput}
-              placeholder="https://your-agent.up.railway.app"
-              mono
-              required
-              ariaInvalid={!!error && !remoteUrlInput.trim()}
-            />
-            <SandboxApiKeyField
-              key={`${selectedSandbox.id}:${selectedSandbox.updatedAt}`}
-              sandboxId={selectedSandbox.id}
-              value={remoteApiKeyInput}
-              onChange={setRemoteApiKeyInput}
-              hasSavedKey={selectedSandbox.hasApiKey}
-              onWriteClipboard={async (text) => {
-                await clipboard.writeText(text);
-              }}
-              ariaInvalid={!!error && !!remoteApiKeyInput.trim() && remoteApiKeyInput.trim().length < 16}
-            />
-          </ConfigSection>
         </div>
       )}
 
@@ -1443,13 +1427,7 @@ export function SandboxConfigPanel({
           {isRemote && deployJob && deployStatus && (
             <ConfigSection
               title="Remote VM deploy"
-              description={
-                deployJob.input.provider === "railway"
-                  ? `${deployJob.input.name} · Railway`
-                  : `${deployJob.input.name} · ${
-                      deployJob.input.provider === "aws" ? "AWS EC2" : "DigitalOcean"
-                    } · ${deployJob.input.region}`
-              }
+              description={`${deployJob.input.name} · AWS EC2 · ${deployJob.input.region}`}
               footer={
                 canCancelDeploy ? (
                   <Btn variant="ghost" size="sm" onClick={() => void cancelRemoteDeploy()}>

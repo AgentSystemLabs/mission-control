@@ -41,7 +41,6 @@ import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
 import { extractRemoteVmDeployError } from "../src/shared/remote-vm-deploy-error";
 import { shortId } from "../src/shared/short-id";
 import { errMsg } from "../src/shared/err-msg";
-import { checkRailwayPreflight } from "./railway-preflight";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
@@ -183,55 +182,30 @@ function readPreviousRuntimePort(portFile: string): number | null {
   }
 }
 
-type RemoteVmDeployInput =
-  | {
-      provider: "aws";
-      sandboxId?: string;
-      name: string;
-      region: string;
-      size?: string;
-      keyName?: string;
-      identityFile?: string;
-      accessCidr?: string;
-      sshCidr?: string;
-      localPort?: number;
-      profile?: string;
-      imageId?: string;
-      subnetId?: string;
-      securityGroupId?: string;
-      noWait?: boolean;
-      activate?: boolean;
-      setupScript?: string;
-      gitAuthMode?: "none" | "copy-host" | "generate";
-      copyAgentCreds?: boolean;
-      idleTimeoutMinutes?: number;
-      imageStrategy?: "golden" | "full-install";
-      projectId?: string;
-    }
-  | {
-      provider: "digitalocean";
-      sandboxId?: string;
-      name: string;
-      region: string;
-      size?: string;
-      sshKey?: string;
-      identityFile?: string;
-      accessCidr?: string;
-      sshCidr?: string;
-      localPort?: number;
-      image?: string;
-      noMonitoring?: boolean;
-      noWait?: boolean;
-      activate?: boolean;
-    }
-  | {
-      // Railway is usage-based — no region/size. A name is the only required input.
-      provider: "railway";
-      sandboxId?: string;
-      name: string;
-      noWait?: boolean;
-      activate?: boolean;
-    };
+type RemoteVmDeployInput = {
+  provider: "aws";
+  sandboxId?: string;
+  name: string;
+  region: string;
+  size?: string;
+  keyName?: string;
+  identityFile?: string;
+  accessCidr?: string;
+  sshCidr?: string;
+  localPort?: number;
+  profile?: string;
+  imageId?: string;
+  subnetId?: string;
+  securityGroupId?: string;
+  noWait?: boolean;
+  activate?: boolean;
+  setupScript?: string;
+  gitAuthMode?: "none" | "copy-host" | "generate";
+  copyAgentCreds?: boolean;
+  idleTimeoutMinutes?: number;
+  imageStrategy?: "golden" | "full-install";
+  projectId?: string;
+};
 
 type RemoteVmDeploySuccess = {
   ok: true;
@@ -341,20 +315,10 @@ function buildRemoteVmDeployArgs(input: RemoteVmDeployInput): string[] {
   const name = typeof input?.name === "string" ? input.name.trim() : "";
   if (!name) throw new Error("VM name is required.");
 
-  // Railway is usage-based and has no region/size — a name is the only input.
-  if (input.provider === "railway") {
-    const args = ["deploy", "railway", "--name", name, "--json"];
-    appendArg(args, "--sandbox-id", input.sandboxId?.trim());
-    appendBool(args, "--activate", input.activate);
-    appendBool(args, "--no-wait", input.noWait);
-    return args;
-  }
-
   const region = typeof input.region === "string" ? input.region.trim() : "";
   if (!region) throw new Error("Region is required.");
-  const providerArg = input.provider === "aws" ? "aws" : "do";
 
-  const args = ["deploy", providerArg, "--name", name, "--region", region, "--json"];
+  const args = ["deploy", "aws", "--name", name, "--region", region, "--json"];
   appendArg(args, "--sandbox-id", input.sandboxId?.trim());
   appendArg(args, "--size", input.size?.trim());
   appendArg(args, "--identity-file", input.identityFile?.trim());
@@ -363,35 +327,28 @@ function buildRemoteVmDeployArgs(input: RemoteVmDeployInput): string[] {
   appendBool(args, "--activate", input.activate);
   appendBool(args, "--no-wait", input.noWait);
 
-  if (input.provider === "aws") {
-    const keyName = input.keyName?.trim();
-    appendArg(args, "--key-name", keyName);
-    appendArg(args, "--profile", input.profile?.trim());
-    appendArg(args, "--image-id", input.imageId?.trim());
-    appendArg(args, "--subnet-id", input.subnetId?.trim());
-    appendArg(args, "--security-group-id", input.securityGroupId?.trim());
-    appendArg(args, "--git-auth-mode", input.gitAuthMode?.trim());
-    appendBool(args, "--copy-agent-creds", input.copyAgentCreds);
-    // Idle auto-stop window in minutes (0 disables). Default lives in the CLI.
-    if (typeof input.idleTimeoutMinutes === "number" && Number.isFinite(input.idleTimeoutMinutes)) {
-      appendArg(args, "--idle-timeout", Math.max(0, Math.floor(input.idleTimeoutMinutes)));
-    }
-    // Default (golden) auto-resolves the maintained AMI in the CLI; only the
-    // explicit setup-script choice needs to force the full-install path.
-    appendBool(args, "--no-golden", input.imageStrategy === "full-install");
-    // Multi-line user setup script: base64 so newlines/quoting survive argv + the
-    // bootstrap heredoc untouched. The CLI decodes and writes it to a file on the VM.
-    const setupScript = input.setupScript?.trim();
-    if (setupScript) {
-      appendArg(args, "--setup-script-b64", Buffer.from(setupScript, "utf8").toString("base64"));
-    }
-    appendArg(args, "--project-id", input.projectId?.trim());
-  } else {
-    const sshKey = input.sshKey?.trim();
-    appendArg(args, "--ssh-key", sshKey);
-    appendArg(args, "--image", input.image?.trim());
-    appendBool(args, "--no-monitoring", input.noMonitoring);
+  const keyName = input.keyName?.trim();
+  appendArg(args, "--key-name", keyName);
+  appendArg(args, "--profile", input.profile?.trim());
+  appendArg(args, "--image-id", input.imageId?.trim());
+  appendArg(args, "--subnet-id", input.subnetId?.trim());
+  appendArg(args, "--security-group-id", input.securityGroupId?.trim());
+  appendArg(args, "--git-auth-mode", input.gitAuthMode?.trim());
+  appendBool(args, "--copy-agent-creds", input.copyAgentCreds);
+  // Idle auto-stop window in minutes (0 disables). Default lives in the CLI.
+  if (typeof input.idleTimeoutMinutes === "number" && Number.isFinite(input.idleTimeoutMinutes)) {
+    appendArg(args, "--idle-timeout", Math.max(0, Math.floor(input.idleTimeoutMinutes)));
   }
+  // Default (golden) auto-resolves the maintained AMI in the CLI; only the
+  // explicit setup-script choice needs to force the full-install path.
+  appendBool(args, "--no-golden", input.imageStrategy === "full-install");
+  // Multi-line user setup script: base64 so newlines/quoting survive argv + the
+  // bootstrap heredoc untouched. The CLI decodes and writes it to a file on the VM.
+  const setupScript = input.setupScript?.trim();
+  if (setupScript) {
+    appendArg(args, "--setup-script-b64", Buffer.from(setupScript, "utf8").toString("base64"));
+  }
+  appendArg(args, "--project-id", input.projectId?.trim());
   return args;
 }
 
@@ -574,6 +531,15 @@ function startRemoteVmDeployJob(input: RemoteVmDeployInput): RemoteVmDeployJob {
       throw new Error("Remote VM deploy script is missing from this Mission Control build.");
     }
     args = buildRemoteVmDeployArgs(job.input);
+    log.info("sandbox.agent-creds.deploy", {
+      event: "sandbox.agent-creds.deploy",
+      jobId: job.id,
+      sandboxId: job.input.sandboxId ?? null,
+      provider: job.input.provider,
+      copyAgentCreds: !!job.input.copyAgentCreds,
+      gitAuthMode: job.input.gitAuthMode ?? null,
+      copyAgentCredsFlagPresent: args.includes("--copy-agent-creds"),
+    });
   } catch (err) {
     const error = errMsg(err);
     appendRemoteVmDeployLog(job, "system", `[remote-vm] ${error}\n`);
@@ -1331,10 +1297,6 @@ safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolea
 
 safeHandle(IPC.remoteVmDeploy, (_evt, input: RemoteVmDeployInput) => {
   return runRemoteVmDeploy(input);
-});
-
-safeHandle(IPC.remoteVmCheckRailwayPreflight, () => {
-  return checkRailwayPreflight(sanitizedProcessEnv());
 });
 
 safeHandle(IPC.remoteVmStartDeploy, (_evt, input: RemoteVmDeployInput) => {

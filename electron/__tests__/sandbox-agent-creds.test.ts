@@ -81,6 +81,24 @@ describe("readHostAgentCreds — keychain empty (linux-style fallback)", () => {
     expect(item(items, "cursor", "credentials")?.content).toBe("CURSOR_FILE");
   });
 
+  it("trims ~/.claude.json even when the source file exceeds MAX_CRED_BYTES", () => {
+    const padding = "x".repeat(300 * 1024);
+    write(
+      ".claude.json",
+      JSON.stringify({
+        userID: "u1",
+        oauthAccount: { emailAddress: "x@y.z" },
+        hasCompletedOnboarding: true,
+        projects: { "/secret/host/path": { history: [padding] } },
+      }),
+    );
+    const state = item(readHostAgentCreds(), "claude", "state");
+    expect(state).toBeDefined();
+    const parsed = JSON.parse(state!.content);
+    expect(parsed).toEqual({ userID: "u1", oauthAccount: { emailAddress: "x@y.z" }, hasCompletedOnboarding: true });
+    expect(parsed).not.toHaveProperty("projects");
+  });
+
   it("trims ~/.claude.json to the allow-listed auth/onboarding keys", () => {
     write(
       ".claude.json",

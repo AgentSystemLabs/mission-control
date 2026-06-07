@@ -213,7 +213,6 @@ async function dispatch(
   // "active"/"enabled" aren't treated as sandbox ids.
   if (pathname === "/api/sandboxes") {
     if (method === "GET") return sandboxesController.list(request);
-    if (method === "POST") return sandboxesController.create(request);
   }
   if (pathname === "/api/sandboxes/active" && method === "PUT") {
     return sandboxesController.setActive(request);

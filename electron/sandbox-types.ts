@@ -41,6 +41,8 @@ export type SandboxConfig = {
   remoteAgentCa: string | null;
   /** Managed remote VM lifecycle status from `remote_config.status`, if present. */
   remoteStatus: string | null;
+  /** Managed provider id from `remote_config.provider` (currently only `aws`). */
+  remoteProvider: string | null;
 };
 
 export type OpResult = { ok: true } | { ok: false; error: string };
