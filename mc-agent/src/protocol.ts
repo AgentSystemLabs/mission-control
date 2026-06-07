@@ -38,7 +38,7 @@ export type RpcParams = {
   "fs.unwatch": { watchId: string };
   "git.status": { repo: string };
   "git.diff": { repo: string; file: string; staged?: boolean };
-  "git.clone": { remote: string; slug: string };
+  "git.clone": { remote: string; slug: string; branch?: string };
   "ssh.setup":
     | { mode: "generate" }
     | { mode: "copy"; files: Array<{ name: string; content: string }> };

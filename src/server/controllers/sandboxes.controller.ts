@@ -47,7 +47,14 @@ const createBody = z
     apiKey: remoteApiKey.optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.kind !== "remote-vm") return;
+    if (value.kind !== "remote-vm") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["kind"],
+        message: "Docker sandboxes are no longer supported. Create an AWS project sandbox from a project page.",
+      });
+      return;
+    }
     if (!value.remoteAgentUrl) {
       ctx.addIssue({
         code: "custom",

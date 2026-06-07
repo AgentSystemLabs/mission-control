@@ -1,6 +1,7 @@
 import type { UserTerminal } from "~/db/schema";
 import type { HostedAuthContext } from "../hosted-auth-context";
 import { normalizeHostedWorkspacePath } from "~/shared/hosted-workspace";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { getHostedPool } from "../hosted-pg";
 import { ValidationError } from "../errors";
 import { getHostedProject } from "./hosted-projects";
@@ -44,6 +45,7 @@ function mapTerminal(row: HostedUserTerminalRow): UserTerminal {
     id: row.id,
     projectId: row.projectId,
     worktreeId: null,
+    scopeId: LOCAL_SCOPE_ID,
     name: row.name,
     cwd: normalizeHostedWorkspacePath(row.cwd),
     startCommand: row.startCommand,
@@ -104,6 +106,7 @@ export async function createHostedUserTerminal(
       id,
       projectId: input.projectId,
       worktreeId: null,
+      scopeId: LOCAL_SCOPE_ID,
       name,
       cwd: normalizeHostedWorkspacePath(input.cwd),
       startCommand,

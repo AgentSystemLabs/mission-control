@@ -42,12 +42,12 @@ describe("filterProjectsByScope", () => {
     expect(filterProjectsByScope(projects, undefined)).toEqual(projects);
   });
 
-  it("filters to Local or the active sandbox when sandboxes are enabled", () => {
+  it("keeps the full project list when sandboxes are enabled", () => {
     expect(
       filterProjectsByScope(projects, { enabled: true, activeScopeId: LOCAL_SCOPE_ID }),
-    ).toEqual([projects[0], projects[1]]);
-    expect(filterProjectsByScope(projects, { enabled: true, activeScopeId: "sb-1" })).toEqual([
-      projects[2],
-    ]);
+    ).toEqual(projects);
+    expect(filterProjectsByScope(projects, { enabled: true, activeScopeId: "sb-1" })).toEqual(
+      projects,
+    );
   });
 });

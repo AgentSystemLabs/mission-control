@@ -1,5 +1,34 @@
+import type { ElectronBridge } from "~/lib/electron";
 import type { RemoteVmDeployJobSnapshot, RemoteVmDeployLogEntry } from "~/shared/electron-contract";
-export { extractRemoteVmDeployError } from "~/shared/remote-vm-deploy-error";
+export {
+  extractRemoteVmDeployError,
+  isMissingRemoteInstanceError,
+} from "~/shared/remote-vm-deploy-error";
+
+const REMOTE_VM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
+
+export async function waitForRemoteVmDeployJob(
+  electron: ElectronBridge,
+  jobId: string,
+  timeoutMs = REMOTE_VM_DEPLOY_TIMEOUT_MS,
+): Promise<RemoteVmDeployJobSnapshot> {
+  const remoteVm = electron.remoteVm;
+  if (!remoteVm) throw new Error("Remote VM deployment is only available in the desktop app.");
+
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const jobs = await remoteVm.listDeployJobs();
+    const job = jobs.find((entry) => entry.id === jobId);
+    if (!job) throw new Error("The deploy job disappeared before it finished.");
+    if (job.status === "succeeded") return job;
+    if (job.status === "failed") {
+      throw new Error(job.error ?? "AWS sandbox deploy failed. Open sandbox settings → Logs for details.");
+    }
+    if (job.status === "canceled") throw new Error("AWS sandbox deploy was canceled.");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("AWS sandbox deploy timed out after 30 minutes.");
+}
 
 export function remoteVmDeployStatusCopy(job: RemoteVmDeployJobSnapshot): {
   label: string;

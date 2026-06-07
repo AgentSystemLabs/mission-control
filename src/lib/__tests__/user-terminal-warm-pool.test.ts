@@ -9,10 +9,13 @@ afterEach(() => {
 });
 
 describe("user-terminal-warm-pool", () => {
-  it("keys warm slots by cwd only", () => {
-    expect(userTerminalWarmSignature("/Users/dev/project")).toBe("/Users/dev/project");
+  it("keys warm slots by runtime scope and cwd", () => {
+    expect(userTerminalWarmSignature("/Users/dev/project")).toBe("local\0/Users/dev/project");
     expect(userTerminalWarmSignature("/tmp/worktree-a")).not.toBe(
       userTerminalWarmSignature("/tmp/worktree-b"),
+    );
+    expect(userTerminalWarmSignature("/tmp/worktree-a", "sb-1")).not.toBe(
+      userTerminalWarmSignature("/tmp/worktree-a", "local"),
     );
   });
 

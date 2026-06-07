@@ -1,6 +1,7 @@
 import path from "node:path";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, TASK_STATUSES, isActiveStatus, isTaskAgent, isTaskStatus } from "~/shared/domain";
 import { hostedWorkspacePath, normalizeHostedWorkspacePath } from "~/shared/hosted-workspace";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import type { LaunchCommand, TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectWithCounts } from "~/shared/projects";
@@ -199,6 +200,7 @@ function mapTask(row: HostedTaskRow): Task {
     id: row.id,
     projectId: row.projectId,
     worktreeId: null,
+    scopeId: LOCAL_SCOPE_ID,
     title: row.title,
     icon: row.icon,
     agent: row.agent,

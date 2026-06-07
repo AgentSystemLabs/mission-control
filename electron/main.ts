@@ -194,6 +194,8 @@ type RemoteVmDeployInput =
       gitAuthMode?: "none" | "copy-host" | "generate";
       copyAgentCreds?: boolean;
       idleTimeoutMinutes?: number;
+      imageStrategy?: "golden" | "full-install";
+      projectId?: string;
     }
   | {
       provider: "digitalocean";
@@ -363,12 +365,16 @@ function buildRemoteVmDeployArgs(input: RemoteVmDeployInput): string[] {
     if (typeof input.idleTimeoutMinutes === "number" && Number.isFinite(input.idleTimeoutMinutes)) {
       appendArg(args, "--idle-timeout", Math.max(0, Math.floor(input.idleTimeoutMinutes)));
     }
+    // Default (golden) auto-resolves the maintained AMI in the CLI; only the
+    // explicit setup-script choice needs to force the full-install path.
+    appendBool(args, "--no-golden", input.imageStrategy === "full-install");
     // Multi-line user setup script: base64 so newlines/quoting survive argv + the
     // bootstrap heredoc untouched. The CLI decodes and writes it to a file on the VM.
     const setupScript = input.setupScript?.trim();
     if (setupScript) {
       appendArg(args, "--setup-script-b64", Buffer.from(setupScript, "utf8").toString("base64"));
     }
+    appendArg(args, "--project-id", input.projectId?.trim());
   } else {
     const sshKey = input.sshKey?.trim();
     appendArg(args, "--ssh-key", sshKey);

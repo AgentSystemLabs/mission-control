@@ -154,6 +154,8 @@ export type RemotePtySpawnOptions = {
 
 export type SandboxRuntimeMode = "host" | "docker";
 export type SandboxGitAuthMode = "none" | "copy-host" | "generate";
+// Mirror of SandboxImageStrategy in ~/shared/sandbox. Drift caught by reviewer-contracts.
+export type SandboxImageStrategy = "golden" | "full-install";
 
 // Mirror of SandboxState in electron/sandbox-manager.ts. Drift caught by reviewer-contracts.
 export type SandboxState =
@@ -227,6 +229,10 @@ export type RemoteVmDeployInput =
       copyAgentCreds?: boolean;
       /** Stop the EC2 instance after this many minutes with no agent activity. 0 disables. Default 30. */
       idleTimeoutMinutes?: number;
+      /** Launch from the maintained golden AMI (default) or run the full setup script. */
+      imageStrategy?: SandboxImageStrategy;
+      /** Owning project when created from the project sandbox flow. */
+      projectId?: string;
     }
   | {
       provider: "digitalocean";
@@ -520,6 +526,10 @@ export type ElectronBridge = {
   remoteGit: {
     status: (repo: string) => Promise<GitStatus>;
     diff: (repo: string, file: string, staged: boolean) => Promise<GitDiff>;
-    clone: (remote: string, slug: string) => Promise<{ slug: string; path: string }>;
+    clone: (
+      remote: string,
+      slug: string,
+      branch?: string,
+    ) => Promise<{ slug: string; path: string }>;
   };
 };

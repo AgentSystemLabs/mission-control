@@ -2,16 +2,24 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { tasks } from "~/db/schema";
 import type { Task } from "~/db/schema";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 export function findAllTasks(): Task[] {
   return getDb().select().from(tasks).all();
 }
 
-export function findTasksByProjectId(projectId: string): Task[] {
+function normalizeScopeId(scopeId: string | null | undefined): string {
+  return scopeId?.trim() || LOCAL_SCOPE_ID;
+}
+
+export function findTasksByProjectId(
+  projectId: string,
+  scopeId: string | null = LOCAL_SCOPE_ID,
+): Task[] {
   return getDb()
     .select()
     .from(tasks)
-    .where(eq(tasks.projectId, projectId))
+    .where(and(eq(tasks.projectId, projectId), eq(tasks.scopeId, normalizeScopeId(scopeId))))
     .orderBy(desc(tasks.createdAt))
     .all();
 }
@@ -19,14 +27,20 @@ export function findTasksByProjectId(projectId: string): Task[] {
 export function findTasksByProjectIdAndWorktreeId(
   projectId: string,
   worktreeId: string | null,
+  scopeId: string | null = LOCAL_SCOPE_ID,
 ): Task[] {
+  const scope = normalizeScopeId(scopeId);
   return getDb()
     .select()
     .from(tasks)
     .where(
       worktreeId
-        ? and(eq(tasks.projectId, projectId), eq(tasks.worktreeId, worktreeId))
-        : and(eq(tasks.projectId, projectId), isNull(tasks.worktreeId))
+        ? and(
+            eq(tasks.projectId, projectId),
+            eq(tasks.worktreeId, worktreeId),
+            eq(tasks.scopeId, scope),
+          )
+        : and(eq(tasks.projectId, projectId), isNull(tasks.worktreeId), eq(tasks.scopeId, scope))
     )
     .orderBy(desc(tasks.createdAt))
     .all();
@@ -47,6 +61,10 @@ export function updateTaskRow(id: string, patch: Partial<Task>): void {
 export function deleteTaskRow(id: string): number {
   const result = getDb().delete(tasks).where(eq(tasks.id, id)).run();
   return result.changes;
+}
+
+export function deleteTasksByScope(scopeId: string): number {
+  return getDb().delete(tasks).where(eq(tasks.scopeId, normalizeScopeId(scopeId))).run().changes;
 }
 
 export type TaskSessionRef = {

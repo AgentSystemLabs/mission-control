@@ -1,6 +1,7 @@
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, isTaskAgent, isTaskStatus } from "~/shared/domain";
 import type { TaskAgent, TaskStatus } from "~/shared/domain";
 import type { Task } from "~/db/schema";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { events } from "../events";
 import { deleteDiagramsForTask } from "./diagram-store";
 import {
@@ -19,16 +20,25 @@ import {
 } from "../repositories/terminal-logs.repo";
 import { newId } from "./_ids";
 import { isClientDomainId } from "../../shared/client-id";
+import { normalizeProjectScopeId } from "./sandbox-scope";
 
-export function listTasksForProject(projectId: string): Task[] {
-  return findTasksByProjectId(projectId);
+export function listTasksForProject(
+  projectId: string,
+  scopeId: string | null = LOCAL_SCOPE_ID,
+): Task[] {
+  return findTasksByProjectId(projectId, normalizeProjectScopeId(projectId, scopeId));
 }
 
 export function listTasksForProjectWorktree(
   projectId: string,
   worktreeId: string | null,
+  scopeId: string | null = LOCAL_SCOPE_ID,
 ): Task[] {
-  return findTasksByProjectIdAndWorktreeId(projectId, worktreeId);
+  return findTasksByProjectIdAndWorktreeId(
+    projectId,
+    worktreeId,
+    normalizeProjectScopeId(projectId, scopeId),
+  );
 }
 
 export function getTask(id: string): Task | null {
@@ -39,6 +49,7 @@ export function createTask(input: {
   id?: string;
   projectId: string;
   worktreeId?: string | null;
+  scopeId?: string | null;
   title: string;
   agent: TaskAgent;
   branch?: string;
@@ -51,6 +62,7 @@ export function createTask(input: {
   if (!input.projectId) throw new Error("projectId required");
   if (!input.title?.trim()) throw new Error("title required");
   if (!isTaskAgent(input.agent)) throw new Error("invalid agent");
+  const scopeId = normalizeProjectScopeId(input.projectId, input.scopeId);
 
   const now = Date.now();
   const requestedId = input.id?.trim();
@@ -60,6 +72,7 @@ export function createTask(input: {
     id: requestedId || newId("t"),
     projectId: input.projectId,
     worktreeId: input.worktreeId ?? null,
+    scopeId,
     title: input.title.trim(),
     icon: null,
     agent: input.agent,

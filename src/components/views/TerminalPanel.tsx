@@ -12,9 +12,11 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
 import type { Project, Task } from "~/db/schema";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { worktreeScopeKey } from "~/shared/worktrees";
 
 export type OpenTerminal = TerminalDescriptor & {
-  project: Project & { activeWorktreeId?: string | null };
+  project: Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
   task: Task;
 };
 
@@ -31,7 +33,7 @@ export function TerminalPanel({
   active: OpenTerminal | null;
   onClose: (taskId: string) => Promise<void> | void;
   onHide: () => void;
-  onPtyReady: (taskId: string, ptyId: string | null) => void;
+  onPtyReady: (taskId: string, ptyId: string | null, scopeKey?: string) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }) {
@@ -42,6 +44,9 @@ export function TerminalPanel({
   const [deleting, setDeleting] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const archivingRef = useRef(false);
+  const activeScopeKey = active
+    ? `${worktreeScopeKey(active.project.id, active.project.activeWorktreeId)}:${active.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`
+    : null;
 
   // Archive the open session via the project page handler so repointing,
   // optimistic cache updates, and PTY teardown stay in one place.
@@ -62,7 +67,11 @@ export function TerminalPanel({
   const currentActiveTask = useCallback((): Task | null => {
     if (!active) return null;
     const tasks = queryClient.getQueryData<Task[]>(
-      queryKeys.tasks(active.project.id, active.project.activeWorktreeId ?? null),
+      queryKeys.tasks(
+        active.project.id,
+        active.project.activeWorktreeId ?? null,
+        active.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
+      ),
     );
     return tasks?.find((task) => task.id === active.taskId) ?? active.task;
   }, [active, queryClient]);
@@ -79,7 +88,11 @@ export function TerminalPanel({
     try {
       await Promise.all([onClose(active.taskId), api.deleteTask(active.taskId)]);
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks(active.project.id),
+        queryKey: queryKeys.tasks(
+          active.project.id,
+          active.project.activeWorktreeId ?? null,
+          active.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
+        ),
       });
     } finally {
       setDeleting(false);
@@ -188,7 +201,7 @@ export function TerminalPanel({
       )}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <TerminalPane
-          key={active.taskId}
+          key={`${active.taskId}:${activeScopeKey ?? LOCAL_SCOPE_ID}`}
           project={active.project}
           task={active.task}
           descriptor={active}
@@ -196,7 +209,7 @@ export function TerminalPanel({
           onHide={onHide}
           expanded={expanded}
           onToggleExpanded={onToggleExpanded}
-          onPtyReady={(ptyId) => onPtyReady(active.taskId, ptyId)}
+          onPtyReady={(ptyId) => onPtyReady(active.taskId, ptyId, activeScopeKey ?? undefined)}
         />
       </div>
       <ConfirmDialog

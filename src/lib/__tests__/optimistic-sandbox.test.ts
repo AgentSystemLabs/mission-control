@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOptimisticRemoteVmSandbox,
+  buildOptimisticRemoteVmSandboxFromDeployJob,
+  markSandboxStoppedInCache,
+  markSandboxStoppingInCache,
   mergeServerSandboxesPreservingPending,
+  removeSandboxFromCache,
   restoreSandboxesCache,
+  updateSandboxRemoteStatusInCache,
   upsertSandboxInCache,
   type SandboxesQueryData,
 } from "../optimistic-sandbox";
 import { queryKeys } from "~/queries";
+import type { RemoteVmDeployJobSnapshot } from "~/shared/electron-contract";
 import { LOCAL_SCOPE_ID, type SandboxPublicView } from "~/shared/sandbox";
 
 function createQueryClientStub() {
@@ -54,6 +60,61 @@ describe("optimistic-sandbox", () => {
       remoteStatus: "provisioning",
       hasApiKey: true,
     });
+  });
+
+  it("builds deploy-job placeholders with the owning project id", () => {
+    const job = {
+      id: "job-1",
+      input: {
+        provider: "aws",
+        sandboxId: "sb-project",
+        name: "Project Dev",
+        region: "us-east-1",
+        projectId: "p-project",
+      },
+      status: "running",
+      createdAt: 123,
+      startedAt: 124,
+      updatedAt: 125,
+      finishedAt: null,
+      nextSeq: 1,
+    } satisfies RemoteVmDeployJobSnapshot;
+
+    const sandbox = buildOptimisticRemoteVmSandboxFromDeployJob(job);
+
+    expect(sandbox).toMatchObject({
+      id: "sb-project",
+      name: "Project Dev",
+      remoteProvider: "aws",
+      remoteStatus: "provisioning",
+      projectId: "p-project",
+    });
+  });
+
+  it("preserves an existing owning project id when replaying a deploy job without one", () => {
+    const existing = buildOptimisticRemoteVmSandbox({
+      id: "sb-existing",
+      name: "Existing",
+      projectId: "p-project",
+    });
+    const job = {
+      id: "job-1",
+      input: {
+        provider: "railway",
+        sandboxId: "sb-existing",
+        name: "Existing",
+      },
+      status: "queued",
+      createdAt: 123,
+      startedAt: null,
+      updatedAt: 123,
+      finishedAt: null,
+      nextSeq: 1,
+    } satisfies RemoteVmDeployJobSnapshot;
+
+    const sandbox = buildOptimisticRemoteVmSandboxFromDeployJob(job, existing);
+
+    expect(sandbox?.projectId).toBe("p-project");
   });
 
   it("adds and selects an optimistic sandbox in the shared query cache", () => {
@@ -135,6 +196,70 @@ describe("optimistic-sandbox", () => {
     });
   });
 
+  it("marks a sandbox as stopping and switches the active scope back to Local", () => {
+    const qc = createQueryClientStub();
+    qc.setQueryData(queryKeys.sandboxes, {
+      sandboxes: [
+        buildOptimisticRemoteVmSandbox({
+          id: "sb-stopping",
+          name: "Stopping",
+          remoteProvider: "aws",
+          remoteStatus: "ready",
+        }),
+      ],
+      enabled: true,
+      activeScopeId: "sb-stopping",
+    });
+
+    markSandboxStoppingInCache(qc as never, "sb-stopping", { switchActiveToLocal: true });
+
+    const state = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes)!;
+    expect(state.activeScopeId).toBe(LOCAL_SCOPE_ID);
+    expect(state.sandboxes[0]).toMatchObject({
+      remoteStatus: "pausing",
+      remoteStatusMessage: null,
+    });
+  });
+
+  it("updates a stopped sandbox status without moving an unrelated active scope", () => {
+    const qc = createQueryClientStub();
+    qc.setQueryData(queryKeys.sandboxes, {
+      sandboxes: [
+        buildOptimisticRemoteVmSandbox({
+          id: "sb-stopped",
+          name: "Stopped",
+          remoteProvider: "aws",
+          remoteStatus: "pausing",
+        }),
+      ],
+      enabled: true,
+      activeScopeId: LOCAL_SCOPE_ID,
+    });
+
+    markSandboxStoppedInCache(qc as never, "sb-stopped");
+
+    const state = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes)!;
+    expect(state.activeScopeId).toBe(LOCAL_SCOPE_ID);
+    expect(state.sandboxes[0]).toMatchObject({
+      remoteStatus: "paused",
+      remotePublicAddress: null,
+    });
+  });
+
+  it("ignores remote status updates for missing sandbox rows", () => {
+    const qc = createQueryClientStub();
+    const previous: SandboxesQueryData = {
+      sandboxes: [],
+      enabled: true,
+      activeScopeId: LOCAL_SCOPE_ID,
+    };
+    qc.setQueryData(queryKeys.sandboxes, previous);
+
+    updateSandboxRemoteStatusInCache(qc as never, "sb-missing", { remoteStatus: "pausing" });
+
+    expect(qc.getQueryData(queryKeys.sandboxes)).toEqual(previous);
+  });
+
   describe("mergeServerSandboxesPreservingPending", () => {
     const serverState = (
       sandboxes: SandboxPublicView[],
@@ -180,6 +305,18 @@ describe("optimistic-sandbox", () => {
       expect(merged.activeScopeId).toBe("sb-pending");
     });
 
+    it("preserves the active scope when the selected sandbox is already on the server", () => {
+      const existing = buildOptimisticRemoteVmSandbox({ id: "sb-real", name: "Real" });
+      const merged = mergeServerSandboxesPreservingPending(
+        serverState([existing], LOCAL_SCOPE_ID),
+        [],
+        "sb-real",
+      );
+
+      expect(merged.sandboxes.map((s) => s.id)).toEqual(["sb-real"]);
+      expect(merged.activeScopeId).toBe("sb-real");
+    });
+
     it("defers entirely to the server when nothing is pending", () => {
       const existing = buildOptimisticRemoteVmSandbox({ id: "sb-real", name: "Real" });
       const merged = mergeServerSandboxesPreservingPending(
@@ -203,6 +340,24 @@ describe("optimistic-sandbox", () => {
       expect(merged.sandboxes.map((s) => s.id)).toEqual(["sb-pending"]);
       expect(merged.activeScopeId).toBe("local");
     });
+  });
+
+  it("removes a sandbox from the cache and switches the active scope to Local", () => {
+    const qc = createQueryClientStub();
+    qc.setQueryData(queryKeys.sandboxes, {
+      sandboxes: [
+        buildOptimisticRemoteVmSandbox({ id: "sb-delete", name: "Delete Me" }),
+        buildOptimisticRemoteVmSandbox({ id: "sb-keep", name: "Keep Me" }),
+      ],
+      enabled: true,
+      activeScopeId: "sb-delete",
+    });
+
+    removeSandboxFromCache(qc as never, "sb-delete", { switchActiveToLocal: true });
+
+    const state = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes)!;
+    expect(state.activeScopeId).toBe(LOCAL_SCOPE_ID);
+    expect(state.sandboxes.map((sandbox) => sandbox.id)).toEqual(["sb-keep"]);
   });
 
   it("restores the previous sandbox cache after a failed optimistic write", () => {

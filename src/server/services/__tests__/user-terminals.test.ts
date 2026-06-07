@@ -16,7 +16,7 @@ const {
   nextDefaultTerminalName,
 } = await import("../user-terminals");
 const { getDb } = await import("~/db/client");
-const { projects, tasks, userTerminals, worktrees } = await import("~/db/schema");
+const { projects, tasks, userTerminals, worktrees, sandboxes } = await import("~/db/schema");
 
 function makeProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-ut-"));
@@ -30,6 +30,7 @@ describe("user-terminals service", () => {
     db.delete(worktrees).run();
     db.delete(tasks).run();
     db.delete(projects).run();
+    db.delete(sandboxes).run();
   });
 
   it("creates with default name and lists in insertion order", () => {
@@ -71,6 +72,45 @@ describe("user-terminals service", () => {
     createUserTerminal({ projectId: p2.id });
     expect(listUserTerminals(p1.id)).toHaveLength(1);
     expect(listUserTerminals(p2.id)).toHaveLength(1);
+  });
+
+  it("scopes terminals per sandbox runtime", () => {
+    const p = makeProject();
+    const now = Date.now();
+    getDb()
+      .insert(sandboxes)
+      .values({
+        id: "sb-1",
+        name: "Sandbox",
+        kind: "remote-vm",
+        color: null,
+        imageTag: null,
+        dockerfilePath: null,
+        buildArgs: null,
+        gitAuthMode: "none",
+        copyAgentCreds: false,
+        declaredPorts: null,
+        env: null,
+        hostAgentPort: null,
+        portMap: null,
+        pairingToken: null,
+        remoteConfig: JSON.stringify({ agentUrl: "wss://agent.example.com/", projectId: p.id }),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    createUserTerminal({ projectId: p.id, scopeId: "local" });
+    createUserTerminal({ projectId: p.id, scopeId: "sb-1" });
+
+    expect(listUserTerminals(p.id, "local").map((t) => t.scopeId)).toEqual(["local"]);
+    expect(listUserTerminals(p.id, "sb-1").map((t) => t.scopeId)).toEqual(["sb-1"]);
+  });
+
+  it("rejects terminals for an unknown sandbox scope", () => {
+    const p = makeProject();
+    expect(() => createUserTerminal({ projectId: p.id, scopeId: "sb-missing" })).toThrow(
+      "Sandbox scope does not exist",
+    );
   });
 
   it("does not persist launch-created terminals", () => {

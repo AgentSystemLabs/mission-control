@@ -10,7 +10,7 @@ import {
   type GitStatus,
   type GitDiff,
 } from "../../src/shared/git-status";
-import { resolveInsideWorkspace, isSafeSlug } from "./workspace-guard";
+import { resolveInsideWorkspace, isSafeBranchName, isSafeSlug } from "./workspace-guard";
 import { log } from "./logger";
 
 const GIT_TIMEOUT_MS = 15_000;
@@ -228,11 +228,12 @@ export class GitRpc {
     return { kind: "text", patch: buildAdditionsDiff(file, text), truncated: false };
   }
 
-  async clone(params: { remote: string; slug: string }): Promise<GitCloneOutcome> {
-    const { remote, slug } = params;
+  async clone(params: { remote: string; slug: string; branch?: string }): Promise<GitCloneOutcome> {
+    const { remote, slug, branch } = params;
     if (typeof remote !== "string") throw new Error("invalid remote");
     validateCloneRemote(remote);
     if (!isSafeSlug(slug)) throw new Error("invalid slug");
+    if (branch !== undefined && !isSafeBranchName(branch)) throw new Error("invalid branch");
 
     const dest = resolveInsideWorkspace(this.workspaceRoot, slug);
     if (!dest) throw new Error("clone destination is outside the workspace");
@@ -246,7 +247,10 @@ export class GitRpc {
       // `--` separates options from the remote; GIT_ALLOW_PROTOCOL pins transports;
       // GIT_TERMINAL_PROMPT=0 makes auth failures fail fast instead of blocking the
       // RPC on an (invisible, in-container) username/password prompt.
-      const r = await runGit(this.workspaceRoot, ["clone", "--", remote, slug], {
+      const cloneArgs = ["clone"];
+      if (branch) cloneArgs.push("-b", branch);
+      cloneArgs.push("--", remote, slug);
+      const r = await runGit(this.workspaceRoot, cloneArgs, {
         timeoutMs: CLONE_TIMEOUT_MS,
         extraEnv: {
           GIT_ALLOW_PROTOCOL: "http:https:ssh",

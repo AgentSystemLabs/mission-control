@@ -22,9 +22,13 @@ import {
 import { api } from "./api";
 import type { TaskAgent } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
-import { worktreeScopeKey } from "~/shared/worktrees";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 
-type ScopedProject = Project & { activeWorktreeId?: string | null };
+type ScopedProject = Project & {
+  activeWorktreeId?: string | null;
+  activeRuntimeScopeId?: string | null;
+};
 
 export type OpenTerminal = {
   taskId: string;
@@ -65,7 +69,7 @@ type Ctx = {
   adoptTaskId: (fromTaskId: string, task: Task) => void;
   /** Permanently close every session for a project (kills PTYs). */
   closeForProject: (projectId: string) => Promise<void>;
-  setPtyId: (taskId: string, ptyId: string | null) => void;
+  setPtyId: (taskId: string, ptyId: string | null, scopeKey?: string) => void;
   syncTask: (task: Task) => void;
   startCommandFor: (agent: TaskAgent) => string;
   /** Run an arbitrary command in the active PTY for this task. */
@@ -114,7 +118,11 @@ const ACTIVE_BY_PROJECT_KEY = "mc.terminalActiveByProject";
 const REMOTE_PTY_BY_TASK_KEY = "mc.remotePtyByTask";
 
 function scopeKeyForProject(project: ScopedProject): string {
-  return worktreeScopeKey(project.id, project.activeWorktreeId);
+  return `${worktreeScopeKey(project.id, project.activeWorktreeId)}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
+}
+
+function terminalSurfaceIdForProject(project: ScopedProject, taskId: string): string {
+  return `${taskId}:${project.activeWorktreeId ?? MAIN_WORKTREE_ID}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
 }
 
 function loadRemotePtyByTask(): Record<string, string> {
@@ -147,20 +155,42 @@ export function remotePtyIdForTask(taskId: string): string | null {
   return isRemotePtyId(ptyId) ? ptyId : null;
 }
 
-function rememberRemotePtyForTask(taskId: string, ptyId: string | null): void {
+function remotePtyStorageKey(scopeKey: string, taskId: string): string {
+  return `${scopeKey}#${taskId}`;
+}
+
+function remotePtyIdForSession(project: ScopedProject, taskId: string): string | null {
   const current = loadRemotePtyByTask();
-  if (ptyId && isRemotePtyId(ptyId)) current[taskId] = ptyId;
-  else delete current[taskId];
+  const scoped = current[remotePtyStorageKey(scopeKeyForProject(project), taskId)];
+  if (isRemotePtyId(scoped)) return scoped;
+  return remotePtyIdForTask(taskId);
+}
+
+function rememberRemotePtyForTask(storageKey: string, ptyId: string | null): void {
+  const current = loadRemotePtyByTask();
+  if (ptyId && isRemotePtyId(ptyId)) current[storageKey] = ptyId;
+  else delete current[storageKey];
   saveRemotePtyByTask(current);
 }
 
 function adoptRemotePtyTaskId(fromTaskId: string, toTaskId: string): void {
   const current = loadRemotePtyByTask();
-  const ptyId = current[fromTaskId];
-  if (!isRemotePtyId(ptyId)) return;
-  delete current[fromTaskId];
-  current[toTaskId] = ptyId;
-  saveRemotePtyByTask(current);
+  let changed = false;
+  for (const [key, ptyId] of Object.entries(current)) {
+    if (!isRemotePtyId(ptyId)) continue;
+    if (key === fromTaskId) {
+      delete current[key];
+      current[toTaskId] = ptyId;
+      changed = true;
+      continue;
+    }
+    if (key.endsWith(`#${fromTaskId}`)) {
+      delete current[key];
+      current[`${key.slice(0, -fromTaskId.length)}${toTaskId}`] = ptyId;
+      changed = true;
+    }
+  }
+  if (changed) saveRemotePtyByTask(current);
 }
 
 export function nextActiveTaskId(
@@ -255,7 +285,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     for (const session of sessions) {
       if (isRemotePtyId(session.ptyId)) {
-        rememberRemotePtyForTask(session.taskId, session.ptyId);
+        rememberRemotePtyForTask(
+          remotePtyStorageKey(scopeKeyForProject(session.project), session.taskId),
+          session.ptyId,
+        );
       }
     }
   }, [sessions]);
@@ -291,7 +324,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         }
         const next: OpenTerminal = {
           taskId: task.id,
-          ptyId: remotePtyIdForTask(task.id),
+          ptyId: remotePtyIdForSession(project, task.id),
           startCommand: commandForTask(task),
           dangerouslySkipPermissions: !!task.claudeSkipPermissions,
           cwd: project.path,
@@ -323,7 +356,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
               ? {
                   ...p,
                   task,
-                  ptyId: opts?.ptyId ?? p.ptyId ?? remotePtyIdForTask(task.id),
+                  ptyId: opts?.ptyId ?? p.ptyId ?? remotePtyIdForSession(project, task.id),
                   startCommand: commandForTask(task),
                   dangerouslySkipPermissions: !!task.claudeSkipPermissions,
                   awaitingCreate: false,
@@ -335,7 +368,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           ...prev,
           {
             taskId: task.id,
-            ptyId: opts?.ptyId ?? remotePtyIdForTask(task.id),
+            ptyId: opts?.ptyId ?? remotePtyIdForSession(project, task.id),
             startCommand: commandForTask(task),
             dangerouslySkipPermissions: !!task.claudeSkipPermissions,
             cwd: project.path,
@@ -361,7 +394,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         ...prev,
         {
           taskId: task.id,
-          ptyId: remotePtyIdForTask(task.id),
+          ptyId: remotePtyIdForSession(project, task.id),
           startCommand: commandForTask(task),
           dangerouslySkipPermissions: !!task.claudeSkipPermissions,
           cwd: project.path,
@@ -435,11 +468,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
   const close = useCallback(async (taskId: string, opts?: { activateTaskId?: string | null }) => {
     markIntentionalSessionClose(taskId);
-    rememberRemotePtyForTask(taskId, null);
-    terminalSurfaceCache.destroy(taskId);
     setSessions((prev) => {
       const target = prev.find((p) => p.taskId === taskId);
-      if (target) void killPty(target.ptyId);
+      if (target) {
+        terminalSurfaceCache.destroy(terminalSurfaceIdForProject(target.project, target.taskId));
+        rememberRemotePtyForTask(
+          remotePtyStorageKey(scopeKeyForProject(target.project), target.taskId),
+          null,
+        );
+        void killPty(target.ptyId);
+      }
       return prev.filter((p) => p.taskId !== taskId);
     });
     setActiveByProject((prev) => {
@@ -499,8 +537,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       for (const t of prev) {
         if (t.project.id === projectId) {
           markIntentionalSessionClose(t.taskId);
-          rememberRemotePtyForTask(t.taskId, null);
-          terminalSurfaceCache.destroy(t.taskId);
+          rememberRemotePtyForTask(
+            remotePtyStorageKey(scopeKeyForProject(t.project), t.taskId),
+            null,
+          );
+          terminalSurfaceCache.destroy(terminalSurfaceIdForProject(t.project, t.taskId));
           void killPty(t.ptyId);
         } else remaining.push(t);
       }
@@ -525,12 +566,14 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setPtyId = useCallback((taskId: string, ptyId: string | null) => {
-    rememberRemotePtyForTask(taskId, ptyId);
+  const setPtyId = useCallback((taskId: string, ptyId: string | null, scopeKey?: string) => {
     setSessions((prev) => {
       let changed = false;
       const next = prev.map((p) => {
         if (p.taskId !== taskId) return p;
+        const sessionScopeKey = scopeKeyForProject(p.project);
+        if (scopeKey && sessionScopeKey !== scopeKey) return p;
+        rememberRemotePtyForTask(remotePtyStorageKey(sessionScopeKey, taskId), ptyId);
         if (p.ptyId === ptyId) return p;
         changed = true;
         return { ...p, ptyId };

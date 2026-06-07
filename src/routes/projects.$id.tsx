@@ -28,7 +28,7 @@ import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
-import { api, type AppSettings } from "~/lib/api";
+import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { newSessionId } from "~/lib/claude-command";
@@ -73,6 +73,7 @@ import {
   useEntitlements,
   useGroups,
   useProject,
+  useSandboxes,
   useSettings,
   useTasks,
   useWorktrees,
@@ -90,6 +91,11 @@ import {
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
+import { SandboxProvisioningState } from "~/components/views/SandboxProvisioningState";
+import {
+  isSandboxProvisioning,
+  useRemoteVmDeployForSandbox,
+} from "~/lib/use-remote-vm-deploy-for-sandbox";
 import {
   availabilityFor,
   type CliAvailability,
@@ -105,6 +111,7 @@ import type { Group, Task, TaskStatus } from "~/db/schema";
 import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import {
   readCachedSelectedWorktreeByProject,
   writeCachedSelectedWorktreeByProject,
@@ -277,6 +284,7 @@ function ProjectPage() {
     worktreeSelectionHydrated,
   ]);
   const projectQuery = useProject(id);
+  const { data: sandboxState } = useSandboxes();
   useSyncProjectDiagrams(id);
   const worktreesQuery = useWorktrees(id);
   const groupsQuery = useGroups();
@@ -298,7 +306,23 @@ function ProjectPage() {
   const selectedWorktreePath = worktreesEnabled
     ? selectedWorktree?.path ?? project?.path ?? ""
     : project?.path ?? "";
-  const selectedScopeKey = worktreeScopeKey(id, selectedWorktreeId);
+  const activeRuntimeSandbox =
+    sandboxState?.activeScopeId && sandboxState.activeScopeId !== LOCAL_SCOPE_ID
+      ? sandboxState.sandboxes.find((sandbox) => sandbox.id === sandboxState.activeScopeId) ?? null
+      : null;
+  const activeRuntimeScopeId =
+    sandboxState?.enabled &&
+    activeRuntimeSandbox?.kind === "remote-vm" &&
+    activeRuntimeSandbox.remoteProvider === "aws" &&
+    activeRuntimeSandbox.projectId === project?.id
+      ? sandboxState.activeScopeId
+      : LOCAL_SCOPE_ID;
+  const deploySandboxId = activeRuntimeSandbox?.id ?? null;
+  const { deployJob, deployLogText } = useRemoteVmDeployForSandbox(deploySandboxId);
+  const sandboxProvisioning =
+    activeRuntimeSandbox != null &&
+    isSandboxProvisioning(activeRuntimeSandbox, deployJob);
+  const selectedScopeKey = `${worktreeScopeKey(id, selectedWorktreeId)}:${activeRuntimeScopeId}`;
   const scopedProject = useMemo(
     () =>
       project
@@ -306,9 +330,10 @@ function ProjectPage() {
             ...project,
             path: selectedWorktreePath || project.path,
             activeWorktreeId: selectedWorktreeId,
+            activeRuntimeScopeId,
           }
         : null,
-    [project, selectedWorktreeId, selectedWorktreePath],
+    [activeRuntimeScopeId, project, selectedWorktreeId, selectedWorktreePath],
   );
   const [projectPathCheck, setProjectPathCheck] = useState<ProjectPathCheck>({
     state: "idle",
@@ -368,7 +393,7 @@ function ProjectPage() {
   );
   const warmPrepareKey =
     terminalProject && defaultWarmPayload
-      ? `${terminalProject.id}:${terminalProject.path}:${sessionCreateSignature(defaultWarmPayload, terminalProject.path)}`
+      ? `${terminalProject.id}:${terminalProject.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}:${terminalProject.path}:${sessionCreateSignature(defaultWarmPayload, terminalProject.path)}`
       : null;
   useEffect(() => {
     if (!terminalProject || !defaultWarmPayload || !warmPrepareKey) return;
@@ -395,8 +420,15 @@ function ProjectPage() {
       );
     }
   }, [id, selectedWorktreeKey, worktreesQuery.data]);
-  const tasksQuery = useTasks(id, selectedWorktreeId);
+  const tasksQuery = useTasks(id, selectedWorktreeId, activeRuntimeScopeId);
   const tasks = tasksQuery.data ?? [];
+  const wasSandboxProvisioningRef = useRef(false);
+  useEffect(() => {
+    if (wasSandboxProvisioningRef.current && !sandboxProvisioning) {
+      void tasksQuery.refetch();
+    }
+    wasSandboxProvisioningRef.current = sandboxProvisioning;
+  }, [sandboxProvisioning, tasksQuery]);
   const hasArchivedTasks = tasks.some((t) => t.archived);
   const groups = groupsQuery.data ?? [];
   useApiToken();
@@ -789,8 +821,8 @@ function ProjectPage() {
     [queryClient, id],
   );
   const invalidateTasks = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks(id, selectedWorktreeId) }),
-    [queryClient, id, selectedWorktreeId]
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.tasks(id, selectedWorktreeId, activeRuntimeScopeId) }),
+    [queryClient, id, selectedWorktreeId, activeRuntimeScopeId]
   );
   const invalidateProjects = useCallback(
     () => queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -881,6 +913,7 @@ function ProjectPage() {
           ...project,
           path: result.worktree.path,
           activeWorktreeId: result.worktree.id,
+          activeRuntimeScopeId,
         };
         await createTerminal({
           project: setupProject,
@@ -906,6 +939,7 @@ function ProjectPage() {
     createTerminal,
     queryClient,
     worktreesEnabled,
+    activeRuntimeScopeId,
   ]);
 
   const closeDeleteWorktreeDialog = useCallback(() => {
@@ -951,7 +985,13 @@ function ProjectPage() {
       await Promise.all([
         invalidateWorktrees(),
         invalidateTasks(),
-        queryClient.invalidateQueries({ queryKey: queryKeys.scopedUserTerminals(project.id, selectedWorktree.id) }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.scopedUserTerminals(
+            project.id,
+            selectedWorktree.id,
+            activeRuntimeScopeId,
+          ),
+        }),
         queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
       ]);
@@ -1022,24 +1062,36 @@ function ProjectPage() {
         return;
       }
 
-      const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+      const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
       void queryClient.cancelQueries({ queryKey: tasksKey });
 
       const warmSlot = (await isDockerSandboxRuntime())
         ? null
         : takeSessionWarmSlot(payload, terminalProject.path);
       if (warmSlot) {
-        appendOptimisticTask(queryClient, project.id, selectedWorktreeId, warmSlot.draftTask);
+        appendOptimisticTask(
+          queryClient,
+          project.id,
+          selectedWorktreeId,
+          warmSlot.draftTask,
+          activeRuntimeScopeId,
+        );
         terminals.openSession(terminalProject, warmSlot.draftTask, { ptyId: warmSlot.ptyId });
         void (async () => {
           try {
-            const task = await persistWarmSlotTask(project.id, warmSlot, selectedWorktreeId);
+            const task = await persistWarmSlotTask(
+              project.id,
+              warmSlot,
+              selectedWorktreeId,
+              activeRuntimeScopeId,
+            );
             replaceOptimisticTask(
               queryClient,
               project.id,
               selectedWorktreeId,
               warmSlot.clientTaskId,
               task,
+              activeRuntimeScopeId,
             );
             terminals.openSession(terminalProject, task, { ptyId: warmSlot.ptyId });
             void Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
@@ -1051,7 +1103,13 @@ function ProjectPage() {
               setShowCodexHooksNotice(true);
             }
           } catch (e: unknown) {
-            removeOptimisticTask(queryClient, project.id, selectedWorktreeId, warmSlot.clientTaskId);
+            removeOptimisticTask(
+              queryClient,
+              project.id,
+              selectedWorktreeId,
+              warmSlot.clientTaskId,
+              activeRuntimeScopeId,
+            );
             await terminals.close(warmSlot.clientTaskId);
             toast.error(e instanceof Error ? e.message : "Could not create session");
             replenishSessionWarmSlot({
@@ -1073,6 +1131,7 @@ function ProjectPage() {
         id: clientTaskId,
         projectId: project.id,
         worktreeId: selectedWorktreeId,
+        scopeId: activeRuntimeScopeId,
         agent: payload.agent,
         branch: payload.branch,
         claudeSessionId,
@@ -1081,7 +1140,7 @@ function ProjectPage() {
           : undefined,
         claudeBareSession: payload.agent === "claude-code" ? payload.bareSession : undefined,
       });
-      appendOptimisticTask(queryClient, project.id, selectedWorktreeId, optimisticTask);
+      appendOptimisticTask(queryClient, project.id, selectedWorktreeId, optimisticTask, activeRuntimeScopeId);
       terminals.toggle(terminalProject, optimisticTask, { awaitCreate: !isLocal });
 
       void (async () => {
@@ -1097,6 +1156,7 @@ function ProjectPage() {
               ? payload.skipPermissions
               : undefined,
             worktreeId: selectedWorktreeId,
+            scopeId: activeRuntimeScopeId,
           });
           replaceOptimisticTask(
             queryClient,
@@ -1104,6 +1164,7 @@ function ProjectPage() {
             selectedWorktreeId,
             optimisticTask.id,
             created.task,
+            activeRuntimeScopeId,
           );
           if (clientTaskId && created.task.id === clientTaskId) {
             terminals.openSession(terminalProject, created.task);
@@ -1119,7 +1180,13 @@ function ProjectPage() {
             setShowCodexHooksNotice(true);
           }
         } catch (e: unknown) {
-          removeOptimisticTask(queryClient, project.id, selectedWorktreeId, optimisticTask.id);
+          removeOptimisticTask(
+            queryClient,
+            project.id,
+            selectedWorktreeId,
+            optimisticTask.id,
+            activeRuntimeScopeId,
+          );
           await terminals.close(optimisticTask.id);
           toast.error(e instanceof Error ? e.message : "Could not create session");
         }
@@ -1129,6 +1196,7 @@ function ProjectPage() {
       project,
       terminalProject,
       selectedWorktreeId,
+      activeRuntimeScopeId,
       queryClient,
       invalidateProject,
       invalidateTasks,
@@ -1311,7 +1379,10 @@ function ProjectPage() {
     !!project &&
     hiddenSession?.projectId === selectedScopeKey &&
     terminals.sessions.some(
-      (s) => s.taskId === hiddenSession.taskId && worktreeScopeKey(s.project.id, s.project.activeWorktreeId) === selectedScopeKey,
+      (s) =>
+        s.taskId === hiddenSession.taskId &&
+        `${worktreeScopeKey(s.project.id, s.project.activeWorktreeId)}:${s.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}` ===
+          selectedScopeKey,
     ) &&
     tasks.some((t) => t.id === hiddenSession.taskId && !t.archived);
   const closePanelEnabled =
@@ -1333,7 +1404,10 @@ function ProjectPage() {
       const hidden = lastHiddenSessionRef.current;
       if (!hidden || hidden.projectId !== selectedScopeKey) return;
       const sessionStillOpen = terminals.sessions.some(
-        (s) => s.taskId === hidden.taskId && worktreeScopeKey(s.project.id, s.project.activeWorktreeId) === selectedScopeKey,
+        (s) =>
+          s.taskId === hidden.taskId &&
+          `${worktreeScopeKey(s.project.id, s.project.activeWorktreeId)}:${s.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}` ===
+            selectedScopeKey,
       );
       if (!sessionStillOpen) return;
       const task = tasks.find((t) => t.id === hidden.taskId && !t.archived);
@@ -1420,7 +1494,7 @@ function ProjectPage() {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || !project) return;
 
-    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
     void queryClient.cancelQueries({ queryKey: tasksKey });
     const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
 
@@ -1437,7 +1511,7 @@ function ProjectPage() {
       else terminals.deselect(selectedScopeKey);
     }
 
-    removeTaskFromCache(queryClient, project.id, selectedWorktreeId, taskId);
+    removeTaskFromCache(queryClient, project.id, selectedWorktreeId, taskId, activeRuntimeScopeId);
 
     void (async () => {
       showHostedCleanupStatus("session");
@@ -1450,7 +1524,7 @@ function ProjectPage() {
         void invalidateTasks();
       } catch (e: unknown) {
         if (previousTasks) {
-          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
         }
         toast.error(e instanceof Error ? e.message : "Could not delete session");
       } finally {
@@ -1542,7 +1616,7 @@ function ProjectPage() {
     if (!project || targets.length === 0) return;
     const ids = new Set(targets.map((t) => t.id));
 
-    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
     void queryClient.cancelQueries({ queryKey: tasksKey });
     const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
 
@@ -1559,7 +1633,7 @@ function ProjectPage() {
       else terminals.deselect(selectedScopeKey);
     }
 
-    setTasksArchivedInCache(queryClient, project.id, selectedWorktreeId, ids, true);
+    setTasksArchivedInCache(queryClient, project.id, selectedWorktreeId, ids, true, activeRuntimeScopeId);
 
     void (async () => {
       try {
@@ -1577,7 +1651,7 @@ function ProjectPage() {
         void invalidateTasks();
       } catch (e: unknown) {
         if (previousTasks) {
-          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
         }
         toast.error(e instanceof Error ? e.message : "Could not archive session");
       }
@@ -1595,10 +1669,10 @@ function ProjectPage() {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
     void queryClient.cancelQueries({ queryKey: tasksKey });
     const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
-    setTaskArchivedInCache(queryClient, project.id, selectedWorktreeId, taskId, false);
+    setTaskArchivedInCache(queryClient, project.id, selectedWorktreeId, taskId, false, activeRuntimeScopeId);
 
     void (async () => {
       try {
@@ -1606,7 +1680,7 @@ function ProjectPage() {
         void invalidateTasks();
       } catch (e: unknown) {
         if (previousTasks) {
-          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
         }
         toast.error(e instanceof Error ? e.message : "Could not restore session");
       }
@@ -1619,11 +1693,11 @@ function ProjectPage() {
     const archived = tasks.filter((t) => t.archived);
     if (archived.length === 0) return;
 
-    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId);
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
     void queryClient.cancelQueries({ queryKey: tasksKey });
     const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
     const archivedIds = new Set(archived.map((t) => t.id));
-    removeTasksFromCache(queryClient, project.id, selectedWorktreeId, archivedIds);
+    removeTasksFromCache(queryClient, project.id, selectedWorktreeId, archivedIds, activeRuntimeScopeId);
 
     void (async () => {
       showHostedCleanupStatus("archivedSessions");
@@ -1637,7 +1711,7 @@ function ProjectPage() {
         void invalidateTasks();
       } catch (e: unknown) {
         if (previousTasks) {
-          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks);
+          restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
         }
         toast.error(e instanceof Error ? e.message : "Could not delete archived sessions");
       } finally {
@@ -1677,18 +1751,18 @@ function ProjectPage() {
         }
         onStop={stopLaunch}
       />
-      <span
-        aria-hidden
-        style={{
-          width: 1,
-          height: 24,
-          background: "var(--border)",
-          margin: "0 2px 0 4px",
-          flexShrink: 0,
-        }}
-      />
       {worktreesEnabled && (
         <>
+          <span
+            aria-hidden
+            style={{
+              width: 1,
+              height: 24,
+              background: "var(--border)",
+              margin: "0 2px 0 4px",
+              flexShrink: 0,
+            }}
+          />
           <WorktreeToggleGroup
             worktrees={worktrees}
             selectedId={selectedWorktree?.id ?? MAIN_WORKTREE_ID}
@@ -2175,6 +2249,13 @@ function ProjectPage() {
               projectPath={selectedWorktreePath || project.path}
               enabled={projectPathReady}
               onBack={closeDiffView}
+            />
+          ) : sandboxProvisioning && activeRuntimeSandbox ? (
+            <SandboxProvisioningState
+              name={activeRuntimeSandbox.name}
+              deployJob={deployJob}
+              deployLogText={deployLogText}
+              remoteStatus={activeRuntimeSandbox.remoteStatus}
             />
           ) : tasksQuery.isLoading ? (
             <EmptyState
@@ -2868,7 +2949,10 @@ function WorktreeToggleGroup({
       {items.map((worktree) => {
         const selected = worktree.id === selectedId;
         const optimistic = isOptimisticWorktree(worktree);
-        const running = runningKeys.has(worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id));
+        const worktreeKey = worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id);
+        const running = [...runningKeys].some(
+          (key) => key === worktreeKey || key.startsWith(`${worktreeKey}:`),
+        );
         const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
         const label = worktree.isMain ? "main" : worktree.name;
         return (

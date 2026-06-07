@@ -18,6 +18,7 @@ const baseTask = {
   id: "task-1",
   projectId: "project-1",
   worktreeId: null,
+  scopeId: "local",
   title: "Task",
   icon: null,
   status: "ready",
@@ -210,19 +211,19 @@ describe("archivedSessionsEligibleForReap", () => {
 
   it("reaps an archived session that is not the active selection", () => {
     const sessions = [openTerminal({ taskId: "a", archived: true })];
-    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": null })).toEqual([
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main:local": null })).toEqual([
       "a",
     ]);
   });
 
   it("keeps an archived session alive while it is the active selection", () => {
     const sessions = [openTerminal({ taskId: "a", archived: true })];
-    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": "a" })).toEqual([]);
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main:local": "a" })).toEqual([]);
   });
 
   it("never reaps a non-archived session even when it is unselected", () => {
     const sessions = [openTerminal({ taskId: "a", archived: false })];
-    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": null })).toEqual([]);
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main:local": null })).toEqual([]);
   });
 
   it("checks the active selection in the session's own worktree scope", () => {
@@ -242,7 +243,7 @@ describe("archivedSessionsEligibleForReap", () => {
       openTerminal({ taskId: "b", archived: true }),
       openTerminal({ taskId: "c", archived: false }),
     ];
-    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main": "b" })).toEqual([
+    expect(archivedSessionsEligibleForReap(sessions, { "project-1:main:local": "b" })).toEqual([
       "a",
     ]);
   });

@@ -54,8 +54,24 @@ export function Modal({
 
   const titleId = useId();
   const panelRef = useRef<HTMLElement>(null);
+  const mouseDownOnBackdropRef = useRef(false);
   const setPanelRef = (node: HTMLElement | null) => {
     panelRef.current = node;
+  };
+
+  const handleBackdropMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    mouseDownOnBackdropRef.current = e.target === e.currentTarget;
+  };
+
+  const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (
+      !closeOnBackdropClick ||
+      e.target !== e.currentTarget ||
+      !mouseDownOnBackdropRef.current
+    ) {
+      return;
+    }
+    onClose();
   };
   useEffect(() => {
     if (!open) return;
@@ -185,7 +201,8 @@ export function Modal({
   const modal = (
     <div
       data-modal-open
-      onClick={closeOnBackdropClick ? onClose : undefined}
+      onMouseDown={closeOnBackdropClick ? handleBackdropMouseDown : undefined}
+      onClick={closeOnBackdropClick ? handleBackdropClick : undefined}
       style={{
         position: "fixed",
         inset: 0,

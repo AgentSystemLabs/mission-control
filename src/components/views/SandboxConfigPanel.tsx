@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -10,6 +9,12 @@ import { SandboxApiKeyField } from "~/components/views/SandboxApiKeyField";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import {
+  markSandboxStoppedInCache,
+  markSandboxStoppingInCache,
+  updateSandboxRemoteStatusInCache,
+} from "~/lib/optimistic-sandbox";
+import {
+  isMissingRemoteInstanceError,
   mergeRemoteVmDeployLogs,
   remoteVmDeployJobForSandbox,
   remoteVmDeployStatusCopy,
@@ -25,6 +30,8 @@ import type {
   RemoteVmDeployLogEntry,
   SandboxState,
 } from "~/shared/electron-contract";
+
+const SANDBOX_DELETE_CONFIRM_TEXT = "DELETE";
 
 function formatConnectElapsed(since: number, now: number): string {
   const secs = Math.max(0, Math.floor((now - since) / 1000));
@@ -102,6 +109,8 @@ function remoteVmStatusCopy(status: RemoteVmLifecycleStatus | string | null | un
       return { label: "Resume failed", color: "var(--status-failed)" };
     case "destroy_failed":
       return { label: "Destroy failed", color: "var(--status-failed)" };
+    case "missing":
+      return { label: "Deleted on provider", color: "var(--status-failed)" };
     default:
       return { label: status ? String(status) : "Unknown", color: "var(--text-dim)" };
   }
@@ -469,7 +478,6 @@ export function SandboxConfigPanel({
   const sandbox = electron.sandbox;
   const clipboard = electron.clipboard;
   const queryClient = useQueryClient();
-  const router = useRouter();
   const { data: scopes } = useSandboxes();
   const { data: allProjects } = useProjects();
   const terminals = useTerminals();
@@ -481,8 +489,13 @@ export function SandboxConfigPanel({
   );
 
   const scopedProjects = useMemo(
-    () => (allProjects ?? []).filter((project) => project.sandboxId === sandboxId),
-    [allProjects, sandboxId],
+    () => {
+      const projects = allProjects ?? [];
+      const ownerProjectId = selectedSandbox?.projectId ?? null;
+      if (ownerProjectId) return projects.filter((project) => project.id === ownerProjectId);
+      return projects.filter((project) => project.sandboxId === sandboxId);
+    },
+    [allProjects, sandboxId, selectedSandbox?.projectId],
   );
 
   const [state, setState] = useState<SandboxState>({ status: "disabled" });
@@ -793,19 +806,23 @@ export function SandboxConfigPanel({
     await patchSelected({ gitAuthMode });
   };
 
+  const closeSandboxUi = useCallback(async () => {
+    for (const project of scopedProjects) {
+      await terminals.closeForProject(project.id);
+      await userTerminals.closeForProject(project.id);
+      pruneStoredSessionFinishNotifications({ type: "project", projectId: project.id });
+    }
+    await userTerminals.closeHomeForScope(sandboxId);
+  }, [sandboxId, scopedProjects, terminals, userTerminals]);
+
   const deleteSandboxConfig = useCallback(async () => {
     if (!selectedSandbox || deleting) return;
-    const confirmName = deleteConfirmName.trim();
-    if (confirmName !== selectedSandbox.name) return;
+    if (deleteConfirmName.trim() !== SANDBOX_DELETE_CONFIRM_TEXT) return;
 
     setDeleting(true);
     setError(null);
     try {
-      for (const project of scopedProjects) {
-        await terminals.closeForProject(project.id);
-        await userTerminals.closeForProject(project.id);
-        pruneStoredSessionFinishNotifications({ type: "project", projectId: project.id });
-      }
+      await closeSandboxUi();
 
       const destroy = await sandbox.destroy(sandboxId);
       if (!destroy.ok) throw new Error(destroy.error);
@@ -822,7 +839,11 @@ export function SandboxConfigPanel({
           await electron.remoteVm.cancelDeploy(deployJob.id);
         }
         const terminated = await electron.remoteVm.destroy(sandboxId, { keepRow: true });
-        if (!terminated.ok) throw new Error(terminated.error);
+        // A "not found" termination means the instance is already gone — the
+        // desired end state — so still delete the row instead of stranding it.
+        if (!terminated.ok && !isMissingRemoteInstanceError(terminated.error)) {
+          throw new Error(terminated.error);
+        }
       }
 
       if (scopes?.activeScopeId === sandboxId) {
@@ -837,12 +858,6 @@ export function SandboxConfigPanel({
         queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
       ]);
 
-      const currentPath = router.state.location.pathname;
-      const onDeletedProject = scopedProjects.some((project) => currentPath === `/projects/${project.id}`);
-      if (onDeletedProject) {
-        await router.navigate({ to: "/" });
-      }
-
       setDeleteOpen(false);
       onDeleted?.();
     } catch (e) {
@@ -855,49 +870,56 @@ export function SandboxConfigPanel({
     deployJob,
     deleting,
     electron,
+    closeSandboxUi,
     onDeleted,
     queryClient,
-    router,
     sandbox,
     sandboxId,
     scopedProjects,
     scopes?.activeScopeId,
     selectedSandbox,
-    terminals,
-    userTerminals,
   ]);
 
   const pauseRemoteVm = useCallback(async () => {
     if (!selectedSandbox || cloudBusy || !electron.remoteVm) return;
+    const sandboxName = selectedSandbox.name;
+    const wasActive = scopes?.activeScopeId === sandboxId;
     setCloudBusy("pausing");
     setError(null);
+    markSandboxStoppingInCache(queryClient, sandboxId, { switchActiveToLocal: wasActive });
+    if (wasActive) {
+      await api.setActiveScope(LOCAL_SCOPE_ID).catch(() => undefined);
+      await sandbox.setActive(null).catch(() => undefined);
+    }
     try {
-      for (const project of scopedProjects) {
-        await terminals.closeForProject(project.id);
-        await userTerminals.closeForProject(project.id);
-      }
+      await closeSandboxUi();
       const down = await sandbox.down(sandboxId);
       if (!down.ok) throw new Error(down.error);
       const paused = await electron.remoteVm.pause(sandboxId);
       if (!paused.ok) throw new Error(paused.error);
+      markSandboxStoppedInCache(queryClient, sandboxId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.sandboxes });
       setPauseOpen(false);
-      toast.success("Remote VM paused");
+      toast.success(`${sandboxName} stopped`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      updateSandboxRemoteStatusInCache(queryClient, sandboxId, {
+        remoteStatus: "pause_failed",
+        remoteStatusMessage: message,
+      });
+      setError(message);
     } finally {
       setCloudBusy(null);
     }
   }, [
     cloudBusy,
+    closeSandboxUi,
     electron.remoteVm,
     queryClient,
     sandbox,
     sandboxId,
-    scopedProjects,
+    scopes?.activeScopeId,
     selectedSandbox,
-    terminals,
-    userTerminals,
   ]);
 
   const resumeRemoteVm = useCallback(async () => {
@@ -958,8 +980,7 @@ export function SandboxConfigPanel({
     dockerfileInput.trim() !== (selectedSandbox.dockerfilePath ?? "") ||
     !!buildArgsInput.trim();
   const portsDirty = portsInput.trim() !== selectedSandbox.declaredPorts.join(", ");
-  const pinnedCount = scopedProjects.filter((project) => project.pinned).length;
-  const deleteNameMatches = deleteConfirmName.trim() === selectedSandbox.name;
+  const deleteNameMatches = deleteConfirmName.trim() === SANDBOX_DELETE_CONFIRM_TEXT;
   const deployStatus = deployJob ? remoteVmDeployStatusCopy(deployJob) : null;
   const cloudStatus = remoteVmStatusCopy(selectedSandbox.remoteStatus);
   const managedRemote = isRemote && !!selectedSandbox.remoteProvider;
@@ -1000,7 +1021,8 @@ export function SandboxConfigPanel({
       selectedSandbox.remoteStatus === "destroy_failed" ||
       selectedSandbox.remoteStatus === "provisioning_failed" ||
       selectedSandbox.remoteStatus === "pause_failed" ||
-      selectedSandbox.remoteStatus === "resume_failed");
+      selectedSandbox.remoteStatus === "resume_failed" ||
+      selectedSandbox.remoteStatus === "missing");
   // Managed deploys persist URL + API key via the cloud CLI; BYO needs the Agent tab until both are saved.
   const needsAgentConfig =
     isRemote &&
@@ -1554,7 +1576,7 @@ export function SandboxConfigPanel({
           >
             <strong style={{ color: "var(--text)", fontWeight: 600 }}>This keeps:</strong>
             <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-              <li>The sandbox configuration and scoped projects</li>
+              <li>The sandbox configuration and owning project link</li>
               <li>Disk or volume data for the remote workspace</li>
               <li>The ability to resume from this panel later</li>
             </ul>
@@ -1597,15 +1619,9 @@ export function SandboxConfigPanel({
           >
             <strong style={{ color: "var(--text)", fontWeight: 600 }}>This will also:</strong>
             <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-              <li>
-                Remove {scopedProjects.length}{" "}
-                {scopedProjects.length === 1 ? "project" : "projects"} in this sandbox
-                {scopedProjects.length > 0 ? ` (${scopedProjects.map((p) => p.name).join(", ")})` : ""}
-              </li>
-              <li>Stop all agent sessions and close every open terminal for those projects</li>
-              {pinnedCount > 0 && (
+              {scopedProjects.length > 0 && (
                 <li>
-                  Unpin {pinnedCount} pinned {pinnedCount === 1 ? "project" : "projects"} from the project bar
+                  Close open terminals for {scopedProjects.map((p) => p.name).join(", ")}
                 </li>
               )}
               {!isRemote && (
@@ -1621,12 +1637,12 @@ export function SandboxConfigPanel({
           </div>
           <TextField
             label="Confirmation"
-            ariaLabel={`Type ${selectedSandbox.name} to delete this sandbox`}
+            ariaLabel="Type DELETE to delete this sandbox"
             value={deleteConfirmName}
             onChange={setDeleteConfirmName}
-            placeholder={selectedSandbox.name}
+            placeholder={SANDBOX_DELETE_CONFIRM_TEXT}
             mono
-            hint={`Type ${selectedSandbox.name} to enable Delete sandbox.`}
+            hint="Type DELETE to enable Delete sandbox."
             ariaInvalid={deleteConfirmName.trim().length > 0 && !deleteNameMatches}
           />
         </div>

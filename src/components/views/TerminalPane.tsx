@@ -57,6 +57,8 @@ import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { HOSTED_WORKSPACE_ROOT, sandboxWorkspacePath, workspaceSlug } from "~/shared/hosted-workspace";
 import { AGENT_REGISTRY } from "~/shared/agents";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
   try {
@@ -96,7 +98,7 @@ export function TerminalPane({
   descriptor,
   onPtyReady,
 }: {
-  project: Project & { activeWorktreeId?: string | null };
+  project: Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
   task: Task;
   onHide?: () => void;
   expanded?: boolean;
@@ -128,7 +130,12 @@ export function TerminalPane({
   } = useTerminalZoom(descriptor.taskId);
   useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut);
 
-  const { data: liveTasks } = useTasks(project.id, project.activeWorktreeId ?? null);
+  const activeRuntimeScopeId = project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID;
+  const { data: liveTasks } = useTasks(
+    project.id,
+    project.activeWorktreeId ?? null,
+    activeRuntimeScopeId,
+  );
   const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
@@ -144,7 +151,7 @@ export function TerminalPane({
 
   useEffect(() => {
     const cache = terminalSurfaceCache;
-    const surfaceId = descriptor.taskId;
+    const surfaceId = `${descriptor.taskId}:${project.activeWorktreeId ?? MAIN_WORKTREE_ID}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
     // awaitingCreate (task row not yet persisted) and the retry nonce both mean
     // "build fresh"; a plain remount (navigating back to this session) keeps the
     // same buildKey and reattaches the existing surface instantly — no replay.
@@ -189,8 +196,8 @@ export function TerminalPane({
       const { Terminal, FitAddon } = await prefetchTerminalModules();
       if (cancelled || !containerRef.current) return;
 
-      // Sandbox terminals (Terminal runtime = Docker sandbox) talk to the
-      // in-container agent via `remotePty`; host terminals use the local PTY.
+      // Sandbox terminals talk to the remote agent via `remotePty`; host
+      // terminals use the local PTY.
       // `remotePty` mirrors `pty`'s method shape, so only spawn differs below.
       // Read the runtime setting fresh at terminal start; default to host.
       const useSandbox = !!electron && (await isDockerSandboxRuntime(electron));
@@ -382,7 +389,11 @@ export function TerminalPane({
           }
           await Promise.all([
             queryClient.invalidateQueries({
-              queryKey: queryKeys.tasks(project.id, project.activeWorktreeId ?? null),
+              queryKey: queryKeys.tasks(
+                project.id,
+                project.activeWorktreeId ?? null,
+                activeRuntimeScopeId,
+              ),
             }),
             queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
             queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -489,7 +500,11 @@ export function TerminalPane({
                 }
                 await Promise.all([
                   queryClient.invalidateQueries({
-                    queryKey: queryKeys.tasks(project.id, project.activeWorktreeId ?? null),
+                    queryKey: queryKeys.tasks(
+                      project.id,
+                      project.activeWorktreeId ?? null,
+                      activeRuntimeScopeId,
+                    ),
                   }),
                   queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
                   queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -943,7 +958,7 @@ export function TerminalPane({
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {isSandboxTerminal && (
             <span
-              title="This terminal runs inside the Docker sandbox"
+              title="This terminal runs inside the selected sandbox"
               style={{
                 padding: "1px 7px",
                 borderRadius: 999,

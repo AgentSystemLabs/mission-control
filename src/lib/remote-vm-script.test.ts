@@ -19,6 +19,8 @@ const {
   ensureRemoteVmSchema,
   extractJsonFromCliOutput,
   insertRemoteVmSandbox,
+  isAwsInstanceMissingError,
+  isGoneAwsInstanceState,
   isRailwayDeploymentFailed,
   isRailwayDeploymentReady,
   isRailwayNoDeploymentsMessage,
@@ -28,10 +30,17 @@ const {
   railwaySafeServiceName,
   renderIdleWatchdog,
   renderUserData,
+  renderInstallScript,
+  renderBootUserData,
   renderUserSetup,
   selectRailwayWorkspaceId,
+  shouldPersistAwsReconciledStatus,
   statusForAwsInstanceState,
   updateRemoteVmStatus,
+  parseGoldenAmiManifest,
+  archForInstanceSize,
+  resolveGoldenAmi,
+  fetchGoldenAmiManifest,
 } = remoteVm;
 
 describe("remote-vm CLI helpers", () => {
@@ -528,6 +537,37 @@ describe("remote-vm CLI helpers", () => {
     expect(statusForAwsInstanceState(null)).toBeNull();
   });
 
+  it("allows AWS stopped to complete a saved pausing lifecycle state", () => {
+    expect(shouldPersistAwsReconciledStatus("pausing", "stopped", "paused")).toBe(true);
+    expect(shouldPersistAwsReconciledStatus("pausing", "stopping", "paused")).toBe(false);
+    expect(shouldPersistAwsReconciledStatus("resuming", "stopped", "paused")).toBe(false);
+  });
+
+  it("recognizes AWS 'instance gone' CLI errors so destroy/reconcile stay idempotent", () => {
+    expect(
+      isAwsInstanceMissingError(
+        "An error occurred (InvalidInstanceID.NotFound) when calling the TerminateInstances operation: The instance ID 'i-0abc' does not exist",
+      ),
+    ).toBe(true);
+    expect(isAwsInstanceMissingError("The instance ID 'i-0abc' does not exist")).toBe(true);
+    expect(isAwsInstanceMissingError("instance i-0abc not found")).toBe(true);
+    // Unrelated failures must NOT be swallowed as "already gone".
+    expect(isAwsInstanceMissingError("UnauthorizedOperation: you are not authorized")).toBe(false);
+    expect(isAwsInstanceMissingError("RequestLimitExceeded")).toBe(false);
+    expect(isAwsInstanceMissingError("")).toBe(false);
+    expect(isAwsInstanceMissingError(null)).toBe(false);
+  });
+
+  it("treats terminated/shutting-down/missing instance states as gone", () => {
+    expect(isGoneAwsInstanceState("missing")).toBe(true);
+    expect(isGoneAwsInstanceState("terminated")).toBe(true);
+    expect(isGoneAwsInstanceState("shutting-down")).toBe(true);
+    // A merely stopped or running instance is NOT gone — it's resumable/usable.
+    expect(isGoneAwsInstanceState("stopped")).toBe(false);
+    expect(isGoneAwsInstanceState("running")).toBe(false);
+    expect(isGoneAwsInstanceState(null)).toBe(false);
+  });
+
   it("persists the requested git auth mode for a deployed sandbox", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-remote-vm-auth-"));
     const db = new Database(path.join(dir, "missioncontrol.db"));
@@ -603,5 +643,127 @@ describe("remote-vm CLI helpers", () => {
       db.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("golden AMI provisioning", () => {
+  describe("install/boot split", () => {
+    it("renderInstallScript bakes the heavy installs and no secrets", () => {
+      const script = renderInstallScript();
+      expect(script).toContain("apt-get install -y --no-install-recommends");
+      expect(script).toContain("https://deb.nodesource.com/setup_24.x");
+      expect(script).toContain("npm install -g @openai/codex@latest");
+      expect(script).toContain("https://cursor.com/install");
+      // Secrets + per-instance config must NEVER be baked into the public image.
+      expect(script).not.toContain("MC_AGENT_API_KEY");
+      expect(script).not.toContain("openssl req -x509");
+      expect(script).not.toContain("systemctl enable --now mission-control-agent");
+    });
+
+    it("renderBootUserData writes the per-instance secret/cert and no installs", () => {
+      const script = renderBootUserData({ apiKey: "secret-123", tls: true });
+      expect(script).toContain("MC_AGENT_API_KEY=secret-123");
+      expect(script).toContain("openssl req -x509");
+      expect(script).toContain("systemctl enable --now mission-control-agent");
+      expect(script).toContain("MC_AGENT_BIND_HOST=127.0.0.1");
+      // The heavy install steps are baked into the AMI, never re-run at boot.
+      // (Match real install commands, not the systemd-unit comment that mentions npm.)
+      expect(script).not.toContain("apt-get install -y --no-install-recommends");
+      expect(script).not.toContain("https://deb.nodesource.com/setup_24.x");
+      expect(script).not.toContain("npm install -g @openai/codex");
+      expect(script).not.toContain("corepack prepare pnpm");
+    });
+
+    it("renderUserData composes install BEFORE boot for the fallback path", () => {
+      const script = renderUserData({ apiKey: "abc123", tls: true });
+      const installIdx = script.indexOf("apt-get install -y --no-install-recommends");
+      const bootIdx = script.indexOf("MC_AGENT_API_KEY=abc123");
+      expect(installIdx).toBeGreaterThanOrEqual(0);
+      expect(bootIdx).toBeGreaterThan(installIdx);
+      expect(script).toContain("openssl req -x509");
+      expect(script).toContain("systemctl enable --now mission-control-agent");
+    });
+  });
+
+  describe("archForInstanceSize", () => {
+    it("maps intel/amd families to x86_64", () => {
+      expect(archForInstanceSize("t3.medium")).toBe("x86_64");
+      expect(archForInstanceSize("m7i.large")).toBe("x86_64");
+      expect(archForInstanceSize("g4dn.xlarge")).toBe("x86_64");
+      expect(archForInstanceSize("")).toBe("x86_64");
+    });
+    it("maps graviton families to arm64", () => {
+      expect(archForInstanceSize("t4g.medium")).toBe("arm64");
+      expect(archForInstanceSize("c7g.xlarge")).toBe("arm64");
+      expect(archForInstanceSize("c7gn.large")).toBe("arm64");
+      expect(archForInstanceSize("x2gd.large")).toBe("arm64");
+      expect(archForInstanceSize("a1.medium")).toBe("arm64");
+    });
+  });
+
+  describe("parseGoldenAmiManifest", () => {
+    const valid = JSON.stringify({
+      schemaVersion: 1,
+      version: "2026.06.06-1",
+      agentVersion: "0.40.0",
+      arch: "x86_64",
+      owner: "123456789012",
+      builtAt: "2026-06-06T00:00:00Z",
+      images: { "us-east-1": "ami-0abc123", "bad-region": "not-an-ami" },
+    });
+    it("normalizes a valid manifest and filters bad ami ids", () => {
+      const m = parseGoldenAmiManifest(valid);
+      expect(m).not.toBeNull();
+      expect(m.owner).toBe("123456789012");
+      expect(m.images).toEqual({ "us-east-1": "ami-0abc123" });
+    });
+    it("returns null for invalid json or missing images", () => {
+      expect(parseGoldenAmiManifest("not json")).toBeNull();
+      expect(parseGoldenAmiManifest(JSON.stringify({ version: "x" }))).toBeNull();
+    });
+    it("rejects a non-12-digit owner but keeps the images", () => {
+      const m = parseGoldenAmiManifest(
+        JSON.stringify({ owner: "123", images: { "us-east-1": "ami-0a" } }),
+      );
+      expect(m.owner).toBeNull();
+      expect(m.images).toEqual({ "us-east-1": "ami-0a" });
+    });
+  });
+
+  describe("resolveGoldenAmi", () => {
+    const manifest = {
+      arch: "x86_64",
+      owner: "123456789012",
+      version: "v1",
+      images: { "us-east-1": "ami-0east", "us-west-2": "ami-0west" },
+    };
+    it("resolves the AMI for a published region + matching arch", () => {
+      const r = resolveGoldenAmi({ manifest, region: "us-east-1", arch: "x86_64" });
+      expect(r).toMatchObject({ amiId: "ami-0east", owner: "123456789012" });
+    });
+    it("returns null when the region is not published", () => {
+      expect(resolveGoldenAmi({ manifest, region: "eu-west-1", arch: "x86_64" })).toBeNull();
+    });
+    it("returns null on arch mismatch", () => {
+      expect(resolveGoldenAmi({ manifest, region: "us-east-1", arch: "arm64" })).toBeNull();
+    });
+    it("returns null with no manifest", () => {
+      expect(resolveGoldenAmi({ manifest: null, region: "us-east-1", arch: "x86_64" })).toBeNull();
+    });
+  });
+
+  describe("fetchGoldenAmiManifest", () => {
+    it("falls back to the bundled manifest when the hosted one is unreachable", async () => {
+      // Connection refused fast on an unused loopback port → bundled fallback.
+      const { manifest, source } = await fetchGoldenAmiManifest({
+        url: "https://127.0.0.1:1/none.json",
+        timeoutMs: 1000,
+      });
+      expect(source).toBe("bundled");
+      expect(manifest).not.toBeNull();
+      // Bundled ships the last known-good AMI as the offline fallback.
+      expect(manifest.owner).toBe("493255580566");
+      expect(manifest.images["us-east-1"]).toBe("ami-0d7282b5efaa3b1dc");
+    });
   });
 });

@@ -156,4 +156,32 @@ describe("optimistic-task", () => {
     removeTasksFromCache(qc as never, "p1", null, new Set(["t-1", "t-3"]));
     expect(qc.getQueryData<Task[]>(key)?.map((t) => t.id)).toEqual(["t-2"]);
   });
+
+  it("keeps optimistic updates scoped to the selected sandbox", () => {
+    const qc = createQueryClientStub();
+    const localKey = queryKeys.tasks("p1", null, "local");
+    const sandboxKey = queryKeys.tasks("p1", null, "sb-1");
+    const localTask = buildOptimisticTask({
+      id: "t-local",
+      projectId: "p1",
+      worktreeId: null,
+      scopeId: "local",
+      agent: "codex",
+      branch: "main",
+    });
+    const sandboxTask = buildOptimisticTask({
+      id: "t-sandbox",
+      projectId: "p1",
+      worktreeId: null,
+      scopeId: "sb-1",
+      agent: "codex",
+      branch: "main",
+    });
+    qc.setQueryData(localKey, [localTask]);
+
+    appendOptimisticTask(qc as never, "p1", null, sandboxTask, "sb-1");
+
+    expect(qc.getQueryData<Task[]>(localKey)?.map((t) => t.id)).toEqual(["t-local"]);
+    expect(qc.getQueryData<Task[]>(sandboxKey)?.map((t) => t.id)).toEqual(["t-sandbox"]);
+  });
 });

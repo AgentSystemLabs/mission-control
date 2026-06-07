@@ -65,6 +65,7 @@ import { UsagePanel } from "~/components/views/UsagePanel";
 import { AuthGate, useHostedSession } from "~/components/views/AuthGate";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
+import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import {
   mergeAppNotificationLists,
@@ -586,16 +587,14 @@ function Shell() {
         <Toaster
           position="bottom-right"
           theme="dark"
+          closeButton
+          offset={16}
+          icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{
             unstyled: true,
-            classNames: {
-              default: "mc-toast-panel",
-              info: "mc-toast-panel",
-              warning: "mc-toast-panel mc-toast-warning",
-              loading: "mc-toast-panel mc-toast-loading",
-              success: "mc-toast-panel mc-toast-success",
-              error: "mc-toast-panel mc-toast-error",
-            },
+            closeButton: true,
+            closeButtonAriaLabel: "Close",
+            classNames: MC_TOAST_CLASS_NAMES,
           }}
         />
       </div>

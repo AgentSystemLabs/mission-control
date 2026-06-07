@@ -1,6 +1,6 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
-import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
+import { mcToastCustom, McToastCloseButton } from "~/lib/mc-toast";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { ApiError } from "~/lib/api";
@@ -80,14 +80,15 @@ function readCommitCliFailure(error: unknown): CommitCliFailure | null {
  * same sonner channel as the success path so the user never sees a Ship
  * spinner stop with no follow-up. */
 function showShipErrorToast(title: string, detail: string) {
-  toast.custom(
-    () => (
+  mcToastCustom(
+    (toastId) => (
       <CardFrame
         solid
         style={{
+          position: "relative",
           minWidth: 320,
           maxWidth: 460,
-          padding: "14px 16px",
+          padding: "14px 96px 14px 16px",
           display: "flex",
           alignItems: "flex-start",
           gap: 12,
@@ -128,6 +129,7 @@ function showShipErrorToast(title: string, detail: string) {
             {detail}
           </div>
         </div>
+        <McToastCloseButton toastId={toastId} />
       </CardFrame>
     ),
     { duration: 8000 },
@@ -135,14 +137,15 @@ function showShipErrorToast(title: string, detail: string) {
 }
 
 function showShipToast(title: string, detail: string) {
-  toast.custom(
-    () => (
+  mcToastCustom(
+    (toastId) => (
       <CardFrame
         solid
         style={{
+          position: "relative",
           minWidth: 320,
           maxWidth: 460,
-          padding: "14px 16px",
+          padding: "14px 96px 14px 16px",
           display: "flex",
           alignItems: "center",
           gap: 12,
@@ -182,6 +185,7 @@ function showShipToast(title: string, detail: string) {
             {detail}
           </div>
         </div>
+        <McToastCloseButton toastId={toastId} />
       </CardFrame>
     ),
     { duration: 5000 },

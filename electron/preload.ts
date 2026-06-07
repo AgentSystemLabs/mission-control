@@ -103,6 +103,7 @@ export type RemoteVmDeployInputBridge =
       gitAuthMode?: "none" | "copy-host" | "generate";
       copyAgentCreds?: boolean;
       idleTimeoutMinutes?: number;
+      projectId?: string;
     }
   | {
       provider: "digitalocean";
@@ -363,7 +364,8 @@ const electronAPI = {
     status: (repo: string) => ipcRenderer.invoke(IPC.remoteGitStatus, repo),
     diff: (repo: string, file: string, staged: boolean) =>
       ipcRenderer.invoke(IPC.remoteGitDiff, repo, file, staged),
-    clone: (remote: string, slug: string) => ipcRenderer.invoke(IPC.remoteGitClone, remote, slug),
+    clone: (remote: string, slug: string, branch?: string) =>
+      ipcRenderer.invoke(IPC.remoteGitClone, remote, slug, branch),
   },
   debugLog: {
     listSessionTerminalErrors: (): Promise<SessionTerminalDebugLogEntryBridge[]> =>

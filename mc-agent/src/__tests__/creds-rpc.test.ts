@@ -32,6 +32,12 @@ describe("CredsRpc default (no env overrides)", () => {
       ],
     });
     expect(r.wrote).toBe(4);
+    expect(r.written).toEqual([
+      { tool: "claude", kind: "credentials" },
+      { tool: "codex", kind: "credentials" },
+      { tool: "cursor", kind: "credentials" },
+      { tool: "opencode", kind: "credentials" },
+    ]);
     expect(read(".claude", ".credentials.json")).toBe("CLAUDE_TOKEN");
     expect(read(".codex", "auth.json")).toBe("CODEX_AUTH");
     expect(read(".config", "cursor-agent", "auth.json")).toBe('{"accessToken":"a"}');
@@ -48,7 +54,7 @@ describe("CredsRpc default (no env overrides)", () => {
 });
 
 describe("CredsRpc with CLAUDE_CONFIG_DIR / XDG overrides", () => {
-  it("places claude credentials + state inside CLAUDE_CONFIG_DIR", async () => {
+  it("places claude credentials inside CLAUDE_CONFIG_DIR and mirrors state to both supported paths", async () => {
     const cfg = path.join(home, "claude-cfg");
     const rpc = new CredsRpc(home, { CLAUDE_CONFIG_DIR: cfg });
     await rpc.setup({
@@ -58,8 +64,8 @@ describe("CredsRpc with CLAUDE_CONFIG_DIR / XDG overrides", () => {
       ],
     });
     expect(fs.readFileSync(path.join(cfg, ".credentials.json"), "utf8")).toBe("TOK");
-    expect(fs.existsSync(path.join(cfg, ".claude.json"))).toBe(true);
-    expect(fs.existsSync(path.join(home, ".claude.json"))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(cfg, ".claude.json"), "utf8"))).toEqual({ userID: "u" });
+    expect(JSON.parse(read(".claude.json"))).toEqual({ userID: "u" });
   });
 
   it("honors XDG_CONFIG_HOME / XDG_DATA_HOME for cursor + opencode", async () => {

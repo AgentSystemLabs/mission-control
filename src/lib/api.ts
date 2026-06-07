@@ -308,9 +308,9 @@ export const api = {
   deleteGroup: (id: string) =>
     req<void>(`/api/groups/${id}`, { method: "DELETE" }),
 
-  listTasks: (projectId: string, worktreeId?: string | null) =>
+  listTasks: (projectId: string, worktreeId?: string | null, scopeId?: string | null) =>
     req<{ tasks: Task[] }>(
-      `/api/projects/${projectId}/tasks${worktreeQuery(worktreeId)}`,
+      `/api/projects/${projectId}/tasks${scopedWorktreeQuery(worktreeId, scopeId)}`,
     ),
   archiveTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
@@ -332,6 +332,7 @@ export const api = {
       claudeSkipPermissions?: boolean;
       claudeBareSession?: boolean;
       worktreeId?: string | null;
+      scopeId?: string | null;
     },
   ) =>
     req<{ task: Task }>(`/api/projects/${projectId}/tasks`, {
@@ -357,9 +358,9 @@ export const api = {
     pruneStoredSessionFinishNotifications({ type: "task", taskId: id });
   },
 
-  listUserTerminals: (projectId: string, worktreeId?: string | null) =>
+  listUserTerminals: (projectId: string, worktreeId?: string | null, scopeId?: string | null) =>
     req<{ terminals: UserTerminal[] }>(
-      `/api/projects/${projectId}/user-terminals${worktreeQuery(worktreeId)}`,
+      `/api/projects/${projectId}/user-terminals${scopedWorktreeQuery(worktreeId, scopeId)}`,
     ),
   createUserTerminal: (
     projectId: string,
@@ -369,6 +370,7 @@ export const api = {
       cwd?: string | null;
       startCommand?: string | null;
       worktreeId?: string | null;
+      scopeId?: string | null;
     },
   ) =>
     req<{ terminal: UserTerminal }>(`/api/projects/${projectId}/user-terminals`, {
@@ -583,4 +585,12 @@ export const api = {
 function worktreeQuery(worktreeId?: string | null): string {
   if (worktreeId === undefined) return "";
   return `?worktreeId=${encodeURIComponent(worktreeId || "main")}`;
+}
+
+function scopedWorktreeQuery(worktreeId?: string | null, scopeId?: string | null): string {
+  const params = new URLSearchParams();
+  if (worktreeId !== undefined) params.set("worktreeId", worktreeId || "main");
+  if (scopeId) params.set("scopeId", scopeId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }

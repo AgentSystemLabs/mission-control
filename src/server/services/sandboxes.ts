@@ -16,6 +16,9 @@ import {
   updateSandboxRow,
 } from "../repositories/sandboxes.repo";
 import { findProjectIdsBySandboxId } from "../repositories/projects.repo";
+import { deleteTasksByScope } from "../repositories/tasks.repo";
+import { deleteUserTerminalsByScope } from "../repositories/user-terminals.repo";
+import { deleteHomeTerminalsByScope } from "../repositories/home-terminals.repo";
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { getBooleanSetting, getSetting, setBooleanSetting, setSetting } from "./settings";
@@ -116,6 +119,7 @@ function toPublicSandbox(row: Sandbox): SandboxPublicView {
     remoteStatus: typeof remote?.status === "string" ? remote.status : null,
     remoteStatusMessage: typeof remote?.statusMessage === "string" ? remote.statusMessage : null,
     remotePublicAddress: typeof remote?.publicIp === "string" ? remote.publicIp : null,
+    projectId: typeof remote?.projectId === "string" ? remote.projectId : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     hasPairingToken: !!row.pairingToken,
@@ -250,6 +254,9 @@ export function deleteSandbox(id: string): boolean {
     deleteAllProjectImagesFor(projectId);
     events.emit("project:deleted", { id: projectId });
   }
+  deleteTasksByScope(id);
+  deleteUserTerminalsByScope(id);
+  deleteHomeTerminalsByScope(id);
 
   const removed = deleteSandboxRow(id) > 0;
   if (removed && getSetting(ACTIVE_SCOPE_KEY) === id) {

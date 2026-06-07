@@ -508,13 +508,24 @@ select,
   filter: brightness(1.12) saturate(1.1);
 }
 
+[data-sonner-toaster] {
+  --width: min(460px, calc(100vw - 32px));
+}
+
+[data-sonner-toast] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .mc-toast-panel {
   --mc-toast-tone: var(--accent);
   --mc-toast-frame: var(--mc-panel-image);
+  position: relative;
   box-sizing: border-box;
-  width: min(460px, calc(100vw - 32px));
+  width: 100%;
+  max-width: 100%;
   min-height: 64px;
-  padding: 14px 16px;
+  padding: 14px 96px 14px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -635,6 +646,16 @@ select,
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.mc-toast-panel [data-close-button],
+.mc-toast-close-btn {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  flex-shrink: 0;
+  z-index: 1;
 }
 
 .mc-toast-panel:focus-visible {

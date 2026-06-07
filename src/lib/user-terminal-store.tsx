@@ -29,7 +29,10 @@ import { worktreeScopeKey } from "~/shared/worktrees";
 import { HOME_TERMINAL_PROJECT_ID } from "~/shared/home-terminal";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
-type ScopedProject = Project & { activeWorktreeId?: string | null };
+type ScopedProject = Project & {
+  activeWorktreeId?: string | null;
+  activeRuntimeScopeId?: string | null;
+};
 
 // Scope-key namespace for project-less "home" terminals (the dashboard
 // terminals). Each home terminal runs a shell ON a specific scope's machine, so
@@ -79,6 +82,7 @@ type Ctx = {
     name?: string;
     startCommand?: string | null;
     project?: ScopedProject;
+    cwd?: string | null;
   }) => Promise<UserTerminal | null>;
   killTerminalsByStartCommand: (
     commands: string[],
@@ -86,6 +90,8 @@ type Ctx = {
   ) => Promise<void>;
   /** Permanently close every user terminal for a project (kills PTYs). */
   closeForProject: (projectId: string) => Promise<void>;
+  /** Permanently close dashboard home terminals for a sandbox/local scope. */
+  closeHomeForScope: (scopeId: string) => Promise<void>;
   killTerminal: (id: string) => Promise<void>;
   hiddenIds: Set<string>;
   toggleHidden: (id: string) => void;
@@ -99,7 +105,16 @@ type Ctx = {
 const UserTerminalContext = createContext<Ctx | null>(null);
 
 function scopeKeyForProject(project: ScopedProject): string {
-  return worktreeScopeKey(project.id, project.activeWorktreeId);
+  return `${worktreeScopeKey(project.id, project.activeWorktreeId)}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
+}
+
+export function terminalScopeKeysForProject(
+  buckets: Record<string, unknown>,
+  projectId: string,
+): string[] {
+  return Object.keys(buckets).filter(
+    (key) => key === projectId || key.startsWith(`${projectId}:`),
+  );
 }
 
 export function UserTerminalProvider({ children }: { children: ReactNode }) {
@@ -195,7 +210,11 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
 
   const setProject = useCallback((next: ScopedProject | null) => {
     setProjectState((prev) =>
-      prev?.id === next?.id && prev?.activeWorktreeId === next?.activeWorktreeId ? prev : next
+      prev?.id === next?.id &&
+      prev?.activeWorktreeId === next?.activeWorktreeId &&
+      prev?.activeRuntimeScopeId === next?.activeRuntimeScopeId
+        ? prev
+        : next
     );
   }, []);
 
@@ -211,7 +230,11 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     void (async () => {
       try {
-        const { terminals } = await api.listUserTerminals(id, project.activeWorktreeId ?? null);
+        const { terminals } = await api.listUserTerminals(
+          id,
+          project.activeWorktreeId ?? null,
+          project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
+        );
         if (cancelled) return;
         setSessionsByProject((prev) => {
           if (prev[key]) return prev; // a createTerminal call beat us to it
@@ -334,7 +357,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createTerminal = useCallback(
-    async (opts?: { name?: string; startCommand?: string | null; project?: ScopedProject }) => {
+    async (opts?: { name?: string; startCommand?: string | null; project?: ScopedProject; cwd?: string | null }) => {
       const targetProject = opts?.project ?? project;
       // Home mode: no project context → create a project-less home terminal. The
       // cwd is resolved at spawn time per-runtime (host/remote home dir), so we
@@ -354,7 +377,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       if (!targetProject) return null;
       const projectId = targetProject.id;
       const key = scopeKeyForProject(targetProject);
-      const cwd = targetProject.path;
+      const cwd = opts?.cwd ?? targetProject.path;
       const startCommand = opts?.startCommand ?? null;
       const electron = getElectron();
       const canUseWarmSlot =
@@ -364,7 +387,10 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         !(await isDockerSandboxRuntime(electron));
 
       if (canUseWarmSlot) {
-        const warmSlot = takeUserTerminalWarmSlot(cwd);
+        const warmSlot = takeUserTerminalWarmSlot(
+          cwd,
+          targetProject.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
+        );
         if (warmSlot) {
           const draftTerminal: UserTerminal = {
             ...warmSlot.draftTerminal,
@@ -381,6 +407,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
                 cwd,
                 name: opts?.name,
                 worktreeId: targetProject.activeWorktreeId ?? null,
+                scopeId: targetProject.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
               });
               updateSessions(key, (prev) =>
                 prev.map((s) =>
@@ -407,6 +434,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         name: opts?.name,
         startCommand,
         worktreeId: targetProject.activeWorktreeId ?? null,
+        scopeId: targetProject.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
       });
       updateSessions(key, (prev) => [...prev, { terminal, ptyId: null }]);
       setFocusFor(key, terminal.id);
@@ -491,32 +519,76 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
 
   const closeForProject = useCallback(
     async (projectId: string) => {
-      const ids = (sessionsByProjectRef.current[projectId] ?? []).map((s) => s.terminal.id);
+      const keys = terminalScopeKeysForProject(sessionsByProjectRef.current, projectId);
+      const ids = keys.flatMap((key) =>
+        (sessionsByProjectRef.current[key] ?? []).map((s) => s.terminal.id),
+      );
       for (const id of ids) {
         await killTerminal(id);
       }
+      for (const key of keys) loadedProjectsRef.current.delete(key);
       setSessionsByProject((prev) => {
-        if (!(projectId in prev)) return prev;
+        const keys = terminalScopeKeysForProject(prev, projectId);
+        if (keys.length === 0) return prev;
         const next = { ...prev };
-        delete next[projectId];
+        for (const key of keys) delete next[key];
         return next;
       });
       setFocusedByProject((prev) => {
-        if (!(projectId in prev)) return prev;
+        const keys = terminalScopeKeysForProject(prev, projectId);
+        if (keys.length === 0) return prev;
         const next = { ...prev };
-        delete next[projectId];
+        for (const key of keys) delete next[key];
         return next;
       });
       setHiddenIdsByProject((prev) => {
-        if (!(projectId in prev)) return prev;
+        const keys = terminalScopeKeysForProject(prev, projectId);
+        if (keys.length === 0) return prev;
         const next = { ...prev };
-        delete next[projectId];
+        for (const key of keys) delete next[key];
         return next;
       });
       setPanelOpenByProject((prev) => {
-        if (!(projectId in prev)) return prev;
+        const keys = terminalScopeKeysForProject(prev, projectId);
+        if (keys.length === 0) return prev;
         const next = { ...prev };
-        delete next[projectId];
+        for (const key of keys) delete next[key];
+        return next;
+      });
+    },
+    [killTerminal],
+  );
+
+  const closeHomeForScope = useCallback(
+    async (scopeId: string) => {
+      const key = homeScopeKeyFor(scopeId || LOCAL_SCOPE_ID);
+      const ids = (sessionsByProjectRef.current[key] ?? []).map((s) => s.terminal.id);
+      for (const id of ids) {
+        await killTerminal(id);
+      }
+      loadedProjectsRef.current.delete(key);
+      setSessionsByProject((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setFocusedByProject((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setHiddenIdsByProject((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setPanelOpenByProject((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
         return next;
       });
     },
@@ -668,6 +740,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusTerminal,
       createTerminal,
       closeForProject,
+      closeHomeForScope,
       killTerminal,
       hiddenIds,
       toggleHidden,
@@ -696,6 +769,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
       focusTerminal,
       createTerminal,
       closeForProject,
+      closeHomeForScope,
       killTerminal,
       hiddenIds,
       toggleHidden,

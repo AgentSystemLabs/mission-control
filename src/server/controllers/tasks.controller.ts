@@ -27,6 +27,7 @@ import { isHostedDatabaseEnabled } from "../hosted-pg";
 import { isElectronLocalApiRequest } from "../request-runtime";
 import { getWorktree } from "../services/worktrees";
 import { generateTitleForTask } from "../services/title-generator";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 const createTaskBody = z.object({
   id: z.string().min(1).optional(),
@@ -39,6 +40,7 @@ const createTaskBody = z.object({
   claudeSkipPermissions: z.boolean().optional(),
   claudeBareSession: z.boolean().optional(),
   worktreeId: z.string().nullable().optional(),
+  scopeId: z.string().optional(),
 });
 
 const updateTaskBody = z
@@ -73,11 +75,18 @@ export async function listForProject(rawProjectId: string, request: Request): Pr
     return json({ tasks: await listHostedTasksForProject(hosted, parsed.data) });
   }
   const worktreeId = urlWorktreeId(request);
-  return json({
-    tasks: worktreeId === undefined
-      ? listTasksForProject(parsed.data)
-      : listTasksForProjectWorktree(parsed.data, worktreeId),
-  });
+  const scopeId = urlScopeId(request);
+  try {
+    return json({
+      tasks: worktreeId === undefined
+        ? listTasksForProject(parsed.data, scopeId)
+        : listTasksForProjectWorktree(parsed.data, worktreeId, scopeId),
+    });
+  } catch (e) {
+    const mapped = handleDomainError(e);
+    if (mapped) return mapped;
+    throw e;
+  }
 }
 
 export async function create(rawProjectId: string, request: Request): Promise<Response> {
@@ -96,6 +105,7 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
       ...parsed.data,
       projectId: projectIdParsed.data,
       worktreeId: worktree.isMain ? null : worktree.id,
+      scopeId: parsed.data.scopeId ?? LOCAL_SCOPE_ID,
     });
     return json({ task: t }, { status: HTTP_CREATED });
   } catch (e) {
@@ -109,6 +119,10 @@ function urlWorktreeId(request: Request): string | null | undefined {
   const value = new URL(request.url).searchParams.get("worktreeId");
   if (value === null) return undefined;
   return value && value !== "main" ? value : null;
+}
+
+function urlScopeId(request: Request): string {
+  return new URL(request.url).searchParams.get("scopeId")?.trim() || LOCAL_SCOPE_ID;
 }
 
 export async function getOne(rawId: string, request: Request): Promise<Response> {

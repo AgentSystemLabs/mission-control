@@ -15,6 +15,7 @@ const baseTask = {
   id: "task-1",
   projectId: "project-1",
   worktreeId: null,
+  scopeId: "local",
   title: "Task",
   icon: null,
   status: "ready",

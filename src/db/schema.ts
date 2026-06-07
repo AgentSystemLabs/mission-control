@@ -14,7 +14,7 @@ import {
   type TaskStatus,
 } from "~/shared/domain";
 import { type DiagramFormat } from "~/shared/diagram";
-import { type SandboxKind, type SandboxGitAuthMode } from "~/shared/sandbox";
+import { LOCAL_SCOPE_ID, type SandboxKind, type SandboxGitAuthMode } from "~/shared/sandbox";
 
 export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
@@ -120,6 +120,7 @@ export const tasks = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     worktreeId: text("worktree_id").references(() => worktrees.id, { onDelete: "cascade" }),
+    scopeId: text("scope_id").notNull().default(LOCAL_SCOPE_ID),
     title: text("title").notNull(),
     icon: text("icon"),
     agent: text("agent").$type<TaskAgent>().notNull(),
@@ -137,6 +138,12 @@ export const tasks = sqliteTable(
   (t) => ({
     projectIdx: index("tasks_project_idx").on(t.projectId),
     projectWorktreeIdx: index("tasks_project_worktree_idx").on(t.projectId, t.worktreeId),
+    projectWorktreeScopeIdx: index("tasks_project_worktree_scope_idx").on(
+      t.projectId,
+      t.worktreeId,
+      t.scopeId,
+    ),
+    scopeIdx: index("tasks_scope_idx").on(t.scopeId),
     worktreeIdx: index("tasks_worktree_idx").on(t.worktreeId),
     statusIdx: index("tasks_status_idx").on(t.status),
     archivedIdx: index("tasks_archived_idx").on(t.archived),
@@ -188,6 +195,7 @@ export const userTerminals = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     worktreeId: text("worktree_id").references(() => worktrees.id, { onDelete: "cascade" }),
+    scopeId: text("scope_id").notNull().default(LOCAL_SCOPE_ID),
     name: text("name").notNull(),
     cwd: text("cwd"),
     startCommand: text("start_command"),
@@ -198,6 +206,12 @@ export const userTerminals = sqliteTable(
   (t) => ({
     projectIdx: index("user_terminals_project_idx").on(t.projectId),
     projectWorktreeIdx: index("user_terminals_project_worktree_idx").on(t.projectId, t.worktreeId),
+    projectWorktreeScopeIdx: index("user_terminals_project_worktree_scope_idx").on(
+      t.projectId,
+      t.worktreeId,
+      t.scopeId,
+    ),
+    scopeIdx: index("user_terminals_scope_idx").on(t.scopeId),
     worktreeIdx: index("user_terminals_worktree_idx").on(t.worktreeId),
   })
 );

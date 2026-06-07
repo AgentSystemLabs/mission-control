@@ -1,0 +1,12 @@
+{
+  "_comment": "Offline fallback for the golden AMI resolver. The hosted manifest at https://agentsystem.dev/api/golden-ami/manifest (published by the mc-sandbox repo) takes precedence; this bundled copy is the last known-good AMI used when that URL is unreachable. Owner is verified against GOLDEN_AMI_OWNER_DEFAULT in remote-vm.mjs.",
+  "schemaVersion": 1,
+  "version": "2026.06.06-1",
+  "agentVersion": "0.2.1",
+  "arch": "x86_64",
+  "owner": "493255580566",
+  "builtAt": "2026-06-07T00:14:00.222Z",
+  "images": {
+    "us-east-1": "ami-0d7282b5efaa3b1dc"
+  }
+}

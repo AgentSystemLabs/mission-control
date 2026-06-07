@@ -60,3 +60,15 @@ export function isSafeSlug(slug: string): boolean {
     SAFE_SLUG.test(slug)
   );
 }
+
+/** Branch names passed to `git clone -b` must not look like flags or refspecs. */
+export function isSafeBranchName(branch: string): boolean {
+  return (
+    typeof branch === "string" &&
+    branch.length > 0 &&
+    branch.length <= 255 &&
+    !branch.includes("\0") &&
+    !branch.startsWith("-") &&
+    !branch.startsWith("refs/")
+  );
+}

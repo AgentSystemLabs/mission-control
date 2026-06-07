@@ -14,6 +14,7 @@ export function toUserTerminal(row: HomeTerminal): UserTerminal {
     id: row.id,
     projectId: HOME_TERMINAL_PROJECT_ID,
     worktreeId: null,
+    scopeId: row.scopeId,
     name: row.name,
     cwd: row.cwd,
     startCommand: null,
@@ -46,4 +47,8 @@ export function updateHomeTerminalRow(id: string, patch: Partial<HomeTerminal>):
 
 export function deleteHomeTerminalRow(id: string): number {
   return getDb().delete(homeTerminals).where(eq(homeTerminals.id, id)).run().changes;
+}
+
+export function deleteHomeTerminalsByScope(scopeId: string): number {
+  return getDb().delete(homeTerminals).where(eq(homeTerminals.scopeId, scopeId)).run().changes;
 }

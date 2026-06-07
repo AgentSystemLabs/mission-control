@@ -11,8 +11,9 @@ import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { getTerminalColorScheme } from "~/lib/terminal-options";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import { normalizePtySize } from "~/shared/pty-size";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
-type ScopedProject = Project & { activeWorktreeId?: string | null };
+type ScopedProject = Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
 export type SessionCreatePayload = {
   agent: TaskAgent;
   branch: string;
@@ -68,6 +69,7 @@ function buildDraftTask(
     id: clientTaskId,
     projectId: project.id,
     worktreeId: project.activeWorktreeId ?? null,
+    scopeId: project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
     title: TITLE_WAITING,
     icon: null,
     agent: payload.agent,
@@ -227,6 +229,7 @@ export async function persistWarmSlotTask(
   projectId: string,
   slot: SessionWarmSlot,
   worktreeId: string | null,
+  scopeId: string | null = LOCAL_SCOPE_ID,
 ): Promise<Task> {
   const { task } = await api.createTaskInternal(projectId, {
     id: slot.clientTaskId,
@@ -240,6 +243,7 @@ export async function persistWarmSlotTask(
       ? slot.payload.skipPermissions
       : undefined,
     worktreeId,
+    scopeId,
   });
   return task;
 }

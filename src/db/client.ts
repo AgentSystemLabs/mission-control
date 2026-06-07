@@ -378,6 +378,7 @@ function ensureSchema(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       worktree_id TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
+      scope_id TEXT NOT NULL DEFAULT 'local',
       title TEXT NOT NULL,
       icon TEXT,
       agent TEXT NOT NULL,
@@ -423,6 +424,7 @@ function ensureSchema(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       worktree_id TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
+      scope_id TEXT NOT NULL DEFAULT 'local',
       name TEXT NOT NULL,
       cwd TEXT,
       start_command TEXT,
@@ -514,8 +516,14 @@ function ensureSchema(sqlite: Database.Database) {
   ensureColumn(sqlite, "sandboxes", "created_at", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(sqlite, "sandboxes", "updated_at", "INTEGER NOT NULL DEFAULT 0");
 
-  // Home terminals gained a per-sandbox scope after their first ship; tolerate a
-  // pre-existing home_terminals table created without it.
+  // Terminal/session rows gained per-runtime scope after their first ship;
+  // tolerate pre-existing tables created without it.
+  ensureColumn(sqlite, "tasks", "scope_id", "TEXT NOT NULL DEFAULT 'local'");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_worktree_scope_idx ON tasks(project_id, worktree_id, scope_id);");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_scope_idx ON tasks(scope_id);");
+  ensureColumn(sqlite, "user_terminals", "scope_id", "TEXT NOT NULL DEFAULT 'local'");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_project_worktree_scope_idx ON user_terminals(project_id, worktree_id, scope_id);");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_scope_idx ON user_terminals(scope_id);");
   ensureColumn(sqlite, "home_terminals", "scope_id", "TEXT NOT NULL DEFAULT 'local'");
   sqlite.exec("CREATE INDEX IF NOT EXISTS home_terminals_scope_idx ON home_terminals(scope_id);");
 

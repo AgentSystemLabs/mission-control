@@ -1,5 +1,6 @@
 // Shared sandbox vocabulary used by the client, server, and Electron main.
-// A "sandbox" is an isolated execution environment that owns its own projects.
+// A "sandbox" is an isolated execution environment that can be attached to a
+// project as an alternate runtime.
 // See docs/multi-sandbox-plan.md.
 
 /** Execution backend for a sandbox. */
@@ -8,6 +9,14 @@ export const SANDBOX_KINDS = ["local-docker", "remote-vm"] as const;
 export type SandboxKind = (typeof SANDBOX_KINDS)[number];
 
 export type SandboxGitAuthMode = "none" | "copy-host" | "generate";
+
+/**
+ * How an AWS sandbox instance gets its tooling. "golden" launches from the
+ * maintained public AMI (fast boot); "full-install" runs the setup script on a
+ * clean Ubuntu base. "golden" falls back to "full-install" automatically when no
+ * AMI exists for the target region/arch, so it is always a safe default.
+ */
+export type SandboxImageStrategy = "golden" | "full-install";
 
 export type RemoteVmLifecycleStatus =
   | "provisioning"
@@ -18,7 +27,10 @@ export type RemoteVmLifecycleStatus =
   | "pause_failed"
   | "resuming"
   | "resume_failed"
-  | "destroy_failed";
+  | "destroy_failed"
+  /** The cloud instance no longer exists (terminated/deleted out-of-band). Not
+   *  resumable — the only recovery is to remove the local record or switch to Local. */
+  | "missing";
 
 export type SandboxRemoteConfig = {
   /** WebSocket endpoint for a user-managed mc-agent. Stored without secrets. */
@@ -51,6 +63,8 @@ export type SandboxRemoteConfig = {
   localPort?: number | null;
   agentPort?: number | null;
   cloud?: Record<string, unknown>;
+  /** Project this sandbox was created from (project-scoped create flow). */
+  projectId?: string | null;
   createdAt?: number;
   updatedAt?: number;
 };
@@ -72,6 +86,8 @@ export type SandboxPublicView = {
   remoteStatus: RemoteVmLifecycleStatus | string | null;
   remoteStatusMessage: string | null;
   remotePublicAddress: string | null;
+  /** Present when the sandbox was created from a project screen. */
+  projectId: string | null;
   createdAt: number;
   updatedAt: number;
   hasPairingToken: boolean;
@@ -107,8 +123,8 @@ export function normalizeRemoteAgentUrl(
 
 /**
  * Sentinel scope meaning "the host machine" — the implicit, undeletable default.
- * Projects in the Local scope have `sandboxId = null`; everything else is a
- * sandbox id. The header dropdown selects exactly one ScopeId at a time.
+ * A selected non-local scope is a concrete sandbox id. The header dropdown
+ * selects exactly one ScopeId at a time.
  */
 export const LOCAL_SCOPE_ID = "local";
 
@@ -119,14 +135,8 @@ export function isLocalScope(scope: ScopeId | null | undefined): boolean {
   return !scope || scope === LOCAL_SCOPE_ID;
 }
 
-/** Map a selected ScopeId to the value stored on `projects.sandboxId`. */
 export function scopeToSandboxId(scope: ScopeId | null | undefined): string | null {
   return isLocalScope(scope) ? null : (scope as string);
-}
-
-/** Map a project's stored `sandboxId` back to a ScopeId for the UI. */
-export function sandboxIdToScope(sandboxId: string | null | undefined): ScopeId {
-  return sandboxId ?? LOCAL_SCOPE_ID;
 }
 
 export type SandboxScopeState = {
@@ -134,12 +144,11 @@ export type SandboxScopeState = {
   activeScopeId: string;
 };
 
-/** Keep only projects that belong to the active scope when sandboxes are enabled. */
-export function filterProjectsByScope<T extends { sandboxId: string | null }>(
+/** Project sandboxes do not hide or duplicate the project list. */
+export function filterProjectsByScope<T>(
   projects: T[],
   sandboxState: SandboxScopeState | null | undefined,
 ): T[] {
-  if (!sandboxState?.enabled) return projects;
-  const activeScopeId = sandboxState.activeScopeId ?? LOCAL_SCOPE_ID;
-  return projects.filter((p) => sandboxIdToScope(p.sandboxId) === activeScopeId);
+  void sandboxState;
+  return projects;
 }

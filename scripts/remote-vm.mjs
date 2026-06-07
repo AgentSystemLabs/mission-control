@@ -23,6 +23,39 @@ const DEFAULT_DO_IMAGE = "ubuntu-24-04-x64";
 const DEFAULT_AWS_IMAGE =
   "resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id";
 const DEFAULT_AWS_SECURITY_GROUP = "mission-control-remote-vm-agent";
+
+// --- Golden AMI ---------------------------------------------------------------
+// AgentSystemLabs publishes a pre-baked public AMI (one per region) with every
+// tool already installed. deployAws resolves the AMI for the target region/arch
+// from a small manifest and launches from it with the slim boot user-data, so a
+// cold boot drops from minutes to ~seconds. When no entry exists (region not yet
+// published, offline, arch mismatch), deploy falls back to the full-install path
+// on the stock Ubuntu base — nothing ever hard-breaks.
+//
+// The hosted manifest is published by the mc-sandbox repo's workflow to academy
+// (github.com/AgentSystemLabs/mc-sandbox). It takes precedence; the bundled
+// golden-ami-manifest.json below is the offline fallback.
+const GOLDEN_AMI_MANIFEST_URL =
+  process.env.MC_GOLDEN_AMI_MANIFEST_URL?.trim() ||
+  "https://agentsystem.dev/api/golden-ami/manifest";
+// Shipped alongside this script; the offline fallback when the hosted manifest is
+// unreachable. Holds the last known-good AMI so deploys stay fast even offline.
+const BUNDLED_GOLDEN_AMI_MANIFEST = path.join(
+  path.dirname(new URL(import.meta.url).pathname),
+  "golden-ami-manifest.json",
+);
+// Root of trust for golden AMIs. The manifest's own `owner` field is untrusted
+// data (a compromised CDN object or a hostile MC_GOLDEN_AMI_MANIFEST_URL could set
+// both the AMI id AND a matching attacker-owned account). Pinning launches to a
+// known account id defeats that: a resolved AMI must be owned by THIS account, not
+// merely by whoever wrote the manifest.
+//
+// The AgentSystemLabs AWS account that publishes the golden AMIs (the account the
+// mc-sandbox repo's build runs under). Pinning here means a resolved AMI must be
+// owned by THIS account, not merely by whoever wrote the manifest.
+// Override per-environment with MC_GOLDEN_AMI_OWNER.
+const GOLDEN_AMI_OWNER_DEFAULT = "493255580566";
+const GOLDEN_AMI_OWNER_PIN = process.env.MC_GOLDEN_AMI_OWNER?.trim() || GOLDEN_AMI_OWNER_DEFAULT;
 // Railway: a single shared project holds one service per sandbox. The agent is
 // deployed from the public GitHub repo and reached over Railway's edge TLS.
 const MC_RAILWAY_PROJECT_NAME = "mission-control";
@@ -265,39 +298,191 @@ function doctlJson(args) {
   return parseJsonOutput(stdout, "doctl");
 }
 
-export function renderUserData({
-  apiKey,
-  agentPort = AGENT_PORT,
-  bindHost = "0.0.0.0",
-  workspaceUser = "workspace",
-  workspaceRoot = "/workspace",
-  // When true, the agent binds loopback-only and a TLS sidecar terminates HTTPS
-  // on AGENT_TLS_PORT (443), forwarding decrypted traffic to the loopback agent.
-  tls = false,
-  tlsPort = AGENT_TLS_PORT,
-  // Minutes of no agent activity (PTY I/O or RPC) before the VM stops itself.
-  // 0 disables the idle watchdog.
-  idleTimeoutMinutes = 0,
-  // Optional user bootstrap script (plain text). Runs once, as root, after the
-  // agent is healthy, isolated so a failure can't brick provisioning.
-  setupScript = "",
-}) {
+// --- Golden AMI resolution ----------------------------------------------------
+
+// A manifest is tiny; cap the body so a hostile/oversized response can't grow
+// memory before we even parse it.
+const GOLDEN_AMI_MANIFEST_MAX_BYTES = 1_000_000;
+
+function httpsGetText(url, timeoutMs = 8_000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { timeout: timeoutMs }, (res) => {
+      if (res.statusCode && res.statusCode >= 400) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      let body = "";
+      let bytes = 0;
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        bytes += Buffer.byteLength(chunk);
+        if (bytes > GOLDEN_AMI_MANIFEST_MAX_BYTES) {
+          req.destroy(new Error("response too large"));
+          return;
+        }
+        body += chunk;
+      });
+      res.on("end", () => resolve(body));
+    });
+    // Socket `timeout` is idle-only; add a wall-clock deadline so a slow-drip
+    // server can't hold the deploy open indefinitely.
+    const deadline = setTimeout(() => req.destroy(new Error("deadline exceeded")), timeoutMs * 2);
+    req.on("close", () => clearTimeout(deadline));
+    req.on("timeout", () => req.destroy(new Error("timed out")));
+    req.on("error", reject);
+  });
+}
+
+/**
+ * Parse + shape-validate a golden AMI manifest. Returns the normalized object or
+ * null when the payload is missing required fields, so a malformed/half-written
+ * manifest can never push a bad AMI id into a launch.
+ */
+export function parseGoldenAmiManifest(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text || "null");
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const images = raw.images && typeof raw.images === "object" ? raw.images : null;
+  if (!images) return null;
+  const cleanImages = {};
+  for (const [region, amiId] of Object.entries(images)) {
+    if (typeof region === "string" && typeof amiId === "string" && /^ami-[0-9a-f]+$/i.test(amiId)) {
+      cleanImages[region] = amiId;
+    }
+  }
+  return {
+    schemaVersion: Number(raw.schemaVersion) || 1,
+    version: typeof raw.version === "string" ? raw.version : null,
+    agentVersion: typeof raw.agentVersion === "string" ? raw.agentVersion : null,
+    arch: typeof raw.arch === "string" ? raw.arch : "x86_64",
+    owner: typeof raw.owner === "string" && /^\d{12}$/.test(raw.owner) ? raw.owner : null,
+    builtAt: typeof raw.builtAt === "string" ? raw.builtAt : null,
+    images: cleanImages,
+  };
+}
+
+function readBundledGoldenAmiManifest() {
+  try {
+    return parseGoldenAmiManifest(fs.readFileSync(BUNDLED_GOLDEN_AMI_MANIFEST, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the golden AMI manifest: prefer the hosted copy (so new AMIs ship without
+ * an app release), fall back to the manifest bundled with the app (offline / fetch
+ * failure). Returns { manifest, source } where source is "remote" | "bundled" | "none".
+ */
+export async function fetchGoldenAmiManifest({ url = GOLDEN_AMI_MANIFEST_URL, timeoutMs = 8_000 } = {}) {
+  try {
+    const text = await httpsGetText(url, timeoutMs);
+    const manifest = parseGoldenAmiManifest(text);
+    if (manifest) return { manifest, source: "remote" };
+    // A reachable-but-malformed manifest is its own failure mode; say so before
+    // silently dropping to the (possibly stale) bundled copy.
+    console.error(`[remote-vm] golden AMI manifest at ${url} was malformed; falling back to bundled`);
+  } catch (err) {
+    console.error(
+      `[remote-vm] golden AMI manifest fetch failed (${url}); falling back to bundled: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const bundled = readBundledGoldenAmiManifest();
+  if (bundled) return { manifest: bundled, source: "bundled" };
+  return { manifest: null, source: "none" };
+}
+
+/**
+ * Infer the CPU architecture an EC2 instance type runs. Graviton (arm64) families
+ * embed a digit+'g' (t4g, m7g, c7gn, x2gd, im4gn, is4gen) or are the a1 family;
+ * everything else is x86_64. A golden AMI is single-arch, so a mismatch must fall
+ * back rather than launch an incompatible image.
+ */
+export function archForInstanceSize(size) {
+  const family = String(size || "").trim().toLowerCase().split(".")[0];
+  if (!family) return "x86_64";
+  if (family === "a1" || /\dg[a-z]*$/.test(family)) return "arm64";
+  return "x86_64";
+}
+
+/**
+ * Pure resolution: given a manifest, target region, and arch, return the launchable
+ * AMI descriptor or null. Never throws — a miss (region not published, arch mismatch)
+ * is a normal fallback signal, not an error.
+ */
+export function resolveGoldenAmi({ manifest, region, arch }) {
+  if (!manifest || !manifest.images) return null;
+  if (manifest.arch && arch && manifest.arch !== arch) return null;
+  const amiId = manifest.images[region];
+  if (!amiId) return null;
+  return {
+    amiId,
+    owner: manifest.owner,
+    region,
+    arch: manifest.arch,
+    version: manifest.version,
+    agentVersion: manifest.agentVersion,
+  };
+}
+
+/**
+ * Confirm a resolved AMI is genuinely owned by the manifest's account (anti-spoof:
+ * a third party can't squat a same-named public AMI) and is in the available state.
+ * describe-images --owners filters server-side, so a wrong owner returns no rows.
+ */
+function verifyAmiOwner(opts, amiId, expectedOwner) {
+  if (!expectedOwner) return false;
+  if (GOLDEN_AMI_OWNER_PIN && GOLDEN_AMI_OWNER_PIN !== expectedOwner) return false;
+  try {
+    const result = awsJson(opts, [
+      "ec2",
+      "describe-images",
+      "--image-ids",
+      amiId,
+      "--owners",
+      expectedOwner,
+    ]);
+    const found = (result.Images ?? []).find((img) => img.ImageId === amiId);
+    if (!found) return false;
+    if (found.OwnerId && found.OwnerId !== expectedOwner) return false;
+    if (found.State && found.State !== "available") return false;
+    return true;
+  } catch (err) {
+    // A thrown AWS error (expired creds, throttling, permissions) is NOT the same
+    // as a genuine owner mismatch — both fail closed, but only one means "spoof".
+    // Log so a slow full-install fallback is traceable to its real cause.
+    console.error(
+      `[remote-vm] owner verification for ${amiId} errored (treating as unverified): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return false;
+  }
+}
+
+// Default identity for the agent runtime, shared by the install + boot fragments.
+const WORKSPACE_USER = "workspace";
+const WORKSPACE_ROOT = "/workspace";
+// The agent stamps this file on every PTY/RPC; the idle watchdog reads its mtime.
+// /run is tmpfs, so a fresh boot/resume starts the idle clock from agent startup.
+const AGENT_ACTIVITY_FILE = "/run/mission-control-agent/activity";
+
+/**
+ * Heavy, secret-free install steps: OS packages, Node, pnpm, the agent + AI CLIs,
+ * and cursor-agent. This is the ONLY expensive part of provisioning and the part a
+ * golden AMI bakes once. It MUST NOT contain per-instance secrets (API key, TLS
+ * material), so the captured image is safe to publish as a public AMI.
+ */
+function renderInstallBody({ workspaceUser = WORKSPACE_USER, workspaceRoot = WORKSPACE_ROOT } = {}) {
   const home = `/home/${workspaceUser}`;
-  const effectiveBindHost = tls ? "127.0.0.1" : bindHost;
-  // The agent stamps this file on every PTY/RPC; the idle watchdog reads its mtime.
-  // /run is tmpfs, so a fresh boot/resume starts the idle clock from agent startup.
-  const activityFile = "/run/mission-control-agent/activity";
-  const idleSeconds = Math.max(0, Math.floor(Number(idleTimeoutMinutes) || 0)) * 60;
-  const idleFragment = idleSeconds > 0 ? renderIdleWatchdog({ idleSeconds, activityFile }) : "";
-  const setupFragment = setupScript && setupScript.trim() ? renderUserSetup({ setupScript }) : "";
-  return `#!/usr/bin/env bash
-set -Eeuo pipefail
-
-exec > >(tee -a /var/log/mission-control-agent-bootstrap.log) 2>&1
-export DEBIAN_FRONTEND=noninteractive
-
-echo "[mission-control] bootstrap started at $(date -Is)"
-apt-get update
+  return `apt-get update
 apt-get install -y --no-install-recommends \\
   bash build-essential ca-certificates curl git gnupg jq less openssh-client openssl procps \\
   python3 python3-pip python3-venv ripgrep sudo unzip xz-utils zip zsh
@@ -336,9 +521,34 @@ echo "[mission-control] agent binary resolved to: $(command -v mission-control-a
 sudo -H -u ${workspaceUser} env HOME=${home} PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin bash -lc \\
   'for i in 1 2 3; do curl https://cursor.com/install -fsS | bash && break; echo "cursor-agent install attempt $i failed; retrying in 5s..."; sleep 5; done || echo "WARNING: cursor-agent install failed; continuing without it"'
 ln -sf ${home}/.local/bin/cursor-agent /usr/local/bin/cursor-agent || true
-ln -sf ${home}/.local/bin/agent /usr/local/bin/agent || true
+ln -sf ${home}/.local/bin/agent /usr/local/bin/agent || true`;
+}
 
-cat >/etc/mission-control-agent.env <<'MC_AGENT_ENV'
+/**
+ * Per-instance configuration + service startup. Writes the API key and (for TLS)
+ * generates a fresh self-signed cert, then enables the agent. NONE of this is baked
+ * into a golden AMI — it runs at boot via cloud-init so every instance gets its own
+ * secret + cert. Assumes renderInstallBody already ran (packages + workspace user +
+ * agent binary present), whether baked into the AMI or run inline in the full path.
+ */
+function renderBootBody({
+  apiKey,
+  agentPort = AGENT_PORT,
+  bindHost = "0.0.0.0",
+  workspaceUser = WORKSPACE_USER,
+  workspaceRoot = WORKSPACE_ROOT,
+  tls = false,
+  tlsPort = AGENT_TLS_PORT,
+  idleTimeoutMinutes = 0,
+  setupScript = "",
+}) {
+  const home = `/home/${workspaceUser}`;
+  const effectiveBindHost = tls ? "127.0.0.1" : bindHost;
+  const activityFile = AGENT_ACTIVITY_FILE;
+  const idleSeconds = Math.max(0, Math.floor(Number(idleTimeoutMinutes) || 0)) * 60;
+  const idleFragment = idleSeconds > 0 ? renderIdleWatchdog({ idleSeconds, activityFile }) : "";
+  const setupFragment = setupScript && setupScript.trim() ? renderUserSetup({ setupScript }) : "";
+  return `cat >/etc/mission-control-agent.env <<'MC_AGENT_ENV'
 MC_AGENT_API_KEY=${apiKey}
 MC_AGENT_PORT=${agentPort}
 MC_AGENT_BIND_HOST=${effectiveBindHost}
@@ -417,7 +627,86 @@ fi
       : ""
   }
 install -d -m 0755 /opt/mission-control-agent
-${setupFragment}${idleFragment}touch /opt/mission-control-agent/bootstrap-complete
+${setupFragment}${idleFragment}touch /opt/mission-control-agent/bootstrap-complete`;
+}
+
+/**
+ * Bake-time provisioner for the golden AMI: the heavy install steps only, with a
+ * log sink and apt in noninteractive mode. Packer runs this as a shell provisioner;
+ * the resulting image is captured (after a secret scrub) and published per region.
+ */
+export function renderInstallScript({ workspaceUser = WORKSPACE_USER, workspaceRoot = WORKSPACE_ROOT } = {}) {
+  return `#!/usr/bin/env bash
+set -Eeuo pipefail
+
+exec > >(tee -a /var/log/mission-control-agent-install.log) 2>&1
+export DEBIAN_FRONTEND=noninteractive
+
+echo "[mission-control] golden image install started at $(date -Is)"
+${renderInstallBody({ workspaceUser, workspaceRoot })}
+echo "[mission-control] golden image install complete at $(date -Is)"
+`;
+}
+
+/**
+ * Slim cloud-init user-data for an instance launched FROM a golden AMI: skips every
+ * install (already baked) and only writes the per-instance secret/cert + starts the
+ * agent. This is the fast path — boot drops from minutes to ~seconds.
+ */
+export function renderBootUserData(opts) {
+  return `#!/usr/bin/env bash
+set -Eeuo pipefail
+
+exec > >(tee -a /var/log/mission-control-agent-bootstrap.log) 2>&1
+
+echo "[mission-control] boot configuration started at $(date -Is)"
+${renderBootBody(opts)}
+echo "[mission-control] bootstrap complete at $(date -Is)"
+`;
+}
+
+/**
+ * Full cloud-init user-data: install + boot in one pass. Used as the FALLBACK when
+ * no golden AMI is available for the target region/arch (and for non-AWS providers),
+ * so provisioning still works end-to-end on a stock Ubuntu base image.
+ */
+export function renderUserData({
+  apiKey,
+  agentPort = AGENT_PORT,
+  bindHost = "0.0.0.0",
+  workspaceUser = WORKSPACE_USER,
+  workspaceRoot = WORKSPACE_ROOT,
+  // When true, the agent binds loopback-only and a TLS sidecar terminates HTTPS
+  // on AGENT_TLS_PORT (443), forwarding decrypted traffic to the loopback agent.
+  tls = false,
+  tlsPort = AGENT_TLS_PORT,
+  // Minutes of no agent activity (PTY I/O or RPC) before the VM stops itself.
+  // 0 disables the idle watchdog.
+  idleTimeoutMinutes = 0,
+  // Optional user bootstrap script (plain text). Runs once, as root, after the
+  // agent is healthy, isolated so a failure can't brick provisioning.
+  setupScript = "",
+}) {
+  return `#!/usr/bin/env bash
+set -Eeuo pipefail
+
+exec > >(tee -a /var/log/mission-control-agent-bootstrap.log) 2>&1
+export DEBIAN_FRONTEND=noninteractive
+
+echo "[mission-control] bootstrap started at $(date -Is)"
+${renderInstallBody({ workspaceUser, workspaceRoot })}
+
+${renderBootBody({
+    apiKey,
+    agentPort,
+    bindHost,
+    workspaceUser,
+    workspaceRoot,
+    tls,
+    tlsPort,
+    idleTimeoutMinutes,
+    setupScript,
+  })}
 echo "[mission-control] bootstrap complete at $(date -Is)"
 `;
 }
@@ -731,6 +1020,7 @@ export function createRemoteConfig(input) {
     status: input.status,
     statusMessage: input.statusMessage || null,
     cloud: input.cloud ?? {},
+    projectId: input.projectId ?? null,
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
   };
@@ -844,7 +1134,7 @@ export function insertRemoteVmSandbox(
   }
 }
 
-export function updateRemoteVmStatus(db, id, status, statusMessage = null, patch = {}) {
+export function updateRemoteVmStatus(db, id, status, statusMessage = null, patch = {}, options = {}) {
   const row = db.prepare("SELECT remote_config FROM sandboxes WHERE id = ?").get(id);
   if (!row?.remote_config) return;
   let config;
@@ -860,11 +1150,16 @@ export function updateRemoteVmStatus(db, id, status, statusMessage = null, patch
     statusMessage,
     updatedAt: Date.now(),
   };
-  db.prepare("UPDATE sandboxes SET remote_config = ?, updated_at = ? WHERE id = ?").run(
-    JSON.stringify(next),
-    next.updatedAt,
-    id,
-  );
+  const serialized = JSON.stringify(next);
+  const result =
+    typeof options.expectedRemoteConfig === "string"
+      ? db
+          .prepare("UPDATE sandboxes SET remote_config = ?, updated_at = ? WHERE id = ? AND remote_config = ?")
+          .run(serialized, next.updatedAt, id, options.expectedRemoteConfig)
+      : db
+          .prepare("UPDATE sandboxes SET remote_config = ?, updated_at = ? WHERE id = ?")
+          .run(serialized, next.updatedAt, id);
+  return result.changes > 0;
 }
 
 function readSandbox(db, id) {
@@ -1916,7 +2211,8 @@ async function deployAws(flags) {
     keyName,
     profile: strFlag(flags, "profile", process.env.AWS_PROFILE || ""),
     size: strFlag(flags, "size", DEFAULT_AWS_SIZE),
-    imageId: strFlag(flags, "image-id", DEFAULT_AWS_IMAGE),
+    // Explicit override only; empty means auto-resolve (golden AMI → SSM Ubuntu).
+    imageId: strFlag(flags, "image-id"),
     subnetId: strFlag(flags, "subnet-id"),
     securityGroupId: strFlag(flags, "security-group-id"),
     identityFile: strFlag(flags, "identity-file"),
@@ -1935,6 +2231,7 @@ async function deployAws(flags) {
   // Idle auto-stop window. Default 30 min; 0 disables.
   const idleTimeoutMinutes = intFlag(flags, "idle-timeout", 30);
   const setupScript = decodeSetupScript(strFlag(flags, "setup-script-b64"));
+  const projectId = strFlag(flags, "project-id");
   const db = openMissionControlDb();
   preflightAws(opts);
   opts.localPort = opts.keyName ? chooseLocalPort(db, opts.localPort) : null;
@@ -1943,8 +2240,56 @@ async function deployAws(flags) {
   const sg = ensureAwsSecurityGroup(opts, accessCidr, AGENT_TLS_PORT);
   const apiKey = randomSecret();
   const sandboxId = strFlag(flags, "sandbox-id") || newId("sb");
+
+  // Resolve the launch image. Prefer a published golden AMI for this region+arch
+  // (owner-verified to defeat AMI squatting) and launch from it with the slim boot
+  // user-data; otherwise fall back to the stock Ubuntu base + full-install user-data
+  // so provisioning always works, even offline or in an unpublished region.
+  const explicitImageId = opts.imageId;
+  const noGolden = boolFlag(flags, "no-golden");
+  const arch = archForInstanceSize(opts.size);
+  let golden = null;
+  let manifestSource = "none";
+  if (!explicitImageId && !noGolden) {
+    const resolved = await fetchGoldenAmiManifest();
+    manifestSource = resolved.source;
+    const candidate = resolveGoldenAmi({ manifest: resolved.manifest, region, arch });
+    if (candidate && !candidate.owner) {
+      console.log(
+        `[remote-vm] golden AMI ${candidate.amiId} skipped: manifest has no owner to verify against`,
+      );
+    } else if (candidate && verifyAmiOwner(opts, candidate.amiId, candidate.owner)) {
+      golden = candidate;
+    } else if (candidate) {
+      console.log(
+        `[remote-vm] golden AMI ${candidate.amiId} failed owner verification; falling back to full install`,
+      );
+    }
+  }
+  const launchImageId = explicitImageId || golden?.amiId || DEFAULT_AWS_IMAGE;
+  opts.imageId = launchImageId;
+  // Why we did NOT take the golden path (null when we did) — stamped durably below
+  // so a sandbox row alone explains a slow full-install without the deploy log.
+  const goldenFallbackReason = golden
+    ? null
+    : explicitImageId
+      ? "explicit-image-id"
+      : noGolden
+        ? "no-golden-flag"
+        : `no-ami:${manifestSource}`;
+  if (golden) {
+    console.log(
+      `[remote-vm] launching from golden AMI ${golden.amiId} (region=${region}, arch=${arch}, manifest=${manifestSource}, version=${golden.version ?? "?"})`,
+    );
+  } else {
+    console.log(
+      `[remote-vm] full-install path for region=${region} arch=${arch} (${goldenFallbackReason}); base image ${launchImageId}`,
+    );
+  }
   const userData = writeTempUserData(
-    renderUserData({ apiKey, tls: true, idleTimeoutMinutes, setupScript }),
+    golden
+      ? renderBootUserData({ apiKey, tls: true, idleTimeoutMinutes, setupScript })
+      : renderUserData({ apiKey, tls: true, idleTimeoutMinutes, setupScript }),
   );
 
   let instanceId = "";
@@ -1988,7 +2333,14 @@ async function deployAws(flags) {
         subnetId: opts.subnetId || null,
         accessCidr,
         sshEnabled: !!opts.keyName,
+        // Provenance of the launch image, for debugging fast-boot vs fallback.
+        goldenImage: !!golden,
+        imageArch: arch,
+        imageManifestSource: manifestSource,
+        imageManifestVersion: golden?.version ?? null,
+        goldenFallbackReason,
       },
+      projectId: projectId || null,
       createdAt: now,
       updatedAt: now,
     });
@@ -2242,6 +2594,44 @@ function readAwsInstanceState(opts, instanceId) {
   return instance.State?.Name ?? null;
 }
 
+/**
+ * True when an AWS CLI error means the instance no longer exists — it was
+ * terminated/deleted out-of-band (e.g. in the AWS console) and aged out of the
+ * API, so describe/terminate/start now report it as unknown. Terminating or
+ * reconciling such an instance is a no-op, not a failure.
+ */
+export function isAwsInstanceMissingError(message) {
+  return /InvalidInstanceID\.NotFound|instance ID .* does not exist|instance .* not found/i.test(
+    String(message ?? ""),
+  );
+}
+
+/**
+ * Read the AWS instance state, but return the `"missing"` sentinel instead of
+ * throwing when the instance no longer exists, so callers can surface a deleted
+ * VM rather than crashing on InvalidInstanceID.NotFound.
+ */
+function readAwsInstanceStateSafe(opts, instanceId) {
+  try {
+    return readAwsInstanceState(opts, instanceId);
+  } catch (err) {
+    if (isAwsInstanceMissingError(err instanceof Error ? err.message : String(err))) {
+      return "missing";
+    }
+    throw err;
+  }
+}
+
+/**
+ * True when a raw instance state means the VM is gone — terminated, on its way
+ * to terminated, or no longer described by the API. A gone instance is not
+ * resumable; reconcile flips the saved status to "missing" so the UI prompts the
+ * user to remove the record or switch to Local.
+ */
+export function isGoneAwsInstanceState(state) {
+  return state === "missing" || state === "terminated" || state === "shutting-down";
+}
+
 // Map a raw cloud instance state to a saved lifecycle status, or null to leave
 // the current status untouched (running/pending are handled by start/resume).
 export function statusForAwsInstanceState(state) {
@@ -2253,6 +2643,15 @@ export function statusForAwsInstanceState(state) {
     default:
       return null;
   }
+}
+
+export function shouldPersistAwsReconciledStatus(currentStatus, instanceState, mappedStatus) {
+  if (mappedStatus !== "paused") return false;
+  if (currentStatus === "paused" || currentStatus === "resuming") return false;
+  // While EC2 is still stopping, preserve the in-flight UI state. Once AWS
+  // reports "stopped", the real provider state is authoritative.
+  if (currentStatus === "pausing" && instanceState !== "stopped") return false;
+  return true;
 }
 
 /**
@@ -2275,28 +2674,50 @@ async function reconcile(id, flags) {
         region: cfg.region,
         profile: strFlag(flags, "profile", process.env.AWS_PROFILE || ""),
       };
-      instanceState = readAwsInstanceState(opts, cfg.providerId);
-      const mapped = statusForAwsInstanceState(instanceState);
-      // Only flip to paused when genuinely stopped and not mid-transition, so we
-      // never clobber a pause/resume that is already in flight.
-      if (
-        mapped === "paused" &&
-        cfg.status !== "paused" &&
-        cfg.status !== "pausing" &&
-        cfg.status !== "resuming"
-      ) {
-        nextStatus = "paused";
+      instanceState = readAwsInstanceStateSafe(opts, cfg.providerId);
+      if (isGoneAwsInstanceState(instanceState)) {
+        // The instance was terminated/deleted out-of-band — it can't be resumed.
+        // Surface it as "missing" so the desktop prompts to remove the record.
+        if (cfg.status !== "missing") nextStatus = "missing";
+      } else {
+        const mapped = statusForAwsInstanceState(instanceState);
+        // Only flip to paused when the provider state is authoritative enough to
+        // resolve the local lifecycle state. In particular, "pausing" should
+        // become "paused" once AWS reports the instance is fully stopped.
+        if (shouldPersistAwsReconciledStatus(cfg.status, instanceState, mapped)) {
+          nextStatus = "paused";
+        }
       }
     }
-    const changed = nextStatus !== null && nextStatus !== cfg.status;
-    if (changed) {
-      updateRemoteVmStatus(db, id, nextStatus, "Instance is stopped (idle auto-stop or manual stop).");
+    const latestRow = nextStatus === null ? row : readSandbox(db, id);
+    const latestCfg = nextStatus === null ? cfg : requireManagedRemote(latestRow, "reconciled");
+    if (nextStatus === "paused") {
+      const mapped = statusForAwsInstanceState(instanceState);
+      if (!shouldPersistAwsReconciledStatus(latestCfg.status, instanceState, mapped)) {
+        nextStatus = null;
+      }
+    } else if (nextStatus === "missing" && latestCfg.status === "missing") {
+      nextStatus = null;
     }
+    const changed = nextStatus !== null && nextStatus !== latestCfg.status;
+    if (changed) {
+      const message =
+        nextStatus === "missing"
+          ? "The cloud instance no longer exists. Remove this sandbox or switch to Local."
+          : "Instance is stopped (idle auto-stop or manual stop).";
+      const persisted = updateRemoteVmStatus(db, id, nextStatus, message, {}, {
+        expectedRemoteConfig: latestRow?.remote_config,
+      });
+      if (!persisted) {
+        nextStatus = null;
+      }
+    }
+    const finalRow = nextStatus === null && changed ? readSandbox(db, id) : null;
     const result = {
       sandboxId: id,
       instanceState,
-      status: changed ? nextStatus : cfg.status ?? null,
-      changed,
+      status: nextStatus ?? finalRow?.remoteConfig?.status ?? latestCfg.status ?? null,
+      changed: nextStatus !== null && changed,
     };
     if (json) console.log(`REMOTE_VM_RECONCILE_JSON=${JSON.stringify(result)}`);
     else console.log(`[remote-vm] ${id}: instance=${instanceState ?? "?"} status=${result.status ?? "?"}`);
@@ -2568,13 +2989,24 @@ async function destroy(id, flags) {
         region: cfg.region,
         profile: strFlag(flags, "profile", process.env.AWS_PROFILE || ""),
       };
-      runChecked("aws", awsArgs(opts, [
+      const terminate = run("aws", awsArgs(opts, [
         "ec2",
         "terminate-instances",
         "--instance-ids",
         cfg.providerId,
       ]));
-      console.log(`[remote-vm] termination requested for EC2 instance ${cfg.providerId}`);
+      if (terminate.code === 0) {
+        console.log(`[remote-vm] termination requested for EC2 instance ${cfg.providerId}`);
+      } else {
+        const detail = (terminate.stderr || terminate.stdout || "command failed").trim();
+        // The instance was already deleted out-of-band — the desired end state is
+        // reached, so treat "not found" as success and continue to row cleanup.
+        if (isAwsInstanceMissingError(detail)) {
+          console.log(`[remote-vm] EC2 instance ${cfg.providerId} already gone — nothing to terminate`);
+        } else {
+          throw new CliError(`aws ec2 terminate-instances failed: ${detail}`);
+        }
+      }
     } else if (cfg.provider === "digitalocean") {
       assertCommand("doctl", "Install doctl.");
       if (cfg.cloud?.firewallId) {
@@ -2639,7 +3071,10 @@ AWS flags:
   --key-name <aws-key>         Optional EC2 key pair for later SSH debugging.
   --identity-file <path>       Optional private key path stored for tunnel command.
   --local-port <port>          Optional local tunnel port when --key-name is used.
-  --image-id <ami|resolve:ssm> Ubuntu 24.04 SSM image alias is used by default.
+  --image-id <ami|resolve:ssm> Explicit image override. Omit to auto-resolve a
+                               published golden AMI for the region/arch, else the
+                               Ubuntu 24.04 SSM base + full install.
+  --no-golden                  Skip the golden AMI; force the full-install path.
   --subnet-id <subnet>         Optional subnet. Default VPC is used when omitted.
   --security-group-id <sg>     Optional user-managed security group.
 

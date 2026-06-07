@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { mcToastCustom, McToastCloseButton } from "~/lib/mc-toast";
 import { useSettings } from "~/queries";
 import { useServerEvents, type ServerEvent } from "~/lib/use-events";
 import { CardFrame } from "~/components/ui/CardFrame";
@@ -186,13 +187,14 @@ export function useSessionFinishNotifications() {
       };
 
       if (toastEnabled) {
-        toast.custom(
+        mcToastCustom(
           (t) => (
             <CardFrame
               style={{
+                position: "relative",
                 minWidth: 360,
                 maxWidth: 460,
-                padding: "14px 16px",
+                padding: "14px 96px 14px 16px",
                 display: "flex",
                 alignItems: "center",
                 gap: 14,
@@ -250,6 +252,7 @@ export function useSessionFinishNotifications() {
               >
                 Open
               </Btn>
+              <McToastCloseButton toastId={t} />
             </CardFrame>
           ),
           { duration: 6000 },

@@ -12,7 +12,7 @@ import type { CredsKind, CredsTool, RpcParams } from "./protocol";
 // writes secrets with 0600 perms, bypassing FileRpc's sensitive-path block.
 
 export type CredsSetupParams = RpcParams["creds.setup"];
-export type CredsSetupResult = { wrote: number };
+export type CredsSetupResult = { wrote: number; written: Array<{ tool: CredsTool; kind: CredsKind }> };
 
 const MAX_CRED_BYTES = 256 * 1024;
 const TOOLS: ReadonlySet<CredsTool> = new Set<CredsTool>(["claude", "codex", "cursor", "opencode"]);
@@ -27,60 +27,72 @@ export class CredsRpc {
   async setup(params: CredsSetupParams): Promise<CredsSetupResult> {
     const items = Array.isArray(params?.items) ? params.items : [];
     let wrote = 0;
+    const written: Array<{ tool: CredsTool; kind: CredsKind }> = [];
     for (const item of items) {
       if (!item || typeof item !== "object" || typeof item.content !== "string") continue;
       if (!TOOLS.has(item.tool) || !KINDS.has(item.kind)) continue;
       if (item.content.length === 0 || Buffer.byteLength(item.content, "utf8") > MAX_CRED_BYTES) continue;
-      const dest = this.destFor(item.tool, item.kind);
-      if (!dest) continue;
-      try {
-        fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
-        // Claude's state file (.claude.json) may already exist on a persisted
-        // volume — shallow-merge our auth/onboarding keys so VM-side state isn't
-        // clobbered. Pure credential files are overwritten (host token wins).
-        const content =
-          item.tool === "claude" && item.kind === "state"
-            ? mergeJson(dest, item.content)
-            : item.content;
-        fs.writeFileSync(dest, content, { mode: 0o600 });
+      let wroteItem = false;
+      for (const dest of this.destsFor(item.tool, item.kind)) {
         try {
-          fs.chmodSync(dest, 0o600);
+          fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+          // Claude's state file (.claude.json) may already exist on a persisted
+          // volume — shallow-merge our auth/onboarding keys so VM-side state isn't
+          // clobbered. Pure credential files are overwritten (host token wins).
+          const content =
+            item.tool === "claude" && item.kind === "state"
+              ? mergeJson(dest, item.content)
+              : item.content;
+          fs.writeFileSync(dest, content, { mode: 0o600 });
+          try {
+            fs.chmodSync(dest, 0o600);
+          } catch {
+            /* best effort */
+          }
+          wrote += 1;
+          if (!wroteItem) {
+            written.push({ tool: item.tool, kind: item.kind });
+            wroteItem = true;
+          }
         } catch {
-          /* best effort */
+          // Skip a destination we can't place (unwritable dir, etc.) — never fail
+          // the whole batch over one tool.
         }
-        wrote += 1;
-      } catch {
-        // Skip an item we can't place (unwritable dir, etc.) — never fail the
-        // whole batch over one tool.
       }
     }
-    return { wrote };
+    return { wrote, written };
   }
 
   /** Where (tool, kind) lands on this VM, honoring CLAUDE_CONFIG_DIR / XDG_*. */
-  private destFor(tool: CredsTool, kind: CredsKind): string | null {
+  private destsFor(tool: CredsTool, kind: CredsKind): string[] {
     const configHome = this.env.XDG_CONFIG_HOME || path.join(this.home, ".config");
     const dataHome = this.env.XDG_DATA_HOME || path.join(this.home, ".local", "share");
     const claudeDir = this.env.CLAUDE_CONFIG_DIR || path.join(this.home, ".claude");
     switch (tool) {
       case "claude":
-        if (kind === "credentials") return path.join(claudeDir, ".credentials.json");
-        // With CLAUDE_CONFIG_DIR set (the sandbox compose does this) the session
-        // state file lives inside it; otherwise it's ~/.claude.json at HOME root.
-        return this.env.CLAUDE_CONFIG_DIR
-          ? path.join(this.env.CLAUDE_CONFIG_DIR, ".claude.json")
-          : path.join(this.home, ".claude.json");
+        if (kind === "credentials") return [path.join(claudeDir, ".credentials.json")];
+        // Claude builds have used both ~/.claude.json and
+        // CLAUDE_CONFIG_DIR/.claude.json for global onboarding/account state. Write
+        // both when a config dir is supplied so fresh sandboxes skip first-run auth.
+        return uniquePaths([
+          this.env.CLAUDE_CONFIG_DIR ? path.join(this.env.CLAUDE_CONFIG_DIR, ".claude.json") : null,
+          path.join(this.home, ".claude.json"),
+        ]);
       case "codex":
-        return kind === "credentials" ? path.join(this.home, ".codex", "auth.json") : null;
+        return kind === "credentials" ? [path.join(this.home, ".codex", "auth.json")] : [];
       case "cursor":
         // cursor-agent reads ~/.config/cursor-agent/auth.json on Linux (no keychain).
-        return kind === "credentials" ? path.join(configHome, "cursor-agent", "auth.json") : null;
+        return kind === "credentials" ? [path.join(configHome, "cursor-agent", "auth.json")] : [];
       case "opencode":
-        return kind === "credentials" ? path.join(dataHome, "opencode", "auth.json") : null;
+        return kind === "credentials" ? [path.join(dataHome, "opencode", "auth.json")] : [];
       default:
-        return null;
+        return [];
     }
   }
+}
+
+function uniquePaths(paths: Array<string | null>): string[] {
+  return [...new Set(paths.filter((p): p is string => !!p))];
 }
 
 /** Shallow-merge incoming JSON over any existing object at `dest`. Falls back to

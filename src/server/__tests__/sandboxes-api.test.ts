@@ -13,7 +13,7 @@ process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
 
 const { handleApiRequest } = await import("../api-router");
 const { getDb } = await import("~/db/client");
-const { sandboxes, projects, appSettings } = await import("~/db/schema");
+const { sandboxes, projects, appSettings, tasks, userTerminals, homeTerminals } = await import("~/db/schema");
 const { getOrCreateApiToken } = await import("../services/settings");
 const { insertProject } = await import("../repositories/projects.repo");
 const { setLicenseKey, clearLicense } = await import("../services/license-storage");
@@ -41,6 +41,15 @@ function webRequest(input: string, init: RequestInit = {}): Request {
   headers.set(MISSION_CONTROL_RUNTIME_HEADER, "web-daytona");
   if (init.body) headers.set("content-type", "application/json");
   return new Request(`http://localhost${input}`, { ...init, headers });
+}
+
+function remoteSandboxBody(name: string) {
+  return {
+    name,
+    kind: "remote-vm",
+    remoteAgentUrl: "https://agent.example.com",
+    apiKey: "0123456789abcdef0123456789abcdef",
+  };
 }
 
 function makeProject(id: string, sandboxId: string | null) {
@@ -89,6 +98,9 @@ function signedLicense(overrides: Record<string, unknown> = {}): string {
 
 describe("sandboxes API", () => {
   beforeEach(() => {
+    getDb().delete(homeTerminals).run();
+    getDb().delete(userTerminals).run();
+    getDb().delete(tasks).run();
     getDb().delete(projects).run();
     getDb().delete(sandboxes).run();
     getDb().delete(appSettings).run();
@@ -98,7 +110,7 @@ describe("sandboxes API", () => {
   it("creates a sandbox, enables the feature, and lists it with the active scope", async () => {
     const created = await body(
       await handleApiRequest(
-        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "Flexion" }) }),
+        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Flexion")) }),
       ),
     );
     expect(created.sandbox.name).toBe("Flexion");
@@ -120,7 +132,7 @@ describe("sandboxes API", () => {
   it("updates per-sandbox config and returns only the public sandbox shape", async () => {
     const created = await body(
       await handleApiRequest(
-        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "Flexion" }) }),
+        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Flexion")) }),
       ),
     );
     const id = created.sandbox.id as string;
@@ -227,15 +239,65 @@ describe("sandboxes API", () => {
     expect(create?.status).toBe(400);
   });
 
-  it("deleting a sandbox cascade-deletes its projects and resets the active scope to Local", async () => {
+  it("deleting a sandbox cascade-deletes its projects, scoped rows, and resets the active scope to Local", async () => {
     const created = await body(
       await handleApiRequest(
-        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "Client" }) }),
+        electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Client")) }),
       ),
     );
     const id = created.sandbox.id as string;
     makeProject("p-local", null);
     makeProject("p-client", id);
+    const now = Date.now();
+    getDb()
+      .insert(tasks)
+      .values({
+        id: "t-scoped",
+        projectId: "p-local",
+        worktreeId: null,
+        scopeId: id,
+        title: "Scoped task",
+        icon: null,
+        agent: "claude-code",
+        status: "ready",
+        branch: "main",
+        preview: "",
+        lines: 0,
+        archived: false,
+        claudeSessionId: null,
+        claudeSkipPermissions: false,
+        claudeBareSession: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    getDb()
+      .insert(userTerminals)
+      .values({
+        id: "ut-scoped",
+        projectId: "p-local",
+        worktreeId: null,
+        scopeId: id,
+        name: "Sandbox shell",
+        cwd: "/tmp/p-local",
+        startCommand: null,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    getDb()
+      .insert(homeTerminals)
+      .values({
+        id: "ht-scoped",
+        scopeId: id,
+        name: "Home shell",
+        cwd: null,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
     await handleApiRequest(
       electronRequest("/api/sandboxes/active", { method: "PUT", body: JSON.stringify({ scopeId: id }) }),
     );
@@ -245,6 +307,13 @@ describe("sandboxes API", () => {
 
     const remaining = getDb().select().from(projects).all();
     expect(remaining.map((p) => p.id)).toEqual(["p-local"]); // p-client cascaded away
+    expect(getDb().select().from(tasks).where(eq(tasks.id, "t-scoped")).get()).toBeUndefined();
+    expect(
+      getDb().select().from(userTerminals).where(eq(userTerminals.id, "ut-scoped")).get(),
+    ).toBeUndefined();
+    expect(
+      getDb().select().from(homeTerminals).where(eq(homeTerminals.id, "ht-scoped")).get(),
+    ).toBeUndefined();
     expect((await body(await handleApiRequest(electronRequest("/api/sandboxes")))).activeScopeId).toBe("local");
   });
 
@@ -268,11 +337,11 @@ describe("sandboxes API", () => {
 
   it("returns 402 when a lite user tries to create a second sandbox", async () => {
     await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "First" }) }),
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("First")) }),
     );
 
     const second = await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "Second" }) }),
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Second")) }),
     );
     expect(second?.status).toBe(HTTP_PAYMENT_REQUIRED);
     const payload = await body(second);
@@ -283,10 +352,10 @@ describe("sandboxes API", () => {
     setLicenseKey(signedLicense());
 
     await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "First" }) }),
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("First")) }),
     );
     const second = await handleApiRequest(
-      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify({ name: "Second" }) }),
+      electronRequest("/api/sandboxes", { method: "POST", body: JSON.stringify(remoteSandboxBody("Second")) }),
     );
     expect(second?.status).toBe(201);
 

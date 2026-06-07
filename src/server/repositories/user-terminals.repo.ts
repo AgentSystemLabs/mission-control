@@ -2,19 +2,15 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { userTerminals } from "~/db/schema";
 import type { UserTerminal } from "~/db/schema";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
-export function findVisibleUserTerminalsByProject(projectId: string): UserTerminal[] {
-  return getDb()
-    .select()
-    .from(userTerminals)
-    .where(and(eq(userTerminals.projectId, projectId), isNull(userTerminals.startCommand)))
-    .orderBy(asc(userTerminals.position), asc(userTerminals.createdAt))
-    .all();
+function normalizeScopeId(scopeId: string | null | undefined): string {
+  return scopeId?.trim() || LOCAL_SCOPE_ID;
 }
 
-export function findVisibleUserTerminalsByProjectAndWorktree(
+export function findVisibleUserTerminalsByProject(
   projectId: string,
-  worktreeId: string | null,
+  scopeId: string | null = LOCAL_SCOPE_ID,
 ): UserTerminal[] {
   return getDb()
     .select()
@@ -22,7 +18,28 @@ export function findVisibleUserTerminalsByProjectAndWorktree(
     .where(
       and(
         eq(userTerminals.projectId, projectId),
+        eq(userTerminals.scopeId, normalizeScopeId(scopeId)),
+        isNull(userTerminals.startCommand),
+      ),
+    )
+    .orderBy(asc(userTerminals.position), asc(userTerminals.createdAt))
+    .all();
+}
+
+export function findVisibleUserTerminalsByProjectAndWorktree(
+  projectId: string,
+  worktreeId: string | null,
+  scopeId: string | null = LOCAL_SCOPE_ID,
+): UserTerminal[] {
+  const scope = normalizeScopeId(scopeId);
+  return getDb()
+    .select()
+    .from(userTerminals)
+    .where(
+      and(
+        eq(userTerminals.projectId, projectId),
         worktreeId ? eq(userTerminals.worktreeId, worktreeId) : isNull(userTerminals.worktreeId),
+        eq(userTerminals.scopeId, scope),
         isNull(userTerminals.startCommand),
       )
     )
@@ -30,23 +47,35 @@ export function findVisibleUserTerminalsByProjectAndWorktree(
     .all();
 }
 
-export function deleteEphemeralUserTerminalsByProject(projectId: string): void {
-  getDb()
-    .delete(userTerminals)
-    .where(and(eq(userTerminals.projectId, projectId), isNotNull(userTerminals.startCommand)))
-    .run();
-}
-
-export function deleteEphemeralUserTerminalsByProjectAndWorktree(
+export function deleteEphemeralUserTerminalsByProject(
   projectId: string,
-  worktreeId: string | null,
+  scopeId: string | null = LOCAL_SCOPE_ID,
 ): void {
   getDb()
     .delete(userTerminals)
     .where(
       and(
         eq(userTerminals.projectId, projectId),
+        eq(userTerminals.scopeId, normalizeScopeId(scopeId)),
+        isNotNull(userTerminals.startCommand),
+      ),
+    )
+    .run();
+}
+
+export function deleteEphemeralUserTerminalsByProjectAndWorktree(
+  projectId: string,
+  worktreeId: string | null,
+  scopeId: string | null = LOCAL_SCOPE_ID,
+): void {
+  const scope = normalizeScopeId(scopeId);
+  getDb()
+    .delete(userTerminals)
+    .where(
+      and(
+        eq(userTerminals.projectId, projectId),
         worktreeId ? eq(userTerminals.worktreeId, worktreeId) : isNull(userTerminals.worktreeId),
+        eq(userTerminals.scopeId, scope),
         isNotNull(userTerminals.startCommand),
       )
     )
@@ -68,4 +97,11 @@ export function updateUserTerminalRow(id: string, patch: Partial<UserTerminal>):
 export function deleteUserTerminalRow(id: string): number {
   const result = getDb().delete(userTerminals).where(eq(userTerminals.id, id)).run();
   return result.changes;
+}
+
+export function deleteUserTerminalsByScope(scopeId: string): number {
+  return getDb()
+    .delete(userTerminals)
+    .where(eq(userTerminals.scopeId, normalizeScopeId(scopeId)))
+    .run().changes;
 }

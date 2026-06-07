@@ -11,7 +11,7 @@ import {
   readCachedSettings,
 } from "~/lib/shell-query-cache";
 import type { LicenseState } from "~/shared/license";
-import { filterProjectsByScope } from "~/shared/sandbox";
+import { filterProjectsByScope, LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 export const queryKeys = {
@@ -19,8 +19,16 @@ export const queryKeys = {
   project: (id: string) => ["projects", id] as const,
   sandboxes: ["sandboxes"] as const,
   groups: ["groups"] as const,
-  tasks: (projectId: string, worktreeId?: string | null) =>
-    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "tasks"] as const,
+  tasks: (projectId: string, worktreeId?: string | null, scopeId?: string | null) =>
+    [
+      "projects",
+      projectId,
+      "worktrees",
+      worktreeId || MAIN_WORKTREE_ID,
+      "scopes",
+      scopeId || LOCAL_SCOPE_ID,
+      "tasks",
+    ] as const,
   worktrees: (projectId: string) => ["projects", projectId, "worktrees"] as const,
   settings: ["settings"] as const,
   apiToken: ["api-token"] as const,
@@ -29,8 +37,16 @@ export const queryKeys = {
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
     ["projects", projectId, "user-terminals"] as const,
-  scopedUserTerminals: (projectId: string, worktreeId?: string | null) =>
-    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "user-terminals"] as const,
+  scopedUserTerminals: (projectId: string, worktreeId?: string | null, scopeId?: string | null) =>
+    [
+      "projects",
+      projectId,
+      "worktrees",
+      worktreeId || MAIN_WORKTREE_ID,
+      "scopes",
+      scopeId || LOCAL_SCOPE_ID,
+      "user-terminals",
+    ] as const,
   usage: (days: number) => ["usage", days] as const,
 };
 
@@ -74,10 +90,14 @@ export const groupsQueryOptions = () =>
     placeholderData: readCachedGroups,
   });
 
-export const tasksQueryOptions = (projectId: string, worktreeId?: string | null) =>
+export const tasksQueryOptions = (
+  projectId: string,
+  worktreeId?: string | null,
+  scopeId?: string | null,
+) =>
   queryOptions({
-    queryKey: queryKeys.tasks(projectId, worktreeId),
-    queryFn: async () => (await api.listTasks(projectId, worktreeId)).tasks,
+    queryKey: queryKeys.tasks(projectId, worktreeId, scopeId),
+    queryFn: async () => (await api.listTasks(projectId, worktreeId, scopeId)).tasks,
   });
 
 export const worktreesQueryOptions = (projectId: string) =>
@@ -131,10 +151,14 @@ export const entitlementsQueryOptions = () =>
     queryFn: async () => (await api.getEntitlements()).entitlements,
   });
 
-export const userTerminalsQueryOptions = (projectId: string, worktreeId?: string | null) =>
+export const userTerminalsQueryOptions = (
+  projectId: string,
+  worktreeId?: string | null,
+  scopeId?: string | null,
+) =>
   queryOptions({
-    queryKey: queryKeys.scopedUserTerminals(projectId, worktreeId),
-    queryFn: async () => (await api.listUserTerminals(projectId, worktreeId)).terminals,
+    queryKey: queryKeys.scopedUserTerminals(projectId, worktreeId, scopeId),
+    queryFn: async () => (await api.listUserTerminals(projectId, worktreeId, scopeId)).terminals,
   });
 
 export const DEFAULT_USAGE_DAYS = 30;
@@ -161,14 +185,17 @@ export const useScopedProjects = () => {
 };
 export const useProject = (id: string) => useQuery(projectQueryOptions(id));
 export const useGroups = () => useQuery(groupsQueryOptions());
-export const useTasks = (projectId: string, worktreeId?: string | null) =>
-  useQuery(tasksQueryOptions(projectId, worktreeId));
+export const useTasks = (projectId: string, worktreeId?: string | null, scopeId?: string | null) =>
+  useQuery(tasksQueryOptions(projectId, worktreeId, scopeId));
 export const useWorktrees = (projectId: string) => useQuery(worktreesQueryOptions(projectId));
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useApiToken = () => useQuery(apiTokenQueryOptions());
 export const useLicense = () => useQuery(licenseQueryOptions());
 export const useEntitlements = () => useQuery(entitlementsQueryOptions());
-export const useUserTerminalsQuery = (projectId: string, worktreeId?: string | null) =>
-  useQuery(userTerminalsQueryOptions(projectId, worktreeId));
+export const useUserTerminalsQuery = (
+  projectId: string,
+  worktreeId?: string | null,
+  scopeId?: string | null,
+) => useQuery(userTerminalsQueryOptions(projectId, worktreeId, scopeId));
 export const useUsage = (days: number = DEFAULT_USAGE_DAYS) =>
   useQuery(usageQueryOptions(days));

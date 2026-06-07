@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useRouter } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
@@ -8,34 +8,36 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Icon } from "~/components/ui/Icon";
 import { Modal } from "~/components/ui/Modal";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
-import { NewSandboxModal, type NewSandboxPayload } from "~/components/views/NewSandboxModal";
 import { SandboxConfigModal } from "~/components/views/SandboxConfigModal";
-import { LicenseEntryModal } from "~/components/views/LicenseEntryModal";
-import { api, ApiError } from "~/lib/api";
+import { api } from "~/lib/api";
 import { getElectron, isElectron } from "~/lib/electron";
+import { mcToastLoading } from "~/lib/mc-toast";
 import {
-  buildOptimisticRemoteVmSandbox,
-  managedProviderFromDeployInput,
+  buildOptimisticRemoteVmSandboxFromDeployJob,
+  markSandboxStoppedInCache,
+  markSandboxStoppingInCache,
   mergeServerSandboxesPreservingPending,
+  removeSandboxFromCache,
   restoreSandboxesCache,
+  updateSandboxRemoteStatusInCache,
   upsertSandboxInCache,
   type SandboxesQueryData,
 } from "~/lib/optimistic-sandbox";
-import { remoteVmDeployJobForSandbox } from "~/lib/remote-vm-deploy";
+import { isMissingRemoteInstanceError, remoteVmDeployJobForSandbox } from "~/lib/remote-vm-deploy";
 import { setSandboxBusyState, type SandboxBusyMap, type SandboxBusyState } from "~/lib/sandbox-busy";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
+import { scopedSandboxesForProject } from "~/lib/project-scoped-sandboxes";
+import { useProjectSandboxFlow } from "~/lib/use-project-sandbox-flow";
 import { useHotkey } from "~/lib/use-hotkey";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import {
-  licenseQueryOptions,
   queryKeys,
   sandboxesQueryOptions,
+  useProjects,
   useSandboxes,
-  useScopedProjects,
 } from "~/queries";
-import { FREE_SANDBOX_CAP, isProTier } from "~/shared/license";
-import { newClientId } from "~/shared/client-id";
+import type { RemoteVmDeployJobSnapshot } from "~/shared/electron-contract";
 import { LOCAL_SCOPE_ID, scopeToSandboxId, type SandboxPublicView } from "~/shared/sandbox";
 
 const LOCAL_DOT = "var(--text-faint)";
@@ -50,8 +52,13 @@ function isResumableStatus(status: string | null | undefined): boolean {
   return status === "paused" || status === "pause_failed" || status === "resume_failed";
 }
 
-function isMissingRemoteInstanceError(message: string): boolean {
-  return /InvalidInstanceID\.NotFound|instance ID .* does not exist|instance .* not found/i.test(message);
+function isStoppingStatus(status: string | null | undefined): boolean {
+  return status === "pausing";
+}
+
+/** The cloud instance is gone (deleted out-of-band) — usable only by removing it. */
+function isMissingStatus(status: string | null | undefined): boolean {
+  return status === "missing";
 }
 
 function isManagedAwsRemote(s: { kind: string; remoteProvider: string | null }): boolean {
@@ -61,6 +68,9 @@ function isManagedAwsRemote(s: { kind: string; remoteProvider: string | null }):
 function isRunningManagedRemoteStatus(status: string | null | undefined): boolean {
   return status === "ready";
 }
+
+const MANAGED_REMOTE_RECONCILE_TTL_MS = 30_000;
+const MANAGED_REMOTE_RECONCILE_POLL_MS = 60_000;
 
 function attachedBtnClass(left?: boolean, right?: boolean): string | undefined {
   const classes = [
@@ -119,14 +129,12 @@ function ScopeItem({
  */
 function PausedSandboxModal({
   sandbox,
-  deleting,
   onResume,
   onSwitchLocal,
   onDelete,
   onClose,
 }: {
   sandbox: { id: string; name: string } | null;
-  deleting: boolean;
   onResume: () => void;
   onSwitchLocal: () => void;
   onDelete: () => void;
@@ -139,26 +147,24 @@ function PausedSandboxModal({
       e.stopPropagation();
       onResume();
     },
-    { enabled: !!sandbox && !deleting },
+    { enabled: !!sandbox },
   );
   return (
     <Modal
       open={!!sandbox}
-      onClose={() => {
-        if (!deleting) onClose();
-      }}
+      onClose={onClose}
       title={sandbox ? `${sandbox.name} is paused` : "Sandbox is paused"}
       width={460}
       footer={
         <>
-          <Btn variant="ghost" onClick={onSwitchLocal} disabled={deleting}>
+          <Btn variant="ghost" onClick={onSwitchLocal}>
             Switch to Local
           </Btn>
-          <Btn variant="danger" icon="trash" onClick={onDelete} disabled={deleting}>
-            {deleting ? "Deleting…" : "Delete sandbox"}
+          <Btn variant="danger" icon="trash" onClick={onDelete}>
+            Delete sandbox
           </Btn>
           <HotkeyTooltip action="dialog.submit">
-            <Btn variant="primary" icon="refresh" onClick={onResume} disabled={deleting}>
+            <Btn variant="primary" icon="refresh" onClick={onResume}>
               Resume
             </Btn>
           </HotkeyTooltip>
@@ -174,22 +180,112 @@ function PausedSandboxModal({
   );
 }
 
+function StoppingSandboxModal({
+  sandbox,
+  onSwitchLocal,
+  onClose,
+}: {
+  sandbox: { id: string; name: string } | null;
+  onSwitchLocal: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={!!sandbox}
+      onClose={onClose}
+      title={sandbox ? `${sandbox.name} is stopping` : "Sandbox is stopping"}
+      width={440}
+      footer={
+        <Btn variant="primary" icon="home" onClick={onSwitchLocal}>
+          Switch to Local
+        </Btn>
+      }
+    >
+      <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
+        This sandbox is stopping, so Mission Control has closed its terminals and will not switch
+        back until the stop finishes. Wait for it to show Paused, then resume it when needed.
+      </p>
+    </Modal>
+  );
+}
+
+function MissingSandboxModal({
+  sandbox,
+  isActiveScope,
+  deleting,
+  onSwitchLocal,
+  onDelete,
+  onClose,
+}: {
+  sandbox: { id: string; name: string } | null;
+  isActiveScope: boolean;
+  deleting: boolean;
+  onSwitchLocal: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  // mod+enter drives the SAFE action (switch/keep) — deleting cascades the
+  // sandbox's projects/terminals, so it must be an explicit click, never a default.
+  useHotkey(
+    "mod+enter",
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onSwitchLocal();
+    },
+    { enabled: !!sandbox && !deleting },
+  );
+  return (
+    <Modal
+      open={!!sandbox}
+      onClose={() => {
+        if (!deleting) onClose();
+      }}
+      title={sandbox ? `${sandbox.name} was deleted` : "Sandbox was deleted"}
+      width={460}
+      footer={
+        <>
+          <Btn variant="danger" icon="trash" onClick={onDelete} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete from Mission Control"}
+          </Btn>
+          <HotkeyTooltip action="dialog.submit">
+            <Btn
+              variant="primary"
+              icon={isActiveScope ? "home" : undefined}
+              onClick={onSwitchLocal}
+              disabled={deleting}
+            >
+              {isActiveScope ? "Switch to Local" : "Close"}
+            </Btn>
+          </HotkeyTooltip>
+        </>
+      }
+    >
+      <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
+        The cloud instance for this sandbox no longer exists, so Mission Control cannot connect to
+        it. Switch back to your Local workspace and keep the record for troubleshooting, or delete
+        the sandbox from Mission Control (this also removes its scoped projects and terminals).
+      </p>
+    </Modal>
+  );
+}
+
 /**
  * Header scope switcher: pick Local (host) or a sandbox. Selecting a scope
  * re-scopes the project list (the list filters on the active scope) and points
  * new work at that environment. Rendered only when sandboxes are enabled.
  */
 export function ScopeDropdown() {
-  const router = useRouter();
   const qc = useQueryClient();
   const { data } = useSandboxes();
-  const { data: scopedProjects = [] } = useScopedProjects();
+  const { data: allProjects = [] } = useProjects();
+  // The switcher lives in the global header, so derive the project being viewed
+  // from the route. On a project screen we scope the list to that project's sandboxes.
+  const currentPath = useRouterState({ select: (state) => state.location.pathname });
+  const currentProjectId = currentPath.match(/^\/projects\/([^/]+)/)?.[1] ?? null;
   const terminals = useTerminals();
   const userTerminals = useUserTerminals();
   const [open, setOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [checkingCreateAccess, setCheckingCreateAccess] = useState(false);
-  const [paywallOpen, setPaywallOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [resumingId, setResumingId] = useState<string | null>(null);
   const [missingRemoteSandbox, setMissingRemoteSandbox] = useState<{ id: string; name: string } | null>(null);
@@ -197,23 +293,148 @@ export function ScopeDropdown() {
   // them resume, switch back to Local, or delete it instead of silently loading a
   // dead scope.
   const [pausedPrompt, setPausedPrompt] = useState<{ id: string; name: string } | null>(null);
+  const [stoppingPrompt, setStoppingPrompt] = useState<{ id: string; name: string } | null>(null);
   const [deletingMissingRemote, setDeletingMissingRemote] = useState(false);
   const [teardownConfirmOpen, setTeardownConfirmOpen] = useState(false);
   // Per-sandbox busy state, keyed by sandbox id — NOT a single global flag, so
   // pausing/tearing down one sandbox never disables the controls of another and
   // multiple can be stopped concurrently.
   const [cloudBusy, setCloudBusy] = useState<SandboxBusyMap>({});
-  // Switching into a managed cloud sandbox runs a provider reconcile that can take
-  // several seconds — `switching` drives a centered connecting modal, `switchError`
-  // the fallback dialog that offers a one-click return to Local.
-  const [switching, setSwitching] = useState<{ id: string; name: string } | null>(null);
-  const [switchError, setSwitchError] = useState<{ id: string; name: string; message: string } | null>(null);
-  const switchAbortRef = useRef(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const deployCacheRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconcileInFlightRef = useRef<Set<string>>(new Set());
+  const reconcilePromptIfActiveRef = useRef<Set<string>>(new Set());
+  const reconcileCheckedAtRef = useRef<Map<string, number>>(new Map());
+  const initialReconcileDoneRef = useRef(false);
   // Optimistic rows for deploys that haven't persisted server-side yet, re-applied
   // after any mid-deploy refetch so the new sandbox never flickers out of the list.
   const pendingDeploysRef = useRef<Map<string, SandboxPublicView>>(new Map());
+  const currentProject = currentProjectId
+    ? allProjects.find((p) => p.id === currentProjectId) ?? null
+    : null;
+  const routeProjectScope = currentProject ?? (currentProjectId ? { id: currentProjectId } : null);
+  const projectSandbox = useProjectSandboxFlow(currentProject);
+  const rawActiveScopeId = data?.activeScopeId ?? LOCAL_SCOPE_ID;
+  const rawActiveSandbox =
+    data?.sandboxes.find((sandbox) => sandbox.id === rawActiveScopeId) ?? null;
+  const activeScopeAllowed =
+    !data?.enabled ||
+    rawActiveScopeId === LOCAL_SCOPE_ID ||
+    !routeProjectScope ||
+    (!!rawActiveSandbox &&
+      isManagedAwsRemote(rawActiveSandbox) &&
+      rawActiveSandbox.projectId === routeProjectScope.id);
+  const effectiveActiveScopeId = activeScopeAllowed ? rawActiveScopeId : LOCAL_SCOPE_ID;
+
+  // Refetch the server state but re-apply any still-pending deploy rows on top,
+  // so any refresh triggered while switching scopes can't drop an optimistic
+  // provisioning sandbox before the server has persisted it.
+  const refreshSandboxesPreservingPending = useCallback(async () => {
+    const current = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
+    const pending = Array.from(pendingDeploysRef.current.values());
+    const electron = getElectron();
+    if (electron?.remoteVm?.listDeployJobs) {
+      try {
+        const jobs = await electron.remoteVm.listDeployJobs();
+        for (const job of jobs) {
+          const sandboxId = job.input.sandboxId;
+          if (job.status !== "queued" && job.status !== "running") continue;
+          if (!sandboxId || pending.some((sandbox) => sandbox.id === sandboxId)) continue;
+          const existing = current?.sandboxes.find((sandbox) => sandbox.id === sandboxId);
+          const optimistic = buildOptimisticRemoteVmSandboxFromDeployJob(job, existing);
+          if (!optimistic) continue;
+          pendingDeploysRef.current.set(sandboxId, optimistic);
+          pending.push(optimistic);
+        }
+      } catch {
+        /* fall back to the pending rows already captured from deploy events */
+      }
+    }
+    try {
+      const fresh = await api.listSandboxes();
+      const latest = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
+      const clientActiveScopeId = latest?.activeScopeId ?? current?.activeScopeId ?? null;
+      qc.setQueryData<SandboxesQueryData>(
+        queryKeys.sandboxes,
+        mergeServerSandboxesPreservingPending(fresh, pending, clientActiveScopeId),
+      );
+    } catch {
+      /* keep the optimistic state if the refresh fails */
+    }
+  }, [qc]);
+
+  const reconcileManagedRemoteInBackground = useCallback(
+    (
+      sandbox: Pick<SandboxPublicView, "id" | "name" | "kind" | "remoteProvider" | "remoteStatus">,
+      options: { force?: boolean; promptIfActive?: boolean } = {},
+    ) => {
+      const electron = getElectron();
+      if (!isManagedAwsRemote(sandbox) || !electron?.remoteVm?.reconcile) return;
+      if (options.promptIfActive) reconcilePromptIfActiveRef.current.add(sandbox.id);
+      if (reconcileInFlightRef.current.has(sandbox.id)) return;
+
+      // Surface a status that needs the user's attention — but only for the
+      // currently-active scope. A gone ("missing") instance always surfaces (the
+      // user is stranded on a dead scope); paused/stopping prompts only on a
+      // user-initiated activation so a background refresh never nags.
+      const surface = (status: string | null) => {
+        const current = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
+        if (current?.activeScopeId !== sandbox.id) return;
+        if (isMissingStatus(status)) {
+          setMissingRemoteSandbox({ id: sandbox.id, name: sandbox.name });
+          return;
+        }
+        if (!options.promptIfActive && !reconcilePromptIfActiveRef.current.has(sandbox.id)) return;
+        if (isResumableStatus(status)) {
+          setPausedPrompt({ id: sandbox.id, name: sandbox.name });
+        } else if (isStoppingStatus(status)) {
+          setStoppingPrompt({ id: sandbox.id, name: sandbox.name });
+        }
+      };
+
+      const now = Date.now();
+      const checkedAt = reconcileCheckedAtRef.current.get(sandbox.id) ?? 0;
+      if (!options.force && now - checkedAt < MANAGED_REMOTE_RECONCILE_TTL_MS) {
+        const currentSandbox = qc
+          .getQueryData<SandboxesQueryData>(queryKeys.sandboxes)
+          ?.sandboxes.find((s) => s.id === sandbox.id);
+        const status = currentSandbox?.remoteStatus ?? sandbox.remoteStatus ?? null;
+        // Within the reconcile TTL we trust the cached status: still surface a
+        // known-gone active scope, and any pending user-initiated prompt.
+        if (options.promptIfActive || isMissingStatus(status)) {
+          surface(status);
+          reconcilePromptIfActiveRef.current.delete(sandbox.id);
+        }
+        return;
+      }
+
+      reconcileInFlightRef.current.add(sandbox.id);
+      reconcileCheckedAtRef.current.set(sandbox.id, now);
+      void (async () => {
+        try {
+          const rec = await electron.remoteVm.reconcile(sandbox.id);
+          if (!rec.ok) {
+            console.warn("[scope-dropdown] remote VM reconcile failed", {
+              sandboxId: sandbox.id,
+              error: rec.error,
+            });
+            return;
+          }
+          if (rec.changed) await refreshSandboxesPreservingPending();
+          surface(rec.status ?? sandbox.remoteStatus ?? null);
+        } catch (error) {
+          console.warn("[scope-dropdown] remote VM reconcile threw", {
+            sandboxId: sandbox.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          reconcileInFlightRef.current.delete(sandbox.id);
+          reconcilePromptIfActiveRef.current.delete(sandbox.id);
+        }
+      })();
+    },
+    [qc, refreshSandboxesPreservingPending],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -228,95 +449,87 @@ export function ScopeDropdown() {
   // drives per-project runtime). Runs on load + whenever the selected scope changes.
   useEffect(() => {
     if (!data) return;
-    void getElectron()?.sandbox.setActive(data.enabled ? scopeToSandboxId(data.activeScopeId) : null);
-  }, [data?.activeScopeId, data?.enabled]);
+    const scopeId = data.enabled && activeScopeAllowed ? scopeToSandboxId(data.activeScopeId) : null;
+    void getElectron()?.sandbox.setActive(scopeId);
+  }, [activeScopeAllowed, data?.activeScopeId, data?.enabled]);
 
   // Bucket dashboard "home" terminals under the active scope so switching
   // sandboxes shows that sandbox's terminals (a home terminal runs a shell ON
   // that machine). Sandboxes disabled → everything is Local.
   useEffect(() => {
-    userTerminals.setHomeScopeId(data?.enabled ? data.activeScopeId : LOCAL_SCOPE_ID);
-  }, [data?.activeScopeId, data?.enabled, userTerminals.setHomeScopeId]);
+    userTerminals.setHomeScopeId(data?.enabled && activeScopeAllowed ? data.activeScopeId : LOCAL_SCOPE_ID);
+  }, [activeScopeAllowed, data?.activeScopeId, data?.enabled, userTerminals.setHomeScopeId]);
 
   useEffect(() => {
-    if (!data || data.activeScopeId === LOCAL_SCOPE_ID) setConfigOpen(false);
-  }, [data?.activeScopeId]);
+    if (!data || effectiveActiveScopeId === LOCAL_SCOPE_ID) setConfigOpen(false);
+  }, [data?.activeScopeId, effectiveActiveScopeId]);
 
   // When the switcher is opened, sync each managed AWS sandbox's saved status with
   // its real instance state so an idle-auto-stopped VM shows as Paused (and is
   // resumable) instead of silently appearing connected.
   useEffect(() => {
     if (!open) return;
-    const electron = getElectron();
-    if (!electron?.remoteVm?.reconcile) return;
-    const remotes = (data?.sandboxes ?? []).filter(isManagedAwsRemote);
-    if (remotes.length === 0) return;
-    let cancelled = false;
-    void (async () => {
-      let anyChanged = false;
-      for (const s of remotes) {
-        try {
-          const rec = await electron.remoteVm.reconcile(s.id);
-          if (rec.ok && rec.changed) anyChanged = true;
-        } catch {
-          /* best-effort; leave last-known status */
-        }
-        if (cancelled) return;
+    for (const sandbox of data?.sandboxes ?? []) {
+      reconcileManagedRemoteInBackground(sandbox);
+    }
+  }, [data?.sandboxes, open, reconcileManagedRemoteInBackground]);
+
+  useEffect(() => {
+    if (!data?.sandboxes.length || initialReconcileDoneRef.current) return;
+    initialReconcileDoneRef.current = true;
+    for (const sandbox of data.sandboxes) {
+      reconcileManagedRemoteInBackground(sandbox, { force: true });
+    }
+  }, [data?.sandboxes, reconcileManagedRemoteInBackground]);
+
+  useEffect(() => {
+    if (!data?.sandboxes) return;
+    const poll = () => {
+      const current = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes) ?? data;
+      for (const sandbox of current.sandboxes) {
+        reconcileManagedRemoteInBackground(sandbox, { force: true });
       }
-      if (anyChanged && !cancelled) void qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-    })();
-    return () => {
-      cancelled = true;
     };
-  }, [open]);
+    const interval = window.setInterval(poll, MANAGED_REMOTE_RECONCILE_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [data, qc, reconcileManagedRemoteInBackground]);
 
   useEffect(() => {
     const electron = getElectron();
     if (!electron?.remoteVm) return;
+    let cancelled = false;
 
-    // Refetch the server state but re-apply any still-pending deploy rows on top,
-    // so a mid-deploy refresh can't drop the not-yet-persisted sandbox (or reset
-    // the active scope away from it). Falls back to a plain invalidate when nothing
-    // is pending.
-    const refreshSandboxesPreservingPending = async () => {
-      const pending = Array.from(pendingDeploysRef.current.values());
-      if (pending.length === 0) {
-        await qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-        return;
-      }
-      const clientActiveScopeId =
-        qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes)?.activeScopeId ?? null;
-      try {
-        const fresh = await api.listSandboxes();
-        qc.setQueryData<SandboxesQueryData>(
-          queryKeys.sandboxes,
-          mergeServerSandboxesPreservingPending(fresh, pending, clientActiveScopeId),
-        );
-      } catch {
-        /* keep the optimistic state if the refresh fails */
-      }
-    };
-
-    return electron.remoteVm.onDeployUpdate((job) => {
+    const upsertPendingDeployJob = (job: RemoteVmDeployJobSnapshot) => {
       const sandboxId = job.input.sandboxId;
-      const managedProvider = managedProviderFromDeployInput(job.input.provider);
       if ((job.status === "queued" || job.status === "running") && sandboxId) {
         const current = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
         const existing = current?.sandboxes.find((sandbox) => sandbox.id === sandboxId);
-        const optimistic = buildOptimisticRemoteVmSandbox({
-          id: sandboxId,
-          name: job.input.name,
-          createdAt: job.createdAt,
-          remoteProvider: managedProvider,
-          remoteAgentUrl: existing?.remoteAgentUrl,
-          remotePublicAddress: existing?.remotePublicAddress,
-          remoteStatus: managedProvider ? "provisioning" : existing?.remoteStatus,
-          remoteStatusMessage: existing?.remoteStatusMessage,
-          hasApiKey: managedProvider ? true : existing?.hasApiKey,
-        });
+        const optimistic = buildOptimisticRemoteVmSandboxFromDeployJob(job, existing);
+        if (!optimistic) return false;
         pendingDeploysRef.current.set(sandboxId, optimistic);
         upsertSandboxInCache(qc, optimistic, { activate: current?.activeScopeId === sandboxId });
+        return true;
       }
+      return false;
+    };
+
+    void electron.remoteVm.listDeployJobs().then((jobs) => {
+      if (cancelled) return;
+      const hasPending = jobs.some(upsertPendingDeployJob);
+      if (hasPending) void refreshSandboxesPreservingPending();
+    }).catch((error) => {
+      console.warn("[scope-dropdown] list deploy jobs failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    const offDeployUpdate = electron.remoteVm.onDeployUpdate((job) => {
+      const sandboxId = job.input.sandboxId;
+      const isManagedDeploy =
+        job.input.provider === "aws" ||
+        job.input.provider === "digitalocean" ||
+        job.input.provider === "railway";
+      upsertPendingDeployJob(job);
       if (job.status === "succeeded" || job.status === "failed" || job.status === "canceled") {
         if (sandboxId) pendingDeploysRef.current.delete(sandboxId);
         if (deployCacheRefreshRef.current) {
@@ -324,7 +537,7 @@ export function ScopeDropdown() {
           deployCacheRefreshRef.current = null;
         }
       }
-      if (job.status === "running" && sandboxId && managedProvider) {
+      if (job.status === "running" && sandboxId && isManagedDeploy) {
         if (deployCacheRefreshRef.current) clearTimeout(deployCacheRefreshRef.current);
         deployCacheRefreshRef.current = setTimeout(() => {
           deployCacheRefreshRef.current = null;
@@ -378,7 +591,11 @@ export function ScopeDropdown() {
         });
       }
     });
-  }, [qc]);
+    return () => {
+      cancelled = true;
+      offDeployUpdate();
+    };
+  }, [qc, refreshSandboxesPreservingPending]);
 
   useEffect(
     () => () => {
@@ -387,11 +604,30 @@ export function ScopeDropdown() {
     [],
   );
 
-  // Desktop-only, and only once the feature is enabled.
-  if (!isElectron() || !data?.enabled) return null;
+  useEffect(() => {
+    if (!data?.enabled || data.activeScopeId === LOCAL_SCOPE_ID || activeScopeAllowed) return;
+    qc.setQueryData<SandboxesQueryData>(queryKeys.sandboxes, (current) =>
+      current ? { ...current, activeScopeId: LOCAL_SCOPE_ID } : current,
+    );
+    void api.setActiveScope(LOCAL_SCOPE_ID).catch(() => undefined);
+    void getElectron()?.sandbox.setActive(null).catch(() => undefined);
+  }, [activeScopeAllowed, data?.activeScopeId, data?.enabled, qc]);
 
-  const { sandboxes, activeScopeId } = data;
-  const activeSandbox = sandboxes.find((s) => s.id === activeScopeId) ?? null;
+  // Desktop-only, and only on project routes — scope switching is a
+  // project-screen affordance.
+  if (!isElectron() || !data?.enabled || !currentProjectId) return null;
+
+  const { sandboxes } = data;
+  const activeScopeId = effectiveActiveScopeId;
+  // On a project screen, narrow the switcher to Local + that project's sandboxes.
+  // See scopedSandboxesForProject for why.
+  const visibleSandboxes = scopedSandboxesForProject(
+    sandboxes,
+    allProjects,
+    routeProjectScope,
+    activeScopeId,
+  );
+  const activeSandbox = visibleSandboxes.find((s) => s.id === activeScopeId) ?? null;
   const isLocal = activeScopeId === LOCAL_SCOPE_ID || !activeSandbox;
   const label = isLocal ? "Local" : activeSandbox!.name;
   const activeColor = isLocal ? LOCAL_DOT : activeSandbox!.color ?? "var(--accent)";
@@ -419,8 +655,6 @@ export function ScopeDropdown() {
   const hasTrailingSandboxActions =
     activeSandboxResumable || activeSandboxRunning || activeSandboxStopped;
 
-  const kindLabel = (kind: string) => (kind === "remote-vm" ? "Remote VM" : "Docker");
-
   const activateScope = async (scopeId: string) => {
     const previous = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
     qc.setQueryData(queryKeys.sandboxes, (current) =>
@@ -428,12 +662,24 @@ export function ScopeDropdown() {
     );
     try {
       await api.setActiveScope(scopeId);
-      void qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-      void router.navigate({ to: "/" });
+      void refreshSandboxesPreservingPending();
     } catch (error) {
       restoreSandboxesCache(qc, previous);
       toast.error(error instanceof Error ? error.message : "Failed to switch sandbox.");
     }
+  };
+
+  const closeSandboxUi = async (sandboxId: string) => {
+    const ownerProjectId = sandboxes.find((sandbox) => sandbox.id === sandboxId)?.projectId ?? null;
+    const projects = ownerProjectId
+      ? allProjects.filter((project) => project.id === ownerProjectId)
+      : allProjects.filter((project) => project.sandboxId === sandboxId);
+    for (const project of projects) {
+      await terminals.closeForProject(project.id);
+      await userTerminals.closeForProject(project.id);
+      pruneStoredSessionFinishNotifications({ type: "project", projectId: project.id });
+    }
+    await userTerminals.closeHomeForScope(sandboxId);
   };
 
   const resumeAndActivate = async (sandbox: { id: string; name: string }) => {
@@ -461,8 +707,7 @@ export function ScopeDropdown() {
     );
     // Persist the active scope; the activeScopeId effect syncs it to the main process.
     await api.setActiveScope(sandbox.id).catch(() => {});
-    void router.navigate({ to: "/" });
-    const toastId = toast.loading(`Resuming ${sandbox.name}…`, {
+    const toastId = mcToastLoading(`Resuming ${sandbox.name}…`, {
       description: "Starting the EC2 instance and reconnecting the agent.",
     });
     try {
@@ -499,23 +744,30 @@ export function ScopeDropdown() {
     const electron = getElectron();
     if (!electron?.remoteVm?.pause) return;
     const sandboxId = activeSandbox.id;
+    const sandboxName = activeSandbox.name;
     setSandboxBusy(sandboxId, "pausing");
-    const toastId = toast.loading(`Stopping ${activeSandbox.name}…`, {
+    markSandboxStoppingInCache(qc, sandboxId, { switchActiveToLocal: true });
+    await api.setActiveScope(LOCAL_SCOPE_ID).catch(() => undefined);
+    await electron.sandbox.setActive(null).catch(() => undefined);
+    const toastId = mcToastLoading(`Stopping ${sandboxName}…`, {
       description: "Pausing the EC2 instance and disconnecting the agent.",
     });
     try {
-      for (const project of scopedProjects) {
-        await terminals.closeForProject(project.id);
-        await userTerminals.closeForProject(project.id);
-      }
-      const down = await electron.sandbox.down(activeSandbox.id);
+      await closeSandboxUi(sandboxId);
+      const down = await electron.sandbox.down(sandboxId);
       if (!down.ok) throw new Error(down.error);
-      const paused = await electron.remoteVm.pause(activeSandbox.id);
+      const paused = await electron.remoteVm.pause(sandboxId);
       if (!paused.ok) throw new Error(paused.error);
+      markSandboxStoppedInCache(qc, sandboxId);
       await qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-      toast.success(`${activeSandbox.name} stopped`, { id: toastId, description: undefined });
+      toast.success(`${sandboxName} stopped`, { id: toastId, description: undefined });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : `Failed to stop ${activeSandbox.name}.`, {
+      const message = error instanceof Error ? error.message : `Failed to stop ${sandboxName}.`;
+      updateSandboxRemoteStatusInCache(qc, sandboxId, {
+        remoteStatus: "pause_failed",
+        remoteStatusMessage: message,
+      });
+      toast.error(message, {
         id: toastId,
         description: "Open sandbox settings → Logs for details.",
       });
@@ -525,21 +777,33 @@ export function ScopeDropdown() {
     }
   };
 
-  const teardownSandbox = async (target: { id: string; name: string }) => {
+  const teardownSandbox = async (
+    target: { id: string; name: string },
+    options: { optimistic?: boolean } = {},
+  ) => {
     if (cloudBusy[target.id]) return;
     const electron = getElectron();
     if (!electron?.remoteVm) return;
     const isActive = activeScopeId === target.id;
-    setSandboxBusy(target.id, "destroying");
-    try {
-      // Only the active scope has live terminals to close; a paused target has none.
+    const optimistic = options.optimistic === true;
+    const previousSandboxes = optimistic
+      ? qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes)
+      : undefined;
+
+    if (optimistic) {
+      removeSandboxFromCache(qc, target.id, { switchActiveToLocal: isActive });
+      setPausedPrompt(null);
+      toast.success(`${target.name} deleted`);
       if (isActive) {
-        for (const project of scopedProjects) {
-          await terminals.closeForProject(project.id);
-          await userTerminals.closeForProject(project.id);
-          pruneStoredSessionFinishNotifications({ type: "project", projectId: project.id });
-        }
+        void api.setActiveScope(LOCAL_SCOPE_ID).catch(() => undefined);
+        void electron.sandbox.setActive(null).catch(() => undefined);
       }
+    } else {
+      setSandboxBusy(target.id, "destroying");
+    }
+
+    try {
+      await closeSandboxUi(target.id);
 
       const destroy = await electron.sandbox.destroy(target.id);
       if (!destroy.ok) throw new Error(destroy.error);
@@ -550,9 +814,13 @@ export function ScopeDropdown() {
         await electron.remoteVm.cancelDeploy(deployJob.id);
       }
       const terminated = await electron.remoteVm.destroy(target.id, { keepRow: true });
-      if (!terminated.ok) throw new Error(terminated.error);
+      // A "not found" termination means the instance is already gone — the desired
+      // end state — so don't strand an undeletable sandbox; proceed to row cleanup.
+      if (!terminated.ok && !isMissingRemoteInstanceError(terminated.error)) {
+        throw new Error(terminated.error);
+      }
 
-      if (isActive) {
+      if (isActive && !optimistic) {
         await api.setActiveScope(LOCAL_SCOPE_ID);
         await electron.sandbox.setActive(null);
         qc.setQueryData<SandboxesQueryData>(queryKeys.sandboxes, (current) =>
@@ -565,14 +833,20 @@ export function ScopeDropdown() {
         qc.invalidateQueries({ queryKey: queryKeys.sandboxes }),
         qc.invalidateQueries({ queryKey: queryKeys.projects }),
       ]);
-      setTeardownConfirmOpen(false);
-      setPausedPrompt(null);
-      toast.success(`${target.name} torn down`);
-      void router.navigate({ to: "/" });
+      if (!optimistic) {
+        setTeardownConfirmOpen(false);
+        setPausedPrompt(null);
+        toast.success(`${target.name} torn down`);
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : `Failed to tear down ${target.name}.`);
+      if (optimistic) {
+        restoreSandboxesCache(qc, previousSandboxes);
+      }
+      toast.error(error instanceof Error ? error.message : `Failed to delete ${target.name}.`);
     } finally {
-      setSandboxBusy(target.id, null);
+      if (!optimistic) {
+        setSandboxBusy(target.id, null);
+      }
     }
   };
 
@@ -608,83 +882,32 @@ export function ScopeDropdown() {
 
   const pick = async (scopeId: string) => {
     setOpen(false);
+    const target = sandboxes.find((s) => s.id === scopeId) ?? null;
+    // A sandbox whose cloud instance is gone can't be used — prompt to remove it
+    // or switch to Local, even when it's the currently-active (dead) scope.
+    if (target && isMissingStatus(target.remoteStatus)) {
+      setMissingRemoteSandbox({ id: target.id, name: target.name });
+      return;
+    }
     if (scopeId === activeScopeId) return;
     // Note: a sandbox that is resuming can still be switched into — the route
     // shows a resuming overlay until its agent is back. The resume keeps running
     // in the background regardless of which scope is active.
-    const target = sandboxes.find((s) => s.id === scopeId) ?? null;
-    const electron = getElectron();
+    if (target && isStoppingStatus(target.remoteStatus)) {
+      setStoppingPrompt({ id: target.id, name: target.name });
+      return;
+    }
     // A paused remote VM can't be used until it's resumed — intercept and prompt
-    // instead of silently activating a dead scope. Managed AWS remotes reconcile
-    // first (below) to confirm fresh status; other remotes use last-known status.
-    if (
-      target &&
-      target.kind === "remote-vm" &&
-      !isManagedAwsRemote(target) &&
-      isResumableStatus(target.remoteStatus)
-    ) {
+    // instead of silently activating a dead scope. Managed AWS remotes also run
+    // a background reconcile after activation to catch stale provider state.
+    if (target && target.kind === "remote-vm" && isResumableStatus(target.remoteStatus)) {
       setPausedPrompt({ id: target.id, name: target.name });
       return;
     }
-    // Managed AWS remotes can be idle-auto-stopped by the provider, so a cold
-    // switch confirms status with an EC2 describe (reconcile) before activating.
-    // But that round-trip takes seconds — and if the agent WebSocket is ALREADY
-    // live (registry status connected/update-required) we know the VM is online
-    // right now, so skip the describe and its connecting modal and switch
-    // instantly. The dropdown's open-time reconcile keeps saved status fresh for
-    // the genuinely-cold case below.
-    const needsConnect = !!target && isManagedAwsRemote(target) && !!electron?.remoteVm?.reconcile;
-    let showedSwitching = false;
-    if (needsConnect) {
-      const liveState = await electron!.sandbox.getState(scopeId).catch(() => null);
-      const alreadyOnline =
-        liveState?.status === "connected" || liveState?.status === "update-required";
-      if (!alreadyOnline) {
-        switchAbortRef.current = false;
-        setSwitching({ id: scopeId, name: target!.name });
-        showedSwitching = true;
-        let status: string | null = target!.remoteStatus ?? null;
-        try {
-          const rec = await electron!.remoteVm.reconcile(scopeId);
-          if (switchAbortRef.current) return; // user dismissed the connecting modal
-          if (!rec.ok) throw new Error(rec.error);
-          status = rec.status ?? status;
-          if (rec.changed) void qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-        } catch (error) {
-          if (switchAbortRef.current) return;
-          setSwitching(null);
-          setSwitchError({
-            id: scopeId,
-            name: target!.name,
-            message: error instanceof Error ? error.message : "Couldn't reach the cloud instance.",
-          });
-          return;
-        }
-        // Reconcile revealed the instance is stopped/paused — prompt instead of
-        // activating a scope that can't actually run anything.
-        if (isResumableStatus(status)) {
-          setSwitching(null);
-          void qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-          setPausedPrompt({ id: scopeId, name: target!.name });
-          return;
-        }
-      }
+    await activateScope(scopeId);
+    if (target && isManagedAwsRemote(target)) {
+      reconcileManagedRemoteInBackground(target, { promptIfActive: true });
     }
-    try {
-      await activateScope(scopeId);
-    } finally {
-      if (showedSwitching) setSwitching(null);
-    }
-  };
-
-  const cancelSwitch = () => {
-    switchAbortRef.current = true;
-    setSwitching(null);
-  };
-
-  const switchToLocalFromError = async () => {
-    setSwitchError(null);
-    await activateScope(LOCAL_SCOPE_ID);
   };
 
   // Paused-VM modal actions.
@@ -698,111 +921,20 @@ export function ScopeDropdown() {
     setPausedPrompt(null);
     if (activeScopeId !== LOCAL_SCOPE_ID) void activateScope(LOCAL_SCOPE_ID);
   };
-
-  const create = async (payload: NewSandboxPayload) => {
-    try {
-      if ("deployProvider" in payload) {
-        const electron = getElectron();
-        if (!electron?.remoteVm) throw new Error("Remote VM deployment is only available in the desktop app.");
-        const sandboxId = newClientId("sb");
-        const managedProvider =
-          payload.deployProvider === "aws" ||
-          payload.deployProvider === "digitalocean" ||
-          payload.deployProvider === "railway"
-            ? payload.deployProvider
-            : null;
-        const optimisticSandbox = buildOptimisticRemoteVmSandbox({
-          id: sandboxId,
-          name: payload.name,
-          remoteProvider: managedProvider,
-          hasApiKey: !!managedProvider,
-        });
-        const previous = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
-        upsertSandboxInCache(qc, optimisticSandbox, { activate: true });
-        let jobId: string;
-        try {
-          if (payload.deployProvider === "railway") {
-            ({ jobId } = await electron.remoteVm.startDeploy({
-              provider: "railway",
-              name: payload.name,
-              activate: false,
-              sandboxId,
-            }));
-          } else {
-            const startInput = {
-              name: payload.name,
-              region: payload.region,
-              size: payload.size,
-              accessCidr: payload.accessCidr,
-              activate: false,
-              sandboxId,
-            };
-            ({ jobId } =
-              payload.deployProvider === "aws"
-                ? await electron.remoteVm.startDeploy({
-                    ...startInput,
-                    provider: "aws",
-                    gitAuthMode: payload.gitAuthMode,
-                    copyAgentCreds: payload.copyAgentCreds,
-                    idleTimeoutMinutes: payload.idleTimeoutMinutes,
-                    setupScript: payload.setupScript,
-                  })
-                : await electron.remoteVm.startDeploy({
-                    ...startInput,
-                    provider: "digitalocean",
-                  }));
-          }
-        } catch (error) {
-          restoreSandboxesCache(qc, previous);
-          throw error;
-        }
-        toast.message(`Deploying ${payload.name} VM`, {
-          className: MESSAGE_TOAST_CLASS,
-          description: `Job ${jobId} is running. Open sandbox settings → Logs to follow progress.`,
-        });
-        setConfigOpen(true);
-        void router.navigate({ to: "/" });
-        return;
-      }
-      const { sandbox } = await api.createSandbox(payload);
-      const previous = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
-      upsertSandboxInCache(qc, sandbox, { activate: true });
-      try {
-        await api.setActiveScope(sandbox.id);
-      } catch (error) {
-        restoreSandboxesCache(qc, previous);
-        toast.error(error instanceof Error ? error.message : "Sandbox created, but selection failed.");
-      }
-      void qc.invalidateQueries({ queryKey: queryKeys.sandboxes });
-      void router.navigate({ to: "/" });
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 402) {
-        setCreating(false);
-        setPaywallOpen(true);
-        return;
-      }
-      throw e;
+  const cancelStoppingToLocal = () => {
+    setStoppingPrompt(null);
+    if (activeScopeId !== LOCAL_SCOPE_ID) void activateScope(LOCAL_SCOPE_ID);
+  };
+  // Missing-VM modal: get off the dead scope (only switch when it's the one
+  // we're sitting on) and keep the record so the user can delete it deliberately.
+  const switchMissingToLocal = () => {
+    const target = missingRemoteSandbox;
+    setMissingRemoteSandbox(null);
+    if (target && activeScopeId === target.id && activeScopeId !== LOCAL_SCOPE_ID) {
+      void activateScope(LOCAL_SCOPE_ID);
     }
   };
-
-  const openCreateSandbox = async () => {
-    if (checkingCreateAccess) return;
-    setCheckingCreateAccess(true);
-    try {
-      const latestLicense = await qc.ensureQueryData(licenseQueryOptions());
-      const latestSandboxes = await qc.ensureQueryData(sandboxesQueryOptions());
-      setOpen(false);
-      if (!isProTier(latestLicense) && latestSandboxes.sandboxes.length >= FREE_SANDBOX_CAP) {
-        setPaywallOpen(true);
-        return;
-      }
-      setCreating(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to check sandbox access.");
-    } finally {
-      setCheckingCreateAccess(false);
-    }
-  };
+  const missingIsActiveScope = !!missingRemoteSandbox && activeScopeId === missingRemoteSandbox.id;
 
   const showConfig = !isLocal && activeSandbox;
 
@@ -904,70 +1036,77 @@ export function ScopeDropdown() {
               active={isLocal}
               onClick={() => void pick(LOCAL_SCOPE_ID)}
             />
-            {sandboxes.map((s) => {
-              const resuming = resumingId === s.id || s.remoteStatus === "resuming";
-              const paused = !resuming && isResumableStatus(s.remoteStatus);
-              const subtitle = resuming
-                ? "Resuming…"
-                : paused
-                  ? "Paused"
-                  : kindLabel(s.kind);
+            {visibleSandboxes.map((s) => {
+              const missing = isMissingStatus(s.remoteStatus);
+              const stopping = !missing && isStoppingStatus(s.remoteStatus);
+              const resuming = !missing && (resumingId === s.id || s.remoteStatus === "resuming");
+              const paused = !missing && !stopping && !resuming && isResumableStatus(s.remoteStatus);
+              let subtitle = "AWS VM";
+              if (s.remoteStatus === "provisioning") subtitle = "Provisioning…";
+              if (paused) subtitle = "Paused";
+              if (resuming) subtitle = "Resuming…";
+              if (stopping) subtitle = "Stopping…";
+              if (missing) subtitle = "Deleted";
               return (
                 <ScopeItem
                   key={s.id}
                   label={s.name}
                   subtitle={subtitle}
-                  color={s.color ?? "var(--accent)"}
+                  color={missing ? "var(--status-failed)" : s.color ?? "var(--accent)"}
                   active={s.id === activeScopeId}
                   onClick={() => void pick(s.id)}
                 />
               );
             })}
-            <div style={{ borderTop: "1px solid var(--border)", marginTop: 4, paddingTop: 4 }}>
-              <button
-                type="button"
-                onClick={() => void openCreateSandbox()}
-                disabled={checkingCreateAccess}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "7px 8px",
-                  borderRadius: 6,
-                  border: "none",
-                  cursor: checkingCreateAccess ? "wait" : "pointer",
-                  background: "transparent",
-                  color: checkingCreateAccess ? "var(--text-faint)" : "var(--text-dim)",
-                  fontSize: 13,
-                }}
-              >
-                <Icon name="plus" size={12} />
-                <span>{checkingCreateAccess ? "Checking..." : "New sandbox"}</span>
-              </button>
-            </div>
+            {projectSandbox.canCreate && (
+              <>
+                <div
+                  aria-hidden
+                  style={{
+                    height: 1,
+                    margin: "4px 8px",
+                    background: "var(--border)",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    void projectSandbox.openDialog();
+                  }}
+                  disabled={projectSandbox.checking}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "7px 8px",
+                    borderRadius: 6,
+                    border: "none",
+                    cursor: projectSandbox.checking ? "default" : "pointer",
+                    background: "transparent",
+                    color: projectSandbox.checking ? "var(--text-faint)" : "var(--text)",
+                    opacity: projectSandbox.checking ? 0.7 : 1,
+                  }}
+                >
+                  <Icon name="plus" size={12} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+                    {projectSandbox.checking ? "Checking…" : "Create sandbox"}
+                  </span>
+                </button>
+              </>
+            )}
           </CardFrame>
         )}
       </div>
+
+      {projectSandbox.dialogs}
 
       <SandboxConfigModal
         open={configOpen}
         onClose={() => setConfigOpen(false)}
         sandboxId={activeSandbox?.id ?? null}
-      />
-
-      <NewSandboxModal
-        open={creating}
-        onClose={() => setCreating(false)}
-        onCreate={create}
-      />
-
-      <LicenseEntryModal
-        open={paywallOpen}
-        onClose={() => setPaywallOpen(false)}
-        reason="paywall"
-        paywallContext="sandboxes"
       />
 
       <ConfirmDialog
@@ -983,107 +1122,34 @@ export function ScopeDropdown() {
         width={460}
       >
         <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
-          This terminates the cloud VM, removes the sandbox configuration, and deletes scoped projects from Mission
-          Control.
+          This terminates the cloud VM and removes the sandbox configuration from Mission Control. The owning project
+          stays in place.
         </p>
       </ConfirmDialog>
 
-      <ConfirmDialog
-        open={!!missingRemoteSandbox}
-        onClose={() => {
-          if (!deletingMissingRemote) setMissingRemoteSandbox(null);
-        }}
-        onConfirm={() => void deleteMissingRemoteSandbox()}
-        title={missingRemoteSandbox ? `${missingRemoteSandbox.name} was deleted` : "Sandbox was deleted"}
-        confirmLabel="Delete local record"
-        icon="trash"
-        loading={deletingMissingRemote}
-        width={460}
-      >
-        <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
-          The cloud instance for this sandbox no longer exists, so Mission Control cannot resume it. You can keep the
-          sandbox record for troubleshooting, or delete just the local SQLite record now.
-        </p>
-      </ConfirmDialog>
+      <MissingSandboxModal
+        sandbox={missingRemoteSandbox}
+        isActiveScope={missingIsActiveScope}
+        deleting={deletingMissingRemote}
+        onSwitchLocal={switchMissingToLocal}
+        onDelete={() => void deleteMissingRemoteSandbox()}
+        onClose={() => setMissingRemoteSandbox(null)}
+      />
 
       <PausedSandboxModal
         sandbox={pausedPrompt}
-        deleting={!!pausedPrompt && cloudBusy[pausedPrompt.id] === "destroying"}
         onResume={resumeFromPrompt}
         onSwitchLocal={cancelPausedToLocal}
-        onDelete={() => pausedPrompt && void teardownSandbox(pausedPrompt)}
+        onDelete={() => pausedPrompt && void teardownSandbox(pausedPrompt, { optimistic: true })}
         onClose={() => setPausedPrompt(null)}
       />
 
-      <Modal
-        open={!!switching}
-        onClose={cancelSwitch}
-        title={switching ? `Connecting to ${switching.name}` : "Connecting…"}
-        width={420}
-        footer={
-          <Btn variant="ghost" onClick={cancelSwitch}>
-            Cancel
-          </Btn>
-        }
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 14,
-            padding: "8px 4px 4px",
-            textAlign: "center",
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              display: "inline-flex",
-              color: "var(--accent)",
-              animation: "spin 0.8s linear infinite",
-            }}
-          >
-            <Icon name="refresh" size={26} />
-          </span>
-          <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
-            Checking the cloud instance and switching your workspace. This can take a few seconds.
-          </p>
-        </div>
-      </Modal>
+      <StoppingSandboxModal
+        sandbox={stoppingPrompt}
+        onSwitchLocal={cancelStoppingToLocal}
+        onClose={() => setStoppingPrompt(null)}
+      />
 
-      <ConfirmDialog
-        open={!!switchError}
-        onClose={() => setSwitchError(null)}
-        onConfirm={() => void switchToLocalFromError()}
-        title={switchError ? `Couldn't connect to ${switchError.name}` : "Couldn't connect"}
-        confirmLabel="Switch to Local"
-        cancelLabel="Stay"
-        variant="primary"
-        icon="home"
-        width={460}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
-            Mission Control couldn&apos;t reach the cloud instance, so it didn&apos;t switch scopes. Switch back to your
-            Local workspace, or stay here and retry from the sandbox menu.
-          </p>
-          {switchError?.message && (
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--text-dim)",
-                lineHeight: 1.5,
-                wordBreak: "break-word",
-              }}
-            >
-              {switchError.message}
-            </p>
-          )}
-        </div>
-      </ConfirmDialog>
     </>
   );
 }

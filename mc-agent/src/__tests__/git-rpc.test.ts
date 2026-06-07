@@ -78,6 +78,12 @@ describe("GitRpc.clone", () => {
     );
   });
 
+  it("rejects an invalid branch before invoking git", async () => {
+    await expect(
+      rpc.clone({ remote: "https://example.com/r.git", slug: "ok", branch: "-master" }),
+    ).rejects.toThrow(/invalid branch/);
+  });
+
   it("rejects an option-injection / non-URL remote", async () => {
     await expect(rpc.clone({ remote: "--upload-pack=evil", slug: "ok" })).rejects.toThrow(
       /invalid remote/,

@@ -4,8 +4,9 @@ import { getElectron } from "~/lib/electron";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { normalizePtySize } from "~/shared/pty-size";
+import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
-type ScopedProject = Project & { activeWorktreeId?: string | null };
+type ScopedProject = Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
 
 export type UserTerminalWarmSlot = {
   signature: string;
@@ -20,8 +21,8 @@ let warmPreparing: Promise<UserTerminalWarmSlot | null> | null = null;
 let warmGeneration = 0;
 
 /** Warm pool only covers interactive shell terminals (no launch startCommand). */
-export function userTerminalWarmSignature(cwd: string): string {
-  return cwd;
+export function userTerminalWarmSignature(cwd: string, scopeId: string | null = LOCAL_SCOPE_ID): string {
+  return `${scopeId || LOCAL_SCOPE_ID}\0${cwd}`;
 }
 
 function buildDraftTerminal(
@@ -34,6 +35,7 @@ function buildDraftTerminal(
     id: clientTerminalId,
     projectId: project.id,
     worktreeId: project.activeWorktreeId ?? null,
+    scopeId: project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
     name: "Terminal",
     cwd,
     startCommand: null,
@@ -64,14 +66,20 @@ async function discardUserTerminalWarmSlotQuiet(): Promise<void> {
   }
 }
 
-export function peekUserTerminalWarmSlot(cwd: string): UserTerminalWarmSlot | null {
+export function peekUserTerminalWarmSlot(
+  cwd: string,
+  scopeId: string | null = LOCAL_SCOPE_ID,
+): UserTerminalWarmSlot | null {
   const slot = warmSlot;
   if (!slot) return null;
-  return slot.signature === userTerminalWarmSignature(cwd) ? slot : null;
+  return slot.signature === userTerminalWarmSignature(cwd, scopeId) ? slot : null;
 }
 
-export function takeUserTerminalWarmSlot(cwd: string): UserTerminalWarmSlot | null {
-  const slot = peekUserTerminalWarmSlot(cwd);
+export function takeUserTerminalWarmSlot(
+  cwd: string,
+  scopeId: string | null = LOCAL_SCOPE_ID,
+): UserTerminalWarmSlot | null {
+  const slot = peekUserTerminalWarmSlot(cwd, scopeId);
   if (!slot) return null;
   warmSlot = null;
   return slot;
@@ -88,7 +96,10 @@ export async function prepareUserTerminalWarmSlot(input: {
     return null;
   }
 
-  const signature = userTerminalWarmSignature(input.cwd);
+  const signature = userTerminalWarmSignature(
+    input.cwd,
+    input.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
+  );
   if (warmSlot?.signature === signature) return warmSlot;
 
   warmGeneration += 1;

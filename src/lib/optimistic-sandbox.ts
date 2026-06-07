@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { api } from "~/lib/api";
 import { queryKeys } from "~/queries";
+import type { RemoteVmDeployInput, RemoteVmDeployJobSnapshot } from "~/shared/electron-contract";
 import { LOCAL_SCOPE_ID, type RemoteVmLifecycleStatus, type SandboxPublicView } from "~/shared/sandbox";
 
 export type SandboxesQueryData = Awaited<ReturnType<typeof api.listSandboxes>>;
@@ -23,6 +24,7 @@ function mergeSandboxPublicView(existing: SandboxPublicView, patch: SandboxPubli
     remoteStatus: patch.remoteStatus ?? existing.remoteStatus,
     remoteStatusMessage: patch.remoteStatusMessage ?? existing.remoteStatusMessage,
     remotePublicAddress: patch.remotePublicAddress ?? existing.remotePublicAddress,
+    projectId: patch.projectId ?? existing.projectId,
     hasApiKey: patch.hasApiKey || existing.hasApiKey,
     hasPairingToken: patch.hasPairingToken || existing.hasPairingToken,
   };
@@ -35,6 +37,12 @@ export function managedProviderFromDeployInput(
   return null;
 }
 
+function projectIdFromDeployInput(input: RemoteVmDeployInput): string | null {
+  if (input.provider !== "aws") return null;
+  const projectId = input.projectId?.trim();
+  return projectId || null;
+}
+
 export function buildOptimisticRemoteVmSandbox(input: {
   id: string;
   name: string;
@@ -45,6 +53,7 @@ export function buildOptimisticRemoteVmSandbox(input: {
   remoteStatus?: RemoteVmLifecycleStatus | string | null;
   remoteStatusMessage?: string | null;
   hasApiKey?: boolean;
+  projectId?: string | null;
 }): SandboxPublicView {
   const now = input.createdAt ?? Date.now();
   const remoteProvider = input.remoteProvider ?? null;
@@ -65,12 +74,34 @@ export function buildOptimisticRemoteVmSandbox(input: {
     remoteStatus: input.remoteStatus ?? (remoteProvider ? "provisioning" : null),
     remoteStatusMessage: input.remoteStatusMessage ?? null,
     remotePublicAddress: input.remotePublicAddress ?? null,
+    projectId: input.projectId ?? null,
     createdAt: now,
     updatedAt: now,
     hasPairingToken: input.hasApiKey ?? !!remoteProvider,
     hasApiKey: input.hasApiKey ?? !!remoteProvider,
     hasPortMap: false,
   };
+}
+
+export function buildOptimisticRemoteVmSandboxFromDeployJob(
+  job: RemoteVmDeployJobSnapshot,
+  existing?: SandboxPublicView | null,
+): SandboxPublicView | null {
+  const sandboxId = job.result?.sandboxId ?? job.input.sandboxId ?? null;
+  if (!sandboxId) return null;
+  const managedProvider = managedProviderFromDeployInput(job.input.provider);
+  return buildOptimisticRemoteVmSandbox({
+    id: sandboxId,
+    name: job.result?.name ?? job.input.name,
+    createdAt: job.createdAt,
+    remoteProvider: managedProvider,
+    remoteAgentUrl: job.result?.agentUrl ?? existing?.remoteAgentUrl,
+    remotePublicAddress: job.result?.publicIp ?? existing?.remotePublicAddress,
+    remoteStatus: managedProvider ? "provisioning" : existing?.remoteStatus,
+    remoteStatusMessage: existing?.remoteStatusMessage,
+    hasApiKey: managedProvider ? true : existing?.hasApiKey,
+    projectId: projectIdFromDeployInput(job.input) ?? existing?.projectId,
+  });
 }
 
 export function upsertSandboxInCache(
@@ -94,6 +125,24 @@ export function upsertSandboxInCache(
   });
 }
 
+export function removeSandboxFromCache(
+  queryClient: QueryClient,
+  sandboxId: string,
+  options: { switchActiveToLocal?: boolean } = {},
+) {
+  queryClient.setQueryData<SandboxesQueryData>(queryKeys.sandboxes, (current) => {
+    if (!current) return current;
+    const sandboxes = current.sandboxes.filter((sandbox) => sandbox.id !== sandboxId);
+    const switchActive =
+      options.switchActiveToLocal && current.activeScopeId === sandboxId;
+    return {
+      ...current,
+      activeScopeId: switchActive ? LOCAL_SCOPE_ID : current.activeScopeId,
+      sandboxes,
+    };
+  });
+}
+
 export function restoreSandboxesCache(
   queryClient: QueryClient,
   previous: SandboxesQueryData | undefined,
@@ -103,6 +152,69 @@ export function restoreSandboxesCache(
     return;
   }
   void queryClient.invalidateQueries({ queryKey: queryKeys.sandboxes });
+}
+
+export function updateSandboxRemoteStatusInCache(
+  queryClient: QueryClient,
+  sandboxId: string,
+  patch: {
+    remoteStatus: RemoteVmLifecycleStatus | string | null;
+    remoteStatusMessage?: string | null;
+    remotePublicAddress?: string | null;
+  },
+  options: { switchActiveToLocal?: boolean } = {},
+) {
+  queryClient.setQueryData<SandboxesQueryData>(queryKeys.sandboxes, (current) => {
+    if (!current) return current;
+    let found = false;
+    const sandboxes = current.sandboxes.map((sandbox) => {
+      if (sandbox.id !== sandboxId) return sandbox;
+      found = true;
+      return {
+        ...sandbox,
+        remoteStatus: patch.remoteStatus,
+        remoteStatusMessage:
+          patch.remoteStatusMessage !== undefined
+            ? patch.remoteStatusMessage
+            : sandbox.remoteStatusMessage,
+        remotePublicAddress:
+          patch.remotePublicAddress !== undefined
+            ? patch.remotePublicAddress
+            : sandbox.remotePublicAddress,
+        updatedAt: Date.now(),
+      };
+    });
+    if (!found) return current;
+    return {
+      ...current,
+      activeScopeId:
+        options.switchActiveToLocal && current.activeScopeId === sandboxId
+          ? LOCAL_SCOPE_ID
+          : current.activeScopeId,
+      sandboxes,
+    };
+  });
+}
+
+export function markSandboxStoppingInCache(
+  queryClient: QueryClient,
+  sandboxId: string,
+  options: { switchActiveToLocal?: boolean } = {},
+) {
+  updateSandboxRemoteStatusInCache(
+    queryClient,
+    sandboxId,
+    { remoteStatus: "pausing", remoteStatusMessage: null },
+    options,
+  );
+}
+
+export function markSandboxStoppedInCache(queryClient: QueryClient, sandboxId: string) {
+  updateSandboxRemoteStatusInCache(queryClient, sandboxId, {
+    remoteStatus: "paused",
+    remoteStatusMessage: "Remote VM stopped. Workspace storage is preserved.",
+    remotePublicAddress: null,
+  });
 }
 
 /**
@@ -133,8 +245,11 @@ export function mergeServerSandboxesPreservingPending(
     // Rows the deploy hasn't persisted yet stay visible as optimistic placeholders.
     ...pending.filter((p) => !serverIds.has(p.id)),
   ];
+  const sandboxIds = new Set(sandboxes.map((s) => s.id));
   const preserveActive =
-    clientActiveScopeId != null && pendingById.has(clientActiveScopeId);
+    clientActiveScopeId != null &&
+    clientActiveScopeId !== LOCAL_SCOPE_ID &&
+    (pendingById.has(clientActiveScopeId) || sandboxIds.has(clientActiveScopeId));
   return {
     ...server,
     enabled: server.enabled || pending.length > 0,

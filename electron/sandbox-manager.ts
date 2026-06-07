@@ -473,7 +473,7 @@ function connectAgent(
             err: describe(err),
           }),
         );
-        void provisionAgentCredsFor(id).catch((err) =>
+        void ensureAgentCredsProvisionedFor(id).catch((err) =>
           log.warn("sandbox.agent-creds.fail", {
             event: "sandbox.agent-creds.fail",
             sandboxId: id,
@@ -622,7 +622,7 @@ async function provisionGitAuthFor(
 /** Push the host's AI-CLI logins to a connected sandbox when copyAgentCreds is on. */
 async function provisionAgentCredsFor(
   id: string,
-  options: { requireConfigured?: boolean } = {},
+  options: { requireConfigured?: boolean; requireTool?: AgentCredItem["tool"] } = {},
 ): Promise<{ wrote: number }> {
   const client = clients.get(id);
   if (!client?.isOpen) {
@@ -644,17 +644,40 @@ async function provisionAgentCredsFor(
     log.warn("sandbox.agent-creds.empty", { event: "sandbox.agent-creds.empty", sandboxId: id });
     return { wrote: 0 };
   }
+  if (
+    options.requireTool &&
+    !items.some((item) => item.tool === options.requireTool && item.kind === "credentials")
+  ) {
+    const message = `No ${credToolLabel(options.requireTool)} credentials were found on the host. Log in locally first.`;
+    if (options.requireConfigured) throw new Error(message);
+    log.warn("sandbox.agent-creds.empty", {
+      event: "sandbox.agent-creds.empty",
+      sandboxId: id,
+      tool: options.requireTool,
+    });
+    return { wrote: 0 };
+  }
   try {
-    const r = (await client.rpc("creds.setup", { items })) as { wrote?: number };
+    const r = (await client.rpc("creds.setup", { items })) as {
+      wrote?: number;
+      written?: Array<{ tool?: unknown; kind?: unknown }>;
+    };
+    const wrote = r?.wrote ?? 0;
+    const wroteRequiredCredential = r.written
+      ? r.written.some((item) => item.tool === options.requireTool && item.kind === "credentials")
+      : wrote > 0;
+    if (options.requireConfigured && options.requireTool && !wroteRequiredCredential) {
+      throw new Error(`Sandbox agent did not write ${credToolLabel(options.requireTool)} credentials.`);
+    }
     // Log counts + tool names only — never the credential bytes.
     log.info("sandbox.agent-creds", {
       event: "sandbox.agent-creds",
       sandboxId: id,
       sent: items.length,
-      wrote: r?.wrote ?? 0,
+      wrote,
       tools: [...new Set(items.map((i) => i.tool))],
     });
-    return { wrote: r?.wrote ?? 0 };
+    return { wrote };
   } catch (err) {
     log.warn("sandbox.agent-creds.fail", {
       event: "sandbox.agent-creds.fail",
@@ -672,10 +695,32 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function requiredCredToolForAgent(agent: string | undefined): AgentCredItem["tool"] | null {
+  if (agent === "claude-code") return "claude";
+  if (agent === "codex") return "codex";
+  if (agent === "cursor-cli") return "cursor";
+  if (agent === "opencode") return "opencode";
+  return null;
+}
+
+function credToolLabel(tool: AgentCredItem["tool"]): string {
+  if (tool === "claude") return "Claude Code";
+  if (tool === "cursor") return "Cursor";
+  return tool[0]!.toUpperCase() + tool.slice(1);
+}
+
+async function ensureAgentCredsProvisionedFor(
+  id: string,
+  options: { requireConfigured?: boolean; requireTool?: AgentCredItem["tool"] } = {},
+): Promise<{ wrote: number }> {
+  return provisionAgentCredsFor(id, options);
+}
+
 async function cloneViaDockerExec(
   container: string,
   remote: string,
   slug: string,
+  branch?: string,
 ): Promise<{ slug: string; path: string }> {
   if (!SAFE_CLONE_SLUG.test(slug)) throw new Error("invalid slug");
   if (!isSafeSshCloneRemote(remote)) {
@@ -688,6 +733,9 @@ async function cloneViaDockerExec(
     slug,
     remote: redactCloneRemote(remote),
   });
+  const gitArgs = ["clone"];
+  if (branch) gitArgs.push("-b", branch);
+  gitArgs.push("--", remote, slug);
   const r = await runDocker(
     [
       "exec",
@@ -707,10 +755,7 @@ async function cloneViaDockerExec(
       "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new",
       container,
       "git",
-      "clone",
-      "--",
-      remote,
-      slug,
+      ...gitArgs,
     ],
     { timeoutMs: DOCKER_GIT_CLONE_TIMEOUT_MS },
   );
@@ -1098,6 +1143,14 @@ export function registerSandboxManager(
       const id = activeSandboxId;
       const client = await waitForActiveClient();
       if (!client) throw new Error("sandbox is not connected");
+      const config = id ? configFor(id) : null;
+      const requiredTool = requiredCredToolForAgent(opts.agent);
+      if (id && config?.copyAgentCreds && requiredTool) {
+        await ensureAgentCredsProvisionedFor(id, { requireConfigured: true, requireTool: requiredTool });
+        if (activeSandboxId !== id || clients.get(id) !== client) {
+          throw new Error("Active sandbox changed before the terminal started.");
+        }
+      }
       const ptyId = `rpty-${randomUUID()}`;
       if (id) ptyOwner.set(ptyId, id);
       const hook = getSandboxHookEnv?.() ?? null;
@@ -1198,17 +1251,18 @@ export function registerSandboxManager(
   );
   safeHandle(
     IPC.remoteGitClone,
-    async (_e, remote: string, slug: string) => {
+    async (_e, remote: string, slug: string, branch?: string) => {
       const id = activeSandboxId;
       if (id && isSafeSshCloneRemote(remote)) {
         await provisionGitAuthFor(id, { requireConfigured: true });
       }
+      const cloneParams = branch ? { remote, slug, branch } : { remote, slug };
       try {
-        return await activeGitRpc("git.clone", { remote, slug });
+        return await activeGitRpc("git.clone", cloneParams);
       } catch (err) {
         const cfg = id ? configFor(id) : null;
         if (id && cfg?.kind === "local-docker" && isSafeSshCloneRemote(remote) && isLegacyHttpOnlyCloneError(err)) {
-          return cloneViaDockerExec(sandboxResources(id).container, remote, slug);
+          return cloneViaDockerExec(sandboxResources(id).container, remote, slug, branch);
         }
         if (id && isSafeSshCloneRemote(remote)) {
           const hint = gitAuthCloneFailureHint(cfg?.gitAuthMode ?? "none", err);
