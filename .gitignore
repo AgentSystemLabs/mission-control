@@ -10,6 +10,7 @@ dist-server
 .vinxi
 .vite
 .DS_Store
+*.sw?
 .certs
 *.log
 .env
