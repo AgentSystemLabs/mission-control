@@ -90,6 +90,66 @@ export function gitAuthCloneFailureHint(
   return "This sandbox generated its own SSH key. Add the generated public key to GitHub as an account key or deploy key before cloning private repositories.";
 }
 
+export function isAgentCredsSetupUnsupportedError(err: unknown): boolean {
+  return describe(err).includes("agent rpc creds.setup timed out");
+}
+
+/**
+ * Key a clone by the directory it contends for. The repo lands in a fixed
+ * `/workspace/<slug>` path inside one sandbox, so the (sandbox, slug) pair is the
+ * resource two concurrent clones fight over. The NUL separator can't occur in a
+ * sandbox id or slug, and `null` (Local scope) maps to "" — which no real id is —
+ * so distinct inputs never collide onto one key.
+ */
+export function cloneCoordinationKey(sandboxId: string | null, slug: string): string {
+  return `${sandboxId ?? ""}\0${slug}`;
+}
+
+export type CloneCoordinator = {
+  /** Run `work`, or join an in-flight run that shares `key`. */
+  run: <T>(key: string, work: () => Promise<T>) => Promise<T>;
+  readonly inFlightCount: number;
+};
+
+/**
+ * Single-flight coordinator for sandbox git clones. Two clones of the same
+ * `/workspace/<slug>` race in practice — the create flow's clone
+ * (project-sandbox-create.ts) overlapping a TerminalPane's clone-on-open, or
+ * several session panes mounting at once — and the loser fails with
+ * "destination path already exists and is not an empty directory". Collapse
+ * concurrent calls that share a key onto one run: the first caller's clone (and
+ * its branch) wins, later callers await the same result. Only *concurrent* calls
+ * are deduped; a fresh clone after this one settles starts anew, so an explicit
+ * re-clone is never blocked.
+ */
+export function makeCloneCoordinator(): CloneCoordinator {
+  const inFlight = new Map<string, Promise<unknown>>();
+  const run = <T>(key: string, work: () => Promise<T>): Promise<T> => {
+    const existing = inFlight.get(key) as Promise<T> | undefined;
+    if (existing) return existing;
+    const p = work();
+    inFlight.set(key, p);
+    const cleanup = (): void => {
+      if (inFlight.get(key) === p) inFlight.delete(key);
+    };
+    // Settle (resolve or reject) frees the slot; the original `p` still carries
+    // the rejection to every joined caller.
+    void p.then(cleanup, cleanup);
+    return p;
+  };
+  return {
+    run,
+    get inFlightCount() {
+      return inFlight.size;
+    },
+  };
+}
+
+// One coordinator for the whole manager: every clone — create flow, clone-on-open,
+// retry banner — passes through the remoteGitClone handler, so deduping here covers
+// all callers regardless of which raced.
+const cloneCoordinator = makeCloneCoordinator();
+
 function send(channel: string, payload: unknown): void {
   const win = getWindow?.();
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -349,13 +409,22 @@ async function provisionAgentCredsFor(
     });
     return { wrote };
   } catch (err) {
+    const message = describe(err);
+    if (isAgentCredsSetupUnsupportedError(err)) {
+      log.warn("sandbox.agent-creds.unsupported", {
+        event: "sandbox.agent-creds.unsupported",
+        sandboxId: id,
+        err: message,
+      });
+      return { wrote: 0 };
+    }
     log.warn("sandbox.agent-creds.fail", {
       event: "sandbox.agent-creds.fail",
       sandboxId: id,
-      err: describe(err),
+      err: message,
     });
     if (options.requireConfigured) {
-      throw new Error(`Failed to copy AI tool credentials to this sandbox: ${describe(err)}`);
+      throw new Error(`Failed to copy AI tool credentials to this sandbox: ${message}`);
     }
     return { wrote: 0 };
   }
@@ -851,22 +920,28 @@ export function registerSandboxManager(
   );
   safeHandle(
     IPC.remoteGitClone,
-    async (_e, remote: string, slug: string, branch?: string) => {
+    (_e, remote: string, slug: string, branch?: string) => {
       const id = activeSandboxId;
-      if (id && isSafeSshCloneRemote(remote)) {
-        await provisionGitAuthFor(id, { requireConfigured: true });
-      }
-      const cloneParams = branch ? { remote, slug, branch } : { remote, slug };
-      try {
-        return await activeGitRpc("git.clone", cloneParams);
-      } catch (err) {
-        const cfg = id ? configFor(id) : null;
+      // Single-flight by (sandbox, slug): a create-flow clone racing a
+      // TerminalPane clone-on-open (or several panes at once) target the same
+      // /workspace/<slug> dir; share one git.clone so the loser doesn't fail with
+      // "destination path already exists". First caller (with its branch) wins.
+      return cloneCoordinator.run(cloneCoordinationKey(id, slug), async () => {
         if (id && isSafeSshCloneRemote(remote)) {
-          const hint = gitAuthCloneFailureHint(cfg?.gitAuthMode ?? "none", err);
-          if (hint) throw new Error(`${describe(err)}\n\n${hint}`);
+          await provisionGitAuthFor(id, { requireConfigured: true });
         }
-        throw err;
-      }
+        const cloneParams = branch ? { remote, slug, branch } : { remote, slug };
+        try {
+          return await activeGitRpc("git.clone", cloneParams);
+        } catch (err) {
+          const cfg = id ? configFor(id) : null;
+          if (id && isSafeSshCloneRemote(remote)) {
+            const hint = gitAuthCloneFailureHint(cfg?.gitAuthMode ?? "none", err);
+            if (hint) throw new Error(`${describe(err)}\n\n${hint}`);
+          }
+          throw err;
+        }
+      });
     },
     ipcMain,
   );
