@@ -74,7 +74,7 @@
     "postinstall": "pnpm native:electron || true"
   },
   "dependencies": {
-    "@agentsystemlabs/mission-control-agent": "0.2.1",
+    "@agentsystemlabs/mission-control-agent": "0.3.1",
     "@codemirror/lang-javascript": "6.2.5",
     "@codemirror/lang-json": "6.0.2",
     "@codemirror/language": "6.12.3",

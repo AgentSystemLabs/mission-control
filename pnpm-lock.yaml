@@ -15,8 +15,8 @@ importers:
   .:
     dependencies:
       '@agentsystemlabs/mission-control-agent':
-        specifier: 0.2.1
-        version: 0.2.1
+        specifier: 0.3.1
+        version: 0.3.1
       '@codemirror/lang-javascript':
         specifier: 6.2.5
         version: 6.2.5
@@ -198,8 +198,8 @@ packages:
   7zip-bin@5.2.0:
     resolution: {integrity: sha512-ukTPVhqG4jNzMro2qA9HSCSSVJN3aN7tlb+hfqYCt3ER0yWroeA2VR38MNrOHLQ/cVj+DaIMad0kFCtWWowh/A==}
 
-  '@agentsystemlabs/mission-control-agent@0.2.1':
-    resolution: {integrity: sha512-N1aiDuINpG69MdFZK5qgP61cbexWZjLpF/E2xgaTCIc0s881VWpTIBi6SwGDKG2v7R2BeO0AlCoH9kKAzg0lzA==}
+  '@agentsystemlabs/mission-control-agent@0.3.1':
+    resolution: {integrity: sha512-0pfaFHOqrNYOSEBpNg4c3DkayiKWYGW+dy7WJVxzH4uo8woUmkDYVXXbnt0bqMHB4vjzCDS2nVQi1L8YoPs6lw==}
     engines: {node: '>=24.0.0'}
     hasBin: true
 
@@ -4398,7 +4398,7 @@ snapshots:
 
   7zip-bin@5.2.0: {}
 
-  '@agentsystemlabs/mission-control-agent@0.2.1':
+  '@agentsystemlabs/mission-control-agent@0.3.1':
     dependencies:
       ignore: 7.0.5
       node-pty: 1.1.0

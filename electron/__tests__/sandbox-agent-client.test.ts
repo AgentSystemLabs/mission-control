@@ -149,7 +149,7 @@ describe("SandboxAgentClient PTY control frames", () => {
 });
 
 describe("SandboxAgentClient stream dispatch", () => {
-  it("routes ready/spawned/output/exit/fs.change to handlers", () => {
+  it("routes ready/spawned/output/exit/fs.change/hook to handlers", () => {
     const calls: string[] = [];
     const { fake } = makeClient({
       onReady: (v: string) => calls.push(`ready:${v}`),
@@ -157,13 +157,29 @@ describe("SandboxAgentClient stream dispatch", () => {
       onOutput: (id: string, seq: number, data: string) => calls.push(`out:${id}:${seq}:${data}`),
       onExit: (id: string, code?: number) => calls.push(`exit:${id}:${code}`),
       onFsChange: (w: string) => calls.push(`fs:${w}`),
+      onHook: (slug, taskId, hookEvent, body) =>
+        calls.push(`hook:${slug}:${taskId}:${hookEvent ?? ""}:${body}`),
     });
     fake.deliver({ type: "ready", version: "0.1.0", agents: {} });
     fake.deliver({ type: "spawned", ptyId: "p1" });
     fake.deliver({ type: "output", ptyId: "p1", seq: 1, data: "hi" });
     fake.deliver({ type: "exit", ptyId: "p1", exitCode: 0 });
     fake.deliver({ type: "fs.change", watchId: "w1", path: "/workspace/x/a", mtimeMs: 123 });
-    expect(calls).toEqual(["ready:0.1.0", "spawned:p1", "out:p1:1:hi", "exit:p1:0", "fs:w1"]);
+    fake.deliver({
+      type: "hook",
+      slug: "claude",
+      taskId: "t1",
+      hookEvent: "Stop",
+      body: '{"hook_event_name":"Stop"}',
+    });
+    expect(calls).toEqual([
+      "ready:0.1.0",
+      "spawned:p1",
+      "out:p1:1:hi",
+      "exit:p1:0",
+      "fs:w1",
+      'hook:claude:t1:Stop:{"hook_event_name":"Stop"}',
+    ]);
   });
 
   it("ignores malformed frames", () => {

@@ -23,6 +23,7 @@ import {
 } from "./sandbox-store";
 import type { SandboxConfig } from "./sandbox-types";
 import { SandboxAgentClient } from "./sandbox-agent-client";
+import { buildSandboxHookRelayUrl } from "./pty-hook-env";
 
 const GIT_CLONE_TIMEOUT_MS = 120_000;
 const REMOTE_PTY_REPLAY_TIMEOUT_MS = 5_000;
@@ -46,6 +47,36 @@ let initialized = false;
 // Supplies the MC API port + token so remote agent spawns can POST hooks back to
 // the host. Injected by main.ts (never trusted from the renderer).
 let getSandboxHookEnv: (() => { port: number; token: string } | null) | null = null;
+
+/** Relay a sandbox agent hook frame to the host Mission Control API. */
+function forwardSandboxHook(
+  slug: string,
+  taskId: string,
+  hookEvent: string | undefined,
+  body: string,
+): void {
+  const hook = getSandboxHookEnv?.() ?? null;
+  if (!hook) return;
+  const url = buildSandboxHookRelayUrl(hook.port, slug, taskId, hookEvent);
+  if (!url) return;
+  void fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${hook.token}`,
+      "X-Mission-Control-Runtime": "electron-sandbox-relay",
+    },
+    body: body || "{}",
+  }).catch((err) => {
+    log.warn("sandbox.hook.relay.fail", {
+      event: "sandbox.hook.relay.fail",
+      slug,
+      taskId,
+      hookEvent: hookEvent ?? null,
+      err: describe(err),
+    });
+  });
+}
 // remotePty:replay is request/response, but the agent answers with a streamed
 // replayResult frame — correlate the pending invoke by ptyId.
 const pendingReplays = new Map<string, (r: { data: string; nextSeq: number }) => void>();
@@ -184,11 +215,26 @@ function connectAgent(
   },
 ): { close: () => void } {
   const id = config.id;
-  log.info("sandbox.ws.connect", { event: "sandbox.ws.connect", sandboxId: id, kind: config.kind });
+  log.info("sandbox.ws.connect", {
+    event: "sandbox.ws.connect",
+    sandboxId: id,
+    kind: config.kind,
+    copyAgentCreds: config.copyAgentCreds,
+  });
   const client = new SandboxAgentClient(agentUrl, token, {
     onReady: (version, agents) => {
       cb.onReady(version, agents);
-      if (isSandboxAgentVersionCurrent(version)) {
+      const agentVersionCurrent = isSandboxAgentVersionCurrent(version);
+      log.info("sandbox.agent-creds.connect", {
+        event: "sandbox.agent-creds.connect",
+        sandboxId: id,
+        copyAgentCreds: config.copyAgentCreds,
+        agentVersion: version,
+        agentVersionCurrent,
+        willProvisionCreds: agentVersionCurrent && config.copyAgentCreds,
+        agents: Object.keys(agents),
+      });
+      if (agentVersionCurrent) {
         void provisionGitAuthFor(id).catch((err) =>
           log.warn("sandbox.git-auth.fail", {
             event: "sandbox.git-auth.fail",
@@ -203,6 +249,14 @@ function connectAgent(
             err: describe(err),
           }),
         );
+      } else {
+        log.info("sandbox.agent-creds.skipped", {
+          event: "sandbox.agent-creds.skipped",
+          sandboxId: id,
+          reason: "agent-version-outdated",
+          agentVersion: version,
+          expectedVersion: EXPECTED_SANDBOX_AGENT_VERSION,
+        });
       }
     },
     onClose: () => {
@@ -226,6 +280,7 @@ function connectAgent(
       }
     },
     onFsChange: (watchId, p, mtimeMs) => send(IPC.remoteFsChange, { watchId, path: p, mtimeMs }),
+    onHook: (slug, taskId, hookEvent, body) => forwardSandboxHook(slug, taskId, hookEvent, body),
   }, { tlsCa: config.remoteAgentCa ?? undefined });
   clients.set(id, client);
   return {
@@ -354,24 +409,50 @@ async function provisionAgentCredsFor(
   id: string,
   options: { requireConfigured?: boolean; requireTool?: AgentCredItem["tool"] } = {},
 ): Promise<{ wrote: number }> {
+  log.info("sandbox.agent-creds.provision.start", {
+    event: "sandbox.agent-creds.provision.start",
+    sandboxId: id,
+    requireConfigured: !!options.requireConfigured,
+    requireTool: options.requireTool ?? null,
+  });
   const client = clients.get(id);
   if (!client?.isOpen) {
+    log.info("sandbox.agent-creds.provision.skip", {
+      event: "sandbox.agent-creds.provision.skip",
+      sandboxId: id,
+      reason: "client-not-open",
+      requireConfigured: !!options.requireConfigured,
+    });
     if (options.requireConfigured) throw new Error("sandbox is not connected");
     return { wrote: 0 };
   }
   const config = configFor(id);
   if (!config?.copyAgentCreds) {
+    log.info("sandbox.agent-creds.provision.skip", {
+      event: "sandbox.agent-creds.provision.skip",
+      sandboxId: id,
+      reason: "copy-agent-creds-disabled",
+      copyAgentCreds: config?.copyAgentCreds ?? null,
+      requireConfigured: !!options.requireConfigured,
+    });
     if (options.requireConfigured) {
       throw new Error("This sandbox is not set to copy AI tool credentials.");
     }
     return { wrote: 0 };
   }
-  const items = readHostAgentCreds();
+  const { items, diagnostics } = readHostAgentCredsWithDiagnostics();
+  log.info("sandbox.agent-creds.host-read", {
+    event: "sandbox.agent-creds.host-read",
+    sandboxId: id,
+    itemCount: items.length,
+    diagnostics,
+    tools: [...new Set(items.map((i) => i.tool))],
+  });
   if (!items.length) {
     const message =
       "No AI tool credentials were found on the host. Log in locally with claude / codex / cursor-agent / opencode first.";
     if (options.requireConfigured) throw new Error(message);
-    log.warn("sandbox.agent-creds.empty", { event: "sandbox.agent-creds.empty", sandboxId: id });
+    log.warn("sandbox.agent-creds.empty", { event: "sandbox.agent-creds.empty", sandboxId: id, diagnostics });
     return { wrote: 0 };
   }
   if (
@@ -384,10 +465,18 @@ async function provisionAgentCredsFor(
       event: "sandbox.agent-creds.empty",
       sandboxId: id,
       tool: options.requireTool,
+      diagnostics,
     });
     return { wrote: 0 };
   }
   try {
+    log.info("sandbox.agent-creds.rpc.request", {
+      event: "sandbox.agent-creds.rpc.request",
+      sandboxId: id,
+      method: "creds.setup",
+      sent: items.length,
+      items: summarizeAgentCredItems(items),
+    });
     const r = (await client.rpc("creds.setup", { items })) as {
       wrote?: number;
       written?: Array<{ tool?: unknown; kind?: unknown }>;
@@ -396,6 +485,17 @@ async function provisionAgentCredsFor(
     const wroteRequiredCredential = r.written
       ? r.written.some((item) => item.tool === options.requireTool && item.kind === "credentials")
       : wrote > 0;
+    log.info("sandbox.agent-creds.rpc.response", {
+      event: "sandbox.agent-creds.rpc.response",
+      sandboxId: id,
+      method: "creds.setup",
+      wrote,
+      written: Array.isArray(r?.written)
+        ? r.written.map((item) => ({ tool: item.tool, kind: item.kind }))
+        : null,
+      requireTool: options.requireTool ?? null,
+      wroteRequiredCredential,
+    });
     if (options.requireConfigured && options.requireTool && !wroteRequiredCredential) {
       throw new Error(`Sandbox agent did not write ${credToolLabel(options.requireTool)} credentials.`);
     }
@@ -528,7 +628,29 @@ type AgentCredItem = {
   content: string;
 };
 
+type AgentCredDiagnostic = {
+  tool: AgentCredItem["tool"];
+  kind: AgentCredItem["kind"];
+  source: "keychain" | "file";
+  bytes: number;
+  location: string;
+};
+
 const MAX_CRED_BYTES = 256 * 1024;
+/** ~/.claude.json can be huge (project caches); only a small auth subset is forwarded. */
+const MAX_CLAUDE_STATE_SOURCE_BYTES = 4 * 1024 * 1024;
+
+function summarizeAgentCredItems(items: AgentCredItem[]): Array<{
+  tool: AgentCredItem["tool"];
+  kind: AgentCredItem["kind"];
+  bytes: number;
+}> {
+  return items.map((item) => ({
+    tool: item.tool,
+    kind: item.kind,
+    bytes: Buffer.byteLength(item.content, "utf8"),
+  }));
+}
 
 // Only the global auth/onboarding keys of ~/.claude.json — deliberately NOT
 // `projects` (host paths), `mcpServers`, or history. Just enough for the VM to
@@ -546,15 +668,35 @@ const CLAUDE_STATE_KEYS = [
 
 /** Read a macOS Keychain generic-password item's secret, or null if absent. */
 function readKeychainSecret(service: string): string | null {
-  if (process.platform !== "darwin") return null;
+  if (process.platform !== "darwin") {
+    log.debug("sandbox.agent-creds.keychain.skip", {
+      event: "sandbox.agent-creds.keychain.skip",
+      service,
+      reason: "not-darwin",
+    });
+    return null;
+  }
   try {
     const out = execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     });
     const trimmed = out.replace(/\r?\n$/, "");
-    return trimmed.length ? trimmed : null;
-  } catch {
+    const found = trimmed.length > 0;
+    log.debug("sandbox.agent-creds.keychain.read", {
+      event: "sandbox.agent-creds.keychain.read",
+      service,
+      found,
+      bytes: found ? Buffer.byteLength(trimmed, "utf8") : 0,
+    });
+    return found ? trimmed : null;
+  } catch (err) {
+    log.debug("sandbox.agent-creds.keychain.read", {
+      event: "sandbox.agent-creds.keychain.read",
+      service,
+      found: false,
+      err: describe(err),
+    });
     return null; // item missing or access denied — skip silently
   }
 }
@@ -574,59 +716,199 @@ function readHostCredFile(...segments: string[]): string | null {
 
 /** Trim ~/.claude.json down to the allow-listed auth/onboarding keys (JSON). */
 function readClaudeState(): string | null {
-  const raw = readHostCredFile(".claude.json");
-  if (!raw) return null;
-  let parsed: Record<string, unknown>;
+  const full = path.join(os.homedir(), ".claude.json");
   try {
-    parsed = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
+    const st = fs.lstatSync(full);
+    if (!st.isFile()) return null;
+    if (st.size > MAX_CLAUDE_STATE_SOURCE_BYTES) {
+      log.warn("sandbox.agent-creds.claude-state.skip", {
+        event: "sandbox.agent-creds.claude-state.skip",
+        reason: "source-oversized",
+        bytes: st.size,
+        maxBytes: MAX_CLAUDE_STATE_SOURCE_BYTES,
+        location: "~/.claude.json",
+      });
+      return null;
+    }
+    const raw = fs.readFileSync(full, "utf8");
+    if (!raw) return null;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      log.warn("sandbox.agent-creds.claude-state.skip", {
+        event: "sandbox.agent-creds.claude-state.skip",
+        reason: "invalid-json",
+        location: "~/.claude.json",
+      });
+      return null;
+    }
+    const trimmed: Record<string, unknown> = {};
+    for (const key of CLAUDE_STATE_KEYS) {
+      if (parsed[key] !== undefined) trimmed[key] = parsed[key];
+    }
+    if (!Object.keys(trimmed).length) {
+      log.debug("sandbox.agent-creds.claude-state.skip", {
+        event: "sandbox.agent-creds.claude-state.skip",
+        reason: "no-allowlisted-keys",
+        location: "~/.claude.json",
+      });
+      return null;
+    }
+    const serialized = JSON.stringify(trimmed);
+    const bytes = Buffer.byteLength(serialized, "utf8");
+    if (bytes > MAX_CRED_BYTES) {
+      log.warn("sandbox.agent-creds.claude-state.skip", {
+        event: "sandbox.agent-creds.claude-state.skip",
+        reason: "trimmed-oversized",
+        bytes,
+        maxBytes: MAX_CRED_BYTES,
+        location: "~/.claude.json",
+      });
+      return null;
+    }
+    log.debug("sandbox.agent-creds.claude-state.read", {
+      event: "sandbox.agent-creds.claude-state.read",
+      sourceBytes: st.size,
+      trimmedBytes: bytes,
+      keys: Object.keys(trimmed),
+    });
+    return serialized;
+  } catch (err) {
+    log.debug("sandbox.agent-creds.claude-state.skip", {
+      event: "sandbox.agent-creds.claude-state.skip",
+      reason: "read-failed",
+      location: "~/.claude.json",
+      err: describe(err),
+    });
     return null;
   }
-  const trimmed: Record<string, unknown> = {};
-  for (const key of CLAUDE_STATE_KEYS) {
-    if (parsed[key] !== undefined) trimmed[key] = parsed[key];
+}
+
+function pushAgentCred(
+  out: AgentCredItem[],
+  diagnostics: AgentCredDiagnostic[],
+  item: AgentCredItem | null,
+  diagnostic: AgentCredDiagnostic | null,
+): void {
+  if (!item?.content) return;
+  const bytes = Buffer.byteLength(item.content, "utf8");
+  if (bytes > MAX_CRED_BYTES) {
+    log.warn("sandbox.agent-creds.host-read.skip", {
+      event: "sandbox.agent-creds.host-read.skip",
+      tool: item.tool,
+      kind: item.kind,
+      reason: "oversized",
+      bytes,
+      maxBytes: MAX_CRED_BYTES,
+      location: diagnostic?.location ?? null,
+    });
+    return;
   }
-  return Object.keys(trimmed).length ? JSON.stringify(trimmed) : null;
+  out.push(item);
+  if (diagnostic) diagnostics.push({ ...diagnostic, bytes });
 }
 
 /** Read the host's AI-CLI logins to push into a sandbox (copyAgentCreds mode). */
-export function readHostAgentCreds(): AgentCredItem[] {
+export function readHostAgentCredsWithDiagnostics(): {
+  items: AgentCredItem[];
+  diagnostics: AgentCredDiagnostic[];
+} {
   const out: AgentCredItem[] = [];
-  const push = (item: AgentCredItem | null): void => {
-    if (item && item.content && Buffer.byteLength(item.content, "utf8") <= MAX_CRED_BYTES) out.push(item);
-  };
+  const diagnostics: AgentCredDiagnostic[] = [];
 
   // Claude Code: token in the macOS Keychain, or ~/.claude/.credentials.json on
   // a Linux host. Plus a trimmed copy of the onboarding/account state.
-  const claudeCred = readKeychainSecret("Claude Code-credentials") ?? readHostCredFile(".claude", ".credentials.json");
-  if (claudeCred) push({ tool: "claude", kind: "credentials", content: claudeCred });
+  const claudeKeychain = readKeychainSecret("Claude Code-credentials");
+  const claudeFile = claudeKeychain ? null : readHostCredFile(".claude", ".credentials.json");
+  const claudeCred = claudeKeychain ?? claudeFile;
+  if (claudeCred) {
+    pushAgentCred(
+      out,
+      diagnostics,
+      { tool: "claude", kind: "credentials", content: claudeCred },
+      claudeKeychain
+        ? { tool: "claude", kind: "credentials", source: "keychain", bytes: 0, location: "Claude Code-credentials" }
+        : { tool: "claude", kind: "credentials", source: "file", bytes: 0, location: "~/.claude/.credentials.json" },
+    );
+  }
   const claudeState = readClaudeState();
-  if (claudeState) push({ tool: "claude", kind: "state", content: claudeState });
+  if (claudeState) {
+    pushAgentCred(
+      out,
+      diagnostics,
+      { tool: "claude", kind: "state", content: claudeState },
+      { tool: "claude", kind: "state", source: "file", bytes: 0, location: "~/.claude.json" },
+    );
+  }
 
   // Codex: plain file at ~/.codex/auth.json on every platform.
   const codexCred = readHostCredFile(".codex", "auth.json");
-  if (codexCred) push({ tool: "codex", kind: "credentials", content: codexCred });
+  if (codexCred) {
+    pushAgentCred(
+      out,
+      diagnostics,
+      { tool: "codex", kind: "credentials", content: codexCred },
+      { tool: "codex", kind: "credentials", source: "file", bytes: 0, location: "~/.codex/auth.json" },
+    );
+  }
 
   // Cursor: access + refresh tokens live in the macOS Keychain; the VM reads a
   // file-based auth.json. On a Linux host, copy that file directly.
   const cursorAccess = readKeychainSecret("cursor-access-token");
   const cursorRefresh = readKeychainSecret("cursor-refresh-token");
   if (cursorAccess) {
-    push({
-      tool: "cursor",
-      kind: "credentials",
-      content: JSON.stringify({ accessToken: cursorAccess, refreshToken: cursorRefresh ?? cursorAccess }),
-    });
+    pushAgentCred(
+      out,
+      diagnostics,
+      {
+        tool: "cursor",
+        kind: "credentials",
+        content: JSON.stringify({ accessToken: cursorAccess, refreshToken: cursorRefresh ?? cursorAccess }),
+      },
+      { tool: "cursor", kind: "credentials", source: "keychain", bytes: 0, location: "cursor-access-token" },
+    );
   } else {
     const cursorFile = readHostCredFile(".config", "cursor-agent", "auth.json");
-    if (cursorFile) push({ tool: "cursor", kind: "credentials", content: cursorFile });
+    if (cursorFile) {
+      pushAgentCred(
+        out,
+        diagnostics,
+        { tool: "cursor", kind: "credentials", content: cursorFile },
+        {
+          tool: "cursor",
+          kind: "credentials",
+          source: "file",
+          bytes: 0,
+          location: "~/.config/cursor-agent/auth.json",
+        },
+      );
+    }
   }
 
   // OpenCode: plain file at ~/.local/share/opencode/auth.json.
   const opencodeCred = readHostCredFile(".local", "share", "opencode", "auth.json");
-  if (opencodeCred) push({ tool: "opencode", kind: "credentials", content: opencodeCred });
+  if (opencodeCred) {
+    pushAgentCred(
+      out,
+      diagnostics,
+      { tool: "opencode", kind: "credentials", content: opencodeCred },
+      {
+        tool: "opencode",
+        kind: "credentials",
+        source: "file",
+        bytes: 0,
+        location: "~/.local/share/opencode/auth.json",
+      },
+    );
+  }
 
-  return out;
+  return { items: out, diagnostics };
+}
+
+/** Read the host's AI-CLI logins to push into a sandbox (copyAgentCreds mode). */
+export function readHostAgentCreds(): AgentCredItem[] {
+  return readHostAgentCredsWithDiagnostics().items;
 }
 
 /** Read a host project's origin remote so a sandbox clone can prefill the URL. */
@@ -823,6 +1105,14 @@ export function registerSandboxManager(
       if (!client) throw new Error("sandbox is not connected");
       const config = id ? configFor(id) : null;
       const requiredTool = requiredCredToolForAgent(opts.agent);
+      log.info("sandbox.agent-creds.pty-spawn", {
+        event: "sandbox.agent-creds.pty-spawn",
+        sandboxId: id,
+        agent: opts.agent ?? null,
+        copyAgentCreds: config?.copyAgentCreds ?? false,
+        requiredTool,
+        willProvisionBeforeSpawn: !!(id && config?.copyAgentCreds && requiredTool),
+      });
       if (id && config?.copyAgentCreds && requiredTool) {
         await provisionAgentCredsFor(id, { requireConfigured: true, requireTool: requiredTool });
         if (activeSandboxId !== id || clients.get(id) !== client) {

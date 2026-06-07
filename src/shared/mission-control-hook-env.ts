@@ -11,12 +11,18 @@ export const SANDBOX_HOOK_API_HOST = "host.docker.internal";
 /** Hostname the Electron host uses to reach its own loopback Mission Control API. */
 export const LOCAL_HOOK_API_HOST = "127.0.0.1";
 
+/** Hostname sandbox agent hooks POST to — the agent's own loopback HTTP server. */
+export const AGENT_LOCAL_HOOK_API_HOST = LOCAL_HOOK_API_HOST;
+
 // The PTY/agent hook commands POST to whatever host is baked into MC_API_URL.
-// On the Electron host that is loopback; inside a Docker sandbox the same API is
-// reachable via host.docker.internal. Only these two are ever legitimate, so we
-// allow-list them to keep buildSyntheticHookUrl from being pointed at an
-// arbitrary external host by a malformed env.
-const ALLOWED_HOOK_HOSTS = new Set<string>([LOCAL_HOOK_API_HOST, SANDBOX_HOOK_API_HOST]);
+// On the Electron host that is loopback; inside a sandbox the agent's local HTTP
+// API receives hooks and relays them to Mission Control over WebSocket.
+// host.docker.internal remains for legacy direct-to-host wiring.
+const ALLOWED_HOOK_HOSTS = new Set<string>([
+  LOCAL_HOOK_API_HOST,
+  SANDBOX_HOOK_API_HOST,
+  AGENT_LOCAL_HOOK_API_HOST,
+]);
 
 function isValidPort(port: number | null | undefined): port is number {
   return typeof port === "number" && Number.isInteger(port) && port > 0 && port <= MAX_TCP_PORT;
@@ -44,6 +50,25 @@ export function buildLocalMissionControlApiUrl(port: number | null | undefined):
 /** Sandbox-side API URL reaching the host via host.docker.internal. */
 export function buildSandboxMissionControlApiUrl(port: number | null | undefined): string | null {
   return buildMissionControlApiUrl(SANDBOX_HOOK_API_HOST, port);
+}
+
+/** Loopback URL for the sandbox agent's own hook HTTP endpoint. */
+export function buildAgentLocalHookApiUrl(port: number | null | undefined): string | null {
+  return buildMissionControlApiUrl(AGENT_LOCAL_HOOK_API_HOST, port);
+}
+
+export function buildSandboxHookRelayUrl(
+  mcPort: number | null | undefined,
+  slug: string,
+  taskId: string,
+  hookEvent?: string,
+): string | null {
+  const base = buildLocalMissionControlApiUrl(mcPort);
+  if (!base) return null;
+  const url = new URL(`/api/hooks/${slug}`, base);
+  url.searchParams.set("taskId", taskId);
+  if (hookEvent) url.searchParams.set("hookEvent", hookEvent);
+  return url.toString();
 }
 
 export function hookEndpointSlug(agent: string | undefined): string {

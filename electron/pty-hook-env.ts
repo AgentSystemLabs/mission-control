@@ -7,9 +7,12 @@ export {
   type PtyHookEnv,
   SANDBOX_HOOK_API_HOST,
   LOCAL_HOOK_API_HOST,
+  AGENT_LOCAL_HOOK_API_HOST,
   buildMissionControlApiUrl,
   buildLocalMissionControlApiUrl,
   buildSandboxMissionControlApiUrl,
+  buildAgentLocalHookApiUrl,
+  buildSandboxHookRelayUrl,
   hookEndpointSlug,
   buildSyntheticHookUrl,
 } from "../src/shared/mission-control-hook-env";

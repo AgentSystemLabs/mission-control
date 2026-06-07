@@ -9,6 +9,8 @@
 // protocol structurally (kept inline so the Electron build doesn't import the
 // agent package's runtime deps — same convention as the preload bridge types).
 
+import log from "electron-log/main";
+
 export interface WebSocketLike {
   readonly readyState: number;
   send(data: string): void;
@@ -30,6 +32,7 @@ export type AgentClientHandlers = {
   onExit?: (ptyId: string, exitCode: number | undefined, signal: number | undefined) => void;
   onReplayResult?: (ptyId: string, data: string, nextSeq: number) => void;
   onFsChange?: (watchId: string, path: string, mtimeMs: number) => void;
+  onHook?: (slug: string, taskId: string, hookEvent: string | undefined, body: string) => void;
   onClose?: () => void;
   onError?: (err: Error) => void;
 };
@@ -69,6 +72,7 @@ type Pending = {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  method: RpcMethod;
 };
 
 export type CreateSocket = (url: string, token: string, opts?: { ca?: string }) => WebSocketLike;
@@ -120,7 +124,25 @@ export class SandboxAgentClient {
         this.pending.delete(reqId);
         reject(new Error(`agent rpc ${method} timed out`));
       }, opts.timeoutMs ?? this.rpcTimeoutMs);
-      this.pending.set(reqId, { resolve, reject, timer });
+      this.pending.set(reqId, { resolve, reject, timer, method });
+      if (method === "creds.setup") {
+        const items = Array.isArray(params.items) ? params.items : [];
+        log.info("sandbox.agent-creds.rpc.transport.send", {
+          event: "sandbox.agent-creds.rpc.transport.send",
+          reqId,
+          method,
+          itemCount: items.length,
+          items: items.map((item) => {
+            const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+            const content = typeof row.content === "string" ? row.content : "";
+            return {
+              tool: row.tool,
+              kind: row.kind,
+              bytes: content ? Buffer.byteLength(content, "utf8") : 0,
+            };
+          }),
+        });
+      }
       this.trySend({ type: "rpc", reqId, method, params });
     });
   }
@@ -241,6 +263,16 @@ export class SandboxAgentClient {
           );
         }
         return;
+      case "hook":
+        if (typeof msg.slug === "string" && typeof msg.taskId === "string") {
+          this.handlers.onHook?.(
+            msg.slug,
+            msg.taskId,
+            typeof msg.hookEvent === "string" ? msg.hookEvent : undefined,
+            typeof msg.body === "string" ? msg.body : "",
+          );
+        }
+        return;
       case "rpcResult": {
         const reqId = typeof msg.reqId === "string" ? msg.reqId : null;
         if (!reqId) return;
@@ -248,6 +280,21 @@ export class SandboxAgentClient {
         if (!pending) return;
         this.pending.delete(reqId);
         clearTimeout(pending.timer);
+        if (pending.method === "creds.setup") {
+          const result =
+            msg.ok === true && msg.result && typeof msg.result === "object"
+              ? (msg.result as Record<string, unknown>)
+              : null;
+          log.info("sandbox.agent-creds.rpc.transport.recv", {
+            event: "sandbox.agent-creds.rpc.transport.recv",
+            reqId,
+            method: pending.method,
+            ok: msg.ok === true,
+            error: msg.ok === true ? null : typeof msg.error === "string" ? msg.error : "rpc failed",
+            wrote: typeof result?.wrote === "number" ? result.wrote : null,
+            written: Array.isArray(result?.written) ? result.written : null,
+          });
+        }
         if (msg.ok === true) pending.resolve(msg.result);
         else pending.reject(new Error(typeof msg.error === "string" ? msg.error : "rpc failed"));
         return;

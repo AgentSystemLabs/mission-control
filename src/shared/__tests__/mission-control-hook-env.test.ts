@@ -3,6 +3,8 @@ import {
   buildMissionControlApiUrl,
   buildLocalMissionControlApiUrl,
   buildSandboxMissionControlApiUrl,
+  buildAgentLocalHookApiUrl,
+  buildSandboxHookRelayUrl,
   buildSyntheticHookUrl,
   hookEndpointSlug,
   SANDBOX_HOOK_API_HOST,
@@ -44,6 +46,16 @@ describe("host-specific convenience builders", () => {
   it("buildSandboxMissionControlApiUrl targets host.docker.internal", () => {
     expect(buildSandboxMissionControlApiUrl(9333)).toBe("http://host.docker.internal:9333");
     expect(buildSandboxMissionControlApiUrl(0)).toBeNull();
+  });
+
+  it("buildAgentLocalHookApiUrl targets loopback agent HTTP", () => {
+    expect(buildAgentLocalHookApiUrl(9333)).toBe("http://127.0.0.1:9333");
+  });
+
+  it("buildSandboxHookRelayUrl targets host MC hook API", () => {
+    expect(buildSandboxHookRelayUrl(8080, "claude", "task-1", "Stop")).toBe(
+      "http://127.0.0.1:8080/api/hooks/claude?taskId=task-1&hookEvent=Stop",
+    );
   });
 });
 
