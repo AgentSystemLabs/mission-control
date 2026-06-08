@@ -1,6 +1,7 @@
 import * as path from "node:path";
 
-const SERVER_ENTRY_RELATIVE_PATH = path.join("dist-server", "server", "server.js");
+const SERVER_ENTRY_RELATIVE_PATH = path.join("dist", "server", "server.js");
+const LEGACY_SERVER_ENTRY_RELATIVE_PATH = path.join("dist-server", "server", "server.js");
 
 type ProductionServerEntryOptions = {
   appPath: string;
@@ -18,6 +19,9 @@ export function getProductionServerEntryCandidates({
     path.join(appPath, SERVER_ENTRY_RELATIVE_PATH),
     path.join(resourcesPath, "app", SERVER_ENTRY_RELATIVE_PATH),
     path.join(mainDirname, "..", "..", SERVER_ENTRY_RELATIVE_PATH),
+    path.join(appPath, LEGACY_SERVER_ENTRY_RELATIVE_PATH),
+    path.join(resourcesPath, "app", LEGACY_SERVER_ENTRY_RELATIVE_PATH),
+    path.join(mainDirname, "..", "..", LEGACY_SERVER_ENTRY_RELATIVE_PATH),
   ];
 }
 

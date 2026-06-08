@@ -11,7 +11,7 @@ describe("resolveProductionServerEntry", () => {
       "Resources",
       "app.asar",
     );
-    const expectedEntry = path.join(appPath, "dist-server", "server", "server.js");
+    const expectedEntry = path.join(appPath, "dist", "server", "server.js");
 
     const { entry, checkedPaths } = resolveProductionServerEntry({
       appPath,
@@ -22,11 +22,25 @@ describe("resolveProductionServerEntry", () => {
 
     expect(entry).toBe(expectedEntry);
     expect(checkedPaths).not.toContain(
-      path.join(appPath, "dist-electron", "dist-server", "server", "server.js"),
+      path.join(appPath, "dist-electron", "dist", "server", "server.js"),
     );
   });
 
-  it("falls back to the repo dist-server when running the production server locally", () => {
+  it("falls back to the repo dist server when running the production server locally", () => {
+    const repoRoot = path.join("/tmp", "mission-control");
+    const expectedEntry = path.join(repoRoot, "dist", "server", "server.js");
+
+    const { entry } = resolveProductionServerEntry({
+      appPath: path.join(repoRoot, "dist-electron", "electron"),
+      resourcesPath: repoRoot,
+      mainDirname: path.join(repoRoot, "dist-electron", "electron"),
+      exists: (filePath) => filePath === expectedEntry,
+    });
+
+    expect(entry).toBe(expectedEntry);
+  });
+
+  it("keeps a legacy dist-server fallback for stale local artifacts", () => {
     const repoRoot = path.join("/tmp", "mission-control");
     const expectedEntry = path.join(repoRoot, "dist-server", "server", "server.js");
 

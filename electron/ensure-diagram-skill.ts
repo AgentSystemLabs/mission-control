@@ -15,6 +15,7 @@ const AGENT_HARNESS: Partial<Record<TaskAgent, DiagramSkillHarness>> = {
 function bundledDiagramSkillSourceDirs(appPath: string): string[] {
   return [
     path.join(appPath, ".agents", "skills", "diagram"),
+    path.join(appPath, "dist", "bundled-skills", "diagram"),
     path.join(appPath, "dist-server", "bundled-skills", "diagram"),
   ];
 }

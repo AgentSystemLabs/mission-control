@@ -17,6 +17,7 @@ function bundledSkillsCandidates(skillName: string): string[] {
     );
   }
   candidates.push(path.resolve(process.cwd(), ".agents", "skills", skillName));
+  candidates.push(path.resolve(process.cwd(), "dist", "bundled-skills", skillName));
   candidates.push(
     path.resolve(process.cwd(), "dist-server", "bundled-skills", skillName),
   );

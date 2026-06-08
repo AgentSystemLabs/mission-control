@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = path.join(repoRoot, ".agents", "skills");
-const targetRoot = path.join(repoRoot, "dist-server", "bundled-skills");
+const targetRoot = path.join(repoRoot, "dist", "bundled-skills");
 const BUNDLED_SKILL_NAMES = ["diagram"];
 
 function copyTree(from, to) {
