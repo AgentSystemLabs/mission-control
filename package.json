@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "0.41.1",
+  "version": "0.41.2",
   "description": "Desktop control surface for managing agentic coding work across many projects.",
   "private": true,
   "main": "dist-electron/electron/main.js",
