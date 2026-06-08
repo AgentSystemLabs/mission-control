@@ -113,7 +113,7 @@ jobs:
           const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
           const token = process.env.GITHUB_TOKEN;
           const releaseSha = process.env.RELEASE_SHA;
-          const workflowFile = "hosted-ci.yml";
+          const workflowFile = "ci.yml";
           const maxAttempts = Number(process.env.CI_GATE_MAX_ATTEMPTS);
           const pollSeconds = Number(process.env.CI_GATE_POLL_SECONDS);
 
