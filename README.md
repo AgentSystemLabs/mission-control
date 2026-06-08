@@ -87,6 +87,10 @@ project page (**Create sandbox**), or use the CLI:
 pnpm remote-vm deploy aws --name client-vm --region us-east-1
 ```
 
+Defaults to a **`t3.medium`** (2 vCPU, 4 GiB) in `us-east-1` (~**$30/mo** on-demand if
+left running 24/7; less with the built-in 30-minute idle auto-stop). Override with
+`--size` or `--idle-timeout`.
+
 See [docs/remote-vm-cli.md](docs/remote-vm-cli.md) for AWS flags,
 bootstrap details, and cleanup commands.
 
