@@ -112,7 +112,7 @@
     "@tailwindcss/vite": "4.3.0",
     "@tanstack/router-plugin": "1.167.35",
     "@types/better-sqlite3": "7.6.13",
-    "@types/node": "25.8.0",
+    "@types/node": "25.9.3",
     "@types/pngjs": "6.0.5",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
