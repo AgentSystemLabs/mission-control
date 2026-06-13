@@ -16,7 +16,6 @@ export type { GitBranch, GitBranchesResult, GitCheckoutResult };
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
-import type { LicenseState } from "~/shared/license";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import type {
@@ -394,15 +393,6 @@ export const api = {
     req<{ bindings: BindingMap }>("/api/keybindings", { method: "DELETE" }),
 
   getSettings: () => req<AppSettings>("/api/settings"),
-
-  getLicense: () => req<{ license: LicenseState }>("/api/license"),
-  validateLicense: (key: string) =>
-    req<{ license: LicenseState }>("/api/license/validate", {
-      method: "POST",
-      body: JSON.stringify({ key }),
-    }),
-  removeLicense: () =>
-    req<{ license: LicenseState }>("/api/license", { method: "DELETE" }),
 
   updateSettings: (
     body: Partial<

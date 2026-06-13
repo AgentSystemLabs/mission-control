@@ -4,10 +4,6 @@ import * as path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-export function licenseAuthHeaders(key: string): HeadersInit {
-  return { authorization: `Bearer ${key}` };
-}
-
 // Strip leading "./", reject absolute paths, traversal segments, and NULs.
 // Used to safely filter entries from untrusted .tar.gz downloads before
 // extraction.

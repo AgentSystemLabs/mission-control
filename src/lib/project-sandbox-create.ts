@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mcToastLoading } from "~/lib/mc-toast";
-import { ApiError, api } from "~/lib/api";
+import { api } from "~/lib/api";
 import type { ElectronBridge } from "~/lib/electron";
 import {
   buildOptimisticRemoteVmSandbox,
@@ -143,7 +143,6 @@ export async function createProjectSandbox({
   queryClient,
   router,
   createTerminal,
-  onPaywall,
   onError,
   onStarted,
 }: {
@@ -154,7 +153,6 @@ export async function createProjectSandbox({
   queryClient: QueryClient;
   router: { navigate: (opts: { to: string; params?: { id: string } }) => void };
   createTerminal: CreateTerminal;
-  onPaywall: (context: "sandboxes" | "projects") => void;
   /** Validation or deploy-start failures while the create dialog is still open. */
   onError: (message: string) => void;
   /** Fired once optimistic UI is in place and the AWS deploy job has started. */
@@ -287,11 +285,6 @@ export async function createProjectSandbox({
       restoreSandboxesCache(queryClient, previousSandboxes);
       await api.setActiveScope(LOCAL_SCOPE_ID).catch(() => undefined);
       await electron.sandbox.setActive(null).catch(() => undefined);
-    }
-    if (error instanceof ApiError && error.status === 402) {
-      const body = error.body as { code?: string } | null;
-      onPaywall(body?.code === "free_tier_project_cap" ? "projects" : "sandboxes");
-      return;
     }
     const message = error instanceof Error ? error.message : "Could not create sandbox.";
     if (!started) onError(message);

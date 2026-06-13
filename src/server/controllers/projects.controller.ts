@@ -11,9 +11,7 @@ import {
   updateProject,
   reorderPinnedProjects,
 } from "../services/projects";
-import { CapExceededError } from "../errors";
 import {
-  capExceededResponse,
   handleDomainError,
   idParam,
   json,
@@ -81,7 +79,6 @@ export async function create(request: Request): Promise<Response> {
     const p = createProject({ ...localProject, path: localPath });
     return json({ project: p }, { status: HTTP_CREATED });
   } catch (e) {
-    if (e instanceof CapExceededError) return capExceededResponse(e);
     const mapped = handleDomainError(e);
     if (mapped) return mapped;
     throw e;

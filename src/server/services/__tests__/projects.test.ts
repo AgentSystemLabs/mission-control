@@ -2,14 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { generateKeyPairSync, sign } from "node:crypto";
-
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
-const keypair = generateKeyPairSync("ed25519");
-process.env.MC_LICENSE_PUBLIC_KEY = keypair.publicKey
-  .export({ type: "spki", format: "pem" })
-  .toString();
 
 const {
   listProjects,
@@ -20,30 +14,9 @@ const {
   deleteProject,
   updateProject,
   getProjectPathStatus,
-  ProjectCapExceededError,
 } = await import("../projects");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings, worktrees, sandboxes } = await import("~/db/schema");
-const { setLicenseKey, clearLicense } = await import("../license-storage");
-const { FREE_PROJECT_CAP } = await import("~/shared/license");
-
-function signedLicense(overrides: Record<string, unknown> = {}): string {
-  const payload = Buffer.from(
-    JSON.stringify({
-      licenseId: "lic_test",
-      customerId: "cus_test",
-      product: "mission-control-pro",
-      tier: "pro",
-      expiresAt: null,
-      maxMachines: 3,
-      issuedAt: "2026-05-07T17:10:17.000Z",
-      ...overrides,
-    }),
-    "utf8",
-  );
-  const signature = sign(null, payload, keypair.privateKey);
-  return `MC-PRO-v1.${payload.toString("base64url")}.${signature.toString("base64url")}`;
-}
 
 describe("projects service", () => {
   beforeEach(() => {
@@ -135,7 +108,6 @@ describe("projects service", () => {
   });
 
   it("reorders pinned projects independently per sandbox scope", () => {
-    setLicenseKey(signedLicense());
     const db = getDb();
     const sandboxId = "sb-test";
     const now = Date.now();
@@ -172,7 +144,6 @@ describe("projects service", () => {
   });
 
   it("persists pinned reorder across reads", () => {
-    setLicenseKey(signedLicense());
     const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-reorder-a-"));
     const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-reorder-b-"));
     const a = createProject({ name: "alpha", path: dirA });
@@ -211,72 +182,4 @@ describe("projects service", () => {
     expect(c.name).toBe(path.basename(dir));
   });
 
-  describe("free-tier project cap", () => {
-    const mkdir = (label: string) =>
-      fs.mkdtempSync(path.join(os.tmpdir(), `mc-cap-${label}-`));
-
-    it(`rejects creating a project beyond the cap of ${FREE_PROJECT_CAP} when no license is set`, () => {
-      clearLicense();
-      for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`free-${i}`) });
-      }
-      expect(() => createProject({ path: mkdir("over") })).toThrow(
-        ProjectCapExceededError,
-      );
-    });
-
-    it("allows unlimited projects when an active license is on file", () => {
-      setLicenseKey(signedLicense());
-      for (let i = 0; i < FREE_PROJECT_CAP + 2; i++) {
-        const p = createProject({ path: mkdir(`pro-${i}`) });
-        expect(p.id).toBeTruthy();
-      }
-      expect(listProjects()).toHaveLength(FREE_PROJECT_CAP + 2);
-    });
-
-    it("blocks Pro creation when a signed license is expired", () => {
-      setLicenseKey(
-        signedLicense({
-          licenseId: "lic_expired",
-          expiresAt: "2020-01-01T00:00:00.000Z",
-          issuedAt: "2019-01-01T00:00:00.000Z",
-        }),
-      );
-      for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`expired-${i}`) });
-      }
-      expect(() => createProject({ path: mkdir("over") })).toThrow(
-        ProjectCapExceededError,
-      );
-    });
-
-    it("blocks creation when the stored license is unsigned", () => {
-      setLicenseKey("mc_live_TEST");
-      for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`unsigned-${i}`) });
-      }
-      expect(() => createProject({ path: mkdir("over") })).toThrow(
-        ProjectCapExceededError,
-      );
-    });
-
-    it("ProjectCapExceededError carries the limit and current count", () => {
-      clearLicense();
-      for (let i = 0; i < FREE_PROJECT_CAP; i++) {
-        createProject({ path: mkdir(`err-${i}`) });
-      }
-      try {
-        createProject({ path: mkdir("over") });
-        expect.fail("expected ProjectCapExceededError");
-      } catch (e) {
-        expect(e).toBeInstanceOf(ProjectCapExceededError);
-        expect((e as InstanceType<typeof ProjectCapExceededError>).limit).toBe(
-          FREE_PROJECT_CAP,
-        );
-        expect((e as InstanceType<typeof ProjectCapExceededError>).current).toBe(
-          FREE_PROJECT_CAP,
-        );
-      }
-    });
-  });
 });

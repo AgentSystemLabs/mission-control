@@ -17,7 +17,6 @@ import * as groupsController from "./controllers/groups.controller";
 import * as userTerminalsController from "./controllers/user-terminals.controller";
 import * as homeTerminalsController from "./controllers/home-terminals.controller";
 import * as settingsController from "./controllers/settings.controller";
-import * as licenseController from "./controllers/license.controller";
 import * as keybindingsController from "./controllers/keybindings.controller";
 import * as skillsController from "./controllers/skills.controller";
 import * as hooksController from "./controllers/hooks.controller";
@@ -328,15 +327,6 @@ async function dispatch(
   }
   if (pathname === "/api/commit-cli/detect" && method === "GET") {
     return commitCliController.detect();
-  }
-
-  // License
-  if (pathname === "/api/license") {
-    if (method === "GET") return licenseController.read();
-    if (method === "DELETE") return licenseController.remove();
-  }
-  if (pathname === "/api/license/validate" && method === "POST") {
-    return licenseController.validate(request);
   }
 
   // Diagram skill (local bundled install)

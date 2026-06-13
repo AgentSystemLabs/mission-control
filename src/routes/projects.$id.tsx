@@ -398,14 +398,22 @@ function ProjectPage() {
     terminalProject && defaultWarmPayload
       ? `${terminalProject.id}:${terminalProject.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}:${terminalProject.path}:${sessionCreateSignature(defaultWarmPayload, terminalProject.path)}`
       : null;
+  // Read the latest inputs through a ref so a project-query refetch that returns
+  // a new `project` reference with identical data doesn't change the effect deps
+  // and churn the warm slot (kill + respawn a full agent PTY). `warmPrepareKey`
+  // already encodes everything that should trigger teardown/re-prepare.
+  const warmInputRef = useRef({ terminalProject, defaultWarmPayload });
+  warmInputRef.current = { terminalProject, defaultWarmPayload };
   useEffect(() => {
+    const { terminalProject, defaultWarmPayload } = warmInputRef.current;
     if (!terminalProject || !defaultWarmPayload || !warmPrepareKey) return;
     void prefetchTerminalModules();
     void prepareSessionWarmSlot({ project: terminalProject, payload: defaultWarmPayload });
     return () => {
       void discardSessionWarmSlot();
     };
-  }, [warmPrepareKey, terminalProject, defaultWarmPayload]);
+    // Depend only on warmPrepareKey (the stable logical key); inputs come from the ref.
+  }, [warmPrepareKey]);
 
   const prepareWarmForDialog = useCallback(
     (payload: SessionCreatePayload) => {

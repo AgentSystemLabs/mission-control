@@ -1,7 +1,6 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { Group } from "~/db/schema";
 import type { AppSettings } from "~/lib/api";
-import type { LicenseState } from "~/shared/license";
 import type { ProjectWithCounts } from "~/shared/projects";
 import { filterProjectsByScope, type SandboxPublicView, type SandboxScopeState } from "~/shared/sandbox";
 
@@ -15,7 +14,6 @@ export const SHELL_QUERY_CACHE_KEYS = {
   projects: "mc:shell-cache:projects:v1",
   groups: "mc:shell-cache:groups:v1",
   settings: "mc:shell-cache:settings:v1",
-  license: "mc:shell-cache:license:v1",
   sandboxes: "mc:shell-cache:sandboxes:v1",
 } as const;
 
@@ -93,11 +91,6 @@ export function readCachedSettings(): AppSettings | undefined {
   return isObject(data) ? (data as AppSettings) : undefined;
 }
 
-export function readCachedLicense(): LicenseState | undefined {
-  const data = readCache<unknown>(SHELL_QUERY_CACHE_KEYS.license);
-  return isObject(data) ? (data as LicenseState) : undefined;
-}
-
 export function readCachedSandboxes(): CachedSandboxListState | undefined {
   const data = readCache<unknown>(SHELL_QUERY_CACHE_KEYS.sandboxes);
   if (!isObject(data)) return undefined;
@@ -120,10 +113,6 @@ export function writeCachedGroups(groups: Group[]): void {
 
 export function writeCachedSettings(settings: AppSettings): void {
   writeCache(SHELL_QUERY_CACHE_KEYS.settings, settings);
-}
-
-export function writeCachedLicense(license: LicenseState): void {
-  writeCache(SHELL_QUERY_CACHE_KEYS.license, license);
 }
 
 export function writeCachedSandboxes(state: CachedSandboxListState): void {
@@ -168,11 +157,6 @@ export function installShellQueryCache(queryClient: QueryClient): void {
 
     if (isExactQueryKey(queryKey, "settings") && isObject(data)) {
       writeCachedSettings(data as AppSettings);
-      return;
-    }
-
-    if (isExactQueryKey(queryKey, "license") && isObject(data)) {
-      writeCachedLicense(data as LicenseState);
     }
   });
 }

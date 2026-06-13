@@ -4,7 +4,6 @@ import { api, setApiToken } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import {
   readCachedGroups,
-  readCachedLicense,
   readCachedProjects,
   readCachedSandboxes,
   readCachedSettings,
@@ -30,7 +29,6 @@ export const queryKeys = {
   worktrees: (projectId: string) => ["projects", projectId, "worktrees"] as const,
   settings: ["settings"] as const,
   apiToken: ["api-token"] as const,
-  license: ["license"] as const,
   keybindings: ["keybindings"] as const,
   userTerminals: (projectId: string) =>
     ["projects", projectId, "user-terminals"] as const,
@@ -121,13 +119,6 @@ export const apiTokenQueryOptions = () =>
     staleTime: Infinity,
   });
 
-export const licenseQueryOptions = () =>
-  queryOptions({
-    queryKey: queryKeys.license,
-    queryFn: async () => (await api.getLicense()).license,
-    placeholderData: readCachedLicense,
-  });
-
 export const userTerminalsQueryOptions = (
   projectId: string,
   worktreeId?: string | null,
@@ -167,7 +158,6 @@ export const useTasks = (projectId: string, worktreeId?: string | null, scopeId?
 export const useWorktrees = (projectId: string) => useQuery(worktreesQueryOptions(projectId));
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useApiToken = () => useQuery(apiTokenQueryOptions());
-export const useLicense = () => useQuery(licenseQueryOptions());
 export const useUserTerminalsQuery = (
   projectId: string,
   worktreeId?: string | null,

@@ -5,36 +5,21 @@ import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } fr
 import type { LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
-import { FREE_PROJECT_CAP, isProTier } from "~/shared/license";
 import { events } from "../events";
-import { CapExceededError, ValidationError } from "../errors";
+import { ValidationError } from "../errors";
 import {
   deleteProjectRow,
   findAllProjects,
   findProjectById,
-  findProjectIds,
   insertProject,
   updateProjectRow,
 } from "../repositories/projects.repo";
 import { findWorktreeById } from "../repositories/worktrees.repo";
 import { findAllTasks, findTasksByProjectId } from "../repositories/tasks.repo";
 import { deleteAllProjectImagesFor } from "./project-images";
-import { readLicenseState } from "./license";
 import { newId } from "./_ids";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 import { getPinnedProjects, nextPinnedOrder, validatePinnedReorder } from "~/lib/pinned-project-order";
-
-export class ProjectCapExceededError extends CapExceededError {
-  constructor(limit: number, current: number) {
-    super(
-      "free_tier_project_cap",
-      limit,
-      current,
-      `Mission Control Lite is limited to ${limit} projects. Upgrade to Pro for unlimited projects.`,
-    );
-    this.name = "ProjectCapExceededError";
-  }
-}
 
 export type { ProjectWithCounts } from "~/shared/projects";
 
@@ -190,13 +175,6 @@ export function createProject(input: {
   const localPath = validateWorkingDirectory(input.path ?? "");
 
   const name = input.name?.trim() || path.basename(localPath) || "project";
-
-  if (!isProTier(readLicenseState())) {
-    const existing = findProjectIds();
-    if (existing.length >= FREE_PROJECT_CAP) {
-      throw new ProjectCapExceededError(FREE_PROJECT_CAP, existing.length);
-    }
-  }
 
   const now = Date.now();
   const id = newId("p");

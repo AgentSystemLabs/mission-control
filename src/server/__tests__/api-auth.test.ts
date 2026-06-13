@@ -74,10 +74,6 @@ const PROTECTED_ROUTES: ReadonlyArray<{ method: string; pathname: string }> = [
   // Settings
   { method: "GET", pathname: "/api/settings" },
   { method: "POST", pathname: "/api/settings" },
-  // License
-  { method: "GET", pathname: "/api/license" },
-  { method: "DELETE", pathname: "/api/license" },
-  { method: "POST", pathname: "/api/license/validate" },
   // Diagram skill
   { method: "GET", pathname: "/api/skills/install/diagram/installed" },
   { method: "POST", pathname: "/api/skills/install/diagram" },

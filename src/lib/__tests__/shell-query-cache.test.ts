@@ -4,7 +4,6 @@ import type { ProjectWithCounts } from "~/shared/projects";
 import {
   SHELL_QUERY_CACHE_KEYS,
   installShellQueryCache,
-  readCachedLicense,
   readCachedProjects,
 } from "../shell-query-cache";
 
@@ -83,21 +82,11 @@ describe("shell query cache", () => {
   it("persists shell queries when the query cache receives fresh data", () => {
     const queryClient = new QueryClient();
     const projects = [makeProject()];
-    const license = {
-      hasKey: true,
-      maskedKey: "****1234",
-      status: "active" as const,
-      plan: "Pro",
-      lastValidatedAt: "2026-05-25T00:00:00.000Z",
-      payload: null,
-    };
 
     installShellQueryCache(queryClient);
     queryClient.setQueryData(["projects"], projects);
-    queryClient.setQueryData(["license"], license);
 
     expect(readCachedProjects()).toEqual(projects);
-    expect(readCachedLicense()).toEqual(license);
   });
 
   it("ignores similarly-prefixed detail query keys", () => {

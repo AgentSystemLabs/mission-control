@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { json, jsonError } from "../auth";
 import {
-  CapExceededError,
   ConflictError,
   DomainError,
   NotFoundError,
@@ -13,7 +12,6 @@ import {
   HTTP_CONFLICT,
   HTTP_NO_CONTENT,
   HTTP_NOT_FOUND,
-  HTTP_PAYMENT_REQUIRED,
   HTTP_UNAUTHORIZED,
 } from "~/shared/http-status";
 import { normalizeScopeId } from "~/shared/sandbox";
@@ -105,14 +103,6 @@ function zodMessage(error: z.ZodError): string {
   if (!first) return "invalid request";
   const path = first.path.length ? `${first.path.join(".")}: ` : "";
   return `${path}${first.message}`;
-}
-
-/** Build the standard 402 payload for a free-tier cap error. */
-export function capExceededResponse(e: CapExceededError): Response {
-  return json(
-    { error: e.message, code: e.code, limit: e.limit, current: e.current },
-    { status: HTTP_PAYMENT_REQUIRED },
-  );
 }
 
 /**

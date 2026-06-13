@@ -277,14 +277,22 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   const warmPrepareKey = project?.path
     ? `${scopeKeyForProject(project)}:${project.path}`
     : null;
+  // Read `project` through a ref so a project-query refetch that returns a new
+  // reference with identical data doesn't change the effect deps and churn the
+  // warm slot (kill + respawn the shell PTY). `warmPrepareKey` already encodes
+  // everything that should trigger teardown/re-prepare.
+  const warmInputRef = useRef({ project });
+  warmInputRef.current = { project };
   useEffect(() => {
+    const { project } = warmInputRef.current;
     if (!project?.path || !warmPrepareKey) return;
     void prefetchTerminalModules();
     void prepareUserTerminalWarmSlot({ project, cwd: project.path });
     return () => {
       void discardUserTerminalWarmSlot();
     };
-  }, [warmPrepareKey, project]);
+    // Depend only on warmPrepareKey (the stable logical key); inputs come from the ref.
+  }, [warmPrepareKey]);
 
   const sessions = scopeKey ? (sessionsByProject[scopeKey] ?? []) : [];
   const runningProjectIds = useMemo(() => {

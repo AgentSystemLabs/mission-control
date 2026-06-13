@@ -9,7 +9,6 @@ import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
-import { LicenseSettingsPage } from "./LicenseSettingsPage";
 import { SessionDebugLogPage } from "./SessionDebugLogPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
@@ -24,7 +23,6 @@ export const SETTINGS_PANEL_IDS = [
   "terminal",
   "theme",
   "beta",
-  "license",
   "keybindings",
   "session-debug",
   "terms",
@@ -89,7 +87,6 @@ export function SettingsPanel({
     { id: "defaults", label: "Defaults", icon: "terminal" },
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "theme", label: "Theme", icon: "sun" },
-    { id: "license", label: "License", icon: "sparkles" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
 
@@ -298,8 +295,6 @@ export function SettingsPanel({
             <ThemeSettingsPage />
           ) : activePanel === "beta" ? (
             <BetaSettingsPage />
-          ) : activePanel === "license" ? (
-            <LicenseSettingsPage />
           ) : activePanel === "keybindings" ? (
             <KeybindingsPage />
           ) : activePanel === "session-debug" ? (

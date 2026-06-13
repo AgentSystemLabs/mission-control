@@ -6,12 +6,9 @@ import {
   ProjectSandboxDialog,
   type ProjectSandboxCreateInput,
 } from "~/components/views/ProjectSandboxDialog";
-import { LicenseEntryModal, type PaywallContext } from "~/components/views/LicenseEntryModal";
 import { getElectron } from "~/lib/electron";
 import { createProjectSandbox } from "~/lib/project-sandbox-create";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import { licenseQueryOptions, sandboxesQueryOptions } from "~/queries";
-import { FREE_SANDBOX_CAP, isProTier } from "~/shared/license";
 import type { Project } from "~/db/schema";
 
 export function useProjectSandboxFlow(project: Project | null) {
@@ -23,8 +20,6 @@ export function useProjectSandboxFlow(project: Project | null) {
   const [error, setError] = useState<string | null>(null);
   const [remote, setRemote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [paywallOpen, setPaywallOpen] = useState(false);
-  const [paywallContext, setPaywallContext] = useState<PaywallContext>("sandboxes");
 
   const canCreate = !!project && !!getElectron()?.remoteVm;
 
@@ -38,15 +33,6 @@ export function useProjectSandboxFlow(project: Project | null) {
     setChecking(true);
     setError(null);
     try {
-      const [latestLicense, latestSandboxes] = await Promise.all([
-        queryClient.ensureQueryData(licenseQueryOptions()),
-        queryClient.ensureQueryData(sandboxesQueryOptions()),
-      ]);
-      if (!isProTier(latestLicense) && latestSandboxes.sandboxes.length >= FREE_SANDBOX_CAP) {
-        setPaywallContext("sandboxes");
-        setPaywallOpen(true);
-        return;
-      }
       const detected = await electron.sandbox.detectRemote(project.path).catch(() => null);
       setRemote(detected);
       setOpen(true);
@@ -55,7 +41,7 @@ export function useProjectSandboxFlow(project: Project | null) {
     } finally {
       setChecking(false);
     }
-  }, [checking, project, queryClient]);
+  }, [checking, project]);
 
   const onCreate = useCallback(
     async (input: ProjectSandboxCreateInput) => {
@@ -76,10 +62,6 @@ export function useProjectSandboxFlow(project: Project | null) {
           queryClient,
           router,
           createTerminal,
-          onPaywall: (context) => {
-            setPaywallContext(context);
-            setPaywallOpen(true);
-          },
           onError: setError,
           onStarted: () => {
             setOpen(false);
@@ -94,25 +76,17 @@ export function useProjectSandboxFlow(project: Project | null) {
   );
 
   const dialogs = canCreate ? (
-    <>
-      <ProjectSandboxDialog
-        open={open}
-        project={project}
-        remote={remote}
-        busy={busy}
-        error={error}
-        onClose={() => {
-          if (!busy) setOpen(false);
-        }}
-        onCreate={onCreate}
-      />
-      <LicenseEntryModal
-        open={paywallOpen}
-        onClose={() => setPaywallOpen(false)}
-        reason="paywall"
-        paywallContext={paywallContext}
-      />
-    </>
+    <ProjectSandboxDialog
+      open={open}
+      project={project}
+      remote={remote}
+      busy={busy}
+      error={error}
+      onClose={() => {
+        if (!busy) setOpen(false);
+      }}
+      onCreate={onCreate}
+    />
   ) : null;
 
   return { canCreate, checking, openDialog, dialogs };

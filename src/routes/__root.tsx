@@ -31,7 +31,6 @@ import { AddProjectProvider } from "~/lib/add-project-store";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
 import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } from "~/queries";
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
-import { LicenseBadge } from "~/components/views/LicenseBadge";
 import { ScopeDropdown } from "~/components/views/ScopeDropdown";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
 import {
@@ -160,10 +159,10 @@ function RootComponent() {
                     {/*
                      * The entire app shell reads client-only state — react-query
                      * data seeded synchronously from localStorage (installShellQueryCache)
-                     * plus direct localStorage reads (theme, minimal mode, license).
+                     * plus direct localStorage reads (theme, minimal mode).
                      * The server has none of that, so server HTML and the first
                      * client render disagree → hydration mismatch on every data-driven
-                     * node (LicenseBadge, ProjectPicker, …). ClientOnly renders the
+                     * node (ProjectPicker, …). ClientOnly renders the
                      * fallback on the server AND the first client render so they match,
                      * then mounts the real shell after hydration. Past this boundary
                      * there's no SSR markup to match, so children are free to show
@@ -506,7 +505,6 @@ function Shell() {
         <TopBar
           crumbs={crumbs}
           onHome={goHome}
-          leading={<LicenseBadge />}
           centerActions={
             <>
               {/* Sandbox switcher sits to the right of the selected project. */}
