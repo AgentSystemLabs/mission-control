@@ -55,6 +55,7 @@ const updateProjectBody = z
     savedSkipPermissions: z.boolean(),
     savedBareSession: z.boolean(),
     launchCommands: z.array(launchCommandSchema).nullable(),
+    customScripts: z.array(launchCommandSchema).nullable(),
     togglePin: z.literal(true).optional(),
   })
   .partial();

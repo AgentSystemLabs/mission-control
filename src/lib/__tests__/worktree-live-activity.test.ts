@@ -25,6 +25,7 @@ function makeScopedProject(
     pinnedOrder: pinnedOrder ?? null,
     branch: "main",
     launchCommands: null,
+    customScripts: null,
     launchUrl: null,
     worktreeSetupCommand: null,
     rememberAgentSettings: false,

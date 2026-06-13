@@ -349,6 +349,7 @@ function ensureSchema(sqlite: Database.Database) {
       pinned_order INTEGER,
       branch TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH}',
       launch_commands TEXT,
+      custom_scripts TEXT,
       launch_url TEXT,
       worktree_setup_command TEXT,
       remember_agent_settings INTEGER NOT NULL DEFAULT 0,
@@ -497,6 +498,12 @@ function ensureSchema(sqlite: Database.Database) {
   // created only after the column is guaranteed present. See docs/multi-sandbox-plan.md.
   ensureColumn(sqlite, "projects", "sandbox_id", "TEXT REFERENCES sandboxes(id) ON DELETE CASCADE");
   ensureProjectSandboxIndex(sqlite);
+
+  // Per-project custom scripts (JSON array of {id,name,command}). Tolerate a
+  // pre-existing column: a fresh bootstrap marks migrations applied-only, so
+  // 0014 never runs on a brand-new DB — the inline DDL above covers that, and
+  // this guard covers any schema-divergent build. See 0014_custom_scripts.sql.
+  ensureColumn(sqlite, "projects", "custom_scripts", "TEXT");
 
   // Keep pre-release sandbox tables moving forward even if they were created by
   // an earlier branch before all remote/local config columns existed.

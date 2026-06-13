@@ -1,8 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSqlite } from "~/db/client";
-import { DEFAULT_BRANCH, LAUNCH_COMMANDS_MAX, TASK_STATUSES, isActiveStatus } from "~/shared/domain";
-import type { LaunchCommand, TaskStatus } from "~/shared/domain";
+import {
+  DEFAULT_BRANCH,
+  LAUNCH_COMMANDS_MAX,
+  CUSTOM_SCRIPTS_MAX,
+  TASK_STATUSES,
+  isActiveStatus,
+} from "~/shared/domain";
+import type { CustomScript, LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
 import { events } from "../events";
@@ -193,6 +199,7 @@ export function createProject(input: {
     pinnedOrder: null,
     branch,
     launchCommands: null,
+    customScripts: null,
     launchUrl: null,
     worktreeSetupCommand: null,
     rememberAgentSettings: false,
@@ -228,11 +235,11 @@ export function updateProject(
       | "savedSkipPermissions"
       | "savedBareSession"
     >
-  > & { launchCommands?: LaunchCommand[] | null }
+  > & { launchCommands?: LaunchCommand[] | null; customScripts?: CustomScript[] | null }
 ): Project | null {
   const existing = findProjectById(id);
   if (!existing) return null;
-  const { launchCommands, ...rest } = patch;
+  const { launchCommands, customScripts, ...rest } = patch;
   const nextPath =
     rest.path !== undefined ? validateWorkingDirectory(rest.path) : undefined;
   if (
@@ -267,6 +274,9 @@ export function updateProject(
     ...(launchCommands !== undefined
       ? { launchCommands: serializeLaunchCommands(launchCommands) }
       : {}),
+    ...(customScripts !== undefined
+      ? { customScripts: serializeCustomScripts(customScripts) }
+      : {}),
     updatedAt: Date.now(),
   };
   updateProjectRow(id, updated);
@@ -274,22 +284,34 @@ export function updateProject(
   return updated;
 }
 
-function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
+function serializeCommandList(
+  input: LaunchCommand[] | null,
+  max: number,
+  field: string
+): string | null {
   if (!input) return null;
-  if (!Array.isArray(input)) throw new Error("launchCommands must be an array");
-  if (input.length > LAUNCH_COMMANDS_MAX) {
-    throw new Error(`launchCommands cannot exceed ${LAUNCH_COMMANDS_MAX} entries`);
+  if (!Array.isArray(input)) throw new ValidationError(`${field} must be an array`);
+  if (input.length > max) {
+    throw new ValidationError(`${field} cannot exceed ${max} entries`);
   }
   const cleaned = input.map((c) => {
     const id = String(c?.id ?? "").trim();
     const name = String(c?.name ?? "").trim();
     const command = String(c?.command ?? "").trim();
-    if (!id) throw new Error("launchCommands: id is required");
-    if (!name) throw new Error("launchCommands: name is required");
-    if (!command) throw new Error("launchCommands: command is required");
+    if (!id) throw new ValidationError(`${field}: id is required`);
+    if (!name) throw new ValidationError(`${field}: name is required`);
+    if (!command) throw new ValidationError(`${field}: command is required`);
     return { id, name, command };
   });
   return cleaned.length === 0 ? null : JSON.stringify(cleaned);
+}
+
+function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
+  return serializeCommandList(input, LAUNCH_COMMANDS_MAX, "launchCommands");
+}
+
+function serializeCustomScripts(input: CustomScript[] | null): string | null {
+  return serializeCommandList(input, CUSTOM_SCRIPTS_MAX, "customScripts");
 }
 
 function projectsInScope(all: readonly Project[], sandboxId: string | null): Project[] {

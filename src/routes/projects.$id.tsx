@@ -22,6 +22,8 @@ import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
 import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
+import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
+import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
@@ -63,7 +65,14 @@ import { useServerEvents } from "~/lib/use-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { groupTasksByStatusForDisplay } from "~/lib/task-display-order";
-import { DEFAULT_BRANCH, parseLaunchCommands, STATUS_DISPLAY_ORDER } from "~/shared/domain";
+import {
+  DEFAULT_BRANCH,
+  parseLaunchCommands,
+  parseCustomScripts,
+  serializeCustomScripts,
+  STATUS_DISPLAY_ORDER,
+  type CustomScript,
+} from "~/shared/domain";
 import { hasRunningLaunchSessions } from "~/lib/project-launch-running";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
@@ -110,7 +119,7 @@ import {
   readPendingSessionOpen,
   type PendingSessionOpen,
 } from "~/lib/session-notification-store";
-import type { Group, Task, TaskStatus } from "~/db/schema";
+import type { Group, Project, Task, TaskStatus } from "~/db/schema";
 import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
@@ -474,6 +483,7 @@ function ProjectPage() {
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
+  const [showCustomScriptsConfig, setShowCustomScriptsConfig] = useState(false);
   const [showWorktreeSetupConfig, setShowWorktreeSetupConfig] = useState(false);
   const [showInstallDiagramSkill, setShowInstallDiagramSkill] = useState(false);
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
@@ -494,6 +504,10 @@ function ProjectPage() {
     setProjectPathActionError(null);
   }, [projectPathCheck.state, projectPathIssue?.path]);
   const launchCommands = parseLaunchCommands(project?.launchCommands ?? null);
+  const customScripts = useMemo(
+    () => parseCustomScripts(project?.customScripts ?? null),
+    [project?.customScripts]
+  );
   const launchCommandSet = useMemo(
     () =>
       new Set(launchCommands.map((c) => c.command.trim()).filter(Boolean)),
@@ -647,6 +661,19 @@ function ProjectPage() {
     setPanelOpen,
     projectPathReady,
   ]);
+
+  const runScript = useCallback(
+    async (script: CustomScript) => {
+      if (!projectPathReady) return;
+      try {
+        await createTerminal({ name: script.name, startCommand: script.command });
+        setPanelOpen(true);
+      } catch {
+        toast.error(`Failed to run ${script.name}`);
+      }
+    },
+    [projectPathReady, createTerminal, setPanelOpen]
+  );
 
   useEffect(() => {
     if (terminalProject) setActiveUserTerminalProject(terminalProject);
@@ -2103,6 +2130,17 @@ function ProjectPage() {
                 >
                   Configure launch commands
                 </Btn>
+                <Btn
+                  variant="ghost"
+                  icon="terminal"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setShowCustomScriptsConfig(true);
+                  }}
+                  style={{ justifyContent: "flex-start" }}
+                >
+                  Custom scripts
+                </Btn>
                 {worktreesEnabled ? (
                   <Btn
                     variant="ghost"
@@ -2153,6 +2191,11 @@ function ProjectPage() {
             )}
           </div>
           {headerActions}
+          <CustomScriptsButton
+            scripts={customScripts}
+            onRun={runScript}
+            disabled={!projectPathUsable}
+          />
           <div
             role="group"
             aria-label="Review changes and commit"
@@ -2783,6 +2826,34 @@ function ProjectPage() {
         onSave={async (next) => {
           await api.updateProject(project.id, { launchCommands: next });
           await refresh();
+        }}
+      />
+
+      <CustomScriptsDialog
+        open={showCustomScriptsConfig}
+        project={project}
+        onClose={() => setShowCustomScriptsConfig(false)}
+        onSave={(next) => {
+          const projectKey = queryKeys.project(project.id);
+          const previousProject = queryClient.getQueryData<Project>(projectKey);
+          const serialized = serializeCustomScripts(next);
+          queryClient.setQueryData<Project>(projectKey, (prev) =>
+            prev ? { ...prev, customScripts: serialized, updatedAt: Date.now() } : prev,
+          );
+          void (async () => {
+            try {
+              const { project: updated } = await api.updateProject(project.id, {
+                customScripts: next,
+              });
+              queryClient.setQueryData(projectKey, updated);
+              void invalidateProjects();
+            } catch (error) {
+              queryClient.setQueryData(projectKey, previousProject);
+              toast.error(
+                error instanceof Error ? error.message : "Could not save custom scripts",
+              );
+            }
+          })();
         }}
       />
 

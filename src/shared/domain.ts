@@ -122,7 +122,13 @@ export const isTerminalStatus = (s: TaskStatus) => TASK_STATUS_META[s].isTermina
 export const LAUNCH_COMMANDS_MAX = 5;
 export type LaunchCommand = { id: string; name: string; command: string };
 
-export function parseLaunchCommands(raw: string | null | undefined): LaunchCommand[] {
+// Custom scripts are structurally identical to launch commands but persisted in
+// a separate column: they run individually on demand (header split button) and
+// have no launch/stop lifecycle, where launch commands run as a managed group.
+export const CUSTOM_SCRIPTS_MAX = 5;
+export type CustomScript = LaunchCommand;
+
+function parseCommandList(raw: string | null | undefined, max: number): LaunchCommand[] {
   if (!raw) return [];
   try {
     const v = JSON.parse(raw);
@@ -135,8 +141,20 @@ export function parseLaunchCommands(raw: string | null | undefined): LaunchComma
           typeof c.name === "string" &&
           typeof c.command === "string"
       )
-      .slice(0, LAUNCH_COMMANDS_MAX);
+      .slice(0, max);
   } catch {
     return [];
   }
+}
+
+export function parseLaunchCommands(raw: string | null | undefined): LaunchCommand[] {
+  return parseCommandList(raw, LAUNCH_COMMANDS_MAX);
+}
+
+export function parseCustomScripts(raw: string | null | undefined): CustomScript[] {
+  return parseCommandList(raw, CUSTOM_SCRIPTS_MAX);
+}
+
+export function serializeCustomScripts(scripts: CustomScript[]): string | null {
+  return scripts.length === 0 ? null : JSON.stringify(scripts);
 }

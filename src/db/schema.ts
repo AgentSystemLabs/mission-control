@@ -4,12 +4,15 @@ import {
   DEFAULT_BRANCH,
   DEFAULT_TASK_STATUS,
   LAUNCH_COMMANDS_MAX,
+  CUSTOM_SCRIPTS_MAX,
   TASK_AGENTS,
   TASK_STATUSES,
   parseLaunchCommands,
+  parseCustomScripts,
   isActiveStatus,
   isTerminalStatus,
   type LaunchCommand,
+  type CustomScript,
   type TaskAgent,
   type TaskStatus,
 } from "~/shared/domain";
@@ -71,6 +74,7 @@ export const projects = sqliteTable(
     pinnedOrder: integer("pinned_order"),
     branch: text("branch").notNull().default(DEFAULT_BRANCH),
     launchCommands: text("launch_commands"),
+    customScripts: text("custom_scripts"),
     launchUrl: text("launch_url"),
     worktreeSetupCommand: text("worktree_setup_command"),
     rememberAgentSettings: integer("remember_agent_settings", { mode: "boolean" })
@@ -340,10 +344,12 @@ export {
   DEFAULT_BRANCH,
   DEFAULT_TASK_STATUS,
   LAUNCH_COMMANDS_MAX,
+  CUSTOM_SCRIPTS_MAX,
   TASK_AGENTS,
   TASK_STATUSES,
   parseLaunchCommands,
+  parseCustomScripts,
   isActiveStatus,
   isTerminalStatus,
 };
-export type { LaunchCommand, TaskAgent, TaskStatus };
+export type { LaunchCommand, CustomScript, TaskAgent, TaskStatus };
