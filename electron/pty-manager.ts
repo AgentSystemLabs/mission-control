@@ -255,6 +255,44 @@ function killProcessTreeWindows(pid: number | undefined): void {
   }
 }
 
+/**
+ * Fully release a PTY, including the master /dev/ptmx fd that node-pty holds in
+ * THIS (main Electron) process.
+ *
+ * node-pty's `proc.kill()` only sends SIGHUP to the immediate child — it never
+ * closes the master fd. If that child survives the signal (a claude/codex agent
+ * that re-parented its tool subprocesses, a shell trapping SIGHUP, a stopped
+ * job), the slave stays open, the master never sees EIO, and node-pty keeps the
+ * master fd open for the life of the app. Every leaked master counts against
+ * macOS's system-wide `kern.tty.ptmx_max` (~511), so a long-lived window that
+ * churns PTYs (e.g. the warm-session pool re-preparing on every project query
+ * refetch) eventually exhausts the cap and makes EVERY pty spawn on the whole
+ * machine fail with posix_spawnp/ENXIO.
+ *
+ * node-pty's `destroy()` is the only method that closes the master socket
+ * directly; hanging up the master also makes the kernel SIGHUP the slave's
+ * foreground process group, so the fd is reclaimed even when the child won't die
+ * on its own. It isn't on the public `IPty` type but exists on both the Unix and
+ * Windows terminals at runtime — fall back to `kill()` if a future version drops
+ * it. This is the single teardown path; never call `proc.kill()` directly.
+ */
+export function disposePty(proc: import("node-pty").IPty | null | undefined): void {
+  if (!proc) return;
+  // Windows: SIGHUP doesn't reach the grandchild node.exe that holds the
+  // worktree's .claude/ handle; tear down the whole tree first.
+  killProcessTreeWindows(proc.pid);
+  const closable = proc as unknown as { destroy?: () => void };
+  try {
+    if (typeof closable.destroy === "function") {
+      closable.destroy();
+    } else {
+      proc.kill();
+    }
+  } catch {
+    /* already exited or fd already closed */
+  }
+}
+
 function pidsListeningOnPort(port: number): number[] {
   if (!Number.isInteger(port) || port <= 0 || port > MAX_TCP_PORT) return [];
   if (os.platform() === "win32") return [];
@@ -335,8 +373,7 @@ async function killPty(p: Pty): Promise<boolean> {
       exited = true;
     });
     p.killedByUser = true;
-    killProcessTreeWindows(p.proc?.pid);
-    p.proc.kill();
+    disposePty(p.proc);
     const deadline = Date.now() + SIGTERM_GRACE_MS;
     while (!exited && Date.now() < deadline) {
       await sleep(PTY_EXIT_POLL_INTERVAL_MS);
@@ -601,12 +638,8 @@ export function registerPtyHandlers(
   safeHandle(IPC.ptyKill, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
-    try {
-      p.killedByUser = true;
-      p.proc.kill();
-    } catch {
-      /* swallow */
-    }
+    p.killedByUser = true;
+    disposePty(p.proc);
     ptys.delete(ptyId);
     return true;
   }, ipcMain);
@@ -662,12 +695,8 @@ export function registerPtyHandlers(
 
 export function killAllPtys() {
   for (const p of ptys.values()) {
-    try {
-      p.killedByUser = true;
-      p.proc.kill();
-    } catch {
-      /* swallow */
-    }
+    p.killedByUser = true;
+    disposePty(p.proc);
   }
   ptys.clear();
 }

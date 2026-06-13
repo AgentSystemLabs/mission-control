@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
-import { isCwdWithin, planLaunchPortKillTargets } from "../pty-manager";
+import { describe, expect, it, vi } from "vitest";
+import { disposePty, isCwdWithin, planLaunchPortKillTargets } from "../pty-manager";
 
 describe("planLaunchPortKillTargets", () => {
   it("marks Mission Control runtime ports as protected", () => {
@@ -47,5 +47,37 @@ describe("isCwdWithin", () => {
   it("returns false for empty inputs", () => {
     expect(isCwdWithin("", root)).toBe(false);
     expect(isCwdWithin(root, "")).toBe(false);
+  });
+});
+
+describe("disposePty", () => {
+  // Regression guard for the PTY master leak: node-pty's kill() only SIGHUPs the
+  // child and leaves the master /dev/ptmx fd open if the child survives the
+  // signal. Teardown MUST close the master via destroy(), or a long-lived window
+  // exhausts macOS's kern.tty.ptmx_max and every pty spawn on the machine fails.
+  it("closes the master fd via destroy() instead of only signalling with kill()", () => {
+    const destroy = vi.fn();
+    const kill = vi.fn();
+    disposePty({ pid: 4242, destroy, kill } as never);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("falls back to kill() only when destroy() is unavailable", () => {
+    const kill = vi.fn();
+    disposePty({ pid: 4242, kill } as never);
+    expect(kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("is a no-op for a missing proc and swallows teardown errors", () => {
+    expect(() => disposePty(null)).not.toThrow();
+    expect(() =>
+      disposePty({
+        pid: 1,
+        destroy: () => {
+          throw new Error("already gone");
+        },
+      } as never),
+    ).not.toThrow();
   });
 });
