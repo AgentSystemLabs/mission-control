@@ -85,12 +85,16 @@ function ScopeItem({
   subtitle,
   color,
   active,
+  busy,
   onClick,
 }: {
   label: string;
   subtitle: string;
   color: string;
   active: boolean;
+  /** Dim the row to signal an in-progress lifecycle action. Stays clickable so the
+   *  click can surface an informational modal (e.g. "is being deleted"). */
+  busy?: boolean;
   onClick: () => void;
 }) {
   const style: CSSProperties = {
@@ -105,9 +109,10 @@ function ScopeItem({
     cursor: "pointer",
     background: active ? "var(--accent-dim)" : "transparent",
     color: "var(--text)",
+    opacity: busy ? 0.55 : 1,
   };
   return (
-    <button type="button" onClick={onClick} style={style} aria-current={active}>
+    <button type="button" onClick={onClick} style={style} aria-current={active} aria-busy={busy}>
       <span
         aria-hidden
         style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }}
@@ -209,6 +214,33 @@ function StoppingSandboxModal({
   );
 }
 
+function DeletingSandboxModal({
+  sandbox,
+  onClose,
+}: {
+  sandbox: { id: string; name: string } | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={!!sandbox}
+      onClose={onClose}
+      title={sandbox ? `${sandbox.name} is being deleted` : "Sandbox is being deleted"}
+      width={440}
+      footer={
+        <Btn variant="primary" onClick={onClose}>
+          Got it
+        </Btn>
+      }
+    >
+      <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
+        This sandbox is being torn down — Mission Control is terminating its cloud VM and removing
+        it. It will disappear from the list once the teardown finishes.
+      </p>
+    </Modal>
+  );
+}
+
 function MissingSandboxModal({
   sandbox,
   isActiveScope,
@@ -294,6 +326,9 @@ export function ScopeDropdown() {
   // dead scope.
   const [pausedPrompt, setPausedPrompt] = useState<{ id: string; name: string } | null>(null);
   const [stoppingPrompt, setStoppingPrompt] = useState<{ id: string; name: string } | null>(null);
+  // Set when the user clicks a sandbox that is currently being torn down — the
+  // modal tells them it's in progress instead of re-triggering delete.
+  const [deletingPrompt, setDeletingPrompt] = useState<{ id: string; name: string } | null>(null);
   const [deletingMissingRemote, setDeletingMissingRemote] = useState(false);
   const [teardownConfirmOpen, setTeardownConfirmOpen] = useState(false);
   // Per-sandbox busy state, keyed by sandbox id — NOT a single global flag, so
@@ -309,6 +344,11 @@ export function ScopeDropdown() {
   // Optimistic rows for deploys that haven't persisted server-side yet, re-applied
   // after any mid-deploy refetch so the new sandbox never flickers out of the list.
   const pendingDeploysRef = useRef<Map<string, SandboxPublicView>>(new Map());
+  // Ids currently being torn down. A synchronous ref (not derived from the async
+  // cloudBusy state) so the double-delete guard and the reconcile/deploy-refresh
+  // resurrection guards are correct even on a same-tick double-fire. teardownSandbox
+  // is the only writer (add at start, delete in finally).
+  const destroyingIdsRef = useRef<Set<string>>(new Set());
   const currentProject = currentProjectId
     ? allProjects.find((p) => p.id === currentProjectId) ?? null
     : null;
@@ -339,7 +379,9 @@ export function ScopeDropdown() {
         for (const job of jobs) {
           const sandboxId = job.input.sandboxId;
           if (job.status !== "queued" && job.status !== "running") continue;
-          if (!sandboxId || pending.some((sandbox) => sandbox.id === sandboxId)) continue;
+          // Never re-apply a row that's mid-teardown — that's the resurrection bug.
+          if (!sandboxId || destroyingIdsRef.current.has(sandboxId)) continue;
+          if (pending.some((sandbox) => sandbox.id === sandboxId)) continue;
           const existing = current?.sandboxes.find((sandbox) => sandbox.id === sandboxId);
           const optimistic = buildOptimisticRemoteVmSandboxFromDeployJob(job, existing);
           if (!optimistic) continue;
@@ -370,6 +412,9 @@ export function ScopeDropdown() {
     ) => {
       const electron = getElectron();
       if (!isManagedAwsRemote(sandbox) || !electron?.remoteVm?.reconcile) return;
+      // A sandbox mid-teardown must not be reconciled — a refetch could resurface a
+      // paused/missing prompt for a row that's about to disappear.
+      if (destroyingIdsRef.current.has(sandbox.id)) return;
       if (options.promptIfActive) reconcilePromptIfActiveRef.current.add(sandbox.id);
       if (reconcileInFlightRef.current.has(sandbox.id)) return;
 
@@ -380,6 +425,8 @@ export function ScopeDropdown() {
       const surface = (status: string | null) => {
         const current = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
         if (current?.activeScopeId !== sandbox.id) return;
+        // An in-flight reconcile that resolves after teardown began must stay quiet.
+        if (destroyingIdsRef.current.has(sandbox.id)) return;
         if (isMissingStatus(status)) {
           setMissingRemoteSandbox({ id: sandbox.id, name: sandbox.name });
           return;
@@ -501,6 +548,8 @@ export function ScopeDropdown() {
 
     const upsertPendingDeployJob = (job: RemoteVmDeployJobSnapshot) => {
       const sandboxId = job.input.sandboxId;
+      // A stale in-flight deploy event must not re-insert a row that's mid-teardown.
+      if (sandboxId && destroyingIdsRef.current.has(sandboxId)) return false;
       if ((job.status === "queued" || job.status === "running") && sandboxId) {
         const current = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes);
         const existing = current?.sandboxes.find((sandbox) => sandbox.id === sandboxId);
@@ -773,30 +822,28 @@ export function ScopeDropdown() {
     }
   };
 
-  const teardownSandbox = async (
-    target: { id: string; name: string },
-    options: { optimistic?: boolean } = {},
-  ) => {
-    if (cloudBusy[target.id]) return;
+  const teardownSandbox = async (target: { id: string; name: string }) => {
+    // Synchronous guard (ref, not async cloudBusy) so a same-tick double-fire of
+    // delete can't launch two teardown pipelines — there is no idempotency key on
+    // the destroy/delete calls, so a duplicate is a real second delete.
+    if (destroyingIdsRef.current.has(target.id) || cloudBusy[target.id]) return;
     const electron = getElectron();
     if (!electron?.remoteVm) return;
     const isActive = activeScopeId === target.id;
-    const optimistic = options.optimistic === true;
-    const previousSandboxes = optimistic
-      ? qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes)
-      : undefined;
 
-    if (optimistic) {
-      removeSandboxFromCache(qc, target.id, { switchActiveToLocal: isActive });
-      setPausedPrompt(null);
-      toast.success(`${target.name} deleted`);
-      if (isActive) {
-        void api.setActiveScope(LOCAL_SCOPE_ID).catch(() => undefined);
-        void electron.sandbox.setActive(null).catch(() => undefined);
-      }
-    } else {
-      setSandboxBusy(target.id, "destroying");
-    }
+    // Mark the row "destroying" and keep it visible so the dropdown shows
+    // "Deleting…" for the whole teardown. Removing it optimistically let a
+    // concurrent refetch (reconcile poll / deploy listener) pull the still-present
+    // server row back, so the sandbox flickered back into the list with a stale
+    // status. We only drop the row once the server delete has committed below.
+    destroyingIdsRef.current.add(target.id);
+    // Drop any pending-deploy placeholder so a mid-flight refresh can't re-apply it.
+    pendingDeploysRef.current.delete(target.id);
+    setSandboxBusy(target.id, "destroying");
+    setPausedPrompt(null);
+    const toastId = mcToastLoading(`Deleting ${target.name}…`, {
+      description: "Terminating the cloud VM and removing the sandbox.",
+    });
 
     try {
       await closeSandboxUi(target.id);
@@ -816,7 +863,7 @@ export function ScopeDropdown() {
         throw new Error(terminated.error);
       }
 
-      if (isActive && !optimistic) {
+      if (isActive) {
         await api.setActiveScope(LOCAL_SCOPE_ID);
         await electron.sandbox.setActive(null);
         qc.setQueryData<SandboxesQueryData>(queryKeys.sandboxes, (current) =>
@@ -825,24 +872,24 @@ export function ScopeDropdown() {
       }
 
       await api.deleteSandbox(target.id);
+      // The server delete has committed — now drop the row. A refetch after this
+      // can no longer resurrect it.
+      removeSandboxFromCache(qc, target.id, { switchActiveToLocal: isActive });
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.sandboxes }),
         qc.invalidateQueries({ queryKey: queryKeys.projects }),
       ]);
-      if (!optimistic) {
-        setTeardownConfirmOpen(false);
-        setPausedPrompt(null);
-        toast.success(`${target.name} torn down`);
-      }
+      setTeardownConfirmOpen(false);
+      toast.success(`${target.name} deleted`, { id: toastId, description: undefined });
     } catch (error) {
-      if (optimistic) {
-        restoreSandboxesCache(qc, previousSandboxes);
-      }
-      toast.error(error instanceof Error ? error.message : `Failed to delete ${target.name}.`);
+      // Leave the row in place (it reverts to its real status) so the user can retry.
+      toast.error(error instanceof Error ? error.message : `Failed to delete ${target.name}.`, {
+        id: toastId,
+        description: undefined,
+      });
     } finally {
-      if (!optimistic) {
-        setSandboxBusy(target.id, null);
-      }
+      destroyingIdsRef.current.delete(target.id);
+      setSandboxBusy(target.id, null);
     }
   };
 
@@ -879,6 +926,13 @@ export function ScopeDropdown() {
   const pick = async (scopeId: string) => {
     setOpen(false);
     const target = sandboxes.find((s) => s.id === scopeId) ?? null;
+    // A sandbox mid-teardown can't be used — inform instead of re-triggering delete
+    // or activating a row that's about to disappear. Checked before status branches
+    // because its server status is still the stale pre-delete value.
+    if (target && cloudBusy[target.id] === "destroying") {
+      setDeletingPrompt({ id: target.id, name: target.name });
+      return;
+    }
     // A sandbox whose cloud instance is gone can't be used — prompt to remove it
     // or switch to Local, even when it's the currently-active (dead) scope.
     if (target && isMissingStatus(target.remoteStatus)) {
@@ -1033,16 +1087,26 @@ export function ScopeDropdown() {
               onClick={() => void pick(LOCAL_SCOPE_ID)}
             />
             {visibleSandboxes.map((s) => {
-              const missing = isMissingStatus(s.remoteStatus);
-              const stopping = !missing && isStoppingStatus(s.remoteStatus);
-              const resuming = !missing && (resumingId === s.id || s.remoteStatus === "resuming");
-              const paused = !missing && !stopping && !resuming && isResumableStatus(s.remoteStatus);
+              // Local "destroying" is the freshest truth — the row's server status is
+              // still its stale pre-delete value, so it overrides every status branch.
+              const destroying = cloudBusy[s.id] === "destroying";
+              const missing = !destroying && isMissingStatus(s.remoteStatus);
+              const stopping = !destroying && !missing && isStoppingStatus(s.remoteStatus);
+              const resuming =
+                !destroying && !missing && (resumingId === s.id || s.remoteStatus === "resuming");
+              const paused =
+                !destroying &&
+                !missing &&
+                !stopping &&
+                !resuming &&
+                isResumableStatus(s.remoteStatus);
               let subtitle = "AWS VM";
               if (s.remoteStatus === "provisioning") subtitle = "Provisioning…";
               if (paused) subtitle = "Paused";
               if (resuming) subtitle = "Resuming…";
               if (stopping) subtitle = "Stopping…";
               if (missing) subtitle = "Deleted";
+              if (destroying) subtitle = "Deleting…";
               return (
                 <ScopeItem
                   key={s.id}
@@ -1050,6 +1114,7 @@ export function ScopeDropdown() {
                   subtitle={subtitle}
                   color={missing ? "var(--status-failed)" : s.color ?? "var(--accent)"}
                   active={s.id === activeScopeId}
+                  busy={destroying}
                   onClick={() => void pick(s.id)}
                 />
               );
@@ -1136,7 +1201,7 @@ export function ScopeDropdown() {
         sandbox={pausedPrompt}
         onResume={resumeFromPrompt}
         onSwitchLocal={cancelPausedToLocal}
-        onDelete={() => pausedPrompt && void teardownSandbox(pausedPrompt, { optimistic: true })}
+        onDelete={() => pausedPrompt && void teardownSandbox(pausedPrompt)}
         onClose={() => setPausedPrompt(null)}
       />
 
@@ -1146,6 +1211,7 @@ export function ScopeDropdown() {
         onClose={() => setStoppingPrompt(null)}
       />
 
+      <DeletingSandboxModal sandbox={deletingPrompt} onClose={() => setDeletingPrompt(null)} />
     </>
   );
 }
