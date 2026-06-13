@@ -194,4 +194,4 @@ A drop-in skill for Claude Code / Codex / Cursor CLI lives in `docs/skills/missi
 
 ## License
 
-Proprietary — internal use only.
+[MIT](LICENSE)
