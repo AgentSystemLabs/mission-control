@@ -34,11 +34,21 @@ export function useResizablePanel(opts: {
   );
 
   const [size, setSize] = useState<number>(() => {
-    if (storedSize !== undefined && storedSize !== null) return Math.max(minSize, storedSize);
-    if (typeof window === "undefined") return defaultSize;
-    const raw = window.localStorage.getItem(storageKey);
-    const n = raw ? Number(raw) : NaN;
-    return Number.isFinite(n) && n >= minSize ? n : defaultSize;
+    const preferred = (() => {
+      if (storedSize !== undefined && storedSize !== null) return storedSize;
+      if (typeof window === "undefined") return defaultSize;
+      const raw = window.localStorage.getItem(storageKey);
+      const n = raw ? Number(raw) : NaN;
+      return Number.isFinite(n) && n >= minSize ? n : defaultSize;
+    })();
+    // Clamp the initial value to the current max, not just the min. A width
+    // persisted under a looser cap (e.g. a wider maxSize before a layout
+    // change) would otherwise render past the viewport edge until the first
+    // drag re-clamps it.
+    if (typeof window === "undefined") return Math.max(minSize, preferred);
+    const viewport = axis === "x" ? window.innerWidth : window.innerHeight;
+    const upperBound = maxSize ? maxSize(viewport) : viewport - minSize;
+    return Math.max(minSize, Math.min(upperBound, preferred));
   });
 
   const sizeRef = useRef(size);
@@ -64,6 +74,18 @@ export function useResizablePanel(opts: {
       /* localStorage unavailable */
     }
   }, [storageKey, size]);
+
+  // Re-clamp when the window resizes so a panel sized against a larger viewport
+  // can't spill past the edge after the window shrinks.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => {
+      if (isDraggingRef.current) return;
+      setSize((current) => clampSize(current));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampSize]);
 
   const dragRef = useRef<{ start: number; startSize: number } | null>(null);
 

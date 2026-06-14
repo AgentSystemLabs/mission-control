@@ -550,7 +550,10 @@ function Shell() {
                 display: sessionExpanded ? "none" : "flex",
                 flexDirection: "column",
                 overflow: "hidden",
-                minWidth: 0,
+                // On the project detail view the terminal panel sits to the
+                // right; floor the left panel so dragging the terminal wider
+                // shrinks the terminal instead of wrapping the session columns.
+                minWidth: projectMatch ? 700 : 0,
                 minHeight: 0,
               }}
             >
