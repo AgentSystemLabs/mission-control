@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TASK_AGENTS } from "~/shared/domain";
+import { SCRIPT_ARGS_MAX, TASK_AGENTS } from "~/shared/domain";
 import {
   createProject,
   deleteProject,
@@ -26,6 +26,21 @@ const launchCommandSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   command: z.string().min(1),
+});
+
+const scriptArgSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "arg name must be a valid identifier"),
+  description: z.string().max(200).optional(),
+});
+
+// Custom scripts are launch commands plus optional fill-in-the-blank args; the
+// args field must be declared here or zod strips it from the persisted payload.
+const customScriptSchema = launchCommandSchema.extend({
+  args: z.array(scriptArgSchema).max(SCRIPT_ARGS_MAX).optional(),
 });
 
 const createProjectBody = z.object({
@@ -55,7 +70,7 @@ const updateProjectBody = z
     savedSkipPermissions: z.boolean(),
     savedBareSession: z.boolean(),
     launchCommands: z.array(launchCommandSchema).nullable(),
-    customScripts: z.array(launchCommandSchema).nullable(),
+    customScripts: z.array(customScriptSchema).nullable(),
     togglePin: z.literal(true).optional(),
   })
   .partial();

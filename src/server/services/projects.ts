@@ -7,6 +7,7 @@ import {
   CUSTOM_SCRIPTS_MAX,
   TASK_STATUSES,
   isActiveStatus,
+  normalizeScriptArgs,
 } from "~/shared/domain";
 import type { CustomScript, LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
@@ -311,7 +312,23 @@ function serializeLaunchCommands(input: LaunchCommand[] | null): string | null {
 }
 
 function serializeCustomScripts(input: CustomScript[] | null): string | null {
-  return serializeCommandList(input, CUSTOM_SCRIPTS_MAX, "customScripts");
+  if (!input) return null;
+  if (!Array.isArray(input)) throw new ValidationError("customScripts must be an array");
+  if (input.length > CUSTOM_SCRIPTS_MAX) {
+    throw new ValidationError(`customScripts cannot exceed ${CUSTOM_SCRIPTS_MAX} entries`);
+  }
+  const cleaned = input.map((c) => {
+    const id = String(c?.id ?? "").trim();
+    const name = String(c?.name ?? "").trim();
+    const command = String(c?.command ?? "").trim();
+    if (!id) throw new ValidationError("customScripts: id is required");
+    if (!name) throw new ValidationError("customScripts: name is required");
+    if (!command) throw new ValidationError("customScripts: command is required");
+    // serializeCommandList would strip args; preserve the normalized arg list.
+    const args = normalizeScriptArgs(c?.args);
+    return args ? { id, name, command, args } : { id, name, command };
+  });
+  return cleaned.length === 0 ? null : JSON.stringify(cleaned);
 }
 
 function projectsInScope(all: readonly Project[], sandboxId: string | null): Project[] {

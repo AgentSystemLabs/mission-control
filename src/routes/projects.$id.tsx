@@ -24,6 +24,7 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
+import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
@@ -662,17 +663,32 @@ function ProjectPage() {
     projectPathReady,
   ]);
 
-  const runScript = useCallback(
-    async (script: CustomScript) => {
-      if (!projectPathReady) return;
+  // Script awaiting argument values before it can run (null when none pending).
+  const [argsScript, setArgsScript] = useState<CustomScript | null>(null);
+
+  const executeScript = useCallback(
+    async (script: CustomScript, command: string) => {
       try {
-        await createTerminal({ name: script.name, startCommand: script.command });
+        await createTerminal({ name: script.name, startCommand: command });
         setPanelOpen(true);
       } catch {
         toast.error(`Failed to run ${script.name}`);
       }
     },
-    [projectPathReady, createTerminal, setPanelOpen]
+    [createTerminal, setPanelOpen]
+  );
+
+  const runScript = useCallback(
+    (script: CustomScript) => {
+      if (!projectPathReady) return;
+      // Scripts with declared args open a fill-in modal first; the rest run as-is.
+      if (script.args && script.args.length > 0) {
+        setArgsScript(script);
+        return;
+      }
+      void executeScript(script, script.command);
+    },
+    [projectPathReady, executeScript]
   );
 
   useEffect(() => {
@@ -2826,6 +2842,17 @@ function ProjectPage() {
         onSave={async (next) => {
           await api.updateProject(project.id, { launchCommands: next });
           await refresh();
+        }}
+      />
+
+      <ScriptArgsModal
+        open={argsScript !== null}
+        script={argsScript}
+        onCancel={() => setArgsScript(null)}
+        onRun={(resolvedCommand) => {
+          const script = argsScript;
+          setArgsScript(null);
+          if (script) void executeScript(script, resolvedCommand);
         }}
       />
 

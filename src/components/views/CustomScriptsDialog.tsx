@@ -3,7 +3,14 @@ import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
 import { EscTooltip, Tooltip } from "~/components/ui/Tooltip";
 import { Icon } from "~/components/ui/Icon";
-import { CUSTOM_SCRIPTS_MAX, parseCustomScripts, type CustomScript } from "~/shared/domain";
+import {
+  CUSTOM_SCRIPTS_MAX,
+  SCRIPT_ARGS_MAX,
+  isValidScriptArgName,
+  parseCustomScripts,
+  type CustomScript,
+  type ScriptArg,
+} from "~/shared/domain";
 import type { Project } from "~/db/schema";
 
 function newRowId() {
@@ -49,6 +56,34 @@ export function CustomScriptsDialog({
     setRows((prev) => [...prev, { id: newRowId(), name: "", command: "" }]);
   };
 
+  const addArg = (id: string) =>
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === id && (r.args?.length ?? 0) < SCRIPT_ARGS_MAX
+          ? { ...r, args: [...(r.args ?? []), { name: "", description: "" }] }
+          : r
+      )
+    );
+
+  const updateArg = (id: string, index: number, patch: Partial<ScriptArg>) =>
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              args: (r.args ?? []).map((a, i) => (i === index ? { ...a, ...patch } : a)),
+            }
+          : r
+      )
+    );
+
+  const removeArg = (id: string, index: number) =>
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, args: (r.args ?? []).filter((_, i) => i !== index) } : r
+      )
+    );
+
   const save = () => {
     setError(null);
     const cleaned: CustomScript[] = [];
@@ -60,7 +95,26 @@ export function CustomScriptsDialog({
         setError("Every row needs both a name and a command.");
         return;
       }
-      cleaned.push({ id: r.id, name, command });
+      const args: ScriptArg[] = [];
+      const seen = new Set<string>();
+      for (const a of r.args ?? []) {
+        const argName = a.name.trim();
+        const description = (a.description ?? "").trim();
+        if (!argName && !description) continue; // ignore empty arg rows
+        if (!isValidScriptArgName(argName)) {
+          setError(
+            `"${name}": argument "${argName || "(blank)"}" must start with a letter or _ and use only letters, numbers, and _.`
+          );
+          return;
+        }
+        if (seen.has(argName)) {
+          setError(`"${name}": duplicate argument "$${argName}".`);
+          return;
+        }
+        seen.add(argName);
+        args.push(description ? { name: argName, description } : { name: argName });
+      }
+      cleaned.push(args.length > 0 ? { id: r.id, name, command, args } : { id: r.id, name, command });
     }
     if (cleaned.length > CUSTOM_SCRIPTS_MAX) {
       setError(`At most ${CUSTOM_SCRIPTS_MAX} scripts.`);
@@ -103,7 +157,9 @@ export function CustomScriptsDialog({
         >
           Configure up to {CUSTOM_SCRIPTS_MAX} scripts. Each runs on demand in its own
           terminal in the bottom panel. The first script is the default primary button;
-          the rest live in its dropdown.
+          the rest live in its dropdown. Add arguments to prompt for values (e.g. write{" "}
+          <code style={{ fontFamily: "var(--mono)" }}>lpd deploy --env $ENV</code> and add an{" "}
+          <code style={{ fontFamily: "var(--mono)" }}>ENV</code> argument).
         </p>
 
         {rows.length === 0 && (
@@ -127,14 +183,15 @@ export function CustomScriptsDialog({
             key={r.id}
             style={{
               display: "flex",
-              gap: 8,
-              alignItems: "center",
+              flexDirection: "column",
+              gap: 10,
               padding: 10,
               background: "var(--surface-0)",
               border: "1px solid var(--border)",
               borderRadius: 8,
             }}
           >
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div
               style={{
                 display: "flex",
@@ -251,6 +308,102 @@ export function CustomScriptsDialog({
                 <Icon name="trash" size={12} />
               </button>
             </Tooltip>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                paddingLeft: 28,
+              }}
+            >
+              {(r.args ?? []).map((a, ai) => (
+                <div
+                  key={`${r.id}-arg-${ai}`}
+                  style={{ display: "flex", gap: 8, alignItems: "center" }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 13,
+                      color: "var(--text-dim)",
+                    }}
+                  >
+                    $
+                  </span>
+                  <input
+                    value={a.name}
+                    onChange={(e) => updateArg(r.id, ai, { name: e.target.value })}
+                    placeholder="ARG"
+                    aria-label="Argument name"
+                    style={{
+                      flex: "0 0 120px",
+                      background: "var(--surface-1)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                      fontFamily: "var(--mono)",
+                      fontSize: 12,
+                      padding: "5px 8px",
+                      borderRadius: 6,
+                      outline: "none",
+                    }}
+                  />
+                  <input
+                    value={a.description ?? ""}
+                    onChange={(e) => updateArg(r.id, ai, { description: e.target.value })}
+                    placeholder="Description (e.g. environment to deploy to)"
+                    aria-label="Argument description"
+                    style={{
+                      flex: 1,
+                      background: "var(--surface-1)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                      fontFamily: "var(--sans)",
+                      fontSize: 12,
+                      padding: "5px 8px",
+                      borderRadius: 6,
+                      outline: "none",
+                    }}
+                  />
+                  <Tooltip content="Remove argument">
+                    <button
+                      type="button"
+                      onClick={() => removeArg(r.id, ai)}
+                      aria-label="Remove argument"
+                      style={{
+                        background: "transparent",
+                        border: 0,
+                        color: "var(--text-faint)",
+                        cursor: "pointer",
+                        padding: 4,
+                        display: "flex",
+                      }}
+                    >
+                      <Icon name="trash" size={12} />
+                    </button>
+                  </Tooltip>
+                </div>
+              ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Btn
+                  variant="ghost"
+                  icon="plus"
+                  size="sm"
+                  onClick={() => addArg(r.id)}
+                  disabled={(r.args?.length ?? 0) >= SCRIPT_ARGS_MAX}
+                >
+                  Add argument
+                </Btn>
+                {(r.args?.length ?? 0) === 0 && (
+                  <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                    Reference as{" "}
+                    <code style={{ fontFamily: "var(--mono)" }}>$name</code> in the command;
+                    you'll be prompted for each value before the script runs.
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         ))}
 

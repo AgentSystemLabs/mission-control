@@ -118,6 +118,37 @@ describe("PATCH /api/projects/:id customScripts", () => {
     expect(res!.status).toBe(400);
   });
 
+  it("persists declared args round-trip", async () => {
+    const id = makeProject();
+    const scripts = [
+      {
+        id: "a",
+        name: "Deploy",
+        command: "lpd deploy --env $ENV",
+        args: [{ name: "ENV", description: "Environment to deploy to" }],
+      },
+    ];
+    const res = await patch(id, { customScripts: scripts });
+    expect(res!.status).toBe(200);
+    const { project } = await body(res);
+    expect(parseCustomScripts(project.customScripts)).toEqual(scripts);
+  });
+
+  it("rejects an arg with an invalid name", async () => {
+    const id = makeProject();
+    const res = await patch(id, {
+      customScripts: [
+        {
+          id: "a",
+          name: "Deploy",
+          command: "deploy $bad",
+          args: [{ name: "1bad" }],
+        },
+      ],
+    });
+    expect(res!.status).toBe(400);
+  });
+
   it("leaves customScripts untouched when the patch omits the field", async () => {
     const id = makeProject();
     await patch(id, {
