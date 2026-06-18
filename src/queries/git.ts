@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { api } from "~/lib/api";
 import { fetchGitStatus, fetchGitDiff } from "~/lib/project-git";
+import type { GitStatus } from "~/shared/git-status";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
 const GIT_STATUS_REFETCH_INTERVAL_MS = 3000;
@@ -135,10 +136,16 @@ export function useGitCreatePullRequest(projectId: string, worktreeId?: string |
 
 export function useGitCheckout(projectId: string, worktreeId?: string | null) {
   const invalidate = useInvalidateGit(projectId, worktreeId);
+  const qc = useQueryClient();
   return useMutation({
     mutationKey: [...gitKeys.all(projectId, worktreeId), "checkout"] as const,
     mutationFn: (opts: { branch: string; create?: boolean }) =>
       api.gitCheckout(projectId, opts.branch, { create: opts.create, worktreeId: worktreeId ?? null }),
+    onSuccess: (result) => {
+      qc.setQueryData<GitStatus | undefined>(gitKeys.status(projectId, worktreeId), (current) =>
+        current ? { ...current, branch: result.branch } : current
+      );
+    },
     onSettled: invalidate,
   });
 }

@@ -3101,7 +3101,6 @@ function WorktreeToggleGroup({
                 projectId={projectId}
                 worktreeId={null}
                 branch={mainBranchLabel}
-                displayLabel={label}
                 disabled={branchSwitchDisabled}
                 worktreePath={worktree.path}
                 selected
