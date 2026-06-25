@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { api } from "~/lib/api";
 import { useHotkey, isEditableTarget } from "~/lib/use-hotkey";
@@ -21,6 +22,7 @@ const AddProjectContext = createContext<Ctx | null>(null);
 export function AddProjectProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { data: groups = [] } = useGroups();
 
   const open = useCallback(() => {
@@ -74,6 +76,11 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
           }
           setIsOpen(false);
           void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+          // If the user is already viewing a project detail page, switch to the
+          // project they just opened so it becomes the selected/active one.
+          if (router.state.location.pathname.startsWith("/projects/")) {
+            void router.navigate({ to: "/projects/$id", params: { id: created.id } });
+          }
         }}
       />
     </AddProjectContext.Provider>

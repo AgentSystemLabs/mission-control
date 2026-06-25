@@ -20,6 +20,13 @@ import * as nodeNet from "node:net";
 import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
+import {
+  isWhisperAvailable,
+  prewarmWhisper,
+  shutdownWhisper,
+  transcribeWav,
+  WhisperUnavailableError,
+} from "./whisper-server";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { IPC } from "./ipc-channels";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
@@ -49,7 +56,11 @@ import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore } from "./app-settings-store";
 import { getBinding, matchElectronInput } from "./keybindings-reader";
 import { resolveProductionServerEntry } from "./production-server-entry";
-import { shouldAllowWebPermission } from "./notification-permissions";
+import {
+  MICROPHONE_WEB_PERMISSION,
+  shouldAllowAudioCapture,
+  shouldAllowWebPermission,
+} from "./notification-permissions";
 import {
   getNativeOsNotificationPermission,
   showSessionFinishOsNotification,
@@ -820,10 +831,19 @@ async function openExternalHttpUrl(url: string): Promise<{ ok: true } | { ok: fa
 
 function configurePermissionHandlers(): void {
   const ses = session.defaultSession;
-  ses.setPermissionRequestHandler((_webContents, permission, callback) => {
+  ses.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission === MICROPHONE_WEB_PERMISSION) {
+      const mediaTypes = (details as { mediaTypes?: string[] } | undefined)?.mediaTypes;
+      callback(shouldAllowAudioCapture(mediaTypes));
+      return;
+    }
     callback(shouldAllowWebPermission(permission));
   });
-  ses.setPermissionCheckHandler((_webContents, permission) => {
+  ses.setPermissionCheckHandler((_webContents, permission, _origin, details) => {
+    if (permission === MICROPHONE_WEB_PERMISSION) {
+      const mediaType = (details as { mediaType?: string } | undefined)?.mediaType;
+      return mediaType === "audio";
+    }
     return shouldAllowWebPermission(permission);
   });
 }
@@ -1251,6 +1271,24 @@ safeHandle(IPC.terminalSaveClipboardImage, () => {
   return saveTerminalNativeImage(image, "clipboard-image");
 });
 
+safeHandle(IPC.voiceAvailable, () => isWhisperAvailable());
+safeHandle(IPC.voicePrewarm, () => {
+  void prewarmWhisper();
+  return true;
+});
+safeHandle(IPC.voiceTranscribe, async (_event, wav: ArrayBuffer, prompt?: string) => {
+  try {
+    const text = await transcribeWav(Buffer.from(wav), prompt);
+    return { ok: true as const, text };
+  } catch (err) {
+    if (err instanceof WhisperUnavailableError) {
+      return { ok: false as const, error: err.message, code: "unavailable" as const };
+    }
+    log.error("voice.transcribe-failed", err);
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 safeHandle(IPC.appGetRuntimePort, () => runtimePort);
 safeHandle(IPC.appGetUserDataDir, () => missionControlUserDataDir);
 
@@ -1424,6 +1462,7 @@ app.on("activate", () => {
 app.on("before-quit", () => {
   (app as any).isQuiting = true;
   killAllPtys();
+  shutdownWhisper();
   disposeAllFileWatchers();
   disposeSandboxManager();
   disposeApiTokenStore();

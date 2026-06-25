@@ -160,7 +160,8 @@ export function parseResponse(raw: string): Parsed {
 export async function generateTitleForTask(taskId: string, prompt: string): Promise<void> {
   const task = getTask(taskId);
   if (!task) return;
-  if (!isSentinelTitle(task.title)) return; // user has set a manual title
+  if (task.titleManuallySet) return;
+  if (!isSentinelTitle(task.title)) return; // existing finalized title
   if (!prompt.trim()) return;
 
   const invocation = resolveTitleInvocation(task.agent, prompt);
@@ -186,7 +187,7 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
       console.log("[title-gen] parsed:", parsed);
     }
     const fresh = getTask(taskId);
-    if (!fresh || !isSentinelTitle(fresh.title)) return; // user edited mid-flight
+    if (!fresh || fresh.titleManuallySet || !isSentinelTitle(fresh.title)) return; // user edited mid-flight
     if (parsed.title) {
       updateTask(taskId, { title: parsed.title, icon: parsed.icon });
     } else {
@@ -197,7 +198,7 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
       console.error("[title-gen] CLI error:", e);
     }
     const fresh = getTask(taskId);
-    if (fresh && isSentinelTitle(fresh.title)) {
+    if (fresh && !fresh.titleManuallySet && isSentinelTitle(fresh.title)) {
       updateTask(taskId, { title: fallbackTitle(prompt) });
     }
   }

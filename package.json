@@ -12,6 +12,7 @@
   },
   "scripts": {
     "check:node": "node scripts/require-node-24.mjs",
+    "setup:whisper": "node scripts/fetch-whisper.mjs",
     "preinstall": "node scripts/require-node-24.mjs",
     "predev": "node scripts/require-node-24.mjs",
     "predev:electron": "node scripts/require-node-24.mjs",
@@ -91,6 +92,7 @@
     "@xterm/addon-web-links": "0.12.0",
     "@xterm/xterm": "6.0.0",
     "better-sqlite3": "12.10.0",
+    "double-metaphone": "2.0.1",
     "drizzle-orm": "0.45.2",
     "electron-log": "5.4.4",
     "electron-updater": "6.8.3",
@@ -167,12 +169,24 @@
       "output": "dist-electron-out",
       "buildResources": "build"
     },
+    "extraResources": [
+      {
+        "from": "resources/whisper",
+        "to": "whisper",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
       "category": "public.app-category.developer-tools",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Mission Control uses the microphone for push-to-talk voice commands. Audio is transcribed locally on your machine and never leaves your computer."
+      },
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",

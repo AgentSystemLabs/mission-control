@@ -13,6 +13,7 @@ import { SessionDebugLogPage } from "./SessionDebugLogPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
+import { VoiceCommandsPage } from "./VoiceCommandsPage";
 
 // Single source of truth for settings panel ids. The union type and the
 // settings route's zod enum both derive from this, and __root's OPEN_SETTINGS
@@ -22,6 +23,7 @@ export const SETTINGS_PANEL_IDS = [
   "defaults",
   "terminal",
   "theme",
+  "voice",
   "beta",
   "keybindings",
   "session-debug",
@@ -87,6 +89,7 @@ export function SettingsPanel({
     { id: "defaults", label: "Defaults", icon: "terminal" },
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "theme", label: "Theme", icon: "sun" },
+    { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
 
@@ -293,6 +296,8 @@ export function SettingsPanel({
             <TerminalSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
+          ) : activePanel === "voice" ? (
+            <VoiceCommandsPage />
           ) : activePanel === "beta" ? (
             <BetaSettingsPage />
           ) : activePanel === "keybindings" ? (

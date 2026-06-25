@@ -121,6 +121,8 @@ export type AgentPtySpawnOptions = BasePtySpawnOptions & {
   agent: PtySpawnAgent;
   dangerouslySkipPermissions?: boolean;
   shell?: never;
+  /** Starting prompt written to the agent's stdin once its TUI is ready (voice control). */
+  initialInput?: string;
 };
 
 export type ShellPtySpawnOptions = BasePtySpawnOptions & {
@@ -303,10 +305,20 @@ export type TerminalImageSaveInput = {
 
 export type TerminalImageSaveResult = { path: string } | { error: string };
 
+export type VoiceTranscribeResult =
+  | { ok: true; text: string }
+  | { ok: false; error: string; code?: "unavailable" };
+
 export type ElectronBridge = {
   settings: {
     getToken: () => Promise<string>;
     regenerateToken: () => Promise<string>;
+  };
+  voice: {
+    available: () => Promise<boolean>;
+    prewarm: () => Promise<boolean>;
+    /** `prompt` biases the decoder toward expected words (e.g. project names). */
+    transcribe: (wav: ArrayBuffer, prompt?: string) => Promise<VoiceTranscribeResult>;
   };
   debugLog: {
     listSessionTerminalErrors: () => Promise<SessionTerminalDebugLogEntry[]>;

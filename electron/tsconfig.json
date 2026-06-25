@@ -22,6 +22,7 @@
     "../src/shared/agent-cli-config.ts",
     "../src/shared/domain.ts",
     "../src/shared/diagram-skill-install.ts",
+    "../src/shared/file-read-limits.ts",
     "../src/shared/opencode-mission-control-plugin.ts",
     "../src/lib/keybindings/types.ts",
     "../src/lib/keybindings/defaults.ts"

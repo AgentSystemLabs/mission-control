@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENT_SPAWN_COMMANDS } from "./agent-cli-config";
+import { CLAUDE_MODEL_ALIASES } from "./claude-models";
 import type { TaskAgent } from "./domain";
 import { buildCmdScriptCommand, isWindowsCommandScript } from "./windows-cmd";
 
@@ -25,6 +26,11 @@ export type AgentSpawnRequest = BaseSpawnRequest & {
   agent: TaskAgentSpawn;
   dangerouslySkipPermissions?: boolean;
   shell?: never;
+  // Optional starting prompt written to the agent's stdin once its TUI is ready
+  // (used by voice control to seed a session). This is input DATA, not part of
+  // the spawn command — it never passes through the argv allow-list, exactly
+  // like a user typing into the terminal.
+  initialInput?: string;
 };
 
 export type ShellSpawnRequest = BaseSpawnRequest & {
@@ -120,6 +126,7 @@ const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, A
     "--bare": { value: false },
     "--session-id": { value: {} },
     "--resume": { value: {} },
+    "--model": { value: { allowed: CLAUDE_MODEL_ALIASES } },
     "--dangerously-skip-permissions": {
       value: false,
       requiresDangerouslySkipPermissions: true,

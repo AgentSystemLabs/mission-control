@@ -16,6 +16,7 @@ import {
   readCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 
 // Pixel size of the color-swatch dot used in the accent-color picker (both
 // the selected-check badge and the per-row preview swatch use this size).
@@ -54,6 +55,9 @@ export function ThemeSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
+    defaultModel: settings?.defaultModel ?? null,
+    voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
+    voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:
       queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??

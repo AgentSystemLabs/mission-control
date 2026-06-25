@@ -26,3 +26,9 @@ artifacts/
 
 # Local dev SQLite store + app state (isolated from the installed app's DB)
 .dev-userdata/
+
+# Bundled whisper.cpp voice-control artifacts (fetched via `pnpm setup:whisper`).
+# Large binaries/model are not committed; the directory scaffold + docs are.
+resources/whisper/*
+!resources/whisper/.gitkeep
+!resources/whisper/README.md

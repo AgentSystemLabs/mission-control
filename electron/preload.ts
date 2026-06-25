@@ -190,6 +190,20 @@ const electronAPI = {
     regenerateToken: (): Promise<string> =>
       ipcRenderer.invoke(IPC.settingsRegenerateToken),
   },
+  voice: {
+    /** Whether the bundled whisper model is installed on this platform. */
+    available: (): Promise<boolean> => ipcRenderer.invoke(IPC.voiceAvailable),
+    /** Load the model ahead of the first command so push-to-talk feels instant. */
+    prewarm: (): Promise<boolean> => ipcRenderer.invoke(IPC.voicePrewarm),
+    /** Transcribe a 16 kHz mono 16-bit WAV buffer offline via whisper.cpp.
+     *  `prompt` biases the decoder toward expected words (e.g. project names). */
+    transcribe: (
+      wav: ArrayBuffer,
+      prompt?: string,
+    ): Promise<
+      { ok: true; text: string } | { ok: false; error: string; code?: "unavailable" }
+    > => ipcRenderer.invoke(IPC.voiceTranscribe, wav, prompt),
+  },
   sandbox: {
     // Phase 2: lifecycle is per-sandbox (sandboxId; falls back to the active scope).
     getState: (sandboxId?: string): Promise<SandboxStateBridge> =>

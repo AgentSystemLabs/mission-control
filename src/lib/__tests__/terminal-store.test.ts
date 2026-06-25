@@ -20,6 +20,7 @@ const baseTask = {
   worktreeId: null,
   scopeId: "local",
   title: "Task",
+  titleManuallySet: false,
   icon: null,
   status: "ready",
   branch: "main",

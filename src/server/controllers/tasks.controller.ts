@@ -42,7 +42,7 @@ const createTaskBody = z.object({
 
 const updateTaskBody = z
   .object({
-    title: z.string(),
+    title: z.string().trim().min(1, "title required"),
     icon: z.string().nullable(),
     branch: z.string(),
     claudeSessionId: z.string().nullable(),
@@ -111,7 +111,10 @@ export async function update(rawId: string, request: Request): Promise<Response>
   const parsed = await parseJsonBody(request, updateTaskBody);
   if (!parsed.ok) return parsed.response;
   try {
-    const t = updateTask(idParsed.data, parsed.data);
+    const patch = Object.prototype.hasOwnProperty.call(parsed.data, "title")
+      ? { ...parsed.data, titleManuallySet: true }
+      : parsed.data;
+    const t = updateTask(idParsed.data, patch);
     if (!t) return notFound();
     return json({ task: t });
   } catch (e) {

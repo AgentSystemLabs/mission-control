@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { api, setApiToken } from "~/lib/api";
+import { setDefaultModel } from "~/lib/default-model-store";
 import { getElectron } from "~/lib/electron";
 import {
   readCachedGroups,
@@ -95,7 +96,13 @@ export const worktreesQueryOptions = (projectId: string) =>
 export const settingsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.settings,
-    queryFn: async () => api.getSettings(),
+    queryFn: async () => {
+      const settings = await api.getSettings();
+      // Mirror the default model into a module cache so commandForTask can append
+      // `--model` without prop-drilling settings through the terminal store.
+      setDefaultModel(settings.defaultModel);
+      return settings;
+    },
     placeholderData: readCachedSettings,
   });
 

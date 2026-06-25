@@ -207,6 +207,21 @@ function ptyOutputTail(p: Pty): string {
   return p.buffer.map((chunk) => chunk.data).join("").slice(-SESSION_START_OUTPUT_TAIL_MAX);
 }
 
+// A voice-seeded starting prompt is written to the agent's stdin like the user
+// typing. Drop C0/DEL control bytes so a mis-transcription can't drive TUI
+// keybindings; the submit CR is added separately by the caller.
+function sanitizeInitialInput(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const clean = Array.from(text)
+    .filter((ch) => {
+      const code = ch.charCodeAt(0);
+      return code >= 32 && code !== 127;
+    })
+    .join("")
+    .trim();
+  return clean || undefined;
+}
+
 function send(getWin: () => BrowserWindow | null, channel: string, payload: any) {
   const win = getWin();
   if (!win || win.isDestroyed()) return;
@@ -578,14 +593,76 @@ export function registerPtyHandlers(
       };
       ptys.set(id, p);
 
+      // Voice control can seed a fresh agent session with a starting prompt.
+      // The agent's TUI isn't ready for input the instant it spawns, so we wait
+      // for its first output plus a short settle before writing — otherwise the
+      // text is dropped during startup. Fires exactly once; the trailing CR is
+      // delayed slightly so the TUI registers the text before it submits.
+      const INITIAL_INPUT_SETTLE_MS = 450;
+      const INITIAL_INPUT_SUBMIT_DELAY_MS = 150;
+      // Fallback so the prompt still lands if the agent TUI emits no output before
+      // we'd otherwise wait on its first data chunk.
+      const INITIAL_INPUT_MAX_WAIT_MS = 4000;
+      // Strip control bytes so a mis-transcription can't drive TUI keybindings; the
+      // single submit CR is added separately below.
+      const initialInput =
+        plan.mode === "agent" && !opts.shell
+          ? sanitizeInitialInput(opts.initialInput)
+          : undefined;
+      let initialInputScheduled = false;
+      let initialInputTimer: ReturnType<typeof setTimeout> | undefined;
+      const scheduleInitialInput = (delayMs: number) => {
+        if (initialInputScheduled) return;
+        initialInputScheduled = true;
+        initialInputTimer = setTimeout(sendInitialInput, delayMs);
+      };
+      const sendInitialInput = () => {
+        if (!initialInput) return;
+        try {
+          proc.write(initialInput);
+          setTimeout(() => {
+            try {
+              proc.write("\r");
+            } catch {
+              /* pty already exited */
+            }
+          }, INITIAL_INPUT_SUBMIT_DELAY_MS);
+          recordSessionTerminalDebugLog({
+            stage: "initial-input-injected",
+            message: `injected ${initialInput.length}-char starting prompt`,
+            source: "pty-manager",
+            agent: opts.agent,
+            taskId: opts.taskId,
+            ptyId: id,
+          });
+        } catch (err) {
+          recordSessionTerminalDebugLog({
+            level: "error",
+            stage: "initial-input-failed",
+            message: err instanceof Error ? err.message : String(err),
+            source: "pty-manager",
+            agent: opts.agent,
+            taskId: opts.taskId,
+            ptyId: id,
+          });
+        }
+      };
+
       proc.onData((data: string) => {
         const seq = appendBuffer(p, data);
         const haystack = scanTail(p, data);
         scanForInterrupt(p, haystack);
         scanForCodexHookReview(p, haystack);
         send(getWin, IPC.ptyData, { ptyId: id, data, seq });
+        if (initialInput) scheduleInitialInput(INITIAL_INPUT_SETTLE_MS);
       });
+      // Fallback so the prompt still lands even if the agent emits no output.
+      const initialInputFallback = initialInput
+        ? setTimeout(() => scheduleInitialInput(0), INITIAL_INPUT_MAX_WAIT_MS)
+        : undefined;
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
+        if (initialInputTimer) clearTimeout(initialInputTimer);
+        if (initialInputFallback) clearTimeout(initialInputFallback);
         const elapsedMs = Date.now() - p.spawnStartedAt;
         if (p.agent && !p.killedByUser && elapsedMs < SESSION_START_FAST_EXIT_MS) {
           recordSessionTerminalDebugLog({

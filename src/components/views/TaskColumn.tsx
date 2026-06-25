@@ -11,6 +11,7 @@ export function TaskColumn({
   onArchive,
   onRestore,
   onDelete,
+  onRename,
   headerAction,
 }: {
   title: string;
@@ -21,6 +22,7 @@ export function TaskColumn({
   onArchive?: (id: string) => void;
   onRestore?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onRename?: (id: string, title: string) => Promise<void> | void;
   headerAction?: React.ReactNode;
 }) {
   if (tasks.length === 0) return null;
@@ -76,6 +78,7 @@ export function TaskColumn({
             onArchive={onArchive}
             onRestore={onRestore}
             onDelete={onDelete}
+            onRename={onRename}
           />
         ))}
       </div>

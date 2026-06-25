@@ -1,5 +1,6 @@
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Btn } from "~/components/ui/Btn";
+import { VOICE_SHIP_EVENT } from "~/lib/voice-events";
 import { mcToastCustom, McToastCloseButton } from "~/lib/mc-toast";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
@@ -349,6 +350,14 @@ export function CommitPushButton({
     },
     [projectId, worktreeId, runShip, surfaceShipError],
   );
+
+  // Voice control: "ship it" / "commit & push" triggers the same primary action.
+  // onCommitAndPush already guards on `enabled` and an in-flight ship.
+  useEffect(() => {
+    const onVoiceShip = () => void onCommitAndPush();
+    window.addEventListener(VOICE_SHIP_EVENT, onVoiceShip);
+    return () => window.removeEventListener(VOICE_SHIP_EVENT, onVoiceShip);
+  }, [onCommitAndPush]);
 
   const busy = projectShipping;
   const tooltip = enabled

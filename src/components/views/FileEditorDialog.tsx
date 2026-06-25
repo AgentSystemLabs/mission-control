@@ -15,6 +15,7 @@ import {
   type ProjectFileWatch,
 } from "~/lib/project-fs";
 import type { FileReadError, FileReadResult } from "~/shared/electron-contract";
+import { FILE_READ_MAX_BYTES, FILE_READ_MAX_LINES } from "~/shared/file-read-limits";
 
 type FileReadSuccess = Extract<FileReadResult, { ok: true }>;
 
@@ -520,6 +521,9 @@ function formatBytes(size: number): string {
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 }
 
+const FILE_READ_MAX_LINES_LABEL = FILE_READ_MAX_LINES.toLocaleString();
+const FILE_READ_MAX_BYTES_LABEL = formatBytes(FILE_READ_MAX_BYTES);
+
 function LoadErrorView({
   kind,
   lineCount,
@@ -535,8 +539,8 @@ function LoadErrorView({
     title = "File too large to open";
     body =
       lineCount && lineCount > 0
-        ? `This file has ${lineCount.toLocaleString()} lines (limit is 1,000). If this is production code, consider splitting it up and decomposing it into smaller modules.`
-        : "This file exceeds the 1,000-line / 5 MB limit. If this is production code, consider splitting it up and decomposing it into smaller modules.";
+        ? `This file has ${lineCount.toLocaleString()} lines (limit is ${FILE_READ_MAX_LINES_LABEL}). If this is production code, consider splitting it up and decomposing it into smaller modules.`
+        : `This file exceeds the ${FILE_READ_MAX_LINES_LABEL}-line / ${FILE_READ_MAX_BYTES_LABEL} limit. If this is production code, consider splitting it up and decomposing it into smaller modules.`;
   } else if (kind === "binary") {
     title = "Binary file";
     body = "This file appears to be binary and cannot be edited as text.";

@@ -46,6 +46,24 @@ export function BetaSettingsPage() {
       });
   };
 
+  const setVoiceControlEnabled = (enabled: boolean) => {
+    queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+      current ? { ...current, voiceControlEnabled: enabled } : current,
+    );
+    void api
+      .updateSettings({ voiceControlEnabled: enabled })
+      .then((next) => {
+        queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+          current
+            ? { ...current, ...next, voiceControlEnabled: enabled }
+            : { ...next, voiceControlEnabled: enabled },
+        );
+      })
+      .catch((error) => {
+        console.error("[settings] failed to sync voice preference:", error);
+      });
+  };
+
   return (
     <SettingsSection
       title="Beta"
@@ -61,6 +79,17 @@ export function BetaSettingsPage() {
           label="Enable"
         />
       </Field>
+      {isElectron() && (
+        <Field label="Voice control">
+          <ToggleRow
+            title="Push-to-talk voice commands"
+            description="Hold the push-to-talk hotkey (Settings → Keybindings) and speak to drive Mission Control — switch projects, run, ship, open the diff, and start agents. Audio is transcribed locally. See Settings → Voice for the full command list."
+            checked={settings?.voiceControlEnabled ?? false}
+            onChange={setVoiceControlEnabled}
+            label="Enable"
+          />
+        </Field>
+      )}
       {isElectron() && (
         <Field label="Sandboxes">
           <ToggleRow

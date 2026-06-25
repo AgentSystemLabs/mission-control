@@ -335,6 +335,43 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     if (plan.mode !== "agent") throw new Error("wrong mode");
     expect(plan.argv).toEqual(["--bare", "--resume", "X"]);
   });
+
+  it("accepts a claude-code --model with an allow-listed alias", () => {
+    for (const model of ["opus", "sonnet", "haiku"]) {
+      const plan = resolveSpawnPlan(
+        spawnReq({ agent: "claude-code", command: "claude", args: ["--model", model] }),
+        depsFor(),
+      );
+      if (plan.mode !== "agent") throw new Error("wrong mode");
+      expect(plan.argv).toEqual(["--model", model]);
+    }
+  });
+
+  it("rejects a claude-code --model value outside the allow-list", () => {
+    for (const model of ["gpt-4", "claude-opus-4-8", "opus-extra"]) {
+      expectRejected(
+        spawnReq({ agent: "claude-code", command: "claude", args: ["--model", model] }),
+        depsFor(),
+        "agent-arg-not-allowed",
+      );
+    }
+  });
+
+  it("ignores initialInput — it is stdin data, never part of the spawn command", () => {
+    // initialInput is written to the PTY post-spawn (like a user typing), so it
+    // bypasses the argv allow-list entirely; even shell metacharacters in it are
+    // harmless because they're never parsed as a command.
+    const plan = resolveSpawnPlan(
+      spawnReq({
+        agent: "claude-code",
+        command: "claude",
+        initialInput: "improve the seo; rm -rf /",
+      }),
+      depsFor(),
+    );
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    expect(plan.argv).toEqual([]);
+  });
 });
 
 describe("resolveSpawnPlan — shell env integration", () => {

@@ -38,6 +38,7 @@ export function buildOptimisticTask(input: {
     worktreeId: input.worktreeId,
     scopeId: input.scopeId?.trim() || LOCAL_SCOPE_ID,
     title: TITLE_WAITING,
+    titleManuallySet: false,
     icon: null,
     agent: input.agent,
     status: DEFAULT_TASK_STATUS,

@@ -25,6 +25,7 @@ import type { Task } from "~/db/schema";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 import { scopeKeyForProject, type ScopedProject } from "./scoped-project";
+import { getDefaultModel } from "./default-model-store";
 
 export type OpenTerminal = {
   taskId: string;
@@ -86,6 +87,20 @@ function commandFor(agent: TaskAgent): string {
  * have populated it).
  */
 export function commandForTask(task: Task): string {
+  return withDefaultClaudeModel(task, baseCommandForTask(task));
+}
+
+// Append the user's configured default model to claude-code launches. Applies to
+// every new claude-code session (warm-pooled or cold) so the Settings → Defaults
+// choice is honored consistently; no-op for other agents or when already set.
+function withDefaultClaudeModel(task: Task, command: string): string {
+  if (task.agent !== "claude-code") return command;
+  const model = getDefaultModel();
+  if (!model || /\s--model(\s|$)/.test(command)) return command;
+  return `${command} --model ${model}`;
+}
+
+function baseCommandForTask(task: Task): string {
   if (!agentUsesPersistedSession(task.agent)) {
     return AGENT_REGISTRY[task.agent].startCommand({
       skipPermissions: task.claudeSkipPermissions,

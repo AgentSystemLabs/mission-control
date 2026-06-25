@@ -24,7 +24,9 @@ import type {
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
+import type { ClaudeModelAlias } from "~/shared/claude-models";
 import type { SandboxPublicView } from "~/shared/sandbox";
+import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 
 // The api bearer token is intentionally NOT part of this HTTP-derived shape.
@@ -45,6 +47,8 @@ export type AppSettings = {
   automaticUpdateInstallOnQuitEnabled: boolean;
   /** Beta: git worktrees per project (off by default). */
   worktreesEnabled: boolean;
+  /** Experimental: push-to-talk voice control (off by default). */
+  voiceControlEnabled: boolean;
   gitDiffChangedFilesView: GitDiffChangedFilesView | null;
   gitDiffChangedFilesWidth: number | null;
   /** Projects dashboard layout — cards (default) or table. */
@@ -57,6 +61,13 @@ export type AppSettings = {
   commitCli: CommitCli | null;
   /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
   terminalZoomLevel: TerminalZoomLevel;
+  /**
+   * Default model passed to claude-code (`--model`) for voice-started agents.
+   * `null` means "not set" — don't pass `--model`, so claude uses its own default.
+   */
+  defaultModel: ClaudeModelAlias | null;
+  /** User-defined phrases that map to built-in voice commands. */
+  voiceCommandAliases: VoiceCommandAliases;
 };
 
 export class ApiError extends Error {
@@ -409,12 +420,15 @@ export const api = {
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
         | "worktreesEnabled"
+        | "voiceControlEnabled"
         | "gitDiffChangedFilesView"
         | "gitDiffChangedFilesWidth"
         | "projectsDashboardView"
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"
+        | "defaultModel"
+        | "voiceCommandAliases"
       >
     >,
   ) =>

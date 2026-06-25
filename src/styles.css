@@ -721,6 +721,25 @@ select,
   background: transparent;
 }
 
+.mc-project-header-trigger {
+  border: 1px solid transparent;
+  background: transparent;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.mc-project-header-trigger:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+
+.mc-project-header-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
 .mc-dashboard-hero-copy,
 .mc-dashboard-hero-actions {
   position: relative;
@@ -1902,4 +1921,15 @@ body[data-card-glow] .cursor-glow {
 
 .settings-toggle-switch[aria-checked="true"] .settings-toggle-switch__knob {
   transform: translateX(22px);
+}
+
+/* Push-to-talk recording indicator pulse. */
+@keyframes mc-voice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }

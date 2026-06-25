@@ -126,6 +126,7 @@ export const tasks = sqliteTable(
     worktreeId: text("worktree_id").references(() => worktrees.id, { onDelete: "cascade" }),
     scopeId: text("scope_id").notNull().default(LOCAL_SCOPE_ID),
     title: text("title").notNull(),
+    titleManuallySet: integer("title_manually_set", { mode: "boolean" }).notNull().default(false),
     icon: text("icon"),
     agent: text("agent").$type<TaskAgent>().notNull(),
     status: text("status").$type<TaskStatus>().notNull().default(DEFAULT_TASK_STATUS),

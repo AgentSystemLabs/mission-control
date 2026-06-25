@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN title_manually_set INTEGER NOT NULL DEFAULT 0;

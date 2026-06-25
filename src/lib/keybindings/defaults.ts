@@ -27,5 +27,6 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "file.save": makeBinding({ mod: true, key: "s" }),
   "git.diff": makeBinding({ mod: true, key: "g" }),
   "project.runToggle": makeBinding({ mod: true, key: "." }),
+  "voice.pushToTalk": makeBinding({ mod: true, shift: true, key: "v" }),
 };
 

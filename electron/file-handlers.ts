@@ -2,6 +2,7 @@ import { dialog, type BrowserWindow, type IpcMain } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
+import { FILE_READ_MAX_BYTES, FILE_READ_MAX_LINES } from "../src/shared/file-read-limits";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 
@@ -24,8 +25,6 @@ const HARDCODED_IGNORES = [
 ];
 
 const MAX_FILES = 50_000;
-const MAX_LINES = 1000;
-const MAX_BYTES = 5 * 1024 * 1024;
 const IMAGE_MIME_BY_EXT = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -261,7 +260,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
       try {
         const stat = fs.statSync(abs);
         if (!stat.isFile()) return { ok: false as const, error: "not-found" as const };
-        if (stat.size > MAX_BYTES) {
+        if (stat.size > FILE_READ_MAX_BYTES) {
           return { ok: false as const, error: "too-large" as const, lineCount: -1 };
         }
         const buf = fs.readFileSync(abs);
@@ -285,7 +284,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
         for (let i = 0; i < content.length; i++) {
           if (content.charCodeAt(i) === 10) lineCount++;
         }
-        if (lineCount > MAX_LINES) {
+        if (lineCount > FILE_READ_MAX_LINES) {
           return { ok: false as const, error: "too-large" as const, lineCount };
         }
         return {

@@ -17,6 +17,11 @@ import {
   type CommitCli,
 } from "~/shared/commit-cli";
 import {
+  CLAUDE_MODEL_ALIASES,
+  isClaudeModelAlias,
+  type ClaudeModelAlias,
+} from "~/shared/claude-models";
+import {
   GIT_DIFF_CHANGED_FILES_VIEWS,
   GIT_DIFF_CHANGED_FILES_WIDTH_MAX,
   GIT_DIFF_CHANGED_FILES_WIDTH_MIN,
@@ -33,14 +38,33 @@ import {
   TERMINAL_ZOOM_MIN,
   normalizeTerminalZoomLevel,
 } from "~/shared/terminal-zoom";
+import {
+  emptyVoiceCommandAliases,
+  normalizeVoiceCommandAliases,
+  type VoiceCommandAliases,
+} from "~/shared/voice-command-aliases";
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
+const DEFAULT_MODEL_SETTING_KEY = "default_model";
 const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
 const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
 const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
+const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
+
+const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
+  try {
+    return normalizeVoiceCommandAliases(value);
+  } catch (error) {
+    ctx.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : "invalid voiceCommandAliases",
+    });
+    return z.NEVER;
+  }
+});
 
 // The api bearer token is intentionally NOT delivered over HTTP. It is only
 // readable through the Electron IPC channel `settings:getToken`, so a page
@@ -61,6 +85,7 @@ const updateSettingsBody = z
     automaticUpdateDownloadsEnabled: z.boolean(),
     automaticUpdateInstallOnQuitEnabled: z.boolean(),
     worktreesEnabled: z.boolean(),
+    voiceControlEnabled: z.boolean(),
     gitDiffChangedFilesView: z.enum(GIT_DIFF_CHANGED_FILES_VIEWS).nullable(),
     gitDiffChangedFilesWidth: z
       .number()
@@ -72,6 +97,8 @@ const updateSettingsBody = z
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
     terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
+    defaultModel: z.union([z.enum(CLAUDE_MODEL_ALIASES), z.null()]),
+    voiceCommandAliases: voiceCommandAliasesBody,
   })
   .partial();
 
@@ -83,6 +110,11 @@ function getAccentColorSetting(): AccentColorId {
 function getCommitCliSetting(): CommitCli | null {
   const value = getSetting(COMMIT_CLI_SETTING_KEY);
   return isCommitCli(value) ? value : null;
+}
+
+function getDefaultModelSetting(): ClaudeModelAlias | null {
+  const value = getSetting(DEFAULT_MODEL_SETTING_KEY);
+  return isClaudeModelAlias(value) ? value : null;
 }
 
 function getGitDiffChangedFilesViewSetting() {
@@ -104,6 +136,15 @@ function getSelectedWorktreeByProjectSetting() {
 
 function getTerminalZoomLevelSetting() {
   return normalizeTerminalZoomLevel(getSetting(TERMINAL_ZOOM_LEVEL_KEY)) ?? DEFAULT_TERMINAL_ZOOM_LEVEL;
+}
+
+function getVoiceCommandAliasesSetting() {
+  const raw = getSetting(VOICE_COMMAND_ALIASES_KEY);
+  try {
+    return normalizeVoiceCommandAliases(safeJsonParse<unknown>(raw, null));
+  } catch {
+    return emptyVoiceCommandAliases();
+  }
 }
 
 function settingsPayload() {
@@ -128,12 +169,15 @@ function settingsPayload() {
       false,
     ),
     worktreesEnabled: getBooleanSetting("worktrees_enabled", false),
+    voiceControlEnabled: getBooleanSetting("voice_control_enabled", false),
     gitDiffChangedFilesView: getGitDiffChangedFilesViewSetting(),
     gitDiffChangedFilesWidth: getGitDiffChangedFilesWidthSetting(),
     projectsDashboardView: getProjectsDashboardViewSetting(),
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
     terminalZoomLevel: getTerminalZoomLevelSetting(),
+    defaultModel: getDefaultModelSetting(),
+    voiceCommandAliases: getVoiceCommandAliasesSetting(),
   };
 }
 
@@ -187,6 +231,9 @@ export async function update(request: Request): Promise<Response> {
   if (body.worktreesEnabled !== undefined) {
     setBooleanSetting("worktrees_enabled", body.worktreesEnabled);
   }
+  if (body.voiceControlEnabled !== undefined) {
+    setBooleanSetting("voice_control_enabled", body.voiceControlEnabled);
+  }
   if (body.gitDiffChangedFilesView !== undefined) {
     if (body.gitDiffChangedFilesView === null) {
       deleteSetting(GIT_DIFF_CHANGED_FILES_VIEW_KEY);
@@ -227,6 +274,16 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.terminalZoomLevel !== undefined) {
     setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
+  }
+  if (body.defaultModel !== undefined) {
+    if (body.defaultModel === null) {
+      deleteSetting(DEFAULT_MODEL_SETTING_KEY);
+    } else {
+      setSetting(DEFAULT_MODEL_SETTING_KEY, body.defaultModel);
+    }
+  }
+  if (body.voiceCommandAliases !== undefined) {
+    setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));
   }
   return json(settingsPayload());
 }

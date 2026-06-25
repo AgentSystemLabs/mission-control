@@ -9,6 +9,7 @@ import {
   STATUS_META,
 } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
+import { takePendingInitialInput } from "~/lib/voice-session-prompts";
 import { consumeIntentionalSessionClose } from "~/lib/intentional-session-close";
 import { isRemotePtyId } from "~/lib/pty-id";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
@@ -607,6 +608,9 @@ export function TerminalPane({
               dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
               mcEnv: await resolveMcEnv(electron),
               missionControlTheme: getTerminalColorScheme(),
+              // Voice-seeded starting prompt, consumed once on the first spawn so
+              // reloads/re-spawns never re-inject it. Undefined for normal sessions.
+              initialInput: isResume ? undefined : takePendingInitialInput(descriptor.taskId),
             });
         spawnAt = Date.now();
         spawnedAsResume = isResume;

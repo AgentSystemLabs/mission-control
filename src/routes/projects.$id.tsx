@@ -63,11 +63,22 @@ import {
   type SessionCreatePayload,
 } from "~/lib/session-warm-pool";
 import { useServerEvents } from "~/lib/use-events";
+import { setPendingInitialInput, takePendingInitialInput } from "~/lib/voice-session-prompts";
+import {
+  VOICE_NEW_AGENT_EVENT,
+  VOICE_OPEN_BROWSER_EVENT,
+  VOICE_OPEN_DIFF_EVENT,
+  VOICE_RUN_PROJECT_EVENT,
+  VOICE_RUN_SCRIPT_EVENT,
+  type VoiceNewAgentDetail,
+  type VoiceRunScriptDetail,
+} from "~/lib/voice-events";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { groupTasksByStatusForDisplay } from "~/lib/task-display-order";
 import {
   DEFAULT_BRANCH,
+  type TaskAgent,
   parseLaunchCommands,
   parseCustomScripts,
   serializeCustomScripts,
@@ -1145,7 +1156,7 @@ function ProjectPage() {
   );
 
   const createSession = useCallback(
-    async (payload: SessionCreatePayload) => {
+    async (payload: SessionCreatePayload, opts?: { initialInput?: string }) => {
       if (!project || !terminalProject) return;
       const selectedAvailability = availabilityFor(cliAvailability, payload.agent);
       if (selectedAvailability.status === "outdated") {
@@ -1160,7 +1171,9 @@ function ProjectPage() {
       const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
       void queryClient.cancelQueries({ queryKey: tasksKey });
 
-      const warmSlot = (await isDockerSandboxRuntime())
+      // A voice-seeded prompt can't ride a pre-spawned warm slot (it was launched
+      // before we knew the prompt), so fall back to the cold path when set.
+      const warmSlot = (await isDockerSandboxRuntime()) || opts?.initialInput
         ? null
         : takeSessionWarmSlot(payload, terminalProject.path);
       if (warmSlot) {
@@ -1236,6 +1249,11 @@ function ProjectPage() {
         claudeBareSession: payload.agent === "claude-code" ? payload.bareSession : undefined,
       });
       appendOptimisticTask(queryClient, project.id, selectedWorktreeId, optimisticTask, activeRuntimeScopeId);
+      if (opts?.initialInput) {
+        // TerminalPane consumes this once, at the first spawn, as the PTY's
+        // initialInput — the main process writes it after the agent TUI is ready.
+        setPendingInitialInput(optimisticTask.id, opts.initialInput);
+      }
       terminals.toggle(terminalProject, optimisticTask, { awaitCreate: !isLocal });
 
       void (async () => {
@@ -1275,6 +1293,8 @@ function ProjectPage() {
             setShowCodexHooksNotice(true);
           }
         } catch (e: unknown) {
+          // The session never spawned — discard any voice prompt staged for it.
+          takePendingInitialInput(optimisticTask.id);
           removeOptimisticTask(
             queryClient,
             project.id,
@@ -1359,6 +1379,95 @@ function ProjectPage() {
       setFileFinderOpen((v) => !v);
     },
   );
+
+  // Start an agent session seeded with a spoken task (voice control). When the
+  // user didn't name an agent, fall back to the project's default (savedAgent).
+  const startVoiceAgent = useCallback(
+    (prompt: string, agent?: TaskAgent) => {
+      if (!project || !projectPathReady) return;
+      // Voice-seeded prompts only flow through the local cold-spawn path; remote
+      // sandbox sessions spawn via remotePty (no initialInput) and would drop it.
+      if (activeRuntimeScopeId !== LOCAL_SCOPE_ID) {
+        toast.error("Voice agents aren't supported in sandbox sessions yet.");
+        return;
+      }
+      const payload = defaultSessionPayload(project);
+      void createSession(
+        { ...payload, agent: agent ?? payload.agent, bareSession: false },
+        { initialInput: prompt },
+      );
+    },
+    [project, projectPathReady, activeRuntimeScopeId, createSession],
+  );
+
+  // Command bus: VoiceController (mounted at root) dispatches these for the
+  // active project route to perform. Mirrors the project.runToggle hotkey.
+  useEffect(() => {
+    const onRun = () => {
+      if (
+        showNewAgent ||
+        showEdit ||
+        confirmRemove ||
+        projectPathIssue ||
+        projectPathCheck.state === "error"
+      ) {
+        return;
+      }
+      if (hasRunningLaunch) {
+        if (!stopping) void stopLaunch();
+      } else if (!launching) {
+        void runLaunch();
+      }
+    };
+    const onNewAgent = (e: Event) => {
+      const detail = (e as CustomEvent<VoiceNewAgentDetail>).detail;
+      startVoiceAgent(detail?.prompt ?? "", detail?.agent);
+    };
+    const onOpenBrowser = () => {
+      if (!project?.launchUrl) {
+        toast.error("No launch URL configured for this project.");
+        return;
+      }
+      void openExternal(project.launchUrl);
+    };
+    const onRunScript = (e: Event) => {
+      const detail = (e as CustomEvent<VoiceRunScriptDetail>).detail;
+      const script = customScripts.find((s) => s.id === detail?.scriptId);
+      if (script) runScript(script);
+    };
+    const onOpenDiff = () => {
+      if (projectPathReady) setDiffViewOpen(true);
+    };
+    window.addEventListener(VOICE_RUN_PROJECT_EVENT, onRun);
+    window.addEventListener(VOICE_NEW_AGENT_EVENT, onNewAgent as EventListener);
+    window.addEventListener(VOICE_OPEN_BROWSER_EVENT, onOpenBrowser);
+    window.addEventListener(VOICE_RUN_SCRIPT_EVENT, onRunScript as EventListener);
+    window.addEventListener(VOICE_OPEN_DIFF_EVENT, onOpenDiff);
+    return () => {
+      window.removeEventListener(VOICE_RUN_PROJECT_EVENT, onRun);
+      window.removeEventListener(VOICE_NEW_AGENT_EVENT, onNewAgent as EventListener);
+      window.removeEventListener(VOICE_OPEN_BROWSER_EVENT, onOpenBrowser);
+      window.removeEventListener(VOICE_RUN_SCRIPT_EVENT, onRunScript as EventListener);
+      window.removeEventListener(VOICE_OPEN_DIFF_EVENT, onOpenDiff);
+    };
+  }, [
+    showNewAgent,
+    showEdit,
+    confirmRemove,
+    projectPathIssue,
+    projectPathCheck.state,
+    hasRunningLaunch,
+    stopping,
+    launching,
+    stopLaunch,
+    runLaunch,
+    startVoiceAgent,
+    project,
+    customScripts,
+    runScript,
+    projectPathReady,
+    setDiffViewOpen,
+  ]);
 
   const anyBlockingDialogOpen =
     showNewAgent ||
@@ -1582,6 +1691,49 @@ function ProjectPage() {
       lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId };
     }
     if (terminalProject) terminals.toggle(terminalProject, task);
+  };
+
+  const renameSession = async (taskId: string, title: string) => {
+    if (!project) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || task.title === trimmed) return;
+
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
+    await queryClient.cancelQueries({ queryKey: tasksKey });
+    const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
+
+    queryClient.setQueryData<Task[]>(tasksKey, (current) =>
+      (current ?? []).map((t) =>
+        t.id === taskId
+          ? { ...t, title: trimmed, titleManuallySet: true, updatedAt: Date.now() }
+          : t,
+      ),
+    );
+
+    try {
+      const saved = await api.updateTask(taskId, { title: trimmed });
+      queryClient.setQueryData<Task[]>(tasksKey, (current) =>
+        (current ?? []).map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                title: saved.task.title,
+                titleManuallySet: saved.task.titleManuallySet,
+                updatedAt: saved.task.updatedAt,
+              }
+            : t,
+        ),
+      );
+      void invalidateTasks();
+    } catch (e: unknown) {
+      if (previousTasks) {
+        restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
+      }
+      toast.error(e instanceof Error ? e.message : "Could not rename session");
+      throw e;
+    }
   };
 
   const deleteTask = (taskId: string) => {
@@ -1962,14 +2114,29 @@ function ProjectPage() {
         >
           <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
             <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setOverflowOpen((v) => !v)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOverflowOpen((v) => !v);
+                }
+              }}
+              aria-haspopup="menu"
+              aria-expanded={overflowOpen}
+              aria-label="Project actions"
+              className="mc-project-header-trigger"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 12,
-                padding: "6px 4px 6px 6px",
+                padding: "6px 10px 6px 6px",
                 color: "var(--text)",
                 maxWidth: "100%",
                 minWidth: 0,
+                cursor: "pointer",
+                borderRadius: 10,
               }}
             >
               <ProjectIcon project={project} size={32} />
@@ -1988,21 +2155,12 @@ function ProjectPage() {
               >
                 {project.name}
               </h1>
-            </div>
-            <Btn
-              onClick={() => setOverflowOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={overflowOpen}
-              aria-label="Project actions"
-              title="Project actions"
-              icon="settings"
-            >
               <Icon
                 name="chevron-down"
-                size={12}
-                style={{ color: "var(--text-dim)" }}
+                size={14}
+                style={{ color: "var(--text-dim)", flexShrink: 0 }}
               />
-            </Btn>
+            </div>
             {overflowOpen &&
               overflowMenuRect &&
               createPortal(
@@ -2406,6 +2564,7 @@ function ProjectPage() {
                 onArchive={showArchived ? undefined : archiveSession}
                 onRestore={showArchived ? restoreSession : undefined}
                 onDelete={showArchived ? deleteTask : undefined}
+                onRename={renameSession}
                 headerAction={
                   !showArchived && status === "finished" && tasksByStatus.finished.length > 0 ? (
                     <Btn

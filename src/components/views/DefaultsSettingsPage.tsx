@@ -12,11 +12,17 @@ import {
   type CommitCli,
   type CommitCliDetection,
 } from "~/shared/commit-cli";
+import {
+  CLAUDE_MODEL_ALIASES,
+  CLAUDE_MODEL_LABELS,
+  type ClaudeModelAlias,
+} from "~/shared/claude-models";
 
 export function DefaultsSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const currentCli = settings?.commitCli ?? null;
+  const currentModel = settings?.defaultModel ?? null;
 
   const [detection, setDetection] = useState<CommitCliDetection | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
@@ -51,6 +57,23 @@ export function DefaultsSettingsPage() {
     }
     try {
       const next = await api.updateSettings({ commitCli: cli });
+      queryClient.setQueryData(queryKeys.settings, next);
+    } catch (e) {
+      if (previous) queryClient.setQueryData(queryKeys.settings, previous);
+      throw e;
+    }
+  };
+
+  const selectModel = async (model: ClaudeModelAlias | null) => {
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    if (previous) {
+      queryClient.setQueryData<AppSettings>(queryKeys.settings, {
+        ...previous,
+        defaultModel: model,
+      });
+    }
+    try {
+      const next = await api.updateSettings({ defaultModel: model });
       queryClient.setQueryData(queryKeys.settings, next);
     } catch (e) {
       if (previous) queryClient.setQueryData(queryKeys.settings, previous);
@@ -147,8 +170,78 @@ export function DefaultsSettingsPage() {
             )}
           </div>
         </Field>
+        <Field label="Default model for voice agents">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.55 }}>
+              When you start an agent by voice (&ldquo;create an agent to&hellip;&rdquo;),
+              Mission Control launches claude-code with this model. Leave unset to
+              use claude&rsquo;s own default.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {CLAUDE_MODEL_ALIASES.map((model) => (
+                <ModelOption
+                  key={model}
+                  label={CLAUDE_MODEL_LABELS[model]}
+                  selected={currentModel === model}
+                  onSelect={() => void selectModel(model)}
+                />
+              ))}
+            </div>
+            {currentModel && (
+              <div>
+                <Btn variant="ghost" size="sm" onClick={() => void selectModel(null)}>
+                  Clear (use claude default)
+                </Btn>
+              </div>
+            )}
+          </div>
+        </Field>
       </SettingsSection>
     </>
+  );
+}
+
+function ModelOption({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "12px 14px",
+        background: selected ? "var(--accent-dim)" : "var(--surface-0)",
+        border: `1px solid ${selected ? "var(--accent-border)" : "var(--border)"}`,
+        borderRadius: 7,
+        cursor: "pointer",
+        textAlign: "left",
+        color: "var(--text)",
+        transition: "background 0.15s, border-color 0.15s",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 999,
+          border: `2px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+          background: selected ? "var(--accent)" : "transparent",
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+    </button>
   );
 }
 

@@ -13,6 +13,7 @@ import {
   terminalFontSizeForLevel,
   type TerminalZoomLevel,
 } from "~/shared/terminal-zoom";
+import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 
 export function TerminalSettingsPage() {
   const queryClient = useQueryClient();
@@ -42,6 +43,9 @@ export function TerminalSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: level,
+    defaultModel: settings?.defaultModel ?? null,
+    voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
+    voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

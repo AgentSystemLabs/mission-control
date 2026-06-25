@@ -74,6 +74,7 @@ export function createTask(input: {
     worktreeId: input.worktreeId ?? null,
     scopeId,
     title: input.title.trim(),
+    titleManuallySet: false,
     icon: null,
     agent: input.agent,
     status: input.status ?? DEFAULT_TASK_STATUS,
@@ -133,7 +134,16 @@ export function updateStatus(
 export function updateTask(
   id: string,
   patch: Partial<
-    Pick<Task, "title" | "icon" | "branch" | "claudeSessionId" | "claudeSkipPermissions" | "claudeBareSession">
+    Pick<
+      Task,
+      | "title"
+      | "titleManuallySet"
+      | "icon"
+      | "branch"
+      | "claudeSessionId"
+      | "claudeSkipPermissions"
+      | "claudeBareSession"
+    >
   >
 ): Task | null {
   const existing = findTaskById(id);

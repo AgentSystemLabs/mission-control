@@ -382,6 +382,7 @@ function ensureSchema(sqlite: Database.Database) {
       worktree_id TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
       scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
       title TEXT NOT NULL,
+      title_manually_set INTEGER NOT NULL DEFAULT 0,
       icon TEXT,
       agent TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT '${DEFAULT_TASK_STATUS}',
@@ -527,6 +528,7 @@ function ensureSchema(sqlite: Database.Database) {
   // Terminal/session rows gained per-runtime scope after their first ship;
   // tolerate pre-existing tables created without it.
   ensureColumn(sqlite, "tasks", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
+  ensureColumn(sqlite, "tasks", "title_manually_set", "INTEGER NOT NULL DEFAULT 0");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_worktree_scope_idx ON tasks(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_scope_idx ON tasks(scope_id);");
   ensureColumn(sqlite, "user_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);

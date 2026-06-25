@@ -29,6 +29,7 @@ import {
   type OsNotificationPermission,
 } from "~/lib/os-notifications";
 import { isElectron } from "~/lib/electron";
+import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
@@ -98,6 +99,9 @@ export function GeneralSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
+    defaultModel: settings?.defaultModel ?? null,
+    voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
+    voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:
       queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??
