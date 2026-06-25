@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "description": "Desktop control surface for managing agentic coding work across many projects.",
   "license": "MIT",
   "private": true,
