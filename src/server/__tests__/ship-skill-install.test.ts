@@ -9,7 +9,39 @@ import {
 import { resolveCorePluginRoot } from "../core-plugin-path";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-ship-skill-test-"));
+const corePluginRoot = path.join(tmpRoot, "agentsystem-core");
 process.env.MC_USER_DATA_DIR = tmpRoot;
+process.env.MC_CORE_PLUGIN_ROOT = corePluginRoot;
+
+function writeCorePluginFixture(): void {
+  fs.mkdirSync(path.join(corePluginRoot, "skills", "ship"), { recursive: true });
+  fs.mkdirSync(path.join(corePluginRoot, "skills", "reviewer"), { recursive: true });
+  fs.mkdirSync(path.join(corePluginRoot, "agents"), { recursive: true });
+  fs.writeFileSync(
+    path.join(corePluginRoot, "skills", "ship", "SKILL.md"),
+    ["---", "name: ship", "description: Ship work", "---", "", "# Ship", ""].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(corePluginRoot, "skills", "reviewer", "SKILL.md"),
+    ["---", "name: reviewer", "description: Review work", "---", "", "# Reviewer", ""].join(
+      "\n",
+    ),
+  );
+  fs.writeFileSync(
+    path.join(corePluginRoot, "agents", "utility-finder.md"),
+    [
+      "---",
+      "name: utility-finder",
+      "description: Finds existing utilities",
+      "---",
+      "",
+      "Use existing helpers before adding new ones.",
+      "",
+    ].join("\n"),
+  );
+}
+
+writeCorePluginFixture();
 
 const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken } = await import("../services/settings");
