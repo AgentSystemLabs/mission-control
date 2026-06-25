@@ -27,6 +27,9 @@ import {
 import { RecordingIndicator, type VoiceStatus } from "./RecordingIndicator";
 import { VoiceDisambiguation } from "./VoiceDisambiguation";
 
+const WHISPER_UNAVAILABLE_MESSAGE =
+  "Voice control is missing its bundled Whisper resources. Reinstall or update Mission Control.";
+
 function activeProjectId(pathname: string): string | null {
   return /^\/projects\/([^/]+)/.exec(pathname)?.[1] ?? null;
 }
@@ -184,7 +187,7 @@ export function VoiceController() {
     sessionGen.current += 1;
     setDisambiguation(null);
     if (!available.current) {
-      toast.error("Voice control needs the whisper model — run `pnpm setup:whisper`.");
+      toast.error(WHISPER_UNAVAILABLE_MESSAGE);
       void electron?.voice.available().then((ok) => (available.current = ok));
       return;
     }
@@ -229,7 +232,7 @@ export function VoiceController() {
       if (!result.ok) {
         toast.error(
           result.code === "unavailable"
-            ? "Voice control needs the whisper model — run `pnpm setup:whisper`."
+            ? WHISPER_UNAVAILABLE_MESSAGE
             : `Transcription failed: ${result.error}`,
         );
         return;

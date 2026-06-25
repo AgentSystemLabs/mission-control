@@ -289,6 +289,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Populate bundled Whisper resources
+        run: pnpm setup:whisper
+
       - name: Build web + electron tsc
         shell: bash
         run: |
