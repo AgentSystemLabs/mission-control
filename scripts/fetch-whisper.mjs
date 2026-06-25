@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Vendors whisper.cpp's `whisper-server` binary + the base.en model into
-// resources/whisper/ so the packaged app can transcribe voice commands offline.
+// Vendors whisper.cpp's `whisper-server` binary, its shared libraries, and the
+// base.en model into resources/whisper/ so the packaged app can transcribe voice
+// commands offline.
 // These artifacts are git-ignored (the model is ~148 MB); run this once after a
 // fresh clone and before `pnpm package`.
 //
@@ -19,25 +20,217 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const outDir = path.join(repoRoot, "resources", "whisper");
 const isWindows = process.platform === "win32";
+const isMac = process.platform === "darwin";
 const binaryName = isWindows ? "whisper-server.exe" : "whisper-server";
 const modelName = "ggml-base.en.bin";
 const MODEL_URL = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${modelName}`;
 const WHISPER_REPO = "https://github.com/ggerganov/whisper.cpp";
+const BUNDLE_RPATH = "@loader_path";
+const MAC_SYSTEM_LIBRARY_PREFIXES = ["/usr/lib/", "/System/Library/"];
+const commandAvailability = new Map();
 
 function log(...args) {
   console.log("[fetch-whisper]", ...args);
 }
 
 function has(cmd) {
+  if (commandAvailability.has(cmd)) return commandAvailability.get(cmd);
   try {
     execFileSync(isWindows ? "where" : "which", [cmd], { stdio: "ignore" });
+    commandAvailability.set(cmd, true);
     return true;
   } catch {
+    commandAvailability.set(cmd, false);
     return false;
+  }
+}
+
+export function parseOtoolLibraries(output) {
+  return output
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.trim().match(/^(.+?)\s+\(compatibility version/)?.[1])
+    .filter(Boolean);
+}
+
+export function parseOtoolRpaths(output) {
+  const lines = output.split(/\r?\n/);
+  const rpaths = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i]?.trim() !== "cmd LC_RPATH") continue;
+    for (let j = i + 1; j < Math.min(i + 6, lines.length); j += 1) {
+      const match = lines[j]?.trim().match(/^path\s+(.+?)\s+\(offset\s+\d+\)$/);
+      if (match?.[1]) {
+        rpaths.push(match[1]);
+        break;
+      }
+    }
+  }
+  return rpaths;
+}
+
+export function isMacBundledLibraryRef(ref) {
+  if (!ref.endsWith(".dylib")) return false;
+  if (MAC_SYSTEM_LIBRARY_PREFIXES.some((prefix) => ref.startsWith(prefix))) return false;
+  return true;
+}
+
+export function inspectMacBundleLinkage(linkedLibraries, rpaths, availableFiles) {
+  const bundledLibraryNames = Array.from(
+    new Set(linkedLibraries.filter(isMacBundledLibraryRef).map((ref) => path.basename(ref))),
+  );
+  const missingLibraries = bundledLibraryNames.filter((name) => !availableFiles.has(name));
+  const usesRpath = linkedLibraries.some((ref) => isMacBundledLibraryRef(ref) && ref.startsWith("@rpath/"));
+  const hasBundleRpath = rpaths.includes(BUNDLE_RPATH) || rpaths.includes("@executable_path");
+
+  return {
+    bundledLibraryNames,
+    missingLibraries,
+    needsRpathRepair: usesRpath && !hasBundleRpath,
+  };
+}
+
+function listMacLinkedLibraries(file) {
+  if (!isMac || !has("otool")) return [];
+  const output = execFileSync("otool", ["-L", file], { encoding: "utf8" });
+  return parseOtoolLibraries(output);
+}
+
+function listMacRpaths(file) {
+  if (!isMac || !has("otool")) return [];
+  const output = execFileSync("otool", ["-l", file], { encoding: "utf8" });
+  return parseOtoolRpaths(output);
+}
+
+function macBundleStatus(binaryPath, bundleDir) {
+  if (!isMac || !has("otool")) {
+    return { bundledLibraryNames: [], missingLibraries: [], needsRpathRepair: false };
+  }
+  const availableFiles = new Set(fs.existsSync(bundleDir) ? fs.readdirSync(bundleDir) : []);
+  return inspectMacBundleLinkage(listMacLinkedLibraries(binaryPath), listMacRpaths(binaryPath), availableFiles);
+}
+
+function findFileByName(root, name) {
+  if (!fs.existsSync(root)) return null;
+  const pending = [root];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isFile() && entry.name === name) return fullPath;
+      if (entry.isDirectory()) pending.push(fullPath);
+    }
+  }
+  return null;
+}
+
+function resolveMacLibrarySource(ref, loaderPath, searchDirs) {
+  const refName = path.basename(ref);
+  if (path.isAbsolute(ref) && fs.existsSync(ref)) return ref;
+
+  const loaderDir = path.dirname(loaderPath);
+  const relativeRef = ref
+    .replace(/^@loader_path\//, "")
+    .replace(/^@executable_path\//, "")
+    .replace(/^@rpath\//, "");
+
+  if ((ref.startsWith("@loader_path/") || ref.startsWith("@executable_path/")) && fs.existsSync(path.join(loaderDir, relativeRef))) {
+    return path.join(loaderDir, relativeRef);
+  }
+
+  for (const dir of searchDirs) {
+    const direct = path.join(dir, refName);
+    if (fs.existsSync(direct)) return direct;
+  }
+  for (const dir of searchDirs) {
+    const found = findFileByName(dir, refName);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+function rewriteMacRpath(file) {
+  if (!isMac || !has("install_name_tool")) return;
+
+  const linkedLibraries = listMacLinkedLibraries(file);
+  const needsRpath = linkedLibraries.some((ref) => isMacBundledLibraryRef(ref) && ref.startsWith("@rpath/"));
+  if (!needsRpath) return;
+
+  const rpaths = listMacRpaths(file);
+  if (rpaths.includes(BUNDLE_RPATH)) {
+    for (const rpath of rpaths.filter((value) => value !== BUNDLE_RPATH)) {
+      execFileSync("install_name_tool", ["-delete_rpath", rpath, file], { stdio: "ignore" });
+    }
+    return;
+  }
+
+  if (rpaths.length > 0) {
+    execFileSync("install_name_tool", ["-rpath", rpaths[0], BUNDLE_RPATH, file], { stdio: "ignore" });
+    for (const rpath of rpaths.slice(1)) {
+      execFileSync("install_name_tool", ["-delete_rpath", rpath, file], { stdio: "ignore" });
+    }
+    return;
+  }
+
+  execFileSync("install_name_tool", ["-add_rpath", BUNDLE_RPATH, file], { stdio: "ignore" });
+}
+
+function vendorMacSharedLibraries(entryBinary, searchDirs, destDir) {
+  if (!isMac) return;
+
+  const allSearchDirs = Array.from(new Set([path.dirname(entryBinary), destDir, ...searchDirs]));
+  const queued = [entryBinary];
+  const processed = new Set();
+  const linkedFiles = new Set([entryBinary]);
+
+  while (queued.length > 0) {
+    const current = queued.shift();
+    const currentKey = path.resolve(current);
+    if (processed.has(currentKey)) continue;
+    processed.add(currentKey);
+
+    const refs = listMacLinkedLibraries(current).filter((ref) => {
+      if (!isMacBundledLibraryRef(ref)) return false;
+      return path.basename(ref) !== path.basename(current);
+    });
+
+    for (const ref of refs) {
+      const dest = path.join(destDir, path.basename(ref));
+      if (!fs.existsSync(dest)) {
+        const source = resolveMacLibrarySource(ref, current, allSearchDirs);
+        if (!source) {
+          throw new Error(`could not locate macOS shared library ${path.basename(ref)} required by ${current}`);
+        }
+        fs.copyFileSync(source, dest);
+        fs.chmodSync(dest, 0o755);
+        log(`bundled ${path.basename(ref)}`);
+      }
+      linkedFiles.add(dest);
+      queued.push(dest);
+    }
+  }
+
+  for (const file of linkedFiles) {
+    rewriteMacRpath(file);
+  }
+}
+
+function removeBundledMacDylibs() {
+  if (!isMac || !fs.existsSync(outDir)) return;
+  for (const file of fs.readdirSync(outDir)) {
+    if (file.endsWith(".dylib")) fs.rmSync(path.join(outDir, file), { force: true });
   }
 }
 
@@ -60,6 +253,7 @@ function buildBinary(dest) {
     log("copying binary from WHISPER_SERVER_BIN");
     fs.copyFileSync(process.env.WHISPER_SERVER_BIN, dest);
     fs.chmodSync(dest, 0o755);
+    vendorMacSharedLibraries(dest, [path.dirname(process.env.WHISPER_SERVER_BIN)], outDir);
     return;
   }
   if (!has("git") || !has("cmake")) {
@@ -77,7 +271,7 @@ function buildBinary(dest) {
   // encoder model isn't present the binary logs a warning and falls back to Metal
   // instead of aborting at startup. (Without fallback it SIGABRTs on a missing
   // CoreML model.)
-  const cmakeFlags = ["-B", "build", "-DCMAKE_BUILD_TYPE=Release"];
+  const cmakeFlags = ["-B", "build", "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF"];
   if (process.platform === "darwin") {
     cmakeFlags.push("-DWHISPER_COREML=1", "-DWHISPER_COREML_ALLOW_FALLBACK=1");
   }
@@ -97,6 +291,7 @@ function buildBinary(dest) {
   if (!built) throw new Error(`could not locate built whisper-server (looked in: ${candidates.join(", ")})`);
   fs.copyFileSync(built, dest);
   fs.chmodSync(dest, 0o755);
+  vendorMacSharedLibraries(dest, [path.dirname(built), path.join(buildRoot, "build")], outDir);
   log("binary built");
 
   // Best-effort: generate the CoreML encoder so CoreML is actually used. Needs
@@ -149,13 +344,36 @@ async function main() {
   if (fs.existsSync(modelDest)) log("model already present — skipping");
   else await downloadModel(modelDest);
 
-  if (fs.existsSync(binDest)) log("binary already present — skipping");
-  else buildBinary(binDest);
+  if (fs.existsSync(binDest)) {
+    const status = macBundleStatus(binDest, outDir);
+    if (status.missingLibraries.length > 0) {
+      log(`existing binary is missing bundled dylibs (${status.missingLibraries.join(", ")}) — rebuilding`);
+      fs.rmSync(binDest, { force: true });
+      removeBundledMacDylibs();
+      buildBinary(binDest);
+    } else {
+      log("binary already present — verifying");
+      vendorMacSharedLibraries(binDest, [outDir], outDir);
+    }
+  } else {
+    removeBundledMacDylibs();
+    buildBinary(binDest);
+  }
+
+  const finalStatus = macBundleStatus(binDest, outDir);
+  if (finalStatus.missingLibraries.length > 0 || finalStatus.needsRpathRepair) {
+    throw new Error(
+      `whisper-server macOS linkage is incomplete: missing=${finalStatus.missingLibraries.join(",") || "none"} ` +
+        `needsRpathRepair=${finalStatus.needsRpathRepair}`,
+    );
+  }
 
   log(`done. resources/whisper/ is ready (${binaryName} + ${modelName}).`);
 }
 
-main().catch((err) => {
-  console.error("[fetch-whisper] failed:", err.message);
-  process.exit(1);
-});
+if (path.resolve(process.argv[1] ?? "") === __filename) {
+  main().catch((err) => {
+    console.error("[fetch-whisper] failed:", err.message);
+    process.exit(1);
+  });
+}
