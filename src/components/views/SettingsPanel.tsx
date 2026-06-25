@@ -9,7 +9,6 @@ import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
-import { SessionDebugLogPage } from "./SessionDebugLogPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
@@ -26,7 +25,6 @@ export const SETTINGS_PANEL_IDS = [
   "voice",
   "beta",
   "keybindings",
-  "session-debug",
   "terms",
 ] as const;
 
@@ -52,6 +50,10 @@ const SLIDE_OUT_LEFT = `mc-settings-slide-out-left ${SLIDE_OUT_MS}ms ${SLIDE_OUT
 const SLIDE_IN_LEFT = `mc-settings-slide-in-left ${SLIDE_IN_MS}ms ${SLIDE_IN_EASE} both`;
 const SLIDE_OUT_RIGHT = `mc-settings-slide-out-right ${SLIDE_OUT_MS}ms ${SLIDE_OUT_EASE} both`;
 const SLIDE_IN_RIGHT = `mc-settings-slide-in-right ${SLIDE_IN_MS}ms ${SLIDE_IN_EASE} both`;
+// The frosted scrim fades in/out in lockstep with the panels so the app behind
+// dims as they arrive and brightens back as they leave.
+const BACKDROP_IN = `mc-settings-backdrop-in ${SLIDE_IN_MS}ms ${SLIDE_IN_EASE} both`;
+const BACKDROP_OUT = `mc-settings-backdrop-out ${SLIDE_OUT_MS}ms ${SLIDE_OUT_EASE} both`;
 
 export function SettingsPanel({
   onBack,
@@ -82,7 +84,10 @@ export function SettingsPanel({
     return () => window.removeEventListener(CLOSE_SETTINGS_EVENT, onCloseRequest);
   }, [handleBack]);
 
-  useHotkey("escape", handleBack, { preventDefault: false });
+  useHotkey("escape", handleBack, {
+    preventDefault: false,
+    allowWhenSettingsOpen: true,
+  });
 
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
@@ -96,6 +101,7 @@ export function SettingsPanel({
   return (
     <div
       data-navigation-swipe-blocker
+      data-settings-overlay
       style={{
         position: "fixed",
         top: "var(--mc-workspace-top, 0px)",
@@ -103,10 +109,6 @@ export function SettingsPanel({
         right: "var(--mc-workspace-right, 0px)",
         bottom: "var(--mc-workspace-bottom, 0px)",
         zIndex: 200,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        padding: 12,
         overflow: "hidden",
         background: "transparent",
       }}
@@ -128,29 +130,71 @@ export function SettingsPanel({
           from { transform: translateX(0); }
           to { transform: translateX(110%); }
         }
+        @keyframes mc-settings-backdrop-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes mc-settings-backdrop-out {
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
       `}</style>
+      {/*
+       * Frosted scrim between the live app and the sliding panels. The app stays
+       * mounted underneath (settings is a Shell-level overlay, not a route swap),
+       * so this dims + blurs it so the panels read as floating on top instead of
+       * revealing a black void. It's only fully visible mid-slide — once both
+       * panels meet they cover the workspace, leaving just the 12px inset frame.
+       */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: 0,
+          background: "rgba(0, 0, 0, 0.45)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
+          animation: isExiting ? BACKDROP_OUT : BACKDROP_IN,
+        }}
+      />
       <div
         style={{
-          flex: 1,
+          position: "absolute",
+          inset: 0,
+          zIndex: 1,
           display: "flex",
-          overflow: "hidden",
+          padding: 12,
           gap: 0,
+          overflow: "hidden",
           minHeight: 0,
         }}
       >
-        <CardFrame
-          as="aside"
+        {/* Opaque backing so the translucent CardFrame reads as a solid panel
+            rather than letting the app behind bleed through its surface; only
+            the gap the panels open during the slide reveals the scrim. */}
+        <div
           style={{
             width: 240,
             flexShrink: 0,
-            padding: "16px 6px",
-            overflow: "auto",
+            display: "flex",
+            minHeight: 0,
+            background: "var(--bg)",
             animation: isExiting ? SLIDE_OUT_LEFT : SLIDE_IN_LEFT,
           }}
           onAnimationEnd={(e) => {
             if (isExiting && e.animationName === "mc-settings-slide-out-left") {
               onBack();
             }
+          }}
+        >
+        <CardFrame
+          as="aside"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: "16px 6px",
+            overflow: "auto",
           }}
         >
           <div style={{ padding: "0 10px 14px" }}>
@@ -239,34 +283,6 @@ export function SettingsPanel({
                 padding: "0 10px 8px",
               }}
             >
-              Diagnostics
-            </div>
-            <SettingsNavButton
-              id="session-debug"
-              label="Session Debug Log"
-              icon="terminal"
-              active={activePanel === "session-debug"}
-              onClick={() => setActivePanel("session-debug")}
-            />
-          </div>
-          <div
-            style={{
-              marginTop: 16,
-              paddingTop: 12,
-              borderTop: "1px solid var(--border)",
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "var(--text-dim)",
-                padding: "0 10px 8px",
-              }}
-            >
               Legal
             </div>
             <SettingsNavButton
@@ -278,6 +294,17 @@ export function SettingsPanel({
             />
           </div>
         </CardFrame>
+        </div>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            minHeight: 0,
+            background: "var(--bg)",
+            animation: isExiting ? SLIDE_OUT_RIGHT : SLIDE_IN_RIGHT,
+          }}
+        >
         <CardFrame
           as="section"
           style={{
@@ -285,7 +312,6 @@ export function SettingsPanel({
             minWidth: 0,
             padding: "24px 32px 80px",
             overflow: "auto",
-            animation: isExiting ? SLIDE_OUT_RIGHT : SLIDE_IN_RIGHT,
           }}
         >
           {activePanel === "general" ? (
@@ -302,12 +328,11 @@ export function SettingsPanel({
             <BetaSettingsPage />
           ) : activePanel === "keybindings" ? (
             <KeybindingsPage />
-          ) : activePanel === "session-debug" ? (
-            <SessionDebugLogPage />
           ) : (
             <TermsSettingsPage />
           )}
         </CardFrame>
+        </div>
       </div>
     </div>
   );

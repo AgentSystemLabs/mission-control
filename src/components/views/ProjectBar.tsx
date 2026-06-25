@@ -10,8 +10,8 @@ import type { ProjectWithCounts } from "~/shared/projects";
 import type { Group } from "~/db/schema";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
-import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { TASK_STATUS_META } from "~/shared/domain";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
@@ -595,17 +595,11 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
               top: menu.y,
               left: menu.x,
               minWidth: 196,
-              padding: 8,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "stretch",
-              gap: 4,
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
               zIndex: Z_INDEX.popover,
             }}
           >
-            <Btn
-              variant="ghost"
+            <DropdownMenuItem
               icon="settings"
               autoFocus
               onClick={() => {
@@ -613,12 +607,10 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
                 setMenu(null);
                 setEditingProject(menuProject);
               }}
-              style={{ justifyContent: "flex-start" }}
             >
               Edit project
-            </Btn>
-            <Btn
-              variant="ghost"
+            </DropdownMenuItem>
+            <DropdownMenuItem
               icon="pin-fill"
               onClick={async () => {
                 const id = menu.id;
@@ -626,10 +618,9 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
                 await api.togglePin(id);
                 await Promise.all([invalidateProjects(), invalidateProject(id)]);
               }}
-              style={{ justifyContent: "flex-start" }}
             >
               Unpin project
-            </Btn>
+            </DropdownMenuItem>
           </CardFrame>,
           document.body,
         )}

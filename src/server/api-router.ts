@@ -29,23 +29,23 @@ import * as healthController from "./controllers/health.controller";
 import * as diagramsController from "./controllers/diagrams.controller";
 
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
-const PROJECT_PATH = /^\/api\/projects\/([^\/]+)$/;
+const PROJECT_PATH = /^\/api\/projects\/([^/]+)$/;
 const PROJECT_PATH_STATUS_PATH = /^\/api\/projects\/([^/]+)\/path-status$/;
-const PROJECT_WORKTREES_PATH = /^\/api\/projects\/([^\/]+)\/worktrees$/;
-const PROJECT_WORKTREE_PATH = /^\/api\/projects\/([^\/]+)\/worktrees\/([^\/]+)$/;
-const PROJECT_TASKS_PATH = /^\/api\/projects\/([^\/]+)\/tasks$/;
-const PROJECT_FILE_PATH = /^\/api\/projects\/([^\/]+)\/file$/;
-const PROJECT_GIT_PATH = /^\/api\/projects\/([^\/]+)\/git\/([a-z-]+)$/;
-const PROJECT_USER_TERMINALS_PATH = /^\/api\/projects\/([^\/]+)\/user-terminals$/;
-const SANDBOX_PATH = /^\/api\/sandboxes\/([^\/]+)$/;
-const SANDBOX_API_KEY_PATH = /^\/api\/sandboxes\/([^\/]+)\/api-key$/;
-const GROUP_PATH = /^\/api\/groups\/([^\/]+)$/;
-const TASK_PATH = /^\/api\/tasks\/([^\/]+)$/;
-const TASK_STATUS_PATH = /^\/api\/tasks\/([^\/]+)\/status$/;
-const TASK_ARCHIVE_PATH = /^\/api\/tasks\/([^\/]+)\/archive$/;
-const TASK_RESTORE_PATH = /^\/api\/tasks\/([^\/]+)\/restore$/;
-const USER_TERMINAL_PATH = /^\/api\/user-terminals\/([^\/]+)$/;
-const HOME_USER_TERMINAL_PATH = /^\/api\/home\/user-terminals\/([^\/]+)$/;
+const PROJECT_WORKTREES_PATH = /^\/api\/projects\/([^/]+)\/worktrees$/;
+const PROJECT_WORKTREE_PATH = /^\/api\/projects\/([^/]+)\/worktrees\/([^/]+)$/;
+const PROJECT_TASKS_PATH = /^\/api\/projects\/([^/]+)\/tasks$/;
+const PROJECT_FILE_PATH = /^\/api\/projects\/([^/]+)\/file$/;
+const PROJECT_GIT_PATH = /^\/api\/projects\/([^/]+)\/git\/([a-z-]+)$/;
+const PROJECT_USER_TERMINALS_PATH = /^\/api\/projects\/([^/]+)\/user-terminals$/;
+const SANDBOX_PATH = /^\/api\/sandboxes\/([^/]+)$/;
+const SANDBOX_API_KEY_PATH = /^\/api\/sandboxes\/([^/]+)\/api-key$/;
+const GROUP_PATH = /^\/api\/groups\/([^/]+)$/;
+const TASK_PATH = /^\/api\/tasks\/([^/]+)$/;
+const TASK_STATUS_PATH = /^\/api\/tasks\/([^/]+)\/status$/;
+const TASK_ARCHIVE_PATH = /^\/api\/tasks\/([^/]+)\/archive$/;
+const TASK_RESTORE_PATH = /^\/api\/tasks\/([^/]+)\/restore$/;
+const USER_TERMINAL_PATH = /^\/api\/user-terminals\/([^/]+)$/;
+const HOME_USER_TERMINAL_PATH = /^\/api\/home\/user-terminals\/([^/]+)$/;
 const REQUEST_ID_HEADER = "x-request-id";
 const CORRELATION_ID_HEADER = "x-correlation-id";
 const REQUEST_ID_RE = /^[a-zA-Z0-9._:-]{1,128}$/;
@@ -335,6 +335,12 @@ async function dispatch(
   }
   if (pathname === "/api/skills/install/diagram" && method === "POST") {
     return skillsController.installDiagram(request);
+  }
+  if (pathname === "/api/skills/install/ship/installed" && method === "GET") {
+    return skillsController.shipInstalled(url);
+  }
+  if (pathname === "/api/skills/install/ship" && method === "POST") {
+    return skillsController.installShip(request);
   }
 
   // Keybindings

@@ -34,12 +34,6 @@ import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
 import { registerSandboxManager, disposeSandboxManager } from "./sandbox-manager";
 import {
-  clearSessionTerminalDebugLogs,
-  listSessionTerminalDebugLogs,
-  recordSessionTerminalDebugLog,
-  type SessionTerminalDebugLogInput,
-} from "./session-terminal-debug-log";
-import {
   disposeApiTokenStore,
   getOrCreateApiToken,
   regenerateApiToken,
@@ -1401,22 +1395,6 @@ safeHandle(IPC.settingsGetToken, () => {
 });
 safeHandle(IPC.settingsRegenerateToken, () => {
   return regenerateApiToken(missionControlUserDataDir);
-});
-
-safeHandle(IPC.debugSessionTerminalLogsList, () => {
-  return listSessionTerminalDebugLogs();
-});
-
-safeHandle(IPC.debugSessionTerminalLogsClear, () => {
-  clearSessionTerminalDebugLogs();
-  return { ok: true as const };
-});
-
-safeHandle(IPC.debugSessionTerminalLogsRecord, (_evt, input: SessionTerminalDebugLogInput) => {
-  return recordSessionTerminalDebugLog({
-    ...input,
-    source: "renderer",
-  });
 });
 
 function parseSessionFinishOsNotificationPayload(

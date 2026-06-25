@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Z_INDEX } from "~/lib/z-index";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Btn } from "~/components/ui/Btn";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
@@ -243,39 +244,32 @@ export function ProjectCard({
               top: menu.y,
               left: menu.x,
               minWidth: MENU_WIDTH,
-              padding: 8,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "stretch",
-              gap: 4,
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
               zIndex: Z_INDEX.popover,
             }}
           >
-            <Btn
-              variant="ghost"
+            <DropdownMenuItem
               icon="settings"
               autoFocus
               onClick={() => {
                 setMenu(null);
                 onEdit();
               }}
-              style={{ justifyContent: "flex-start" }}
             >
               Edit project
-            </Btn>
-            <Btn
-              variant="danger"
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              danger
               icon="trash"
               onClick={() => {
                 setMenu(null);
                 onRemove();
               }}
-              style={{ justifyContent: "flex-start" }}
               title="Remove this project from Mission Control. The folder on disk is not touched."
             >
               Remove project
-            </Btn>
+            </DropdownMenuItem>
           </CardFrame>,
           document.body,
         )}

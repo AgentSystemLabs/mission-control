@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { matchBinding } from "~/lib/keybindings/match";
 import { useKeybindings } from "~/lib/keybindings/store";
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
+import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 
 export type HotkeyTarget = HotkeyAction | "enter" | "mod+enter" | "escape";
 
@@ -34,6 +35,10 @@ export type HotkeyOptions = {
   /** Listen in the capture phase — needed when a focused descendant (e.g. xterm)
    *  swallows the event before it reaches the bubble-phase window listener. */
   capture?: boolean;
+  /** Keep firing while the settings overlay is open. The overlay renders on top
+   *  of the live app, so app shortcuts are suppressed by default to behave like
+   *  a modal; only the panel's own shortcuts (e.g. Esc to close) opt back in. */
+  allowWhenSettingsOpen?: boolean;
 };
 
 export function useHotkey(
@@ -46,6 +51,7 @@ export function useHotkey(
     ignoreEditable = false,
     preventDefault = true,
     capture = false,
+    allowWhenSettingsOpen = false,
   } = options;
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
@@ -62,6 +68,7 @@ export function useHotkey(
         ? matchBinding(e, bindingsRef.current[target])
         : matchLiteral(e, target);
       if (!matched) return;
+      if (!allowWhenSettingsOpen && isSettingsOverlayOpen()) return;
       if (ignoreEditable && isEditableTarget(e.target)) return;
       if (preventDefault) e.preventDefault();
       if (capture) e.stopPropagation();
@@ -69,5 +76,5 @@ export function useHotkey(
     };
     window.addEventListener("keydown", onKey, capture);
     return () => window.removeEventListener("keydown", onKey, capture);
-  }, [target, enabled, ignoreEditable, preventDefault, capture]);
+  }, [target, enabled, ignoreEditable, preventDefault, capture, allowWhenSettingsOpen]);
 }

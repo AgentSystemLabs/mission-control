@@ -17,14 +17,12 @@ import {
 import { loadProjectRoots } from "./project-roots";
 import { MAX_TCP_PORT } from "../src/shared/tcp-port";
 import { shortId } from "../src/shared/short-id";
-import { errMsg } from "../src/shared/err-msg";
 import {
   resolveSpawnPlan,
   SpawnPolicyError,
   type SpawnRequest,
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
-import { recordSessionTerminalDebugLog } from "./session-terminal-debug-log";
 import { checkAgentCliVersion, agentVersionErrorMessage } from "./agent-cli-version";
 import { AGENT_CLI_CONFIG } from "./agent-cli-version-requirements";
 import { applyAgentPtyEnv } from "../src/shared/agent-pty-env";
@@ -77,8 +75,6 @@ type Pty = {
   mcEnv?: PtyHookEnv;
   scanTail: string;
   lastInterruptAt: number;
-  spawnStartedAt: number;
-  killedByUser: boolean;
 };
 
 type PtyBufferChunk = {
@@ -89,8 +85,6 @@ type PtyBufferChunk = {
 
 const INTERRUPT_COOLDOWN_MS = 2000;
 const SCAN_TAIL_MAX = 256;
-const SESSION_START_FAST_EXIT_MS = 3000;
-const SESSION_START_OUTPUT_TAIL_MAX = 12_000;
 
 const LSOF_PROBE_TIMEOUT_MS = 2_000;
 // Time we'll wait for SIGTERM to take before escalating to SIGKILL (port-kill)
@@ -201,10 +195,6 @@ function appendBuffer(p: Pty, data: string): number {
     p.bufferBytes -= dropped.bytes;
   }
   return seq;
-}
-
-function ptyOutputTail(p: Pty): string {
-  return p.buffer.map((chunk) => chunk.data).join("").slice(-SESSION_START_OUTPUT_TAIL_MAX);
 }
 
 // A voice-seeded starting prompt is written to the agent's stdin like the user
@@ -387,7 +377,6 @@ async function killPty(p: Pty): Promise<boolean> {
     const sub = p.proc.onExit(() => {
       exited = true;
     });
-    p.killedByUser = true;
     disposePty(p.proc);
     const deadline = Date.now() + SIGTERM_GRACE_MS;
     while (!exited && Date.now() < deadline) {
@@ -466,31 +455,8 @@ export function registerPtyHandlers(
             cwd: safeLogValue(opts.cwd),
             taskId: safeLogValue(opts.taskId),
           });
-          recordSessionTerminalDebugLog({
-            stage: "spawn-policy-rejected",
-            message: err.message,
-            source: "pty-manager",
-            agent: opts.agent,
-            taskId: opts.taskId,
-            cwd: opts.cwd,
-            command: opts.command,
-            details: {
-              code: err.code,
-              shell: opts.shell === true,
-            },
-          });
           throw new Error(`pty:spawn rejected (${err.code})`);
         }
-        recordSessionTerminalDebugLog({
-          stage: "spawn-policy-error",
-          message: errMsg(err),
-          source: "pty-manager",
-          agent: opts.agent,
-          taskId: opts.taskId,
-          cwd: opts.cwd,
-          command: opts.command,
-          details: { error: err },
-        });
         throw err;
       }
 
@@ -500,18 +466,6 @@ export function registerPtyHandlers(
         const versionCheck = checkAgentCliVersion(plan.binary, env, requirement, platform);
         if (!versionCheck.ok) {
           const message = agentVersionErrorMessage(versionCheck);
-          const { output: _output, ...safeVersionCheck } = versionCheck;
-          recordSessionTerminalDebugLog({
-            stage: "agent-version-blocked",
-            message,
-            source: "pty-manager",
-            agent: opts.agent,
-            taskId: opts.taskId,
-            cwd: plan.cwd,
-            command: opts.command,
-            details: safeVersionCheck,
-            outputTail: versionCheck.output,
-          });
           throw new Error(message);
         }
       }
@@ -540,7 +494,6 @@ export function registerPtyHandlers(
       const spawnArgs = plan.mode === "agent" ? plan.spawnArgs : plan.shellArgs;
 
       let proc: import("node-pty").IPty;
-      const spawnStartedAt = Date.now();
       try {
         proc = pty.spawn(spawnTarget, spawnArgs, {
           name: "xterm-256color",
@@ -551,19 +504,6 @@ export function registerPtyHandlers(
         });
       } catch (err: any) {
         const msg = err?.message ?? String(err);
-        recordSessionTerminalDebugLog({
-          stage: "native-spawn-failed",
-          message: msg,
-          source: "pty-manager",
-          agent: opts.agent,
-          taskId: opts.taskId,
-          cwd: plan.cwd,
-          command: opts.command,
-          details: {
-            target: spawnTarget,
-            argv: spawnArgs,
-          },
-        });
         if (msg.includes("posix_spawnp")) {
           throw new Error(
             `posix_spawnp failed for target="${spawnTarget}" cwd="${plan.cwd}". ` +
@@ -588,8 +528,6 @@ export function registerPtyHandlers(
         mcEnv: mcEnv ?? undefined,
         scanTail: "",
         lastInterruptAt: 0,
-        spawnStartedAt,
-        killedByUser: false,
       };
       ptys.set(id, p);
 
@@ -627,24 +565,8 @@ export function registerPtyHandlers(
               /* pty already exited */
             }
           }, INITIAL_INPUT_SUBMIT_DELAY_MS);
-          recordSessionTerminalDebugLog({
-            stage: "initial-input-injected",
-            message: `injected ${initialInput.length}-char starting prompt`,
-            source: "pty-manager",
-            agent: opts.agent,
-            taskId: opts.taskId,
-            ptyId: id,
-          });
-        } catch (err) {
-          recordSessionTerminalDebugLog({
-            level: "error",
-            stage: "initial-input-failed",
-            message: err instanceof Error ? err.message : String(err),
-            source: "pty-manager",
-            agent: opts.agent,
-            taskId: opts.taskId,
-            ptyId: id,
-          });
+        } catch {
+          /* pty already exited before the starting prompt could be written */
         }
       };
 
@@ -663,24 +585,6 @@ export function registerPtyHandlers(
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
         if (initialInputTimer) clearTimeout(initialInputTimer);
         if (initialInputFallback) clearTimeout(initialInputFallback);
-        const elapsedMs = Date.now() - p.spawnStartedAt;
-        if (p.agent && !p.killedByUser && elapsedMs < SESSION_START_FAST_EXIT_MS) {
-          recordSessionTerminalDebugLog({
-            level: exitCode === 0 ? "warn" : "error",
-            stage: "session-fast-exit",
-            message: `${p.agent} terminal exited ${elapsedMs}ms after spawn`,
-            source: "pty-manager",
-            agent: p.agent,
-            taskId: p.taskId,
-            ptyId: p.id,
-            cwd: p.cwd,
-            command: p.command,
-            exitCode,
-            signal,
-            elapsedMs,
-            outputTail: ptyOutputTail(p),
-          });
-        }
         send(getWin, IPC.ptyExit, { ptyId: id, exitCode, signal });
         ptys.delete(id);
       });
@@ -715,7 +619,6 @@ export function registerPtyHandlers(
   safeHandle(IPC.ptyKill, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
-    p.killedByUser = true;
     disposePty(p.proc);
     ptys.delete(ptyId);
     return true;
@@ -772,7 +675,6 @@ export function registerPtyHandlers(
 
 export function killAllPtys() {
   for (const p of ptys.values()) {
-    p.killedByUser = true;
     disposePty(p.proc);
   }
   ptys.clear();

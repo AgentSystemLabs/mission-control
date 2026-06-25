@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { Tooltip } from "~/components/ui/Tooltip";
 import { Z_INDEX } from "~/lib/z-index";
 import type { CustomScript } from "~/shared/domain";
@@ -138,34 +139,25 @@ export function CustomScriptsButton({
             role="menu"
             aria-label="More scripts"
             solid
+            className="mc-project-actions-menu"
             style={{
               position: "fixed",
               top: menuRect.top,
               right: menuRect.right,
               minWidth: 200,
-              padding: 8,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "stretch",
-              gap: 4,
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
               zIndex: Z_INDEX.popover,
             }}
           >
             {rest.map((script) => (
-              <Btn
+              <DropdownMenuItem
                 key={script.id}
-                role="menuitem"
-                variant="ghost"
                 icon="play"
                 onClick={() => run(script)}
                 title={script.command}
-                style={{ justifyContent: "flex-start" }}
               >
                 <span
                   style={{
-                    flex: 1,
-                    textAlign: "left",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -173,7 +165,7 @@ export function CustomScriptsButton({
                 >
                   {script.name}
                 </span>
-              </Btn>
+              </DropdownMenuItem>
             ))}
           </CardFrame>,
           document.body,

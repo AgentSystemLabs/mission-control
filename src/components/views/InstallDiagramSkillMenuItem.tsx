@@ -1,15 +1,13 @@
-import { Btn } from "~/components/ui/Btn";
+import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 
 export function InstallDiagramSkillMenuItem({ onSelect }: { onSelect: () => void }) {
   return (
-    <Btn
-      variant="ghost"
+    <DropdownMenuItem
       icon="chart"
       onClick={onSelect}
-      style={{ justifyContent: "flex-start" }}
       title="Install the Mission Control diagram skill into this project"
     >
       Install diagram skill
-    </Btn>
+    </DropdownMenuItem>
   );
 }

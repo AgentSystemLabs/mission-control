@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
+import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { Modal } from "~/components/ui/Modal";
 import { Icon } from "~/components/ui/Icon";
 import { formatCreatePullRequestError } from "~/lib/pull-request-errors";
@@ -220,22 +221,14 @@ export function CreatePullRequestMenuItem({
   busy?: boolean;
 }) {
   return (
-    <Btn
-      variant="ghost"
+    <DropdownMenuItem
       icon={busy ? undefined : "github"}
+      leading={busy ? <span className="mc-dropdown-menu-item-icon"><Spinner /></span> : undefined}
       onClick={onSelect}
       disabled={busy}
-      style={{ justifyContent: "flex-start" }}
       title={`Create pull request to origin/${DEFAULT_BRANCH}`}
     >
-      {busy ? (
-        <>
-          <Spinner />
-          Creating pull request…
-        </>
-      ) : (
-        "Create pull request"
-      )}
-    </Btn>
+      {busy ? "Creating pull request…" : "Create pull request"}
+    </DropdownMenuItem>
   );
 }

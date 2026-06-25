@@ -39,11 +39,15 @@ import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
 } from "~/lib/accent-colors";
-import { SETTINGS_PANEL_IDS, type SettingsPanelId } from "~/components/views/SettingsPanel";
+import {
+  SettingsPanel,
+  SETTINGS_PANEL_IDS,
+  type SettingsPanelId,
+} from "~/components/views/SettingsPanel";
 import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 import {
-  openSettingsRoute,
-  toggleSettingsRoute,
+  requestCloseSettings,
+  setSettingsOverlayOpen,
 } from "~/lib/settings-navigation";
 
 import { UsagePanel } from "~/components/views/UsagePanel";
@@ -144,7 +148,6 @@ function RootComponent() {
     <html suppressHydrationWarning>
       <head>
         <script
-          // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{ __html: PRE_HYDRATION_THEME_SCRIPT }}
         />
         <HeadContent />
@@ -213,9 +216,25 @@ function LaunchIntroOverlayController() {
 function Shell() {
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"usage" | null>(null);
+  // Settings renders as a Shell-level overlay (see <SettingsPanel> below) rather
+  // than a route, so the live app stays mounted behind it and the sliding panels
+  // reveal the app instead of a black void. `settingsInitialPanel` is non-null
+  // exactly when the overlay is open; its value seeds the panel's initial tab.
+  const [settingsInitialPanel, setSettingsInitialPanel] =
+    useState<SettingsPanelId | null>(null);
+  const settingsOpen = settingsInitialPanel !== null;
   const openSettings = (initial: SettingsPanelId = "general") => {
-    openSettingsRoute(router, initial);
+    setSettingsInitialPanel((current) => current ?? initial);
   };
+  const closeSettingsPanel = () => setSettingsInitialPanel(null);
+
+  // Mirror the React open-state into the module flag that non-React global
+  // keydown listeners (use-hotkey, the project route) read to suppress app
+  // shortcuts while the modal-style overlay is open.
+  useEffect(() => {
+    setSettingsOverlayOpen(settingsOpen);
+    return () => setSettingsOverlayOpen(false);
+  }, [settingsOpen]);
 
   // Leaf components (e.g. ShipFailedDialog) dispatch OPEN_SETTINGS_EVENT to
   // request the Settings panel without prop-drilling through every parent.
@@ -323,10 +342,10 @@ function Shell() {
   }, [expandedKey]);
   const sessionExpanded =
     !!projectId && terminalExpanded && !!activeFor(projectId);
-  const crumbs: Crumb[] = projectMatch
+  const crumbs: Crumb[] = settingsOpen
+    ? [{ label: "Settings" }]
+    : projectMatch
     ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> }]
-    : path === "/settings"
-      ? [{ label: "Settings" }]
       : activePanel === "usage"
         ? [{ label: "Usage" }]
       : [{ label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
@@ -335,6 +354,7 @@ function Shell() {
 
   const goHome = () => {
     setActivePanel(null);
+    if (settingsOpen) requestCloseSettings();
     router.navigate({ to: "/" });
   };
 
@@ -525,9 +545,11 @@ function Shell() {
               <Btn
                 variant="ghost"
                 icon="settings"
-                onClick={() => toggleSettingsRoute(router)}
-                aria-label={path === "/settings" ? "Close settings" : "Open settings"}
-                title={path === "/settings" ? "Close settings" : "Open settings"}
+                onClick={() =>
+                  settingsOpen ? requestCloseSettings() : openSettings()
+                }
+                aria-label={settingsOpen ? "Close settings" : "Open settings"}
+                title={settingsOpen ? "Close settings" : "Open settings"}
               />
             </>
           }
@@ -575,6 +597,12 @@ function Shell() {
           <UserTerminalPanel />
         </div>
         {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
+        {settingsOpen && (
+          <SettingsPanel
+            initialPanel={settingsInitialPanel ?? "general"}
+            onBack={closeSettingsPanel}
+          />
+        )}
         <Toaster
           position="bottom-right"
           theme="dark"

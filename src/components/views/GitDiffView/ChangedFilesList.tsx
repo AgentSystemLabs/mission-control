@@ -10,8 +10,8 @@ import {
 import { createPortal } from "react-dom";
 import { Z_INDEX } from "~/lib/z-index";
 import { useQueryClient } from "@tanstack/react-query";
-import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { Icon } from "~/components/ui/Icon";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
@@ -351,19 +351,12 @@ export function ChangedFilesList({
               top: menu.y,
               left: menu.x,
               minWidth: 168,
-              padding: 4,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "stretch",
-              gap: 0,
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
               zIndex: Z_INDEX.popover,
             }}
           >
             {menu.staged ? (
-              <Btn
-                variant="ghost"
-                size="sm"
+              <DropdownMenuItem
                 icon="x"
                 autoFocus
                 disabled={busyPaths.has(menu.path)}
@@ -372,14 +365,11 @@ export function ChangedFilesList({
                   setMenu(null);
                   onUnstage([path]);
                 }}
-                style={{ justifyContent: "flex-start" }}
               >
                 Unaccept
-              </Btn>
+              </DropdownMenuItem>
             ) : (
-              <Btn
-                variant="ghost"
-                size="sm"
+              <DropdownMenuItem
                 icon="plus"
                 autoFocus
                 disabled={busyPaths.has(menu.path)}
@@ -388,15 +378,13 @@ export function ChangedFilesList({
                   setMenu(null);
                   onStage([path]);
                 }}
-                style={{ justifyContent: "flex-start" }}
               >
                 Accept
-              </Btn>
+              </DropdownMenuItem>
             )}
-            <FileActionsMenuSeparator />
-            <Btn
-              variant="danger"
-              size="sm"
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              danger
               icon="trash"
               disabled={busyPaths.has(menu.path)}
               onClick={() => {
@@ -404,10 +392,9 @@ export function ChangedFilesList({
                 setMenu(null);
                 setConfirmPath(path);
               }}
-              style={{ justifyContent: "flex-start" }}
             >
               Delete
-            </Btn>
+            </DropdownMenuItem>
           </CardFrame>,
           document.body,
         )}
@@ -917,19 +904,6 @@ function FileRow({
         <Icon name={isStaged ? "x" : "plus"} size={11} />
       </button>
     </div>
-  );
-}
-
-function FileActionsMenuSeparator() {
-  return (
-    <div
-      className="mc-project-actions-menu-separator"
-      style={{
-        height: 1,
-        background: "var(--border)",
-        margin: "2px 2px",
-      }}
-    />
   );
 }
 

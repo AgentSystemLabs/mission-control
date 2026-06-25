@@ -688,20 +688,6 @@ export function TerminalPane({
           await spawnAndWire(descriptor.startCommand, isResume);
         } catch (err: any) {
           const message = remoteStartErrorMessage(err);
-          if (electron) {
-            void electron.debugLog.recordSessionTerminalError({
-              stage: "terminal-pane-start-failed",
-              message,
-              taskId: descriptor.taskId,
-              agent: task.agent,
-              cwd: descriptor.cwd,
-              command: descriptor.startCommand,
-              details: {
-                errorName: err instanceof Error ? err.name : undefined,
-                apiStatus: err instanceof ApiError ? err.status : undefined,
-              },
-            });
-          }
           clearActivePty();
           setStartError(message);
           setLiveStatus(message);

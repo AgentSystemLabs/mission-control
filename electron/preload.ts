@@ -158,32 +158,6 @@ export type RemoteVmDeployJobSnapshotBridge = {
   signal?: string | null;
 };
 
-export type SessionTerminalDebugLogInputBridge = {
-  level?: "error" | "warn";
-  stage: string;
-  message: string;
-  source?: "pty-manager" | "renderer";
-  taskId?: string;
-  ptyId?: string;
-  agent?: string;
-  cwd?: string;
-  command?: string;
-  exitCode?: number;
-  signal?: number | string;
-  elapsedMs?: number;
-  details?: Record<string, unknown>;
-  outputTail?: string;
-};
-
-export type SessionTerminalDebugLogEntryBridge = SessionTerminalDebugLogInputBridge & {
-  id: string;
-  level: "error" | "warn";
-  source: "pty-manager" | "renderer";
-  createdAt: string;
-  platform: NodeJS.Platform;
-  arch: string;
-};
-
 const electronAPI = {
   settings: {
     getToken: (): Promise<string> => ipcRenderer.invoke(IPC.settingsGetToken),
@@ -319,16 +293,6 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.remoteGitDiff, repo, file, staged),
     clone: (remote: string, slug: string, branch?: string) =>
       ipcRenderer.invoke(IPC.remoteGitClone, remote, slug, branch),
-  },
-  debugLog: {
-    listSessionTerminalErrors: (): Promise<SessionTerminalDebugLogEntryBridge[]> =>
-      ipcRenderer.invoke(IPC.debugSessionTerminalLogsList),
-    clearSessionTerminalErrors: (): Promise<{ ok: true }> =>
-      ipcRenderer.invoke(IPC.debugSessionTerminalLogsClear),
-    recordSessionTerminalError: (
-      input: SessionTerminalDebugLogInputBridge,
-    ): Promise<SessionTerminalDebugLogEntryBridge> =>
-      ipcRenderer.invoke(IPC.debugSessionTerminalLogsRecord, input),
   },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),

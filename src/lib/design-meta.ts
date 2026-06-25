@@ -52,7 +52,7 @@ export const TERMINAL_ZOOM_OUT_EVENT = "mc:terminal-zoom-out";
 /** Dispatched by leaf components (e.g. ShipFailedDialog) to ask the Shell
  * to open the Settings panel at a specific page. Listened to by __root.tsx. */
 export const OPEN_SETTINGS_EVENT = "mc:open-settings";
-export type OpenSettingsEventDetail = { panel: string };
+export type OpenSettingsEventDetail = { panel?: string };
 
 /** Dispatched by the Shell settings toggle to play the panel exit animation
  * before navigating away. Listened to by SettingsPanel. */

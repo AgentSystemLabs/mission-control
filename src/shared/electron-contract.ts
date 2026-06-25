@@ -46,6 +46,7 @@ export type FileWriteResult =
   | { ok: false; error: FileWriteError | string; currentMtimeMs?: number };
 
 export type InstallDiagramSkillResult = import("~/shared/diagram-skill-install").DiagramSkillInstallResult;
+export type InstallShipSkillsResult = import("~/shared/ship-skill-install").ShipSkillInstallResult;
 
 export type LaunchProcessKillResult = {
   ptyCount: number;
@@ -79,32 +80,6 @@ export type CliCheckResult =
       packageUrl?: string;
       updateCommands?: readonly string[];
     };
-
-export type SessionTerminalDebugLogInput = {
-  level?: "error" | "warn";
-  stage: string;
-  message: string;
-  source?: "pty-manager" | "renderer";
-  taskId?: string;
-  ptyId?: string;
-  agent?: string;
-  cwd?: string;
-  command?: string;
-  exitCode?: number;
-  signal?: number | string;
-  elapsedMs?: number;
-  details?: Record<string, unknown>;
-  outputTail?: string;
-};
-
-export type SessionTerminalDebugLogEntry = SessionTerminalDebugLogInput & {
-  id: string;
-  level: "error" | "warn";
-  source: "pty-manager" | "renderer";
-  createdAt: string;
-  platform: NodeJS.Platform;
-  arch: string;
-};
 
 export type BasePtySpawnOptions = {
   taskId: string;
@@ -319,13 +294,6 @@ export type ElectronBridge = {
     prewarm: () => Promise<boolean>;
     /** `prompt` biases the decoder toward expected words (e.g. project names). */
     transcribe: (wav: ArrayBuffer, prompt?: string) => Promise<VoiceTranscribeResult>;
-  };
-  debugLog: {
-    listSessionTerminalErrors: () => Promise<SessionTerminalDebugLogEntry[]>;
-    clearSessionTerminalErrors: () => Promise<{ ok: true }>;
-    recordSessionTerminalError: (
-      input: SessionTerminalDebugLogInput,
-    ) => Promise<SessionTerminalDebugLogEntry>;
   };
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;

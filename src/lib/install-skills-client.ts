@@ -1,8 +1,12 @@
-// Renderer-side wrapper for the diagram skill install HTTP API.
+// Renderer-side wrapper for bundled skill install HTTP APIs.
 import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import { resolveApiToken } from "~/lib/api";
 import type { DiagramSkillHarnessSelection } from "~/shared/diagram-skill-install";
-import type { InstallDiagramSkillResult } from "~/shared/electron-contract";
+import type { ShipSkillHarnessSelection } from "~/shared/ship-skill-install";
+import type {
+  InstallDiagramSkillResult,
+  InstallShipSkillsResult,
+} from "~/shared/electron-contract";
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const resolved =
@@ -42,6 +46,26 @@ export async function runInstallDiagramSkill(args: {
 }): Promise<InstallDiagramSkillResult> {
   const { result } = await req<{ result: InstallDiagramSkillResult }>(
     "/api/skills/install/diagram",
+    { method: "POST", body: JSON.stringify(args) },
+  );
+  return result;
+}
+
+export async function fetchShipSkillInstallStatus(
+  projectPath: string,
+): Promise<InstallShipSkillsResult> {
+  const { installed } = await req<{ installed: InstallShipSkillsResult }>(
+    `/api/skills/install/ship/installed?projectPath=${encodeURIComponent(projectPath)}`,
+  );
+  return installed;
+}
+
+export async function runInstallShipSkills(args: {
+  projectPath: string;
+  harnesses: ShipSkillHarnessSelection;
+}): Promise<InstallShipSkillsResult> {
+  const { result } = await req<{ result: InstallShipSkillsResult }>(
+    "/api/skills/install/ship",
     { method: "POST", body: JSON.stringify(args) },
   );
   return result;

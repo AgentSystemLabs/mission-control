@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { Icon } from "~/components/ui/Icon";
 import { Z_INDEX } from "~/lib/z-index";
 import { openExternal } from "~/lib/open-external";
@@ -34,6 +35,7 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
 import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
+import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
@@ -110,6 +112,8 @@ import {
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
+import { InstallShipSkillMenuItem } from "~/components/views/InstallShipSkillMenuItem";
+import { InstallShipSkillModal } from "~/components/views/InstallShipSkillModal";
 import { SandboxProvisioningState } from "~/components/views/SandboxProvisioningState";
 import {
   isSandboxProvisioning,
@@ -209,19 +213,6 @@ function firstDisplayedTask<T extends { status: TaskStatus }>(tasks: T[]): T | u
     if (task) return task;
   }
   return undefined;
-}
-
-function MenuSeparator() {
-  return (
-    <div
-      className="mc-project-actions-menu-separator"
-      style={{
-        height: 1,
-        background: "var(--border)",
-        margin: "4px 2px",
-      }}
-    />
-  );
 }
 
 function ProjectPage() {
@@ -498,6 +489,7 @@ function ProjectPage() {
   const [showCustomScriptsConfig, setShowCustomScriptsConfig] = useState(false);
   const [showWorktreeSetupConfig, setShowWorktreeSetupConfig] = useState(false);
   const [showInstallDiagramSkill, setShowInstallDiagramSkill] = useState(false);
+  const [showInstallShipSkill, setShowInstallShipSkill] = useState(false);
   const [showLaunchEmpty, setShowLaunchEmpty] = useState(false);
   const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState(false);
   const [worktreeDeleteConfirmName, setWorktreeDeleteConfirmName] = useState("");
@@ -687,6 +679,24 @@ function ProjectPage() {
       }
     },
     [createTerminal, setPanelOpen]
+  );
+
+  const runShipSkillInstallCommand = useCallback(
+    async (command: string) => {
+      try {
+        await createTerminal({
+          name: "Install ship skills",
+          startCommand: command,
+          cwd: selectedWorktreePath || project?.path || null,
+        });
+        setPanelOpen(true);
+        toast.success("Started ship skill install in a terminal.");
+      } catch {
+        toast.error("Failed to start ship skill install terminal.");
+        throw new Error("Failed to start install terminal");
+      }
+    },
+    [createTerminal, project?.path, selectedWorktreePath, setPanelOpen]
   );
 
   const runScript = useCallback(
@@ -1479,6 +1489,7 @@ function ProjectPage() {
     showLaunchConfig ||
     showWorktreeSetupConfig ||
     showInstallDiagramSkill ||
+    showInstallShipSkill ||
     showLaunchEmpty ||
     confirmDeleteArchived ||
     !!projectPathIssue ||
@@ -1541,6 +1552,9 @@ function ProjectPage() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // The project view stays mounted behind the settings overlay; suppress its
+      // shortcuts there so it behaves like a modal (mirrors the useHotkey guard).
+      if (isSettingsOverlayOpen()) return;
       if (!(e.metaKey || e.ctrlKey)) return;
       if (!e.shiftKey || e.altKey) return;
       if (e.code === "BracketRight") {
@@ -2174,11 +2188,6 @@ function ProjectPage() {
                   top: overflowMenuRect.top,
                   left: overflowMenuRect.left,
                   minWidth: overflowMenuRect.minWidth,
-                  padding: 8,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "stretch",
-                  gap: 4,
                   boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
                   zIndex: Z_INDEX.popover,
                 }}
@@ -2186,25 +2195,21 @@ function ProjectPage() {
                 {hasRunningLaunch ? (
                   <>
                     <HotkeyTooltip action="project.runToggle">
-                      <Btn
-                        variant="ghost"
+                      <DropdownMenuItem
                         icon="x"
                         onClick={stopLaunch}
                         disabled={stopping}
-                        style={{ justifyContent: "flex-start" }}
                       >
                         {stopping ? "Stopping…" : "Stop launch"}
-                      </Btn>
+                      </DropdownMenuItem>
                     </HotkeyTooltip>
-                    <MenuSeparator />
+                    <DropdownMenuSeparator />
                   </>
                 ) : null}
-                <Btn
-                  variant="ghost"
+                <DropdownMenuItem
                   icon={project.pinned ? "pin-fill" : "pin"}
                   onClick={toggleProjectPin}
                   disabled={pinning}
-                  style={{ justifyContent: "flex-start" }}
                 >
                   {pinning
                     ? project.pinned
@@ -2213,59 +2218,49 @@ function ProjectPage() {
                     : project.pinned
                       ? "Unpin project"
                       : "Pin project"}
-                </Btn>
-                <Btn
-                  variant="ghost"
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   icon="folder"
                   onClick={() => {
                     setOverflowOpen(false);
                     window.electronAPI?.openPath(selectedWorktreePath || project.path);
                   }}
-                  style={{ justifyContent: "flex-start" }}
                   title={selectedWorktreePath || project.path}
                 >
                   Reveal in Finder
-                </Btn>
+                </DropdownMenuItem>
                 <HotkeyTooltip action="file.finder">
-                  <Btn
-                    variant="ghost"
+                  <DropdownMenuItem
                     icon="search"
                     onClick={() => {
                       setOverflowOpen(false);
                       setFileFinderOpen(true);
                     }}
                     disabled={projectPathBlocked}
-                    style={{ justifyContent: "flex-start" }}
                   >
-                    <span style={{ flex: 1, textAlign: "left" }}>Find file in project</span>
-                  </Btn>
+                    Find file in project
+                  </DropdownMenuItem>
                 </HotkeyTooltip>
-                {project.githubUrl && (
-                  <>
-                    <MenuSeparator />
-                    <Btn
-                      variant="ghost"
-                      icon="github"
-                      onClick={() => {
-                        setOverflowOpen(false);
-                        openExternal(project.githubUrl!);
-                      }}
-                      style={{ justifyContent: "flex-start" }}
-                    >
-                      Open GitHub
-                    </Btn>
-                  </>
-                )}
+                {project.githubUrl ? (
+                  <DropdownMenuItem
+                    icon="github"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      openExternal(project.githubUrl!);
+                    }}
+                  >
+                    Open GitHub
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
                 <HotkeyTooltip action="git.diff">
-                  <Btn
-                    variant="ghost"
+                  <DropdownMenuItem
                     icon="git-branch"
                     onClick={() => {
                       setOverflowOpen(false);
                       onToggleDiffView();
                     }}
                     disabled={projectPathBlocked}
-                    style={{ justifyContent: "flex-start" }}
                     title={
                       gitStatus && gitStatus.changedCount > 0
                         ? `${gitStatus.changedCount} changed file${gitStatus.changedCount === 1 ? "" : "s"}`
@@ -2274,16 +2269,14 @@ function ProjectPage() {
                           : "Checking changes…"
                     }
                   >
-                    <span style={{ flex: 1, textAlign: "left" }}>
-                      Review Changes
-                      {gitStatus && gitStatus.changedCount > 0 && (
-                        <span style={{ color: "var(--text-dim)" }}>
-                          {" · "}
-                          {gitStatus.changedCount} changed
-                        </span>
-                      )}
-                    </span>
-                  </Btn>
+                    Review Changes
+                    {gitStatus && gitStatus.changedCount > 0 && (
+                      <span style={{ color: "var(--text-dim)" }}>
+                        {" · "}
+                        {gitStatus.changedCount} changed
+                      </span>
+                    )}
+                  </DropdownMenuItem>
                 </HotkeyTooltip>
                 <CreatePullRequestMenuItem
                   onSelect={() => {
@@ -2292,74 +2285,73 @@ function ProjectPage() {
                   }}
                   busy={createPullRequest.busy}
                 />
-                <MenuSeparator />
-                <Btn
-                  variant="ghost"
-                  icon="play"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    setShowLaunchConfig(true);
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  Configure launch commands
-                </Btn>
-                <Btn
-                  variant="ghost"
-                  icon="terminal"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    setShowCustomScriptsConfig(true);
-                  }}
-                  style={{ justifyContent: "flex-start" }}
-                >
-                  Custom scripts
-                </Btn>
                 {worktreesEnabled ? (
-                  <Btn
-                    variant="ghost"
+                  <DropdownMenuItem
                     icon="terminal"
                     onClick={() => {
                       setOverflowOpen(false);
                       setShowWorktreeSetupConfig(true);
                     }}
-                    style={{ justifyContent: "flex-start" }}
                   >
-                    Configure worktree init command
-                  </Btn>
+                    Worktree init
+                  </DropdownMenuItem>
                 ) : null}
+                <DropdownMenuSeparator />
                 <InstallDiagramSkillMenuItem
                   onSelect={() => {
                     setOverflowOpen(false);
                     setShowInstallDiagramSkill(true);
                   }}
                 />
+                <InstallShipSkillMenuItem
+                  onSelect={() => {
+                    setOverflowOpen(false);
+                    setShowInstallShipSkill(true);
+                  }}
+                />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  icon="play"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setShowLaunchConfig(true);
+                  }}
+                >
+                  Launch commands
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  icon="terminal"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setShowCustomScriptsConfig(true);
+                  }}
+                >
+                  Custom scripts
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <HotkeyTooltip action="project.edit">
-                  <Btn
-                    variant="ghost"
+                  <DropdownMenuItem
                     icon="settings"
                     onClick={() => {
                       setOverflowOpen(false);
                       setShowEdit(true);
                     }}
-                    style={{ justifyContent: "flex-start" }}
                   >
-                    <span style={{ flex: 1, textAlign: "left" }}>Edit project</span>
-                  </Btn>
+                    Edit project
+                  </DropdownMenuItem>
                 </HotkeyTooltip>
-                <MenuSeparator />
-                <Btn
-                  variant="danger"
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  danger
                   icon="trash"
                   onClick={() => {
                     setOverflowOpen(false);
                     setConfirmRemove(true);
                   }}
-                  style={{ justifyContent: "flex-start" }}
                   title="Remove this project from Mission Control. The folder on disk is not touched."
                 >
                   Remove project
-                </Btn>
+                </DropdownMenuItem>
               </CardFrame>,
               document.body,
             )}
@@ -2795,6 +2787,13 @@ function ProjectPage() {
         open={showInstallDiagramSkill}
         onClose={() => setShowInstallDiagramSkill(false)}
         projectPath={selectedWorktreePath || project.path}
+      />
+
+      <InstallShipSkillModal
+        open={showInstallShipSkill}
+        onClose={() => setShowInstallShipSkill(false)}
+        projectPath={selectedWorktreePath || project.path}
+        onRunInstall={runShipSkillInstallCommand}
       />
 
       <RemoveProjectConfirmDialog
