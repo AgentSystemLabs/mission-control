@@ -12,6 +12,7 @@ import type { Group, Project } from "~/db/schema";
 export function ProjectDialog({
   open,
   project,
+  initialPath = "",
   groups,
   onClose,
   onSave,
@@ -19,6 +20,7 @@ export function ProjectDialog({
 }: {
   open: boolean;
   project: Project | null;
+  initialPath?: string;
   groups: Group[];
   onClose: () => void;
   onSave: (data: {
@@ -62,10 +64,11 @@ export function ProjectDialog({
 
   useEffect(() => {
     if (open) {
+      const initialName = initialPath.split(/[\\/]/).filter(Boolean).pop() || "";
       nameRef.current?.focus();
       nameRef.current?.select();
-      setName(project?.name || "");
-      setPath(project?.path || "");
+      setName(project?.name || (!project ? initialName : ""));
+      setPath(project?.path || (!project ? initialPath : ""));
       setGroupId(project?.groupId || "");
       setGroupQuery(
         project?.groupId
@@ -81,7 +84,7 @@ export function ProjectDialog({
       setPendingImage(null);
       setError(null);
     }
-  }, [open, project?.id]);
+  }, [initialPath, open, project?.id]);
 
   useEffect(() => {
     if (!open || !selectedGroup || groupQuery.trim()) return;

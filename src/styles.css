@@ -107,6 +107,7 @@ body {
 }
 
 #root {
+  --mc-shell-pad-top: clamp(22px, calc(4vw - 30px), 34px);
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -114,7 +115,7 @@ body {
   position: relative;
   isolation: isolate;
   background: transparent;
-  padding: clamp(22px, calc(4vw - 30px), 34px)
+  padding: var(--mc-shell-pad-top)
     clamp(16px, calc(1vw + 8px), 22px)
     clamp(10px, calc(3vw - 30px), 22px);
 }

@@ -87,6 +87,7 @@ import "~/styles.css";
 
 const LAUNCH_OVERLAY_DURATION_MS = 2700;
 const MINIMAL_CACHE_KEY = "mc:minimal";
+const WINDOW_DRAG_LAYER_Z_INDEX = 30;
 const useThemeLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -517,8 +518,8 @@ function Shell() {
             top: 0,
             left: 0,
             right: 0,
-            height: 40,
-            zIndex: 1,
+            height: "var(--mc-shell-pad-top)",
+            zIndex: WINDOW_DRAG_LAYER_Z_INDEX,
             ["WebkitAppRegion" as any]: "drag",
           }}
         />

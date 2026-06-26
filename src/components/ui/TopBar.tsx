@@ -31,7 +31,8 @@ export function TopBar({
         flexShrink: 0,
         position: "relative",
         zIndex: 10,
-        pointerEvents: "none",
+        pointerEvents: "auto",
+        ["WebkitAppRegion" as any]: "drag",
       }}
     >
       <div
