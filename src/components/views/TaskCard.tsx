@@ -20,6 +20,8 @@ export function TaskCard({
   onRestore,
   onDelete,
   onRename,
+  onTogglePinned,
+  pinning = false,
 }: {
   task: Task;
   selected: boolean;
@@ -32,6 +34,10 @@ export function TaskCard({
   onDelete?: (taskId: string) => void;
   /** Rename a session title inline. */
   onRename?: (taskId: string, title: string) => Promise<void> | void;
+  /** Pin or unpin an active session. */
+  onTogglePinned?: (taskId: string) => Promise<void> | void;
+  /** True while the pin/unpin mutation for this session is saving. */
+  pinning?: boolean;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
@@ -369,7 +375,7 @@ export function TaskCard({
         </div>
 
         {/* Top-right session actions */}
-        {(onArchive || onRestore || onDelete) && (
+        {(onTogglePinned || onArchive || onRestore || onDelete) && (
           <div
             style={{
               position: "absolute",
@@ -382,6 +388,28 @@ export function TaskCard({
               zIndex: 3,
             }}
           >
+            {!archived && onTogglePinned && (
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon={task.pinned ? "pin-fill" : "pin"}
+                disabled={savingTitle || pinning}
+                aria-busy={pinning}
+                aria-label={`${task.pinned ? "Unpin" : "Pin"} ${task.title}`}
+                title={pinning ? "Saving pin state" : task.pinned ? "Unpin session" : "Pin session"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (savingTitle || pinning) return;
+                  void onTogglePinned(task.id);
+                }}
+                style={{
+                  width: 30,
+                  height: 30,
+                  padding: 0,
+                  color: task.pinned ? "var(--accent)" : undefined,
+                }}
+              />
+            )}
             {archived && onRestore && (
               <Btn
                 variant="ghost"

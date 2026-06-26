@@ -325,6 +325,7 @@ export const api = {
     body: {
       title?: string;
       branch?: string;
+      pinned?: boolean;
       claudeSessionId?: string | null;
       claudeSkipPermissions?: boolean;
       claudeBareSession?: boolean;

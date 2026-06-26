@@ -45,6 +45,7 @@ const updateTaskBody = z
     title: z.string().trim().min(1, "title required"),
     icon: z.string().nullable(),
     branch: z.string(),
+    pinned: z.boolean(),
     claudeSessionId: z.string().nullable(),
     claudeSkipPermissions: z.boolean(),
     claudeBareSession: z.boolean(),

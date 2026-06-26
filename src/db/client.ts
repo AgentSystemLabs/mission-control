@@ -390,6 +390,7 @@ function ensureSchema(sqlite: Database.Database) {
       preview TEXT NOT NULL DEFAULT '',
       lines INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0,
+      pinned INTEGER NOT NULL DEFAULT 0,
       claude_session_id TEXT,
       claude_skip_permissions INTEGER NOT NULL DEFAULT 0,
       claude_bare_session INTEGER NOT NULL DEFAULT 0,
@@ -401,6 +402,7 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS tasks_worktree_idx ON tasks(worktree_id);
     CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
     CREATE INDEX IF NOT EXISTS tasks_archived_idx ON tasks(archived);
+    CREATE INDEX IF NOT EXISTS tasks_pinned_idx ON tasks(pinned);
 
     CREATE TABLE IF NOT EXISTS terminal_logs (
       id TEXT PRIMARY KEY,
@@ -529,8 +531,10 @@ function ensureSchema(sqlite: Database.Database) {
   // tolerate pre-existing tables created without it.
   ensureColumn(sqlite, "tasks", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   ensureColumn(sqlite, "tasks", "title_manually_set", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(sqlite, "tasks", "pinned", "INTEGER NOT NULL DEFAULT 0");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_worktree_scope_idx ON tasks(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_scope_idx ON tasks(scope_id);");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_pinned_idx ON tasks(pinned);");
   ensureColumn(sqlite, "user_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_project_worktree_scope_idx ON user_terminals(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_scope_idx ON user_terminals(scope_id);");

@@ -3,7 +3,6 @@ import type { Task } from "~/db/schema";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS, type TaskAgent } from "~/shared/domain";
 import { queryKeys } from "~/queries";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
-import { newClientId } from "~/shared/client-id";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 export const OPTIMISTIC_TASK_ID_PREFIX = "t-opt-";
@@ -46,6 +45,7 @@ export function buildOptimisticTask(input: {
     preview: "",
     lines: 0,
     archived: false,
+    pinned: false,
     claudeSessionId: input.claudeSessionId ?? null,
     claudeSkipPermissions: input.claudeSkipPermissions ?? false,
     claudeBareSession: input.claudeBareSession ?? false,
@@ -115,6 +115,19 @@ export function setTasksArchivedInCache(
   const ids = taskIds instanceof Set ? taskIds : new Set(taskIds);
   queryClient.setQueryData<Task[]>(tasksQueryKey(projectId, worktreeId, scopeId), (current) =>
     (current ?? []).map((t) => (ids.has(t.id) ? { ...t, archived } : t)),
+  );
+}
+
+export function setTaskPinnedInCache(
+  queryClient: QueryClient,
+  projectId: string,
+  worktreeId: string | null,
+  taskId: string,
+  pinned: boolean,
+  scopeId?: string | null,
+) {
+  queryClient.setQueryData<Task[]>(tasksQueryKey(projectId, worktreeId, scopeId), (current) =>
+    (current ?? []).map((t) => (t.id === taskId ? { ...t, pinned, updatedAt: Date.now() } : t)),
   );
 }
 

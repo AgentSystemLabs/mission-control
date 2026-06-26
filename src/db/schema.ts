@@ -134,6 +134,7 @@ export const tasks = sqliteTable(
     preview: text("preview").notNull().default(""),
     lines: integer("lines").notNull().default(0),
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     claudeSessionId: text("claude_session_id"),
     claudeSkipPermissions: integer("claude_skip_permissions", { mode: "boolean" }).notNull().default(false),
     claudeBareSession: integer("claude_bare_session", { mode: "boolean" }).notNull().default(false),
@@ -152,6 +153,7 @@ export const tasks = sqliteTable(
     worktreeIdx: index("tasks_worktree_idx").on(t.worktreeId),
     statusIdx: index("tasks_status_idx").on(t.status),
     archivedIdx: index("tasks_archived_idx").on(t.archived),
+    pinnedIdx: index("tasks_pinned_idx").on(t.pinned),
   })
 );
 

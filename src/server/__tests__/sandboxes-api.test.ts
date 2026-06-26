@@ -192,6 +192,7 @@ describe("sandboxes API", () => {
         preview: "",
         lines: 0,
         archived: false,
+        pinned: false,
         claudeSessionId: null,
         claudeSkipPermissions: false,
         claudeBareSession: false,

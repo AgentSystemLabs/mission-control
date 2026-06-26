@@ -82,6 +82,7 @@ export function createTask(input: {
     preview: input.preview ?? "",
     lines: 0,
     archived: false,
+    pinned: false,
     claudeSessionId: input.claudeSessionId ?? null,
     claudeSkipPermissions: input.claudeSkipPermissions ?? false,
     claudeBareSession: input.claudeBareSession ?? false,
@@ -140,6 +141,7 @@ export function updateTask(
       | "titleManuallySet"
       | "icon"
       | "branch"
+      | "pinned"
       | "claudeSessionId"
       | "claudeSkipPermissions"
       | "claudeBareSession"

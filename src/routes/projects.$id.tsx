@@ -50,6 +50,7 @@ import {
   replaceOptimisticTask,
   restoreTasksCache,
   setTaskArchivedInCache,
+  setTaskPinnedInCache,
   setTasksArchivedInCache,
 } from "~/lib/optimistic-task";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
@@ -163,6 +164,7 @@ export const Route = createFileRoute("/projects/$id")({
 });
 
 type DeleteWorktreeMode = "clean" | "stash" | "discard";
+type SessionView = "active" | "pinned" | "archived";
 const WORKTREE_DELETE_FILES_MAX_HEIGHT = 220;
 
 function worktreeChangeLabel(count: number | undefined): string {
@@ -476,13 +478,17 @@ function ProjectPage() {
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  const [sessionView, setSessionView] = useState<SessionView>("active");
+  const showArchived = sessionView === "archived";
+  const showPinned = sessionView === "pinned";
+  const [pinningTaskIds, setPinningTaskIds] = useState<Set<string>>(() => new Set());
+  const pinRequestSeqRef = useRef<Record<string, number>>({});
   const [confirmDeleteArchived, setConfirmDeleteArchived] = useState(false);
   // Leave the archived view automatically once it empties (last one restored
   // or deleted) so the toggle never strands the user on a blank list.
   useEffect(() => {
-    if (showArchived && !hasArchivedTasks) setShowArchived(false);
-  }, [showArchived, hasArchivedTasks]);
+    if (sessionView === "archived" && !hasArchivedTasks) setSessionView("active");
+  }, [sessionView, hasArchivedTasks]);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
@@ -1690,12 +1696,23 @@ function ProjectPage() {
   }
 
   const activeTasks = tasks.filter((t) => !t.archived);
+  const pinnedTasks = activeTasks.filter((t) => t.pinned);
   const archivedTasks = tasks.filter((t) => t.archived);
-  const visibleTasks = showArchived ? archivedTasks : activeTasks;
+  const visibleTasks = showArchived ? archivedTasks : showPinned ? pinnedTasks : activeTasks;
   const tasksByStatus = groupTasksByStatusForDisplay(visibleTasks);
 
   const activeId = terminals.activeTaskIdFor(selectedScopeKey);
   const pathIssueIsWorktree = projectPathIssue?.scope === "worktree";
+  const setTaskPinning = (taskId: string, pinning: boolean) => {
+    setPinningTaskIds((current) => {
+      if (pinning && current.has(taskId)) return current;
+      if (!pinning && !current.has(taskId)) return current;
+      const next = new Set(current);
+      if (pinning) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
+  };
 
   const toggleTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -1747,6 +1764,66 @@ function ProjectPage() {
       }
       toast.error(e instanceof Error ? e.message : "Could not rename session");
       throw e;
+    }
+  };
+
+  const toggleSessionPinned = async (taskId: string) => {
+    if (!project) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || task.archived) return;
+    const nextPinned = !task.pinned;
+    const previousPinned = task.pinned;
+    const requestId = (pinRequestSeqRef.current[taskId] ?? 0) + 1;
+    pinRequestSeqRef.current[taskId] = requestId;
+    setTaskPinning(taskId, true);
+
+    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
+    await queryClient.cancelQueries({ queryKey: tasksKey });
+    setTaskPinnedInCache(
+      queryClient,
+      project.id,
+      selectedWorktreeId,
+      taskId,
+      nextPinned,
+      activeRuntimeScopeId,
+    );
+
+    try {
+      const saved = await api.updateTask(taskId, { pinned: nextPinned });
+      if (pinRequestSeqRef.current[taskId] !== requestId) return;
+      queryClient.setQueryData<Task[]>(tasksKey, (current) =>
+        (current ?? []).map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                pinned: saved.task.pinned,
+                updatedAt: saved.task.updatedAt,
+              }
+            : t,
+        ),
+      );
+      void invalidateTasks();
+    } catch (e: unknown) {
+      if (pinRequestSeqRef.current[taskId] === requestId) {
+        const currentTask = queryClient.getQueryData<Task[]>(tasksKey)?.find((t) => t.id === taskId);
+        if (currentTask?.pinned === nextPinned) {
+          setTaskPinnedInCache(
+            queryClient,
+            project.id,
+            selectedWorktreeId,
+            taskId,
+            previousPinned,
+            activeRuntimeScopeId,
+          );
+        }
+        void invalidateTasks();
+        toast.error(e instanceof Error ? e.message : "Could not update pinned session");
+      }
+    } finally {
+      if (pinRequestSeqRef.current[taskId] === requestId) {
+        delete pinRequestSeqRef.current[taskId];
+        setTaskPinning(taskId, false);
+      }
     }
   };
 
@@ -2432,14 +2509,14 @@ function ProjectPage() {
               >
                 Sessions
               </div>
-              {(hasArchivedTasks || showArchived) && (
-                <SessionScopeToggle
-                  showArchived={showArchived}
-                  activeCount={activeTasks.length}
-                  archivedCount={archivedTasks.length}
-                  onChange={setShowArchived}
-                />
-              )}
+              <SessionScopeToggle
+                view={sessionView}
+                activeCount={activeTasks.length}
+                pinnedCount={pinnedTasks.length}
+                archivedCount={archivedTasks.length}
+                showArchivedTab={hasArchivedTasks || showArchived}
+                onChange={setSessionView}
+              />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {showArchived ? (
@@ -2517,7 +2594,18 @@ function ProjectPage() {
               subtitle="Archive a finished session to keep it around without cluttering your active list."
               icon="archive"
               action={
-                <Btn variant="primary" icon="list" onClick={() => setShowArchived(false)}>
+                <Btn variant="primary" icon="list" onClick={() => setSessionView("active")}>
+                  Back to active
+                </Btn>
+              }
+            />
+          ) : showPinned && visibleTasks.length === 0 ? (
+            <EmptyState
+              title="No pinned sessions"
+              subtitle="Pin sessions you want to keep an eye on, like loop runs."
+              icon="pin"
+              action={
+                <Btn variant="primary" icon="terminal" onClick={() => setSessionView("active")}>
                   Back to active
                 </Btn>
               }
@@ -2537,7 +2625,7 @@ function ProjectPage() {
                     }}
                   />
                   {hasArchivedTasks && (
-                    <Btn variant="ghost" icon="archive" onClick={() => setShowArchived(true)}>
+                    <Btn variant="ghost" icon="archive" onClick={() => setSessionView("archived")}>
                       View archived ({archivedTasks.length})
                     </Btn>
                   )}
@@ -2557,6 +2645,8 @@ function ProjectPage() {
                 onRestore={showArchived ? restoreSession : undefined}
                 onDelete={showArchived ? deleteTask : undefined}
                 onRename={renameSession}
+                onTogglePinned={showArchived ? undefined : toggleSessionPinned}
+                pinningTaskIds={showArchived ? undefined : pinningTaskIds}
                 headerAction={
                   !showArchived && status === "finished" && tasksByStatus.finished.length > 0 ? (
                     <Btn
@@ -3105,15 +3195,19 @@ function ProjectPage() {
 }
 
 function SessionScopeToggle({
-  showArchived,
+  view,
   activeCount,
+  pinnedCount,
   archivedCount,
+  showArchivedTab,
   onChange,
 }: {
-  showArchived: boolean;
+  view: SessionView;
   activeCount: number;
+  pinnedCount: number;
   archivedCount: number;
-  onChange: (showArchived: boolean) => void;
+  showArchivedTab: boolean;
+  onChange: (view: SessionView) => void;
 }) {
   const segment = (selected: boolean): CSSProperties => ({
     appearance: "none",
@@ -3139,10 +3233,24 @@ function SessionScopeToggle({
     color: "var(--text-faint)",
     fontVariantNumeric: "tabular-nums",
   };
+  const tabs: Array<{ view: SessionView; label: string; count: number; icon: "terminal" | "pin-fill" | "archive" }> = [
+    { view: "active", label: "Active", count: activeCount, icon: "terminal" },
+    { view: "pinned", label: "Pinned", count: pinnedCount, icon: "pin-fill" },
+  ];
+  if (showArchivedTab) {
+    tabs.push({ view: "archived", label: "Archived", count: archivedCount, icon: "archive" });
+  }
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectTabAt = (index: number) => {
+    const tab = tabs[index];
+    if (!tab) return;
+    onChange(tab.view);
+    requestAnimationFrame(() => tabRefs.current[index]?.focus());
+  };
   return (
     <div
       role="radiogroup"
-      aria-label="Show active or archived sessions"
+      aria-label="Show sessions by type"
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -3153,26 +3261,43 @@ function SessionScopeToggle({
         border: "1px solid var(--border)",
       }}
     >
-      <button
-        type="button"
-        role="radio"
-        aria-checked={!showArchived}
-        style={segment(!showArchived)}
-        onClick={() => onChange(false)}
-      >
-        Active
-        <span style={countStyle}>{activeCount}</span>
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={showArchived}
-        style={segment(showArchived)}
-        onClick={() => onChange(true)}
-      >
-        Archived
-        <span style={countStyle}>{archivedCount}</span>
-      </button>
+      {tabs.map((tab) => {
+        const selected = view === tab.view;
+        const tabIndex = tabs.findIndex((entry) => entry.view === tab.view);
+        return (
+          <button
+            key={tab.view}
+            ref={(node) => {
+              tabRefs.current[tabIndex] = node;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            tabIndex={selected ? 0 : -1}
+            style={segment(selected)}
+            onClick={() => onChange(tab.view)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                e.preventDefault();
+                selectTabAt((tabIndex + 1) % tabs.length);
+              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                e.preventDefault();
+                selectTabAt((tabIndex - 1 + tabs.length) % tabs.length);
+              } else if (e.key === "Home") {
+                e.preventDefault();
+                selectTabAt(0);
+              } else if (e.key === "End") {
+                e.preventDefault();
+                selectTabAt(tabs.length - 1);
+              }
+            }}
+          >
+            <Icon name={tab.icon} size={13} />
+            {tab.label}
+            <span style={countStyle}>{tab.count}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
