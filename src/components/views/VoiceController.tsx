@@ -12,11 +12,13 @@ import { parseCustomScripts } from "~/shared/domain";
 import { parseVoiceCommand, type VoiceProject } from "~/lib/voice-intent";
 import { usePushToTalk } from "~/lib/use-push-to-talk";
 import { startRecording, type VoiceRecording } from "~/lib/voice-capture";
+import { playVoiceCue } from "~/lib/voice-sound";
 import {
   emptyVoiceCommandAliases,
   type VoiceCommandAliases,
 } from "~/shared/voice-command-aliases";
 import {
+  dispatchVoicePasteToFocusedSession,
   dispatchVoiceNewAgent,
   dispatchVoiceOpenBrowser,
   dispatchVoiceOpenDiff,
@@ -24,6 +26,7 @@ import {
   dispatchVoiceRunScript,
   dispatchVoiceShip,
 } from "~/lib/voice-events";
+import { isSessionTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { RecordingIndicator, type VoiceStatus } from "./RecordingIndicator";
 import { VoiceDisambiguation } from "./VoiceDisambiguation";
 
@@ -111,7 +114,10 @@ export function VoiceController() {
       id: s.id,
       name: s.name,
     }));
-    const command = parseVoiceCommand(text, projects, scripts, ctx.current.voiceCommandAliases);
+    const sessionInputFocused = isSessionTerminalXtermFocused();
+    const command = parseVoiceCommand(text, projects, scripts, ctx.current.voiceCommandAliases, {
+      allowFreeformTask: !sessionInputFocused,
+    });
     switch (command.kind) {
       case "empty":
         toast.info("Didn't catch that — try again.");
@@ -176,6 +182,12 @@ export function VoiceController() {
         );
         return;
       case "unrecognized":
+        if (sessionInputFocused) {
+          const transcript = text.trim();
+          if (transcript && dispatchVoicePasteToFocusedSession(transcript)) return;
+          toast.info("Focused session isn't ready for voice input yet.");
+          return;
+        }
         // Never spawn an agent on arbitrary speech — tell the user what to say.
         toast.info('Didn\'t catch a command. Try "open <project>" or "create an agent to <task>".');
         return;
@@ -185,6 +197,7 @@ export function VoiceController() {
   const begin = async () => {
     const electron = getElectron();
     sessionGen.current += 1;
+    const gen = sessionGen.current;
     setDisambiguation(null);
     if (!available.current) {
       toast.error(WHISPER_UNAVAILABLE_MESSAGE);
@@ -196,6 +209,7 @@ export function VoiceController() {
       const starting = startRecording();
       startingRef.current = starting;
       recorderRef.current = await starting;
+      if (gen === sessionGen.current) playVoiceCue("start");
     } catch {
       startingRef.current = null;
       setStatus("idle");
@@ -220,6 +234,8 @@ export function VoiceController() {
     if (live()) setStatus("transcribing");
     try {
       const wav = await recorder.stop();
+      if (!live()) return;
+      playVoiceCue("end");
       const electron = getElectron();
       const result = await electron?.voice.transcribe(
         wav,

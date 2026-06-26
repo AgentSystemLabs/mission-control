@@ -12,6 +12,7 @@ export const VOICE_OPEN_DIFF_EVENT = "mc:voice-open-diff";
 export const VOICE_SHIP_EVENT = "mc:voice-ship";
 export const VOICE_RUN_SCRIPT_EVENT = "mc:voice-run-script";
 export const VOICE_NEW_AGENT_EVENT = "mc:voice-new-agent";
+export const VOICE_PASTE_TO_FOCUSED_SESSION_EVENT = "mc:voice-paste-to-focused-session";
 
 export type VoiceNewAgentDetail = {
   /** The task to seed the new agent session with (may be empty). */
@@ -21,6 +22,10 @@ export type VoiceNewAgentDetail = {
 };
 
 export type VoiceRunScriptDetail = { scriptId: string };
+export type VoicePasteToFocusedSessionDetail = {
+  text: string;
+  handled: boolean;
+};
 
 export function dispatchVoiceRunProject(): void {
   window.dispatchEvent(new CustomEvent(VOICE_RUN_PROJECT_EVENT));
@@ -48,4 +53,10 @@ export function dispatchVoiceNewAgent(prompt: string, agent?: TaskAgent): void {
   window.dispatchEvent(
     new CustomEvent<VoiceNewAgentDetail>(VOICE_NEW_AGENT_EVENT, { detail: { prompt, agent } }),
   );
+}
+
+export function dispatchVoicePasteToFocusedSession(text: string): boolean {
+  const detail: VoicePasteToFocusedSessionDetail = { text, handled: false };
+  window.dispatchEvent(new CustomEvent(VOICE_PASTE_TO_FOCUSED_SESSION_EVENT, { detail }));
+  return detail.handled;
 }

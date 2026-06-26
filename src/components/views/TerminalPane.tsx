@@ -10,6 +10,10 @@ import {
 } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
 import { takePendingInitialInput } from "~/lib/voice-session-prompts";
+import {
+  VOICE_PASTE_TO_FOCUSED_SESSION_EVENT,
+  type VoicePasteToFocusedSessionDetail,
+} from "~/lib/voice-events";
 import { consumeIntentionalSessionClose } from "~/lib/intentional-session-close";
 import { isRemotePtyId } from "~/lib/pty-id";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
@@ -35,6 +39,7 @@ import {
   buildFreshAgentLaunchCommand,
   isAgentResumeCommand,
   newSessionId,
+  shouldInjectInitialInput,
 } from "~/lib/agent-command";
 import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
@@ -311,6 +316,20 @@ export function TerminalPane({
         });
       }
 
+      const onVoicePaste = (event: Event) => {
+        const detail = (event as CustomEvent<VoicePasteToFocusedSessionDetail>).detail;
+        if (!detail?.text || !activePtyId) return;
+        const activeEl = document.activeElement;
+        if (!(activeEl instanceof HTMLElement) || !host.contains(activeEl)) return;
+        term.paste(detail.text);
+        term.focus();
+        detail.handled = true;
+      };
+      window.addEventListener(VOICE_PASTE_TO_FOCUSED_SESSION_EVENT, onVoicePaste);
+      subscriptions.push(() =>
+        window.removeEventListener(VOICE_PASTE_TO_FOCUSED_SESSION_EVENT, onVoicePaste),
+      );
+
       // If an agent process exits before it has had a chance to render its
       // first useful prompt, preserve the panel so the user can read the error.
       const START_FAILURE_EXIT_MS = 3000;
@@ -586,6 +605,9 @@ export function TerminalPane({
       const spawnAndWire = async (command: string, isResume: boolean) => {
         if (!electron) return;
         const ptySize = normalizePtySize({ cols: term.cols, rows: term.rows });
+        const initialInput = !useSandbox && shouldInjectInitialInput(task.agent, isResume)
+          ? takePendingInitialInput(descriptor.taskId)
+          : undefined;
         const { ptyId } = useSandbox
           ? await electron.remotePty.spawn({
               taskId: descriptor.taskId,
@@ -610,7 +632,7 @@ export function TerminalPane({
               missionControlTheme: getTerminalColorScheme(),
               // Voice-seeded starting prompt, consumed once on the first spawn so
               // reloads/re-spawns never re-inject it. Undefined for normal sessions.
-              initialInput: isResume ? undefined : takePendingInitialInput(descriptor.taskId),
+              initialInput,
             });
         spawnAt = Date.now();
         spawnedAsResume = isResume;

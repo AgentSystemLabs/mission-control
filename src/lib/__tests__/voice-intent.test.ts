@@ -296,6 +296,31 @@ describe("freeform task -> default agent (no 'create an agent' needed)", () => {
     expect(cmd).toEqual({ kind: "new-agent", prompt: phrase });
     if (cmd.kind === "new-agent") expect(cmd.agent).toBeUndefined();
   });
+
+  it("can disable implicit task commands for focused-session dictation", () => {
+    expect(
+      parseVoiceCommand("fix the login bug", PROJECTS, SCRIPTS, undefined, {
+        allowFreeformTask: false,
+      }),
+    ).toEqual({ kind: "unrecognized", transcript: "fix the login bug" });
+  });
+
+  it("still recognizes explicit commands when implicit tasks are disabled", () => {
+    expect(
+      parseVoiceCommand("open a claude agent fix the login bug", PROJECTS, SCRIPTS, undefined, {
+        allowFreeformTask: false,
+      }),
+    ).toEqual({
+      kind: "new-agent",
+      agent: "claude-code",
+      prompt: "fix the login bug",
+    });
+    expect(
+      parseVoiceCommand("switch to mission control", PROJECTS, SCRIPTS, undefined, {
+        allowFreeformTask: false,
+      }),
+    ).toMatchObject({ kind: "switch-project", projectId: "p2" });
+  });
 });
 
 describe("unrecognized — noise/filler never spawns an agent", () => {

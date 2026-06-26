@@ -52,6 +52,13 @@ export function isAgentResumeCommand(agent: TaskAgent, command: string): boolean
   return false;
 }
 
+export function shouldInjectInitialInput(agent: TaskAgent, isResume: boolean): boolean {
+  // Cursor voice launches intentionally start with `--resume <chatId>` so the
+  // chat id is stable before hooks run. Seed the first prompt via TTY input even
+  // though the command is technically a resume launch.
+  return !isResume || agent === "cursor-cli";
+}
+
 export function buildCursorCommand(opts: {
   sessionId: string;
   skipPermissions: boolean;

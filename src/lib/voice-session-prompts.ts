@@ -1,6 +1,6 @@
 // Consume-once registry of starting prompts for voice-created sessions, keyed by
 // taskId. createSession stashes the spoken task here; TerminalPane reads it at
-// the first (non-resume) spawn and passes it as the PTY's initialInput, then it's
+// the first seedable spawn and passes it as the PTY's initialInput, then it's
 // gone — so reloads and re-spawns of the same session never re-inject the prompt.
 // Keeping it out-of-band means the normal session path is completely unaffected.
 

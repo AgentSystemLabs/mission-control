@@ -32,6 +32,14 @@ export type VoiceCommand =
   | { kind: "unrecognized"; transcript: string }
   | { kind: "empty" };
 
+export type VoiceParseOptions = {
+  /**
+   * When false, bare action phrases ("fix the bug") stay as dictation instead of
+   * starting a default agent. Explicit agent commands still work.
+   */
+  allowFreeformTask?: boolean;
+};
+
 const LEADING_FILLER =
   /^(?:please|hey|ok|okay|um+|uh+|so|now|alright|yo|just|go ahead and|i (?:want|wanna|need|would like) (?:to|you to)|i'?d like (?:to|you to)|can you|could you|would you|will you|let'?s|let us)[,.;:]?\s+/i;
 const TRAILING_FILLER = /\s+(?:please|thanks|thank you|now|for me)$/i;
@@ -170,9 +178,11 @@ export function parseVoiceCommand(
   projects: VoiceProject[],
   scripts: VoiceScript[] = [],
   aliases?: VoiceCommandAliases,
+  options: VoiceParseOptions = {},
 ): VoiceCommand {
   const cleaned = cleanTranscript(transcript ?? "");
   if (!cleaned) return { kind: "empty" };
+  const allowFreeformTask = options.allowFreeformTask ?? true;
 
   // 1. Explicit "create an agent to X" / "have claude X" — these have
   //    unambiguous markers (an agent/session/task keyword, or "ask claude"), so
@@ -279,7 +289,7 @@ export function parseVoiceCommand(
   // 9. Freeform task → default agent, even without "create an agent". Only when
   //    it reads like an instruction (starts with an action verb); pure noise or
   //    filler ("yeah yeah okay") stays unrecognized so it never spawns work.
-  if (TASK_VERB_RE.test(cleaned)) {
+  if (allowFreeformTask && TASK_VERB_RE.test(cleaned)) {
     return { kind: "new-agent", prompt: cleaned };
   }
 

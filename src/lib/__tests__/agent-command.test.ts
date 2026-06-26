@@ -9,6 +9,7 @@ import {
   buildOpencodeCommand,
   isAgentResumeCommand,
   isOpencodeSessionId,
+  shouldInjectInitialInput,
 } from "../agent-command";
 
 const baseTask = {
@@ -226,6 +227,24 @@ describe("isAgentResumeCommand", () => {
       ),
     ).toBe(true);
     expect(isAgentResumeCommand("codex", "codex --enable hooks")).toBe(false);
+  });
+});
+
+describe("shouldInjectInitialInput", () => {
+  it("seeds fresh launches for agents that start new sessions", () => {
+    expect(shouldInjectInitialInput("claude-code", false)).toBe(true);
+    expect(shouldInjectInitialInput("codex", false)).toBe(true);
+    expect(shouldInjectInitialInput("opencode", false)).toBe(true);
+  });
+
+  it("still seeds Cursor voice launches even though they use --resume", () => {
+    expect(shouldInjectInitialInput("cursor-cli", true)).toBe(true);
+  });
+
+  it("does not re-seed normal resume launches", () => {
+    expect(shouldInjectInitialInput("claude-code", true)).toBe(false);
+    expect(shouldInjectInitialInput("codex", true)).toBe(false);
+    expect(shouldInjectInitialInput("opencode", true)).toBe(false);
   });
 });
 
