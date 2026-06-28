@@ -167,6 +167,25 @@ type DeleteWorktreeMode = "clean" | "stash" | "discard";
 type SessionView = "active" | "pinned" | "archived";
 const WORKTREE_DELETE_FILES_MAX_HEIGHT = 220;
 
+function apiErrorMessage(error: unknown): string | null {
+  if (error instanceof ApiError) {
+    const body =
+      error.body && typeof error.body === "object"
+        ? (error.body as { error?: unknown; stderr?: unknown })
+        : null;
+    if (typeof body?.error === "string" && body.error.trim()) return body.error.trim();
+    if (typeof body?.stderr === "string" && body.stderr.trim()) return body.stderr.trim();
+    return error.message;
+  }
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  return null;
+}
+
+function gitUnavailableTitle(error: unknown): string {
+  const message = apiErrorMessage(error);
+  return message ? `Git unavailable: ${message}` : "Git unavailable";
+}
+
 function worktreeChangeLabel(count: number | undefined): string {
   if (count === undefined) return "Checking changes";
   return `${count} changed file${count === 1 ? "" : "s"}`;
@@ -457,9 +476,17 @@ function ProjectPage() {
   const hasArchivedTasks = tasks.some((t) => t.archived);
   const groups = groupsQuery.data ?? [];
   useApiToken();
-  const { data: gitStatus, refetch: refetchGitStatus } = useGitStatus(id, selectedWorktreeId, {
+  const {
+    data: gitStatusData,
+    error: gitStatusError,
+    isError: gitStatusIsError,
+    refetch: refetchGitStatus,
+  } = useGitStatus(id, selectedWorktreeId, {
     enabled: projectPathUsable,
   });
+  const gitStatus = gitStatusIsError ? undefined : gitStatusData;
+  const gitUnavailable = projectPathReady && gitStatusIsError;
+  const gitUnavailableMessage = gitUnavailable ? gitUnavailableTitle(gitStatusError) : null;
   const createPullRequest = useCreatePullRequestAction({
     projectId: id,
     worktreeId: selectedWorktreeId,
@@ -997,7 +1024,10 @@ function ProjectPage() {
   );
 
   const createProjectWorktree = useCallback(async () => {
-    if (!worktreesEnabled || !project || creatingWorktreeRef.current) return;
+    if (!worktreesEnabled || !project || creatingWorktreeRef.current || projectPathBlocked || gitUnavailable) {
+      if (gitUnavailableMessage) toast.error(gitUnavailableMessage);
+      return;
+    }
     creatingWorktreeRef.current = true;
     setCreatingWorktree(true);
     const worktreesKey = queryKeys.worktrees(project.id);
@@ -1061,6 +1091,9 @@ function ProjectPage() {
     queryClient,
     worktreesEnabled,
     activeRuntimeScopeId,
+    projectPathBlocked,
+    gitUnavailable,
+    gitUnavailableMessage,
   ]);
 
   const closeDeleteWorktreeDialog = useCallback(() => {
@@ -1648,7 +1681,7 @@ function ProjectPage() {
     useCallback(
       (e) => {
         if (e.type.startsWith("task:")) {
-          void invalidateTasks();
+          void refresh();
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
           void invalidateProject();
@@ -1657,7 +1690,7 @@ function ProjectPage() {
           void invalidateProjects();
         }
       },
-      [invalidateTasks, invalidateProject, invalidateProjects, invalidateWorktrees]
+      [refresh, invalidateProject, invalidateProjects, invalidateWorktrees]
     )
   );
 
@@ -1857,7 +1890,7 @@ function ProjectPage() {
           isActive ? { activateTaskId: next?.id ?? null } : undefined,
         );
         await api.deleteTask(taskId);
-        void invalidateTasks();
+        void refresh();
       } catch (e: unknown) {
         if (previousTasks) {
           restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
@@ -1983,7 +2016,7 @@ function ProjectPage() {
             await api.archiveTask(t.id);
           }),
         );
-        void invalidateTasks();
+        void refresh();
       } catch (e: unknown) {
         if (previousTasks) {
           restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
@@ -2012,7 +2045,7 @@ function ProjectPage() {
     void (async () => {
       try {
         await api.restoreTask(taskId);
-        void invalidateTasks();
+        void refresh();
       } catch (e: unknown) {
         if (previousTasks) {
           restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
@@ -2039,10 +2072,10 @@ function ProjectPage() {
         await Promise.all(
           archived.map(async (t) => {
             await terminals.close(t.id).catch(() => undefined);
-            await api.deleteTask(t.id).catch(() => undefined);
+            await api.deleteTask(t.id);
           }),
         );
-        void invalidateTasks();
+        void refresh();
       } catch (e: unknown) {
         if (previousTasks) {
           restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
@@ -2105,6 +2138,8 @@ function ProjectPage() {
             onSelect={selectWorktree}
             onDeleteSelected={() => setConfirmDeleteWorktree(true)}
             mainBranchLabel={gitStatus?.branch}
+            mainBranchUnavailable={gitUnavailable}
+            mainBranchUnavailableTitle={gitUnavailableMessage ?? undefined}
             branchSwitchDisabled={projectPathBlocked}
             maxWidth="min(420px, 34vw)"
           />
@@ -2128,9 +2163,13 @@ function ProjectPage() {
               variant="ghost"
               icon="git-branch"
               onClick={() => void createProjectWorktree()}
-              disabled={creatingWorktree}
+              disabled={creatingWorktree || projectPathBlocked || gitUnavailable}
               aria-label="Create worktree"
-              title="Create worktree"
+              title={
+                projectPathBlocked
+                  ? "Project folder unavailable"
+                  : gitUnavailableMessage || "Create worktree"
+              }
             />
             <span
               aria-hidden
@@ -3310,6 +3349,8 @@ function WorktreeToggleGroup({
   onSelect,
   onDeleteSelected,
   mainBranchLabel,
+  mainBranchUnavailable = false,
+  mainBranchUnavailableTitle,
   branchSwitchDisabled = false,
   maxWidth = 420,
 }: {
@@ -3321,6 +3362,8 @@ function WorktreeToggleGroup({
   onDeleteSelected?: (worktree: WorktreeInfo) => void;
   /** Live git branch for the main worktree — shown instead of the "main" id. */
   mainBranchLabel?: string | null;
+  mainBranchUnavailable?: boolean;
+  mainBranchUnavailableTitle?: string;
   branchSwitchDisabled?: boolean;
   maxWidth?: number | string;
 }) {
@@ -3380,14 +3423,39 @@ function WorktreeToggleGroup({
                   }}
                 />
               )}
-              <BranchTypeahead
-                projectId={projectId}
-                worktreeId={null}
-                branch={mainBranchLabel}
-                disabled={branchSwitchDisabled}
-                worktreePath={worktree.path}
-                selected
-              />
+              {mainBranchUnavailable ? (
+                <Btn
+                  variant="ghost"
+                  icon="git-branch"
+                  disabled
+                  title={mainBranchUnavailableTitle ?? "Git unavailable"}
+                  style={{
+                    fontFamily: "var(--mono)",
+                    maxWidth: "min(36ch, 42vw)",
+                    color: "var(--text-dim)",
+                  }}
+                >
+                  <span
+                    style={{
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    No Git repo
+                  </span>
+                </Btn>
+              ) : (
+                <BranchTypeahead
+                  projectId={projectId}
+                  worktreeId={null}
+                  branch={mainBranchLabel}
+                  disabled={branchSwitchDisabled}
+                  worktreePath={worktree.path}
+                  selected
+                />
+              )}
             </div>
           ) : (
           <div

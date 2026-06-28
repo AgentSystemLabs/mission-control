@@ -173,19 +173,37 @@ async function gitOk(cwd: string, args: string[], timeoutMs?: number): Promise<s
   return r.stdout;
 }
 
+async function assertGitRepository(cwd: string): Promise<void> {
+  const r = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
+  if (r.code === 0 && r.stdout.trim() === "true") return;
+  throw new GitError(
+    "Project folder is not a Git repository.",
+    r.stderr.trim() || "Run git init in this folder to enable branches and worktrees.",
+  );
+}
+
+async function currentBranchName(cwd: string): Promise<string> {
+  const symbolic = await runGit(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (symbolic.code === 0 && symbolic.stdout.trim()) return symbolic.stdout.trim();
+  const abbreviated = await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (abbreviated.code === 0 && abbreviated.stdout.trim()) return abbreviated.stdout.trim();
+  return "HEAD";
+}
+
 // mapStatusCode + parsePorcelainZ now live in ~/shared/git-status (imported and
 // re-exported above) so the remote agent's git RPC parses identically.
 
 export async function getGitStatus(projectId: string, worktreeId?: string | null): Promise<GitStatus> {
   const cwd = projectCwd(projectId, worktreeId);
+  await assertGitRepository(cwd);
   const [statusOut, branchOut, aheadCount] = await Promise.all([
     gitOk(cwd, ["status", "--porcelain=v1", "-uall", "-z"]),
-    gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "HEAD\n"),
+    currentBranchName(cwd),
     countAhead(cwd),
   ]);
   const { staged, unstaged } = parsePorcelainZ(statusOut);
   return {
-    branch: branchOut.trim() || "HEAD",
+    branch: branchOut || "HEAD",
     staged,
     unstaged,
     changedCount: changedFileCount(staged, unstaged),
@@ -713,15 +731,14 @@ export async function listGitBranches(
   worktreeId?: string | null,
 ): Promise<GitBranchesResult> {
   const cwd = projectCwd(projectId, worktreeId);
+  await assertGitRepository(cwd);
   const [localOut, remoteOut, currentOut] = await Promise.all([
     listBranchRefNames(cwd, "refs/heads/"),
     listBranchRefNames(cwd, "refs/remotes/"),
-    runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).then((r) =>
-      r.code === 0 ? r.stdout : "HEAD\n",
-    ),
+    currentBranchName(cwd),
   ]);
   return {
-    current: currentOut.trim() || "HEAD",
+    current: currentOut || "HEAD",
     branches: parseBranchList(localOut, remoteOut),
   };
 }
@@ -733,11 +750,12 @@ export async function checkoutGitBranch(
   opts: { create?: boolean } = {},
 ): Promise<GitCheckoutResult> {
   const cwd = projectCwd(projectId, worktreeId);
+  await assertGitRepository(cwd);
   const name = branchName.trim();
   if (!name) throw new GitError("Branch name cannot be empty");
   await assertValidBranchName(cwd, name);
 
-  const current = (await gitOk(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+  const current = await currentBranchName(cwd);
   if (current === name) return { branch: name, created: false };
 
   if (await localBranchExists(cwd, name)) {

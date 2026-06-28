@@ -25,6 +25,9 @@ import {
   dispatchVoiceRunProject,
   dispatchVoiceRunScript,
   dispatchVoiceShip,
+  VOICE_PTT_START_EVENT,
+  VOICE_PTT_STOP_EVENT,
+  VOICE_PTT_CANCEL_EVENT,
 } from "~/lib/voice-events";
 import { isSessionTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { RecordingIndicator, type VoiceStatus } from "./RecordingIndicator";
@@ -278,6 +281,25 @@ export function VoiceController() {
     { onStart: () => void begin(), onStop: () => void finish(), onCancel: abort },
     { enabled },
   );
+
+  // The header mic button drives the exact same flow as the keybinding, but via
+  // pointer hold instead of keydown — it dispatches PTT events that map here.
+  const controls = useRef({ begin, finish, abort });
+  controls.current = { begin, finish, abort };
+  useEffect(() => {
+    if (!enabled) return;
+    const onStart = () => void controls.current.begin();
+    const onStop = () => void controls.current.finish();
+    const onCancel = () => controls.current.abort();
+    window.addEventListener(VOICE_PTT_START_EVENT, onStart);
+    window.addEventListener(VOICE_PTT_STOP_EVENT, onStop);
+    window.addEventListener(VOICE_PTT_CANCEL_EVENT, onCancel);
+    return () => {
+      window.removeEventListener(VOICE_PTT_START_EVENT, onStart);
+      window.removeEventListener(VOICE_PTT_STOP_EVENT, onStop);
+      window.removeEventListener(VOICE_PTT_CANCEL_EVENT, onCancel);
+    };
+  }, [enabled]);
 
   return (
     <>

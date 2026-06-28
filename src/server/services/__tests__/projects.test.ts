@@ -107,7 +107,7 @@ describe("projects service", () => {
     expect(repinned?.pinnedOrder).toBe(1);
   });
 
-  it("reorders pinned projects independently per sandbox scope", () => {
+  it("reorders pinned projects across legacy sandbox-scoped rows", () => {
     const db = getDb();
     const sandboxId = "sb-test";
     const now = Date.now();
@@ -137,10 +137,11 @@ describe("projects service", () => {
     const sandbox = createProject({ name: "sandbox", path: dirSandbox, sandboxId });
     togglePin(local.id);
     togglePin(sandbox.id);
-    expect(() => reorderPinnedProjects([sandbox.id])).not.toThrow();
-    expect(() => reorderPinnedProjects([local.id])).not.toThrow();
     expect(getProject(local.id)?.pinnedOrder).toBe(0);
+    expect(getProject(sandbox.id)?.pinnedOrder).toBe(1);
+    expect(() => reorderPinnedProjects([sandbox.id, local.id])).not.toThrow();
     expect(getProject(sandbox.id)?.pinnedOrder).toBe(0);
+    expect(getProject(local.id)?.pinnedOrder).toBe(1);
   });
 
   it("persists pinned reorder across reads", () => {

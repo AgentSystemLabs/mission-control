@@ -87,6 +87,15 @@ describe("worktree helpers", () => {
     );
   });
 
+  it("refuses to create worktrees for projects that are not git repositories", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-worktree-non-git-"));
+    tempDirs.push(root);
+    const project = createProject({ name: "non-git", path: root });
+
+    await expect(createWorktree(project.id)).rejects.toThrow(/not a Git repository/);
+    expect(fs.existsSync(path.join(root, ".worktree"))).toBe(false);
+  });
+
   it("refuses to delete dirty worktrees without an explicit choice", async () => {
     const { project, worktree } = await createProjectWorktree();
     fs.writeFileSync(path.join(worktree.path, "dirty.txt"), "dirty\n");

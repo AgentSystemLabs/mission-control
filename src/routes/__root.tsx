@@ -52,6 +52,7 @@ import {
 
 import { UsagePanel } from "~/components/views/UsagePanel";
 import { VoiceController } from "~/components/views/VoiceController";
+import { VoicePushToTalkButton } from "~/components/views/VoicePushToTalkButton";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
@@ -538,6 +539,7 @@ function Shell() {
           right={
             <>
               <UpdateAvailableButton />
+              <VoicePushToTalkButton />
               <SessionNotificationsButton
                 notifications={appNotifications}
                 onClearNotification={clearAppNotificationItem}

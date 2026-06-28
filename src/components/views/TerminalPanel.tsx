@@ -87,13 +87,17 @@ export function TerminalPanel({
     setDeleting(true);
     try {
       await Promise.all([onClose(active.taskId), api.deleteTask(active.taskId)]);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks(
-          active.project.id,
-          active.project.activeWorktreeId ?? null,
-          active.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
-        ),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasks(
+            active.project.id,
+            active.project.activeWorktreeId ?? null,
+            active.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
+          ),
+        }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.project(active.project.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+      ]);
     } finally {
       setDeleting(false);
       setConfirmDelete(false);

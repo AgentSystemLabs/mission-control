@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
 
@@ -18,14 +19,17 @@ type BtnProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "size"> & {
   children?: ReactNode;
 };
 
-export function Btn({
-  variant = "ghost",
-  size = "md",
-  icon,
-  children,
-  className,
-  ...rest
-}: BtnProps) {
+export const Btn = forwardRef<HTMLButtonElement, BtnProps>(function Btn(
+  {
+    variant = "ghost",
+    size = "md",
+    icon,
+    children,
+    className,
+    ...rest
+  },
+  ref
+) {
   const classes = ["mc-btn", `mc-btn-${variant}`, `mc-btn-${size}`, className ?? ""]
     .filter(Boolean)
     .join(" ");
@@ -33,6 +37,7 @@ export function Btn({
   return (
     <button
       {...rest}
+      ref={ref}
       className={classes}
     >
       <span className="mc-btn-content">
@@ -41,4 +46,4 @@ export function Btn({
       </span>
     </button>
   );
-}
+});

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { Pencil } from "lucide-react";
 import { TiPin, TiPinOutline } from "react-icons/ti";
 
 export type IconName =
@@ -32,6 +33,7 @@ export type IconName =
   | "refresh"
   | "sparkles"
   | "copy"
+  | "pencil"
   | "eye"
   | "eye-off"
   | "trash"
@@ -45,7 +47,8 @@ export type IconName =
   | "shield"
   | "bell"
   | "zoom-in"
-  | "zoom-out";
+  | "zoom-out"
+  | "mic";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const common = {
@@ -217,6 +220,8 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <path d="M11 5V3a1 1 0 00-1-1H3a1 1 0 00-1 1v7a1 1 0 001 1h2" />
         </svg>
       );
+    case "pencil":
+      return <Pencil size={size} strokeWidth={1.8} absoluteStrokeWidth style={style} />;
     case "eye":
       return (
         <svg {...common}>
@@ -313,6 +318,14 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <circle cx="7" cy="7" r="4.5" />
           <path d="M13.5 13.5l-3-3" />
           <path d="M4.5 7h5" />
+        </svg>
+      );
+    case "mic":
+      return (
+        <svg {...common}>
+          <rect x="6" y="2" width="4" height="7" rx="2" />
+          <path d="M4 7.5a4 4 0 008 0" />
+          <path d="M8 11.5V14M5.5 14h5" />
         </svg>
       );
     default:

@@ -110,6 +110,15 @@ async function gitOk(cwd: string, args: string[]): Promise<string> {
   return result.stdout;
 }
 
+async function assertGitRepository(cwd: string): Promise<void> {
+  const result = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
+  if (result.code === 0 && result.stdout.trim() === "true") return;
+  throw new WorktreeGitError(
+    "Project folder is not a Git repository.",
+    result.stderr.trim() || "Run git init in this folder to enable worktrees.",
+  );
+}
+
 function randomToken(): string {
   return NAME_PARTS[Math.floor(Math.random() * NAME_PARTS.length)]!;
 }
@@ -193,6 +202,7 @@ export async function createWorktree(projectId: string): Promise<{
   if (!fs.existsSync(projectRoot) || !fs.statSync(projectRoot).isDirectory()) {
     throw new Error("project path does not exist on disk");
   }
+  await assertGitRepository(projectRoot);
   await fs.promises.mkdir(path.join(projectRoot, ".worktree"), { recursive: true });
 
   let lastError: unknown = null;
