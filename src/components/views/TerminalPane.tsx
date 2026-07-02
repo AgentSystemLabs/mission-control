@@ -32,7 +32,11 @@ import {
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
-import { useTerminalZoom, useTerminalPaneZoomShortcuts } from "~/lib/use-terminal-zoom";
+import {
+  useTerminalZoom,
+  useTerminalPaneZoomShortcuts,
+  useTerminalPaneWheelZoom,
+} from "~/lib/use-terminal-zoom";
 import { useHotkey } from "~/lib/use-hotkey";
 import { SandboxCloneOfferBanner } from "~/components/views/SandboxCloneOfferBanner";
 import { TerminalZoomControls } from "~/components/views/TerminalZoomControls";
@@ -147,6 +151,7 @@ export function TerminalPane({
     canZoomOut,
   } = useTerminalZoom(descriptor.taskId);
   useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut);
+  useTerminalPaneWheelZoom(paneRef, zoomIn, zoomOut);
 
   const activeRuntimeScopeId = project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID;
   const { data: liveTasks } = useTasks(
