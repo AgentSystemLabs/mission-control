@@ -517,7 +517,12 @@ function ProjectPage() {
     if (sessionView === "archived" && !hasArchivedTasks) setSessionView("active");
   }, [sessionView, hasArchivedTasks]);
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
+  const [fileFinderResetKey, setFileFinderResetKey] = useState(0);
   const [openFileRel, setOpenFileRel] = useState<string | null>(null);
+  const openFileFinderFresh = useCallback(() => {
+    setFileFinderResetKey((v) => v + 1);
+    setFileFinderOpen(true);
+  }, []);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
   const [showCustomScriptsConfig, setShowCustomScriptsConfig] = useState(false);
   const [showWorktreeSetupConfig, setShowWorktreeSetupConfig] = useState(false);
@@ -1425,12 +1430,13 @@ function ProjectPage() {
     "file.finder",
     () => {
       if (openFileRel || showNewAgent || showEdit || confirmRemove || !projectPathReady) return;
-      setFileFinderOpen((v) => !v);
+      if (fileFinderOpen) setFileFinderOpen(false);
+      else openFileFinderFresh();
     },
   );
 
   // Start an agent session seeded with a spoken task (voice control). When the
-  // user didn't name an agent, fall back to the project's default (savedAgent).
+  // user didn't name a harness, use Settings -> Defaults.
   const startVoiceAgent = useCallback(
     (prompt: string, agent?: TaskAgent) => {
       if (!project || !projectPathReady) return;
@@ -1442,11 +1448,11 @@ function ProjectPage() {
       }
       const payload = defaultSessionPayload(project);
       void createSession(
-        { ...payload, agent: agent ?? payload.agent, bareSession: false },
+        { ...payload, agent: agent ?? settings?.defaultAgent ?? "claude-code", bareSession: false },
         { initialInput: prompt },
       );
     },
-    [project, projectPathReady, activeRuntimeScopeId, createSession],
+    [project, projectPathReady, activeRuntimeScopeId, createSession, settings?.defaultAgent],
   );
 
   // Command bus: VoiceController (mounted at root) dispatches these for the
@@ -1755,49 +1761,6 @@ function ProjectPage() {
       lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId };
     }
     if (terminalProject) terminals.toggle(terminalProject, task);
-  };
-
-  const renameSession = async (taskId: string, title: string) => {
-    if (!project) return;
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task || task.title === trimmed) return;
-
-    const tasksKey = queryKeys.tasks(project.id, selectedWorktreeId, activeRuntimeScopeId);
-    await queryClient.cancelQueries({ queryKey: tasksKey });
-    const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
-
-    queryClient.setQueryData<Task[]>(tasksKey, (current) =>
-      (current ?? []).map((t) =>
-        t.id === taskId
-          ? { ...t, title: trimmed, titleManuallySet: true, updatedAt: Date.now() }
-          : t,
-      ),
-    );
-
-    try {
-      const saved = await api.updateTask(taskId, { title: trimmed });
-      queryClient.setQueryData<Task[]>(tasksKey, (current) =>
-        (current ?? []).map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                title: saved.task.title,
-                titleManuallySet: saved.task.titleManuallySet,
-                updatedAt: saved.task.updatedAt,
-              }
-            : t,
-        ),
-      );
-      void invalidateTasks();
-    } catch (e: unknown) {
-      if (previousTasks) {
-        restoreTasksCache(queryClient, project.id, selectedWorktreeId, previousTasks, activeRuntimeScopeId);
-      }
-      toast.error(e instanceof Error ? e.message : "Could not rename session");
-      throw e;
-    }
   };
 
   const toggleSessionPinned = async (taskId: string) => {
@@ -2350,7 +2313,7 @@ function ProjectPage() {
                     icon="search"
                     onClick={() => {
                       setOverflowOpen(false);
-                      setFileFinderOpen(true);
+                      openFileFinderFresh();
                     }}
                     disabled={projectPathBlocked}
                   >
@@ -2472,36 +2435,63 @@ function ProjectPage() {
               document.body,
             )}
           </div>
-          {headerActions}
-          <CustomScriptsButton
-            scripts={customScripts}
-            onRun={runScript}
-            disabled={!projectPathUsable}
-          />
           <div
-            role="group"
-            aria-label="Review changes and commit"
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 0,
-              maxWidth: 480,
+              justifyContent: "flex-end",
+              gap: 8,
+              flexWrap: "wrap",
+              marginLeft: "auto",
               minWidth: 0,
             }}
           >
-            <ProjectGitStatusButton
-              changedCount={gitStatus?.changedCount}
-              onClick={onToggleDiffView}
-              disabled={projectPathBlocked}
+            {headerActions}
+            <CustomScriptsButton
+              scripts={customScripts}
+              onRun={runScript}
+              disabled={!projectPathUsable}
             />
-            <CommitPushButton
-              projectId={id}
-              worktreeId={selectedWorktreeId}
-              size="md"
-              variant={gitStatus?.changedCount === 0 ? "gray-frame" : "primary"}
-              splitTrailing
-              enabled={projectPathUsable}
-            />
+            <div
+              role="group"
+              aria-label="Review changes and commit"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 0,
+                maxWidth: 480,
+                minWidth: 0,
+              }}
+            >
+              <ProjectGitStatusButton
+                changedCount={gitStatus?.changedCount}
+                onClick={onToggleDiffView}
+                disabled={projectPathBlocked}
+              />
+              <CommitPushButton
+                projectId={id}
+                worktreeId={selectedWorktreeId}
+                size="md"
+                variant={gitStatus?.changedCount === 0 ? "gray-frame" : "primary"}
+                splitTrailing
+                enabled={projectPathUsable}
+              />
+            </div>
+            <HotkeyTooltip action="file.finder" label="Find file">
+              <Btn
+                variant="ghost"
+                icon="search"
+                onClick={openFileFinderFresh}
+                disabled={!projectPathUsable}
+                aria-label="Find file in project"
+                title={
+                  projectPathBlocked
+                    ? "Project folder unavailable"
+                    : "Find file in project"
+                }
+                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+              />
+            </HotkeyTooltip>
           </div>
         </div>
 
@@ -2683,7 +2673,6 @@ function ProjectPage() {
                 onArchive={showArchived ? undefined : archiveSession}
                 onRestore={showArchived ? restoreSession : undefined}
                 onDelete={showArchived ? deleteTask : undefined}
-                onRename={renameSession}
                 onTogglePinned={showArchived ? undefined : toggleSessionPinned}
                 pinningTaskIds={showArchived ? undefined : pinningTaskIds}
                 headerAction={
@@ -2897,6 +2886,7 @@ function ProjectPage() {
       <FileFinderDialog
         open={fileFinderOpen}
         projectRoot={selectedWorktreePath || project.path}
+        resetKey={fileFinderResetKey}
         onClose={() => setFileFinderOpen(false)}
         onPick={(rel) => setOpenFileRel(rel)}
       />
@@ -2905,6 +2895,10 @@ function ProjectPage() {
         projectRoot={selectedWorktreePath || project.path}
         relPath={openFileRel}
         onClose={() => setOpenFileRel(null)}
+        onBack={() => {
+          setOpenFileRel(null);
+          setFileFinderOpen(true);
+        }}
       />
 
       <CreatePullRequestDialog

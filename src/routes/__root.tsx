@@ -84,10 +84,17 @@ import {
 import {
   writeCachedWorktreesEnabled,
 } from "~/lib/worktrees-preference";
+import {
+  MINIMAL_CACHE_KEY,
+  applyMinimalTheme,
+  readCachedMinimalTheme,
+} from "~/lib/minimal-theme";
+import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
 const LAUNCH_OVERLAY_DURATION_MS = 2700;
-const MINIMAL_CACHE_KEY = "mc:minimal";
+const MINIMAL_TOP_BAR_CONTENT_TOP_INSET = 10;
+const MINIMAL_WINDOW_DRAG_LAYER_HEIGHT = 8;
 const WINDOW_DRAG_LAYER_Z_INDEX = 30;
 const useThemeLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -277,18 +284,16 @@ function Shell() {
   } = userTerminals;
   // Bootstrap from the same localStorage cache the pre-hydration script reads,
   // so the inset applies on first paint instead of waiting for settings to load.
-  const cachedMinimal =
-    typeof window !== "undefined" &&
-    (() => {
-      try {
-        return window.localStorage.getItem(MINIMAL_CACHE_KEY) === "1";
-      } catch {
-        return false;
-      }
-    })();
+  const cachedMinimal = readCachedMinimalTheme();
   const effectiveMinimal = settings?.minimalTheme ?? cachedMinimal;
   // The top bar's leading inset applies in minimal mode.
   const topBarLeadingInset = effectiveMinimal ? 130 : undefined;
+  const topBarContentTopInset = effectiveMinimal
+    ? MINIMAL_TOP_BAR_CONTENT_TOP_INSET
+    : 0;
+  const windowDragLayerHeight = effectiveMinimal
+    ? MINIMAL_WINDOW_DRAG_LAYER_HEIGHT
+    : "var(--mc-shell-pad-top)";
   const [closeIntentTargetId, setCloseIntentTargetId] = useState<string | null>(null);
   const closeIntentTarget = closeIntentTargetId
     ? userTerminalSessions.find((s) => s.terminal.id === closeIntentTargetId)?.terminal ?? null
@@ -381,16 +386,7 @@ function Shell() {
 
   useThemeLayoutEffect(() => {
     if (typeof minimalTheme !== "boolean") return;
-    try {
-      window.localStorage.setItem(MINIMAL_CACHE_KEY, minimalTheme ? "1" : "0");
-    } catch {
-      // ignore quota / privacy-mode errors
-    }
-    if (minimalTheme) {
-      document.documentElement.setAttribute("data-minimal", "true");
-    } else {
-      document.documentElement.removeAttribute("data-minimal");
-    }
+    applyMinimalTheme(minimalTheme);
   }, [minimalTheme]);
 
   useEffect(() => {
@@ -519,7 +515,7 @@ function Shell() {
             top: 0,
             left: 0,
             right: 0,
-            height: "var(--mc-shell-pad-top)",
+            height: windowDragLayerHeight,
             zIndex: WINDOW_DRAG_LAYER_Z_INDEX,
             ["WebkitAppRegion" as any]: "drag",
           }}
@@ -536,6 +532,8 @@ function Shell() {
             </>
           }
           leadingInset={topBarLeadingInset}
+          contentTopInset={topBarContentTopInset}
+          dragRegion={!effectiveMinimal}
           right={
             <>
               <UpdateAvailableButton />
@@ -640,6 +638,7 @@ function Shell() {
       >
         This will kill the running process and remove the terminal. This can&apos;t be undone.
       </ConfirmDialog>
+      <ThemeOnboardingGate />
     </>
   );
 }

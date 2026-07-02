@@ -45,6 +45,16 @@ type WatchEntry = {
 const watchers = new Map<string, WatchEntry>();
 let nextWatchId = 1;
 
+function sendToLiveWindow(
+  win: BrowserWindow | null,
+  channel: string,
+  payload: unknown,
+): boolean {
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return false;
+  win.webContents.send(channel, payload);
+  return true;
+}
+
 // Paths that auto-execute on routine user actions (next prompt, next git op,
 // next install, next IDE open). Writing any of these via the generic
 // `files:write` IPC would let a compromised renderer plant persistent code
@@ -425,7 +435,12 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
         if (cur.mtimeMs <= entry.lastMtimeMs) return;
         entry.lastMtimeMs = cur.mtimeMs;
         const win = getWin();
-      win?.webContents.send(IPC.filesChanged, { watchId, mtimeMs: cur.mtimeMs });
+        if (!sendToLiveWindow(win, IPC.filesChanged, { watchId, mtimeMs: cur.mtimeMs })) {
+          try {
+            entry.watcher.close();
+          } catch {}
+          watchers.delete(watchId);
+        }
       });
       entry.watcher = watcher;
       watchers.set(watchId, entry);

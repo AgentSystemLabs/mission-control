@@ -1757,7 +1757,7 @@ body[data-card-glow] .cursor-glow {
 }
 [data-minimal="true"] .mc-btn-ghost {
   background: transparent;
-  border-color: transparent;
+  border-color: var(--border-strong);
   color: var(--text-dim);
 }
 [data-minimal="true"] .mc-btn-gray-frame {
@@ -1971,4 +1971,39 @@ body[data-card-glow] .cursor-glow {
   50% {
     opacity: 0.35;
   }
+}
+
+/* Markdown-preview annotation affordance: a "+" that appears in the gutter when
+   hovering an annotatable block, revealed via CSS so the block markup stays
+   layout-neutral when annotations are off. */
+.mc-md-annot-add {
+  position: absolute;
+  top: 2px;
+  right: -34px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.mc-md-annot-add-inside {
+  top: 6px;
+  right: 6px;
+}
+.mc-md-block:hover > .mc-md-annot-add,
+.mc-md-block:focus-within > .mc-md-annot-add,
+.mc-md-annot-add:focus-visible {
+  opacity: 1;
+}
+.mc-md-annot-add:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }

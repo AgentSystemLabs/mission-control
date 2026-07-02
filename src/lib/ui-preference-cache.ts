@@ -1,7 +1,9 @@
 import {
+  normalizeFileFinderView,
   normalizeGitDiffChangedFilesView,
   normalizeProjectsDashboardView,
   normalizeSelectedWorktreeByProject,
+  type FileFinderView,
   type GitDiffChangedFilesView,
   type ProjectsDashboardView,
   type SelectedWorktreeByProject,
@@ -10,6 +12,7 @@ import {
 export const GIT_DIFF_CHANGED_FILES_VIEW_STORAGE_KEY = "mc:gitDiffChangedFilesView";
 export const GIT_DIFF_CHANGED_FILES_WIDTH_STORAGE_KEY = "mc:gitDiffChangedFilesWidth";
 export const PROJECTS_DASHBOARD_VIEW_STORAGE_KEY = "mc:projectsDashboardView";
+export const FILE_FINDER_VIEW_STORAGE_KEY = "mc:fileFinderView";
 export const SELECTED_WORKTREE_BY_PROJECT_STORAGE_KEY = "mc.selectedWorktreeByProject";
 
 export function readCachedGitDiffChangedFilesView(): GitDiffChangedFilesView | null {
@@ -47,6 +50,26 @@ export function writeCachedProjectsDashboardView(view: ProjectsDashboardView): v
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(PROJECTS_DASHBOARD_VIEW_STORAGE_KEY, view);
+  } catch {
+    /* localStorage unavailable */
+  }
+}
+
+export function readCachedFileFinderView(): FileFinderView | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return normalizeFileFinderView(
+      window.localStorage.getItem(FILE_FINDER_VIEW_STORAGE_KEY),
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedFileFinderView(view: FileFinderView): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(FILE_FINDER_VIEW_STORAGE_KEY, view);
   } catch {
     /* localStorage unavailable */
   }

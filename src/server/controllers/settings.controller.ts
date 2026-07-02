@@ -17,10 +17,13 @@ import {
   type CommitCli,
 } from "~/shared/commit-cli";
 import {
-  CLAUDE_MODEL_ALIASES,
-  isClaudeModelAlias,
-  type ClaudeModelAlias,
-} from "~/shared/claude-models";
+  AI_MODEL_ID_HELP,
+  AI_RUNTIME_HARNESS_VALUES,
+  isAiRuntimeHarness,
+  normalizeAiModelId,
+  type AiModelId,
+  type AiRuntimeHarness,
+} from "~/shared/ai-runtime-defaults";
 import {
   GIT_DIFF_CHANGED_FILES_VIEWS,
   GIT_DIFF_CHANGED_FILES_WIDTH_MAX,
@@ -46,7 +49,10 @@ import {
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
+const DEFAULT_AGENT_SETTING_KEY = "default_agent";
 const DEFAULT_MODEL_SETTING_KEY = "default_model";
+const ANNOTATION_AGENT_SETTING_KEY = "annotation_agent";
+const ANNOTATION_MODEL_SETTING_KEY = "annotation_model";
 const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
@@ -64,6 +70,18 @@ const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommand
     });
     return z.NEVER;
   }
+});
+
+const aiModelBody = z.union([z.string(), z.null()]).transform((value, ctx): AiModelId | null => {
+  const normalized = normalizeAiModelId(value);
+  if (normalized || value === null || (typeof value === "string" && value.trim() === "")) {
+    return normalized;
+  }
+  ctx.addIssue({
+    code: "custom",
+    message: AI_MODEL_ID_HELP,
+  });
+  return z.NEVER;
 });
 
 // The api bearer token is intentionally NOT delivered over HTTP. It is only
@@ -97,7 +115,10 @@ const updateSettingsBody = z
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
     terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
-    defaultModel: z.union([z.enum(CLAUDE_MODEL_ALIASES), z.null()]),
+    defaultAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    defaultModel: aiModelBody,
+    annotationAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    annotationModel: aiModelBody,
     voiceCommandAliases: voiceCommandAliasesBody,
   })
   .partial();
@@ -112,9 +133,24 @@ function getCommitCliSetting(): CommitCli | null {
   return isCommitCli(value) ? value : null;
 }
 
-function getDefaultModelSetting(): ClaudeModelAlias | null {
+function getDefaultAgentSetting(): AiRuntimeHarness {
+  const value = getSetting(DEFAULT_AGENT_SETTING_KEY);
+  return isAiRuntimeHarness(value) ? value : "claude-code";
+}
+
+function getDefaultModelSetting(): AiModelId | null {
   const value = getSetting(DEFAULT_MODEL_SETTING_KEY);
-  return isClaudeModelAlias(value) ? value : null;
+  return normalizeAiModelId(value);
+}
+
+function getAnnotationAgentSetting(): AiRuntimeHarness {
+  const value = getSetting(ANNOTATION_AGENT_SETTING_KEY);
+  return isAiRuntimeHarness(value) ? value : "claude-code";
+}
+
+function getAnnotationModelSetting(): AiModelId | null {
+  const value = getSetting(ANNOTATION_MODEL_SETTING_KEY);
+  return normalizeAiModelId(value);
 }
 
 function getGitDiffChangedFilesViewSetting() {
@@ -176,7 +212,10 @@ function settingsPayload() {
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
     terminalZoomLevel: getTerminalZoomLevelSetting(),
+    defaultAgent: getDefaultAgentSetting(),
     defaultModel: getDefaultModelSetting(),
+    annotationAgent: getAnnotationAgentSetting(),
+    annotationModel: getAnnotationModelSetting(),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
   };
 }
@@ -275,11 +314,24 @@ export async function update(request: Request): Promise<Response> {
   if (body.terminalZoomLevel !== undefined) {
     setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
   }
+  if (body.defaultAgent !== undefined) {
+    setSetting(DEFAULT_AGENT_SETTING_KEY, body.defaultAgent);
+  }
   if (body.defaultModel !== undefined) {
     if (body.defaultModel === null) {
       deleteSetting(DEFAULT_MODEL_SETTING_KEY);
     } else {
       setSetting(DEFAULT_MODEL_SETTING_KEY, body.defaultModel);
+    }
+  }
+  if (body.annotationAgent !== undefined) {
+    setSetting(ANNOTATION_AGENT_SETTING_KEY, body.annotationAgent);
+  }
+  if (body.annotationModel !== undefined) {
+    if (body.annotationModel === null) {
+      deleteSetting(ANNOTATION_MODEL_SETTING_KEY);
+    } else {
+      setSetting(ANNOTATION_MODEL_SETTING_KEY, body.annotationModel);
     }
   }
   if (body.voiceCommandAliases !== undefined) {

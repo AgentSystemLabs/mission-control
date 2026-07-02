@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
-import { HotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { SessionIcon } from "~/components/ui/SessionIcon";
 import { useDiagrams } from "~/lib/use-diagram-events";
@@ -19,7 +19,6 @@ export function TaskCard({
   onArchive,
   onRestore,
   onDelete,
-  onRename,
   onTogglePinned,
   pinning = false,
 }: {
@@ -32,8 +31,6 @@ export function TaskCard({
   onRestore?: (taskId: string) => void;
   /** Permanently delete a session (confirmed, irreversible). */
   onDelete?: (taskId: string) => void;
-  /** Rename a session title inline. */
-  onRename?: (taskId: string, title: string) => Promise<void> | void;
   /** Pin or unpin an active session. */
   onTogglePinned?: (taskId: string) => Promise<void> | void;
   /** True while the pin/unpin mutation for this session is saving. */
@@ -42,13 +39,6 @@ export function TaskCard({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(task.title);
-  const [savingTitle, setSavingTitle] = useState(false);
-  const savingTitleRef = useRef(false);
-  const restoreTitleFocusRef = useRef(false);
-  const renameButtonRef = useRef<HTMLButtonElement>(null);
-  const skipNextBlurCommitRef = useRef(false);
   const { hasDiagram, openDiagram } = useDiagrams();
   const taskHasDiagram = hasDiagram(task.id);
 
@@ -65,59 +55,6 @@ export function TaskCard({
   const sessionIcon = isSessionIcon(task.icon) ? task.icon : DEFAULT_SESSION_ICON;
   const updated = formatRelative(task.updatedAt);
   const toggleTask = () => onToggle(task.id);
-
-  useEffect(() => {
-    if (!editingTitle) setTitleDraft(task.title);
-  }, [editingTitle, task.title]);
-
-  useEffect(() => {
-    if (!editingTitle && restoreTitleFocusRef.current) {
-      restoreTitleFocusRef.current = false;
-      renameButtonRef.current?.focus();
-    }
-  }, [editingTitle]);
-
-  const startTitleEdit = () => {
-    if (!onRename) return;
-    setTitleDraft(task.title);
-    setEditingTitle(true);
-  };
-
-  const cancelTitleEdit = (restoreFocus = true) => {
-    skipNextBlurCommitRef.current = restoreFocus;
-    restoreTitleFocusRef.current = restoreFocus;
-    setTitleDraft(task.title);
-    setEditingTitle(false);
-  };
-
-  const commitTitleEdit = async ({ restoreFocus = true }: { restoreFocus?: boolean } = {}) => {
-    if (!onRename || savingTitleRef.current) return;
-    const nextTitle = titleDraft.trim();
-    if (!nextTitle) {
-      cancelTitleEdit(restoreFocus);
-      return;
-    }
-    if (nextTitle === task.title) {
-      skipNextBlurCommitRef.current = restoreFocus;
-      restoreTitleFocusRef.current = restoreFocus;
-      setEditingTitle(false);
-      return;
-    }
-
-    savingTitleRef.current = true;
-    setSavingTitle(true);
-    try {
-      await onRename(task.id, nextTitle);
-      skipNextBlurCommitRef.current = restoreFocus;
-      restoreTitleFocusRef.current = restoreFocus;
-      setEditingTitle(false);
-    } catch {
-      // The route-level rename handler restores cache and shows the toast.
-    } finally {
-      savingTitleRef.current = false;
-      setSavingTitle(false);
-    }
-  };
 
   // Subtitle: prefer the live preview line, otherwise a status hint.
   const subtitle = task.preview?.trim() || statusMeta.label;
@@ -142,7 +79,6 @@ export function TaskCard({
         onClick={toggleTask}
         aria-label={`${selected ? "Close" : "Open"} terminal for ${task.title}`}
         aria-pressed={selected}
-        disabled={editingTitle}
         style={{
           position: "absolute",
           inset: 0,
@@ -151,7 +87,7 @@ export function TaskCard({
           border: 0,
           padding: 0,
           margin: 0,
-          cursor: editingTitle ? "default" : "pointer",
+          cursor: "pointer",
           borderRadius: "inherit",
         }}
       />
@@ -242,116 +178,21 @@ export function TaskCard({
 
         {/* Right: title / subtitle / meta row */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-          {editingTitle ? (
-            <input
-              autoFocus
-              aria-label={`Rename session ${task.title}`}
-              value={titleDraft}
-              readOnly={savingTitle}
-              aria-disabled={savingTitle}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onFocus={(e) => e.currentTarget.select()}
-              onBlur={() => {
-                if (skipNextBlurCommitRef.current) {
-                  skipNextBlurCommitRef.current = false;
-                  return;
-                }
-                void commitTitleEdit({ restoreFocus: false });
-              }}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void commitTitleEdit({ restoreFocus: true });
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  cancelTitleEdit();
-                }
-              }}
-              style={{
-                pointerEvents: "auto",
-                width: "calc(100% - 36px)",
-                minWidth: 0,
-                border: "1px solid var(--accent)",
-                borderRadius: 7,
-                background: "var(--surface-0)",
-                color: "var(--text)",
-                font: "inherit",
-                fontSize: 14.5,
-                fontWeight: 600,
-                lineHeight: 1.3,
-                padding: "2px 6px",
-                outline: "none",
-              }}
-            />
-          ) : onRename ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                width: "calc(100% - 36px)",
-                minHeight: 24,
-                minWidth: 0,
-              }}
-            >
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  color: sentinel ? "var(--text-dim)" : "var(--text)",
-                  fontSize: 14.5,
-                  fontWeight: 600,
-                  fontStyle: sentinel ? "italic" : "normal",
-                  lineHeight: 1.3,
-                  overflow: "hidden",
-                  padding: "2px 0",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {task.title}
-              </div>
-              <Tooltip content="Rename session">
-                <Btn
-                  ref={renameButtonRef}
-                  variant="ghost"
-                  size="sm"
-                  icon="pencil"
-                  aria-label={`Rename session ${task.title}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startTitleEdit();
-                  }}
-                  style={{
-                    pointerEvents: "auto",
-                    width: 24,
-                    height: 24,
-                    minHeight: 24,
-                    padding: 0,
-                    flexShrink: 0,
-                  }}
-                />
-              </Tooltip>
-            </div>
-          ) : (
-            <div
-              style={{
-                fontSize: 14.5,
-                fontWeight: 600,
-                lineHeight: 1.3,
-                color: sentinel ? "var(--text-dim)" : "var(--text)",
-                fontStyle: sentinel ? "italic" : "normal",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                paddingRight: 36,
-              }}
-            >
-              {task.title}
-            </div>
-          )}
+          <div
+            style={{
+              fontSize: 14.5,
+              fontWeight: 600,
+              lineHeight: 1.3,
+              color: sentinel ? "var(--text-dim)" : "var(--text)",
+              fontStyle: sentinel ? "italic" : "normal",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              paddingRight: 36,
+            }}
+          >
+            {task.title}
+          </div>
 
           <div
             style={{
@@ -409,13 +250,13 @@ export function TaskCard({
                 variant="ghost"
                 size="sm"
                 icon={task.pinned ? "pin-fill" : "pin"}
-                disabled={savingTitle || pinning}
+                disabled={pinning}
                 aria-busy={pinning}
                 aria-label={`${task.pinned ? "Unpin" : "Pin"} ${task.title}`}
                 title={pinning ? "Saving pin state" : task.pinned ? "Unpin session" : "Pin session"}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (savingTitle || pinning) return;
+                  if (pinning) return;
                   void onTogglePinned(task.id);
                 }}
                 style={{
@@ -431,12 +272,10 @@ export function TaskCard({
                 variant="ghost"
                 size="sm"
                 icon="refresh"
-                disabled={savingTitle}
                 aria-label={`Restore ${task.title}`}
                 title="Restore session"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (savingTitle) return;
                   onRestore(task.id);
                 }}
                 style={{ width: 30, height: 30, padding: 0 }}
@@ -452,12 +291,10 @@ export function TaskCard({
                   variant="ghost"
                   size="sm"
                   icon="archive"
-                  disabled={savingTitle}
                   aria-label={`Archive ${task.title}`}
                   title={selected ? undefined : "Archive session"}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (savingTitle) return;
                     // Running sessions lose the live terminal + agent on
                     // archive, so confirm first; parked ones archive silently.
                     if (isRunning) setConfirmArchiveOpen(true);
@@ -477,12 +314,10 @@ export function TaskCard({
                   variant="ghost"
                   size="sm"
                   icon="trash"
-                  disabled={savingTitle}
                   aria-label={`Delete ${task.title}`}
                   title={selected ? undefined : "Delete session"}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (savingTitle) return;
                     setConfirmOpen(true);
                   }}
                   style={{ width: 30, height: 30, padding: 0 }}

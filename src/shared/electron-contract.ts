@@ -378,6 +378,11 @@ export type ElectronBridge = {
     unwatch: (watchId: string) => Promise<{ ok: true }>;
     onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) => () => void;
   };
+  preview: {
+    startServer: (
+      projectRoot: string
+    ) => Promise<{ ok: true; port: number } | { ok: false; error: string }>;
+  };
   sandbox: {
     // Phase 2: lifecycle is per-sandbox (sandboxId; omitted = the active scope).
     getState: (sandboxId?: string) => Promise<SandboxState>;

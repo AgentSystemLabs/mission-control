@@ -33,6 +33,7 @@ export const IPC = {
   filesWatch: "files:watch",
   filesUnwatch: "files:unwatch",
   filesChanged: "files:changed",
+  previewStartServer: "preview:startServer",
   settingsGetToken: "settings:getToken",
   settingsRegenerateToken: "settings:regenerateToken",
   updateCheck: "update:check",

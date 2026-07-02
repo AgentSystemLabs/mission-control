@@ -64,6 +64,16 @@ describe("buildCursorCommand", () => {
       }),
     ).toBe("cursor-agent --resume 00000000-0000-4000-8000-000000000000 --force");
   });
+
+  it("passes a configured model", () => {
+    expect(
+      buildCursorCommand({
+        sessionId: "00000000-0000-4000-8000-000000000000",
+        skipPermissions: false,
+        model: "gpt-5.3-codex",
+      }),
+    ).toBe("cursor-agent --resume 00000000-0000-4000-8000-000000000000 --model gpt-5.3-codex");
+  });
 });
 
 describe("buildOpencodeCommand", () => {
@@ -78,6 +88,15 @@ describe("buildOpencodeCommand", () => {
         sessionId: "00000000-0000-4000-8000-000000000000",
       }),
     ).toBe("opencode");
+  });
+
+  it("passes a configured model on fresh launches", () => {
+    expect(
+      buildOpencodeCommand({
+        mode: "new",
+        model: "anthropic/claude-sonnet-4-5",
+      }),
+    ).toBe("opencode --model anthropic/claude-sonnet-4-5");
   });
 
   it("resumes only with a real OpenCode session id", () => {
@@ -109,6 +128,16 @@ describe("buildCodexCommand", () => {
     ).toBe("codex --enable hooks");
   });
 
+  it("passes a configured model before hook flags", () => {
+    expect(
+      buildCodexCommand({
+        mode: "new",
+        skipPermissions: false,
+        model: "gpt-5.3-codex",
+      }),
+    ).toBe("codex --model gpt-5.3-codex --enable hooks");
+  });
+
   it("resumes a persisted Codex session with hooks enabled", () => {
     expect(
       buildCodexCommand({
@@ -126,6 +155,13 @@ describe("buildAgentLaunchCommand", () => {
     expect(buildAgentLaunchCommand(task, task.claudeSessionId!, "new")).toBe(
       "claude --session-id 00000000-0000-4000-8000-000000000000",
     );
+  });
+
+  it("passes a configured Claude model", () => {
+    const task = { ...baseTask, agent: "claude-code" } satisfies Task;
+    expect(
+      buildAgentLaunchCommand(task, task.claudeSessionId!, "new", { model: "sonnet" }),
+    ).toBe("claude --session-id 00000000-0000-4000-8000-000000000000 --model sonnet");
   });
 
   it("uses Cursor resume for every launch", () => {

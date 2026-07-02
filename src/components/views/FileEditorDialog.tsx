@@ -3,10 +3,14 @@ import CodeMirror, { EditorView, type ReactCodeMirrorRef } from "@uiw/react-code
 import { oneDark } from "@codemirror/theme-one-dark";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
+import { Icon } from "~/components/ui/Icon";
+import { HtmlPreview } from "~/components/views/HtmlPreview";
+import { MarkdownAnnotator } from "~/components/views/MarkdownAnnotator";
 import { HotkeyTooltip, StaticHotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { languageForFilename } from "~/lib/file-language";
+import { isHtmlFilename, isMarkdownFilename } from "~/lib/file-preview";
 import {
   readProjectFile,
   writeProjectFile,
@@ -34,15 +38,18 @@ type LoadedFile =
     };
 
 type LoadError = FileReadError | string;
+type EditorMode = "edit" | "preview";
 
 export function FileEditorDialog({
   projectRoot,
   relPath,
   onClose,
+  onBack,
 }: {
   projectRoot: string;
   relPath: string | null;
   onClose: () => void;
+  onBack?: () => void;
 }) {
   const open = relPath !== null;
   const [loaded, setLoaded] = useState<LoadedFile | null>(null);
@@ -53,6 +60,8 @@ export function FileEditorDialog({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [externalChanged, setExternalChanged] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [pendingExit, setPendingExit] = useState<"close" | "back">("close");
+  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
   const watchIdRef = useRef<string | null>(null);
   const mtimeRef = useRef<number>(0);
   const savingRef = useRef(false);
@@ -66,6 +75,9 @@ export function FileEditorDialog({
   const slash = relPath ? relPath.lastIndexOf("/") : -1;
   const fileName = relPath ? (slash >= 0 ? relPath.slice(slash + 1) : relPath) : "";
   const dirPath = relPath && slash >= 0 ? relPath.slice(0, slash) : "";
+  const markdownFile = isMarkdownFilename(relPath);
+  const htmlFile = isHtmlFilename(relPath);
+  const previewableTextFile = markdownFile || htmlFile;
 
   // Load on open / relPath change.
   useEffect(() => {
@@ -93,6 +105,10 @@ export function FileEditorDialog({
       cancelled = true;
     };
   }, [open, projectRoot, relPath]);
+
+  useEffect(() => {
+    setEditorMode(htmlFile ? "preview" : "edit");
+  }, [htmlFile]);
 
   // Mount file watcher once per open file. The watcher fires on every external
   // mtime advance and we read the current mtime via ref, so saves don't tear it down.
@@ -218,6 +234,52 @@ export function FileEditorDialog({
     if (ok) onClose();
   }, [loaded, dirty, doSave, onClose]);
 
+  // Markdown "Refine" writes the model's rewrite straight to disk (force
+  // overwrite — the refine is an intentional edit the user kicked off) instead
+  // of leaving it as an unsaved buffer. The annotator invokes this as a floating
+  // promise, so the write runs to completion even if the dialog was closed
+  // mid-refine: the user can start a refine, close the panel, and find the saved
+  // result on disk when they reopen. When still mounted, the setState calls sync
+  // the editor; after unmount they are harmless no-ops. Mirrors doSave's
+  // protected-path retry and savingRef/mtime bookkeeping.
+  const persistRefined = useCallback(
+    async (refined: string): Promise<void> => {
+      if (!relPath || !window.electronAPI) throw new Error("Not running in Electron");
+      savingRef.current = true;
+      try {
+        let r = await writeProjectFile(projectRoot, relPath, refined, null);
+        if (!r.ok && r.error === "protected-path") {
+          r = await writeProjectFileSensitive(projectRoot, relPath, refined, null);
+        }
+        if (r.ok) {
+          mtimeRef.current = r.mtimeMs;
+          // The refined document is now on disk. If the user made manual edits in
+          // the buffer during the (multi-second) refine, don't silently discard
+          // them — record the new on-disk state and surface the standard conflict
+          // bar (Discard mine & reload / Overwrite). Otherwise sync the editor to
+          // the refined text.
+          if (dirtyRef.current) {
+            setLoaded((prev) => (prev ? { ...prev, mtimeMs: r.mtimeMs } : prev));
+            setExternalChanged(true);
+          } else {
+            setLoaded({ kind: "text", content: refined, mtimeMs: r.mtimeMs });
+            setContent(refined);
+            setExternalChanged(false);
+          }
+          setSaveError(null);
+          return;
+        }
+        if (r.error === "user-declined") {
+          throw new Error("Save was declined — the refined document was not written.");
+        }
+        throw new Error(typeof r.error === "string" ? r.error : "Failed to save refined file");
+      } finally {
+        savingRef.current = false;
+      }
+    },
+    [projectRoot, relPath],
+  );
+
   const discardAndReload = useCallback(async () => {
     if (!relPath || !window.electronAPI) return;
     const r = await readProjectFile(projectRoot, relPath);
@@ -237,11 +299,25 @@ export function FileEditorDialog({
 
   const requestClose = useCallback(() => {
     if (dirtyRef.current) {
+      setPendingExit("close");
       setConfirmClose(true);
       return;
     }
     onClose();
   }, [onClose]);
+
+  const requestBack = useCallback(() => {
+    if (!onBack) {
+      requestClose();
+      return;
+    }
+    if (dirtyRef.current) {
+      setPendingExit("back");
+      setConfirmClose(true);
+      return;
+    }
+    onBack();
+  }, [onBack, requestClose]);
 
   if (!open) return null;
 
@@ -249,6 +325,9 @@ export function FileEditorDialog({
     EditorView.lineWrapping,
     ...(relPath ? languageForFilename(relPath) : []),
   ];
+  const showMarkdownPreview = loaded?.kind === "text" && markdownFile && editorMode === "preview";
+  const showHtmlPreview = loaded?.kind === "text" && htmlFile && editorMode === "preview";
+  const showingRenderedPreview = showMarkdownPreview || showHtmlPreview;
 
   return (
     <>
@@ -319,16 +398,46 @@ export function FileEditorDialog({
               alignItems: "center",
               gap: 8,
               minWidth: 0,
+              width: "100%",
             }}
           >
+            {onBack && (
+              <button
+                type="button"
+                onClick={requestBack}
+                aria-label="Back to file finder"
+                title="Back to file finder"
+                style={{
+                  width: 26,
+                  height: 26,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  background: "var(--surface-1)",
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  padding: 0,
+                }}
+              >
+                <Icon name="chevron-left" size={13} />
+              </button>
+            )}
             <span
               style={{
                 fontFamily: "var(--mono)",
                 fontSize: 12.5,
                 fontWeight: 600,
                 color: "var(--text)",
-                flexShrink: 0,
+                flexShrink: 1,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
+              title={fileName}
             >
               {fileName}
             </span>
@@ -361,6 +470,9 @@ export function FileEditorDialog({
                 }}
               />
             )}
+            {loaded?.kind === "text" && previewableTextFile && (
+              <PreviewModeToggle mode={editorMode} onModeChange={setEditorMode} />
+            )}
           </div>
         }
       >
@@ -390,7 +502,16 @@ export function FileEditorDialog({
           </div>
         )}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#282c34" }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            // The markdown annotator manages its own two-column scrolling so the
+            // comments rail stays pinned; every other view scrolls here.
+            overflow: showMarkdownPreview ? "hidden" : "auto",
+            background: showingRenderedPreview ? "var(--surface-0)" : "#282c34",
+          }}
+        >
           {loading ? (
             <Status>Loading…</Status>
           ) : loadError ? (
@@ -401,6 +522,22 @@ export function FileEditorDialog({
             />
           ) : loaded?.kind === "image" ? (
             <ImagePreview src={loaded.dataUrl} fileName={fileName} />
+          ) : showMarkdownPreview ? (
+            <MarkdownAnnotator
+              key={relPath ?? ""}
+              content={content}
+              fileName={fileName}
+              onApplyRefined={persistRefined}
+            />
+          ) : showHtmlPreview ? (
+            <HtmlPreview
+              projectRoot={projectRoot}
+              relPath={relPath ?? ""}
+              source={content}
+              fileName={fileName}
+              reloadKey={loaded?.mtimeMs ?? 0}
+              dirty={dirty}
+            />
           ) : (
             <CodeMirror
               ref={cmRef}
@@ -439,18 +576,103 @@ export function FileEditorDialog({
         open={confirmClose}
         onClose={() => setConfirmClose(false)}
         onConfirm={() => {
+          const exit = pendingExit;
           setConfirmClose(false);
-          onClose();
+          if (exit === "back" && onBack) onBack();
+          else onClose();
         }}
         title="Discard unsaved changes?"
         confirmLabel="Discard"
         width={420}
       >
         <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
-          You have unsaved edits. Closing the editor will discard them.
+          You have unsaved edits. Leaving the editor will discard them.
         </div>
       </ConfirmDialog>
     </>
+  );
+}
+
+function PreviewModeToggle({
+  mode,
+  onModeChange,
+}: {
+  mode: EditorMode;
+  onModeChange: (mode: EditorMode) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="File view mode"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        padding: 2,
+        border: "1px solid var(--border)",
+        borderRadius: 5,
+        background: "var(--surface-1)",
+        flexShrink: 0,
+        marginLeft: "auto",
+      }}
+    >
+      <PreviewModeButton
+        icon="pencil"
+        label="Edit"
+        active={mode === "edit"}
+        onClick={() => onModeChange("edit")}
+      />
+      <PreviewModeButton
+        icon="eye"
+        label="Preview"
+        active={mode === "preview"}
+        onClick={() => onModeChange("preview")}
+      />
+    </div>
+  );
+}
+
+function PreviewModeButton({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: "pencil" | "eye";
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      style={{
+        height: 23,
+        minWidth: 72,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 5,
+        border: 0,
+        borderRadius: 4,
+        background: active ? "var(--surface-3)" : "transparent",
+        color: active ? "var(--text)" : "var(--text-dim)",
+        cursor: "pointer",
+        padding: "0 8px",
+        fontFamily: "var(--sans)",
+        fontSize: 11,
+        fontWeight: 500,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Icon name={icon} size={11} />
+      {label}
+    </button>
   );
 }
 

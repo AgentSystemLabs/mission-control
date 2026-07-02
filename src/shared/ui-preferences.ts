@@ -6,6 +6,11 @@ export type ProjectsDashboardView = (typeof PROJECTS_DASHBOARD_VIEWS)[number];
 
 export const DEFAULT_PROJECTS_DASHBOARD_VIEW: ProjectsDashboardView = "cards";
 
+export const FILE_FINDER_VIEWS = ["list", "tree"] as const;
+export type FileFinderView = (typeof FILE_FINDER_VIEWS)[number];
+
+export const DEFAULT_FILE_FINDER_VIEW: FileFinderView = "list";
+
 export const DEFAULT_GIT_DIFF_CHANGED_FILES_VIEW: GitDiffChangedFilesView = "list";
 export const DEFAULT_GIT_DIFF_CHANGED_FILES_WIDTH = 300;
 export const GIT_DIFF_CHANGED_FILES_WIDTH_MIN = 240;
@@ -23,6 +28,10 @@ export function normalizeProjectsDashboardView(
   value: unknown,
 ): ProjectsDashboardView | null {
   return value === "cards" || value === "table" ? value : null;
+}
+
+export function normalizeFileFinderView(value: unknown): FileFinderView | null {
+  return value === "list" || value === "tree" ? value : null;
 }
 
 export function normalizeGitDiffChangedFilesWidth(value: unknown): number | null {

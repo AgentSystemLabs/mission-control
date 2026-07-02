@@ -10,6 +10,8 @@ export function TopBar({
   leading,
   centerActions,
   leadingInset,
+  contentTopInset = 0,
+  dragRegion = true,
 }: {
   crumbs?: Crumb[];
   right?: ReactNode;
@@ -17,6 +19,8 @@ export function TopBar({
   leading?: ReactNode;
   centerActions?: ReactNode;
   leadingInset?: number;
+  contentTopInset?: number;
+  dragRegion?: boolean;
 }) {
   return (
     <div
@@ -24,15 +28,15 @@ export function TopBar({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        height: 48,
-        padding: `0 20px 0 ${leadingInset ?? 24}px`,
+        height: 48 + contentTopInset,
+        padding: `${contentTopInset}px 20px 0 ${leadingInset ?? 24}px`,
         background: "transparent",
         borderBottom: "1px solid var(--border)",
         flexShrink: 0,
         position: "relative",
         zIndex: 10,
         pointerEvents: "auto",
-        ["WebkitAppRegion" as any]: "drag",
+        ["WebkitAppRegion" as any]: dragRegion ? "drag" : "no-drag",
       }}
     >
       <div

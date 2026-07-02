@@ -28,6 +28,7 @@ import {
   WhisperUnavailableError,
 } from "./whisper-server";
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
+import { startPreviewServer, disposeAllPreviewServers } from "./preview-server";
 import { IPC } from "./ipc-channels";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
@@ -1387,6 +1388,13 @@ registerPtyHandlers(
 );
 registerFileHandlers(ipcMain, () => win);
 
+// Starts (or reuses) a loopback static server rooted at the project, so the HTML
+// preview iframe can load the file over http and resolve its assets/scripts. The
+// projectRoot trust boundary matches `files:read` — the server only serves files
+// under the given root, and safeHandle already restricts the caller to the app
+// frame.
+safeHandle(IPC.previewStartServer, (_evt, projectRoot: string) => startPreviewServer(projectRoot));
+
 // API bearer token is delivered through IPC only — it must never traverse HTTP
 // because the loopback server's same-origin gate doesn't protect against a
 // compromised renderer or any other process that can reach the local port.
@@ -1442,6 +1450,7 @@ app.on("before-quit", () => {
   killAllPtys();
   shutdownWhisper();
   disposeAllFileWatchers();
+  disposeAllPreviewServers();
   disposeSandboxManager();
   disposeApiTokenStore();
   disposeAppSettingsStore();

@@ -27,6 +27,8 @@ import * as commitCliController from "./controllers/commit-cli.controller";
 import * as projectFileController from "./controllers/project-file.controller";
 import * as healthController from "./controllers/health.controller";
 import * as diagramsController from "./controllers/diagrams.controller";
+import * as markdownController from "./controllers/markdown.controller";
+import * as aiRuntimeModelsController from "./controllers/ai-runtime-models.controller";
 
 const AGENT_HOOK_PATH = /^\/api\/hooks\/([a-z0-9-]+)$/;
 const PROJECT_PATH = /^\/api\/projects\/([^/]+)$/;
@@ -328,6 +330,9 @@ async function dispatch(
   if (pathname === "/api/commit-cli/detect" && method === "GET") {
     return commitCliController.detect();
   }
+  if (pathname === "/api/ai-runtime/models" && method === "GET") {
+    return aiRuntimeModelsController.list(url);
+  }
 
   // Diagram skill (local bundled install)
   if (pathname === "/api/skills/install/diagram/installed" && method === "GET") {
@@ -362,6 +367,11 @@ async function dispatch(
   }
   if (pathname === "/api/diagrams" && method === "GET") {
     return diagramsController.list(url);
+  }
+
+  // Markdown annotation refine (AI rewrite from reviewer comments)
+  if (pathname === "/api/markdown/refine" && method === "POST") {
+    return markdownController.refine(request);
   }
 
   // Usage + events

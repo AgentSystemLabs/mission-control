@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { api, setApiToken } from "~/lib/api";
-import { setDefaultModel } from "~/lib/default-model-store";
+import { syncDefaultRuntimeDefaults } from "~/lib/default-model-store";
 import { getElectron } from "~/lib/electron";
 import {
   readCachedGroups,
@@ -98,12 +98,16 @@ export const settingsQueryOptions = () =>
     queryKey: queryKeys.settings,
     queryFn: async () => {
       const settings = await api.getSettings();
-      // Mirror the default model into a module cache so commandForTask can append
-      // `--model` without prop-drilling settings through the terminal store.
-      setDefaultModel(settings.defaultModel);
+      // Mirror the default runtime into a module cache so commandForTask can append
+      // the model flag without prop-drilling settings through the terminal store.
+      syncDefaultRuntimeDefaults(settings);
       return settings;
     },
-    placeholderData: readCachedSettings,
+    placeholderData: () => {
+      const cached = readCachedSettings();
+      if (cached) syncDefaultRuntimeDefaults(cached);
+      return cached;
+    },
   });
 
 // The api bearer token is fetched over Electron IPC, never HTTP — see

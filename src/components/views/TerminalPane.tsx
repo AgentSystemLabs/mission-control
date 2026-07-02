@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
-import { HotkeyTooltip } from "~/components/ui/Tooltip";
+import { Modal } from "~/components/ui/Modal";
+import { TextField } from "~/components/ui/TextField";
+import { EscTooltip, HotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
 import {
   AGENT_META,
   DUPLICATE_ACTIVE_SESSION_EVENT,
@@ -31,6 +33,7 @@ import {
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
 import { useTerminalZoom, useTerminalPaneZoomShortcuts } from "~/lib/use-terminal-zoom";
+import { useHotkey } from "~/lib/use-hotkey";
 import { SandboxCloneOfferBanner } from "~/components/views/SandboxCloneOfferBanner";
 import { TerminalZoomControls } from "~/components/views/TerminalZoomControls";
 import { ApiError, api, resolveApiToken } from "~/lib/api";
@@ -41,6 +44,7 @@ import {
   newSessionId,
   shouldInjectInitialInput,
 } from "~/lib/agent-command";
+import { getDefaultModelForAgent } from "~/lib/default-model-store";
 import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
@@ -59,12 +63,14 @@ import {
   type SequencedPtyData,
 } from "~/lib/terminal-replay";
 import { queryKeys, useTasks } from "~/queries";
+import { useTerminals } from "~/lib/terminal-store";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { sandboxWorkspacePath, workspaceSlug } from "~/shared/sandbox-workspace";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
+import { toast } from "sonner";
 
 async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
   try {
@@ -117,11 +123,17 @@ export function TerminalPane({
   const paneRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<XFitAddon | null>(null);
   const termSurfaceRef = useRef<{ setFontSize: (fontSize: number) => void } | null>(null);
+  const renameFormId = useId();
   const queryClient = useQueryClient();
+  const terminals = useTerminals();
   const [liveStatus, setLiveStatus] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [isSandboxTerminal, setIsSandboxTerminal] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const savingTitleRef = useRef(false);
   // When a sandbox project's repo isn't cloned into the container yet, offer to
   // clone it (remote detected from the host project) instead of opening empty.
   const [cloneOffer, setCloneOffer] = useState<{ remote: string; slug: string } | null>(null);
@@ -145,11 +157,78 @@ export function TerminalPane({
   const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
+  const tasksKey = queryKeys.tasks(
+    project.id,
+    project.activeWorktreeId ?? null,
+    activeRuntimeScopeId,
+  );
 
   const requestSessionClone = () => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new Event(DUPLICATE_ACTIVE_SESSION_EVENT));
   };
+
+  useEffect(() => {
+    if (!renameOpen) setTitleDraft(liveTask.title);
+  }, [renameOpen, liveTask.title]);
+
+  const openRenameDialog = () => {
+    setTitleDraft(liveTask.title);
+    setRenameOpen(true);
+  };
+
+  const closeRenameDialog = () => {
+    if (savingTitleRef.current) return;
+    setTitleDraft(liveTask.title);
+    setRenameOpen(false);
+  };
+
+  const commitTitleEdit = async () => {
+    if (savingTitleRef.current) return;
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle) return;
+    if (nextTitle === liveTask.title) {
+      setRenameOpen(false);
+      return;
+    }
+
+    savingTitleRef.current = true;
+    setSavingTitle(true);
+    await queryClient.cancelQueries({ queryKey: tasksKey });
+    const previousTasks = queryClient.getQueryData<Task[]>(tasksKey);
+    const previousTask = previousTasks?.find((t) => t.id === liveTask.id) ?? liveTask;
+    const optimisticTask = {
+      ...liveTask,
+      title: nextTitle,
+      titleManuallySet: true,
+      updatedAt: Date.now(),
+    };
+    queryClient.setQueryData<Task[]>(tasksKey, (current) =>
+      (current ?? []).map((t) => (t.id === liveTask.id ? optimisticTask : t)),
+    );
+    terminals.syncTask(optimisticTask);
+
+    try {
+      const saved = await api.updateTask(liveTask.id, { title: nextTitle });
+      queryClient.setQueryData<Task[]>(tasksKey, (current) =>
+        (current ?? []).map((t) => (t.id === liveTask.id ? saved.task : t)),
+      );
+      terminals.syncTask(saved.task);
+      setRenameOpen(false);
+      void queryClient.invalidateQueries({ queryKey: tasksKey });
+    } catch (e: unknown) {
+      if (previousTasks) queryClient.setQueryData<Task[]>(tasksKey, previousTasks);
+      terminals.syncTask(previousTask);
+      toast.error(e instanceof Error ? e.message : "Could not rename session");
+    } finally {
+      savingTitleRef.current = false;
+      setSavingTitle(false);
+    }
+  };
+  const canSaveTitle = titleDraft.trim().length > 0 && !savingTitle;
+  useHotkey("dialog.submit", () => void commitTitleEdit(), {
+    enabled: renameOpen && canSaveTitle,
+  });
 
   useEffect(() => {
     termSurfaceRef.current?.setFontSize(terminalFontSize);
@@ -365,6 +444,7 @@ export function TerminalPane({
             const cmd = buildFreshAgentLaunchCommand(
               { ...task, claudeSessionId: fresh },
               fresh ?? "",
+              { model: getDefaultModelForAgent(task.agent) },
             );
             try {
               await spawnAndWire(cmd, false);
@@ -757,18 +837,19 @@ export function TerminalPane({
   }, [cloneOffer]);
 
   return (
-    <div
-      ref={paneRef}
-      style={{
-        flex: 1,
-        minHeight: 120,
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        borderBottom: isLast ? "none" : "1px solid var(--border)",
-        overflow: "hidden",
-      }}
-    >
+    <>
+      <div
+        ref={paneRef}
+        style={{
+          flex: 1,
+          minHeight: 120,
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          borderBottom: isLast ? "none" : "1px solid var(--border)",
+          overflow: "hidden",
+        }}
+      >
       <div
         role="status"
         aria-live="polite"
@@ -878,6 +959,16 @@ export function TerminalPane({
               sandbox
             </span>
           )}
+          <Tooltip content="Rename session">
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="pencil"
+              onClick={openRenameDialog}
+              aria-label={`Rename session ${liveTask.title}`}
+              style={{ width: 34, padding: 0 }}
+            />
+          </Tooltip>
           <TerminalZoomControls
             level={zoomLevel}
             canZoomIn={canZoomIn}
@@ -934,7 +1025,53 @@ export function TerminalPane({
       >
         <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
       </div>
-    </div>
+      </div>
+      <Modal
+        open={renameOpen}
+        onClose={closeRenameDialog}
+        title="Rename session"
+        width={420}
+        footer={
+          <>
+            <EscTooltip label="Cancel">
+              <Btn variant="ghost" onClick={closeRenameDialog} disabled={savingTitle}>
+                Cancel
+              </Btn>
+            </EscTooltip>
+            <HotkeyTooltip action="dialog.submit" disabled={!canSaveTitle}>
+              <Btn
+                variant="primary"
+                icon="check"
+                type="submit"
+                form={renameFormId}
+                disabled={!canSaveTitle}
+              >
+                Rename
+              </Btn>
+            </HotkeyTooltip>
+          </>
+        }
+      >
+        <form
+          id={renameFormId}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!canSaveTitle) return;
+            void commitTitleEdit();
+          }}
+        >
+          <TextField
+            label="Session name"
+            value={titleDraft}
+            onChange={setTitleDraft}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            required
+          />
+        </form>
+      </Modal>
+    </>
   );
 }
 

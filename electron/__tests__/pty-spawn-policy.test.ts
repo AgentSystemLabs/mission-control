@@ -336,10 +336,20 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     expect(plan.argv).toEqual(["--bare", "--resume", "X"]);
   });
 
-  it("accepts a claude-code --model with an allow-listed alias", () => {
-    for (const model of ["opus", "sonnet", "haiku"]) {
+  it("accepts safe --model values for supported agents", () => {
+    const cases = [
+      { agent: "claude-code" as const, command: "claude", model: "sonnet" },
+      { agent: "codex" as const, command: "codex", model: "gpt-5.3-codex" },
+      { agent: "cursor-cli" as const, command: "cursor-agent", model: "gpt-5.3-codex" },
+      {
+        agent: "opencode" as const,
+        command: "opencode",
+        model: "anthropic/claude-sonnet-4-5",
+      },
+    ];
+    for (const { agent, command, model } of cases) {
       const plan = resolveSpawnPlan(
-        spawnReq({ agent: "claude-code", command: "claude", args: ["--model", model] }),
+        spawnReq({ agent, command, args: ["--model", model] }),
         depsFor(),
       );
       if (plan.mode !== "agent") throw new Error("wrong mode");
@@ -347,12 +357,17 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     }
   });
 
-  it("rejects a claude-code --model value outside the allow-list", () => {
-    for (const model of ["gpt-4", "claude-opus-4-8", "opus-extra"]) {
+  it("rejects unsafe --model values", () => {
+    expectRejected(
+      spawnReq({ agent: "claude-code", command: "claude", args: ["--model", "gpt 4"] }),
+      depsFor(),
+      "agent-arg-not-allowed",
+    );
+    for (const model of ["$(whoami)", "gpt-4;rm"]) {
       expectRejected(
         spawnReq({ agent: "claude-code", command: "claude", args: ["--model", model] }),
         depsFor(),
-        "agent-arg-not-allowed",
+        "shell-meta-in-args",
       );
     }
   });

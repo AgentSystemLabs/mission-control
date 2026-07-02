@@ -19,12 +19,20 @@ import type { UsageSummary } from "~/shared/token-usage";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import type {
+  AiModelId,
+  AiRuntimeHarness,
+  AiRuntimeModelsResponse,
+} from "~/shared/ai-runtime-defaults";
+import type {
   GitDiffChangedFilesView,
   ProjectsDashboardView,
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
-import type { ClaudeModelAlias } from "~/shared/claude-models";
+import type {
+  MarkdownRefineRequest,
+  MarkdownRefineResponse,
+} from "~/shared/markdown-refine";
 import type { SandboxPublicView } from "~/shared/sandbox";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
@@ -62,10 +70,18 @@ export type AppSettings = {
   /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
   terminalZoomLevel: TerminalZoomLevel;
   /**
-   * Default model passed to claude-code (`--model`) for voice-started agents.
-   * `null` means "not set" — don't pass `--model`, so claude uses its own default.
+   * Default harness/model for voice-started agents when the command doesn't name one.
+   * `null` means "not set" — don't pass a model flag, so the CLI uses its own default.
    */
-  defaultModel: ClaudeModelAlias | null;
+  defaultAgent: AiRuntimeHarness;
+  defaultModel: AiModelId | null;
+  /**
+   * Model used by the markdown-preview "Refine" action (rewrites a .md file from
+   * reviewer annotations). `null` means "not set" — the selected CLI uses its own
+   * default. Independent from `defaultModel` (voice agents).
+   */
+  annotationAgent: AiRuntimeHarness;
+  annotationModel: AiModelId | null;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
 };
@@ -428,7 +444,10 @@ export const api = {
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"
+        | "defaultAgent"
         | "defaultModel"
+        | "annotationAgent"
+        | "annotationModel"
         | "voiceCommandAliases"
       >
     >,
@@ -438,8 +457,18 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  refineMarkdown: (body: MarkdownRefineRequest) =>
+    req<MarkdownRefineResponse>("/api/markdown/refine", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   detectCommitCli: () =>
     req<{ detected: CommitCliDetection }>("/api/commit-cli/detect"),
+  listAiRuntimeModels: (agent: AiRuntimeHarness) =>
+    req<AiRuntimeModelsResponse>(
+      `/api/ai-runtime/models?agent=${encodeURIComponent(agent)}`,
+    ),
 
   getGitStatus: (projectId: string, worktreeId?: string | null) =>
     req<GitStatus>(`/api/projects/${projectId}/git/status${worktreeQuery(worktreeId)}`),

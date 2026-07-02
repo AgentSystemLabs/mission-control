@@ -81,9 +81,12 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({ terminalZoomLevel: 2 });
   });
 
-  it("has no default model until one is chosen", async () => {
+  it("defaults voice agents to Claude Code with no model until one is chosen", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
-    expect(await jsonBody(response!)).toMatchObject({ defaultModel: null });
+    expect(await jsonBody(response!)).toMatchObject({
+      defaultAgent: "claude-code",
+      defaultModel: null,
+    });
   });
 
   it("has no custom voice command aliases by default", async () => {
@@ -93,27 +96,81 @@ describe("settings API", () => {
     });
   });
 
-  it("persists the default model for voice-started agents", async () => {
+  it("persists the default harness and generic model for voice-started agents", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ defaultModel: "opus" }),
+        body: JSON.stringify({ defaultAgent: "codex", defaultModel: "gpt-5.3-codex" }),
       }),
     );
     const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
 
     expect(update?.status).toBe(200);
-    expect(await jsonBody(update!)).toMatchObject({ defaultModel: "opus" });
-    expect(await jsonBody(read!)).toMatchObject({ defaultModel: "opus" });
+    expect(await jsonBody(update!)).toMatchObject({
+      defaultAgent: "codex",
+      defaultModel: "gpt-5.3-codex",
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      defaultAgent: "codex",
+      defaultModel: "gpt-5.3-codex",
+    });
   });
 
-  it("rejects an invalid default model value", async () => {
+  it("rejects an unsafe default model value", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ defaultModel: "gpt-4" }),
+        body: JSON.stringify({ defaultModel: "gpt-4; rm -rf /" }),
+      }),
+    );
+    expect(update?.status).toBe(400);
+  });
+
+  it("defaults markdown annotations to Claude Code with no model until one is chosen", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({
+      annotationAgent: "claude-code",
+      annotationModel: null,
+    });
+  });
+
+  it("persists the annotation harness and model independently of the voice default", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annotationAgent: "opencode",
+          annotationModel: "anthropic/claude-sonnet-4-5",
+        }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    // The annotation runtime is set without disturbing the voice default.
+    expect(await jsonBody(update!)).toMatchObject({
+      annotationAgent: "opencode",
+      annotationModel: "anthropic/claude-sonnet-4-5",
+      defaultAgent: "claude-code",
+      defaultModel: null,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      annotationAgent: "opencode",
+      annotationModel: "anthropic/claude-sonnet-4-5",
+      defaultAgent: "claude-code",
+      defaultModel: null,
+    });
+  });
+
+  it("rejects an unsafe annotation model value", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annotationModel: "$(whoami)" }),
       }),
     );
     expect(update?.status).toBe(400);

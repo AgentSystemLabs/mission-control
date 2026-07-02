@@ -493,6 +493,12 @@ const electronAPI = {
     onChanged: (cb: (msg: { watchId: string; mtimeMs: number }) => void) =>
       subscribe(IPC.filesChanged, cb),
   },
+  preview: {
+    startServer: (
+      projectRoot: string,
+    ): Promise<{ ok: true; port: number } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.previewStartServer, projectRoot),
+  },
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);

@@ -11,7 +11,6 @@ export function TaskColumn({
   onArchive,
   onRestore,
   onDelete,
-  onRename,
   onTogglePinned,
   pinningTaskIds,
   headerAction,
@@ -24,7 +23,6 @@ export function TaskColumn({
   onArchive?: (id: string) => void;
   onRestore?: (id: string) => void;
   onDelete?: (id: string) => void;
-  onRename?: (id: string, title: string) => Promise<void> | void;
   onTogglePinned?: (id: string) => Promise<void> | void;
   pinningTaskIds?: ReadonlySet<string>;
   headerAction?: React.ReactNode;
@@ -82,7 +80,6 @@ export function TaskColumn({
             onArchive={onArchive}
             onRestore={onRestore}
             onDelete={onDelete}
-            onRename={onRename}
             onTogglePinned={onTogglePinned}
             pinning={pinningTaskIds?.has(t.id) ?? false}
           />

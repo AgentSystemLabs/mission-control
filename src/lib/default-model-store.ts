@@ -1,17 +1,37 @@
-// Module-level cache of the user's default claude-code model, kept in sync by
+// Module-level cache of the user's default agent/model, kept in sync by
 // the settings query (mirrors the setApiToken pattern in api.ts). commandForTask
-// reads it to append `--model` to every new claude-code session, so the choice
+// reads it to append `--model` to every new matching agent session, so the choice
 // in Settings → Defaults applies consistently to warm-pooled and cold spawns
 // alike without prop-drilling settings through the terminal store.
 
-import type { ClaudeModelAlias } from "~/shared/claude-models";
+import {
+  isAiRuntimeHarness,
+  normalizeAiModelId,
+  type AiModelId,
+  type AiRuntimeHarness,
+} from "~/shared/ai-runtime-defaults";
 
-let defaultModel: ClaudeModelAlias | null = null;
+let defaultAgent: AiRuntimeHarness = "claude-code";
+let defaultModel: AiModelId | null = null;
 
-export function setDefaultModel(model: ClaudeModelAlias | null): void {
+export function setDefaultAgent(agent: AiRuntimeHarness): void {
+  defaultAgent = agent;
+}
+
+export function setDefaultModel(model: AiModelId | null): void {
   defaultModel = model;
 }
 
-export function getDefaultModel(): ClaudeModelAlias | null {
-  return defaultModel;
+export function syncDefaultRuntimeDefaults(settings: {
+  defaultAgent?: unknown;
+  defaultModel?: unknown;
+}): void {
+  defaultAgent = isAiRuntimeHarness(settings.defaultAgent)
+    ? settings.defaultAgent
+    : "claude-code";
+  defaultModel = normalizeAiModelId(settings.defaultModel);
+}
+
+export function getDefaultModelForAgent(agent: AiRuntimeHarness): AiModelId | null {
+  return agent === defaultAgent ? defaultModel : null;
 }

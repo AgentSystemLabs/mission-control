@@ -79,6 +79,20 @@ export async function writeProjectFileSensitive(
     : api.files.writeSensitive(projectRoot, relPath, content, expectedMtimeMs);
 }
 
+/**
+ * Starts (or reuses) the loopback static server rooted at `projectRoot` so the
+ * HTML preview iframe can load the file over http and resolve its assets/scripts.
+ * Host-runtime only: in the Docker sandbox the files live in the container, which
+ * this host server can't serve — callers fall back to the inert srcDoc preview.
+ */
+export async function startHtmlPreviewServer(
+  projectRoot: string,
+): Promise<{ ok: true; port: number } | { ok: false; error: string }> {
+  const api = window.electronAPI;
+  if (!api?.preview) return NOT_ELECTRON;
+  return api.preview.startServer(projectRoot);
+}
+
 export type ProjectFileWatch = {
   watchId: string;
   /** Subscribe to change events for THIS watch (filter by watchId). Returns unsubscribe. */

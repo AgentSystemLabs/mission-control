@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENT_SPAWN_COMMANDS } from "./agent-cli-config";
-import { CLAUDE_MODEL_ALIASES } from "./claude-models";
+import { isAiModelId } from "./ai-runtime-defaults";
 import type { TaskAgent } from "./domain";
 import { buildCmdScriptCommand, isWindowsCommandScript } from "./windows-cmd";
 
@@ -112,7 +112,6 @@ export type SpawnPolicyErrorCode =
   | "empty-command";
 
 const SHELL_META = /[`$();&|<>"'\\\n\r\t*?{}[\]~#!]/;
-const AGENT_VALUE = /^[A-Za-z0-9._:-]+$/;
 
 type AgentArgRule = {
   value: false | { allowed?: readonly string[] };
@@ -126,21 +125,24 @@ const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, A
     "--bare": { value: false },
     "--session-id": { value: {} },
     "--resume": { value: {} },
-    "--model": { value: { allowed: CLAUDE_MODEL_ALIASES } },
+    "--model": { value: {} },
     "--dangerously-skip-permissions": {
       value: false,
       requiresDangerouslySkipPermissions: true,
     },
   },
   codex: {
+    "--model": { value: {} },
     "--enable": { value: { allowed: ["hooks"] } },
     "--yolo": { value: false, requiresDangerouslySkipPermissions: true },
   },
   "cursor-cli": {
     "--resume": { value: {} },
+    "--model": { value: {} },
     "--force": { value: false, requiresDangerouslySkipPermissions: true },
   },
   opencode: {
+    "--model": { value: {} },
     "--session": { value: {}, valuePrefix: "ses" },
   },
 };
@@ -205,7 +207,7 @@ function validateCodexArgv(
     if (
       !sessionId ||
       sessionId.startsWith("-") ||
-      !AGENT_VALUE.test(sessionId)
+      !isAiModelId(sessionId)
     ) {
       throw new SpawnPolicyError(
         "agent-arg-not-allowed",
@@ -245,7 +247,7 @@ function validateAgentArgv(
     if (
       !value ||
       value.startsWith("-") ||
-      !AGENT_VALUE.test(value) ||
+      !isAiModelId(value) ||
       (rule.value.allowed && !rule.value.allowed.includes(value)) ||
       (rule.valuePrefix && !value.startsWith(rule.valuePrefix))
     ) {
