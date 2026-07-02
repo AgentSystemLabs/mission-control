@@ -32,4 +32,12 @@ describe("electron-builder package config", () => {
     const extendInfo = readPackageJson().build?.mac?.extendInfo ?? {};
     expect(typeof extendInfo.NSMicrophoneUsageDescription).toBe("string");
   });
+
+  it("grants the hardened-runtime audio-input entitlement voice capture needs", () => {
+    // Without this entitlement, signed builds get a silent mic stream (no
+    // error) and whisper hallucinates tokens like [BEEP] on the silence.
+    const plistPath = path.resolve(__dirname, "..", "..", "build", "entitlements.mac.plist");
+    const plist = fs.readFileSync(plistPath, "utf8");
+    expect(plist).toContain("<key>com.apple.security.device.audio-input</key>");
+  });
 });
