@@ -61,6 +61,21 @@ describe("title-generator parseResponse", () => {
     expect(parseResponse(raw)).toEqual({ title: "Set up CI pipeline", icon: "check" });
   });
 
+  it("strips terminal color escape sequences from generated titles", () => {
+    const raw = "TITLE: \x1b]11;rgb:0505/0606/0707\x07Make quick patch\nICON: bug";
+    expect(parseResponse(raw)).toEqual({ title: "Make quick patch", icon: "bug" });
+  });
+
+  it("strips orphaned terminal rgb responses from generated titles", () => {
+    const raw = "TITLE: 1;rgb:0505/0606/0707make a quick patch\nICON: bug";
+    expect(parseResponse(raw)).toEqual({ title: "make a quick patch", icon: "bug" });
+  });
+
+  it("strips terminal color responses before parsing JSON fallback output", () => {
+    const raw = '{"title":"\x1b]11;rgb:0505/0606/0707\x07Make quick patch","icon":"bug"}';
+    expect(parseResponse(raw)).toEqual({ title: "Make quick patch", icon: "bug" });
+  });
+
   it("falls back to last-line text when no recognizable format is present", () => {
     const raw = "Some preamble\nLast line title";
     expect(parseResponse(raw)).toEqual({ title: "Last line title", icon: null });

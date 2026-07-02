@@ -99,9 +99,21 @@ function* candidateJsonBlocks(s: string): Generator<string> {
 const TITLE_MAX_WORDS = 7;
 const TITLE_MAX_LEN = 80;
 const FALLBACK_TITLE_MAX_LEN = 60;
+const ANSI_ESCAPE_REGEX =
+  /(?:\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[PX^_].*?(?:\x1b\\)|\x1b[@-_])/g;
+const CONTROL_CHARS_REGEX = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+const ORPHANED_TERMINAL_RGB_RESPONSE_REGEX =
+  /(?:\]?\d{1,2};)?rgb:[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}/g;
+
+function stripTerminalControlText(raw: string): string {
+  return raw
+    .replace(ANSI_ESCAPE_REGEX, "")
+    .replace(ORPHANED_TERMINAL_RGB_RESPONSE_REGEX, "")
+    .replace(CONTROL_CHARS_REGEX, "");
+}
 
 function sanitizeTitle(raw: string): string {
-  let t = raw.trim();
+  let t = stripTerminalControlText(raw).trim();
   t = t.replace(/^["'`]+|["'`]+$/g, "");
   t = t.replace(/[.!?,;:]+$/g, "");
   const words = t.split(/\s+/).filter(Boolean).slice(0, TITLE_MAX_WORDS);
@@ -141,7 +153,7 @@ function tryJsonFormat(raw: string): Parsed | null {
 }
 
 export function parseResponse(raw: string): Parsed {
-  const trimmed = raw.trim();
+  const trimmed = stripTerminalControlText(raw).trim();
 
   // Primary format: the one we ask for.
   const kv = tryKeyValueFormat(trimmed);
@@ -205,7 +217,8 @@ export async function generateTitleForTask(taskId: string, prompt: string): Prom
 }
 
 function fallbackTitle(prompt: string): string {
-  const firstLine = prompt.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "Untitled task";
+  const cleanPrompt = stripTerminalControlText(prompt);
+  const firstLine = cleanPrompt.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "Untitled task";
   return firstLine.length > FALLBACK_TITLE_MAX_LEN
     ? firstLine.slice(0, FALLBACK_TITLE_MAX_LEN).trim() + "…"
     : firstLine;
