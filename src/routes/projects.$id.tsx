@@ -1611,20 +1611,31 @@ function ProjectPage() {
   const cycleSessionRef = useRef(cycleSession);
   cycleSessionRef.current = cycleSession;
 
-  const duplicateActiveSession = useCallback(() => {
-    if (!project) return;
-    if (anyBlockingDialogOpen) return;
-    const active = terminals.activeFor(selectedScopeKey);
-    if (!active) return;
-    const sourceTask = tasks.find((t) => t.id === active.taskId);
-    if (!sourceTask) return;
-    void createSession({
-      agent: sourceTask.agent,
-      branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
-      skipPermissions: !!sourceTask.claudeSkipPermissions,
-      bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
-    });
-  }, [project, selectedScopeKey, tasks, terminals, createSession, anyBlockingDialogOpen]);
+  const duplicateActiveSession = useCallback(
+    (sourceTaskId?: string) => {
+      if (!project) return;
+      if (anyBlockingDialogOpen) return;
+      // Prefer the session whose "Clone" button fired the event (the clicked
+      // grid cell); fall back to the scope's active session (keyboard shortcut).
+      const sourceTask =
+        (sourceTaskId && tasks.find((t) => t.id === sourceTaskId)) ||
+        (() => {
+          const active = terminals.activeFor(selectedScopeKey);
+          return active ? tasks.find((t) => t.id === active.taskId) : undefined;
+        })();
+      if (!sourceTask) return;
+      // In grid view, drop the clone directly beside the session it came from
+      // rather than at the end of the grid.
+      terminals.requestCloneInsertAfter(sourceTask.id);
+      void createSession({
+        agent: sourceTask.agent,
+        branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
+        skipPermissions: !!sourceTask.claudeSkipPermissions,
+        bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
+      });
+    },
+    [project, selectedScopeKey, tasks, terminals, createSession, anyBlockingDialogOpen],
+  );
   const duplicateActiveSessionRef = useRef(duplicateActiveSession);
   duplicateActiveSessionRef.current = duplicateActiveSession;
 
@@ -1649,7 +1660,10 @@ function ProjectPage() {
         duplicateActiveSessionRef.current();
       }
     };
-    const onDuplicateRequest = () => duplicateActiveSessionRef.current();
+    const onDuplicateRequest = (e: Event) => {
+      const taskId = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      duplicateActiveSessionRef.current(taskId);
+    };
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
     return () => {

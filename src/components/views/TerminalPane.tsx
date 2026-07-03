@@ -409,7 +409,12 @@ export function TerminalPane({
 
   const requestSessionClone = () => {
     if (typeof window === "undefined") return;
-    window.dispatchEvent(new Event(DUPLICATE_ACTIVE_SESSION_EVENT));
+    // Carry this pane's own session id so the handler clones (and, in grid view,
+    // positions the clone next to) the session whose button was clicked — not
+    // whatever session happens to be active in the current scope.
+    window.dispatchEvent(
+      new CustomEvent(DUPLICATE_ACTIVE_SESSION_EVENT, { detail: { taskId: task.id } }),
+    );
   };
 
   useEffect(() => {

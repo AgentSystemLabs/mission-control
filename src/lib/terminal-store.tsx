@@ -86,6 +86,15 @@ type Ctx = {
   gridFocusRequest: { taskId: string; nonce: number } | null;
   /** Ask the grid to scroll to, highlight, and focus a session's cell. */
   focusGridSession: (taskId: string) => void;
+  /** Ask the grid to drop the next newly-created session directly after this
+   *  source session (used by "Clone session" so a clone lands beside its
+   *  origin instead of at the end of the grid). */
+  requestCloneInsertAfter: (sourceTaskId: string) => void;
+  /** Consume the pending clone-insert source id (null if none is queued). */
+  takeCloneInsertAfter: () => string | null;
+  /** Consume any provisional→persisted session id renames since the last call,
+   *  so views keyed by taskId can preserve position across adoption. */
+  takeSessionIdRenames: () => Array<{ from: string; to: string }>;
 };
 
 const TerminalContext = createContext<Ctx | null>(null);
@@ -389,6 +398,26 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setGridFocusRequest({ taskId, nonce: gridFocusNonceRef.current });
   }, []);
 
+  // Source session id for a pending clone: the grid drops the next new session
+  // right after it. Refs (not state) so requesting doesn't re-render, and the
+  // grid consumes the value exactly once as it reconciles its order.
+  const cloneInsertAfterRef = useRef<string | null>(null);
+  const requestCloneInsertAfter = useCallback((sourceTaskId: string) => {
+    cloneInsertAfterRef.current = sourceTaskId;
+  }, []);
+  const takeCloneInsertAfter = useCallback(() => {
+    const source = cloneInsertAfterRef.current;
+    cloneInsertAfterRef.current = null;
+    return source;
+  }, []);
+  const sessionIdRenamesRef = useRef<Array<{ from: string; to: string }>>([]);
+  const takeSessionIdRenames = useCallback(() => {
+    if (sessionIdRenamesRef.current.length === 0) return [];
+    const renames = sessionIdRenamesRef.current;
+    sessionIdRenamesRef.current = [];
+    return renames;
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -586,6 +615,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const adoptTaskId = useCallback((fromTaskId: string, task: Task) => {
+    // Record the id swap so views keyed by taskId (e.g. the grid order) can
+    // follow the session in place instead of treating it as a fresh add.
+    if (fromTaskId !== task.id) {
+      sessionIdRenamesRef.current.push({ from: fromTaskId, to: task.id });
+    }
     adoptRemotePtyTaskId(fromTaskId, task.id);
     // The pane re-keys to the persisted id and remounts under it; dispose the
     // provisional-id surface so it doesn't leak (the new pane re-attaches to the
@@ -870,6 +904,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       toggleGridView,
       gridFocusRequest,
       focusGridSession,
+      requestCloneInsertAfter,
+      takeCloneInsertAfter,
+      takeSessionIdRenames,
     }),
     [
       sessions,
@@ -891,6 +928,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       toggleGridView,
       gridFocusRequest,
       focusGridSession,
+      requestCloneInsertAfter,
+      takeCloneInsertAfter,
+      takeSessionIdRenames,
     ]
   );
 

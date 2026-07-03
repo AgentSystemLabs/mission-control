@@ -314,7 +314,8 @@ const GridCell = memo(function GridCell({
  * the order is persisted to localStorage.
  */
 export function SessionGrid() {
-  const { sessions, close, setPtyId, gridFocusRequest } = useTerminals();
+  const { sessions, close, setPtyId, gridFocusRequest, takeCloneInsertAfter, takeSessionIdRenames } =
+    useTerminals();
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
   const { bindings } = useKeybindings();
@@ -333,6 +334,9 @@ export function SessionGrid() {
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  // Session ids seen on the previous reconcile, so we can tell a genuinely new
+  // session (a clone/create) apart from an id rename when placing it in `order`.
+  const prevSessionIdsRef = useRef<Set<string>>(new Set());
   const dragOrderRef = useRef<string[] | null>(null);
   const cleanupDragRef = useRef<(() => void) | null>(null);
 
@@ -355,13 +359,33 @@ export function SessionGrid() {
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    // Follow provisional→persisted id swaps in place so an adopted session
+    // keeps its slot instead of dropping to the end when its task persists.
+    const renames = takeSessionIdRenames();
+    const ids = sessions.map((s) => s.taskId);
+    // A clone requests placement directly after its source; only claim that
+    // request when a genuinely new session (not just a renamed one) appeared.
+    const prevIds = prevSessionIdsRef.current;
+    const hasNewSession = ids.some(
+      (id) => !prevIds.has(id) && !renames.some((r) => r.to === id),
+    );
+    prevSessionIdsRef.current = new Set(ids);
+    const cloneAfter = hasNewSession ? takeCloneInsertAfter() : null;
     setOrder((prev) => {
-      const ids = sessions.map((s) => s.taskId);
+      const remapped = renames.length
+        ? prev.map((id) => renames.find((r) => r.from === id)?.to ?? id)
+        : prev;
       const idSet = new Set(ids);
-      const kept = prev.filter((id) => idSet.has(id));
+      const kept = remapped.filter((id) => idSet.has(id));
       const keptSet = new Set(kept);
       const added = ids.filter((id) => !keptSet.has(id));
-      const next = [...kept, ...added];
+      // Insert new sessions right after their clone source when one is queued,
+      // otherwise append them at the end.
+      const anchor = added.length && cloneAfter ? kept.indexOf(cloneAfter) : -1;
+      const next =
+        anchor >= 0
+          ? [...kept.slice(0, anchor + 1), ...added, ...kept.slice(anchor + 1)]
+          : [...kept, ...added];
       const unchanged = next.length === prev.length && next.every((id, i) => id === prev[i]);
       if (unchanged) return prev;
       saveGridOrder(next);
