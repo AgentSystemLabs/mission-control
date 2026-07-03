@@ -1,10 +1,22 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
+import { CardFrame } from "~/components/ui/CardFrame";
+import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { Modal } from "~/components/ui/Modal";
 import { TextField } from "~/components/ui/TextField";
 import { EscTooltip, HotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
+import { Z_INDEX } from "~/lib/z-index";
 import {
   AGENT_META,
   DUPLICATE_ACTIVE_SESSION_EVENT,
@@ -52,6 +64,7 @@ import { getDefaultModelForAgent } from "~/lib/default-model-store";
 import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
+import { acquireSpawnSlot, SPAWN_SETTLE_MS } from "~/lib/pty-spawn-queue";
 import {
   terminalSurfaceCache,
   type PaneTerminalSurface,
@@ -96,12 +109,210 @@ export type TerminalDescriptor = {
   dangerouslySkipPermissions: boolean;
   cwd: string;
   awaitingCreate?: boolean;
+  /** Restored from localStorage; spawn waits until the task is revalidated. */
+  pendingValidation?: boolean;
 };
 
 /** The session pane's cached xterm surface; carries the sandbox flag so the
  *  "sandbox" badge can be restored on reattach without re-detecting the runtime. */
 interface SessionTerminalSurface extends PaneTerminalSurface {
   useSandbox: boolean;
+}
+
+// Header width (px) below which the secondary controls (rename, zoom, clone)
+// collapse into the "…" menu; below the tiny threshold the title/status block
+// is hidden too and surfaces at the top of that menu instead; below micro even
+// the close button folds into the menu (grid cells can shrink to MIN_CELL_PX).
+const HEADER_COMPACT_MAX = 380;
+const HEADER_TINY_MAX = 210;
+const HEADER_MICRO_MAX = 120;
+
+/** "…" dropdown holding the header controls that don't fit a narrow pane.
+ *  In tiny mode it also carries the (hidden) session title and status. */
+function HeaderMoreMenu({
+  title,
+  statusLabel,
+  statusColor,
+  showTitle,
+  showSandboxBadge,
+  expanded,
+  onToggleExpanded,
+  onHide,
+  onRename,
+  onClone,
+  canZoomIn,
+  canZoomOut,
+  onZoomIn,
+  onZoomOut,
+}: {
+  title: string;
+  statusLabel: string;
+  statusColor: string;
+  /** Tiny header: the pane title is hidden, so show it at the top of the menu. */
+  showTitle: boolean;
+  showSandboxBadge: boolean;
+  expanded: boolean;
+  /** Present only when the expand control was also collapsed into the menu. */
+  onToggleExpanded?: () => void;
+  /** Present only when the close control was also collapsed into the menu. */
+  onHide?: () => void;
+  onRename: () => void;
+  onClone: () => void;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [menuRect, setMenuRect] = useState<{ top: number; right: number } | null>(null);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLElement>(null);
+
+  const updateMenuRect = useCallback(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    setMenuRect({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuRect(null);
+      return;
+    }
+    updateMenuRect();
+    window.addEventListener("resize", updateMenuRect);
+    window.addEventListener("scroll", updateMenuRect, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuRect);
+      window.removeEventListener("scroll", updateMenuRect, true);
+    };
+  }, [open, updateMenuRect]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (anchorRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pick = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <>
+      <Tooltip content="Session actions">
+        <Btn
+          ref={anchorRef}
+          variant="ghost"
+          size="sm"
+          icon="more"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={`Session actions for ${title}`}
+          style={{ width: 34, padding: 0 }}
+        />
+      </Tooltip>
+      {open &&
+        menuRect &&
+        createPortal(
+          <CardFrame
+            ref={menuRef}
+            role="menu"
+            aria-label={`Session actions for ${title}`}
+            solid
+            className="mc-project-actions-menu"
+            style={{
+              position: "fixed",
+              top: menuRect.top,
+              right: menuRect.right,
+              minWidth: 190,
+              maxWidth: 260,
+              boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
+              zIndex: Z_INDEX.popover,
+            }}
+          >
+            {showTitle && (
+              <>
+                <div style={{ padding: "7px 8px 5px", fontFamily: "var(--mono)", minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 500,
+                      color: "var(--text)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {title}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 10,
+                      marginTop: 2,
+                    }}
+                  >
+                    <span style={{ color: statusColor }}>{statusLabel}</span>
+                    {showSandboxBadge && (
+                      <span style={{ color: "var(--accent)", opacity: 0.85 }}>sandbox</span>
+                    )}
+                  </div>
+                </div>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            <DropdownMenuItem icon="pencil" onClick={() => pick(onRename)}>
+              Rename session
+            </DropdownMenuItem>
+            <DropdownMenuItem icon="zoom-out" disabled={!canZoomOut} onClick={onZoomOut}>
+              Zoom out
+            </DropdownMenuItem>
+            <DropdownMenuItem icon="zoom-in" disabled={!canZoomIn} onClick={onZoomIn}>
+              Zoom in
+            </DropdownMenuItem>
+            <DropdownMenuItem icon="copy" onClick={() => pick(onClone)}>
+              Clone session
+            </DropdownMenuItem>
+            {onToggleExpanded && (
+              <DropdownMenuItem
+                icon={expanded ? "minimize" : "maximize"}
+                onClick={() => pick(onToggleExpanded)}
+              >
+                {expanded ? "Shrink panel" : "Expand panel"}
+              </DropdownMenuItem>
+            )}
+            {onHide && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem icon="x" danger onClick={() => pick(onHide)}>
+                  Hide session panel
+                </DropdownMenuItem>
+              </>
+            )}
+          </CardFrame>,
+          document.body,
+        )}
+    </>
+  );
 }
 
 export function TerminalPane({
@@ -113,6 +324,8 @@ export function TerminalPane({
   isLast,
   descriptor,
   onPtyReady,
+  onHeaderPointerDown,
+  headerGrabbing = false,
 }: {
   project: Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
   task: Task;
@@ -122,9 +335,13 @@ export function TerminalPane({
   isLast: boolean;
   descriptor: TerminalDescriptor;
   onPtyReady: (ptyId: string | null) => void;
+  /** When set, the header bar becomes a drag handle (used by the session grid). */
+  onHeaderPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  headerGrabbing?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<XFitAddon | null>(null);
   const termSurfaceRef = useRef<{ setFontSize: (fontSize: number) => void } | null>(null);
   const renameFormId = useId();
@@ -145,13 +362,30 @@ export function TerminalPane({
   const {
     level: zoomLevel,
     fontSize: terminalFontSize,
+    zoomBy,
     zoomIn,
     zoomOut,
     canZoomIn,
     canZoomOut,
   } = useTerminalZoom(descriptor.taskId);
   useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut);
-  useTerminalPaneWheelZoom(paneRef, zoomIn, zoomOut);
+  useTerminalPaneWheelZoom(paneRef, zoomBy);
+
+  // Track the header's width so narrow grid cells can collapse controls into
+  // the "…" menu (compact) and drop the title entirely (tiny).
+  const [headerWidth, setHeaderWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const update = () => setHeaderWidth(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const compactHeader = headerWidth !== null && headerWidth < HEADER_COMPACT_MAX;
+  const tinyHeader = headerWidth !== null && headerWidth < HEADER_TINY_MAX;
+  const microHeader = headerWidth !== null && headerWidth < HEADER_MICRO_MAX;
 
   const activeRuntimeScopeId = project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID;
   const { data: liveTasks } = useTasks(
@@ -242,10 +476,11 @@ export function TerminalPane({
   useEffect(() => {
     const cache = terminalSurfaceCache;
     const surfaceId = `${descriptor.taskId}:${project.activeWorktreeId ?? MAIN_WORKTREE_ID}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
-    // awaitingCreate (task row not yet persisted) and the retry nonce both mean
-    // "build fresh"; a plain remount (navigating back to this session) keeps the
-    // same buildKey and reattaches the existing surface instantly — no replay.
-    const buildKey = `${descriptor.awaitingCreate ? 1 : 0} ${retryNonce}`;
+    // awaitingCreate (task row not yet persisted), pendingValidation (restored
+    // session not yet revalidated) and the retry nonce all mean "build fresh";
+    // a plain remount (navigating back to this session) keeps the same buildKey
+    // and reattaches the existing surface instantly — no replay.
+    const buildKey = `${descriptor.awaitingCreate ? 1 : 0} ${descriptor.pendingValidation ? 1 : 0} ${retryNonce}`;
     const container = containerRef.current;
     if (!container) return;
 
@@ -355,6 +590,14 @@ export function TerminalPane({
       let fallbackRunningPosted = false;
       let promptCaptureBuffer = "";
       let promptTitlePosted = false;
+      // Held while a freshly spawned local agent is still booting; released on
+      // its first output (or a settle timeout) so grid loads start a couple of
+      // agents at a time instead of all at once. See pty-spawn-queue.
+      let releaseSpawnSlot: (() => void) | null = null;
+      const releaseSpawnHold = () => {
+        releaseSpawnSlot?.();
+        releaseSpawnSlot = null;
+      };
       // Sandbox spawns are fire-and-forget over the WS; if the agent never acks
       // (spawned/output/exit), the terminal would otherwise sit blank forever.
       // Arm a watchdog on spawn and clear it on the first sign of life.
@@ -511,6 +754,7 @@ export function TerminalPane({
           ptyApi.onData((msg) => {
             if (activePtyId === msg.ptyId) {
               clearSpawnAck(); // the agent is alive
+              releaseSpawnHold();
               if (electronReplayPtyId === msg.ptyId) {
                 appendBoundedSequencedData(
                   electronReplayData,
@@ -533,6 +777,7 @@ export function TerminalPane({
           ptyApi.onExit((msg) => {
             if (activePtyId === msg.ptyId) {
               clearSpawnAck();
+              releaseSpawnHold();
               if (electronReplayPtyId === msg.ptyId) {
                 electronReplayExit = msg;
                 return;
@@ -689,39 +934,62 @@ export function TerminalPane({
 
       const spawnAndWire = async (command: string, isResume: boolean) => {
         if (!electron) return;
+        // Local agent launches are throttled: the slot is held until the agent's
+        // first output (or SPAWN_SETTLE_MS) so a grid full of sessions boots a
+        // couple of CLIs at a time instead of stampeding the whole machine.
+        // Sandbox spawns run remotely and skip the queue.
+        if (!useSandbox) {
+          releaseSpawnHold();
+          releaseSpawnSlot = await acquireSpawnSlot();
+          if (surface.destroyed) {
+            releaseSpawnHold();
+            return;
+          }
+        }
         const ptySize = normalizePtySize({ cols: term.cols, rows: term.rows });
         const initialInput = !useSandbox && shouldInjectInitialInput(task.agent, isResume)
           ? takePendingInitialInput(descriptor.taskId)
           : undefined;
-        const { ptyId } = useSandbox
-          ? await electron.remotePty.spawn({
-              taskId: descriptor.taskId,
-              cwd: sandboxCwd, // in-container clone path (/workspace/<slug>)
-              command,
-              cols: ptySize.cols,
-              rows: ptySize.rows,
-              agent: task.agent,
-              dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
-              missionControlTheme: getTerminalColorScheme(),
-              // mcEnv is injected by the main process for sandbox spawns.
-            })
-          : await electron.pty.spawn({
-              taskId: descriptor.taskId,
-              cwd: descriptor.cwd,
-              command,
-              cols: ptySize.cols,
-              rows: ptySize.rows,
-              agent: task.agent,
-              dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
-              mcEnv: await resolveMcEnv(electron),
-              missionControlTheme: getTerminalColorScheme(),
-              // Voice-seeded starting prompt, consumed once on the first spawn so
-              // reloads/re-spawns never re-inject it. Undefined for normal sessions.
-              initialInput,
-            });
+        let spawnResult: { ptyId: string };
+        try {
+          spawnResult = useSandbox
+            ? await electron.remotePty.spawn({
+                taskId: descriptor.taskId,
+                cwd: sandboxCwd, // in-container clone path (/workspace/<slug>)
+                command,
+                cols: ptySize.cols,
+                rows: ptySize.rows,
+                agent: task.agent,
+                dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
+                missionControlTheme: getTerminalColorScheme(),
+                // mcEnv is injected by the main process for sandbox spawns.
+              })
+            : await electron.pty.spawn({
+                taskId: descriptor.taskId,
+                cwd: descriptor.cwd,
+                command,
+                cols: ptySize.cols,
+                rows: ptySize.rows,
+                agent: task.agent,
+                dangerouslySkipPermissions: descriptor.dangerouslySkipPermissions,
+                mcEnv: await resolveMcEnv(electron),
+                missionControlTheme: getTerminalColorScheme(),
+                // Voice-seeded starting prompt, consumed once on the first spawn so
+                // reloads/re-spawns never re-inject it. Undefined for normal sessions.
+                initialInput,
+              });
+        } catch (err) {
+          releaseSpawnHold();
+          throw err;
+        }
+        const { ptyId } = spawnResult;
+        // Fallback release: an agent that boots silently must not pin its queue
+        // slot forever. First output releases earlier via releaseSpawnHold().
+        if (!useSandbox) window.setTimeout(releaseSpawnHold, SPAWN_SETTLE_MS);
         spawnAt = Date.now();
         spawnedAsResume = isResume;
         if (surface.destroyed) {
+          releaseSpawnHold();
           if (ptyApi) await ptyApi.kill(ptyId).catch(() => undefined);
           return;
         }
@@ -732,6 +1000,9 @@ export function TerminalPane({
       const ensurePty = async () => {
         if (surface.destroyed) return;
         if (descriptor.awaitingCreate) return;
+        // Restored session not yet revalidated — the store either clears the
+        // gate (task alive; effect re-runs via deps) or closes the session.
+        if (descriptor.pendingValidation) return;
         setStartError(null);
         setCloneOffer(null);
         try {
@@ -748,6 +1019,28 @@ export function TerminalPane({
                 attached = await wireExistingElectronPty(descriptor.ptyId);
               }
               if (attached) return;
+            }
+          }
+
+          // Local pty ids are lost on a renderer reload, but the agent
+          // processes survive in the main process. Reattach to a live PTY for
+          // this task instead of spawning a duplicate — agents that pin a
+          // session id die with "Session ID ... is already in use" when a
+          // second copy launches.
+          if (!useSandbox && electron) {
+            let livePtyId: string | null = null;
+            try {
+              livePtyId = (await electron.pty.findByTask(descriptor.taskId)).ptyId;
+            } catch {
+              /* older main process without findByTask — fall through to spawn */
+            }
+            if (surface.destroyed) return;
+            if (livePtyId && livePtyId !== descriptor.ptyId) {
+              const attached = await wireExistingElectronPty(livePtyId);
+              if (attached) {
+                onPtyReady(livePtyId);
+                return;
+              }
             }
           }
 
@@ -805,6 +1098,7 @@ export function TerminalPane({
       surface.teardown = () => {
         cancelAnimationFrame(rafHandle);
         clearSpawnAck();
+        releaseSpawnHold();
         for (const off of subscriptions) off();
         stopWatchingColorScheme();
         detachLinks();
@@ -823,7 +1117,7 @@ export function TerminalPane({
       cancelled = true;
       detachMount?.();
     };
-  }, [descriptor.taskId, descriptor.awaitingCreate, retryNonce]);
+  }, [descriptor.taskId, descriptor.awaitingCreate, descriptor.pendingValidation, retryNonce]);
 
   const confirmClone = useCallback(async () => {
     const electron = getElectron();
@@ -908,6 +1202,9 @@ export function TerminalPane({
         />
       )}
       <div
+        ref={headerRef}
+        data-session-header
+        onPointerDown={onHeaderPointerDown}
         style={{
           display: "flex",
           alignItems: "center",
@@ -915,37 +1212,44 @@ export function TerminalPane({
           padding: "8px 12px",
           background: "transparent",
           borderBottom: "1px solid var(--border)",
+          transition: "background 140ms ease, border-color 140ms ease",
           flexShrink: 0,
           userSelect: "none",
+          cursor: onHeaderPointerDown ? (headerGrabbing ? "grabbing" : "grab") : undefined,
+          touchAction: onHeaderPointerDown ? "none" : undefined,
         }}
       >
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-          <div
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 11.5,
-              fontWeight: 500,
-              color: "var(--text)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {liveTask.title}
-          </div>
-          <div
-            style={{
-              display: "flex",
-              fontFamily: "var(--mono)",
-              fontSize: 10,
-              marginTop: 1,
-            }}
-          >
-            <span style={{ color: statusMeta.color }}>{statusMeta.label}</span>
-          </div>
+          {!tinyHeader && (
+            <>
+              <div
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 11.5,
+                  fontWeight: 500,
+                  color: "var(--text)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {liveTask.title}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  fontFamily: "var(--mono)",
+                  fontSize: 10,
+                  marginTop: 1,
+                }}
+              >
+                <span style={{ color: statusMeta.color }}>{statusMeta.label}</span>
+              </div>
+            </>
+          )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {isSandboxTerminal && (
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+          {isSandboxTerminal && !tinyHeader && (
             <span
               title="This terminal runs inside the selected sandbox"
               style={{
@@ -964,34 +1268,55 @@ export function TerminalPane({
               sandbox
             </span>
           )}
-          <Tooltip content="Rename session">
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="pencil"
-              onClick={openRenameDialog}
-              aria-label={`Rename session ${liveTask.title}`}
-              style={{ width: 34, padding: 0 }}
+          {compactHeader ? (
+            <HeaderMoreMenu
+              title={liveTask.title}
+              statusLabel={statusMeta.label}
+              statusColor={statusMeta.color}
+              showTitle={tinyHeader}
+              showSandboxBadge={isSandboxTerminal}
+              expanded={expanded}
+              onToggleExpanded={tinyHeader ? onToggleExpanded : undefined}
+              onHide={microHeader ? onHide : undefined}
+              onRename={openRenameDialog}
+              onClone={requestSessionClone}
+              canZoomIn={canZoomIn}
+              canZoomOut={canZoomOut}
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
             />
-          </Tooltip>
-          <TerminalZoomControls
-            level={zoomLevel}
-            canZoomIn={canZoomIn}
-            canZoomOut={canZoomOut}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-          />
-          <HotkeyTooltip action="session.clone" label="Clone session">
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="copy"
-              onClick={requestSessionClone}
-              aria-label="Clone session"
-              style={{ width: 34, padding: 0 }}
-            />
-          </HotkeyTooltip>
-          {onToggleExpanded && (
+          ) : (
+            <>
+              <Tooltip content="Rename session">
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  icon="pencil"
+                  onClick={openRenameDialog}
+                  aria-label={`Rename session ${liveTask.title}`}
+                  style={{ width: 34, padding: 0 }}
+                />
+              </Tooltip>
+              <TerminalZoomControls
+                level={zoomLevel}
+                canZoomIn={canZoomIn}
+                canZoomOut={canZoomOut}
+                onZoomIn={zoomIn}
+                onZoomOut={zoomOut}
+              />
+              <HotkeyTooltip action="session.clone" label="Clone session">
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  icon="copy"
+                  onClick={requestSessionClone}
+                  aria-label="Clone session"
+                  style={{ width: 34, padding: 0 }}
+                />
+              </HotkeyTooltip>
+            </>
+          )}
+          {onToggleExpanded && !tinyHeader && (
             <HotkeyTooltip
               action="terminal.expandToggle"
               label={expanded ? "Shrink session panel" : "Expand session panel"}
@@ -1007,7 +1332,7 @@ export function TerminalPane({
               />
             </HotkeyTooltip>
           )}
-          {onHide && (
+          {onHide && !microHeader && (
             <HotkeyTooltip action="terminal.close" label="Hide session panel">
               <Btn
                 variant="ghost"

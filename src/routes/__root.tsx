@@ -269,7 +269,7 @@ function Shell() {
       ? sandboxState.sandboxes.find((s) => s.id === sandboxState.activeScopeId) ?? null
       : null;
   const activeResuming = activeSandbox?.remoteStatus === "resuming";
-  const { activeFor, close, deselect, setPtyId } = useTerminals();
+  const { activeFor, close, deselect, setPtyId, gridView } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
   const {
@@ -349,6 +349,10 @@ function Shell() {
   }, [expandedKey]);
   const sessionExpanded =
     !!projectId && terminalExpanded && !!activeFor(projectId);
+  // Grid view takes over the whole workspace: the Outlet (which renders the
+  // grid below the project header) spans full width and the single right-hand
+  // terminal panel is hidden.
+  const gridActive = !!projectMatch && gridView;
   const crumbs: Crumb[] = settingsOpen
     ? [{ label: "Settings" }]
     : projectMatch
@@ -430,6 +434,8 @@ function Shell() {
         window.dispatchEvent(new Event(CLEAR_USER_TERMINAL_EVENT));
         return;
       }
+      // No single-session panel to expand while the grid owns the workspace.
+      if (gridActive) return;
       if (projectId && activeFor(projectId)) toggleTerminalExpanded();
     },
     { capture: true },
@@ -571,20 +577,24 @@ function Shell() {
               style={{
                 position: "relative",
                 flex: 1,
-                display: sessionExpanded ? "none" : "flex",
+                // Grid view lives inside the Outlet, so the expanded-terminal
+                // flag must never hide it — both can be true at once (the
+                // expand flag persists per project, the grid flag globally).
+                display: sessionExpanded && !gridActive ? "none" : "flex",
                 flexDirection: "column",
                 overflow: "hidden",
                 // On the project detail view the terminal panel sits to the
                 // right; floor the left panel so dragging the terminal wider
                 // shrinks the terminal instead of wrapping the session columns.
-                minWidth: projectMatch ? 700 : 0,
+                // In grid view the panel is hidden, so let the Outlet go full width.
+                minWidth: projectMatch && !gridActive ? 700 : 0,
                 minHeight: 0,
               }}
             >
               <Outlet />
               {activeResuming && activeSandbox && <SandboxResumingOverlay name={activeSandbox.name} />}
             </div>
-            {projectMatch && (
+            {projectMatch && !gridActive && (
               <TerminalPanel
                 active={activeFor(projectMatch[1]!)}
                 onClose={close}

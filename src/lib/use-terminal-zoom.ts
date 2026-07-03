@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   TERMINAL_ZOOM_IN_EVENT,
   TERMINAL_ZOOM_OUT_EVENT,
@@ -25,27 +25,37 @@ export function useTerminalZoom(instanceId: string) {
   const level = override ?? globalLevel;
   const fontSize = useMemo(() => terminalFontSizeForLevel(level), [level]);
 
-  const setLevel = useCallback(
-    (next: TerminalZoomLevel) => {
+  // Identity-stable multi-step zoom. React state doesn't update synchronously,
+  // so a handler stepping several levels within one event (a big wheel delta)
+  // must track the pending level itself: the ref is refreshed every render and
+  // advanced synchronously on each call, letting consecutive steps chain
+  // instead of all re-deriving from the same render-captured `level`.
+  const levelRef = useRef(level);
+  levelRef.current = level;
+  const zoomBy = useCallback(
+    (steps: number) => {
+      const direction = steps > 0 ? 1 : -1;
+      let next = levelRef.current;
+      for (let i = 0; i < Math.abs(steps); i++) {
+        const stepped = stepTerminalZoomLevel(next, direction);
+        if (stepped === null) break;
+        next = stepped;
+      }
+      if (next === levelRef.current) return;
+      levelRef.current = next;
       writeTerminalInstanceZoom(instanceId, next);
       setOverride(next);
     },
     [instanceId],
   );
 
-  const zoomIn = useCallback(() => {
-    const next = stepTerminalZoomLevel(level, 1);
-    if (next !== null) setLevel(next);
-  }, [level, setLevel]);
-
-  const zoomOut = useCallback(() => {
-    const next = stepTerminalZoomLevel(level, -1);
-    if (next !== null) setLevel(next);
-  }, [level, setLevel]);
+  const zoomIn = useCallback(() => zoomBy(1), [zoomBy]);
+  const zoomOut = useCallback(() => zoomBy(-1), [zoomBy]);
 
   return {
     level,
     fontSize,
+    zoomBy,
     zoomIn,
     zoomOut,
     canZoomIn: stepTerminalZoomLevel(level, 1) !== null,
@@ -86,11 +96,15 @@ const WHEEL_ZOOM_STEP_THRESHOLD = 40;
  * Cmd/Ctrl + mouse wheel over this pane zooms the terminal: scroll up to zoom in,
  * scroll down to zoom out. Scoped to the pane the pointer is over (not focus), so
  * it works even before clicking into the terminal, and each pane zooms independently.
+ *
+ * `zoomBy` must be identity-stable (useTerminalZoom's is): the listener
+ * subscribes once per pane, so `accumulated` — the partial-step scroll
+ * residue — survives across zoom level changes instead of resetting to 0
+ * every time a step lands.
  */
 export function useTerminalPaneWheelZoom(
   paneRef: RefObject<HTMLElement | null>,
-  zoomIn: () => void,
-  zoomOut: () => void,
+  zoomBy: (steps: number) => void,
 ) {
   useEffect(() => {
     const pane = paneRef.current;
@@ -107,13 +121,13 @@ export function useTerminalPaneWheelZoom(
       // Reset if the scroll direction flips, so up-then-down feels responsive.
       if (Math.sign(event.deltaY) !== Math.sign(accumulated)) accumulated = 0;
       accumulated += event.deltaY;
-      while (accumulated <= -WHEEL_ZOOM_STEP_THRESHOLD) {
-        accumulated += WHEEL_ZOOM_STEP_THRESHOLD;
-        zoomIn(); // scroll up (deltaY < 0) → larger
-      }
-      while (accumulated >= WHEEL_ZOOM_STEP_THRESHOLD) {
-        accumulated -= WHEEL_ZOOM_STEP_THRESHOLD;
-        zoomOut(); // scroll down (deltaY > 0) → smaller
+      // Every full threshold-worth of scroll is one level; a big single delta
+      // (one mouse notch ≈ 100-120px) can therefore step several levels at
+      // once. Scroll up (deltaY < 0) zooms in, so the sign flips.
+      const steps = Math.trunc(accumulated / WHEEL_ZOOM_STEP_THRESHOLD);
+      if (steps !== 0) {
+        accumulated -= steps * WHEEL_ZOOM_STEP_THRESHOLD;
+        zoomBy(-steps);
       }
     };
 
@@ -121,5 +135,5 @@ export function useTerminalPaneWheelZoom(
     // handler and preventDefault() can block the native browser zoom.
     pane.addEventListener("wheel", onWheel, { passive: false, capture: true });
     return () => pane.removeEventListener("wheel", onWheel, { capture: true });
-  }, [paneRef, zoomIn, zoomOut]);
+  }, [paneRef, zoomBy]);
 }

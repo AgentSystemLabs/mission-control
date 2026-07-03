@@ -19,7 +19,7 @@ import {
   buildAgentLaunchCommand,
   newSessionId,
 } from "./agent-command";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import type { TaskAgent } from "~/shared/domain";
 import type { Task } from "~/db/schema";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
@@ -37,6 +37,10 @@ export type OpenTerminal = {
   task: Task;
   /** PTY spawn waits until the task row exists on the server. */
   awaitingCreate?: boolean;
+  /** Restored from localStorage; PTY spawn waits until the task is revalidated
+   *  against the server. Dead/archived tasks are dropped instead of respawning,
+   *  and live ones get a fresh snapshot + rebuilt start command. */
+  pendingValidation?: boolean;
 };
 
 type Ctx = {
@@ -71,6 +75,17 @@ type Ctx = {
   startCommandFor: (agent: TaskAgent) => string;
   /** Run an arbitrary command in the active PTY for this task. */
   runIn: (taskId: string, command: string) => Promise<void>;
+  /** Whether the full-width "all sessions" grid view is active. */
+  gridView: boolean;
+  setGridView: (value: boolean) => void;
+  /** Flip the grid view on/off. */
+  toggleGridView: () => void;
+  /** Latest request to spotlight a session cell in the grid (e.g. from a
+   *  notification's "Open"). The nonce makes repeated requests for the same
+   *  task retrigger the grid's focus effect. */
+  gridFocusRequest: { taskId: string; nonce: number } | null;
+  /** Ask the grid to scroll to, highlight, and focus a session's cell. */
+  focusGridSession: (taskId: string) => void;
 };
 
 const TerminalContext = createContext<Ctx | null>(null);
@@ -117,6 +132,20 @@ function baseCommandForTask(task: Task, model: string | null): string {
 
 const ACTIVE_BY_PROJECT_KEY = "mc.terminalActiveByProject";
 const REMOTE_PTY_BY_TASK_KEY = "mc.remotePtyByTask";
+const GRID_VIEW_KEY = "mc.gridView";
+const OPEN_SESSIONS_KEY = "mc.terminalOpenSessions";
+/** Sessions change on hot paths (task sync per server event, per-pane ptyId
+ *  updates while a grid boots), so open-session persistence is debounced. */
+const SESSION_PERSIST_DEBOUNCE_MS = 300;
+
+function loadGridView(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(GRID_VIEW_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function terminalSurfaceIdForProject(project: ScopedProject, taskId: string): string {
   return `${taskId}:${project.activeWorktreeId ?? MAIN_WORKTREE_ID}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
@@ -236,6 +265,67 @@ function loadActiveByProject(): Record<string, string | null> {
   }
 }
 
+/** Fields persisted per open session so the whole set (not just the active
+ *  one) can be restored after a reload — required for the grid view, which
+ *  renders every open session at once. */
+type PersistedSession = Pick<
+  OpenTerminal,
+  "taskId" | "startCommand" | "dangerouslySkipPermissions" | "cwd" | "project" | "task"
+>;
+
+function serializeSessions(sessions: OpenTerminal[]): PersistedSession[] {
+  return sessions
+    // Skip provisional (optimistic-create) sessions whose task row isn't saved
+    // yet, and archived sessions (they get reaped, so don't resurrect them).
+    .filter((s) => !s.awaitingCreate && !s.task.archived)
+    .map((s) => ({
+      taskId: s.taskId,
+      startCommand: s.startCommand,
+      dangerouslySkipPermissions: s.dangerouslySkipPermissions,
+      cwd: s.cwd,
+      project: s.project,
+      task: s.task,
+    }));
+}
+
+function loadPersistedSessions(): OpenTerminal[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(OPEN_SESSIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const restored: OpenTerminal[] = [];
+    for (const entry of parsed as PersistedSession[]) {
+      if (!entry || typeof entry.taskId !== "string" || !entry.project || !entry.task) continue;
+      // Dedupe by task id alone (not scope key): a task belongs to exactly one
+      // worktree, so the same id under two scope keys is the same underlying
+      // agent session. Restoring both would resume one pinned session id twice
+      // and the second spawn dies with "session ID is already in use".
+      if (seen.has(entry.taskId)) continue;
+      seen.add(entry.taskId);
+      restored.push({
+        taskId: entry.taskId,
+        // Reconnect to a still-alive remote PTY if we have one; local PTYs are
+        // re-spawned lazily when the pane mounts.
+        ptyId: remotePtyIdForSession(entry.project, entry.taskId),
+        startCommand: entry.startCommand,
+        dangerouslySkipPermissions: entry.dangerouslySkipPermissions,
+        cwd: entry.cwd,
+        project: entry.project,
+        task: entry.task,
+        // Gate the pane's PTY spawn until the snapshot is revalidated against
+        // the server (see the validation effect in TerminalProvider).
+        pendingValidation: true,
+      });
+    }
+    return restored;
+  } catch {
+    return [];
+  }
+}
+
 export function resolveActiveTaskIdForProject(
   activeByProject: Record<string, string | null>,
   projectId: string,
@@ -264,11 +354,35 @@ export function resolveActiveTaskIdForProject(
 }
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
-  const [sessions, setSessions] = useState<OpenTerminal[]>([]);
+  const [sessions, setSessions] = useState<OpenTerminal[]>(loadPersistedSessions);
   const [activeByProject, setActiveByProject] = useState<Record<string, string | null>>(
     loadActiveByProject
   );
   const [visibleScopeByProject, setVisibleScopeByProject] = useState<Record<string, string>>({});
+  const [gridView, setGridViewState] = useState<boolean>(loadGridView);
+
+  const setGridView = useCallback((value: boolean) => {
+    setGridViewState(value);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(GRID_VIEW_KEY, value ? "1" : "0");
+    } catch {
+      /* quota or disabled */
+    }
+  }, []);
+
+  const toggleGridView = useCallback(() => {
+    setGridView(!gridView);
+  }, [gridView, setGridView]);
+
+  const [gridFocusRequest, setGridFocusRequest] = useState<
+    { taskId: string; nonce: number } | null
+  >(null);
+  const gridFocusNonceRef = useRef(0);
+  const focusGridSession = useCallback((taskId: string) => {
+    gridFocusNonceRef.current += 1;
+    setGridFocusRequest({ taskId, nonce: gridFocusNonceRef.current });
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -289,6 +403,44 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [sessions]);
+
+  // Persist the full open-session set so a reload can restore every session
+  // (the grid renders all of them), not just the active one per scope. Each
+  // entry embeds its project + task, so serializing on every sessions change
+  // would put a large synchronous stringify + write on hot paths — debounce
+  // it, skip writes whose payload is unchanged, and flush on pagehide (and
+  // provider teardown) so a quit never loses the latest set.
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPersistedRef = useRef<string | null>(null);
+  const flushPersistedSessions = useCallback(() => {
+    if (persistTimerRef.current !== null) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    const payload = JSON.stringify(serializeSessions(sessionsRef.current));
+    if (payload === lastPersistedRef.current) return;
+    lastPersistedRef.current = payload;
+    try {
+      window.localStorage.setItem(OPEN_SESSIONS_KEY, payload);
+    } catch {
+      /* quota or disabled */
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (persistTimerRef.current !== null) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(flushPersistedSessions, SESSION_PERSIST_DEBOUNCE_MS);
+  }, [sessions, flushPersistedSessions]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.addEventListener("pagehide", flushPersistedSessions);
+    return () => {
+      window.removeEventListener("pagehide", flushPersistedSessions);
+      flushPersistedSessions();
+    };
+  }, [flushPersistedSessions]);
 
   const killPty = async (id: string | null) => {
     if (!id) return;
@@ -355,6 +507,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
                   startCommand: commandForTask(task),
                   dangerouslySkipPermissions: !!task.claudeSkipPermissions,
                   awaitingCreate: false,
+                  // The caller holds a live task row — no revalidation needed.
+                  pendingValidation: undefined,
                 }
               : p
           );
@@ -526,6 +680,65 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Revalidate restored sessions against the server once on startup. Sessions
+  // are seeded straight from the localStorage snapshot, which can be stale: a
+  // task archived or deleted while this window was closed (server cleanup, a
+  // second window) must not resurrect as a live cell — or worse, respawn its
+  // agent — and a live task's launch command may have changed since the
+  // snapshot (agent/model/skip-permissions), so it is rebuilt from the fresh
+  // row. Panes hold off spawning until their session's gate clears
+  // (pendingValidation), so a dead task's agent never boots.
+  const validationRanRef = useRef(false);
+  useEffect(() => {
+    if (validationRanRef.current) return;
+    validationRanRef.current = true;
+    const pending = sessions.filter((s) => s.pendingValidation);
+    if (pending.length === 0) return;
+    void (async () => {
+      const checks = await Promise.all(
+        pending.map(async (session) => {
+          try {
+            const { task } = await api.getTask(session.taskId);
+            return { taskId: session.taskId, task: task as Task | null };
+          } catch (err) {
+            // 404 → the task is gone; drop the session. Any other failure
+            // (server briefly unreachable) → release the gate and run on the
+            // snapshot rather than leaving the pane blocked forever.
+            const gone = err instanceof ApiError && err.status === 404;
+            return { taskId: session.taskId, task: gone ? null : undefined };
+          }
+        }),
+      );
+      // Rebuild launch commands outside the state updater — commandForTask can
+      // persist a missing session id, and updaters must stay side-effect free.
+      const refreshed = new Map(
+        checks
+          .filter((c): c is { taskId: string; task: Task } => !!c.task && !c.task.archived)
+          .map((c) => [c.taskId, { task: c.task, startCommand: commandForTask(c.task) }]),
+      );
+      for (const c of checks) {
+        if (c.task === null || c.task?.archived) void close(c.taskId);
+      }
+      setSessions((prev) =>
+        prev.map((p) => {
+          if (!p.pendingValidation) return p;
+          const fresh = refreshed.get(p.taskId);
+          if (!fresh) {
+            // Validation errored (non-404): release the gate, keep the snapshot.
+            return { ...p, pendingValidation: undefined };
+          }
+          return {
+            ...p,
+            task: fresh.task,
+            startCommand: fresh.startCommand,
+            dangerouslySkipPermissions: !!fresh.task.claudeSkipPermissions,
+            pendingValidation: undefined,
+          };
+        }),
+      );
+    })();
+  }, [sessions, close]);
+
   const closeForProject = useCallback(async (projectId: string) => {
     setSessions((prev) => {
       const remaining: OpenTerminal[] = [];
@@ -647,6 +860,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       syncTask,
       startCommandFor: commandFor,
       runIn,
+      gridView,
+      setGridView,
+      toggleGridView,
+      gridFocusRequest,
+      focusGridSession,
     }),
     [
       sessions,
@@ -663,6 +881,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setPtyId,
       syncTask,
       runIn,
+      gridView,
+      setGridView,
+      toggleGridView,
+      gridFocusRequest,
+      focusGridSession,
     ]
   );
 

@@ -25,6 +25,8 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
+import { SessionGrid } from "~/components/views/SessionGrid";
+import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
@@ -511,6 +513,8 @@ function ProjectPage() {
   const [pinningTaskIds, setPinningTaskIds] = useState<Set<string>>(() => new Set());
   const pinRequestSeqRef = useRef<Record<string, number>>({});
   const [confirmDeleteArchived, setConfirmDeleteArchived] = useState(false);
+  const [confirmArchiveAll, setConfirmArchiveAll] = useState(false);
+  const [archivingAll, setArchivingAll] = useState(false);
   // Leave the archived view automatically once it empties (last one restored
   // or deleted) so the toggle never strands the user on a blank list.
   useEffect(() => {
@@ -626,6 +630,7 @@ function ProjectPage() {
   }, [overflowOpen]);
 
   const terminals = useTerminals();
+  const gridViewActive = terminals.gridView;
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -857,6 +862,15 @@ function ProjectPage() {
     (request: PendingSessionOpen) => {
       void (async () => {
         if (!terminalProject || request.projectId !== id) return;
+        // In grid view every open session is already on screen regardless of the
+        // selected worktree/scope, so the panel-switching logic below does
+        // nothing visible. If the target session is live, just spotlight its cell
+        // so the user can pick it out; the scope guards would otherwise no-op.
+        if (terminals.gridView && terminals.sessions.some((s) => s.taskId === request.taskId)) {
+          terminals.focusGridSession(request.taskId);
+          clearPendingSessionOpen(request);
+          return;
+        }
         if (!worktreesQuery.data) return;
         if (!worktreesEnabled && request.worktreeId && request.worktreeId !== MAIN_WORKTREE_ID) {
           clearPendingSessionOpen(request);
@@ -933,6 +947,8 @@ function ProjectPage() {
           if (activeTaskId === task.id) terminals.rehydrate(terminalProject, task);
           else terminals.toggle(terminalProject, task);
         }
+        // Now that the session is materialized in the grid, spotlight its cell.
+        if (terminals.gridView) terminals.focusGridSession(task.id);
         clearPendingSessionOpen(request);
       })();
     },
@@ -1995,6 +2011,30 @@ function ProjectPage() {
   };
   archiveSessionRef.current = archiveSession;
 
+  // Archive every open session shown in the grid (across all projects). Used by
+  // the grid-view header's "Archive all" action. Plain function (not a hook)
+  // because it lives after this component's early returns.
+  const archiveAllGridSessions = async () => {
+    const openSessions = [...terminals.sessions];
+    if (openSessions.length === 0) return;
+    const results = await Promise.allSettled(
+      openSessions.map((session) =>
+        archiveOpenSession(session, terminals.close, queryClient, { skipInvalidate: true }),
+      ),
+    );
+    // One deduped invalidation pass instead of a per-session fan-out (the
+    // global projects key alone would otherwise be invalidated N times).
+    await invalidateSessionQueries(queryClient, openSessions);
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed > 0) {
+      toast.error(
+        failed === openSessions.length
+          ? "Could not archive sessions"
+          : `Archived ${openSessions.length - failed} of ${openSessions.length} sessions`,
+      );
+    }
+  };
+
   const restoreSession = (taskId: string) => {
     if (!project) return;
     const task = tasks.find((t) => t.id === taskId);
@@ -2170,7 +2210,7 @@ function ProjectPage() {
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: showDiffView ? "hidden" : "auto",
+          overflow: showDiffView || gridViewActive ? "hidden" : "auto",
           padding: 0,
           display: "flex",
           flexDirection: "column",
@@ -2180,14 +2220,14 @@ function ProjectPage() {
       <CardFrame
         style={{
           width: "100%",
-          minHeight: showDiffView ? 0 : "100%",
-          flex: showDiffView ? 1 : undefined,
-          flexShrink: showDiffView ? undefined : 0,
+          minHeight: showDiffView || gridViewActive ? 0 : "100%",
+          flex: showDiffView || gridViewActive ? 1 : undefined,
+          flexShrink: showDiffView || gridViewActive ? undefined : 0,
           boxSizing: "border-box",
           padding: 8,
-          display: showDiffView ? "flex" : undefined,
-          flexDirection: showDiffView ? "column" : undefined,
-          overflow: showDiffView ? "hidden" : undefined,
+          display: showDiffView || gridViewActive ? "flex" : undefined,
+          flexDirection: showDiffView || gridViewActive ? "column" : undefined,
+          overflow: showDiffView || gridViewActive ? "hidden" : undefined,
         }}
       >
         <div
@@ -2198,7 +2238,7 @@ function ProjectPage() {
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            margin: showDiffView ? "-8px -8px 12px" : "-8px -8px 32px",
+            margin: showDiffView || gridViewActive ? "-8px -8px 12px" : "-8px -8px 32px",
             padding: "22px 24px 18px",
             position: "relative",
             isolation: "isolate",
@@ -2492,9 +2532,49 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             </HotkeyTooltip>
+            <Btn
+              variant="ghost"
+              icon="grid"
+              onClick={terminals.toggleGridView}
+              aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+              aria-pressed={terminals.gridView}
+              title={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+              style={{
+                width: 52,
+                minWidth: 52,
+                paddingInline: 0,
+                background: terminals.gridView ? "var(--surface-2)" : undefined,
+                color: terminals.gridView ? "var(--text)" : undefined,
+              }}
+            />
+            {gridViewActive && (
+              <>
+                <Btn
+                  variant="danger"
+                  icon="archive"
+                  onClick={() => setConfirmArchiveAll(true)}
+                  disabled={terminals.sessions.length === 0}
+                  title="Archive all open sessions"
+                >
+                  Archive all
+                </Btn>
+                <NewAgentButton
+                  project={project}
+                  onPrimary={onNewAgentPrimary}
+                  disabled={!projectPathReady}
+                  onConfigure={() => {
+                    if (projectPathReady) setShowNewAgent(true);
+                  }}
+                />
+              </>
+            )}
           </div>
         </div>
 
+        {gridViewActive ? (
+          <SessionGrid />
+        ) : (
+        <>
         {cleanupStatus && (
           <div
             role="status"
@@ -2702,6 +2782,8 @@ function ProjectPage() {
             ))
           )}
         </div>
+        </>
+        )}
       </CardFrame>
 
       <CodexHooksNoticeDialog
@@ -3220,6 +3302,35 @@ function ProjectPage() {
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           {archivedTasks.length} archived session{archivedTasks.length === 1 ? "" : "s"} will be deleted. This cannot be undone. Active sessions are unaffected.
+        </div>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmArchiveAll}
+        onClose={() => setConfirmArchiveAll(false)}
+        onConfirm={async () => {
+          setArchivingAll(true);
+          try {
+            await archiveAllGridSessions();
+          } finally {
+            setArchivingAll(false);
+            setConfirmArchiveAll(false);
+          }
+        }}
+        title="Archive all sessions?"
+        confirmLabel="Archive all"
+        variant="danger"
+        icon="archive"
+        loading={archivingAll}
+        width={460}
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+          Archive all {terminals.sessions.length} open session
+          {terminals.sessions.length === 1 ? "" : "s"} across every project?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          Any running sessions will be disconnected and their agents stopped. You
+          can restore archived sessions later, but in-progress runs won&rsquo;t resume.
         </div>
       </ConfirmDialog>
       </div>

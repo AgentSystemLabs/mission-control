@@ -23,7 +23,7 @@ import {
   type SpawnRequest,
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
-import { checkAgentCliVersion, agentVersionErrorMessage } from "./agent-cli-version";
+import { checkAgentCliVersionCached, agentVersionErrorMessage } from "./agent-cli-version";
 import { AGENT_CLI_CONFIG } from "./agent-cli-version-requirements";
 import { applyAgentPtyEnv } from "../src/shared/agent-pty-env";
 
@@ -72,6 +72,8 @@ type Pty = {
   cwd: string;
   command: string;
   agent?: string;
+  /** True for user-shell terminals; findByTask only matches agent PTYs. */
+  shell: boolean;
   mcEnv?: PtyHookEnv;
   scanTail: string;
   lastInterruptAt: number;
@@ -463,7 +465,7 @@ export function registerPtyHandlers(
       const env = sanitizeEnv();
       if (plan.mode === "agent") {
         const requirement = AGENT_CLI_CONFIG[plan.agent];
-        const versionCheck = checkAgentCliVersion(plan.binary, env, requirement, platform);
+        const versionCheck = checkAgentCliVersionCached(plan.binary, env, requirement, platform);
         if (!versionCheck.ok) {
           const message = agentVersionErrorMessage(versionCheck);
           throw new Error(message);
@@ -525,6 +527,7 @@ export function registerPtyHandlers(
         cwd: opts.cwd,
         command: opts.command,
         agent: opts.agent,
+        shell: opts.shell === true,
         mcEnv: mcEnv ?? undefined,
         scanTail: "",
         lastInterruptAt: 0,
@@ -662,6 +665,20 @@ export function registerPtyHandlers(
     },
     ipcMain,
   );
+
+  // Live agent PTY for a task, if any. Local pty ids are not persisted across
+  // renderer reloads, but the processes themselves survive in this map — the
+  // renderer asks here before spawning so a reload reattaches to the running
+  // agent instead of launching a duplicate (which dies with "session ID is
+  // already in use" for agents that pin a session id).
+  safeHandle(IPC.ptyFindByTask, (_evt, { taskId }: { taskId: string }) => {
+    if (typeof taskId !== "string" || !taskId) return { ptyId: null };
+    let found: string | null = null;
+    for (const p of ptys.values()) {
+      if (p.taskId === taskId && !p.shell) found = p.id;
+    }
+    return { ptyId: found };
+  }, ipcMain);
 
   safeHandle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);

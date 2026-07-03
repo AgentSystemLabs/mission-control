@@ -1670,6 +1670,23 @@ body[data-card-glow] .cursor-glow {
   border-image-source: var(--mc-panel-image) !important;
 }
 
+/* Active session in the grid: the cell whose terminal currently holds focus
+   gets an accent ring and a faintly accent-tinted header bar so it reads as
+   "the one you're in" at a glance. Driven by :focus-within (xterm focuses a
+   textarea inside the card), so it needs no extra React state. */
+[data-session-grid] .mc-card-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 56%, transparent) !important;
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.40),
+    0 10px 26px oklch(0 0 0 / 0.30),
+    0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 0 20px color-mix(in srgb, var(--accent) 20%, transparent) !important;
+}
+[data-session-grid] .mc-card-frame:focus-within [data-session-header] {
+  background: color-mix(in srgb, var(--accent) 7%, transparent) !important;
+  border-bottom-color: color-mix(in srgb, var(--accent) 24%, var(--border)) !important;
+}
+
 /* Dashboard page wrapper: dissolve in minimal — the outer frame would
    otherwise share the card surface and wash the contrast away. Reclaim
    the missing border-width as real inline padding so cards aren't flush

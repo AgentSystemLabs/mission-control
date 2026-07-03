@@ -404,6 +404,8 @@ const electronAPI = {
       subscribe(IPC.ptyExit, cb),
     replay: (ptyId: string): Promise<{ data: string; nextSeq: number }> =>
       ipcRenderer.invoke(IPC.ptyReplay, { ptyId }) as Promise<{ data: string; nextSeq: number }>,
+    findByTask: (taskId: string): Promise<{ ptyId: string | null }> =>
+      ipcRenderer.invoke(IPC.ptyFindByTask, { taskId }) as Promise<{ ptyId: string | null }>,
   },
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) =>
     subscribe(IPC.appSwipe, cb),

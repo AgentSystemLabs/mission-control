@@ -24,6 +24,7 @@ export const IPC = {
   ptyKillLaunchProcesses: "pty:killLaunchProcesses",
   ptyKillUnderPath: "pty:killUnderPath",
   ptyReplay: "pty:replay",
+  ptyFindByTask: "pty:findByTask",
   ptyData: "pty:data",
   ptyExit: "pty:exit",
   filesList: "files:list",
