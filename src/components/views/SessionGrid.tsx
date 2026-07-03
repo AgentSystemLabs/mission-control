@@ -129,6 +129,30 @@ function lastRowColumnSpans(count: number, columns: number): number[] | null {
   return Array.from({ length: count }, (_, i) => base + (i < extra ? 1 : 0));
 }
 
+/** Explicit 1-based grid position for a cell, mirroring the default auto-flow
+ *  layout exactly. Pinning every cell lets an expanded cell span the whole grid
+ *  (gridColumn/Row "1 / -1") and overlay the others without auto-placement
+ *  reshuffling — and therefore resizing — its hidden siblings. */
+function cellPlacement(
+  index: number,
+  columns: number,
+  rows: number,
+  lastRowStart: number,
+  lastRowSpans: number[] | null,
+): { colStart: number; colSpan: number; rowStart: number } {
+  if (lastRowSpans && index >= lastRowStart) {
+    const spanIndex = index - lastRowStart;
+    let colStart = 1;
+    for (let k = 0; k < spanIndex; k++) colStart += lastRowSpans[k]!;
+    return { colStart, colSpan: lastRowSpans[spanIndex]!, rowStart: rows };
+  }
+  return {
+    colStart: (index % columns) + 1,
+    colSpan: 1,
+    rowStart: Math.floor(index / columns) + 1,
+  };
+}
+
 /** A valid, length-matched size array (from storage) or an equal-weight default. */
 function makeSizes(stored: number[] | undefined, len: number): number[] {
   if (
@@ -178,11 +202,15 @@ type GridCellProps = {
    *  the cell renders as an empty frame holding its grid slot. */
   mounted: boolean;
   expanded: boolean;
+  /** True when another cell is expanded and this one is overlaid/hidden. */
+  hidden: boolean;
   isDragging: boolean;
   isFocused: boolean;
   isNavSelected: boolean;
   navActive: boolean;
-  colSpan: number | undefined;
+  /** Explicit grid placement (an expanded cell spans the whole grid). */
+  gridColumn: string;
+  gridRow: string;
   reorderEnabled: boolean;
   onToggleExpanded: (taskId: string) => void;
   onRequestClose: (session: OpenTerminal) => void;
@@ -199,11 +227,13 @@ const GridCell = memo(function GridCell({
   scopeKey,
   mounted,
   expanded,
+  hidden,
   isDragging,
   isFocused,
   isNavSelected,
   navActive,
-  colSpan,
+  gridColumn,
+  gridRow,
   reorderEnabled,
   onToggleExpanded,
   onRequestClose,
@@ -220,18 +250,23 @@ const GridCell = memo(function GridCell({
         flexDirection: "column",
         minWidth: 0,
         minHeight: 0,
-        gridColumn: colSpan ? `span ${colSpan}` : undefined,
+        gridColumn,
+        gridRow,
         overflow: "hidden",
+        // A cell hidden behind an expanded sibling keeps its grid slot (and pixel
+        // size — so its terminal never refits), it's just not painted or hit.
+        visibility: hidden ? "hidden" : undefined,
+        pointerEvents: hidden ? "none" : undefined,
         // Dim the unselected cells while navigating to spotlight the pick — but
         // never dim a cell being spotlighted by a notification "Open".
         opacity: navActive && !isNavSelected && !isFocused ? 0.4 : isDragging ? 0.9 : 1,
         outline:
           isDragging || isFocused || isNavSelected ? "2px solid var(--accent)" : undefined,
         outlineOffset: isDragging || isFocused || isNavSelected ? -2 : undefined,
-        // While held, float above siblings with a lift shadow so the card visibly
-        // travels with the pointer; the nav selection sits above its dimmed
-        // neighbours so its ring/glow isn't clipped.
-        zIndex: isDragging ? 5 : isNavSelected ? 4 : undefined,
+        // The expanded cell floats above its (hidden) siblings; while held, a card
+        // floats with a lift shadow as it tracks the pointer; the nav selection
+        // sits above its dimmed neighbours so its ring/glow isn't clipped.
+        zIndex: expanded ? 8 : isDragging ? 5 : isNavSelected ? 4 : undefined,
         boxShadow: isDragging
           ? "0 16px 40px rgba(0, 0, 0, 0.5)"
           : isFocused || isNavSelected
@@ -493,11 +528,11 @@ export function SessionGrid() {
     return [...listed, ...extras];
   }, [sessions, order, dragOrder]);
 
-  const visibleSessions = useMemo(() => {
-    if (!expandedTaskId) return orderedSessions;
-    const found = orderedSessions.find((s) => s.taskId === expandedTaskId);
-    return found ? [found] : orderedSessions;
-  }, [orderedSessions, expandedTaskId]);
+  // Every open session stays mounted at all times, keeping the grid shape and
+  // track sizes constant. Expanding a cell overlays it across the whole grid via
+  // CSS (see the render) instead of unmounting the others — so collapsing
+  // restores them instantly, with no reflow, no remount, and no FLIP churn.
+  const visibleSessions = orderedSessions;
 
   // Progressive first mount: how many panes WITHOUT a cached surface may mount
   // right now. Starts at 0 so the first grid paint is just the empty frames,
@@ -556,10 +591,14 @@ export function SessionGrid() {
   // animate, and a card already mid-flight continues from where it visually is.
   const cellRectsRef = useRef<Map<string, DOMRect>>(new Map());
   const flipSigRef = useRef<string | null>(null);
+  // The set of visible cells no longer changes on expand/collapse, so the expand
+  // state joins the signature: toggling it flips the affected cell from its slot
+  // rect to the full-grid rect (and back), i.e. the zoom in / zoom out.
   const orderSig = visibleSessions.map((s) => s.taskId).join("|");
+  const flipSig = `${expandedTaskId ?? ""}::${orderSig}`;
   useLayoutEffect(() => {
-    const animate = flipSigRef.current !== null && flipSigRef.current !== orderSig;
-    flipSigRef.current = orderSig;
+    const animate = flipSigRef.current !== null && flipSigRef.current !== flipSig;
+    flipSigRef.current = flipSig;
     const grid = gridRef.current;
     const cells = grid?.querySelectorAll<HTMLElement>("[data-grid-cell]");
     if (!grid || !cells) return;
@@ -820,9 +859,16 @@ export function SessionGrid() {
 
   // Stable callback handed to the memoized GridCell so its memo holds across
   // per-grid renders — a session just toggles its own expand state.
-  const toggleExpanded = useCallback((taskId: string) => {
-    setExpandedTaskId((prev) => (prev === taskId ? null : taskId));
-  }, []);
+  const toggleExpanded = useCallback(
+    (taskId: string) => {
+      setExpandedTaskId((prev) => (prev === taskId ? null : taskId));
+      // Clicking the expand/shrink button moved focus onto the button; hand it
+      // straight back to the session's terminal (after the toggled layout
+      // settles) so the user can keep typing without clicking back in.
+      focusSessionTerminal(taskId);
+    },
+    [focusSessionTerminal],
+  );
 
   // ── Keyboard grid navigation (Cmd/Ctrl+Shift+G) ────────────────────────────
   // Enter a selection mode where arrow keys move a highlight between cells and
@@ -1196,9 +1242,14 @@ export function SessionGrid() {
       >
         {visibleSessions.map((session, index) => {
           const scopeKey = scopeKeyFor(session);
-          const spanIndex = index - lastRowStart;
-          const colSpan =
-            lastRowSpans && spanIndex >= 0 ? lastRowSpans[spanIndex] : undefined;
+          const isExpandedCell = expandedTaskId === session.taskId;
+          const place = cellPlacement(index, columns, rows, lastRowStart, lastRowSpans);
+          // The expanded cell spans the whole grid and floats above the rest;
+          // every other cell stays pinned to its own slot.
+          const gridColumn = isExpandedCell
+            ? "1 / -1"
+            : `${place.colStart} / span ${place.colSpan}`;
+          const gridRow = isExpandedCell ? "1 / -1" : `${place.rowStart}`;
           const isDragging = draggingId === session.taskId;
           return (
             <GridCell
@@ -1206,12 +1257,14 @@ export function SessionGrid() {
               session={session}
               scopeKey={scopeKey}
               mounted={cellMounted[index] ?? true}
-              expanded={expandedTaskId === session.taskId}
+              expanded={isExpandedCell}
+              hidden={expandedTaskId !== null && !isExpandedCell}
               isDragging={isDragging}
               isFocused={!isDragging && focusedTaskId === session.taskId}
               isNavSelected={navTaskId === session.taskId}
               navActive={navActive}
-              colSpan={colSpan}
+              gridColumn={gridColumn}
+              gridRow={gridRow}
               reorderEnabled={reorderEnabled}
               onToggleExpanded={toggleExpanded}
               onRequestClose={requestClose}
