@@ -8,6 +8,10 @@ export function findAllTasks(): Task[] {
   return getDb().select().from(tasks).all();
 }
 
+export function findTasksByProjectIdAllScopes(projectId: string): Task[] {
+  return getDb().select().from(tasks).where(eq(tasks.projectId, projectId)).all();
+}
+
 export function findTasksByProjectId(
   projectId: string,
   scopeId: string | null = LOCAL_SCOPE_ID,

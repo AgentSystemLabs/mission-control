@@ -24,6 +24,7 @@ import {
 import { findWorktreeById } from "../repositories/worktrees.repo";
 import { findAllTasks, findTasksByProjectId } from "../repositories/tasks.repo";
 import { deleteAllProjectImagesFor } from "./project-images";
+import { reconcileProjectWorktrees } from "./worktrees";
 import { newId } from "./_ids";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 import { getPinnedProjects, nextPinnedOrder, validatePinnedReorder } from "~/lib/pinned-project-order";
@@ -136,6 +137,9 @@ export function detectBranch(dir: string): string {
 
 export function listProjects(): ProjectWithCounts[] {
   const rows = findAllProjects();
+  // Sessions on externally-deleted worktrees cascade away with their rows, so
+  // taskCounts (the pinned-icon status dots) only report reachable sessions.
+  for (const p of rows) reconcileProjectWorktrees(p);
   const allTasks = findAllTasks();
   return rows.map((p) => decorate(p, allTasks.filter((t) => t.projectId === p.id)));
 }
@@ -143,6 +147,7 @@ export function listProjects(): ProjectWithCounts[] {
 export function getProject(id: string): ProjectWithCounts | null {
   const p = findProjectById(id);
   if (!p) return null;
+  reconcileProjectWorktrees(p);
   return decorate(p, findTasksByProjectId(id));
 }
 
