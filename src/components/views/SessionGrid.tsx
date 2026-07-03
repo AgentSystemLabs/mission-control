@@ -759,8 +759,11 @@ export function SessionGrid() {
     [],
   );
 
-  // Drag a divider: shift `fr` weight between the two adjacent tracks, keeping
-  // their sum (and therefore every other track) fixed. Persisted on release.
+  // Drag a divider: move the boundary between the tracks before and after it,
+  // scaling each side's tracks proportionally so the whole row/column of cells
+  // follows the divider (a cell spanning several tracks — the partial last
+  // row — then shrinks in step with its single-track siblings, instead of one
+  // adjacent track absorbing the entire delta). Persisted on release.
   const startResize = useCallback(
     (axis: "col" | "row", index: number, event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
@@ -779,18 +782,31 @@ export function SessionGrid() {
       }
       const total = startSizes.reduce((a, b) => a + b, 0) || 1;
       const startPos = isCol ? event.clientX : event.clientY;
-      const a0 = startSizes[index]!;
-      const b0 = startSizes[index + 1]!;
-      const pairTotal = a0 + b0;
-      const minFr = Math.min(pairTotal / 2, (MIN_CELL_PX / avail) * total);
+      const before = startSizes.slice(0, index + 1);
+      const after = startSizes.slice(index + 1);
+      const beforeTotal = before.reduce((a, b) => a + b, 0);
+      const afterTotal = total - beforeTotal;
+      const minFr = (MIN_CELL_PX / avail) * total;
+      // Scaling a side keeps its tracks' ratios, so the side bottoms out when
+      // its smallest track hits the minimum cell size.
+      const minBeforeTotal = beforeTotal * (minFr / Math.min(...before));
+      const minAfterTotal = afterTotal * (minFr / Math.min(...after));
+      // A grid too tight to honor the minimum on both sides can't resize.
+      if (minBeforeTotal + minAfterTotal >= total) return;
 
       let latest = startSizes;
       const apply = (pos: number) => {
         const deltaFr = ((pos - startPos) / avail) * total;
-        const na = Math.max(minFr, Math.min(pairTotal - minFr, a0 + deltaFr));
-        const next = startSizes.slice();
-        next[index] = na;
-        next[index + 1] = pairTotal - na;
+        const nextBeforeTotal = Math.max(
+          minBeforeTotal,
+          Math.min(total - minAfterTotal, beforeTotal + deltaFr),
+        );
+        const beforeScale = nextBeforeTotal / beforeTotal;
+        const afterScale = (total - nextBeforeTotal) / afterTotal;
+        const next = [
+          ...before.map((s) => s * beforeScale),
+          ...after.map((s) => s * afterScale),
+        ];
         latest = next;
         if (isCol) setColSizes(next);
         else setRowSizes(next);
