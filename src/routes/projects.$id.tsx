@@ -143,6 +143,7 @@ import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
+import { scopeKeyForProject } from "~/lib/scoped-project";
 import {
   readCachedSelectedWorktreeByProject,
   writeCachedSelectedWorktreeByProject,
@@ -505,6 +506,10 @@ function ProjectPage() {
     if (projectPathBlocked) closeDiffView();
   }, [projectPathBlocked, closeDiffView]);
   const [showNewAgent, setShowNewAgent] = useState(false);
+  // Where the session created from the New Agent dialog should land in the grid:
+  // "newRow" is set by the grid's "New row" button so the result starts a fresh
+  // row; "default" (the New session button / hotkey) uses the current row.
+  const [newAgentTarget, setNewAgentTarget] = useState<"default" | "newRow">("default");
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [sessionView, setSessionView] = useState<SessionView>("active");
@@ -631,6 +636,12 @@ function ProjectPage() {
 
   const terminals = useTerminals();
   const gridViewActive = terminals.gridView;
+  // How many sessions the current scope's grid shows (drives "Archive all").
+  const gridScopeSessionCount = useMemo(
+    () =>
+      terminals.sessions.filter((s) => scopeKeyForProject(s.project) === selectedScopeKey).length,
+    [terminals.sessions, selectedScopeKey],
+  );
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -2057,7 +2068,11 @@ function ProjectPage() {
   // the grid-view header's "Archive all" action. Plain function (not a hook)
   // because it lives after this component's early returns.
   const archiveAllGridSessions = async () => {
-    const openSessions = [...terminals.sessions];
+    // Only archive the sessions shown in this project/scope's grid, not every
+    // open session across all projects.
+    const openSessions = terminals.sessions.filter(
+      (s) => scopeKeyForProject(s.project) === selectedScopeKey,
+    );
     if (openSessions.length === 0) return;
     const results = await Promise.allSettled(
       openSessions.map((session) =>
@@ -2140,6 +2155,9 @@ function ProjectPage() {
     bareSession: boolean;
   }) => {
     setShowNewAgent(false);
+    // The "New row" button asked for this session to start a fresh grid row.
+    if (newAgentTarget === "newRow") terminals.requestNewRow();
+    setNewAgentTarget("default");
     createSession({
       agent: data.agent,
       branch: data.branch,
@@ -2599,10 +2617,23 @@ function ProjectPage() {
                   variant="danger"
                   icon="archive"
                   onClick={() => setConfirmArchiveAll(true)}
-                  disabled={terminals.sessions.length === 0}
-                  title="Archive all open sessions"
+                  disabled={gridScopeSessionCount === 0}
+                  title="Archive all sessions in this grid"
                 >
                   Archive all
+                </Btn>
+                <Btn
+                  variant="ghost"
+                  icon="plus"
+                  onClick={() => {
+                    if (!projectPathReady) return;
+                    setNewAgentTarget("newRow");
+                    setShowNewAgent(true);
+                  }}
+                  disabled={!projectPathReady}
+                  title="New session in a new row"
+                >
+                  New row
                 </Btn>
                 <NewAgentButton
                   project={project}
@@ -2618,7 +2649,7 @@ function ProjectPage() {
         </div>
 
         {gridViewActive ? (
-          <SessionGrid />
+          <SessionGrid scopeKey={selectedScopeKey} />
         ) : (
         <>
         {cleanupStatus && (
@@ -2979,7 +3010,10 @@ function ProjectPage() {
       <NewAgentDialog
         open={showNewAgent}
         project={project}
-        onClose={() => setShowNewAgent(false)}
+        onClose={() => {
+          setShowNewAgent(false);
+          setNewAgentTarget("default");
+        }}
         onStart={startAgent}
         onPrepareWarm={prepareWarmForDialog}
         onAgentUpdateRequired={showAgentUpdateRequired}

@@ -17,7 +17,6 @@ import { GRID_EXPAND_TOGGLE_EVENT } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
 import { matchBinding } from "~/lib/keybindings/match";
 import { useKeybindings } from "~/lib/keybindings/store";
-import { reorderPinnedIds } from "~/lib/pinned-project-order";
 import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { terminalSurfaceCache } from "~/lib/terminal-surface-cache";
@@ -34,8 +33,10 @@ import { worktreeScopeKey } from "~/shared/worktrees";
 import { TerminalPane } from "./TerminalPane";
 import type { Task } from "~/db/schema";
 
-const GRID_ORDER_KEY = "mc.gridOrder";
-const GRID_RESIZE_KEY = "mc.gridResize";
+// Grid layout is stored per scope (project + worktree + runtime scope) so each
+// project keeps its own rows, order, and sizing — the grid mirrors the single
+// panel view's scoping instead of pooling every project's sessions together.
+const GRID_LAYOUT_PREFIX = "mc.gridLayout";
 const DRAG_THRESHOLD_PX = 4;
 // Cell gap / outer padding of the grid (kept in sync with the container style
 // below) — the resize math needs them to place divider handles precisely.
@@ -58,29 +59,18 @@ const PANE_MOUNTS_PER_FRAME = 2;
 // Each track can't be dragged narrower than this (px) so a cell never vanishes.
 const MIN_CELL_PX = 80;
 
-function loadGridOrder(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(GRID_ORDER_KEY);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
+/** One row of the grid: an ordered list of session ids plus a matching array of
+ *  `fr` weights, so every row sizes its own columns independently. */
+type GridRow = { cells: string[]; colSizes: number[] };
+/** The authored grid: rows top-to-bottom, each with its own column widths, plus
+ *  the per-row height weights. Persisted per scope. */
+type GridLayout = { rows: GridRow[]; rowSizes: number[] };
 
-function saveGridOrder(ids: string[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(GRID_ORDER_KEY, JSON.stringify(ids));
-  } catch {
-    /* quota or disabled */
-  }
-}
+const EMPTY_LAYOUT: GridLayout = { rows: [], rowSizes: [] };
 
-/** Track sizes (in `fr` units) per grid shape, keyed by `${cols}x${rows}`, so a
- *  resized layout survives reloads and returns when the same shape recurs. */
-type GridResizeMap = Record<string, { cols: number[]; rows: number[] }>;
+function layoutStorageKey(scopeKey: string): string {
+  return `${GRID_LAYOUT_PREFIX}:${scopeKey}`;
+}
 
 /** Positive finite track weights, or null when the stored entry is malformed. */
 function sanitizeTracks(value: unknown): number[] | null {
@@ -90,84 +80,194 @@ function sanitizeTracks(value: unknown): number[] | null {
     : null;
 }
 
-function loadGridResize(): GridResizeMap {
-  if (typeof window === "undefined") return {};
+/** Load a scope's saved layout, or null when absent/malformed (the caller then
+ *  seeds a fresh layout from the scope's live sessions). Each entry is validated
+ *  so a corrupt/legacy blob degrades to equal weights instead of crashing. */
+function loadGridLayout(scopeKey: string): GridLayout | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(GRID_RESIZE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    // Validate entry-by-entry: a corrupted or legacy shape must degrade to the
-    // equal-weight default, not crash the grid (makeSizes trusts these arrays).
-    const map: GridResizeMap = {};
-    for (const [shape, entry] of Object.entries(parsed as Record<string, unknown>)) {
+    const raw = window.localStorage.getItem(layoutStorageKey(scopeKey));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const rawRows = (parsed as { rows?: unknown }).rows;
+    if (!Array.isArray(rawRows)) return null;
+    const rows: GridRow[] = [];
+    for (const entry of rawRows) {
       if (!entry || typeof entry !== "object") continue;
-      const cols = sanitizeTracks((entry as { cols?: unknown }).cols);
-      const rows = sanitizeTracks((entry as { rows?: unknown }).rows);
-      if (cols && rows) map[shape] = { cols, rows };
+      const cellsRaw = (entry as { cells?: unknown }).cells;
+      if (!Array.isArray(cellsRaw)) continue;
+      const cells = cellsRaw.filter((c): c is string => typeof c === "string");
+      if (cells.length === 0) continue;
+      const stored = sanitizeTracks((entry as { colSizes?: unknown }).colSizes);
+      const colSizes = stored && stored.length === cells.length ? stored : cells.map(() => 1);
+      rows.push({ cells, colSizes });
     }
-    return map;
+    if (rows.length === 0) return null;
+    const storedRowSizes = sanitizeTracks((parsed as { rowSizes?: unknown }).rowSizes);
+    const rowSizes =
+      storedRowSizes && storedRowSizes.length === rows.length ? storedRowSizes : rows.map(() => 1);
+    return { rows, rowSizes };
   } catch {
-    return {};
+    return null;
   }
 }
 
-function saveGridResize(map: GridResizeMap): void {
+function saveGridLayout(scopeKey: string, layout: GridLayout): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(GRID_RESIZE_KEY, JSON.stringify(map));
+    window.localStorage.setItem(layoutStorageKey(scopeKey), JSON.stringify(layout));
   } catch {
     /* quota or disabled */
   }
 }
 
-/** Column spans for the cards in the final (partial) row so they fill the full
- *  grid width, divided as evenly as possible. Returns null when the last row is
- *  already full (nothing to stretch). e.g. 2 cards across 4 columns → [2, 2]. */
-function lastRowColumnSpans(count: number, columns: number): number[] | null {
-  if (count <= 0 || count >= columns) return null;
-  const base = Math.floor(columns / count);
-  const extra = columns % count;
-  return Array.from({ length: count }, (_, i) => base + (i < extra ? 1 : 0));
-}
-
-/** Explicit 1-based grid position for a cell, mirroring the default auto-flow
- *  layout exactly. Pinning every cell lets an expanded cell span the whole grid
- *  (gridColumn/Row "1 / -1") and overlay the others without auto-placement
- *  reshuffling — and therefore resizing — its hidden siblings. */
-function cellPlacement(
-  index: number,
-  columns: number,
-  rows: number,
-  lastRowStart: number,
-  lastRowSpans: number[] | null,
-): { colStart: number; colSpan: number; rowStart: number } {
-  if (lastRowSpans && index >= lastRowStart) {
-    const spanIndex = index - lastRowStart;
-    let colStart = 1;
-    for (let k = 0; k < spanIndex; k++) colStart += lastRowSpans[k]!;
-    return { colStart, colSpan: lastRowSpans[spanIndex]!, rowStart: rows };
-  }
+function cloneLayout(layout: GridLayout): GridLayout {
   return {
-    colStart: (index % columns) + 1,
-    colSpan: 1,
-    rowStart: Math.floor(index / columns) + 1,
+    rows: layout.rows.map((r) => ({ cells: r.cells.slice(), colSizes: r.colSizes.slice() })),
+    rowSizes: layout.rowSizes.slice(),
   };
 }
 
-/** A valid, length-matched size array (from storage) or an equal-weight default. */
-function makeSizes(stored: number[] | undefined, len: number): number[] {
-  if (
-    Array.isArray(stored) &&
-    stored.length === len &&
-    stored.every((n) => Number.isFinite(n) && n > 0)
-  ) {
-    return stored.slice();
+/** Mean of a weight array — the width a newly-added cell takes so its row-mates
+ *  keep their relative sizes. */
+function meanWeight(sizes: number[]): number {
+  if (sizes.length === 0) return 1;
+  const total = sizes.reduce((a, b) => a + b, 0);
+  return total > 0 ? total / sizes.length : 1;
+}
+
+/** A fresh scope with no saved layout seeds this near-square shape (mirrors the
+ *  old auto-grid: `ceil(√n)` columns per row) so the first paint doesn't jump. */
+function chunkIntoRows(ids: string[]): GridLayout {
+  if (ids.length === 0) return EMPTY_LAYOUT;
+  const columns = ids.length <= 1 ? 1 : Math.ceil(Math.sqrt(ids.length));
+  const rows: GridRow[] = [];
+  for (let i = 0; i < ids.length; i += columns) {
+    const cells = ids.slice(i, i + columns);
+    rows.push({ cells, colSizes: cells.map(() => 1) });
   }
-  return Array<number>(len).fill(1);
+  return { rows, rowSizes: rows.map(() => 1) };
+}
+
+/** Row/column of a cell within the layout, or null if absent. */
+function findCell(rows: GridRow[], id: string): { row: number; col: number } | null {
+  for (let r = 0; r < rows.length; r++) {
+    const c = rows[r]!.cells.indexOf(id);
+    if (c >= 0) return { row: r, col: c };
+  }
+  return null;
+}
+
+/** Cell-order signature (ignores sizes) — cheap equality for reconcile/drag. */
+function layoutSig(layout: GridLayout): string {
+  return layout.rows.map((r) => r.cells.join(",")).join("|");
+}
+
+/** Drop any empty rows (and their height tracks), keeping the two arrays aligned. */
+function dropEmptyRows(layout: GridLayout): GridLayout {
+  const rows: GridRow[] = [];
+  const rowSizes: number[] = [];
+  layout.rows.forEach((r, i) => {
+    if (r.cells.length > 0) {
+      rows.push(r);
+      rowSizes.push(layout.rowSizes[i] ?? 1);
+    }
+  });
+  return { rows, rowSizes };
+}
+
+/** Reconcile a base layout against the live scoped sessions: follow id renames,
+ *  prune closed cells (and empty rows), then place genuinely-new sessions —
+ *  beside their clone source, in a fresh row, or appended to the current row. */
+function reconcileLayout(
+  base: GridLayout,
+  liveIds: string[],
+  renames: Array<{ from: string; to: string }>,
+  placement: { cloneAfter: string | null; newRow: boolean; anchor: string | null },
+): GridLayout {
+  const idSet = new Set(liveIds);
+  const layout = cloneLayout(base);
+  // 1. Follow provisional→persisted id swaps in place.
+  if (renames.length) {
+    for (const row of layout.rows) {
+      row.cells = row.cells.map((id) => renames.find((r) => r.from === id)?.to ?? id);
+    }
+  }
+  // 2. Prune cells no longer live, keeping each survivor's width track.
+  for (const row of layout.rows) {
+    const cells: string[] = [];
+    const colSizes: number[] = [];
+    row.cells.forEach((id, i) => {
+      if (idSet.has(id)) {
+        cells.push(id);
+        colSizes.push(row.colSizes[i] ?? 1);
+      }
+    });
+    row.cells = cells;
+    row.colSizes = colSizes;
+  }
+  let next = dropEmptyRows(layout);
+  // 3. Place sessions not yet anywhere in the layout.
+  const placed = new Set(next.rows.flatMap((r) => r.cells));
+  const added = liveIds.filter((id) => !placed.has(id));
+  if (added.length === 0) return next;
+
+  const cloneAt = placement.cloneAfter ? findCell(next.rows, placement.cloneAfter) : null;
+  if (cloneAt) {
+    const row = next.rows[cloneAt.row]!;
+    const weight = meanWeight(row.colSizes);
+    row.cells.splice(cloneAt.col + 1, 0, ...added);
+    row.colSizes.splice(cloneAt.col + 1, 0, ...added.map(() => weight));
+    return next;
+  }
+  if (placement.newRow || next.rows.length === 0) {
+    next.rows.push({ cells: added.slice(), colSizes: added.map(() => 1) });
+    next.rowSizes.push(1);
+    return next;
+  }
+  const anchorAt = placement.anchor ? findCell(next.rows, placement.anchor) : null;
+  const targetRow = anchorAt ? anchorAt.row : next.rows.length - 1;
+  const row = next.rows[targetRow]!;
+  const weight = meanWeight(row.colSizes);
+  row.cells.push(...added);
+  row.colSizes.push(...added.map(() => weight));
+  return next;
+}
+
+/** Move a cell to (dstRow, dstCol), carrying its width; removes a now-empty
+ *  source row. Returns null if the move is impossible. */
+function moveCellInLayout(
+  layout: GridLayout,
+  srcRow: number,
+  srcCol: number,
+  dstRow: number,
+  dstCol: number,
+): GridLayout | null {
+  const rows = layout.rows.map((r) => ({ cells: r.cells.slice(), colSizes: r.colSizes.slice() }));
+  const rowSizes = layout.rowSizes.slice();
+  const source = rows[srcRow];
+  if (!source) return null;
+  const id = source.cells[srcCol];
+  if (id === undefined) return null;
+  const weight = source.colSizes[srcCol] ?? 1;
+  source.cells.splice(srcCol, 1);
+  source.colSizes.splice(srcCol, 1);
+  const insertRow = dstRow;
+  let insertCol = dstCol;
+  // The removal shifted later cells in the same row down by one.
+  if (dstRow === srcRow && dstCol > srcCol) insertCol -= 1;
+  const dest = rows[insertRow];
+  if (!dest) return null;
+  insertCol = Math.max(0, Math.min(insertCol, dest.cells.length));
+  dest.cells.splice(insertCol, 0, id);
+  dest.colSizes.splice(insertCol, 0, weight);
+  return dropEmptyRows({ rows, rowSizes });
 }
 
 /** Surface/scope key for a session — mirrors TerminalPanel so the grid reuses
- *  the same cached xterm surface (and live PTY) as the single-panel view. */
+ *  the same cached xterm surface (and live PTY) as the single-panel view, and
+ *  matches the route's `selectedScopeKey` exactly so we can filter by it. */
 function scopeKeyFor(session: OpenTerminal): string {
   return `${worktreeScopeKey(session.project.id, session.project.activeWorktreeId)}:${
     session.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID
@@ -209,9 +309,6 @@ type GridCellProps = {
   isFocused: boolean;
   isNavSelected: boolean;
   navActive: boolean;
-  /** Explicit grid placement (an expanded cell spans the whole grid). */
-  gridColumn: string;
-  gridRow: string;
   reorderEnabled: boolean;
   onToggleExpanded: (taskId: string) => void;
   onRequestClose: (session: OpenTerminal) => void;
@@ -233,8 +330,6 @@ const GridCell = memo(function GridCell({
   isFocused,
   isNavSelected,
   navActive,
-  gridColumn,
-  gridRow,
   reorderEnabled,
   onToggleExpanded,
   onRequestClose,
@@ -251,8 +346,10 @@ const GridCell = memo(function GridCell({
         flexDirection: "column",
         minWidth: 0,
         minHeight: 0,
-        gridColumn,
-        gridRow,
+        // The expanded cell floats above its (hidden) row-mates and every other
+        // row, covering the whole grid content box. Because the row containers
+        // are non-positioned, `inset` resolves against the positioned grid.
+        ...(expanded ? { position: "absolute" as const, inset: GRID_PADDING } : null),
         overflow: "hidden",
         // A cell hidden behind an expanded sibling keeps its grid slot (and pixel
         // size — so its terminal never refits), it's just not painted or hit.
@@ -307,15 +404,24 @@ const GridCell = memo(function GridCell({
 });
 
 /**
- * Full-width grid of every open session across all projects/worktrees. Each
- * cell reuses TerminalPane (which carries its own title header + expand/close
- * controls). Expanding a cell fills the grid; closing archives the session.
- * Cards can be reordered by dragging the handle rail at the top of each cell;
- * the order is persisted to localStorage.
+ * Grid of the current project/scope's open sessions, laid out as authored rows.
+ * Each cell reuses TerminalPane (which carries its own title header + expand/
+ * close controls). Every row sizes its own columns independently; expanding a
+ * cell fills the grid; closing archives the session. Cards can be reordered by
+ * dragging the handle rail at the top of each cell — within a row or across rows
+ * — and the layout (order + per-row column widths + row heights) is persisted
+ * per scope to localStorage.
  */
-export function SessionGrid() {
-  const { sessions, close, setPtyId, gridFocusRequest, takeCloneInsertAfter, takeSessionIdRenames } =
-    useTerminals();
+export function SessionGrid({ scopeKey }: { scopeKey: string }) {
+  const {
+    sessions,
+    close,
+    setPtyId,
+    gridFocusRequest,
+    takeCloneInsertAfter,
+    takeNewRowRequest,
+    takeSessionIdRenames,
+  } = useTerminals();
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
   const { bindings } = useKeybindings();
@@ -327,80 +433,114 @@ export function SessionGrid() {
   const [pendingArchive, setPendingArchive] = useState<OpenTerminal | null>(null);
   const [archiving, setArchiving] = useState(false);
 
-  // Persisted display order (task ids). Reconciled against live sessions:
-  // new sessions append at the end, closed sessions are pruned.
-  const [order, setOrder] = useState<string[]>(loadGridOrder);
-  // Live drag preview order (task ids) while a card is being dragged.
-  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  // Only this scope's sessions belong to this grid (matches the single-panel
+  // view's scoping) — so switching projects/worktrees shows a different grid.
+  const scopedSessions = useMemo(
+    () => sessions.filter((s) => scopeKeyFor(s) === scopeKey),
+    [sessions, scopeKey],
+  );
+
+  // The authored layout for the current scope. Reconciled against live sessions:
+  // new sessions land in the current/new row, closed ones (and empty rows) are
+  // pruned. Seeded from this scope's persisted layout.
+  const [layout, setLayout] = useState<GridLayout>(() => loadGridLayout(scopeKey) ?? EMPTY_LAYOUT);
+  // Live drag preview layout while a card is being dragged.
+  const [dragLayout, setDragLayout] = useState<GridLayout | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  // Session ids seen on the previous reconcile, so we can tell a genuinely new
-  // session (a clone/create) apart from an id rename when placing it in `order`.
-  const prevSessionIdsRef = useRef<Set<string>>(new Set());
-  const dragOrderRef = useRef<string[] | null>(null);
+  const dragLayoutRef = useRef<GridLayout | null>(null);
   const cleanupDragRef = useRef<(() => void) | null>(null);
+  // The scope / scoped-session set seen on the previous reconcile, so we can tell
+  // a genuinely new session (a clone/create) apart from an id rename or a scope
+  // switch when placing it in the layout.
+  const prevScopeRef = useRef<string | null>(null);
+  const prevIdsRef = useRef<Set<string>>(new Set());
+  // Task id of the cell that most recently held focus — the "current row" anchor
+  // a plain new session appends to. Tracked via a focusin listener because the
+  // toolbar button steals focus on click (so document.activeElement is the
+  // button, not a cell, by the time the session is created).
+  const lastFocusedTaskIdRef = useRef<string | null>(null);
+  // The layout currently painted on screen (kept in sync in the FLIP effect),
+  // so drag math operates on exactly what the user sees and drops onto.
+  const paintedLayoutRef = useRef<GridLayout>(layout);
 
-  // Per-track sizes (fr units) for the current grid shape and the measured
-  // pixel box we resize within. `resizing` drives the global cursor while a
-  // divider is being dragged. Divider handles are invisible — only the
-  // col/row-resize cursor reveals them.
-  const [colSizes, setColSizes] = useState<number[]>(() => [1]);
-  const [rowSizes, setRowSizes] = useState<number[]>(() => [1]);
   const [gridSize, setGridSize] = useState<{ width: number; height: number }>({
     width: 0,
     height: 0,
   });
   const [resizing, setResizing] = useState<"col" | "row" | null>(null);
-  // Lazy useState (not useRef) so the localStorage read + JSON.parse happen
-  // once — a useRef(loadGridResize()) argument would re-read on every render,
-  // and this component re-renders per pointermove during a divider or card
-  // drag. The map's identity is stable; commits mutate it in place like a ref.
-  const [resizeMap] = useState<GridResizeMap>(loadGridResize);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
+  // Switch scopes during render (React's "adjust state when a prop changes"
+  // pattern) so the previous project's rows never paint for the new one — which
+  // would flash the wrong layout and, worse, keep a stale expandedTaskId that
+  // matches no new cell and hides every cell for a frame. The reconcile effect
+  // below then prunes/places against the new scope's live sessions.
+  const scopeSwapRef = useRef(scopeKey);
+  if (scopeSwapRef.current !== scopeKey) {
+    scopeSwapRef.current = scopeKey;
+    setLayout(loadGridLayout(scopeKey) ?? EMPTY_LAYOUT);
+    setExpandedTaskId(null);
+    setNavTaskId(null);
+    setDragLayout(null);
+    setDraggingId(null);
+    dragLayoutRef.current = null;
+  }
+
+  // Reconcile the layout against the scope's live sessions. On a scope switch,
+  // reload that scope's saved layout (or seed a fresh square one) rather than
+  // carrying the previous project's rows over.
   useEffect(() => {
-    // Follow provisional→persisted id swaps in place so an adopted session
-    // keeps its slot instead of dropping to the end when its task persists.
     const renames = takeSessionIdRenames();
-    const ids = sessions.map((s) => s.taskId);
-    // A clone requests placement directly after its source; only claim that
-    // request when a genuinely new session (not just a renamed one) appeared.
-    const prevIds = prevSessionIdsRef.current;
-    const hasNewSession = ids.some(
-      (id) => !prevIds.has(id) && !renames.some((r) => r.to === id),
-    );
-    prevSessionIdsRef.current = new Set(ids);
+    const liveIds = scopedSessions.map((s) => s.taskId);
+    const idSet = new Set(liveIds);
+    const scopeChanged = prevScopeRef.current !== scopeKey;
+    // A scope switch isn't a create, so it never consumes a clone/new-row request.
+    const prevIds = scopeChanged ? new Set<string>() : prevIdsRef.current;
+    const hasNewSession =
+      !scopeChanged &&
+      liveIds.some((id) => !prevIds.has(id) && !renames.some((r) => r.to === id));
     const cloneAfter = hasNewSession ? takeCloneInsertAfter() : null;
-    setOrder((prev) => {
-      const remapped = renames.length
-        ? prev.map((id) => renames.find((r) => r.from === id)?.to ?? id)
-        : prev;
-      const idSet = new Set(ids);
-      const kept = remapped.filter((id) => idSet.has(id));
-      const keptSet = new Set(kept);
-      const added = ids.filter((id) => !keptSet.has(id));
-      // Insert new sessions right after their clone source when one is queued,
-      // otherwise append them at the end.
-      const anchor = added.length && cloneAfter ? kept.indexOf(cloneAfter) : -1;
+    const newRow = hasNewSession ? takeNewRowRequest() : false;
+    const anchor = lastFocusedTaskIdRef.current;
+    prevScopeRef.current = scopeKey;
+    prevIdsRef.current = new Set(liveIds);
+
+    setLayout((prev) => {
+      const base = scopeChanged ? loadGridLayout(scopeKey) : prev;
+      // Fresh scope with no saved layout: seed the near-square shape instead of
+      // dumping every session into one row.
       const next =
-        anchor >= 0
-          ? [...kept.slice(0, anchor + 1), ...added, ...kept.slice(anchor + 1)]
-          : [...kept, ...added];
-      const unchanged = next.length === prev.length && next.every((id, i) => id === prev[i]);
-      if (unchanged) return prev;
-      saveGridOrder(next);
+        base === null || (scopeChanged && base.rows.length === 0)
+          ? chunkIntoRows(liveIds)
+          : reconcileLayout(base, liveIds, renames, { cloneAfter, newRow, anchor });
+      if (!scopeChanged && layoutSig(next) === layoutSig(prev)) return prev;
+      if (next.rows.length > 0) saveGridLayout(scopeKey, next);
       return next;
     });
-    // A session removed out from under a stale expandedTaskId (e.g. an opened
-    // archived session reaped on its grace timer) must not leave the grid with
-    // reorder/resize disabled while no cell is visibly expanded.
-    setExpandedTaskId((prev) =>
-      prev && !sessions.some((s) => s.taskId === prev) ? null : prev,
-    );
-  }, [sessions]);
+
+    // A session removed out from under a stale expandedTaskId must not leave the
+    // grid with reorder/resize disabled while no cell is visibly expanded. (The
+    // scope-swap above already cleared transient state on a project change.)
+    setExpandedTaskId((prev) => (prev && !idSet.has(prev) ? null : prev));
+  }, [scopedSessions, scopeKey]);
 
   useEffect(() => () => cleanupDragRef.current?.(), []);
   useEffect(() => () => resizeCleanupRef.current?.(), []);
+
+  // Track which cell most recently held focus, to anchor "current row" appends.
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const onFocusIn = () => {
+      const id = (
+        document.activeElement?.closest("[data-grid-cell]") as HTMLElement | null
+      )?.getAttribute("data-task-id");
+      if (id) lastFocusedTaskIdRef.current = id;
+    };
+    el.addEventListener("focusin", onFocusIn);
+    return () => el.removeEventListener("focusin", onFocusIn);
+  }, []);
 
   // Spotlight a cell when a notification's "Open" targets a grid session: make
   // it visible (collapse an unrelated expanded cell), scroll it into view, focus
@@ -525,39 +665,54 @@ export function SessionGrid() {
     const focusedCell = document.activeElement?.closest("[data-grid-cell]");
     const taskId = focusedCell?.getAttribute("data-task-id") ?? expandedTaskId;
     if (!taskId) return;
-    const session = sessions.find((s) => s.taskId === taskId);
+    const session = scopedSessions.find((s) => s.taskId === taskId);
     if (session) requestClose(session);
-  }, [userTerminals.panelOpen, expandedTaskId, sessions, requestClose]);
+  }, [userTerminals.panelOpen, expandedTaskId, scopedSessions, requestClose]);
 
   useEffect(() => {
     const electron = getElectron();
-    if (!electron || sessions.length === 0) return;
+    if (!electron || scopedSessions.length === 0) return;
     return electron.onCloseIntent(handleCloseIntent);
-  }, [sessions.length, handleCloseIntent]);
+  }, [scopedSessions.length, handleCloseIntent]);
 
   useHotkey("session.closeWindow", handleCloseIntent, {
-    enabled: !isElectron() && sessions.length > 0,
+    enabled: !isElectron() && scopedSessions.length > 0,
     capture: true,
   });
 
-  // Sessions in display order (drag preview takes precedence over saved order).
-  const orderedSessions = useMemo(() => {
-    const byId = new Map(sessions.map((s) => [s.taskId, s]));
-    const ids = dragOrder ?? order;
-    const listed = ids
-      .map((id) => byId.get(id))
-      .filter((s): s is OpenTerminal => !!s);
-    // Any session not yet in the order array (first render before reconcile).
-    const listedSet = new Set(listed.map((s) => s.taskId));
-    const extras = sessions.filter((s) => !listedSet.has(s.taskId));
-    return [...listed, ...extras];
-  }, [sessions, order, dragOrder]);
+  // The layout to render (drag preview takes precedence over the saved layout),
+  // resolved to actual sessions. Any scoped session not yet placed (the frame
+  // before reconcile runs) shows in a trailing row so it never flashes missing.
+  const activeLayout = dragLayout ?? layout;
+  const sessionById = useMemo(
+    () => new Map(scopedSessions.map((s) => [s.taskId, s])),
+    [scopedSessions],
+  );
+  const viewRows = useMemo(() => {
+    const seen = new Set<string>();
+    const rows = activeLayout.rows
+      .map((r, ri) => {
+        const cells = r.cells
+          .map((id, ci) => {
+            const session = sessionById.get(id);
+            return session ? { session, fr: r.colSizes[ci] ?? 1 } : null;
+          })
+          .filter((c): c is { session: OpenTerminal; fr: number } => c !== null);
+        cells.forEach((c) => seen.add(c.session.taskId));
+        return { cells, fr: activeLayout.rowSizes[ri] ?? 1 };
+      })
+      .filter((r) => r.cells.length > 0);
+    const extras = scopedSessions.filter((s) => !seen.has(s.taskId));
+    if (extras.length > 0) {
+      rows.push({ cells: extras.map((s) => ({ session: s, fr: 1 })), fr: 1 });
+    }
+    return rows;
+  }, [activeLayout, sessionById, scopedSessions]);
 
-  // Every open session stays mounted at all times, keeping the grid shape and
-  // track sizes constant. Expanding a cell overlays it across the whole grid via
-  // CSS (see the render) instead of unmounting the others — so collapsing
-  // restores them instantly, with no reflow, no remount, and no FLIP churn.
-  const visibleSessions = orderedSessions;
+  const visibleSessions = useMemo(
+    () => viewRows.flatMap((r) => r.cells.map((c) => c.session)),
+    [viewRows],
+  );
 
   // Progressive first mount: how many panes WITHOUT a cached surface may mount
   // right now. Starts at 0 so the first grid paint is just the empty frames,
@@ -566,14 +721,15 @@ export function SessionGrid() {
   const [paneMountBudget, setPaneMountBudget] = useState(0);
   let uncachedSeen = 0;
   let deferredPaneCount = 0;
-  const cellMounted = visibleSessions.map((session) => {
+  const mountedByTask = new Map<string, boolean>();
+  for (const session of visibleSessions) {
     const cached = terminalSurfaceCache.has(
       terminalSurfaceIdForProject(session.project, session.taskId),
     );
     const mounted = cached || uncachedSeen++ < paneMountBudget;
     if (!mounted) deferredPaneCount += 1;
-    return mounted;
-  });
+    mountedByTask.set(session.taskId, mounted);
+  }
   useEffect(() => {
     if (deferredPaneCount === 0) return;
     const raf = requestAnimationFrame(() =>
@@ -610,18 +766,19 @@ export function SessionGrid() {
   }, []);
 
   // FLIP animation: whenever cells change slots (drag-preview swaps, sessions
-  // opening/closing, expand toggles) each card glides from its previous rect
-  // to the new one instead of snapping. Runs on every commit — non-reorder
-  // renders only refresh the measured baseline so divider/window resizes never
-  // animate, and a card already mid-flight continues from where it visually is.
+  // opening/closing, expand toggles, row changes) each card glides from its
+  // previous rect to the new one instead of snapping. Runs on every commit —
+  // non-reorder renders only refresh the measured baseline so divider/window
+  // resizes never animate, and a card already mid-flight continues from where it
+  // visually is. The row structure joins the signature so a cell that changes
+  // rows animates too.
   const cellRectsRef = useRef<Map<string, DOMRect>>(new Map());
   const flipSigRef = useRef<string | null>(null);
-  // The set of visible cells no longer changes on expand/collapse, so the expand
-  // state joins the signature: toggling it flips the affected cell from its slot
-  // rect to the full-grid rect (and back), i.e. the zoom in / zoom out.
-  const orderSig = visibleSessions.map((s) => s.taskId).join("|");
+  const orderSig = viewRows.map((r) => r.cells.map((c) => c.session.taskId).join(",")).join("|");
   const flipSig = `${expandedTaskId ?? ""}::${orderSig}`;
   useLayoutEffect(() => {
+    // Keep the painted-layout ref in sync so drag math sees what's on screen.
+    paintedLayoutRef.current = activeLayout;
     const animate = flipSigRef.current !== null && flipSigRef.current !== flipSig;
     flipSigRef.current = flipSig;
     const grid = gridRef.current;
@@ -695,58 +852,34 @@ export function SessionGrid() {
     positionDraggedCell();
   });
 
-  const columns = useMemo(() => {
-    const n = visibleSessions.length;
-    if (n <= 1) return 1;
-    return Math.ceil(Math.sqrt(n));
-  }, [visibleSessions.length]);
+  const reorderEnabled = !expandedTaskId && visibleSessions.length > 1;
 
-  const rows = useMemo(() => {
-    const n = visibleSessions.length;
-    if (n <= 1) return 1;
-    return Math.ceil(n / columns);
-  }, [visibleSessions.length, columns]);
-
-  const reorderEnabled = !expandedTaskId && sessions.length > 1;
-
-  // Cards in a partial last row span the leftover columns so the row fills the
-  // full width (e.g. 2 cards in a 4-col grid each span 2 → 50% / 50%).
-  const lastRowStart = (rows - 1) * columns;
-  const lastRowSpans = lastRowColumnSpans(visibleSessions.length - lastRowStart, columns);
-
-  // Column boundaries (cumulative track counts) that still exist inside the
-  // partial last row. A column divider not on one of these edges would cut
-  // through a spanned cell, so it must stop above the last row.
-  const lastRowEdges = useMemo(() => {
-    if (!lastRowSpans) return null;
-    const edges = new Set<number>();
-    let acc = 0;
-    for (const span of lastRowSpans.slice(0, -1)) {
-      acc += span;
-      edges.add(acc);
-    }
-    return edges;
-  }, [lastRowSpans]);
-
-  // Load (or default to equal) track sizes whenever the grid shape changes.
-  const gridSig = `${columns}x${rows}`;
-  useEffect(() => {
-    const stored = resizeMap[gridSig];
-    setColSizes(makeSizes(stored?.cols, columns));
-    setRowSizes(makeSizes(stored?.rows, rows));
-  }, [resizeMap, gridSig, columns, rows]);
-
-  // Pixel space the fr tracks share, once gaps + padding are removed.
-  const availW = Math.max(
-    0,
-    gridSize.width - GRID_PADDING * 2 - Math.max(0, columns - 1) * GRID_GAP,
-  );
+  // Pixel space the row-height tracks share, once outer padding + gaps are gone.
+  const totalRowFr = layout.rowSizes.reduce((a, b) => a + b, 0) || 1;
   const availH = Math.max(
     0,
-    gridSize.height - GRID_PADDING * 2 - Math.max(0, rows - 1) * GRID_GAP,
+    gridSize.height - GRID_PADDING * 2 - Math.max(0, layout.rows.length - 1) * GRID_GAP,
   );
-  const sizesReady = colSizes.length === columns && rowSizes.length === rows;
-  const resizeEnabled = !expandedTaskId && visibleSessions.length > 1 && gridSize.width > 0;
+  // Pixel top/height of a row's band (for the per-row column divider handles).
+  const rowBand = useCallback(
+    (rowIndex: number): { top: number; height: number } => {
+      let accFrac = 0;
+      for (let k = 0; k < rowIndex; k++) accFrac += (layout.rowSizes[k] ?? 0) / totalRowFr;
+      const top = GRID_PADDING + accFrac * availH + rowIndex * GRID_GAP;
+      const height = ((layout.rowSizes[rowIndex] ?? 0) / totalRowFr) * availH;
+      return { top, height };
+    },
+    [layout.rowSizes, totalRowFr, availH],
+  );
+  // Horizontal pixel space a row's column tracks share (every row spans the full
+  // grid width, so this only depends on the cell count).
+  const rowAvailW = useCallback(
+    (cellCount: number): number =>
+      Math.max(0, gridSize.width - GRID_PADDING * 2 - Math.max(0, cellCount - 1) * GRID_GAP),
+    [gridSize.width],
+  );
+  const resizeEnabled =
+    !expandedTaskId && !dragLayout && visibleSessions.length > 1 && gridSize.width > 0;
 
   // Left/top pixel offset of the divider after track `index` (0-based).
   const dividerOffset = useCallback(
@@ -759,21 +892,29 @@ export function SessionGrid() {
     [],
   );
 
-  // Drag a divider: move the boundary between the tracks before and after it,
-  // scaling each side's tracks proportionally so the whole row/column of cells
-  // follows the divider (a cell spanning several tracks — the partial last
-  // row — then shrinks in step with its single-track siblings, instead of one
-  // adjacent track absorbing the entire delta). Persisted on release.
+  // Drag a divider: move the boundary between two tracks, scaling each side's
+  // tracks proportionally so the whole row/column of cells follows the divider.
+  // `axis: "row"` resizes the shared row heights; `axis: "col"` resizes only the
+  // columns of the given row (rowIndex), so a divider drag stays inside its row.
+  // The live layout updates per move; only the release persists.
   const startResize = useCallback(
-    (axis: "col" | "row", index: number, event: ReactPointerEvent<HTMLDivElement>) => {
+    (
+      axis: "col" | "row",
+      rowIndex: number | null,
+      index: number,
+      event: ReactPointerEvent<HTMLDivElement>,
+    ) => {
       if (event.button !== 0) return;
       event.preventDefault();
       resizeCleanupRef.current?.();
       const pointerId = event.pointerId;
       const handleEl = event.currentTarget;
       const isCol = axis === "col";
-      const startSizes = (isCol ? colSizes : rowSizes).slice();
-      const avail = isCol ? availW : availH;
+      const startSizes = (
+        isCol ? layout.rows[rowIndex ?? -1]?.colSizes : layout.rowSizes
+      )?.slice();
+      if (!startSizes) return;
+      const avail = isCol ? rowAvailW(startSizes.length) : availH;
       if (avail <= 0 || index < 0 || index + 1 >= startSizes.length) return;
       try {
         handleEl.setPointerCapture(pointerId);
@@ -794,6 +935,17 @@ export function SessionGrid() {
       // A grid too tight to honor the minimum on both sides can't resize.
       if (minBeforeTotal + minAfterTotal >= total) return;
 
+      const writeSizes = (prev: GridLayout, sizes: number[]): GridLayout => {
+        const copy = cloneLayout(prev);
+        if (isCol) {
+          const row = copy.rows[rowIndex ?? -1];
+          if (row) row.colSizes = sizes;
+        } else {
+          copy.rowSizes = sizes;
+        }
+        return copy;
+      };
+
       let latest = startSizes;
       const apply = (pos: number) => {
         const deltaFr = ((pos - startPos) / avail) * total;
@@ -808,8 +960,7 @@ export function SessionGrid() {
           ...after.map((s) => s * afterScale),
         ];
         latest = next;
-        if (isCol) setColSizes(next);
-        else setRowSizes(next);
+        setLayout((prev) => writeSizes(prev, next));
       };
 
       const cleanup = () => {
@@ -821,11 +972,11 @@ export function SessionGrid() {
       };
       const commit = () => {
         cleanup();
-        resizeMap[gridSig] = {
-          cols: isCol ? latest : colSizes.slice(),
-          rows: isCol ? rowSizes.slice() : latest,
-        };
-        saveGridResize(resizeMap);
+        setLayout((prev) => {
+          const next = writeSizes(prev, latest);
+          saveGridLayout(scopeKey, next);
+          return next;
+        });
         setResizing(null);
       };
       const onMove = (e: PointerEvent) => {
@@ -850,41 +1001,43 @@ export function SessionGrid() {
       resizeCleanupRef.current = cleanup;
       setResizing(axis);
     },
-    [colSizes, rowSizes, availW, availH, gridSig, resizeMap],
+    [layout, availH, rowAvailW, scopeKey],
   );
 
-  // Index of the cell under the pointer (falls back to the nearest cell
-  // centre). Uses layout positions (offsetLeft/Top) rather than bounding
-  // rects — a cell mid-FLIP reports a transformed rect, which would bounce the
-  // drop index back and forth while cards glide into place.
-  const resolveDropIndex = useCallback((clientX: number, clientY: number): number => {
-    const grid = gridRef.current;
-    const cells = grid?.querySelectorAll<HTMLElement>("[data-grid-cell]");
-    if (!grid || !cells || cells.length === 0) return -1;
-    const gridRect = grid.getBoundingClientRect();
-    const x = clientX - gridRect.left;
-    const y = clientY - gridRect.top;
-    let nearest = 0;
-    let nearestDist = Infinity;
-    for (let i = 0; i < cells.length; i++) {
-      const cell = cells[i]!;
-      const left = cell.offsetLeft;
-      const top = cell.offsetTop;
-      const width = cell.offsetWidth;
-      const height = cell.offsetHeight;
-      if (x >= left && x <= left + width && y >= top && y <= top + height) {
-        return i;
+  // The (rowIndex, cellIndex) insertion slot under the pointer. Reads DOM row/
+  // cell layout positions (offsetTop/Left, relative to the positioned grid since
+  // the row containers are non-positioned) rather than bounding rects — a cell
+  // mid-FLIP reports a transformed rect. Indices map 1:1 onto the painted layout.
+  const resolveDropTarget = useCallback(
+    (clientX: number, clientY: number): { rowIndex: number; cellIndex: number } | null => {
+      const grid = gridRef.current;
+      const rowEls = grid?.querySelectorAll<HTMLElement>("[data-grid-row]");
+      if (!grid || !rowEls || rowEls.length === 0) return null;
+      const gridRect = grid.getBoundingClientRect();
+      const x = clientX - gridRect.left;
+      const y = clientY - gridRect.top;
+      let rowIndex = -1;
+      for (let i = 0; i < rowEls.length; i++) {
+        const el = rowEls[i]!;
+        if (y >= el.offsetTop && y <= el.offsetTop + el.offsetHeight) {
+          rowIndex = i;
+          break;
+        }
       }
-      const cx = left + width / 2;
-      const cy = top + height / 2;
-      const d = Math.hypot(x - cx, y - cy);
-      if (d < nearestDist) {
-        nearestDist = d;
-        nearest = i;
+      if (rowIndex < 0) rowIndex = y < rowEls[0]!.offsetTop ? 0 : rowEls.length - 1;
+      const cellEls = rowEls[rowIndex]!.querySelectorAll<HTMLElement>("[data-grid-cell]");
+      let cellIndex = cellEls.length;
+      for (let i = 0; i < cellEls.length; i++) {
+        const cell = cellEls[i]!;
+        if (x < cell.offsetLeft + cell.offsetWidth / 2) {
+          cellIndex = i;
+          break;
+        }
       }
-    }
-    return nearest;
-  }, []);
+      return { rowIndex, cellIndex };
+    },
+    [],
+  );
 
   // Move keyboard focus into a session's terminal so the user can type right
   // away — after the reordered cells have settled into their new DOM positions.
@@ -919,11 +1072,11 @@ export function SessionGrid() {
     const onToggle = () => {
       const focusedCell = document.activeElement?.closest("[data-grid-cell]");
       const taskId = focusedCell?.getAttribute("data-task-id") ?? expandedTaskId;
-      if (taskId && sessions.some((s) => s.taskId === taskId)) toggleExpanded(taskId);
+      if (taskId && scopedSessions.some((s) => s.taskId === taskId)) toggleExpanded(taskId);
     };
     window.addEventListener(GRID_EXPAND_TOGGLE_EVENT, onToggle);
     return () => window.removeEventListener(GRID_EXPAND_TOGGLE_EVENT, onToggle);
-  }, [expandedTaskId, sessions, toggleExpanded]);
+  }, [expandedTaskId, scopedSessions, toggleExpanded]);
 
   // ── Keyboard grid navigation (Cmd/Ctrl+Shift+G) ────────────────────────────
   // Enter a selection mode where arrow keys move a highlight between cells and
@@ -937,12 +1090,12 @@ export function SessionGrid() {
   // tech via the live region in the render (updates on every move).
   const navLabel = useMemo(() => {
     if (navTaskId === null) return "";
-    const idx = orderedSessions.findIndex((s) => s.taskId === navTaskId);
-    return idx < 0 ? "" : `Session ${idx + 1} of ${orderedSessions.length} selected`;
-  }, [navTaskId, orderedSessions]);
+    const idx = visibleSessions.findIndex((s) => s.taskId === navTaskId);
+    return idx < 0 ? "" : `Session ${idx + 1} of ${visibleSessions.length} selected`;
+  }, [navTaskId, visibleSessions]);
 
   const enterGridNav = useCallback(() => {
-    const ids = orderedSessions.map((s) => s.taskId);
+    const ids = visibleSessions.map((s) => s.taskId);
     // Start on the cell that currently owns focus, else the first session. Focus
     // is left where it is — the capture listener intercepts nav keys, and keeping
     // the terminal focused keeps Cmd/Ctrl+W and cancel behaving normally.
@@ -951,15 +1104,14 @@ export function SessionGrid() {
       ?.getAttribute("data-task-id");
     const startId = originId && ids.includes(originId) ? originId : ids[0] ?? null;
     if (startId) setNavTaskId(startId);
-  }, [orderedSessions]);
+  }, [visibleSessions]);
 
-  // Move the selection by on-screen geometry rather than index math: a partial
-  // last row spans its cells to fill the width, so `row*columns + col` no longer
-  // maps to a cell (e.g. the cell below the top-right one is the last index, not
-  // index+columns). Reading real cell centres also handles resized tracks. Pick
-  // the nearest cell in the requested direction, strongly preferring ones lined
-  // up on the perpendicular axis (same row for left/right, same column for
-  // up/down); with none in that direction the selection holds.
+  // Move the selection by on-screen geometry rather than index math: rows can
+  // have different column counts and resized tracks, so `row*columns + col` no
+  // longer maps to a cell. Reading real cell centres handles both. Pick the
+  // nearest cell in the requested direction, strongly preferring ones lined up
+  // on the perpendicular axis (same row for left/right, same column for up/down);
+  // with none in that direction the selection holds.
   const moveGridNav = useCallback((dir: "left" | "right" | "up" | "down") => {
     setNavTaskId((current) => {
       if (current === null) return current;
@@ -1013,10 +1165,14 @@ export function SessionGrid() {
   // collapsed to a single cell, or a cell was expanded to fill the grid.
   useEffect(() => {
     if (navTaskId === null) return;
-    if (expandedTaskId || sessions.length < 2 || !sessions.some((s) => s.taskId === navTaskId)) {
+    if (
+      expandedTaskId ||
+      scopedSessions.length < 2 ||
+      !scopedSessions.some((s) => s.taskId === navTaskId)
+    ) {
       setNavTaskId(null);
     }
-  }, [navTaskId, expandedTaskId, sessions]);
+  }, [navTaskId, expandedTaskId, scopedSessions]);
 
   // Any pointer interaction takes over from the keyboard — clicking a terminal
   // to type, grabbing a divider, hitting a toolbar button — so end nav mode.
@@ -1096,16 +1252,16 @@ export function SessionGrid() {
     // (e.g. a browser build's "find previous" on Cmd/Ctrl+Shift+G) acts on it.
     e.preventDefault();
     e.stopPropagation();
-    if (expandedTaskId || sessions.length < 2) return;
+    if (expandedTaskId || scopedSessions.length < 2) return;
     enterGridNav();
   };
 
   useEffect(() => {
-    if (sessions.length === 0) return;
+    if (scopedSessions.length === 0) return;
     const handler = (e: KeyboardEvent) => onNavKeyRef.current(e);
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [sessions.length]);
+  }, [scopedSessions.length]);
 
   const startPointerReorder = useCallback(
     (taskId: string, event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1118,8 +1274,7 @@ export function SessionGrid() {
         "button, a, input, textarea",
       );
 
-      const baseOrder = orderedSessions.map((s) => s.taskId);
-      dragOrderRef.current = baseOrder;
+      dragLayoutRef.current = cloneLayout(paintedLayoutRef.current);
       const drag: PointerDragState = {
         id: taskId,
         pointerId: event.pointerId,
@@ -1133,13 +1288,16 @@ export function SessionGrid() {
       const handleEl = event.currentTarget;
 
       const applyMove = (clientX: number, clientY: number) => {
-        const current = dragOrderRef.current ?? baseOrder;
-        const fromIndex = current.indexOf(taskId);
-        const toIndex = resolveDropIndex(clientX, clientY);
-        if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
-        const next = reorderPinnedIds(current, fromIndex, toIndex);
-        dragOrderRef.current = next;
-        setDragOrder(next);
+        // Operate on the layout that's actually painted, so DOM-read drop
+        // targets and the moved structure always agree even mid-repaint.
+        const base = paintedLayoutRef.current;
+        const src = findCell(base.rows, taskId);
+        const target = resolveDropTarget(clientX, clientY);
+        if (!src || !target) return;
+        const next = moveCellInLayout(base, src.row, src.col, target.rowIndex, target.cellIndex);
+        if (!next || layoutSig(next) === layoutSig(base)) return;
+        dragLayoutRef.current = next;
+        setDragLayout(next);
       };
 
       const cellSelector = `[data-grid-cell][data-task-id="${CSS.escape(taskId)}"]`;
@@ -1213,13 +1371,13 @@ export function SessionGrid() {
             anim.id = FLIP_ID;
           }
         }
-        const finalOrder = dragOrderRef.current;
-        if (commit && drag.moved && finalOrder) {
-          setOrder(finalOrder);
-          saveGridOrder(finalOrder);
+        const finalLayout = dragLayoutRef.current;
+        if (commit && drag.moved && finalLayout) {
+          setLayout(finalLayout);
+          saveGridLayout(scopeKey, finalLayout);
         }
-        dragOrderRef.current = null;
-        setDragOrder(null);
+        dragLayoutRef.current = null;
+        setDragLayout(null);
         setDraggingId(null);
         // Set the session active by focusing its terminal, so the user can type
         // without a second click. This covers both a drag (whose pointer capture
@@ -1249,10 +1407,10 @@ export function SessionGrid() {
       window.addEventListener("pointercancel", onPointerCancel);
       cleanupDragRef.current = cleanup;
     },
-    [orderedSessions, resolveDropIndex, positionDraggedCell, focusSessionTerminal],
+    [resolveDropTarget, positionDraggedCell, focusSessionTerminal, scopeKey],
   );
 
-  if (sessions.length === 0) {
+  if (scopedSessions.length === 0) {
     return (
       <div
         style={{
@@ -1283,86 +1441,62 @@ export function SessionGrid() {
           minHeight: 0,
           minWidth: 0,
           display: "grid",
-          gridTemplateColumns: sizesReady
-            ? colSizes.map((s) => `minmax(0, ${s}fr)`).join(" ")
-            : `repeat(${columns}, minmax(0, 1fr))`,
-          gridTemplateRows: sizesReady
-            ? rowSizes.map((s) => `minmax(0, ${s}fr)`).join(" ")
-            : `repeat(${rows}, minmax(0, 1fr))`,
-          gridAutoRows: "minmax(0, 1fr)",
+          gridTemplateColumns: "minmax(0, 1fr)",
+          gridTemplateRows:
+            viewRows.map((r) => `minmax(0, ${r.fr}fr)`).join(" ") || "minmax(0, 1fr)",
           gap: GRID_GAP,
           padding: GRID_PADDING,
           overflow: "hidden",
         }}
       >
-        {visibleSessions.map((session, index) => {
-          const scopeKey = scopeKeyFor(session);
-          const isExpandedCell = expandedTaskId === session.taskId;
-          const place = cellPlacement(index, columns, rows, lastRowStart, lastRowSpans);
-          // The expanded cell spans the whole grid and floats above the rest;
-          // every other cell stays pinned to its own slot.
-          const gridColumn = isExpandedCell
-            ? "1 / -1"
-            : `${place.colStart} / span ${place.colSpan}`;
-          const gridRow = isExpandedCell ? "1 / -1" : `${place.rowStart}`;
-          const isDragging = draggingId === session.taskId;
-          return (
-            <GridCell
-              key={`${session.taskId}:${scopeKey}`}
-              session={session}
-              scopeKey={scopeKey}
-              mounted={cellMounted[index] ?? true}
-              expanded={isExpandedCell}
-              hidden={expandedTaskId !== null && !isExpandedCell}
-              isDragging={isDragging}
-              isFocused={!isDragging && focusedTaskId === session.taskId}
-              isNavSelected={navTaskId === session.taskId}
-              navActive={navActive}
-              gridColumn={gridColumn}
-              gridRow={gridRow}
-              reorderEnabled={reorderEnabled}
-              onToggleExpanded={toggleExpanded}
-              onRequestClose={requestClose}
-              onPtyReady={setPtyId}
-              onHeaderPointerDown={startPointerReorder}
-            />
-          );
-        })}
-        {resizeEnabled && sizesReady && (
-          <>
-            {Array.from({ length: columns - 1 }).map((_, i) => {
-              // Stop above the partial last row when the divider's column
-              // boundary falls inside a spanned cell there.
-              const crossesLastRow = !lastRowEdges || lastRowEdges.has(i + 1);
-              const bottom = crossesLastRow
-                ? GRID_PADDING
-                : gridSize.height -
-                  (dividerOffset(rowSizes, availH, rows - 2) - GRID_GAP / 2);
+        {viewRows.map((row, ri) => (
+          <div
+            key={`row-${ri}`}
+            data-grid-row={String(ri)}
+            style={{
+              display: "grid",
+              gridTemplateColumns: row.cells.map((c) => `minmax(0, ${c.fr}fr)`).join(" "),
+              gap: GRID_GAP,
+              minWidth: 0,
+              minHeight: 0,
+            }}
+          >
+            {row.cells.map(({ session }) => {
+              const cellScopeKey = scopeKeyFor(session);
+              const isExpandedCell = expandedTaskId === session.taskId;
+              const isDragging = draggingId === session.taskId;
               return (
-                <div
-                  key={`col-${i}`}
-                  onPointerDown={(e) => startResize("col", i, e)}
-                  style={{
-                    position: "absolute",
-                    left: dividerOffset(colSizes, availW, i),
-                    top: GRID_PADDING,
-                    bottom,
-                    width: HANDLE_HIT,
-                    transform: "translateX(-50%)",
-                    cursor: "col-resize",
-                    zIndex: 6,
-                    touchAction: "none",
-                  }}
+                <GridCell
+                  key={`${session.taskId}:${cellScopeKey}`}
+                  session={session}
+                  scopeKey={cellScopeKey}
+                  mounted={mountedByTask.get(session.taskId) ?? true}
+                  expanded={isExpandedCell}
+                  hidden={expandedTaskId !== null && !isExpandedCell}
+                  isDragging={isDragging}
+                  isFocused={!isDragging && focusedTaskId === session.taskId}
+                  isNavSelected={navTaskId === session.taskId}
+                  navActive={navActive}
+                  reorderEnabled={reorderEnabled}
+                  onToggleExpanded={toggleExpanded}
+                  onRequestClose={requestClose}
+                  onPtyReady={setPtyId}
+                  onHeaderPointerDown={startPointerReorder}
                 />
               );
             })}
-            {Array.from({ length: rows - 1 }).map((_, i) => (
+          </div>
+        ))}
+        {resizeEnabled && (
+          <>
+            {/* Row-height dividers (shared across the whole width). */}
+            {Array.from({ length: Math.max(0, layout.rows.length - 1) }).map((_, i) => (
               <div
-                key={`row-${i}`}
-                onPointerDown={(e) => startResize("row", i, e)}
+                key={`rowdiv-${i}`}
+                onPointerDown={(e) => startResize("row", null, i, e)}
                 style={{
                   position: "absolute",
-                  top: dividerOffset(rowSizes, availH, i),
+                  top: dividerOffset(layout.rowSizes, availH, i),
                   left: GRID_PADDING,
                   right: GRID_PADDING,
                   height: HANDLE_HIT,
@@ -1373,6 +1507,28 @@ export function SessionGrid() {
                 }}
               />
             ))}
+            {/* Per-row column dividers — each stays inside its own row's band. */}
+            {layout.rows.map((row, ri) => {
+              const band = rowBand(ri);
+              const avail = rowAvailW(row.cells.length);
+              return Array.from({ length: Math.max(0, row.cells.length - 1) }).map((_, j) => (
+                <div
+                  key={`coldiv-${ri}-${j}`}
+                  onPointerDown={(e) => startResize("col", ri, j, e)}
+                  style={{
+                    position: "absolute",
+                    left: dividerOffset(row.colSizes, avail, j),
+                    top: band.top,
+                    height: band.height,
+                    width: HANDLE_HIT,
+                    transform: "translateX(-50%)",
+                    cursor: "col-resize",
+                    zIndex: 6,
+                    touchAction: "none",
+                  }}
+                />
+              ));
+            })}
           </>
         )}
         {navActive && (

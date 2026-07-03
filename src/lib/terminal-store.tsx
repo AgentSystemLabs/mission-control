@@ -92,6 +92,11 @@ type Ctx = {
   requestCloneInsertAfter: (sourceTaskId: string) => void;
   /** Consume the pending clone-insert source id (null if none is queued). */
   takeCloneInsertAfter: () => string | null;
+  /** Ask the grid to place the next newly-created session in a brand-new row at
+   *  the bottom (used by the grid's "New row" button). */
+  requestNewRow: () => void;
+  /** Consume the pending new-row request (true if one is queued). */
+  takeNewRowRequest: () => boolean;
   /** Consume any provisional→persisted session id renames since the last call,
    *  so views keyed by taskId can preserve position across adoption. */
   takeSessionIdRenames: () => Array<{ from: string; to: string }>;
@@ -409,6 +414,17 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     const source = cloneInsertAfterRef.current;
     cloneInsertAfterRef.current = null;
     return source;
+  }, []);
+  // Pending "New row" request: the grid drops the next new session into a fresh
+  // bottom row. Ref (not state) so requesting doesn't re-render, consumed once.
+  const newRowRequestRef = useRef(false);
+  const requestNewRow = useCallback(() => {
+    newRowRequestRef.current = true;
+  }, []);
+  const takeNewRowRequest = useCallback(() => {
+    const pending = newRowRequestRef.current;
+    newRowRequestRef.current = false;
+    return pending;
   }, []);
   const sessionIdRenamesRef = useRef<Array<{ from: string; to: string }>>([]);
   const takeSessionIdRenames = useCallback(() => {
@@ -906,6 +922,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       focusGridSession,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
+      requestNewRow,
+      takeNewRowRequest,
       takeSessionIdRenames,
     }),
     [
@@ -930,6 +948,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       focusGridSession,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
+      requestNewRow,
+      takeNewRowRequest,
       takeSessionIdRenames,
     ]
   );
