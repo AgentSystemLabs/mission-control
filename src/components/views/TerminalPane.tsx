@@ -64,13 +64,18 @@ import { getDefaultModelForAgent } from "~/lib/default-model-store";
 import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
+import { createTerminalGpuLease } from "~/lib/terminal-webgl";
 import { acquireSpawnSlot, SPAWN_SETTLE_MS } from "~/lib/pty-spawn-queue";
 import {
   terminalSurfaceCache,
   type PaneTerminalSurface,
 } from "~/lib/terminal-surface-cache";
 import { attachTerminalLinks } from "~/lib/terminal-links";
-import { resizePtyToTerminal } from "~/lib/terminal-resize";
+import {
+  createSettledFit,
+  createSettledPtyResize,
+  resizePtyToTerminal,
+} from "~/lib/terminal-resize";
 import {
   appendBoundedSequencedData,
   dataAfterReplay,
@@ -495,12 +500,19 @@ export function TerminalPane({
       termSurfaceRef.current = surface.controls;
       setIsSandboxTerminal(surface.useSandbox);
       surface.controls.setFontSize(terminalFontSize);
-      const ro = new ResizeObserver(() => surface.fit());
+      // Refit only after the resize settles — a live refit clears the WebGL
+      // canvas on every cell-boundary crossing, strobing the whole grid.
+      const settledFit = createSettledFit(() => surface.fit());
+      const ro = new ResizeObserver(() => settledFit.schedule());
       ro.observe(container);
       surface.fit();
+      // GPU rendering only while visible — parked surfaces release the context.
+      surface.gpu?.attach();
       if (surface.ptyId) onPtyReady(surface.ptyId);
       return () => {
         ro.disconnect();
+        settledFit.cancel();
+        surface.gpu?.detach();
         if (termSurfaceRef.current === surface.controls) termSurfaceRef.current = null;
         cache.park(surface.id);
       };
@@ -550,6 +562,7 @@ export function TerminalPane({
       fitRef.current = fit;
       term.loadAddon(fit);
       term.open(el);
+      const gpu = createTerminalGpuLease(term);
 
       const surface: SessionTerminalSurface = {
         id: surfaceId,
@@ -558,6 +571,7 @@ export function TerminalPane({
         useSandbox,
         ptyId: null,
         destroyed: false,
+        gpu,
         controls: {
           focus: () => term.focus(),
           clear: () => term.clear(),
@@ -577,6 +591,12 @@ export function TerminalPane({
         activePtyId = id;
         surface.ptyId = id;
       };
+      // Coalesce interactive-resize storms (grid drag, wheel zoom) into one
+      // agent SIGWINCH after the drag settles; targets the then-active pty.
+      const settledPtyResize = createSettledPtyResize((cols, rows) => {
+        const id = activePtyId;
+        if (id && ptyApi) ptyApi.resize(id, cols, rows);
+      });
       const pendingElectronData = new Map<string, SequencedPtyData[]>();
       const pendingElectronExit = new Map<
         string,
@@ -816,10 +836,9 @@ export function TerminalPane({
         focus: () => term.focus(),
         clear: () => term.clear(),
         setFontSize: (nextFontSize) => {
+          // Wheel-zoom fires this per tick; the refit's onResize event lands in
+          // the settled debouncer, so the agent repaints once per zoom gesture.
           applyTerminalFontSize(term, fit, nextFontSize);
-          const id = activePtyId;
-          if (!id) return;
-          void resizeElectronPtyToSurface(id);
         },
       };
 
@@ -864,12 +883,7 @@ export function TerminalPane({
             ptyApi.write(ptyId, data);
           }
         });
-        term.onResize(({ cols, rows }) => {
-          const ptySize = normalizePtySize({ cols, rows });
-          if (ptyApi) {
-            ptyApi.resize(ptyId, ptySize.cols, ptySize.rows);
-          }
-        });
+        term.onResize((size) => settledPtyResize.schedule(size));
       };
 
       const wireNewElectronPty = (ptyId: string): boolean => {
@@ -1098,12 +1112,14 @@ export function TerminalPane({
       surface.teardown = () => {
         cancelAnimationFrame(rafHandle);
         clearSpawnAck();
+        settledPtyResize.cancel();
         releaseSpawnHold();
         for (const off of subscriptions) off();
         stopWatchingColorScheme();
         detachLinks();
         detachFileDrop();
         fitRef.current = null;
+        gpu.dispose();
         term.dispose();
       };
 

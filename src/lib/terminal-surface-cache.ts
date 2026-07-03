@@ -57,6 +57,11 @@ export interface PaneTerminalSurface extends TerminalSurface {
   controls: CachedTerminalControls;
   /** Re-fit the xterm to whatever container it's currently parented in. */
   fit(): void;
+  /**
+   * GPU renderer lease (see terminal-webgl.ts) — attached while mounted,
+   * released while parked so offscreen surfaces don't hold WebGL contexts.
+   */
+  gpu?: import("./terminal-webgl").TerminalGpuLease;
 }
 
 /** Injectable so the cache is testable in the node test env (no real `document`). */
