@@ -489,8 +489,11 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
 
   // Reconcile the layout against the scope's live sessions. On a scope switch,
   // reload that scope's saved layout (or seed a fresh square one) rather than
-  // carrying the previous project's rows over.
-  useEffect(() => {
+  // carrying the previous project's rows over. A layout effect so the placement
+  // re-render happens before paint: a new (or renamed) session must never paint
+  // in the transient trailing "extras" row — that one-frame squish is what the
+  // FLIP effect would otherwise animate across every row.
+  useLayoutEffect(() => {
     const renames = takeSessionIdRenames();
     const liveIds = scopedSessions.map((s) => s.taskId);
     const idSet = new Set(liveIds);
@@ -688,7 +691,7 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     () => new Map(scopedSessions.map((s) => [s.taskId, s])),
     [scopedSessions],
   );
-  const viewRows = useMemo(() => {
+  const { viewRows, hasUnplaced } = useMemo(() => {
     const seen = new Set<string>();
     const rows = activeLayout.rows
       .map((r, ri) => {
@@ -706,7 +709,7 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     if (extras.length > 0) {
       rows.push({ cells: extras.map((s) => ({ session: s, fr: 1 })), fr: 1 });
     }
-    return rows;
+    return { viewRows: rows, hasUnplaced: extras.length > 0 };
   }, [activeLayout, sessionById, scopedSessions]);
 
   const visibleSessions = useMemo(
@@ -779,6 +782,16 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   useLayoutEffect(() => {
     // Keep the painted-layout ref in sync so drag math sees what's on screen.
     paintedLayoutRef.current = activeLayout;
+    // A commit with a session the layout hasn't placed yet (the trailing extras
+    // row) is transient: the reconcile layout-effect above re-renders it away
+    // before the browser paints. Keep the FLIP baseline (signature + rects) at
+    // the last painted state so the placed commit animates a single step from
+    // what the user actually saw — a new session then only moves the row it
+    // lands in, instead of squishing every row toward the phantom extras row.
+    if (hasUnplaced) {
+      positionDraggedCell();
+      return;
+    }
     const animate = flipSigRef.current !== null && flipSigRef.current !== flipSig;
     flipSigRef.current = flipSig;
     const grid = gridRef.current;
