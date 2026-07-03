@@ -635,6 +635,23 @@ function ProjectPage() {
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
   const setVisibleTerminalScope = terminals.setVisibleScope;
+  // "Grid view — show all sessions": entering the grid materializes every
+  // active session for the visible worktree/scope, not just the already-open
+  // ones. TerminalPane's spawn queue staggers the agent launches.
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+  const enterGridView = useCallback(() => {
+    terminals.setGridView(true);
+    if (!terminalProject) return;
+    for (const task of tasksRef.current) {
+      if (task.archived) continue;
+      rehydrateTerminal(terminalProject, task);
+    }
+  }, [terminals, terminalProject, rehydrateTerminal]);
+  const toggleGridViewShowingAll = useCallback(() => {
+    if (terminals.gridView) terminals.setGridView(false);
+    else enterGridView();
+  }, [terminals, enterGridView]);
   const {
     setProject: setActiveUserTerminalProject,
     createTerminal,
@@ -1659,7 +1676,7 @@ function ProjectPage() {
     "session.gridView",
     () => {
       if (anyBlockingDialogOpen) return;
-      terminals.toggleGridView();
+      toggleGridViewShowingAll();
     },
     { capture: true },
   );
@@ -2550,7 +2567,7 @@ function ProjectPage() {
               <Btn
                 variant="ghost"
                 icon="grid"
-                onClick={terminals.toggleGridView}
+                onClick={toggleGridViewShowingAll}
                 aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
                 aria-pressed={terminals.gridView}
                 style={{
