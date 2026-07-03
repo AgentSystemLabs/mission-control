@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -13,10 +14,13 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { archiveOpenSession } from "~/lib/archive-session";
 import { getElectron, isElectron } from "~/lib/electron";
+import { matchBinding } from "~/lib/keybindings/match";
+import { useKeybindings } from "~/lib/keybindings/store";
 import { reorderPinnedIds } from "~/lib/pinned-project-order";
+import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { useTerminals, type OpenTerminal } from "~/lib/terminal-store";
-import { useHotkey } from "~/lib/use-hotkey";
+import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
@@ -143,6 +147,113 @@ type PointerDragState = {
   moved: boolean;
 };
 
+/** True when a real input owns focus — a dialog field, the search box, or the
+ *  bottom user terminal — as opposed to a session terminal inside the grid,
+ *  which is the intended place to trigger keyboard-nav from. Keeps Cmd/Ctrl+G
+ *  out of the way of anything the user is actively typing into. */
+function isNonGridTerminalEditableFocused(): boolean {
+  const el = document.activeElement;
+  if (!isEditableTarget(el)) return false;
+  return !(
+    el instanceof HTMLElement &&
+    el.classList.contains("xterm-helper-textarea") &&
+    el.closest("[data-grid-cell]") !== null
+  );
+}
+
+type GridCellProps = {
+  session: OpenTerminal;
+  scopeKey: string;
+  expanded: boolean;
+  isDragging: boolean;
+  isFocused: boolean;
+  isNavSelected: boolean;
+  navActive: boolean;
+  colSpan: number | undefined;
+  reorderEnabled: boolean;
+  onToggleExpanded: (taskId: string) => void;
+  onRequestClose: (session: OpenTerminal) => void;
+  onPtyReady: (taskId: string, ptyId: string | null, scopeKey: string) => void;
+  onHeaderPointerDown: (taskId: string, event: ReactPointerEvent<HTMLDivElement>) => void;
+};
+
+/** One grid cell (its terminal), memoized so a per-grid state change — moving
+ *  the keyboard-nav highlight, a spotlight, a drag — only re-renders the cells
+ *  whose props actually changed instead of every open terminal pane. The parent
+ *  passes stable callbacks so the memo holds across nav-move renders. */
+const GridCell = memo(function GridCell({
+  session,
+  scopeKey,
+  expanded,
+  isDragging,
+  isFocused,
+  isNavSelected,
+  navActive,
+  colSpan,
+  reorderEnabled,
+  onToggleExpanded,
+  onRequestClose,
+  onPtyReady,
+  onHeaderPointerDown,
+}: GridCellProps) {
+  return (
+    <CardFrame
+      data-grid-cell
+      data-task-id={session.taskId}
+      aria-current={isNavSelected ? "true" : undefined}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        minWidth: 0,
+        minHeight: 0,
+        gridColumn: colSpan ? `span ${colSpan}` : undefined,
+        overflow: "hidden",
+        // Dim the unselected cells while navigating to spotlight the pick — but
+        // never dim a cell being spotlighted by a notification "Open".
+        opacity: navActive && !isNavSelected && !isFocused ? 0.4 : isDragging ? 0.9 : 1,
+        outline:
+          isDragging || isFocused || isNavSelected ? "2px solid var(--accent)" : undefined,
+        outlineOffset: isDragging || isFocused || isNavSelected ? -2 : undefined,
+        // While held, float above siblings with a lift shadow so the card visibly
+        // travels with the pointer; the nav selection sits above its dimmed
+        // neighbours so its ring/glow isn't clipped.
+        zIndex: isDragging ? 5 : isNavSelected ? 4 : undefined,
+        boxShadow: isDragging
+          ? "0 16px 40px rgba(0, 0, 0, 0.5)"
+          : isFocused || isNavSelected
+            ? "0 0 22px var(--accent-glow)"
+            : undefined,
+        transition: "opacity 120ms ease, box-shadow 200ms ease",
+      }}
+    >
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <TerminalPane
+          project={session.project}
+          task={session.task}
+          descriptor={session}
+          isLast
+          expanded={expanded}
+          onToggleExpanded={() => onToggleExpanded(session.taskId)}
+          onHide={() => onRequestClose(session)}
+          onPtyReady={(ptyId) => onPtyReady(session.taskId, ptyId, scopeKey)}
+          onHeaderPointerDown={
+            reorderEnabled ? (e) => onHeaderPointerDown(session.taskId, e) : undefined
+          }
+          headerGrabbing={isDragging}
+        />
+      </div>
+    </CardFrame>
+  );
+});
+
 /**
  * Full-width grid of every open session across all projects/worktrees. Each
  * cell reuses TerminalPane (which carries its own title header + expand/close
@@ -154,9 +265,12 @@ export function SessionGrid() {
   const { sessions, close, setPtyId, gridFocusRequest } = useTerminals();
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
+  const { bindings } = useKeybindings();
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   // Task whose cell is momentarily spotlighted after a notification "Open".
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  // Keyboard-navigation mode (Cmd/Ctrl+G): the selected cell, or null when off.
+  const [navTaskId, setNavTaskId] = useState<string | null>(null);
   const [pendingArchive, setPendingArchive] = useState<OpenTerminal | null>(null);
   const [archiving, setArchiving] = useState(false);
 
@@ -218,6 +332,9 @@ export function SessionGrid() {
   useEffect(() => {
     if (!gridFocusRequest) return;
     const { taskId } = gridFocusRequest;
+    // A spotlight targets one session — end any keyboard-nav selection so its
+    // dimming/ring doesn't fight the spotlight and Enter can't open a stale pick.
+    setNavTaskId(null);
     setExpandedTaskId((prev) => (prev && prev !== taskId ? null : prev));
     setFocusedTaskId(taskId);
     const raf = requestAnimationFrame(() => {
@@ -662,6 +779,194 @@ export function SessionGrid() {
     });
   }, []);
 
+  // Stable callback handed to the memoized GridCell so its memo holds across
+  // per-grid renders — a session just toggles its own expand state.
+  const toggleExpanded = useCallback((taskId: string) => {
+    setExpandedTaskId((prev) => (prev === taskId ? null : taskId));
+  }, []);
+
+  // ── Keyboard grid navigation (Cmd/Ctrl+Shift+G) ────────────────────────────
+  // Enter a selection mode where arrow keys move a highlight between cells and
+  // Enter activates the chosen session (focuses its terminal, like a click).
+  // Triggered by the dedicated, rebindable session.gridNavigate shortcut and
+  // scoped to the grid. Keys are handled in the capture phase so the focused
+  // xterm surface can't swallow the arrows/Enter first.
+  const navActive = navTaskId !== null;
+
+  // Human-readable position of the current selection, announced to assistive
+  // tech via the live region in the render (updates on every move).
+  const navLabel = useMemo(() => {
+    if (navTaskId === null) return "";
+    const idx = orderedSessions.findIndex((s) => s.taskId === navTaskId);
+    return idx < 0 ? "" : `Session ${idx + 1} of ${orderedSessions.length} selected`;
+  }, [navTaskId, orderedSessions]);
+
+  const enterGridNav = useCallback(() => {
+    const ids = orderedSessions.map((s) => s.taskId);
+    // Start on the cell that currently owns focus, else the first session. Focus
+    // is left where it is — the capture listener intercepts nav keys, and keeping
+    // the terminal focused keeps Cmd/Ctrl+W and cancel behaving normally.
+    const originId = document.activeElement
+      ?.closest("[data-grid-cell]")
+      ?.getAttribute("data-task-id");
+    const startId = originId && ids.includes(originId) ? originId : ids[0] ?? null;
+    if (startId) setNavTaskId(startId);
+  }, [orderedSessions]);
+
+  // Move the selection by on-screen geometry rather than index math: a partial
+  // last row spans its cells to fill the width, so `row*columns + col` no longer
+  // maps to a cell (e.g. the cell below the top-right one is the last index, not
+  // index+columns). Reading real cell centres also handles resized tracks. Pick
+  // the nearest cell in the requested direction, strongly preferring ones lined
+  // up on the perpendicular axis (same row for left/right, same column for
+  // up/down); with none in that direction the selection holds.
+  const moveGridNav = useCallback((dir: "left" | "right" | "up" | "down") => {
+    setNavTaskId((current) => {
+      if (current === null) return current;
+      const cells = gridRef.current?.querySelectorAll<HTMLElement>("[data-grid-cell]");
+      if (!cells || cells.length === 0) return current;
+      const boxes = Array.from(cells)
+        .map((cell) => {
+          const id = cell.getAttribute("data-task-id");
+          return id
+            ? {
+                id,
+                cx: cell.offsetLeft + cell.offsetWidth / 2,
+                cy: cell.offsetTop + cell.offsetHeight / 2,
+              }
+            : null;
+        })
+        .filter((b): b is { id: string; cx: number; cy: number } => b !== null);
+      const cur = boxes.find((b) => b.id === current);
+      if (!cur) return current;
+      const horizontal = dir === "left" || dir === "right";
+      const sign = dir === "right" || dir === "down" ? 1 : -1;
+      let best: string | null = null;
+      let bestScore = Infinity;
+      for (const b of boxes) {
+        if (b.id === current) continue;
+        const primary = horizontal ? b.cx - cur.cx : b.cy - cur.cy;
+        if (primary * sign <= 1) continue; // not in the requested direction
+        const perp = horizontal ? Math.abs(b.cy - cur.cy) : Math.abs(b.cx - cur.cx);
+        const score = perp * 100_000 + Math.abs(primary);
+        if (score < bestScore) {
+          bestScore = score;
+          best = b.id;
+        }
+      }
+      return best ?? current;
+    });
+  }, []);
+
+  const confirmGridNav = useCallback(() => {
+    setNavTaskId((current) => {
+      if (current) focusSessionTerminal(current);
+      return null;
+    });
+  }, [focusSessionTerminal]);
+
+  // Cancel leaves focus untouched (nav mode never moved it), so the terminal the
+  // user was already in stays focused.
+  const cancelGridNav = useCallback(() => setNavTaskId(null), []);
+
+  // Leave nav mode if it goes stale: the selected session closed, the grid
+  // collapsed to a single cell, or a cell was expanded to fill the grid.
+  useEffect(() => {
+    if (navTaskId === null) return;
+    if (expandedTaskId || sessions.length < 2 || !sessions.some((s) => s.taskId === navTaskId)) {
+      setNavTaskId(null);
+    }
+  }, [navTaskId, expandedTaskId, sessions]);
+
+  // Any pointer interaction takes over from the keyboard — clicking a terminal
+  // to type, grabbing a divider, hitting a toolbar button — so end nav mode.
+  // Capture phase so it wins before the target's own pointer handlers run.
+  useEffect(() => {
+    if (!navActive) return;
+    const onPointerDown = () => setNavTaskId(null);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [navActive]);
+
+  // The capture-phase key handler, refreshed every render (mirrors useHotkey's
+  // handlerRef) so the window listener subscribes exactly once — no stale closure
+  // right after entering nav, no per-state-change re-subscription churn.
+  const onNavKeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  onNavKeyRef.current = (e: KeyboardEvent) => {
+    // The trigger is the dedicated, rebindable session.gridNavigate shortcut.
+    const trigger = matchBinding(e, bindings["session.gridNavigate"]);
+    if (navTaskId !== null) {
+      switch (e.key) {
+        case "ArrowRight":
+          e.preventDefault();
+          e.stopPropagation();
+          moveGridNav("right");
+          return;
+        case "ArrowLeft":
+          e.preventDefault();
+          e.stopPropagation();
+          moveGridNav("left");
+          return;
+        case "ArrowDown":
+          e.preventDefault();
+          e.stopPropagation();
+          moveGridNav("down");
+          return;
+        case "ArrowUp":
+          e.preventDefault();
+          e.stopPropagation();
+          moveGridNav("up");
+          return;
+        case "Enter":
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) break;
+          e.preventDefault();
+          e.stopPropagation();
+          confirmGridNav();
+          return;
+        case "Escape":
+          e.preventDefault();
+          e.stopPropagation();
+          cancelGridNav();
+          return;
+      }
+      // The trigger combo again toggles nav off.
+      if (trigger) {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelGridNav();
+        return;
+      }
+      // Any other key ends nav mode and is left to reach its real target (a
+      // hotkey like Cmd+N opening a dialog, or a keystroke resuming the terminal).
+      setNavTaskId(null);
+      return;
+    }
+    if (!trigger) return;
+    // Defer to the settings overlay, any open modal, and anything the user is
+    // typing into (dialog field, search box, bottom user terminal). A focused
+    // session terminal is the intended trigger point, so it is allowed through.
+    if (
+      isSettingsOverlayOpen() ||
+      document.querySelector("[data-modal-open]") !== null ||
+      isNonGridTerminalEditableFocused()
+    ) {
+      return;
+    }
+    // Claim the key whether or not nav can be entered right now, so nothing else
+    // (e.g. a browser build's "find previous" on Cmd/Ctrl+Shift+G) acts on it.
+    e.preventDefault();
+    e.stopPropagation();
+    if (expandedTaskId || sessions.length < 2) return;
+    enterGridNav();
+  };
+
+  useEffect(() => {
+    if (sessions.length === 0) return;
+    const handler = (e: KeyboardEvent) => onNavKeyRef.current(e);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [sessions.length]);
+
   const startPointerReorder = useCallback(
     (taskId: string, event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
@@ -852,68 +1157,27 @@ export function SessionGrid() {
       >
         {visibleSessions.map((session, index) => {
           const scopeKey = scopeKeyFor(session);
-          const expanded = expandedTaskId === session.taskId;
-          const isDragging = draggingId === session.taskId;
-          const isFocused = !isDragging && focusedTaskId === session.taskId;
           const spanIndex = index - lastRowStart;
           const colSpan =
             lastRowSpans && spanIndex >= 0 ? lastRowSpans[spanIndex] : undefined;
+          const isDragging = draggingId === session.taskId;
           return (
-            <CardFrame
+            <GridCell
               key={`${session.taskId}:${scopeKey}`}
-              data-grid-cell
-              data-task-id={session.taskId}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                minWidth: 0,
-                minHeight: 0,
-                gridColumn: colSpan ? `span ${colSpan}` : undefined,
-                overflow: "hidden",
-                opacity: isDragging ? 0.9 : 1,
-                outline:
-                  isDragging || isFocused ? "2px solid var(--accent)" : undefined,
-                outlineOffset: isDragging || isFocused ? -2 : undefined,
-                // While held, float above siblings with a lift shadow so the
-                // card visibly travels with the pointer.
-                zIndex: isDragging ? 5 : undefined,
-                boxShadow: isDragging
-                  ? "0 16px 40px rgba(0, 0, 0, 0.5)"
-                  : isFocused
-                    ? "0 0 22px var(--accent-glow)"
-                    : undefined,
-                transition: "opacity 120ms ease, box-shadow 200ms ease",
-              }}
-            >
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  minHeight: 0,
-                  overflow: "hidden",
-                }}
-              >
-                <TerminalPane
-                  project={session.project}
-                  task={session.task}
-                  descriptor={session}
-                  isLast
-                  expanded={expanded}
-                  onToggleExpanded={() =>
-                    setExpandedTaskId((prev) => (prev === session.taskId ? null : session.taskId))
-                  }
-                  onHide={() => requestClose(session)}
-                  onPtyReady={(ptyId) => setPtyId(session.taskId, ptyId, scopeKey)}
-                  onHeaderPointerDown={
-                    reorderEnabled
-                      ? (e) => startPointerReorder(session.taskId, e)
-                      : undefined
-                  }
-                  headerGrabbing={isDragging}
-                />
-              </div>
-            </CardFrame>
+              session={session}
+              scopeKey={scopeKey}
+              expanded={expandedTaskId === session.taskId}
+              isDragging={isDragging}
+              isFocused={!isDragging && focusedTaskId === session.taskId}
+              isNavSelected={navTaskId === session.taskId}
+              navActive={navActive}
+              colSpan={colSpan}
+              reorderEnabled={reorderEnabled}
+              onToggleExpanded={toggleExpanded}
+              onRequestClose={requestClose}
+              onPtyReady={setPtyId}
+              onHeaderPointerDown={startPointerReorder}
+            />
           );
         })}
         {resizeEnabled && sizesReady && (
@@ -961,6 +1225,59 @@ export function SessionGrid() {
                 }}
               />
             ))}
+          </>
+        )}
+        {navActive && (
+          <>
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                bottom: 12,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 10,
+                pointerEvents: "none",
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                maxWidth: "calc(100% - 24px)",
+                padding: "6px 12px",
+                background: "var(--surface-2)",
+                color: "var(--text)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+                fontFamily: "var(--mono)",
+                fontSize: 12,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span>Navigate sessions</span>
+              <span style={{ opacity: 0.6 }}>↑ ↓ ← → move</span>
+              <span style={{ opacity: 0.6 }}>Enter open</span>
+              <span style={{ opacity: 0.6 }}>Esc cancel</span>
+            </div>
+            {/* Screen-reader only: announces the moving selection each keystroke
+                (the visible bar above is decorative, so aria-hidden). */}
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                margin: -1,
+                padding: 0,
+                border: 0,
+                overflow: "hidden",
+                clip: "rect(0 0 0 0)",
+                clipPath: "inset(50%)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {navLabel}
+            </div>
           </>
         )}
       </div>

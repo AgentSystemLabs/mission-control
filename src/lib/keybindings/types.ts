@@ -16,6 +16,8 @@ export const HOTKEY_ACTIONS = [
   "session.clone",
   "session.cycleNext",
   "session.cyclePrev",
+  "session.gridNavigate",
+  "session.gridView",
   "dialog.submit",
   "file.finder",
   "file.save",
@@ -60,6 +62,16 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "session.clone": { label: "Clone session", description: "Duplicate the active agent session with the same settings." },
   "session.cycleNext": { label: "Next session", description: "Cycle to the next open session in the panel." },
   "session.cyclePrev": { label: "Previous session", description: "Cycle to the previous open session in the panel." },
+  "session.gridNavigate": {
+    label: "Navigate session grid",
+    description:
+      "In the full-width grid view, start keyboard navigation — arrow keys move the selection between open sessions and Enter opens the highlighted one (Esc cancels).",
+  },
+  "session.gridView": {
+    label: "Toggle grid view",
+    description:
+      "Show or hide the full-width grid of every open session across all projects.",
+  },
   "dialog.submit": { label: "Submit dialog", description: "Submit a dialog form (New agent, edit project, etc.)." },
   "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },
   "file.save": { label: "Save file", description: "Save the file currently open in the editor." },

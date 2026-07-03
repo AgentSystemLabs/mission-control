@@ -22,6 +22,8 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "session.clone": makeBinding({ mod: true, shift: true, key: "d" }),
   "session.cycleNext": makeBinding({ mod: true, shift: true, key: "]" }),
   "session.cyclePrev": makeBinding({ mod: true, shift: true, key: "[" }),
+  "session.gridNavigate": makeBinding({ mod: true, shift: true, key: "g" }),
+  "session.gridView": makeBinding({ mod: true, shift: true, key: "a" }),
   "dialog.submit": makeBinding({ mod: true, key: "Enter" }),
   "file.finder": makeBinding({ mod: true, key: "p" }),
   "file.save": makeBinding({ mod: true, key: "s" }),

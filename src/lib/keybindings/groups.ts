@@ -20,6 +20,8 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
       "session.clone",
       "session.cycleNext",
       "session.cyclePrev",
+      "session.gridNavigate",
+      "session.gridView",
     ],
   },
   {

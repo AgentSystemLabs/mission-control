@@ -1653,6 +1653,17 @@ function ProjectPage() {
     { ignoreEditable: true },
   );
 
+  // Capture phase so a focused session terminal can't swallow the key first —
+  // this must flip in/out of the grid even while typing in a session.
+  useHotkey(
+    "session.gridView",
+    () => {
+      if (anyBlockingDialogOpen) return;
+      terminals.toggleGridView();
+    },
+    { capture: true },
+  );
+
   const hiddenSession = lastHiddenSessionRef.current;
   const canRestoreHiddenSession =
     !!project &&
@@ -2532,21 +2543,25 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             </HotkeyTooltip>
-            <Btn
-              variant="ghost"
-              icon="grid"
-              onClick={terminals.toggleGridView}
-              aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
-              aria-pressed={terminals.gridView}
-              title={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
-              style={{
-                width: 52,
-                minWidth: 52,
-                paddingInline: 0,
-                background: terminals.gridView ? "var(--surface-2)" : undefined,
-                color: terminals.gridView ? "var(--text)" : undefined,
-              }}
-            />
+            <HotkeyTooltip
+              action="session.gridView"
+              label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+            >
+              <Btn
+                variant="ghost"
+                icon="grid"
+                onClick={terminals.toggleGridView}
+                aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+                aria-pressed={terminals.gridView}
+                style={{
+                  width: 52,
+                  minWidth: 52,
+                  paddingInline: 0,
+                  background: terminals.gridView ? "var(--surface-2)" : undefined,
+                  color: terminals.gridView ? "var(--text)" : undefined,
+                }}
+              />
+            </HotkeyTooltip>
             {gridViewActive && (
               <>
                 <Btn
