@@ -7,9 +7,34 @@
  * the spawn call alone wouldn't stagger the load — instead each spawn HOLDS its
  * slot until the agent produces its first output (it's mostly booted by then)
  * or a settle timeout elapses, whichever comes first.
+ *
+ * The slot count scales with the machine: each cold boot pins roughly one core
+ * (Node startup + JIT), so half the logical cores can boot agents while the
+ * other half keeps the renderer, main process, and already-running agents
+ * responsive. Clamped so a weak machine still makes progress two at a time and
+ * a many-core machine doesn't stampede disk/memory with a dozen Node boots.
  */
 
-const MAX_CONCURRENT_SPAWNS = 2;
+const MIN_SPAWN_SLOTS = 2;
+const MAX_SPAWN_SLOTS = 6;
+
+/** Spawn slots for a machine with `cores` logical cores (half, clamped 2–6). */
+export function spawnConcurrencyFor(cores: number | undefined): number {
+  if (!cores || !Number.isFinite(cores) || cores < 1) return MIN_SPAWN_SLOTS;
+  return Math.min(MAX_SPAWN_SLOTS, Math.max(MIN_SPAWN_SLOTS, Math.floor(cores / 2)));
+}
+
+let maxConcurrentSpawns = spawnConcurrencyFor(
+  typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined,
+);
+
+/** Test-only: pin the slot count (returns the previous value). */
+export function setSpawnConcurrencyForTests(n: number): number {
+  const prev = maxConcurrentSpawns;
+  maxConcurrentSpawns = n;
+  return prev;
+}
+
 /** Slot is released this long after spawn even if the agent stays silent. */
 export const SPAWN_SETTLE_MS = 2_500;
 
@@ -22,7 +47,7 @@ const waiters: Array<() => void> = [];
  * settled — on first PTY output, on spawn failure, or on teardown.
  */
 export async function acquireSpawnSlot(): Promise<() => void> {
-  if (active < MAX_CONCURRENT_SPAWNS) {
+  if (active < maxConcurrentSpawns) {
     active += 1;
   } else {
     // The releaser hands its slot to us directly (active stays counted), so a
