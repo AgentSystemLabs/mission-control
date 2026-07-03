@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { archiveOpenSession } from "~/lib/archive-session";
+import { GRID_EXPAND_TOGGLE_EVENT } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
 import { matchBinding } from "~/lib/keybindings/match";
 import { useKeybindings } from "~/lib/keybindings/store";
@@ -869,6 +870,20 @@ export function SessionGrid() {
     },
     [focusSessionTerminal],
   );
+
+  // Cmd/Ctrl+K (terminal.expandToggle) while the grid owns the workspace:
+  // TerminalPanel's single-session expand is unmounted, so __root dispatches to
+  // the grid instead. Toggle the cell whose terminal owns focus, falling back to
+  // the currently expanded cell (its terminal is focused, so this collapses it).
+  useEffect(() => {
+    const onToggle = () => {
+      const focusedCell = document.activeElement?.closest("[data-grid-cell]");
+      const taskId = focusedCell?.getAttribute("data-task-id") ?? expandedTaskId;
+      if (taskId && sessions.some((s) => s.taskId === taskId)) toggleExpanded(taskId);
+    };
+    window.addEventListener(GRID_EXPAND_TOGGLE_EVENT, onToggle);
+    return () => window.removeEventListener(GRID_EXPAND_TOGGLE_EVENT, onToggle);
+  }, [expandedTaskId, sessions, toggleExpanded]);
 
   // ── Keyboard grid navigation (Cmd/Ctrl+Shift+G) ────────────────────────────
   // Enter a selection mode where arrow keys move a highlight between cells and

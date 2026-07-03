@@ -71,6 +71,7 @@ import { isUserTerminalXtermFocused, isTerminalXtermFocused, terminalZoomStepFro
 import { useWarmCliAvailability } from "~/lib/cli-availability";
 import {
   CLEAR_USER_TERMINAL_EVENT,
+  GRID_EXPAND_TOGGLE_EVENT,
   TERMINAL_ZOOM_IN_EVENT,
   TERMINAL_ZOOM_OUT_EVENT,
 } from "~/lib/design-meta";
@@ -434,8 +435,12 @@ function Shell() {
         window.dispatchEvent(new Event(CLEAR_USER_TERMINAL_EVENT));
         return;
       }
-      // No single-session panel to expand while the grid owns the workspace.
-      if (gridActive) return;
+      // While the grid owns the workspace there's no single-session panel; hand
+      // the shortcut to SessionGrid so it expands/collapses the focused cell.
+      if (gridActive) {
+        window.dispatchEvent(new Event(GRID_EXPAND_TOGGLE_EVENT));
+        return;
+      }
       if (projectId && activeFor(projectId)) toggleTerminalExpanded();
     },
     { capture: true },

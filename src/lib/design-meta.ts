@@ -45,6 +45,10 @@ export type ArchiveActiveSessionEventDetail = { taskId: string };
 /** Dispatched when Cmd+K (terminal.expandToggle) fires while a bottom user TTY has focus. */
 export const CLEAR_USER_TERMINAL_EVENT = "mc:clear-user-terminal";
 
+/** Dispatched when Cmd+K (terminal.expandToggle) fires while the session grid
+ *  owns the workspace — SessionGrid toggles the focused (or expanded) cell. */
+export const GRID_EXPAND_TOGGLE_EVENT = "mc:grid-expand-toggle";
+
 /** Dispatched on Cmd+/Cmd- when an xterm (user or session) has keyboard focus. */
 export const TERMINAL_ZOOM_IN_EVENT = "mc:terminal-zoom-in";
 export const TERMINAL_ZOOM_OUT_EVENT = "mc:terminal-zoom-out";
