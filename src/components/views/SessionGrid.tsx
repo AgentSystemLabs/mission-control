@@ -416,6 +416,7 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     takeCloneInsertAfter,
     takeNewRowRequest,
     takeSessionIdRenames,
+    noteGridFocusedTask,
   } = useTerminals();
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
@@ -543,15 +544,21 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
       const id = (
         document.activeElement?.closest("[data-grid-cell]") as HTMLElement | null
       )?.getAttribute("data-task-id");
-      if (id) lastFocusedTaskIdRef.current = id;
+      if (id) {
+        lastFocusedTaskIdRef.current = id;
+        // Also surface it to the store so the project route can anchor a new
+        // session beside this pane even after a toolbar-button click.
+        noteGridFocusedTask(id);
+      }
     };
     el.addEventListener("focusin", onFocusIn);
     return () => el.removeEventListener("focusin", onFocusIn);
-  }, []);
+  }, [noteGridFocusedTask]);
 
-  // Spotlight a cell when a notification's "Open" targets a grid session: make
-  // it visible (collapse an unrelated expanded cell), scroll it into view, focus
-  // its terminal, and ring it briefly so the user can pick it out.
+  // Spotlight a cell — either a notification's "Open" landing on a grid session,
+  // or a freshly created/cloned session that should take the caret. Make it
+  // visible (collapse an unrelated expanded cell), scroll it into view, focus its
+  // terminal so the user can type immediately, and ring it briefly.
   useEffect(() => {
     if (!gridFocusRequest) return;
     const { taskId } = gridFocusRequest;
@@ -560,21 +567,47 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     setNavTaskId(null);
     setExpandedTaskId((prev) => (prev && prev !== taskId ? null : prev));
     setFocusedTaskId(taskId);
-    const raf = requestAnimationFrame(() => {
-      const selector = `[data-grid-cell][data-task-id="${CSS.escape(taskId)}"]`;
+
+    // A brand-new session's pane can mount a few frames late (progressive mount)
+    // and then rebuild once as it persists (awaitingCreate → persisted), which
+    // discards the textarea we just focused. So poll briefly and re-assert focus
+    // rather than making the single attempt an already-mounted session needs —
+    // that single attempt is exactly why the clone didn't reliably take focus
+    // once the grid held many sessions. Stop early if the user moves the caret
+    // into a different cell so we never fight a deliberate click.
+    const selector = `[data-grid-cell][data-task-id="${CSS.escape(taskId)}"]`;
+    let scrolled = false;
+    let focusedOnce = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 24; // ~2.2s at the 90ms cadence below
+    let poll = 0;
+    const step = () => {
+      const active = document.activeElement;
+      const activeId = (
+        active instanceof HTMLElement ? active.closest("[data-grid-cell]") : null
+      )?.getAttribute("data-task-id");
+      // Only after the caret has landed in the target once do we treat focus in
+      // another cell as a deliberate move and back off — at the start it still
+      // sits on the source pane the clone was triggered from, which is expected.
+      if (focusedOnce && activeId && activeId !== taskId) return;
       const cell = gridRef.current?.querySelector<HTMLElement>(selector);
-      if (!cell) return;
-      cell.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      cell
-        .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
-        ?.focus({ preventScroll: true });
-    });
+      if (cell && !scrolled) {
+        cell.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        scrolled = true;
+      }
+      const textarea = cell?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+      if (textarea && active !== textarea) textarea.focus({ preventScroll: true });
+      if (textarea && document.activeElement === textarea) focusedOnce = true;
+      if (++attempts < MAX_ATTEMPTS) poll = window.setTimeout(step, 90);
+    };
+    poll = window.setTimeout(step, 0);
+
     const timer = window.setTimeout(
       () => setFocusedTaskId((prev) => (prev === taskId ? null : prev)),
       2200,
     );
     return () => {
-      cancelAnimationFrame(raf);
+      window.clearTimeout(poll);
       window.clearTimeout(timer);
     };
   }, [gridFocusRequest]);

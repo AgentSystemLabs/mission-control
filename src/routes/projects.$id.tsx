@@ -239,6 +239,16 @@ function firstDisplayedTask<T extends { status: TaskStatus }>(tasks: T[]): T | u
   return undefined;
 }
 
+/** The task id of the grid cell whose terminal currently holds focus (the pane
+ *  the user is looking at), or null outside grid view / when nothing is focused.
+ *  Clone and "new session" both anchor a fresh session on this so it lands
+ *  beside — and takes the caret from — the active pane. */
+function readFocusedGridTaskId(): string | null {
+  if (typeof document === "undefined") return null;
+  const cell = document.activeElement?.closest("[data-grid-cell]") as HTMLElement | null;
+  return cell?.getAttribute("data-task-id") ?? null;
+}
+
 function ProjectPage() {
   const { id } = Route.useParams();
   const router = useRouter();
@@ -1254,7 +1264,10 @@ function ProjectPage() {
   );
 
   const createSession = useCallback(
-    async (payload: SessionCreatePayload, opts?: { initialInput?: string }) => {
+    async (
+      payload: SessionCreatePayload,
+      opts?: { initialInput?: string; focusOnCreate?: boolean },
+    ) => {
       if (!project || !terminalProject) return;
       const selectedAvailability = availabilityFor(cliAvailability, payload.agent);
       if (selectedAvailability.status === "outdated") {
@@ -1283,6 +1296,12 @@ function ProjectPage() {
           activeRuntimeScopeId,
         );
         terminals.openSession(terminalProject, warmSlot.draftTask, { ptyId: warmSlot.ptyId });
+        // Clone/new-session focus: put the caret in the just-added grid cell so
+        // the user can type immediately. focusGridSession retries until the pane
+        // mounts, so calling it before the surface exists is fine.
+        if (opts?.focusOnCreate && terminals.gridView) {
+          terminals.focusGridSession(warmSlot.draftTask.id);
+        }
         void (async () => {
           try {
             const task = await persistWarmSlotTask(
@@ -1353,6 +1372,13 @@ function ProjectPage() {
         setPendingInitialInput(optimisticTask.id, opts.initialInput);
       }
       terminals.toggle(terminalProject, optimisticTask, { awaitCreate: !isLocal });
+      // Clone/new-session focus: put the caret in the just-added grid cell so the
+      // user can type immediately. focusGridSession retries until the pane mounts
+      // (and re-asserts across the awaitingCreate→persisted rebuild), so calling
+      // it here — before the surface exists — is fine.
+      if (opts?.focusOnCreate && terminals.gridView) {
+        terminals.focusGridSession(optimisticTask.id);
+      }
 
       void (async () => {
         try {
@@ -1420,6 +1446,19 @@ function ProjectPage() {
     ]
   );
 
+  // The session a fresh one should anchor on: the grid cell the user is looking
+  // at, falling back to the scope's active session. Clone and "new session" both
+  // use it so a new session lands beside — and takes focus from — that pane.
+  const anchorSessionId = useCallback((): string | undefined => {
+    // Live DOM focus first (a hotkey fires with a cell focused); then the grid's
+    // last-focused cell reported to the store (a header-button click moved DOM
+    // focus to the button); finally the scope's active session.
+    for (const candidate of [readFocusedGridTaskId(), terminals.getGridFocusedTaskId()]) {
+      if (candidate && tasks.some((t) => t.id === candidate)) return candidate;
+    }
+    return terminals.activeFor(selectedScopeKey)?.taskId ?? undefined;
+  }, [tasks, terminals, selectedScopeKey]);
+
   const startWithSaved = useCallback(() => {
     if (!project) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
@@ -1432,13 +1471,19 @@ function ProjectPage() {
       setShowNewAgent(true);
       return;
     }
-    createSession({
-      agent: project.savedAgent,
-      branch: project.branch || DEFAULT_BRANCH,
-      skipPermissions: !!project.savedSkipPermissions,
-      bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
-    });
-  }, [project, createSession, cliAvailability, showAgentUpdateRequired]);
+    // Drop the new session beside the active one and focus it, like Clone.
+    const anchor = anchorSessionId();
+    if (anchor) terminals.requestCloneInsertAfter(anchor);
+    createSession(
+      {
+        agent: project.savedAgent,
+        branch: project.branch || DEFAULT_BRANCH,
+        skipPermissions: !!project.savedSkipPermissions,
+        bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
+      },
+      { focusOnCreate: true },
+    );
+  }, [project, createSession, cliAvailability, showAgentUpdateRequired, anchorSessionId, terminals]);
 
   const onNewAgentPrimary = useCallback(() => {
     if (!projectPathReady) return;
@@ -1491,12 +1536,23 @@ function ProjectPage() {
         return;
       }
       const payload = defaultSessionPayload(project);
+      // Drop the new session beside the active one and focus it, like Clone.
+      const anchor = anchorSessionId();
+      if (anchor) terminals.requestCloneInsertAfter(anchor);
       void createSession(
         { ...payload, agent: agent ?? settings?.defaultAgent ?? "claude-code", bareSession: false },
-        { initialInput: prompt },
+        { initialInput: prompt, focusOnCreate: true },
       );
     },
-    [project, projectPathReady, activeRuntimeScopeId, createSession, settings?.defaultAgent],
+    [
+      project,
+      projectPathReady,
+      activeRuntimeScopeId,
+      createSession,
+      settings?.defaultAgent,
+      anchorSessionId,
+      terminals,
+    ],
   );
 
   // Command bus: VoiceController (mounted at root) dispatches these for the
@@ -1626,10 +1682,19 @@ function ProjectPage() {
     (sourceTaskId?: string) => {
       if (!project) return;
       if (anyBlockingDialogOpen) return;
-      // Prefer the session whose "Clone" button fired the event (the clicked
-      // grid cell); fall back to the scope's active session (keyboard shortcut).
+      // Resolve which session to clone, most-specific first:
+      //  1. The session whose "Clone" button fired the event (menu path).
+      //  2. The grid cell that currently holds focus — the pane the user is
+      //     actually looking at when they hit Cmd+Shift+D. Without this the
+      //     keyboard path anchors on the scope's tracked-active session, which
+      //     in a multi-pane grid is often a different cell, so the clone lands
+      //     beside the "wrong" session (or, if that session isn't in the
+      //     rendered layout, in a seemingly random spot).
+      //  3. The scope's active session (non-grid view / no cell focused).
+      const focusedGridTaskId = readFocusedGridTaskId();
       const sourceTask =
         (sourceTaskId && tasks.find((t) => t.id === sourceTaskId)) ||
+        (focusedGridTaskId && tasks.find((t) => t.id === focusedGridTaskId)) ||
         (() => {
           const active = terminals.activeFor(selectedScopeKey);
           return active ? tasks.find((t) => t.id === active.taskId) : undefined;
@@ -1638,12 +1703,15 @@ function ProjectPage() {
       // In grid view, drop the clone directly beside the session it came from
       // rather than at the end of the grid.
       terminals.requestCloneInsertAfter(sourceTask.id);
-      void createSession({
-        agent: sourceTask.agent,
-        branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
-        skipPermissions: !!sourceTask.claudeSkipPermissions,
-        bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
-      });
+      void createSession(
+        {
+          agent: sourceTask.agent,
+          branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
+          skipPermissions: !!sourceTask.claudeSkipPermissions,
+          bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
+        },
+        { focusOnCreate: true },
+      );
     },
     [project, selectedScopeKey, tasks, terminals, createSession, anyBlockingDialogOpen],
   );
@@ -2155,15 +2223,24 @@ function ProjectPage() {
     bareSession: boolean;
   }) => {
     setShowNewAgent(false);
-    // The "New row" button asked for this session to start a fresh grid row.
-    if (newAgentTarget === "newRow") terminals.requestNewRow();
+    if (newAgentTarget === "newRow") {
+      // The "New row" button asked for this session to start a fresh grid row.
+      terminals.requestNewRow();
+    } else {
+      // Default: drop the new session beside the active one, like Clone.
+      const anchor = anchorSessionId();
+      if (anchor) terminals.requestCloneInsertAfter(anchor);
+    }
     setNewAgentTarget("default");
-    createSession({
-      agent: data.agent,
-      branch: data.branch,
-      skipPermissions: data.dangerouslySkipPermissions,
-      bareSession: data.bareSession,
-    });
+    createSession(
+      {
+        agent: data.agent,
+        branch: data.branch,
+        skipPermissions: data.dangerouslySkipPermissions,
+        bareSession: data.bareSession,
+      },
+      { focusOnCreate: true },
+    );
   };
 
   const headerActions = (

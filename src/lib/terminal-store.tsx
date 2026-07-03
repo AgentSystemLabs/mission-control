@@ -92,6 +92,11 @@ type Ctx = {
   requestCloneInsertAfter: (sourceTaskId: string) => void;
   /** Consume the pending clone-insert source id (null if none is queued). */
   takeCloneInsertAfter: () => string | null;
+  /** Report the grid cell whose terminal just took focus (null on blur away). */
+  noteGridFocusedTask: (taskId: string | null) => void;
+  /** The grid cell that most recently held focus, or null. Lets callers anchor a
+   *  new session on the active pane even after a button click moved DOM focus. */
+  getGridFocusedTaskId: () => string | null;
   /** Ask the grid to place the next newly-created session in a brand-new row at
    *  the bottom (used by the grid's "New row" button). */
   requestNewRow: () => void;
@@ -415,6 +420,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     cloneInsertAfterRef.current = null;
     return source;
   }, []);
+  // The grid cell whose terminal most recently held focus — the pane the user is
+  // "on". The grid reports it on focusin; the project route reads it to anchor a
+  // new session beside the active pane even when the click that created it (e.g.
+  // the header "New session" button) pulled DOM focus off the grid. A ref so
+  // reporting focus never re-renders the whole terminal tree.
+  const gridFocusedTaskIdRef = useRef<string | null>(null);
+  const noteGridFocusedTask = useCallback((taskId: string | null) => {
+    gridFocusedTaskIdRef.current = taskId;
+  }, []);
+  const getGridFocusedTaskId = useCallback(() => gridFocusedTaskIdRef.current, []);
   // Pending "New row" request: the grid drops the next new session into a fresh
   // bottom row. Ref (not state) so requesting doesn't re-render, consumed once.
   const newRowRequestRef = useRef(false);
@@ -922,6 +937,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       focusGridSession,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
+      noteGridFocusedTask,
+      getGridFocusedTaskId,
       requestNewRow,
       takeNewRowRequest,
       takeSessionIdRenames,
@@ -948,6 +965,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       focusGridSession,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
+      noteGridFocusedTask,
+      getGridFocusedTaskId,
       requestNewRow,
       takeNewRowRequest,
       takeSessionIdRenames,
