@@ -89,9 +89,10 @@ import {
 } from "~/lib/worktrees-preference";
 import {
   MINIMAL_CACHE_KEY,
-  applyMinimalTheme,
-  readCachedMinimalTheme,
-} from "~/lib/minimal-theme";
+  THEME_STYLE_CACHE_KEY,
+  applyThemeStyle,
+  readCachedThemeStyle,
+} from "~/lib/theme-style";
 import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
@@ -103,14 +104,18 @@ const useThemeLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 // Pre-hydration script: runs synchronously in <head> before first paint so
-// theme state (`data-minimal` + accent CSS vars) is in place before any CSS
-// layout. Without this, the SSR'd HTML paints with default (painted+orange)
-// theme for one frame — every accent-tinted surface flashes orange before
-// React/useSettings hydrate. Mirrors `applyAccentColor`
-// (src/lib/accent-colors.ts); keep them in sync.
+// theme state (`data-minimal`/`data-noir` + accent CSS vars) is in place
+// before any CSS layout. Without this, the SSR'd HTML paints with default
+// (painted+orange) theme for one frame — every accent-tinted surface flashes
+// orange before React/useSettings hydrate. Mirrors `applyThemeStyle`
+// (src/lib/theme-style.ts) and `applyAccentColor` (src/lib/accent-colors.ts);
+// keep them in sync.
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
 var d=document.documentElement;
-if(localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"){d.setAttribute("data-minimal","true");}
+var st=localStorage.getItem(${JSON.stringify(THEME_STYLE_CACHE_KEY)});
+if(st!=="painted"&&st!=="minimal"&&st!=="noir"){st=localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"?"minimal":"painted";}
+if(st!=="painted"){d.setAttribute("data-minimal","true");}
+if(st==="noir"){d.setAttribute("data-noir","true");}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),
@@ -289,7 +294,8 @@ function Shell() {
   } = userTerminals;
   // Bootstrap from the same localStorage cache the pre-hydration script reads,
   // so the inset applies on first paint instead of waiting for settings to load.
-  const cachedMinimal = readCachedMinimalTheme();
+  // Noir shares minimal's clean chrome, so any non-painted style counts.
+  const cachedMinimal = readCachedThemeStyle() !== "painted";
   const effectiveMinimal = settings?.minimalTheme ?? cachedMinimal;
   // The top bar's leading inset applies in minimal mode.
   const topBarLeadingInset = effectiveMinimal ? 130 : undefined;
@@ -379,7 +385,7 @@ function Shell() {
   }, [settings?.accentColor]);
 
   const launchOverlayEnabled = settings?.launchOverlayEnabled;
-  const minimalTheme = settings?.minimalTheme;
+  const themeStyle = settings?.themeStyle;
 
   useThemeLayoutEffect(() => {
     if (typeof launchOverlayEnabled !== "boolean") return;
@@ -394,9 +400,9 @@ function Shell() {
   }, [settings?.worktreesEnabled]);
 
   useThemeLayoutEffect(() => {
-    if (typeof minimalTheme !== "boolean") return;
-    applyMinimalTheme(minimalTheme);
-  }, [minimalTheme]);
+    if (!themeStyle) return;
+    applyThemeStyle(themeStyle);
+  }, [themeStyle]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;

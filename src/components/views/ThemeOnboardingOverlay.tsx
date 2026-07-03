@@ -14,7 +14,11 @@ import {
   isAccentColorId,
   type AccentColorId,
 } from "~/lib/accent-colors";
-import { applyMinimalTheme, readCachedMinimalTheme } from "~/lib/minimal-theme";
+import {
+  applyThemeStyle,
+  readCachedThemeStyle,
+  type ThemeStyle,
+} from "~/lib/theme-style";
 import {
   hasCompletedThemeOnboarding,
   markThemeOnboardingComplete,
@@ -58,7 +62,7 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
   const subtitleId = useId();
   const confirmRef = useRef<HTMLButtonElement>(null);
   const [color, setColor] = useState<AccentColorId>(() => readCachedAccent());
-  const [minimal, setMinimal] = useState<boolean>(() => readCachedMinimalTheme());
+  const [style, setStyle] = useState<ThemeStyle>(() => readCachedThemeStyle());
   const [saving, setSaving] = useState(false);
 
   // Clicking a swatch live-applies the accent (CSS vars + cache) instantly.
@@ -67,10 +71,10 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
     applyAccentColor(next);
   }, []);
 
-  // Toggling the style live-applies minimal/painted mode instantly.
-  const selectStyle = useCallback((next: boolean) => {
-    setMinimal(next);
-    applyMinimalTheme(next);
+  // Picking a style live-applies it instantly.
+  const selectStyle = useCallback((next: ThemeStyle) => {
+    setStyle(next);
+    applyThemeStyle(next);
   }, []);
 
   const confirm = useCallback(async () => {
@@ -81,7 +85,7 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
     try {
       const next = await api.updateSettings({
         accentColor: color,
-        minimalTheme: minimal,
+        themeStyle: style,
       });
       queryClient.setQueryData(queryKeys.settings, next);
     } catch {
@@ -89,7 +93,7 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
     }
     markThemeOnboardingComplete();
     onDone();
-  }, [color, minimal, onDone, queryClient, saving]);
+  }, [color, style, onDone, queryClient, saving]);
 
   // Cmd/Ctrl+Enter confirms — the app-wide convention for modal confirms.
   useEffect(() => {
@@ -190,24 +194,36 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
               title="Painted"
               description="Pixel-art borders and shell imagery. The full Mission Control look."
               accentId={color}
-              minimalPreview={false}
-              selected={!minimal}
-              onSelect={() => selectStyle(false)}
+              stylePreview="painted"
+              selected={style === "painted"}
+              onSelect={() => selectStyle("painted")}
             />
             <StyleChoiceCard
               title="Minimal"
               description="Clean CSS borders. Lighter on the eyes and faster to render."
               accentId={color}
-              minimalPreview
-              selected={minimal}
-              onSelect={() => selectStyle(true)}
+              stylePreview="minimal"
+              selected={style === "minimal"}
+              onSelect={() => selectStyle("minimal")}
+            />
+            <StyleChoiceCard
+              title="Noir"
+              description="Flat near-black with hairline dividers. Borders only where they mean something."
+              accentId={color}
+              stylePreview="noir"
+              selected={style === "noir"}
+              onSelect={() => selectStyle("noir")}
             />
           </div>
         </section>
 
         <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <SectionLabel>Accent color</SectionLabel>
-          <AccentColorGrid minimal={minimal} selected={color} onSelect={selectColor} />
+          <AccentColorGrid
+            minimal={style !== "painted"}
+            selected={color}
+            onSelect={selectColor}
+          />
         </section>
 
         <footer
@@ -259,14 +275,14 @@ function StyleChoiceCard({
   title,
   description,
   accentId,
-  minimalPreview,
+  stylePreview,
   selected,
   onSelect,
 }: {
   title: string;
   description: string;
   accentId: AccentColorId;
-  minimalPreview: boolean;
+  stylePreview: ThemeStyle;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -312,7 +328,7 @@ function StyleChoiceCard({
           <Icon name="check" size={12} />
         </span>
       )}
-      <StylePreviewChip accent={accent} minimal={minimalPreview} />
+      <StylePreviewChip accent={accent} stylePreview={stylePreview} />
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span
           style={{
@@ -333,13 +349,17 @@ function StyleChoiceCard({
   );
 }
 
-/** A small "Action" chip showing painted (border-image) vs. minimal (flat). */
+/**
+ * A small "Action" chip previewing the chrome each style renders: painted
+ * (border-image), minimal (flat accent fill), noir (flat near-black with a
+ * hairline accent outline).
+ */
 function StylePreviewChip({
   accent,
-  minimal,
+  stylePreview,
 }: {
   accent: ReturnType<typeof getAccentColor>;
-  minimal: boolean;
+  stylePreview: ThemeStyle;
 }) {
   const accentRgba = (a: number) => `rgba(${accent.rgb}, ${a})`;
   const buttonBorder = `url("/borders/button_filled_${accent.id}.png")`;
@@ -347,7 +367,7 @@ function StylePreviewChip({
     <span
       aria-hidden
       style={
-        minimal
+        stylePreview === "minimal"
           ? {
               display: "inline-flex",
               alignSelf: "flex-start",
@@ -359,26 +379,40 @@ function StylePreviewChip({
               borderRadius: "var(--mm-radius-sm, 5px)",
               background: accent.value,
             }
-          : {
-              boxSizing: "border-box",
-              display: "inline-flex",
-              alignSelf: "flex-start",
-              padding: "6px 12px",
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#fff",
-              borderStyle: "solid",
-              borderColor: "transparent",
-              borderWidth: 12,
-              borderImageSource: buttonBorder,
-              borderImageSlice: "48",
-              borderImageWidth: "12px",
-              borderImageRepeat: "stretch",
-              background: accentRgba(0.18),
-              backgroundClip: "padding-box",
-              textShadow: `0 0 8px ${accentRgba(0.6)}`,
-            }
+          : stylePreview === "noir"
+            ? {
+                boxSizing: "border-box",
+                display: "inline-flex",
+                alignSelf: "flex-start",
+                padding: "6px 14px",
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                fontWeight: 600,
+                color: accent.value,
+                borderRadius: "var(--mm-radius-sm, 4px)",
+                border: `1px solid ${accentRgba(0.55)}`,
+                background: "#0f0f12",
+              }
+            : {
+                boxSizing: "border-box",
+                display: "inline-flex",
+                alignSelf: "flex-start",
+                padding: "6px 12px",
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#fff",
+                borderStyle: "solid",
+                borderColor: "transparent",
+                borderWidth: 12,
+                borderImageSource: buttonBorder,
+                borderImageSlice: "48",
+                borderImageWidth: "12px",
+                borderImageRepeat: "stretch",
+                background: accentRgba(0.18),
+                backgroundClip: "padding-box",
+                textShadow: `0 0 8px ${accentRgba(0.6)}`,
+              }
       }
     >
       Action

@@ -30,6 +30,7 @@ import type {
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
+import type { ThemeStyle } from "~/shared/theme-style";
 import type {
   MarkdownRefineRequest,
   MarkdownRefineResponse,
@@ -45,6 +46,9 @@ import { pruneStoredSessionFinishNotifications } from "~/lib/session-notificatio
 export type AppSettings = {
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
+  /** Which chrome to render: painted (pixel art), minimal, or noir (flat). */
+  themeStyle: ThemeStyle;
+  /** Derived server-side: true when themeStyle renders clean CSS chrome. */
   minimalTheme: boolean;
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
@@ -429,6 +433,7 @@ export const api = {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "accentColor"
+        | "themeStyle"
         | "minimalTheme"
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"

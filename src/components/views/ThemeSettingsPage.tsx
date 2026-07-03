@@ -8,6 +8,7 @@ import {
   type AccentColorId,
 } from "~/lib/accent-colors";
 import { api, type AppSettings } from "~/lib/api";
+import { DEFAULT_THEME_STYLE, type ThemeStyle } from "~/shared/theme-style";
 import { queryKeys, useSettings } from "~/queries";
 import {
   hasCachedLaunchIntroPreference,
@@ -20,6 +21,7 @@ export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
+  const themeStyle = settings?.themeStyle ?? DEFAULT_THEME_STYLE;
   const minimalTheme = settings?.minimalTheme ?? false;
   const launchOverlayEnabled = typeof settings?.launchOverlayEnabled === "boolean"
     ? settings.launchOverlayEnabled
@@ -28,10 +30,11 @@ export function ThemeSettingsPage() {
       : false;
 
   const optimisticSettings = (
-    patch: Partial<Pick<AppSettings, "accentColor" | "minimalTheme">>,
+    patch: Partial<Pick<AppSettings, "accentColor" | "themeStyle" | "minimalTheme">>,
   ): AppSettings => ({
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor,
+    themeStyle,
     minimalTheme,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
@@ -77,12 +80,15 @@ export function ThemeSettingsPage() {
     }
   };
 
-  const setMinimalTheme = async (next: boolean) => {
+  const setThemeStyle = async (next: ThemeStyle) => {
     const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
-    const optimistic = optimisticSettings({ minimalTheme: next });
+    const optimistic = optimisticSettings({
+      themeStyle: next,
+      minimalTheme: next !== "painted",
+    });
     queryClient.setQueryData(queryKeys.settings, optimistic);
     try {
-      const updated = await api.updateSettings({ minimalTheme: next });
+      const updated = await api.updateSettings({ themeStyle: next });
       queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
     } catch (error) {
       if (previous) queryClient.setQueryData(queryKeys.settings, previous);
@@ -93,11 +99,11 @@ export function ThemeSettingsPage() {
   return (
     <SettingsSection
       title="Theme"
-      subtitle="Choose between the pixel-art chrome and a clean, minimal look."
+      subtitle="Pick the chrome Mission Control wears: painted pixel art, clean minimal, or flat noir."
       headingLevel="h1"
     >
       <Field label="Theme style">
-        <ThemeModeToggle minimal={minimalTheme} onChange={setMinimalTheme} />
+        <ThemeStyleToggle style={themeStyle} onChange={setThemeStyle} />
       </Field>
       <Field label="Accent color">
         <AccentColorGrid
@@ -110,15 +116,41 @@ export function ThemeSettingsPage() {
   );
 }
 
-function ThemeModeToggle({
-  minimal,
+const THEME_STYLE_OPTIONS: Array<{
+  value: ThemeStyle;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "painted",
+    label: "Painted",
+    description: "Pixel-art borders and shell imagery. The full Mission Control look.",
+  },
+  {
+    value: "minimal",
+    label: "Minimal",
+    description:
+      "Clean CSS borders and textured cards. Lighter on the eyes, faster to render.",
+  },
+  {
+    value: "noir",
+    label: "Noir",
+    description:
+      "Flat near-black surfaces with hairline dividers. Borders only where they mean something.",
+  },
+];
+
+function ThemeStyleToggle({
+  style,
   onChange,
 }: {
-  minimal: boolean;
-  onChange: (next: boolean) => void;
+  style: ThemeStyle;
+  onChange: (next: ThemeStyle) => void;
 }) {
   const titleId = useId();
   const descriptionId = useId();
+  const active = THEME_STYLE_OPTIONS.find((option) => option.value === style)
+    ?? THEME_STYLE_OPTIONS[0]!;
   return (
     <div
       style={{
@@ -142,14 +174,13 @@ function ThemeModeToggle({
             marginBottom: 3,
           }}
         >
-          Minimal theme
+          {active.label}
         </div>
         <div
           id={descriptionId}
           style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}
         >
-          Replace the painted borders and shell imagery with clean CSS borders.
-          Lighter on the eyes, faster to render.
+          {active.description}
         </div>
       </div>
       <div
@@ -165,16 +196,14 @@ function ThemeModeToggle({
           flexShrink: 0,
         }}
       >
-        <ModeOption
-          label="Painted"
-          selected={!minimal}
-          onSelect={() => onChange(false)}
-        />
-        <ModeOption
-          label="Minimal"
-          selected={minimal}
-          onSelect={() => onChange(true)}
-        />
+        {THEME_STYLE_OPTIONS.map((option) => (
+          <ModeOption
+            key={option.value}
+            label={option.label}
+            selected={style === option.value}
+            onSelect={() => onChange(option.value)}
+          />
+        ))}
       </div>
     </div>
   );

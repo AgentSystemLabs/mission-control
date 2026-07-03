@@ -6,6 +6,7 @@ export type AccentColorId =
   | "cyan"
   | "purple"
   | "magenta"
+  | "pink"
   | "red"
   | "amber"
   | "lime"
@@ -29,6 +30,7 @@ export const ACCENT_COLORS: AccentColor[] = [
   { id: "cyan", name: "Cyan", value: "#06b6d4", rgb: "6, 182, 212" },
   { id: "purple", name: "Purple", value: "#a855f7", rgb: "168, 85, 247" },
   { id: "magenta", name: "Magenta", value: "#d946ef", rgb: "217, 70, 239" },
+  { id: "pink", name: "Pink", value: "#f472b6", rgb: "244, 114, 182" },
   { id: "red", name: "Red", value: "#ef4444", rgb: "239, 68, 68" },
   { id: "amber", name: "Amber", value: "#f59e0b", rgb: "245, 158, 11" },
   { id: "lime", name: "Lime", value: "#84cc16", rgb: "132, 204, 22" },

@@ -35,6 +35,7 @@ import {
   normalizeSelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import { safeJsonParse } from "~/shared/safe-json";
+import { isThemeStyle, type ThemeStyle } from "~/shared/theme-style";
 import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
   TERMINAL_ZOOM_MAX,
@@ -58,6 +59,8 @@ const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
 const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
 const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
+const THEME_STYLE_KEY = "theme_style";
+const MINIMAL_THEME_KEY = "minimal_theme";
 const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
@@ -95,6 +98,7 @@ const updateSettingsBody = z
     agentSystemBannerDisabled: z.boolean(),
     accentColor: z.string().refine(isAccentColorId, { message: "invalid accentColor" }),
     minimalTheme: z.boolean(),
+    themeStyle: z.string().refine(isThemeStyle, { message: "invalid themeStyle" }),
     mouseGradientDisabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
@@ -126,6 +130,13 @@ const updateSettingsBody = z
 function getAccentColorSetting(): AccentColorId {
   const value = getSetting("accent_color");
   return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
+}
+
+function getThemeStyleSetting(): ThemeStyle {
+  const value = getSetting(THEME_STYLE_KEY);
+  if (isThemeStyle(value)) return value;
+  // Installs that predate theme_style only stored the minimal/painted toggle.
+  return getBooleanSetting(MINIMAL_THEME_KEY) ? "minimal" : "painted";
 }
 
 function getCommitCliSetting(): CommitCli | null {
@@ -184,10 +195,14 @@ function getVoiceCommandAliasesSetting() {
 }
 
 function settingsPayload() {
+  const themeStyle = getThemeStyleSetting();
   return {
     agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
     accentColor: getAccentColorSetting(),
-    minimalTheme: getBooleanSetting("minimal_theme"),
+    themeStyle,
+    // Derived: true whenever the style renders clean CSS chrome (minimal or
+    // noir). Layout consumers key off this; the style picker reads themeStyle.
+    minimalTheme: themeStyle !== "painted",
     mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
     sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
@@ -235,7 +250,19 @@ export async function update(request: Request): Promise<Response> {
     setSetting("accent_color", body.accentColor);
   }
   if (body.minimalTheme !== undefined) {
-    setBooleanSetting("minimal_theme", body.minimalTheme);
+    // Legacy toggle: turning it off always means painted; turning it on keeps
+    // an existing clean-chrome style (noir) instead of clobbering it.
+    setBooleanSetting(MINIMAL_THEME_KEY, body.minimalTheme);
+    const current = getThemeStyleSetting();
+    setSetting(
+      THEME_STYLE_KEY,
+      body.minimalTheme ? (current === "painted" ? "minimal" : current) : "painted",
+    );
+  }
+  if (body.themeStyle !== undefined) {
+    setSetting(THEME_STYLE_KEY, body.themeStyle);
+    // Keep the legacy boolean in sync so a downgraded build restores the choice.
+    setBooleanSetting(MINIMAL_THEME_KEY, body.themeStyle !== "painted");
   }
   if (body.mouseGradientDisabled !== undefined) {
     setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);

@@ -85,6 +85,7 @@ export function GeneralSettingsPage() {
   ): AppSettings => ({
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
+    themeStyle: settings?.themeStyle ?? "painted",
     minimalTheme: settings?.minimalTheme ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: toastEnabled,

@@ -442,6 +442,108 @@ describe("settings API", () => {
     });
   });
 
+  it("defaults to the painted theme style", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      themeStyle: "painted",
+      minimalTheme: false,
+    });
+  });
+
+  it("persists the theme style and derives minimalTheme from it", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "noir" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "noir",
+      minimalTheme: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      themeStyle: "noir",
+      minimalTheme: true,
+    });
+  });
+
+  it("rejects an unknown theme style", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "vaporwave" }),
+      }),
+    );
+
+    expect(response?.status).toBe(400);
+  });
+
+  it("maps an install that only stored the legacy minimal flag to the minimal style", async () => {
+    // Simulate a database written by a build that predates theme_style.
+    getDb().insert(appSettings).values({ key: "minimal_theme", value: "true" }).run();
+
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(await jsonBody(response!)).toMatchObject({
+      themeStyle: "minimal",
+      minimalTheme: true,
+    });
+  });
+
+  it("keeps noir when a legacy client re-sends minimalTheme: true", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "noir" }),
+      }),
+    );
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ minimalTheme: true }),
+      }),
+    );
+
+    expect(await jsonBody(update!)).toMatchObject({ themeStyle: "noir" });
+  });
+
+  it("returns to painted when a legacy client sends minimalTheme: false", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "noir" }),
+      }),
+    );
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ minimalTheme: false }),
+      }),
+    );
+
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "painted",
+      minimalTheme: false,
+    });
+  });
+
   // Regression: GET /api/settings used to anonymously return the API bearer
   // token in the JSON body, collapsing the entire auth tier.
   // See todos/bugs/done/02-api-settings-leaks-bearer-token.md.

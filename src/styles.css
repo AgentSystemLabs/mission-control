@@ -1919,6 +1919,132 @@ body[data-card-glow] .cursor-glow {
   background-image: none;
 }
 
+/* =====================================================================
+   Noir theme – flat, near-black, hairline.
+   Builds on minimal: noir sets BOTH `data-minimal` (which supplies the
+   clean-CSS chrome, edge-to-edge layout, and button/input grid) and
+   `data-noir` (this layer). Noir flattens what minimal elevates — no card
+   texture, no accent-tinted surfaces, shadows almost gone. Separation
+   comes from hairline dividers, not borders; borders appear only where
+   they carry meaning (the focused pane, the active control).
+   These selectors share specificity with the [data-minimal] rules above,
+   so this block must stay AFTER the minimal block to win the cascade.
+   Activated by `<html data-minimal="true" data-noir="true">`.
+   ===================================================================== */
+
+[data-noir="true"] {
+  /* Neutral near-black ladder with a faint cool-violet cast so a pink or
+     purple accent sits naturally in it. Surfaces stay within a few percent
+     of each other — hierarchy comes from hairlines, not elevation. */
+  --bg: #0a0a0c;
+  --surface-0: #0f0f12;
+  --surface-1: #131317;
+  --surface-2: #19191e;
+  --surface-3: #212127;
+  --border: rgba(255, 255, 255, 0.065);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --text: #e9e9ec;
+  --text-dim: rgba(233, 233, 236, 0.56);
+  --text-faint: rgba(233, 233, 236, 0.33);
+  /* Flat terminal canvas — unlike minimal, no accent mixed into the ground. */
+  --terminal-bg: #0c0c0f;
+
+  /* Tighter chrome: squarer radii; the halo focus ring collapses to a
+     single hairline accent ring. */
+  --mm-radius-sm: 4px;
+  --mm-radius: 5px;
+  --mm-radius-lg: 7px;
+  --mm-ring: 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+  --mm-elev-1: none;
+  --mm-elev-2: 0 12px 32px oklch(0 0 0 / 0.4);
+}
+
+/* Cards: flat panels. Kill minimal's card.png texture and accent tint —
+   a noir card is its surface color, a hairline, and nothing else. */
+[data-noir="true"] .mc-card-frame {
+  border: 1px solid var(--border) !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
+  box-shadow: none !important;
+}
+[data-noir="true"] .mc-card-frame[data-solid="true"] {
+  background: var(--surface-1) !important;
+  background-blend-mode: normal !important;
+}
+/* The focused pane is the one place noir spends a border: a 1px accent
+   line plus a whisper of glow, like a powered-on indicator. */
+[data-noir="true"] .mc-card-frame[data-focused="true"] {
+  border-color: color-mix(in srgb, var(--accent) 66%, transparent) !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 24px color-mix(in srgb, var(--accent) 9%, transparent) !important;
+}
+
+/* Buttons: quieter than minimal. Ghost drops its border entirely; the
+   frame variant keeps a hairline of accent; primary stays a solid accent
+   fill but loses the inset gloss. */
+[data-noir="true"] .mc-btn-primary {
+  border-color: transparent;
+  box-shadow: none;
+}
+[data-noir="true"] .mc-btn-primary:hover {
+  box-shadow: none;
+}
+[data-noir="true"] .mc-btn-frame {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+[data-noir="true"] .mc-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+[data-noir="true"] .mc-btn-ghost:hover {
+  background: var(--surface-1);
+  border-color: transparent;
+}
+[data-noir="true"] .mc-btn-gray-frame {
+  background: var(--surface-1);
+  border-color: var(--border);
+}
+[data-noir="true"] .mc-btn-gray-frame:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+[data-noir="true"] .mc-btn-primary:focus-visible {
+  box-shadow: var(--mm-ring);
+}
+
+/* Inputs: flat field, hairline border; focus swaps the hairline for the
+   accent instead of stacking a halo. */
+[data-noir="true"] .mc-input-frame {
+  box-shadow: none !important;
+}
+[data-noir="true"] .mc-input-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
+  background: var(--surface-0) !important;
+  box-shadow: none !important;
+}
+
+/* Settings toggle: no glow when on — flat accent fill reads clearly. */
+[data-noir="true"] .settings-toggle-switch[aria-checked="true"] {
+  box-shadow: none;
+}
+
+/* Session grid, focused cell: drop the grid's elevation shadows — in noir
+   the active session is a solid accent border and a whisper of bloom on an
+   otherwise flat card. */
+[data-noir="true"] [data-session-grid] .mc-card-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+[data-noir="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
+  background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

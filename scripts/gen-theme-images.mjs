@@ -32,6 +32,7 @@ const ACCENT_COLORS = [
   { id: "cyan", hex: "#06b6d4" },
   { id: "purple", hex: "#a855f7" },
   { id: "magenta", hex: "#d946ef" },
+  { id: "pink", hex: "#f472b6" },
   { id: "red", hex: "#ef4444" },
   { id: "amber", hex: "#f59e0b" },
   { id: "lime", hex: "#84cc16" },

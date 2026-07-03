@@ -125,10 +125,14 @@ export function watchTerminalColorScheme(
     return () => undefined;
   }
 
-  const minimalFlag = () =>
-    document.documentElement.getAttribute("data-minimal") === "true" ? "1" : "0";
+  const styleFlags = () => {
+    const root = document.documentElement;
+    const minimal = root.getAttribute("data-minimal") === "true" ? "1" : "0";
+    const noir = root.getAttribute("data-noir") === "true" ? "1" : "0";
+    return `${minimal}${noir}`;
+  };
   const currentKey = () =>
-    `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${minimalFlag()}`;
+    `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${styleFlags()}`;
   let previous = currentKey();
   const observer = new MutationObserver(() => {
     const next = currentKey();
@@ -138,7 +142,7 @@ export function watchTerminalColorScheme(
   });
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme", "data-minimal", "style"],
+    attributeFilter: ["data-theme", "data-minimal", "data-noir", "style"],
   });
   return () => observer.disconnect();
 }
