@@ -70,34 +70,64 @@ describe("createTerminalGpuLease", () => {
     expect(term.loadAddon).not.toHaveBeenCalled();
   });
 
-  it("caps concurrent GPU terminals and frees slots on detach", async () => {
+  it("caps concurrent GPU terminals and evicts parked contexts under pressure", async () => {
     const leases = Array.from({ length: 13 }, () => createTerminalGpuLease(fakeTerm()));
-    for (const lease of leases) {
+    for (const lease of leases.slice(0, 12)) {
       lease.attach();
       await flush();
     }
     expect(liveAddons()).toHaveLength(12);
 
-    // Park one GPU-holding terminal → its slot frees → a new attach succeeds.
-    leases[0]!.detach();
-    expect(liveAddons()).toHaveLength(11);
+    // Every slot is held by an on-screen terminal: the 13th attach gets nothing.
     leases[12]!.attach();
     await flush();
+    expect(addonInstances).toHaveLength(12);
+
+    // Park one → its context is retained for the grace period, still counted…
+    leases[0]!.detach();
     expect(liveAddons()).toHaveLength(12);
+
+    // …but an on-screen terminal needing the slot evicts the parked context.
+    const lease13 = createTerminalGpuLease(fakeTerm());
+    lease13.attach();
+    await flush();
+    expect(liveAddons()).toHaveLength(12);
+    expect(addonInstances[0]!.disposed).toBe(true);
   });
 
-  it("re-attaches after park without double-counting", async () => {
+  it("re-attach within the grace period reuses the retained context", async () => {
     const lease = createTerminalGpuLease(fakeTerm());
     lease.attach();
     await flush();
     lease.detach();
+    expect(liveAddons()).toHaveLength(1); // retained while parked
     lease.attach();
     await flush();
     expect(liveAddons()).toHaveLength(1);
-    // Redundant attach while already holding a context must not stack addons.
+    // Reused, not re-created — and a redundant attach must not stack addons.
     lease.attach();
     await flush();
-    expect(addonInstances).toHaveLength(2); // one per acquire, not three
+    expect(addonInstances).toHaveLength(1);
+  });
+
+  it("releases a parked context once the grace period lapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const lease = createTerminalGpuLease(fakeTerm());
+      lease.attach();
+      await flush();
+      lease.detach();
+      expect(liveAddons()).toHaveLength(1);
+      vi.advanceTimersByTime(30_000);
+      expect(liveAddons()).toHaveLength(0);
+      // A later attach builds a fresh context (no double-counting).
+      lease.attach();
+      await flush();
+      expect(liveAddons()).toHaveLength(1);
+      expect(addonInstances).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("frees the slot when the GPU context is lost", async () => {

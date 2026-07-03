@@ -19,12 +19,7 @@ import { matchBinding } from "~/lib/keybindings/match";
 import { useKeybindings } from "~/lib/keybindings/store";
 import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
-import { terminalSurfaceCache } from "~/lib/terminal-surface-cache";
-import {
-  terminalSurfaceIdForProject,
-  useTerminals,
-  type OpenTerminal,
-} from "~/lib/terminal-store";
+import { useTerminals, type OpenTerminal } from "~/lib/terminal-store";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
@@ -471,6 +466,12 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   const [resizing, setResizing] = useState<"col" | "row" | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
+  // Progressive pane mounting: how many panes may be mounted right now. Starts
+  // at 0 — the first grid paint is just the empty cell frames — and grows every
+  // frame (see the budget loop below) until nothing is deferred. Declared above
+  // the scope swap so a project switch can reset it.
+  const [paneMountBudget, setPaneMountBudget] = useState(0);
+
   // Switch scopes during render (React's "adjust state when a prop changes"
   // pattern) so the previous project's rows never paint for the new one — which
   // would flash the wrong layout and, worse, keep a stale expandedTaskId that
@@ -485,6 +486,9 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     setDragLayout(null);
     setDraggingId(null);
     dragLayoutRef.current = null;
+    // Restart the progressive mount so the new scope's panes stream in a few
+    // per frame instead of all mounting inside the switch's commit.
+    setPaneMountBudget(0);
   }
 
   // Reconcile the layout against the scope's live sessions. On a scope switch,
@@ -717,19 +721,18 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     [viewRows],
   );
 
-  // Progressive first mount: how many panes WITHOUT a cached surface may mount
-  // right now. Starts at 0 so the first grid paint is just the empty frames,
-  // then grows every frame until nothing is deferred. Cells whose surface is
-  // already cached bypass the budget (their mount is a cheap DOM re-parent).
-  const [paneMountBudget, setPaneMountBudget] = useState(0);
-  let uncachedSeen = 0;
+  // Progressive mount: cells beyond the budget render as empty frames and fill
+  // in over the following frames. Panes with a cached surface used to bypass
+  // the budget ("just a DOM re-parent"), but reattaching also refits the xterm
+  // and re-acquires a GPU renderer — so returning to a project with many parked
+  // sessions remounted every pane in one synchronous commit and froze the
+  // switch for its whole duration. Staggering ALL panes keeps each frame's work
+  // bounded: the grid paints instantly and cells stream in a few per frame.
+  let panesSeen = 0;
   let deferredPaneCount = 0;
   const mountedByTask = new Map<string, boolean>();
   for (const session of visibleSessions) {
-    const cached = terminalSurfaceCache.has(
-      terminalSurfaceIdForProject(session.project, session.taskId),
-    );
-    const mounted = cached || uncachedSeen++ < paneMountBudget;
+    const mounted = panesSeen++ < paneMountBudget;
     if (!mounted) deferredPaneCount += 1;
     mountedByTask.set(session.taskId, mounted);
   }
