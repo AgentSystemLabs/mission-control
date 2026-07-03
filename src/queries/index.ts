@@ -44,6 +44,7 @@ export const queryKeys = {
       "user-terminals",
     ] as const,
   usage: (days: number) => ["usage", days] as const,
+  promptSearch: (query: string) => ["prompt-search", query] as const,
 };
 
 export const projectsQueryOptions = () =>
@@ -150,6 +151,18 @@ export const usageQueryOptions = (days: number = DEFAULT_USAGE_DAYS) =>
     staleTime: USAGE_STALE_MS,
   });
 
+const PROMPT_SEARCH_STALE_MS = 5_000;
+
+// `enabled` is caller-controlled so the query only runs while the palette is
+// open. The query key includes the (debounced) text so each search is cached.
+export const promptSearchQueryOptions = (query: string, enabled: boolean) =>
+  queryOptions({
+    queryKey: queryKeys.promptSearch(query),
+    queryFn: async () => (await api.searchPrompts(query)).prompts,
+    enabled,
+    staleTime: PROMPT_SEARCH_STALE_MS,
+  });
+
 export const useProjects = () => useQuery(projectsQueryOptions());
 
 /** Projects visible in the active sandbox scope (Local or one sandbox). */
@@ -176,3 +189,5 @@ export const useUserTerminalsQuery = (
 ) => useQuery(userTerminalsQueryOptions(projectId, worktreeId, scopeId));
 export const useUsage = (days: number = DEFAULT_USAGE_DAYS) =>
   useQuery(usageQueryOptions(days));
+export const usePromptSearch = (query: string, enabled: boolean) =>
+  useQuery(promptSearchQueryOptions(query, enabled));

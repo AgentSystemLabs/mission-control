@@ -492,6 +492,33 @@ export function requestSessionNotificationOpen(
   pruneStoredAppNotification(notification);
 }
 
+/**
+ * Enqueue a request to open + focus a session by id, without needing a full
+ * notification object. Reuses the same pending-open pipeline the notification
+ * "Open" button uses, so `openRequestedSession` (in routes/projects.$id.tsx)
+ * switches worktree/scope if needed, materializes the session, and focuses its
+ * grid cell. Callers should `router.navigate` to the project first. Used by the
+ * prompt-search palette.
+ */
+export function requestSessionOpenById(target: {
+  projectId: string;
+  worktreeId: string | null;
+  scopeId: string;
+  taskId: string;
+}) {
+  if (typeof window === "undefined") return;
+  const request: PendingNotificationOpen = {
+    kind: "session-finished",
+    projectId: target.projectId,
+    worktreeId: target.worktreeId,
+    scopeId: target.scopeId,
+    taskId: target.taskId,
+    requestedAt: Date.now(),
+  };
+  writePendingOpen(request);
+  dispatchPendingOpen(request);
+}
+
 export function requestDiagramNotificationOpen(
   notification: DiagramReadyNotification,
 ) {

@@ -252,6 +252,36 @@ export const appSettings = sqliteTable("app_settings", {
   value: text("value").notNull(),
 });
 
+// Durable, searchable history of every prompt the user submits to a session.
+// One row per submission (see services/prompts.ts recordPrompt, which dedups so
+// the agent hook + terminal-capture fallback don't both persist the same send).
+// Rows are captured server-side where the prompt text already arrives (agent
+// hooks / task status) and power the prompt-search palette. Cascades away with
+// the task/project so history never outlives its session.
+export const prompts = sqliteTable(
+  "prompts",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    worktreeId: text("worktree_id"),
+    scopeId: text("scope_id").notNull().default(LOCAL_SCOPE_ID),
+    claudeSessionId: text("claude_session_id"),
+    agent: text("agent").$type<TaskAgent>().notNull(),
+    text: text("text").notNull(),
+    ts: integer("ts").notNull(),
+  },
+  (t) => ({
+    taskIdx: index("prompts_task_idx").on(t.taskId),
+    projectIdx: index("prompts_project_idx").on(t.projectId),
+    tsIdx: index("prompts_ts_idx").on(t.ts),
+  })
+);
+
 export const tokenUsage = sqliteTable(
   "token_usage",
   {
@@ -318,6 +348,12 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   worktree: one(worktrees, { fields: [tasks.worktreeId], references: [worktrees.id] }),
   logs: many(terminalLogs),
   diagrams: many(taskDiagrams),
+  prompts: many(prompts),
+}));
+
+export const promptsRelations = relations(prompts, ({ one }) => ({
+  task: one(tasks, { fields: [prompts.taskId], references: [tasks.id] }),
+  project: one(projects, { fields: [prompts.projectId], references: [projects.id] }),
 }));
 
 export const terminalLogsRelations = relations(terminalLogs, ({ one }) => ({
@@ -343,6 +379,8 @@ export type UserTerminal = typeof userTerminals.$inferSelect;
 export type NewUserTerminal = typeof userTerminals.$inferInsert;
 export type HomeTerminal = typeof homeTerminals.$inferSelect;
 export type NewHomeTerminal = typeof homeTerminals.$inferInsert;
+export type Prompt = typeof prompts.$inferSelect;
+export type NewPrompt = typeof prompts.$inferInsert;
 export {
   DEFAULT_BRANCH,
   DEFAULT_TASK_STATUS,

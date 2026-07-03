@@ -24,6 +24,7 @@ import {
 import { HTTP_CREATED } from "~/shared/http-status";
 import { getWorktree } from "../services/worktrees";
 import { generateTitleForTask } from "../services/title-generator";
+import { recordPrompt } from "../services/prompts";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 const createTaskBody = z.object({
@@ -142,6 +143,13 @@ export async function setStatus(rawId: string, request: Request): Promise<Respon
     const prompt = typeof parsed.data.prompt === "string" ? parsed.data.prompt.trim() : "";
     if (prompt) {
       void generateTitleForTask(idParsed.data, prompt).catch(() => undefined);
+      // Terminal-capture fallback for agents that don't fire prompt hooks.
+      // recordPrompt dedups so hook-capable agents don't double-store.
+      try {
+        recordPrompt({ taskId: idParsed.data, text: prompt });
+      } catch {
+        // non-fatal
+      }
     }
     return json({ task: t });
   } catch (e) {

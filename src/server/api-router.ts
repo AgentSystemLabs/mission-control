@@ -20,6 +20,7 @@ import * as settingsController from "./controllers/settings.controller";
 import * as keybindingsController from "./controllers/keybindings.controller";
 import * as skillsController from "./controllers/skills.controller";
 import * as hooksController from "./controllers/hooks.controller";
+import * as promptsController from "./controllers/prompts.controller";
 import * as usageController from "./controllers/usage.controller";
 import * as eventsController from "./controllers/events.controller";
 import * as gitController from "./controllers/git.controller";
@@ -373,6 +374,9 @@ async function dispatch(
   if (pathname === "/api/markdown/refine" && method === "POST") {
     return markdownController.refine(request);
   }
+
+  // Prompt history search
+  if (pathname === "/api/prompts" && method === "GET") return promptsController.search(url);
 
   // Usage + events
   if (pathname === "/api/usage" && method === "GET") return usageController.read(url);

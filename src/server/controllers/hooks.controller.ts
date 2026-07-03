@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AGENT_HOOK_EVENTS, mapHookEventToStatus } from "~/shared/agent-hook-events";
 import { getTask, updateStatus, updateTask } from "../services/tasks";
+import { recordPrompt } from "../services/prompts";
 import { generateTitleForTask } from "../services/title-generator";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
@@ -33,6 +34,15 @@ function isSessionCaptureEvent(event: string): boolean {
     event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt ||
     event === AGENT_HOOK_EVENTS.sessionStart ||
     event === AGENT_HOOK_EVENTS.cursorSessionStart
+  );
+}
+
+// Prompt-submit events carry the user's actual prompt text; sessionStart events
+// only carry a session id. Only the former should be recorded to history.
+function isPromptSubmitEvent(event: string): boolean {
+  return (
+    event === AGENT_HOOK_EVENTS.userPromptSubmit ||
+    event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt
   );
 }
 
@@ -103,6 +113,14 @@ export async function receive(url: URL, request: Request): Promise<Response> {
       payload.prompt.trim()
     ) {
       void generateTitleForTask(taskId, payload.prompt).catch(() => undefined);
+      if (isPromptSubmitEvent(event)) {
+        // Fire-and-forget history capture; never let it fail the hook response.
+        try {
+          recordPrompt({ taskId, text: payload.prompt, sessionId: incomingSessionId || undefined });
+        } catch {
+          // non-fatal
+        }
+      }
     }
     return json({ ok: true, status });
   } catch (e) {

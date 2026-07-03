@@ -24,6 +24,7 @@ export const HOTKEY_ACTIONS = [
   "git.diff",
   "project.runToggle",
   "voice.pushToTalk",
+  "prompt.search",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -81,5 +82,10 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
     label: "Push to talk",
     description:
       "Hold to speak a voice command — switch project, run the project, or start an agent. Release to run it.",
+  },
+  "prompt.search": {
+    label: "Search prompt history",
+    description:
+      "Open a searchable popup of every prompt you've sent to a session; pick one to jump to that session.",
   },
 };

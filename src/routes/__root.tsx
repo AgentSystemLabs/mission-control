@@ -28,6 +28,8 @@ import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
+import { PromptSearchProvider } from "~/lib/prompt-search-store";
+import { PromptSearchButton } from "~/components/views/PromptSearchButton";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
 import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } from "~/queries";
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
@@ -168,26 +170,28 @@ function RootComponent() {
           <TerminalProvider>
             <UserTerminalProvider>
               <AddProjectProvider>
-                <HeaderActionsProvider>
-                  <DiagramDialogHost>
-                    {/*
-                     * The entire app shell reads client-only state — react-query
-                     * data seeded synchronously from localStorage (installShellQueryCache)
-                     * plus direct localStorage reads (theme, minimal mode).
-                     * The server has none of that, so server HTML and the first
-                     * client render disagree → hydration mismatch on every data-driven
-                     * node (ProjectPicker, …). ClientOnly renders the
-                     * fallback on the server AND the first client render so they match,
-                     * then mounts the real shell after hydration. Past this boundary
-                     * there's no SSR markup to match, so children are free to show
-                     * skeletons/loading states however they like. `fallback` is the
-                     * slot for an app-wide skeleton if we want one later.
-                     */}
-                    <ClientOnly fallback={null}>
-                      <Shell />
-                    </ClientOnly>
-                  </DiagramDialogHost>
-                </HeaderActionsProvider>
+                <PromptSearchProvider>
+                  <HeaderActionsProvider>
+                    <DiagramDialogHost>
+                      {/*
+                       * The entire app shell reads client-only state — react-query
+                       * data seeded synchronously from localStorage (installShellQueryCache)
+                       * plus direct localStorage reads (theme, minimal mode).
+                       * The server has none of that, so server HTML and the first
+                       * client render disagree → hydration mismatch on every data-driven
+                       * node (ProjectPicker, …). ClientOnly renders the
+                       * fallback on the server AND the first client render so they match,
+                       * then mounts the real shell after hydration. Past this boundary
+                       * there's no SSR markup to match, so children are free to show
+                       * skeletons/loading states however they like. `fallback` is the
+                       * slot for an app-wide skeleton if we want one later.
+                       */}
+                      <ClientOnly fallback={null}>
+                        <Shell />
+                      </ClientOnly>
+                    </DiagramDialogHost>
+                  </HeaderActionsProvider>
+                </PromptSearchProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
           </TerminalProvider>
@@ -552,6 +556,7 @@ function Shell() {
           right={
             <>
               <UpdateAvailableButton />
+              <PromptSearchButton />
               <VoicePushToTalkButton />
               <SessionNotificationsButton
                 notifications={appNotifications}

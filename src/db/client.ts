@@ -494,6 +494,21 @@ function ensureSchema(sqlite: Database.Database) {
       byte_offset INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS prompts (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      worktree_id TEXT,
+      scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
+      claude_session_id TEXT,
+      agent TEXT NOT NULL,
+      text TEXT NOT NULL,
+      ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS prompts_task_idx ON prompts(task_id);
+    CREATE INDEX IF NOT EXISTS prompts_project_idx ON prompts(project_id);
+    CREATE INDEX IF NOT EXISTS prompts_ts_idx ON prompts(ts);
   `);
 
   // Multi-sandbox scope column. Idempotent + tolerant of a pre-existing column

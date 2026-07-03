@@ -43,6 +43,7 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
       "file.finder",
       "file.save",
       "git.diff",
+      "prompt.search",
     ],
   },
   {

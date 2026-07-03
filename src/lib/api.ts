@@ -16,6 +16,7 @@ export type { GitBranch, GitBranchesResult, GitCheckoutResult };
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
+import type { PromptSearchResponse } from "~/shared/prompts";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import type {
@@ -530,6 +531,10 @@ export const api = {
     }),
   getUsage: (days: number = 30) =>
     req<UsageSummary>(`/api/usage?days=${days}`),
+  searchPrompts: (query: string, limit?: number) =>
+    req<PromptSearchResponse>(
+      `/api/prompts?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ""}`,
+    ),
   createEventsTicket: () =>
     req<{ ticket: string; expiresAt: number }>("/api/events/ticket", {
       method: "POST",
