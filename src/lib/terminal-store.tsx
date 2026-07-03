@@ -147,7 +147,12 @@ function loadGridView(): boolean {
   }
 }
 
-function terminalSurfaceIdForProject(project: ScopedProject, taskId: string): string {
+/** Cache id of a session's xterm surface (shared by TerminalPane's build,
+ *  the store's teardown paths, and the grid's progressive mount). */
+export function terminalSurfaceIdForProject(
+  project: { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null },
+  taskId: string,
+): string {
   return `${taskId}:${project.activeWorktreeId ?? MAIN_WORKTREE_ID}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
 }
 

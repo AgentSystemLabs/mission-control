@@ -66,6 +66,7 @@ import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
 import { createTerminalGpuLease } from "~/lib/terminal-webgl";
 import { acquireSpawnSlot, SPAWN_SETTLE_MS } from "~/lib/pty-spawn-queue";
+import { acquireSurfaceBuildTurn } from "~/lib/terminal-build-queue";
 import {
   terminalSurfaceCache,
   type PaneTerminalSurface,
@@ -85,13 +86,12 @@ import {
   type SequencedPtyData,
 } from "~/lib/terminal-replay";
 import { queryKeys, useTasks } from "~/queries";
-import { useTerminals } from "~/lib/terminal-store";
+import { terminalSurfaceIdForProject, useTerminals } from "~/lib/terminal-store";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { sandboxWorkspacePath, workspaceSlug } from "~/shared/sandbox-workspace";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
-import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 import { toast } from "sonner";
 
 async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
@@ -480,7 +480,7 @@ export function TerminalPane({
 
   useEffect(() => {
     const cache = terminalSurfaceCache;
-    const surfaceId = `${descriptor.taskId}:${project.activeWorktreeId ?? MAIN_WORKTREE_ID}:${project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID}`;
+    const surfaceId = terminalSurfaceIdForProject(project, descriptor.taskId);
     // awaitingCreate (task row not yet persisted), pendingValidation (restored
     // session not yet revalidated) and the retry nonce all mean "build fresh";
     // a plain remount (navigating back to this session) keeps the same buildKey
@@ -529,6 +529,11 @@ export function TerminalPane({
 
     const electron = getElectron();
 
+    // Held while this pane does its heavy renderer work (Terminal + open() +
+    // GPU attach); released in the .finally below so error/cancel paths can't
+    // strand the turn. See terminal-build-queue.
+    let releaseBuildTurn: (() => void) | null = null;
+
     void (async () => {
       const { Terminal, FitAddon } = await prefetchTerminalModules();
       if (cancelled || !containerRef.current) return;
@@ -542,6 +547,12 @@ export function TerminalPane({
       const ptyApi = electron ? (useSandbox ? electron.remotePty : electron.pty) : null;
       const sandboxPathName = project.path.split("/").filter(Boolean).pop() ?? project.name;
       const sandboxCwd = sandboxWorkspacePath(sandboxPathName);
+
+      // A grid mounts every pane in one commit; building all their xterm
+      // surfaces in one task blocks the route transition's first paint. Take
+      // per-frame turns instead so the page shows instantly and cells fill in.
+      releaseBuildTurn = await acquireSurfaceBuildTurn();
+      if (cancelled || !containerRef.current) return;
 
       const cursorColor = meta?.color;
       // xterm renders into a surface-owned element so it survives unmounts and is
@@ -1127,7 +1138,7 @@ export function TerminalPane({
       term.focus();
       rafHandle = window.requestAnimationFrame(() => ensurePty());
       detachMount = bindMount(surface);
-    })();
+    })().finally(() => releaseBuildTurn?.());
 
     return () => {
       cancelled = true;

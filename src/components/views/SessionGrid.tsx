@@ -19,7 +19,12 @@ import { useKeybindings } from "~/lib/keybindings/store";
 import { reorderPinnedIds } from "~/lib/pinned-project-order";
 import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
-import { useTerminals, type OpenTerminal } from "~/lib/terminal-store";
+import { terminalSurfaceCache } from "~/lib/terminal-surface-cache";
+import {
+  terminalSurfaceIdForProject,
+  useTerminals,
+  type OpenTerminal,
+} from "~/lib/terminal-store";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
@@ -44,6 +49,11 @@ const HANDLE_HIT = GRID_GAP;
 const FLIP_ID = "grid-cell-flip";
 const FLIP_DURATION_MS = 140;
 const FLIP_EASING = "cubic-bezier(0.4, 0, 0.2, 1)";
+// Panes without a cached xterm surface mount this many more per frame, so
+// entering a grid of fresh sessions paints the route immediately instead of
+// committing every heavy TerminalPane tree at once. Cached surfaces reattach
+// instantly and skip the ramp entirely (returning to the grid stays instant).
+const PANE_MOUNTS_PER_FRAME = 2;
 // Each track can't be dragged narrower than this (px) so a cell never vanishes.
 const MIN_CELL_PX = 80;
 
@@ -164,6 +174,9 @@ function isNonGridTerminalEditableFocused(): boolean {
 type GridCellProps = {
   session: OpenTerminal;
   scopeKey: string;
+  /** False while this cell's pane mount is deferred (progressive first mount);
+   *  the cell renders as an empty frame holding its grid slot. */
+  mounted: boolean;
   expanded: boolean;
   isDragging: boolean;
   isFocused: boolean;
@@ -184,6 +197,7 @@ type GridCellProps = {
 const GridCell = memo(function GridCell({
   session,
   scopeKey,
+  mounted,
   expanded,
   isDragging,
   isFocused,
@@ -235,20 +249,22 @@ const GridCell = memo(function GridCell({
           overflow: "hidden",
         }}
       >
-        <TerminalPane
-          project={session.project}
-          task={session.task}
-          descriptor={session}
-          isLast
-          expanded={expanded}
-          onToggleExpanded={() => onToggleExpanded(session.taskId)}
-          onHide={() => onRequestClose(session)}
-          onPtyReady={(ptyId) => onPtyReady(session.taskId, ptyId, scopeKey)}
-          onHeaderPointerDown={
-            reorderEnabled ? (e) => onHeaderPointerDown(session.taskId, e) : undefined
-          }
-          headerGrabbing={isDragging}
-        />
+        {mounted && (
+          <TerminalPane
+            project={session.project}
+            task={session.task}
+            descriptor={session}
+            isLast
+            expanded={expanded}
+            onToggleExpanded={() => onToggleExpanded(session.taskId)}
+            onHide={() => onRequestClose(session)}
+            onPtyReady={(ptyId) => onPtyReady(session.taskId, ptyId, scopeKey)}
+            onHeaderPointerDown={
+              reorderEnabled ? (e) => onHeaderPointerDown(session.taskId, e) : undefined
+            }
+            headerGrabbing={isDragging}
+          />
+        )}
       </div>
     </CardFrame>
   );
@@ -482,6 +498,29 @@ export function SessionGrid() {
     const found = orderedSessions.find((s) => s.taskId === expandedTaskId);
     return found ? [found] : orderedSessions;
   }, [orderedSessions, expandedTaskId]);
+
+  // Progressive first mount: how many panes WITHOUT a cached surface may mount
+  // right now. Starts at 0 so the first grid paint is just the empty frames,
+  // then grows every frame until nothing is deferred. Cells whose surface is
+  // already cached bypass the budget (their mount is a cheap DOM re-parent).
+  const [paneMountBudget, setPaneMountBudget] = useState(0);
+  let uncachedSeen = 0;
+  let deferredPaneCount = 0;
+  const cellMounted = visibleSessions.map((session) => {
+    const cached = terminalSurfaceCache.has(
+      terminalSurfaceIdForProject(session.project, session.taskId),
+    );
+    const mounted = cached || uncachedSeen++ < paneMountBudget;
+    if (!mounted) deferredPaneCount += 1;
+    return mounted;
+  });
+  useEffect(() => {
+    if (deferredPaneCount === 0) return;
+    const raf = requestAnimationFrame(() =>
+      setPaneMountBudget((b) => b + PANE_MOUNTS_PER_FRAME),
+    );
+    return () => cancelAnimationFrame(raf);
+  }, [deferredPaneCount, paneMountBudget]);
 
   // The held card follows the pointer via an inline transform (imperative, so
   // pointermove doesn't re-render). x/y are the latest pointer coords; grabX/Y
@@ -1166,6 +1205,7 @@ export function SessionGrid() {
               key={`${session.taskId}:${scopeKey}`}
               session={session}
               scopeKey={scopeKey}
+              mounted={cellMounted[index] ?? true}
               expanded={expandedTaskId === session.taskId}
               isDragging={isDragging}
               isFocused={!isDragging && focusedTaskId === session.taskId}
