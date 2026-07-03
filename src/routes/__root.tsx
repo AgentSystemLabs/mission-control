@@ -544,7 +544,11 @@ function Shell() {
           }
           leadingInset={topBarLeadingInset}
           contentTopInset={topBarContentTopInset}
-          dragRegion={!effectiveMinimal}
+          // Keep the header draggable in every theme. In minimal mode #root
+          // has no top padding and the fixed drag strip is only 8px tall, so
+          // disabling drag here left the window with essentially no grab
+          // surface. Interactive children already opt out via `no-drag`.
+          dragRegion
           right={
             <>
               <UpdateAvailableButton />
