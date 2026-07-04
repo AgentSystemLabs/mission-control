@@ -60,6 +60,7 @@
   --status-interrupted: oklch(0.72 0.18 35);
   --status-done: oklch(0.76 0.16 150);
   --status-idle: rgba(232, 230, 223, 0.3);
+  --status-warning: oklch(0.82 0.14 75);
   --status-failed: oklch(0.7 0.19 25);
 
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -85,6 +86,7 @@
   --status-interrupted: oklch(0.58 0.17 35);
   --status-done: oklch(0.50 0.14 150);
   --status-idle: rgba(26, 26, 26, 0.3);
+  --status-warning: oklch(0.60 0.13 75);
   --banner-bg: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent) 14%, var(--surface-0)),
