@@ -11,6 +11,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { getPinnedProjects } from "~/lib/pinned-project-order";
 import { getElectron } from "~/lib/electron";
+import { isFocusPath } from "~/lib/focus-session";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -334,6 +335,26 @@ function Shell() {
   const path = useRouterState({ select: (state) => state.location.pathname });
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const projectId = projectMatch ? projectMatch[1]! : null;
+  // Focused Session Mode strips the whole shell: the /focus route renders the
+  // only visible chrome, and the Electron window is a small floating card.
+  const focusActive = isFocusPath(path);
+
+  // Boot resync guard: if the main process says the window is still in focus
+  // mode but we didn't land on a focus path (e.g. state drifted across a dev
+  // restart), restore the window rather than leaving a shrunken full app.
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron) return;
+    void electron.focusMode
+      .get()
+      .then((state) => {
+        if (state.active && !isFocusPath(window.location.pathname)) {
+          void electron.focusMode.exit();
+        }
+      })
+      .catch(() => undefined);
+    // Once per app boot, not on navigation.
+  }, []);
 
   const expandedKey = projectId ? `mc:terminalExpanded:${projectId}` : null;
   const [terminalExpanded, setTerminalExpanded] = useState<boolean>(false);
@@ -527,6 +548,25 @@ function Shell() {
       }
     });
   }, [userTerminalPanelOpen, focusedUserTerminalId]);
+
+  if (focusActive) {
+    // Only the focus route renders: no #root (skips the shell padding /
+    // painted frame), no TopBar/ProjectBar/panels/drag-strip. All Shell hooks
+    // above keep running so notifications for other sessions stay alive.
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          background: "var(--bg)",
+        }}
+      >
+        <Outlet />
+      </div>
+    );
+  }
 
   return (
     <>

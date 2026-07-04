@@ -18,6 +18,7 @@ export const HOTKEY_ACTIONS = [
   "session.cyclePrev",
   "session.gridNavigate",
   "session.gridView",
+  "session.focusMode",
   "dialog.submit",
   "file.finder",
   "file.save",
@@ -72,6 +73,11 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
     label: "Toggle grid view",
     description:
       "Show or hide the full-width grid of every open session across all projects.",
+  },
+  "session.focusMode": {
+    label: "Focus session (floating)",
+    description:
+      "Pop the active session out into a small always-on-top floating window; press again to restore the full app.",
   },
   "dialog.submit": { label: "Submit dialog", description: "Submit a dialog form (New agent, edit project, etc.)." },
   "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },

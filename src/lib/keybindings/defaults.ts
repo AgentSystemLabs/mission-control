@@ -24,6 +24,7 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "session.cyclePrev": makeBinding({ mod: true, shift: true, key: "[" }),
   "session.gridNavigate": makeBinding({ mod: true, shift: true, key: "g" }),
   "session.gridView": makeBinding({ mod: true, shift: true, key: "a" }),
+  "session.focusMode": makeBinding({ mod: true, shift: true, key: "f" }),
   "dialog.submit": makeBinding({ mod: true, key: "Enter" }),
   "file.finder": makeBinding({ mod: true, key: "p" }),
   "file.save": makeBinding({ mod: true, key: "s" }),

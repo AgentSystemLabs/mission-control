@@ -27,6 +27,7 @@ import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
 import { SessionGrid } from "~/components/views/SessionGrid";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
+import { enterFocusSession } from "~/lib/focus-session";
 import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
@@ -1806,6 +1807,26 @@ function ProjectPage() {
     () => {
       if (anyBlockingDialogOpen) return;
       toggleGridViewShowingAll();
+    },
+    { capture: true },
+  );
+
+  // Enter Focused Session Mode (small floating window). Target resolution
+  // mirrors clone: the focused grid cell first, then the scope's active
+  // session. Capture phase so a focused xterm can't swallow the key. Key
+  // repeats are ignored — a held toggle chord repeating across the exit
+  // navigation would land here and immediately re-enter focus mode.
+  useHotkey(
+    "session.focusMode",
+    (e) => {
+      if (e.repeat || anyBlockingDialogOpen) return;
+      const focusedGridTaskId = readFocusedGridTaskId();
+      const taskId =
+        (focusedGridTaskId && tasks.some((t) => t.id === focusedGridTaskId && !t.archived)
+          ? focusedGridTaskId
+          : null) ?? terminals.activeFor(selectedScopeKey)?.taskId;
+      if (!taskId) return;
+      enterFocusSession(router, taskId);
     },
     { capture: true },
   );

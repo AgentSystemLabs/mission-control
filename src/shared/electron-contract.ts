@@ -284,6 +284,12 @@ export type VoiceTranscribeResult =
   | { ok: true; text: string }
   | { ok: false; error: string; code?: "unavailable" };
 
+export type FocusModeStateBridge = {
+  active: boolean;
+  taskId: string | null;
+  alwaysOnTop: boolean;
+};
+
 export type ElectronBridge = {
   settings: {
     getToken: () => Promise<string>;
@@ -358,6 +364,13 @@ export type ElectronBridge = {
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
+  /** Focused Session Mode: transform the main window into a small floating session card. */
+  focusMode: {
+    enter: (taskId: string) => Promise<FocusModeStateBridge>;
+    exit: () => Promise<FocusModeStateBridge>;
+    get: () => Promise<FocusModeStateBridge>;
+    setAlwaysOnTop: (enabled: boolean) => Promise<FocusModeStateBridge>;
+  };
   files: {
     list: (projectRoot: string) => Promise<FileListResult>;
     read: (projectRoot: string, relPath: string) => Promise<FileReadResult>;

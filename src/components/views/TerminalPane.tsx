@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
+import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
@@ -23,6 +24,7 @@ import {
   STATUS_META,
 } from "~/lib/design-meta";
 import { getElectron } from "~/lib/electron";
+import { enterFocusSession, takePendingRefocus } from "~/lib/focus-session";
 import { takePendingInitialInput } from "~/lib/voice-session-prompts";
 import {
   VOICE_PASTE_TO_FOCUSED_SESSION_EVENT,
@@ -175,6 +177,7 @@ function HeaderMoreMenu({
   onHide,
   onRename,
   onClone,
+  onFocusMode,
   canZoomIn,
   canZoomOut,
   onZoomIn,
@@ -193,6 +196,7 @@ function HeaderMoreMenu({
   onHide?: () => void;
   onRename: () => void;
   onClone: () => void;
+  onFocusMode: () => void;
   canZoomIn: boolean;
   canZoomOut: boolean;
   onZoomIn: () => void;
@@ -327,6 +331,9 @@ function HeaderMoreMenu({
             <DropdownMenuItem icon="copy" onClick={() => pick(onClone)}>
               Clone session
             </DropdownMenuItem>
+            <DropdownMenuItem icon="pin" onClick={() => pick(onFocusMode)}>
+              Focus session
+            </DropdownMenuItem>
             {onToggleExpanded && (
               <DropdownMenuItem
                 icon={expanded ? "minimize" : "maximize"}
@@ -361,6 +368,7 @@ export function TerminalPane({
   onPtyReady,
   onHeaderPointerDown,
   headerGrabbing = false,
+  hideHeader = false,
 }: {
   project: Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
   task: Task;
@@ -373,6 +381,8 @@ export function TerminalPane({
   /** When set, the header bar becomes a drag handle (used by the session grid). */
   onHeaderPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   headerGrabbing?: boolean;
+  /** Focused Session Mode renders its own window chrome instead. */
+  hideHeader?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -509,6 +519,11 @@ export function TerminalPane({
     termSurfaceRef.current?.focus();
   };
 
+  const router = useRouter();
+  const requestFocusMode = () => {
+    enterFocusSession(router, task.id);
+  };
+
   const requestSessionClone = () => {
     if (typeof window === "undefined") return;
     // Carry this pane's own session id so the handler clones (and, in grid view,
@@ -615,6 +630,9 @@ export function TerminalPane({
       surface.fit();
       // GPU rendering only while visible — parked surfaces release the context.
       surface.gpu?.attach();
+      // Focus-mode transitions reattach an existing surface (no build, so no
+      // term.focus()); honor their pending refocus so typing continues.
+      if (takePendingRefocus(descriptor.taskId)) surface.controls.focus();
       if (surface.ptyId) onPtyReady(surface.ptyId);
       return () => {
         ro.disconnect();
@@ -1377,6 +1395,7 @@ export function TerminalPane({
           onConfirm={() => void confirmClone()}
         />
       )}
+      {!hideHeader && (
       <div
         ref={headerRef}
         data-session-header
@@ -1456,6 +1475,7 @@ export function TerminalPane({
               onHide={microHeader ? onHide : undefined}
               onRename={openRenameDialog}
               onClone={requestSessionClone}
+              onFocusMode={requestFocusMode}
               canZoomIn={canZoomIn}
               canZoomOut={canZoomOut}
               onZoomIn={zoomIn}
@@ -1487,6 +1507,16 @@ export function TerminalPane({
                   icon="copy"
                   onClick={requestSessionClone}
                   aria-label="Clone session"
+                  style={{ width: 34, padding: 0 }}
+                />
+              </HotkeyTooltip>
+              <HotkeyTooltip action="session.focusMode" label="Focus session (floating window)">
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  icon="pin"
+                  onClick={requestFocusMode}
+                  aria-label="Focus session in a floating window"
                   style={{ width: 34, padding: 0 }}
                 />
               </HotkeyTooltip>
@@ -1522,6 +1552,7 @@ export function TerminalPane({
           )}
         </div>
       </div>
+      )}
       <div
         style={{
           flex: 1,
