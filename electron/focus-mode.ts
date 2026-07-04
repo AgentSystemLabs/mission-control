@@ -9,6 +9,13 @@ import { safeHandle } from "./ipc-safe-handle";
 // always-on-top floating card showing one session, and back. State lives here
 // in main-process memory — it survives renderer reloads (the renderer resyncs
 // via app:getFocusMode / an idempotent enter) and resets on app relaunch.
+//
+// The transform is ANIMATED on macOS (setBounds with animate) so entering
+// reads as the session collapsing into the card and exiting as it expanding
+// back — never a jump-cut that hides one window and shows another. The
+// renderer sequences its route swap around this: it navigates to /focus
+// BEFORE calling enter (the card content is what shrinks) and navigates back
+// only after exit resolves at the final geometry (see lib/focus-session.ts).
 
 export const FOCUS_WINDOW_DEFAULT_WIDTH = 560;
 export const FOCUS_WINDOW_DEFAULT_HEIGHT = 850;
@@ -24,6 +31,23 @@ export const ALWAYS_ON_TOP_KEY = "focusMode:alwaysOnTop";
 // still visible on some display (a monitor may have been unplugged since).
 const MIN_VISIBLE_WIDTH = 100;
 const MIN_VISIBLE_HEIGHT = 40;
+
+// The macOS animated setBounds has no completion callback, so we poll until
+// the frame lands (with a backstop for an interrupted/never-finishing
+// animation). NSWindow's default resize animation is ~0.2s.
+const ANIMATION_POLL_MS = 16;
+const ANIMATION_TIMEOUT_MS = 800;
+
+/** Whether an animated bounds change has landed on its target (±1px for
+ *  display-scaling rounding). */
+export function boundsSettled(current: Rectangle, target: Rectangle): boolean {
+  return (
+    Math.abs(current.x - target.x) <= 1 &&
+    Math.abs(current.y - target.y) <= 1 &&
+    Math.abs(current.width - target.width) <= 1 &&
+    Math.abs(current.height - target.height) <= 1
+  );
+}
 
 export type FocusModePublicState = {
   active: boolean;
@@ -95,7 +119,41 @@ export function registerFocusMode(
   mainMinSize: { width: number; height: number },
 ): void {
   let state: FocusModeState = { active: false };
-  let transitioning = false;
+
+  // Enter/exit are serialized: with the transform animating for ~300ms, a
+  // second toggle mid-flight (double-tap peek) must queue behind the current
+  // transition rather than interleave window ops or get dropped. Back-to-back
+  // duplicates collapse via the state checks at the top of enter/exit.
+  let queue: Promise<unknown> = Promise.resolve();
+  const enqueue = <T>(op: () => Promise<T>): Promise<T> => {
+    const run = queue.then(op, op);
+    queue = run.catch(() => undefined);
+    return run;
+  };
+
+  // Animated bounds change — macOS morphs the window frame; on other
+  // platforms the animate flag is a no-op and the change is instant. Resolves
+  // once the window has landed so callers can sequence chrome restoration,
+  // maximize, and the renderer's route swap against the final geometry.
+  const setBoundsAnimated = (win: BrowserWindow, target: Rectangle): Promise<void> => {
+    win.setBounds(target, true);
+    if (process.platform !== "darwin") return Promise.resolve();
+    return new Promise((resolve) => {
+      const deadline = Date.now() + ANIMATION_TIMEOUT_MS;
+      const tick = () => {
+        if (
+          win.isDestroyed() ||
+          boundsSettled(win.getBounds(), target) ||
+          Date.now() >= deadline
+        ) {
+          resolve();
+          return;
+        }
+        setTimeout(tick, ANIMATION_POLL_MS);
+      };
+      tick();
+    });
+  };
 
   const publicState = (): FocusModePublicState =>
     state.active
@@ -133,82 +191,98 @@ export function registerFocusMode(
 
   const enter = async (taskId: string): Promise<FocusModePublicState> => {
     const win = getWin();
-    if (!win || win.isDestroyed() || transitioning) return publicState();
+    if (!win || win.isDestroyed()) return publicState();
     if (state.active) {
       // Idempotent: renderer resync after reload, or switching focused session.
       state = { ...state, taskId };
       return publicState();
     }
-    transitioning = true;
-    try {
-      const prev = {
-        bounds: win.getNormalBounds(),
-        isMaximized: win.isMaximized(),
-        isFullScreen: win.isFullScreen(),
-      };
-      if (prev.isFullScreen) await leaveFullScreen(win);
-      else if (prev.isMaximized) win.unmaximize();
-
-      const alwaysOnTop = getStringAppSetting(userDataDir, ALWAYS_ON_TOP_KEY) !== "false";
-      win.setMinimumSize(FOCUS_WINDOW_MIN_WIDTH, FOCUS_WINDOW_MIN_HEIGHT);
-      win.setAlwaysOnTop(alwaysOnTop, "floating");
-      // Strip every OS window control while floating: only the session card's
-      // own chrome is visible, and nothing can accidentally re-expand it.
-      win.setMaximizable(false);
-      win.setMinimizable(false);
-      win.setFullScreenable(false);
-      if (process.platform === "darwin") win.setWindowButtonVisibility(false);
-
-      const saved = parsePersistedBounds(getStringAppSetting(userDataDir, FLOATING_BOUNDS_KEY));
-      const workAreas = screen.getAllDisplays().map((d) => d.workArea);
-      const activeWorkArea = screen.getDisplayMatching(prev.bounds).workArea;
-      win.setBounds(resolveFloatingBounds(saved, workAreas, activeWorkArea));
-
-      win.once("closed", onClosed);
-      state = { active: true, taskId, alwaysOnTop, prev };
-      log.info("focusMode.enter", { taskId });
-      return publicState();
-    } finally {
-      transitioning = false;
+    // What's on screen right now (maximized/fullscreen frame included): the
+    // collapse must animate from this, not from the smaller normal bounds.
+    const visibleBounds = win.getBounds();
+    const prev = {
+      bounds: win.getNormalBounds(),
+      isMaximized: win.isMaximized(),
+      isFullScreen: win.isFullScreen(),
+    };
+    if (prev.isFullScreen) {
+      await leaveFullScreen(win);
+      if (win.isDestroyed()) return publicState();
+    } else if (prev.isMaximized) {
+      // unmaximize snaps the window back to its old normal bounds; re-cover
+      // the maximized frame in the same tick (nothing paints in between) so
+      // the collapse starts from what the user was actually looking at.
+      win.unmaximize();
+      win.setBounds(visibleBounds);
     }
+
+    const alwaysOnTop = getStringAppSetting(userDataDir, ALWAYS_ON_TOP_KEY) !== "false";
+    win.setMinimumSize(FOCUS_WINDOW_MIN_WIDTH, FOCUS_WINDOW_MIN_HEIGHT);
+    win.setAlwaysOnTop(alwaysOnTop, "floating");
+    // Strip every OS window control while floating: only the session card's
+    // own chrome is visible, and nothing can accidentally re-expand it.
+    win.setMaximizable(false);
+    win.setMinimizable(false);
+    win.setFullScreenable(false);
+    if (process.platform === "darwin") win.setWindowButtonVisibility(false);
+
+    const saved = parsePersistedBounds(getStringAppSetting(userDataDir, FLOATING_BOUNDS_KEY));
+    const workAreas = screen.getAllDisplays().map((d) => d.workArea);
+    const activeWorkArea = screen.getDisplayMatching(visibleBounds).workArea;
+
+    win.once("closed", onClosed);
+    state = { active: true, taskId, alwaysOnTop, prev };
+    log.info("focusMode.enter", { taskId });
+    // Collapse into the floating card. State is committed before the await so
+    // a renderer resync mid-animation already sees focus mode active.
+    await setBoundsAnimated(win, resolveFloatingBounds(saved, workAreas, activeWorkArea));
+    return publicState();
   };
 
-  const exit = (): FocusModePublicState => {
-    if (!state.active || transitioning) return publicState();
+  const exit = async (): Promise<FocusModePublicState> => {
+    if (!state.active) return publicState();
     const prev = state.prev;
     const win = getWin();
     if (!win || win.isDestroyed()) {
       state = { active: false };
       return publicState();
     }
-    transitioning = true;
-    try {
-      persistFloatingBounds(win);
-      win.setAlwaysOnTop(false);
-      win.setMinimumSize(mainMinSize.width, mainMinSize.height);
-      win.setMaximizable(true);
-      win.setMinimizable(true);
-      win.setFullScreenable(true);
-      if (process.platform === "darwin") win.setWindowButtonVisibility(true);
-      win.setBounds(prev.bounds);
-      if (prev.isFullScreen) win.setFullScreen(true);
-      else if (prev.isMaximized) win.maximize();
-      win.removeListener("closed", onClosed);
-      state = { active: false };
-      log.info("focusMode.exit");
+    persistFloatingBounds(win);
+    win.setAlwaysOnTop(false);
+    // Expand back to the frame the user will end up looking at: the work area
+    // when the window was maximized (macOS only — elsewhere the transform is
+    // instant and maximize() below does the real work), else the saved normal
+    // bounds. The focus card is still rendered while this animates, so the
+    // session stays visible the whole way out.
+    const landing =
+      prev.isMaximized && process.platform === "darwin"
+        ? screen.getDisplayMatching(prev.bounds).workArea
+        : prev.bounds;
+    await setBoundsAnimated(win, landing);
+    if (win.isDestroyed()) {
+      // Closed mid-animation; the `closed` listener already dropped the state.
       return publicState();
-    } finally {
-      transitioning = false;
     }
+    win.setMinimumSize(mainMinSize.width, mainMinSize.height);
+    win.setMaximizable(true);
+    win.setMinimizable(true);
+    win.setFullScreenable(true);
+    if (process.platform === "darwin") win.setWindowButtonVisibility(true);
+    if (prev.isFullScreen) win.setFullScreen(true);
+    else if (prev.isMaximized) win.maximize();
+    win.removeListener("closed", onClosed);
+    state = { active: false };
+    log.info("focusMode.exit");
+    return publicState();
   };
 
   safeHandle(IPC.appEnterFocusMode, (_e, payload: { taskId?: unknown }) => {
     const taskId = payload?.taskId;
     if (typeof taskId !== "string" || taskId.length === 0) return publicState();
-    return enter(taskId);
+    return enqueue(() => enter(taskId));
   });
 
-  safeHandle(IPC.appExitFocusMode, () => exit());
+  safeHandle(IPC.appExitFocusMode, () => enqueue(() => exit()));
 
   safeHandle(IPC.appGetFocusMode, () => publicState());
 

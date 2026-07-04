@@ -11,6 +11,7 @@ vi.mock("../app-settings-store", () => ({
 }));
 
 import {
+  boundsSettled,
   defaultFloatingBounds,
   parsePersistedBounds,
   resolveFloatingBounds,
@@ -83,6 +84,20 @@ describe("parsePersistedBounds", () => {
         JSON.stringify({ x: 0, y: 0, width: 420, height: FOCUS_WINDOW_MIN_HEIGHT - 1 }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("boundsSettled", () => {
+  const target = { x: 100, y: 200, width: 560, height: 850 };
+
+  it("accepts an exact match and off-by-one rounding on every edge", () => {
+    expect(boundsSettled(target, target)).toBe(true);
+    expect(boundsSettled({ x: 101, y: 199, width: 561, height: 849 }, target)).toBe(true);
+  });
+
+  it("rejects a frame still more than a pixel away (animation in flight)", () => {
+    expect(boundsSettled({ ...target, x: 102 }, target)).toBe(false);
+    expect(boundsSettled({ ...target, width: 558 }, target)).toBe(false);
   });
 });
 

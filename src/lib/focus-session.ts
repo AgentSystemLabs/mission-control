@@ -1,9 +1,13 @@
 import { getElectron } from "~/lib/electron";
 
 // Focused Session Mode entry/exit shared by TerminalPane (header button), the
-// project route (hotkey), and the /focus route itself. Navigation happens
-// before the window shrink so the full app never renders at floating size;
-// on exit the window is restored first for the same reason in reverse.
+// project route (hotkey), and the /focus route itself. The window transform is
+// animated (electron/focus-mode.ts), so sequencing is what makes it read as
+// the same session collapsing/expanding: entry commits the /focus navigation
+// BEFORE the shrink starts (the focus card is what animates down, never the
+// full app squeezed into a shrinking window), and exit restores the window
+// first — the card grows back while still showing the session — navigating
+// only once the window has landed at full size.
 
 export const FOCUS_RETURN_KEY = "mc.focusMode.returnTo";
 
@@ -71,17 +75,27 @@ export function enterFocusSession(router: FocusRouterLike, taskId: string): void
     }
   }
   setPendingRefocus(taskId);
-  void router.navigate({ to: "/focus/$taskId", params: { taskId } });
-  void getElectron()?.focusMode.enter(taskId);
+  // Await the route swap before transforming the window: the shrink is
+  // animated, and starting it while the full app is still rendered would
+  // visibly squeeze that UI into the card for the first frames. If navigation
+  // fails, the window is left alone.
+  void Promise.resolve(router.navigate({ to: "/focus/$taskId", params: { taskId } }))
+    .then(() => getElectron()?.focusMode.enter(taskId))
+    .catch(() => undefined);
 }
 
 export async function exitFocusSession(router: FocusRouterLike, taskId?: string): Promise<void> {
   if (typeof window === "undefined") return;
   if (taskId) setPendingRefocus(taskId);
   // Restore the window before navigating so the project route mounts at the
-  // full window size and terminal panes fit against real dimensions.
+  // full window size and terminal panes fit against real dimensions. exit()
+  // resolves only once the (animated) restore has landed.
   try {
-    await getElectron()?.focusMode.exit();
+    const state = await getElectron()?.focusMode.exit();
+    // Still active means the main process didn't restore the window (it can't
+    // while it's being torn down, say) — navigating now would render the full
+    // app inside the floating card, so stay on the focus route.
+    if (state?.active) return;
   } catch {
     /* window restore failed (window gone?) — still leave the focus route */
   }
