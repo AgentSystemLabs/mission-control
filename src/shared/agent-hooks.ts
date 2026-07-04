@@ -43,6 +43,11 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
       // permission notification type for Claude builds that rely on it.
       { event: "PermissionRequest" },
       { event: "Notification", matcher: "permission_prompt" },
+      // AskUserQuestion's choices only exist in the tool_input payload;
+      // PreToolUse delivers them for the native overlay, PostToolUse marks
+      // the question answered.
+      { event: "PreToolUse", matcher: "AskUserQuestion" },
+      { event: "PostToolUse", matcher: "AskUserQuestion" },
     ],
     removeManagedEvents: ["SubagentStop", "UserInterrupt"],
   },

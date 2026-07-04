@@ -1,4 +1,5 @@
 import type { TaskStatus } from "./domain";
+import { ASK_USER_QUESTION_TOOL } from "./agent-questions";
 
 export const AGENT_HOOK_EVENTS = {
   userPromptSubmit: "UserPromptSubmit",
@@ -7,6 +8,8 @@ export const AGENT_HOOK_EVENTS = {
   permissionRequest: "PermissionRequest",
   questionRequest: "QuestionRequest",
   notification: "Notification",
+  preToolUse: "PreToolUse",
+  postToolUse: "PostToolUse",
   permissionPrompt: "permission_prompt",
   sessionStart: "SessionStart",
   cursorSessionStart: "sessionStart",
@@ -20,6 +23,7 @@ export type AgentHookPayload = {
   notification_type?: string;
   message?: string;
   title?: string;
+  tool_name?: string;
 };
 
 export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | null {
@@ -38,6 +42,13 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
       return "needs-input";
     case AGENT_HOOK_EVENTS.notification:
       return isPermissionNotification(payload) ? "needs-input" : null;
+    // Matchers restrict these hooks to AskUserQuestion already; the tool_name
+    // guard keeps the mapping precise if a user points their own broader
+    // PreToolUse/PostToolUse hooks at Mission Control.
+    case AGENT_HOOK_EVENTS.preToolUse:
+      return payload.tool_name === ASK_USER_QUESTION_TOOL ? "needs-input" : null;
+    case AGENT_HOOK_EVENTS.postToolUse:
+      return payload.tool_name === ASK_USER_QUESTION_TOOL ? "running" : null;
     default:
       return null;
   }

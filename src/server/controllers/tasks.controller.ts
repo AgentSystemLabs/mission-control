@@ -11,6 +11,7 @@ import {
   updateStatus,
   updateTask,
 } from "../services/tasks";
+import { getPendingQuestion } from "../services/pending-questions";
 import {
   handleDomainError,
   idParam,
@@ -105,6 +106,14 @@ export async function getOne(rawId: string, request: Request): Promise<Response>
   const t = getTask(parsed.data);
   if (!t) return notFound();
   return json({ task: t });
+}
+
+export function readQuestion(rawId: string): Response {
+  const parsed = idParam.safeParse(rawId);
+  if (!parsed.success) return notFound();
+  const t = getTask(parsed.data);
+  if (!t) return notFound();
+  return json({ question: getPendingQuestion(parsed.data) });
 }
 
 export async function update(rawId: string, request: Request): Promise<Response> {

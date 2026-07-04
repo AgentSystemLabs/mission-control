@@ -45,6 +45,8 @@ export interface CachedTerminalControls {
   focus(): void;
   setFontSize(fontSize: number): void;
   clear(): void;
+  /** Write raw bytes to the surface's live PTY (tracks respawns). */
+  writeToPty?(data: string): void;
 }
 
 /**

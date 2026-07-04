@@ -24,6 +24,22 @@ describe("agent hook status mapping", () => {
     expect(mapHookEventToStatus({ hook_event_name: "SubagentStop" })).toBeNull();
   });
 
+  it("maps AskUserQuestion tool-use events, ignoring other tools", () => {
+    expect(
+      mapHookEventToStatus({ hook_event_name: "PreToolUse", tool_name: "AskUserQuestion" })
+    ).toBe("needs-input");
+    expect(
+      mapHookEventToStatus({ hook_event_name: "PostToolUse", tool_name: "AskUserQuestion" })
+    ).toBe("running");
+    expect(
+      mapHookEventToStatus({ hook_event_name: "PreToolUse", tool_name: "Bash" })
+    ).toBeNull();
+    expect(
+      mapHookEventToStatus({ hook_event_name: "PostToolUse", tool_name: "Bash" })
+    ).toBeNull();
+    expect(mapHookEventToStatus({ hook_event_name: "PreToolUse" })).toBeNull();
+  });
+
   it("only maps permission notifications to needs-input", () => {
     expect(
       mapHookEventToStatus({

@@ -68,6 +68,10 @@ import {
   type SessionCreatePayload,
 } from "~/lib/session-warm-pool";
 import { useServerEvents } from "~/lib/use-events";
+import {
+  applyQuestionServerEvent,
+  setQuestionOverlayEnabled,
+} from "~/lib/agent-question-store";
 import { setPendingInitialInput, takePendingInitialInput } from "~/lib/voice-session-prompts";
 import {
   VOICE_NEW_AGENT_EVENT,
@@ -255,6 +259,13 @@ function ProjectPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const settingsLoaded = settings !== undefined;
+  // Mirror the beta flag into the question store: gates the pane overlays and
+  // releases any withheld TUI menu the moment the popup is switched off.
+  useEffect(() => {
+    if (typeof settings?.questionOverlayEnabled === "boolean") {
+      setQuestionOverlayEnabled(settings.questionOverlayEnabled);
+    }
+  }, [settings?.questionOverlayEnabled]);
   const storedSelectedWorktreeByProject = settings?.selectedWorktreeByProject ?? null;
   const [selectedWorktreeByProject, setSelectedWorktreeByProject] =
     useState<SelectedWorktreeByProject>(() => {
@@ -1823,6 +1834,7 @@ function ProjectPage() {
   useServerEvents(
     useCallback(
       (e) => {
+        applyQuestionServerEvent(e);
         if (e.type.startsWith("task:")) {
           void refresh();
         } else if (e.type.startsWith("worktree:")) {

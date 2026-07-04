@@ -46,6 +46,24 @@ export function BetaSettingsPage() {
       });
   };
 
+  const setQuestionOverlayEnabled = (enabled: boolean) => {
+    queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+      current ? { ...current, questionOverlayEnabled: enabled } : current,
+    );
+    void api
+      .updateSettings({ questionOverlayEnabled: enabled })
+      .then((next) => {
+        queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+          current
+            ? { ...current, ...next, questionOverlayEnabled: enabled }
+            : { ...next, questionOverlayEnabled: enabled },
+        );
+      })
+      .catch((error) => {
+        console.error("[settings] failed to sync question overlay preference:", error);
+      });
+  };
+
   const setVoiceControlEnabled = (enabled: boolean) => {
     queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
       current ? { ...current, voiceControlEnabled: enabled } : current,
@@ -76,6 +94,15 @@ export function BetaSettingsPage() {
           description="Create isolated worktrees per project for parallel agent sessions. Each worktree gets its own task board and terminals."
           checked={worktreesEnabled}
           onChange={setWorktreesEnabled}
+          label="Enable"
+        />
+      </Field>
+      <Field label="Agent questions">
+        <ToggleRow
+          title="Native question popup"
+          description="Answer Claude Code's multiple-choice questions in a popup over the session instead of the terminal menu. Turn off to answer directly in the terminal."
+          checked={settings?.questionOverlayEnabled ?? true}
+          onChange={setQuestionOverlayEnabled}
           label="Enable"
         />
       </Field>

@@ -445,6 +445,26 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({ voiceControlEnabled: true });
   });
 
+  it("keeps the question overlay enabled by default (beta)", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({ questionOverlayEnabled: true });
+  });
+
+  it("persists the question overlay preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ questionOverlayEnabled: false }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ questionOverlayEnabled: false });
+    expect(await jsonBody(read!)).toMatchObject({ questionOverlayEnabled: false });
+  });
+
   it("persists durable UI preferences", async () => {
     const selectedWorktreeByProject = { "project-1": "worktree-2" };
     const update = await handleApiRequest(

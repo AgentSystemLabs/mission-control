@@ -46,6 +46,7 @@ const SANDBOX_API_KEY_PATH = /^\/api\/sandboxes\/([^/]+)\/api-key$/;
 const GROUP_PATH = /^\/api\/groups\/([^/]+)$/;
 const TASK_PATH = /^\/api\/tasks\/([^/]+)$/;
 const TASK_STATUS_PATH = /^\/api\/tasks\/([^/]+)\/status$/;
+const TASK_QUESTION_PATH = /^\/api\/tasks\/([^/]+)\/question$/;
 const TASK_ARCHIVE_PATH = /^\/api\/tasks\/([^/]+)\/archive$/;
 const TASK_RESTORE_PATH = /^\/api\/tasks\/([^/]+)\/restore$/;
 const USER_TERMINAL_PATH = /^\/api\/user-terminals\/([^/]+)$/;
@@ -299,6 +300,8 @@ async function dispatch(
   }
   m = pathname.match(TASK_STATUS_PATH);
   if (m && method === "POST") return tasksController.setStatus(decode(m[1]), request);
+  m = pathname.match(TASK_QUESTION_PATH);
+  if (m && method === "GET") return tasksController.readQuestion(decode(m[1]));
   m = pathname.match(TASK_ARCHIVE_PATH);
   if (m && method === "POST") return tasksController.archive(decode(m[1]), request);
   m = pathname.match(TASK_RESTORE_PATH);

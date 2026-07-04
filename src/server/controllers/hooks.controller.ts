@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { AGENT_HOOK_EVENTS, mapHookEventToStatus } from "~/shared/agent-hook-events";
+import { ASK_USER_QUESTION_TOOL, parseAskUserQuestionInput } from "~/shared/agent-questions";
 import { getTask, updateStatus, updateTask } from "../services/tasks";
+import { setPendingQuestion } from "../services/pending-questions";
 import { recordPrompt } from "../services/prompts";
 import { generateTitleForTask } from "../services/title-generator";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
@@ -15,6 +17,9 @@ const hookPayload = z
     title: z.string(),
     session_id: z.string(),
     conversation_id: z.string(),
+    tool_name: z.string(),
+    tool_use_id: z.string(),
+    tool_input: z.unknown(),
   })
   .partial();
 
@@ -98,6 +103,24 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   );
   if (sessionResult === "foreign-session") {
     return json({ ok: true, ignored: "foreign-session" });
+  }
+
+  // Store the question before updateStatus so the overlay data is already in
+  // place when the task:updated event triggers renderer refetches. Malformed
+  // tool_input is fail-soft: status still flips, just no native overlay.
+  if (
+    event === AGENT_HOOK_EVENTS.preToolUse &&
+    payload.tool_name === ASK_USER_QUESTION_TOOL
+  ) {
+    const questions = parseAskUserQuestionInput(payload.tool_input);
+    if (questions) {
+      setPendingQuestion({
+        taskId,
+        projectId: task.projectId,
+        questions,
+        id: payload.tool_use_id,
+      });
+    }
   }
 
   if (!status) {

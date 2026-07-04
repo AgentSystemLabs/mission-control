@@ -70,8 +70,37 @@ import { acquireSpawnSlot, SPAWN_SETTLE_MS } from "~/lib/pty-spawn-queue";
 import { acquireSurfaceBuildTurn } from "~/lib/terminal-build-queue";
 import {
   terminalSurfaceCache,
+  type CachedTerminalControls,
   type PaneTerminalSurface,
 } from "~/lib/terminal-surface-cache";
+import { AskUserQuestionOverlay } from "~/components/views/AskUserQuestionOverlay";
+import {
+  dismissQuestionLocally,
+  getCurrentQuestionId,
+  getHoldQuestion,
+  hydrateTaskQuestion,
+  isQuestionDesynced,
+  markQuestionDesynced,
+  subscribeQuestionStore,
+  useQuestionDesynced,
+  useQuestionDismissed,
+  useQuestionOverlayEnabled,
+  useTaskQuestion,
+} from "~/lib/agent-question-store";
+import {
+  buildPayloadAnswerKeySequence,
+  writeAnswerSequence,
+  INTER_QUESTION_DELAY_MS,
+  MENU_READY_MS,
+  SUBMIT_CONFIRM_DELAY_MS,
+  SUBMIT_CONFIRM_KEY,
+  type QuestionAnswer,
+} from "~/lib/agent-question-answer";
+import {
+  createQuestionMenuHold,
+  questionMenuSignatures,
+} from "~/lib/terminal-question-hold";
+import { isTerminalAutoReply } from "~/lib/terminal-user-input";
 import { attachTerminalLinks } from "~/lib/terminal-links";
 import {
   createSettledFit,
@@ -349,7 +378,7 @@ export function TerminalPane({
   const paneRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<XFitAddon | null>(null);
-  const termSurfaceRef = useRef<{ setFontSize: (fontSize: number) => void } | null>(null);
+  const termSurfaceRef = useRef<CachedTerminalControls | null>(null);
   const renameFormId = useId();
   const queryClient = useQueryClient();
   const terminals = useTerminals();
@@ -407,6 +436,78 @@ export function TerminalPane({
     project.activeWorktreeId ?? null,
     activeRuntimeScopeId,
   );
+
+  // Native AskUserQuestion overlay: pending question data arrives over SSE
+  // (see agent-question-store); hydrate covers panes that mount after the
+  // event fired (e.g. reopening a project mid-question).
+  const questionOverlayEnabled = useQuestionOverlayEnabled();
+  const pendingQuestion = useTaskQuestion(task.id);
+  const questionDismissed = useQuestionDismissed(pendingQuestion?.id);
+  const questionDesynced = useQuestionDesynced(pendingQuestion?.id);
+  const answeredQuestionsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (
+      questionOverlayEnabled &&
+      liveTask.agent === "claude-code" &&
+      liveTask.status === "needs-input" &&
+      pendingQuestion === undefined
+    ) {
+      void hydrateTaskQuestion(task.id);
+    }
+  }, [questionOverlayEnabled, liveTask.agent, liveTask.status, pendingQuestion, task.id]);
+  const showQuestionOverlay =
+    questionOverlayEnabled &&
+    !!pendingQuestion &&
+    !questionDismissed &&
+    liveTask.status === "needs-input" &&
+    !startError;
+
+  const submitQuestionAnswers = async (answers: QuestionAnswer[]): Promise<boolean> => {
+    const q = pendingQuestion;
+    if (!q) return false;
+    if (answeredQuestionsRef.current.has(q.id)) return false;
+    // The store is the live source of truth; a cleared/replaced question means
+    // the TUI menu underneath is gone and injected keys would hit the REPL.
+    if (getCurrentQuestionId(task.id) !== q.id) return false;
+    const write = termSurfaceRef.current?.writeToPty;
+    if (!write) return false;
+    const plan = buildPayloadAnswerKeySequence(
+      answers,
+      q.questions.map((question) => ({ optionCount: question.options.length })),
+    );
+    if (!plan) return false;
+    answeredQuestionsRef.current.add(q.id);
+    // The hook fires before the TUI menu paints; keys written into the paint
+    // window get misrouted. Wait out the remainder of the ready window (only
+    // ever bites when the user answers within ~a second of the overlay).
+    // Abort if the question resolved some other way, or the user started
+    // typing in the terminal (injected keys would interleave with theirs).
+    const walkInvalid = () =>
+      getCurrentQuestionId(task.id) !== q.id || isQuestionDesynced(q.id);
+    const settle = q.createdAt + MENU_READY_MS - Date.now();
+    if (settle > 0) {
+      await new Promise((resolve) => setTimeout(resolve, settle));
+      if (walkInvalid()) return false;
+    }
+    for (let i = 0; i < plan.steps.length; i++) {
+      if (i > 0) {
+        // Let the TUI advance to the next question's tab before its walk.
+        await new Promise((resolve) => setTimeout(resolve, INTER_QUESTION_DELAY_MS));
+        if (walkInvalid()) return false;
+      }
+      await writeAnswerSequence(write, plan.steps[i]!);
+    }
+    if (plan.needsSubmitConfirm) {
+      await new Promise((resolve) => setTimeout(resolve, SUBMIT_CONFIRM_DELAY_MS));
+      write(SUBMIT_CONFIRM_KEY);
+    }
+    return true;
+  };
+
+  const dismissQuestionOverlay = () => {
+    if (pendingQuestion) dismissQuestionLocally(pendingQuestion.id);
+    termSurfaceRef.current?.focus();
+  };
 
   const requestSessionClone = () => {
     if (typeof window === "undefined") return;
@@ -593,6 +694,11 @@ export function TerminalPane({
           focus: () => term.focus(),
           clear: () => term.clear(),
           setFontSize: () => undefined,
+          writeToPty: (data) => {
+            // surface.ptyId mirrors the active pty across respawns; ptyApi is
+            // already the remote variant for sandbox panes.
+            if (surface.ptyId && ptyApi) void ptyApi.write(surface.ptyId, data);
+          },
         },
         fit: () => fitTerminalSurface(term, fit),
         teardown: () => undefined,
@@ -793,6 +899,25 @@ export function TerminalPane({
         })();
       };
 
+      // Keeps the TUI's own copy of a pending question's menu from painting
+      // while the popup overlay answers it — the transcript stays visible and
+      // scrollable, only the menu frames are withheld (and fast-forwarded in
+      // one write once the question resolves). See terminal-question-hold.
+      let holdSignatures: { id: string; sigs: string[] } | null = null;
+      const questionHold = createQuestionMenuHold({
+        getSignatures: () => {
+          const q = getHoldQuestion(descriptor.taskId);
+          if (!q) return null;
+          if (holdSignatures?.id !== q.id) {
+            holdSignatures = { id: q.id, sigs: questionMenuSignatures(q) };
+          }
+          return holdSignatures.sigs;
+        },
+        write: (data) => term.write(data),
+      });
+      subscriptions.push(subscribeQuestionStore(() => questionHold.sync()));
+      subscriptions.push(() => questionHold.dispose());
+
       if (ptyApi) {
         subscriptions.push(
           ptyApi.onData((msg) => {
@@ -807,7 +932,7 @@ export function TerminalPane({
                 );
                 return;
               }
-              term.write(msg.data);
+              questionHold.write(msg.data);
               return;
             }
             const chunks = pendingElectronData.get(msg.ptyId) ?? [];
@@ -864,10 +989,21 @@ export function TerminalPane({
           // the settled debouncer, so the agent repaints once per zoom gesture.
           applyTerminalFontSize(term, fit, nextFontSize);
         },
+        writeToPty: (data) => {
+          // surface.ptyId mirrors the active pty across respawns; ptyApi is
+          // already the remote variant for sandbox panes.
+          if (surface.ptyId && ptyApi) void ptyApi.write(surface.ptyId, data);
+        },
       };
 
       const wireTerminalInput = (ptyId: string) => {
         term.onData((data) => {
+          // Typing while a question is pending moves the TUI highlight under
+          // the overlay's feet — flag it so the overlay stops injecting.
+          // onData also carries terminal-generated replies (focus reports,
+          // query responses) which must NOT count as typing; injected answers
+          // bypass onData entirely. No-op when no question is pending.
+          if (!isTerminalAutoReply(data)) markQuestionDesynced(descriptor.taskId);
           const usesPromptFallback = agentUsesTerminalPromptFallback(task.agent);
           let submittedPrompt: string | null = null;
           if (usesPromptFallback && !promptTitlePosted) {
@@ -1394,6 +1530,21 @@ export function TerminalPane({
         }}
       >
         <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+        {showQuestionOverlay && pendingQuestion && (
+          <AskUserQuestionOverlay
+            key={pendingQuestion.id}
+            pending={pendingQuestion}
+            desynced={questionDesynced}
+            narrow={tinyHeader}
+            terminalOwnedFocus={() =>
+              !!paneRef.current && paneRef.current.contains(document.activeElement)
+            }
+            onSubmitAnswers={submitQuestionAnswers}
+            onDismiss={dismissQuestionOverlay}
+            onFocusTerminal={dismissQuestionOverlay}
+            restoreTerminalFocus={() => termSurfaceRef.current?.focus()}
+          />
+        )}
       </div>
       </div>
       <Modal

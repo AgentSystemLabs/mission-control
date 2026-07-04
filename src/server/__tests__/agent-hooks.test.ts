@@ -43,6 +43,42 @@ describe("agent hook installation", () => {
     expect(settings.hooks.UserInterrupt).toBeUndefined();
   });
 
+  it("registers AskUserQuestion tool-use hooks for Claude", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd);
+
+    const raw = fs.readFileSync(
+      path.join(cwd, ".claude", "settings.local.json"),
+      "utf8"
+    );
+    const settings = JSON.parse(raw) as {
+      hooks: Record<
+        string,
+        Array<{
+          matcher?: string;
+          hooks?: Array<{ command?: string }>;
+          _mcManaged?: boolean;
+        }>
+      >;
+    };
+
+    expect(settings.hooks.PreToolUse?.[0]).toMatchObject({
+      matcher: "AskUserQuestion",
+      _mcManaged: true,
+    });
+    expect(settings.hooks.PreToolUse?.[0]?.hooks?.[0]?.command).toContain(
+      "hookEvent=PreToolUse"
+    );
+    expect(settings.hooks.PostToolUse?.[0]).toMatchObject({
+      matcher: "AskUserQuestion",
+      _mcManaged: true,
+    });
+    expect(settings.hooks.PostToolUse?.[0]?.hooks?.[0]?.command).toContain(
+      "hookEvent=PostToolUse"
+    );
+  });
+
   it("registers Claude hooks as PowerShell commands on Windows", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
 

@@ -17,6 +17,7 @@ import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types"
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { ClaudeUsageLimits } from "~/shared/claude-usage-limits";
+import type { PendingQuestion } from "~/shared/agent-questions";
 import type { PromptSearchResponse } from "~/shared/prompts";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
@@ -63,6 +64,8 @@ export type AppSettings = {
   worktreesEnabled: boolean;
   /** Experimental: push-to-talk voice control (off by default). */
   voiceControlEnabled: boolean;
+  /** Beta: native popup for Claude Code AskUserQuestion menus (on by default). */
+  questionOverlayEnabled: boolean;
   gitDiffChangedFilesView: GitDiffChangedFilesView | null;
   gitDiffChangedFilesWidth: number | null;
   /** Projects dashboard layout — cards (default) or table. */
@@ -323,6 +326,8 @@ export const api = {
       `/api/projects/${projectId}/tasks${scopedWorktreeQuery(worktreeId, scopeId)}`,
     ),
   getTask: (id: string) => req<{ task: Task }>(`/api/tasks/${id}`),
+  getTaskQuestion: (id: string) =>
+    req<{ question: PendingQuestion | null }>(`/api/tasks/${id}/question`),
   archiveTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>
@@ -453,6 +458,7 @@ export const api = {
         | "automaticUpdateInstallOnQuitEnabled"
         | "worktreesEnabled"
         | "voiceControlEnabled"
+        | "questionOverlayEnabled"
         | "gitDiffChangedFilesView"
         | "gitDiffChangedFilesWidth"
         | "projectsDashboardView"

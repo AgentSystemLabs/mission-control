@@ -111,6 +111,7 @@ const updateSettingsBody = z
     automaticUpdateInstallOnQuitEnabled: z.boolean(),
     worktreesEnabled: z.boolean(),
     voiceControlEnabled: z.boolean(),
+    questionOverlayEnabled: z.boolean(),
     gitDiffChangedFilesView: z.enum(GIT_DIFF_CHANGED_FILES_VIEWS).nullable(),
     gitDiffChangedFilesWidth: z
       .number()
@@ -227,6 +228,7 @@ function settingsPayload() {
     ),
     worktreesEnabled: getBooleanSetting("worktrees_enabled", false),
     voiceControlEnabled: getBooleanSetting("voice_control_enabled", false),
+    questionOverlayEnabled: getBooleanSetting("question_overlay_enabled", true),
     gitDiffChangedFilesView: getGitDiffChangedFilesViewSetting(),
     gitDiffChangedFilesWidth: getGitDiffChangedFilesWidthSetting(),
     projectsDashboardView: getProjectsDashboardViewSetting(),
@@ -310,6 +312,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.voiceControlEnabled !== undefined) {
     setBooleanSetting("voice_control_enabled", body.voiceControlEnabled);
+  }
+  if (body.questionOverlayEnabled !== undefined) {
+    setBooleanSetting("question_overlay_enabled", body.questionOverlayEnabled);
   }
   if (body.gitDiffChangedFilesView !== undefined) {
     if (body.gitDiffChangedFilesView === null) {
