@@ -18,6 +18,7 @@ import { STATUS_META } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
 import { exitFocusSession, switchFocusSession } from "~/lib/focus-session";
 import {
+  activeFirst,
   orderSessions,
   reconcileFocusOrder,
   type SessionSnapshot,
@@ -100,7 +101,13 @@ function FocusSessionPage() {
   }, [session, exit]);
 
   // Smart ordering + unread badges for the session bar (activity-based).
+  // `orderedSessions` is the stable activity order (drives next/prev cycling);
+  // the bar shows `barSessions`, which pins the focused session as the first tab.
   const { orderedSessions, unread } = useFocusSessionOrder(switchable, taskId);
+  const barSessions = useMemo(
+    () => activeFirst(orderedSessions, taskId),
+    [orderedSessions, taskId],
+  );
 
   // Keep every open session's task row live while focused. The project route —
   // which normally drives syncTask from the tasks query — is unmounted here, so
@@ -280,7 +287,7 @@ function FocusSessionPage() {
       {showBar && (
         <FocusSessionBar
           open={barOpen}
-          sessions={orderedSessions}
+          sessions={barSessions}
           activeTaskId={taskId}
           unread={unread}
           onSelect={selectSession}

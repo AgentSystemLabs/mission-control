@@ -101,3 +101,19 @@ export function orderSessions<T extends { taskId: string }>(
   }
   return out;
 }
+
+/**
+ * Pin the focused session as the first tab, leaving the rest in their given
+ * order. This is a display-only transform: the underlying activity order stays
+ * stable, so next/prev cycling remains a predictable rotation rather than
+ * bouncing between the two most recently focused sessions.
+ */
+export function activeFirst<T extends { taskId: string }>(
+  sessions: T[],
+  activeTaskId: string | null,
+): T[] {
+  if (!activeTaskId) return sessions;
+  const idx = sessions.findIndex((s) => s.taskId === activeTaskId);
+  if (idx <= 0) return sessions;
+  return [sessions[idx]!, ...sessions.slice(0, idx), ...sessions.slice(idx + 1)];
+}

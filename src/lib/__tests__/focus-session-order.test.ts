@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  activeFirst,
   emptyFocusOrderState,
   orderSessions,
   reconcileFocusOrder,
@@ -184,5 +185,23 @@ describe("orderSessions", () => {
   it("ignores stale ids in the order", () => {
     const sessions = [{ taskId: "a" }];
     expect(orderSessions(sessions, ["gone", "a"]).map((s) => s.taskId)).toEqual(["a"]);
+  });
+});
+
+describe("activeFirst", () => {
+  it("pins the active session to the front, keeping the rest in order", () => {
+    const sessions = [{ taskId: "a" }, { taskId: "b" }, { taskId: "c" }];
+    expect(activeFirst(sessions, "c").map((s) => s.taskId)).toEqual(["c", "a", "b"]);
+  });
+
+  it("is a no-op when the active session is already first", () => {
+    const sessions = [{ taskId: "a" }, { taskId: "b" }];
+    expect(activeFirst(sessions, "a")).toBe(sessions);
+  });
+
+  it("is a no-op when there is no active session or it is absent", () => {
+    const sessions = [{ taskId: "a" }, { taskId: "b" }];
+    expect(activeFirst(sessions, null)).toBe(sessions);
+    expect(activeFirst(sessions, "gone")).toBe(sessions);
   });
 });
