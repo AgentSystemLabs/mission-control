@@ -1,9 +1,10 @@
 /**
  * Claude Code usage limits — the live "session" (5-hour) and "weekly" rate-limit
  * windows shown in the top bar. These mirror what Claude Code's own `/usage`
- * screen and statusline display. The data is not on disk anywhere: the server
- * fetches it from Anthropic's OAuth usage endpoint using the user's existing
- * Claude login. See src/server/services/claude-usage-limits.ts.
+ * screen and statusline display. Primary source: the shared cache file fed by
+ * the statusline tap (src/shared/statusline-tap.ts), which Claude sessions
+ * refresh for free. Fallback: Anthropic's heavily rate-limited OAuth usage
+ * endpoint. See src/server/services/claude-usage-limits.ts.
  */
 
 /** A single usage window (session or weekly). */

@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
+import { ensureStatuslineTap } from "../src/shared/statusline-tap";
 import { ensureDiagramSkillForAgent } from "./ensure-diagram-skill";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
@@ -478,6 +479,10 @@ export function registerPtyHandlers(
       installAgentHooks(opts.agent, plan.cwd);
       if (plan.mode === "agent") {
         ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        // Claude sessions feed the shared usage-limits cache via the statusline
+        // tap, so the top-bar indicator doesn't have to poll Anthropic's
+        // aggressively rate-limited OAuth usage endpoint.
+        if (plan.agent === "claude-code") ensureStatuslineTap(plan.cwd);
       }
 
       const mcEnv = plan.mode === "agent" ? getHookEnv() : null;

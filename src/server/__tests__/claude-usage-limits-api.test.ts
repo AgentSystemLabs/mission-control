@@ -8,9 +8,8 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 
 const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken } = await import("../services/settings");
-const { _setTokenReaderForTests, _resetClaudeUsageLimitsCache } = await import(
-  "../services/claude-usage-limits"
-);
+const { _setTokenReaderForTests, _resetClaudeUsageLimitsCache, _setSharedLimitsFileForTests } =
+  await import("../services/claude-usage-limits");
 
 function authedRequest(input: string): Request {
   return new Request(input, {
@@ -21,9 +20,14 @@ function authedRequest(input: string): Request {
 describe("GET /api/claude-usage-limits", () => {
   beforeEach(() => {
     _resetClaudeUsageLimitsCache();
+    // Keep the shared statusline-tap cache out of these tests: never read the
+    // real ~/.cache/claude-limits or publish endpoint successes into it.
+    _setSharedLimitsFileForTests(path.join(tmpRoot, "limits.json"));
+    fs.rmSync(path.join(tmpRoot, "limits.json"), { force: true });
   });
   afterEach(() => {
     _setTokenReaderForTests(null);
+    _setSharedLimitsFileForTests(null);
     _resetClaudeUsageLimitsCache();
     vi.unstubAllGlobals();
   });
