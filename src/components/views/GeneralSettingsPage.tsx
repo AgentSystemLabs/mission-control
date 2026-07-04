@@ -106,6 +106,9 @@ export function GeneralSettingsPage() {
     annotationModel: settings?.annotationModel ?? null,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
+    claudeUsageLimitsEnabled: settings?.claudeUsageLimitsEnabled ?? false,
+    claudeUsageLimitsShowSession: settings?.claudeUsageLimitsShowSession ?? true,
+    claudeUsageLimitsShowWeekly: settings?.claudeUsageLimitsShowWeekly ?? true,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:
       queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??

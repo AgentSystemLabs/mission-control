@@ -16,6 +16,7 @@ export type { GitBranch, GitBranchesResult, GitCheckoutResult };
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
+import type { ClaudeUsageLimits } from "~/shared/claude-usage-limits";
 import type { PromptSearchResponse } from "~/shared/prompts";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
@@ -89,6 +90,14 @@ export type AppSettings = {
   annotationModel: AiModelId | null;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
+  /**
+   * Show Claude Code's live session (5h) + weekly usage limits in the top bar.
+   * Off by default — enabling it makes the app fetch usage from Anthropic using
+   * the user's Claude login. The two `show*` flags toggle each window.
+   */
+  claudeUsageLimitsEnabled: boolean;
+  claudeUsageLimitsShowSession: boolean;
+  claudeUsageLimitsShowWeekly: boolean;
 };
 
 export class ApiError extends Error {
@@ -455,6 +464,9 @@ export const api = {
         | "annotationAgent"
         | "annotationModel"
         | "voiceCommandAliases"
+        | "claudeUsageLimitsEnabled"
+        | "claudeUsageLimitsShowSession"
+        | "claudeUsageLimitsShowWeekly"
       >
     >,
   ) =>
@@ -536,6 +548,8 @@ export const api = {
     }),
   getUsage: (days: number = 30) =>
     req<UsageSummary>(`/api/usage?days=${days}`),
+  getClaudeUsageLimits: () =>
+    req<ClaudeUsageLimits>("/api/claude-usage-limits"),
   searchPrompts: (query: string, limit?: number) =>
     req<PromptSearchResponse>(
       `/api/prompts?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ""}`,

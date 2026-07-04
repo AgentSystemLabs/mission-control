@@ -62,6 +62,9 @@ const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
 const THEME_STYLE_KEY = "theme_style";
 const MINIMAL_THEME_KEY = "minimal_theme";
 const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
+const CLAUDE_USAGE_LIMITS_ENABLED_KEY = "claude_usage_limits_enabled";
+const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
+const CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY = "claude_usage_limits_show_weekly";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
   try {
@@ -124,6 +127,9 @@ const updateSettingsBody = z
     annotationAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     annotationModel: aiModelBody,
     voiceCommandAliases: voiceCommandAliasesBody,
+    claudeUsageLimitsEnabled: z.boolean(),
+    claudeUsageLimitsShowSession: z.boolean(),
+    claudeUsageLimitsShowWeekly: z.boolean(),
   })
   .partial();
 
@@ -232,6 +238,11 @@ function settingsPayload() {
     annotationAgent: getAnnotationAgentSetting(),
     annotationModel: getAnnotationModelSetting(),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
+    // Off by default: this is the only feature that reaches out to Anthropic
+    // (using the user's Claude login), so it's strictly opt-in.
+    claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
+    claudeUsageLimitsShowSession: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY, true),
+    claudeUsageLimitsShowWeekly: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, true),
   };
 }
 
@@ -363,6 +374,15 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.voiceCommandAliases !== undefined) {
     setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));
+  }
+  if (body.claudeUsageLimitsEnabled !== undefined) {
+    setBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, body.claudeUsageLimitsEnabled);
+  }
+  if (body.claudeUsageLimitsShowSession !== undefined) {
+    setBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY, body.claudeUsageLimitsShowSession);
+  }
+  if (body.claudeUsageLimitsShowWeekly !== undefined) {
+    setBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, body.claudeUsageLimitsShowWeekly);
   }
   return json(settingsPayload());
 }

@@ -64,6 +64,42 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps Claude usage limits off by default, with both windows shown", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      claudeUsageLimitsEnabled: false,
+      claudeUsageLimitsShowSession: true,
+      claudeUsageLimitsShowWeekly: true,
+    });
+  });
+
+  it("persists Claude usage limit toggles", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          claudeUsageLimitsEnabled: true,
+          claudeUsageLimitsShowWeekly: false,
+        }),
+      }),
+    );
+    expect(update?.status).toBe(200);
+
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+    expect(await jsonBody(read!)).toMatchObject({
+      claudeUsageLimitsEnabled: true,
+      claudeUsageLimitsShowSession: true,
+      claudeUsageLimitsShowWeekly: false,
+    });
+  });
+
   it("persists the default terminal zoom level", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {

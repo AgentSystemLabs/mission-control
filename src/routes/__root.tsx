@@ -35,6 +35,7 @@ import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } fr
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
 import { ScopeDropdown } from "~/components/views/ScopeDropdown";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
+import { ClaudeUsageLimitsIndicator } from "~/components/views/ClaudeUsageLimitsIndicator";
 import {
   ACCENT_CACHE_KEY,
   ACCENT_COLORS,
@@ -562,6 +563,7 @@ function Shell() {
           dragRegion
           right={
             <>
+              <ClaudeUsageLimitsIndicator />
               <UpdateAvailableButton />
               <PromptSearchButton />
               <VoicePushToTalkButton />

@@ -44,6 +44,7 @@ export const queryKeys = {
       "user-terminals",
     ] as const,
   usage: (days: number) => ["usage", days] as const,
+  claudeUsageLimits: ["claude-usage-limits"] as const,
   promptSearch: (query: string) => ["prompt-search", query] as const,
 };
 
@@ -151,6 +152,20 @@ export const usageQueryOptions = (days: number = DEFAULT_USAGE_DAYS) =>
     staleTime: USAGE_STALE_MS,
   });
 
+// Claude usage limits refresh periodically while the indicator is enabled. The
+// server caches for 2 min, so polling faster just returns the cached snapshot.
+const CLAUDE_USAGE_LIMITS_STALE_MS = 60_000;
+const CLAUDE_USAGE_LIMITS_REFETCH_MS = 120_000;
+
+export const claudeUsageLimitsQueryOptions = (enabled: boolean) =>
+  queryOptions({
+    queryKey: queryKeys.claudeUsageLimits,
+    queryFn: async () => api.getClaudeUsageLimits(),
+    enabled,
+    staleTime: CLAUDE_USAGE_LIMITS_STALE_MS,
+    refetchInterval: enabled ? CLAUDE_USAGE_LIMITS_REFETCH_MS : false,
+  });
+
 const PROMPT_SEARCH_STALE_MS = 5_000;
 
 // `enabled` is caller-controlled so the query only runs while the palette is
@@ -189,5 +204,7 @@ export const useUserTerminalsQuery = (
 ) => useQuery(userTerminalsQueryOptions(projectId, worktreeId, scopeId));
 export const useUsage = (days: number = DEFAULT_USAGE_DAYS) =>
   useQuery(usageQueryOptions(days));
+export const useClaudeUsageLimits = (enabled: boolean) =>
+  useQuery(claudeUsageLimitsQueryOptions(enabled));
 export const usePromptSearch = (query: string, enabled: boolean) =>
   useQuery(promptSearchQueryOptions(query, enabled));

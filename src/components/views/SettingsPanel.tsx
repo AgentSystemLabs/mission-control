@@ -12,6 +12,7 @@ import { KeybindingsPage } from "./KeybindingsPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
+import { UsageSettingsPage } from "./UsageSettingsPage";
 import { VoiceCommandsPage } from "./VoiceCommandsPage";
 
 // Single source of truth for settings panel ids. The union type and the
@@ -20,6 +21,7 @@ import { VoiceCommandsPage } from "./VoiceCommandsPage";
 export const SETTINGS_PANEL_IDS = [
   "general",
   "defaults",
+  "usage",
   "terminal",
   "theme",
   "voice",
@@ -92,6 +94,7 @@ export function SettingsPanel({
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
     { id: "defaults", label: "Defaults", icon: "terminal" },
+    { id: "usage", label: "Usage", icon: "chart" },
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "voice", label: "Voice", icon: "play" },
@@ -318,6 +321,8 @@ export function SettingsPanel({
             <GeneralSettingsPage />
           ) : activePanel === "defaults" ? (
             <DefaultsSettingsPage />
+          ) : activePanel === "usage" ? (
+            <UsageSettingsPage />
           ) : activePanel === "terminal" ? (
             <TerminalSettingsPage />
           ) : activePanel === "theme" ? (
