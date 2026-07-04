@@ -32,8 +32,25 @@ const TAP_BASENAME = "statusline-tap.sh";
 // settings) so the shell wrapper can chain it. Payload numbers: used_percentage
 // is 0-100 (matching the OAuth endpoint's `utilization`); resets_at is unix
 // seconds (the endpoint uses ISO-8601, so we normalize to ISO here).
+//
+// STALE-WRITE GUARD: every live session reruns the statusline on its refresh
+// interval, but an idle session replays the headers of its LAST API response
+// forever. With several sessions open, naive last-writer-wins makes the cache
+// flap between snapshots that are hours apart. So a write is skipped when its
+// session window has already reset, when the cache holds a newer window, or
+// when it would move utilization backwards within the same window.
 const TAP_PYTHON = `
 import json, os, sys, tempfile, datetime
+
+CACHE = os.path.expanduser("~/.cache/claude-limits/limits.json")
+
+def parse_iso(s):
+    if not isinstance(s, str):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
 
 def window(w):
     if not isinstance(w, dict):
@@ -49,6 +66,27 @@ def window(w):
         iso = r
     return {"utilization": u, "resets_at": iso}
 
+def is_stale(fh, now):
+    ra = parse_iso(fh.get("resets_at")) if fh else None
+    if ra is not None and ra < now - datetime.timedelta(seconds=60):
+        return True  # session window already reset: this reporter is idle
+    try:
+        cur = json.load(open(CACHE))
+    except Exception:
+        return False
+    cfh = cur.get("five_hour") or {}
+    cra = parse_iso(cfh.get("resets_at"))
+    if cra is None:
+        return False
+    if ra is None:
+        return cra > now  # cache has a live window; unknown-window data loses
+    if cra > ra:
+        return True  # cache already holds a newer window
+    cu = cfh.get("utilization")
+    if cra == ra and isinstance(cu, (int, float)) and fh and fh["utilization"] < cu:
+        return True  # same window: utilization only ever grows
+    return False
+
 try:
     payload = json.load(sys.stdin)
 except Exception:
@@ -56,19 +94,22 @@ except Exception:
 
 try:
     rl = payload.get("rate_limits") or {}
-    out = {
-        "five_hour": window(rl.get("five_hour")),
-        "seven_day": window(rl.get("seven_day")),
-        "source": "statusline",
-        "written_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
-    if out["five_hour"] or out["seven_day"]:
-        d = os.path.expanduser("~/.cache/claude-limits")
+    fh = window(rl.get("five_hour"))
+    sd = window(rl.get("seven_day"))
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if (fh or sd) and not is_stale(fh, now):
+        out = {
+            "five_hour": fh,
+            "seven_day": sd,
+            "source": "statusline",
+            "written_at": now.isoformat(),
+        }
+        d = os.path.dirname(CACHE)
         os.makedirs(d, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=d, prefix=".limits-")
         with os.fdopen(fd, "w") as f:
             json.dump(out, f)
-        os.replace(tmp, os.path.join(d, "limits.json"))
+        os.replace(tmp, CACHE)
 except Exception:
     pass
 
@@ -86,7 +127,7 @@ except Exception:
  * compares full file content, so this mostly documents intent for humans.
  */
 export const STATUSLINE_TAP_SCRIPT = `#!/bin/sh
-# Mission Control statusline tap v1 (managed - safe to delete; Mission Control reinstalls it).
+# Mission Control statusline tap v2 (managed - safe to delete; Mission Control reinstalls it).
 # Tees Claude Code's rate_limits from the statusline payload into a shared cache
 # (~/.cache/claude-limits/limits.json), then chains your own statusline command
 # from ~/.claude/settings.json so the visible statusline is unchanged.

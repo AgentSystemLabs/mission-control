@@ -152,10 +152,11 @@ export const usageQueryOptions = (days: number = DEFAULT_USAGE_DAYS) =>
     staleTime: USAGE_STALE_MS,
   });
 
-// Claude usage limits refresh periodically while the indicator is enabled. The
-// server caches for 2 min, so polling faster just returns the cached snapshot.
-const CLAUDE_USAGE_LIMITS_STALE_MS = 60_000;
-const CLAUDE_USAGE_LIMITS_REFETCH_MS = 120_000;
+// Claude usage limits come from a local file the statusline tap rewrites every
+// few seconds (src/shared/statusline-tap.ts), so polling the server is cheap —
+// keep the top bar close to live without requiring a manual reload.
+const CLAUDE_USAGE_LIMITS_STALE_MS = 20_000;
+const CLAUDE_USAGE_LIMITS_REFETCH_MS = 30_000;
 
 export const claudeUsageLimitsQueryOptions = (enabled: boolean) =>
   queryOptions({

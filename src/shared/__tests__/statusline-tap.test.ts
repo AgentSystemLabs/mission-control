@@ -112,37 +112,79 @@ describe("statusline tap installer", () => {
     expect(fs.existsSync(settingsFile())).toBe(false);
   });
 
-  it("tees rate_limits into the shared cache and chains the user's statusline", () => {
-    if (process.platform === "win32") return;
-    if (spawnSync("python3", ["--version"]).status !== 0) return; // env without python3
-
+  function runTap(payload: unknown): { status: number | null; stdout: string } {
     const script = path.join(tmpDir, "statusline-tap.sh");
     fs.writeFileSync(script, STATUSLINE_TAP_SCRIPT, { mode: 0o755 });
+    const res = spawnSync("sh", [script], {
+      input: JSON.stringify(payload),
+      env: { ...process.env, HOME: home },
+      encoding: "utf8",
+    });
+    return { status: res.status, stdout: res.stdout };
+  }
+
+  function cacheFile(): string {
+    return path.join(home, ".cache", "claude-limits", "limits.json");
+  }
+
+  function hasPython3(): boolean {
+    return spawnSync("python3", ["--version"]).status === 0;
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const futureReset = nowSec + 3 * 3600; // window resets in 3h → live snapshot
+  const pastReset = nowSec - 3 * 3600; // window reset 3h ago → idle session
+
+  it("tees rate_limits into the shared cache and chains the user's statusline", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
     writeUserSettings({
       statusLine: { type: "command", command: "cat >/dev/null; printf OK" },
     });
-    const payload = JSON.stringify({
-      rate_limits: {
-        five_hour: { used_percentage: 19, resets_at: 1783158000 },
-        seven_day: { used_percentage: 37.5, resets_at: 1783512000 },
-      },
-    });
 
-    const res = spawnSync("sh", [script], {
-      input: payload,
-      env: { ...process.env, HOME: home },
-      encoding: "utf8",
+    const res = runTap({
+      rate_limits: {
+        five_hour: { used_percentage: 19, resets_at: futureReset },
+        seven_day: { used_percentage: 37.5, resets_at: futureReset + 100000 },
+      },
     });
 
     expect(res.status).toBe(0);
     expect(res.stdout).toBe("OK");
-    const cache = JSON.parse(
-      fs.readFileSync(path.join(home, ".cache", "claude-limits", "limits.json"), "utf8"),
-    );
+    const cache = JSON.parse(fs.readFileSync(cacheFile(), "utf8"));
     expect(cache.five_hour).toMatchObject({ utilization: 19 });
-    expect(cache.five_hour.resets_at).toMatch(/^2026-/);
+    expect(cache.five_hour.resets_at).toMatch(/^20/);
     expect(cache.seven_day.utilization).toBe(37.5);
     expect(cache.source).toBe("statusline");
+  });
+
+  it("skips snapshots whose session window already reset (idle session replay)", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
+
+    runTap({ rate_limits: { five_hour: { used_percentage: 14, resets_at: pastReset } } });
+
+    expect(fs.existsSync(cacheFile())).toBe(false);
+  });
+
+  it("never moves utilization backwards within the same window", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
+
+    runTap({ rate_limits: { five_hour: { used_percentage: 59, resets_at: futureReset } } });
+    runTap({ rate_limits: { five_hour: { used_percentage: 13, resets_at: futureReset } } });
+
+    const cache = JSON.parse(fs.readFileSync(cacheFile(), "utf8"));
+    expect(cache.five_hour.utilization).toBe(59);
+  });
+
+  it("lets a newer window replace an older one even at lower utilization", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
+
+    runTap({ rate_limits: { five_hour: { used_percentage: 90, resets_at: futureReset } } });
+    runTap({
+      rate_limits: { five_hour: { used_percentage: 5, resets_at: futureReset + 18000 } },
+    });
+
+    const cache = JSON.parse(fs.readFileSync(cacheFile(), "utf8"));
+    expect(cache.five_hour.utilization).toBe(5);
   });
 
   it("tap script chains the user statusline and never uses ${...} interpolation pitfalls", () => {
