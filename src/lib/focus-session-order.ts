@@ -36,8 +36,11 @@ export const emptyFocusOrderState: FocusOrderState = {
  * - Removed sessions drop out of order / status / unread.
  * - The active tab is always cleared of its unread marker.
  * - The very first fold (no prior status seen) is a baseline: sessions keep
- *   their incoming order and nothing is marked unread, so opening focus mode
- *   doesn't light up every tab.
+ *   their incoming order — except the entered session (activeTaskId), which
+ *   leads, so opening focus mode puts the focused session in the first tab.
+ *   Nothing is marked unread on this fold, so opening doesn't light up tabs.
+ * - After that first fold, a manual tab switch never reorders (only status
+ *   transitions hoist a session): the clicked tab highlights where it sits.
  */
 export function reconcileFocusOrder(
   prev: FocusOrderState,
@@ -57,10 +60,11 @@ export function reconcileFocusOrder(
   }
 
   // Keep prior order for untouched sessions; hoist activated ones to the front
-  // in their current-snapshot order (stable and deterministic).
+  // in their current-snapshot order (stable and deterministic). On the initial
+  // fold there is no prior order, so lead with the entered session instead.
   const base = prev.order.filter((id) => idSet.has(id) && !activated.has(id));
   const front = ids.filter((id) => activated.has(id));
-  const order = isInitial ? ids.slice() : [...front, ...base];
+  const order = isInitial ? hoistFirst(ids.slice(), activeTaskId) : [...front, ...base];
   // Safety net: cover any id somehow missing from `order`.
   const covered = new Set(order);
   for (const id of ids) if (!covered.has(id)) order.push(id);
@@ -102,18 +106,10 @@ export function orderSessions<T extends { taskId: string }>(
   return out;
 }
 
-/**
- * Pin the focused session as the first tab, leaving the rest in their given
- * order. This is a display-only transform: the underlying activity order stays
- * stable, so next/prev cycling remains a predictable rotation rather than
- * bouncing between the two most recently focused sessions.
- */
-export function activeFirst<T extends { taskId: string }>(
-  sessions: T[],
-  activeTaskId: string | null,
-): T[] {
-  if (!activeTaskId) return sessions;
-  const idx = sessions.findIndex((s) => s.taskId === activeTaskId);
-  if (idx <= 0) return sessions;
-  return [sessions[idx]!, ...sessions.slice(0, idx), ...sessions.slice(idx + 1)];
+/** Move `first` to the front of an id list, preserving the rest. */
+function hoistFirst(ids: string[], first: string | null): string[] {
+  if (!first) return ids;
+  const i = ids.indexOf(first);
+  if (i <= 0) return ids;
+  return [first, ...ids.slice(0, i), ...ids.slice(i + 1)];
 }

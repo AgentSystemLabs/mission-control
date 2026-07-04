@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  activeFirst,
   emptyFocusOrderState,
   orderSessions,
   reconcileFocusOrder,
@@ -25,6 +24,46 @@ describe("reconcileFocusOrder", () => {
     expect(next.order).toEqual(["a", "b", "c"]);
     expect(next.unread).toEqual([]);
     expect(next.status).toEqual({ a: "running", b: "ready", c: "finished" });
+  });
+
+  it("leads the first fold with the entered session, not creation order", () => {
+    const next = reconcileFocusOrder(
+      emptyFocusOrderState,
+      snap([
+        ["a", "running"],
+        ["b", "ready"],
+        ["c", "finished"],
+      ]),
+      "c",
+    );
+    // c was entered → first; the rest keep their incoming order.
+    expect(next.order).toEqual(["c", "a", "b"]);
+    expect(next.unread).toEqual([]);
+  });
+
+  it("does not hoist the entered session again after the first fold", () => {
+    // Open focus mode on `a`.
+    const base = reconcileFocusOrder(
+      emptyFocusOrderState,
+      snap([
+        ["a", "running"],
+        ["b", "running"],
+        ["c", "running"],
+      ]),
+      "a",
+    );
+    expect(base.order).toEqual(["a", "b", "c"]);
+    // Switch to `c` (no status change): order must stay put — c highlights in place.
+    const next = reconcileFocusOrder(
+      base,
+      snap([
+        ["a", "running"],
+        ["b", "running"],
+        ["c", "running"],
+      ]),
+      "c",
+    );
+    expect(next.order).toEqual(["a", "b", "c"]);
   });
 
   it("moves a session whose status changed to the front", () => {
@@ -185,23 +224,5 @@ describe("orderSessions", () => {
   it("ignores stale ids in the order", () => {
     const sessions = [{ taskId: "a" }];
     expect(orderSessions(sessions, ["gone", "a"]).map((s) => s.taskId)).toEqual(["a"]);
-  });
-});
-
-describe("activeFirst", () => {
-  it("pins the active session to the front, keeping the rest in order", () => {
-    const sessions = [{ taskId: "a" }, { taskId: "b" }, { taskId: "c" }];
-    expect(activeFirst(sessions, "c").map((s) => s.taskId)).toEqual(["c", "a", "b"]);
-  });
-
-  it("is a no-op when the active session is already first", () => {
-    const sessions = [{ taskId: "a" }, { taskId: "b" }];
-    expect(activeFirst(sessions, "a")).toBe(sessions);
-  });
-
-  it("is a no-op when there is no active session or it is absent", () => {
-    const sessions = [{ taskId: "a" }, { taskId: "b" }];
-    expect(activeFirst(sessions, null)).toBe(sessions);
-    expect(activeFirst(sessions, "gone")).toBe(sessions);
   });
 });
