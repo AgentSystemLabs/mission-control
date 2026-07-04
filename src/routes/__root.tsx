@@ -427,6 +427,13 @@ function Shell() {
     applyThemeStyle(themeStyle);
   }, [themeStyle]);
 
+  // Recompute + re-observe the workspace bounds whenever the workspace div is
+  // (un)mounted. Focus mode early-returns above and tears down the whole #root
+  // subtree, so on entry `workspaceRef.current` is null and on exit it's a brand
+  // new node. Keying this on `focusActive` re-runs the effect across those
+  // transitions: the cleanup disconnects the stale observer/listener (which
+  // otherwise keep measuring the detached old node and collapse overlays sized
+  // off --mc-workspace-* to 0×0), and the re-run re-binds to the live div.
   useEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace) return;
@@ -458,7 +465,7 @@ function Shell() {
       document.documentElement.style.removeProperty("--mc-workspace-right");
       document.documentElement.style.removeProperty("--mc-workspace-bottom");
     };
-  }, []);
+  }, [focusActive]);
 
   useHotkey("terminal.toggle", () => togglePanel());
   useHotkey(
