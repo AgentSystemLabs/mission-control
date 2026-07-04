@@ -1496,6 +1496,31 @@ function ProjectPage() {
     );
   }, [project, createSession, cliAvailability, showAgentUpdateRequired, anchorSessionId, terminals]);
 
+  const startWithSavedInNewRow = useCallback(() => {
+    if (!project) return;
+    if (!(project.rememberAgentSettings && project.savedAgent)) return;
+    const savedAvailability = availabilityFor(cliAvailability, project.savedAgent);
+    if (savedAvailability.status === "outdated") {
+      showAgentUpdateRequired(project.savedAgent, savedAvailability);
+      return;
+    }
+    if (savedAvailability.status === "missing") {
+      setShowNewAgent(true);
+      return;
+    }
+    // Start session in a fresh grid row instead of beside the active one.
+    terminals.requestNewRow();
+    createSession(
+      {
+        agent: project.savedAgent,
+        branch: project.branch || DEFAULT_BRANCH,
+        skipPermissions: !!project.savedSkipPermissions,
+        bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
+      },
+      { focusOnCreate: true },
+    );
+  }, [project, createSession, cliAvailability, showAgentUpdateRequired, terminals]);
+
   const onNewAgentPrimary = useCallback(() => {
     if (!projectPathReady) return;
     if (showNewAgent || showEdit) return;
@@ -2716,6 +2741,10 @@ function ProjectPage() {
                   icon="plus"
                   onClick={() => {
                     if (!projectPathReady) return;
+                    if (project?.rememberAgentSettings && project.savedAgent) {
+                      void startWithSavedInNewRow();
+                      return;
+                    }
                     setNewAgentTarget("newRow");
                     setShowNewAgent(true);
                   }}
