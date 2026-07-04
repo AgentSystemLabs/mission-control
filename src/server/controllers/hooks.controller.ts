@@ -4,7 +4,7 @@ import { ASK_USER_QUESTION_TOOL, parseAskUserQuestionInput } from "~/shared/agen
 import { getTask, updateStatus, updateTask } from "../services/tasks";
 import { setPendingQuestion } from "../services/pending-questions";
 import { recordPrompt } from "../services/prompts";
-import { generateTitleForTask } from "../services/title-generator";
+import { generateTitleForTask, isTitleGenerationPrompt } from "../services/title-generator";
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
 
@@ -133,7 +133,12 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     if (
       isSessionCaptureEvent(event) &&
       typeof payload.prompt === "string" &&
-      payload.prompt.trim()
+      payload.prompt.trim() &&
+      // Never treat our own headless title-generation helper as a user prompt.
+      // If one ever fires these hooks (e.g. it inherited the session hook env),
+      // recording it and re-running title generation is the feedback loop that
+      // floods prompt history — ignore it outright.
+      !isTitleGenerationPrompt(payload.prompt)
     ) {
       void generateTitleForTask(taskId, payload.prompt).catch(() => undefined);
       if (isPromptSubmitEvent(event)) {
