@@ -34,9 +34,10 @@ export function readCachedThemeStyle(): ThemeStyle {
  * Apply a theme style to the document and cache the choice so the
  * pre-hydration script can restore it on the next launch.
  *
- * DOM contract: painted mode is the absence of both attributes. Minimal sets
- * `data-minimal`. Noir sets `data-minimal` too (it builds on minimal's
- * clean-CSS chrome) and layers `data-noir` on top for its flat palette.
+ * DOM contract: painted mode is the absence of every attribute. Minimal sets
+ * `data-minimal`. Noir and ember set `data-minimal` too (both build on
+ * minimal's clean-CSS chrome) and layer `data-noir` / `data-ember` on top for
+ * their own flat palette, corners, and (ember) bundled font.
  */
 export function applyThemeStyle(style: ThemeStyle): void {
   if (typeof document !== "undefined") {
@@ -50,6 +51,11 @@ export function applyThemeStyle(style: ThemeStyle): void {
       root.setAttribute("data-noir", "true");
     } else {
       root.removeAttribute("data-noir");
+    }
+    if (style === "ember") {
+      root.setAttribute("data-ember", "true");
+    } else {
+      root.removeAttribute("data-ember");
     }
   }
   if (typeof window === "undefined") return;

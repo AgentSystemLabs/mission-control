@@ -71,10 +71,16 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
     applyAccentColor(next);
   }, []);
 
-  // Picking a style live-applies it instantly.
+  // Picking a style live-applies it instantly. Ember is built around its warm
+  // terracotta accent, so selecting it defaults the swatch there (the user can
+  // still pick another color afterward).
   const selectStyle = useCallback((next: ThemeStyle) => {
     setStyle(next);
     applyThemeStyle(next);
+    if (next === "ember") {
+      setColor("terracotta");
+      applyAccentColor("terracotta");
+    }
   }, []);
 
   const confirm = useCallback(async () => {
@@ -213,6 +219,14 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
               stylePreview="noir"
               selected={style === "noir"}
               onSelect={() => selectStyle("noir")}
+            />
+            <StyleChoiceCard
+              title="Ember"
+              description="Warm sepia, edge-to-edge square panes, and a clearer bundled mono. The focused session glows."
+              accentId={color}
+              stylePreview="ember"
+              selected={style === "ember"}
+              onSelect={() => selectStyle("ember")}
             />
           </div>
         </section>
@@ -393,6 +407,21 @@ function StylePreviewChip({
                 border: `1px solid ${accentRgba(0.55)}`,
                 background: "#0f0f12",
               }
+            : stylePreview === "ember"
+              ? {
+                  // Warm, square, solid accent border — the ember mood.
+                  boxSizing: "border-box",
+                  display: "inline-flex",
+                  alignSelf: "flex-start",
+                  padding: "6px 14px",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: accent.value,
+                  borderRadius: 0,
+                  border: `1px solid ${accentRgba(0.7)}`,
+                  background: "#1b1610",
+                }
             : {
                 boxSizing: "border-box",
                 display: "inline-flex",

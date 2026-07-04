@@ -26,6 +26,7 @@ const SOURCES = [
 // Mirror of src/lib/accent-colors.ts. Kept here so this script has zero TS deps.
 const ACCENT_COLORS = [
   { id: "deep-orange", hex: "#ff5a1f" },
+  { id: "terracotta", hex: "#d0854e" },
   { id: "blue", hex: "#3b82f6" },
   { id: "green", hex: "#22c55e" },
   { id: "teal", hex: "#14b8a6" },

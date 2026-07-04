@@ -86,6 +86,12 @@ importers:
       '@fontsource/geist-mono':
         specifier: 5.2.7
         version: 5.2.7
+      '@fontsource/jetbrains-mono':
+        specifier: 5.2.8
+        version: 5.2.8
+      '@fontsource/plus-jakarta-sans':
+        specifier: 5.2.8
+        version: 5.2.8
       '@fontsource/space-grotesk':
         specifier: 5.2.10
         version: 5.2.10
@@ -723,6 +729,12 @@ packages:
 
   '@fontsource/geist-mono@5.2.7':
     resolution: {integrity: sha512-xVPVFISJg/K0VVd+aQN0Y7X/sw9hUcJPyDWFJ5GpyU3bHELhoRsJkPSRSHXW32mOi0xZCUQDOaPj1sqIFJ1FGg==}
+
+  '@fontsource/jetbrains-mono@5.2.8':
+    resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
+
+  '@fontsource/plus-jakarta-sans@5.2.8':
+    resolution: {integrity: sha512-P5qE49fqdeD+7DXH1KBxmMPlB17LTz1zvBhFH0tFzfnYTKVJVyb0pR6plh0ZGXxcB+Oayb54FZZw3V42/DawTw==}
 
   '@fontsource/space-grotesk@5.2.10':
     resolution: {integrity: sha512-XNXEbT74OIITPqw2H6HXwPDp85fy43uxfBwFR5PU+9sLnjuLj12KlhVM9nZVN6q6dlKjkuN8JisW/OBxwxgUew==}
@@ -5265,6 +5277,10 @@ snapshots:
       levn: 0.4.1
 
   '@fontsource/geist-mono@5.2.7': {}
+
+  '@fontsource/jetbrains-mono@5.2.8': {}
+
+  '@fontsource/plus-jakarta-sans@5.2.8': {}
 
   '@fontsource/space-grotesk@5.2.10': {}
 

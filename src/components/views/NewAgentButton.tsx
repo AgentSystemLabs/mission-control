@@ -54,7 +54,7 @@ export function NewAgentButton({
           onClick={onConfigure}
           disabled={disabled}
           aria-label="Change session settings"
-          className="mc-btn-attached-left"
+          className="mc-btn-attached-left mc-btn-new-session-config"
           style={{ minWidth: 52, paddingInline: 0 }}
         />
       </Tooltip>

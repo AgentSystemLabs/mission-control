@@ -477,6 +477,29 @@ describe("settings API", () => {
     });
   });
 
+  it("persists the ember theme style and derives minimalTheme from it", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "ember" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "ember",
+      minimalTheme: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      themeStyle: "ember",
+      minimalTheme: true,
+    });
+  });
+
   it("rejects an unknown theme style", async () => {
     const response = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {

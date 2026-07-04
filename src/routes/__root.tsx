@@ -113,9 +113,10 @@ const useThemeLayoutEffect =
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
 var d=document.documentElement;
 var st=localStorage.getItem(${JSON.stringify(THEME_STYLE_CACHE_KEY)});
-if(st!=="painted"&&st!=="minimal"&&st!=="noir"){st=localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"?"minimal":"painted";}
+if(st!=="painted"&&st!=="minimal"&&st!=="noir"&&st!=="ember"){st=localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"?"minimal":"painted";}
 if(st!=="painted"){d.setAttribute("data-minimal","true");}
 if(st==="noir"){d.setAttribute("data-noir","true");}
+if(st==="ember"){d.setAttribute("data-ember","true");}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),

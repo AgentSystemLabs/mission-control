@@ -41,6 +41,7 @@ import {
   createTerminalOptions,
   createTerminalTheme,
   fitTerminalSurface,
+  getCurrentTerminalFont,
   getTerminalColorScheme,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
@@ -659,6 +660,13 @@ export function TerminalPane({
       };
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
+        // A theme with a bundled face (ember → JetBrains Mono) swaps the
+        // terminal font live; the glyph box changes, so refit to reflow.
+        const font = getCurrentTerminalFont();
+        if (term.options.fontFamily !== font) {
+          term.options.fontFamily = font;
+          fitTerminalSurface(term, fit);
+        }
       });
       const detachLinks = attachTerminalLinks(term);
 

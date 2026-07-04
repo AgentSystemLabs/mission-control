@@ -5,6 +5,19 @@ const DEFAULT_CURSOR_COLOR = "#ff5a1f";
 export const TERMINAL_FONT_FAMILY =
   'Geist Mono, ui-monospace, "SF Mono", Menlo, monospace';
 
+// Themes may bundle their own terminal face (ember → JetBrains Mono). The face
+// lives in a CSS var on <html> so the pre-hydration + CSS layers own it; xterm
+// reads the resolved string here since it can't take a var() directly.
+export function getCurrentTerminalFont(fallback = TERMINAL_FONT_FAMILY): string {
+  if (typeof document === "undefined" || typeof getComputedStyle === "undefined") {
+    return fallback;
+  }
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--mc-terminal-font")
+    .trim();
+  return raw || fallback;
+}
+
 export const TERMINAL_FONT_SIZE = 12;
 
 export type TerminalColorScheme = "dark" | "light";
@@ -129,10 +142,13 @@ export function watchTerminalColorScheme(
     const root = document.documentElement;
     const minimal = root.getAttribute("data-minimal") === "true" ? "1" : "0";
     const noir = root.getAttribute("data-noir") === "true" ? "1" : "0";
-    return `${minimal}${noir}`;
+    const ember = root.getAttribute("data-ember") === "true" ? "1" : "0";
+    return `${minimal}${noir}${ember}`;
   };
+  // Font is part of the key so switching to/from a theme with a bundled face
+  // (ember) re-fires and the consumer can restyle + refit the terminal.
   const currentKey = () =>
-    `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${styleFlags()}`;
+    `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${getCurrentTerminalFont()}:${styleFlags()}`;
   let previous = currentKey();
   const observer = new MutationObserver(() => {
     const next = currentKey();
@@ -142,7 +158,7 @@ export function watchTerminalColorScheme(
   });
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme", "data-minimal", "data-noir", "style"],
+    attributeFilter: ["data-theme", "data-minimal", "data-noir", "data-ember", "style"],
   });
   return () => observer.disconnect();
 }
@@ -157,7 +173,7 @@ export function createTerminalOptions({
   fontSize?: number;
 } = {}): ITerminalOptions {
   return {
-    fontFamily: TERMINAL_FONT_FAMILY,
+    fontFamily: getCurrentTerminalFont(),
     fontSize,
     // Keep xterm's default line height so multi-row ANSI art (OpenCode's
     // startup wordmark, box drawing, background fills) renders flush.
@@ -219,6 +235,64 @@ function restoreTerminalViewport(
   term.scrollToLine?.(snapshot.viewportY);
 }
 
+// Ember lets the terminal fill to the pane edge. xterm's FitAddon always
+// reserves the scrollbar width — `overviewRuler?.width || 14` = 14px — on the
+// right when scrollback is on, even though xterm 6's scrollbar is an overlay
+// that needs no gutter. That reserved 14px is the visible strip between the
+// terminal text and the pane edge. In ember we recompute cols reserving 0 so
+// the content reaches the edge (the overlay scrollbar floats over the last
+// column when it appears, which is fine); every other theme keeps the addon's
+// default. Mirrors FitAddon.proposeDimensions via the same internals, with a
+// fallback to the addon if those internals shift (e.g. an xterm upgrade).
+function fitFillingScrollbarGutter(
+  term: { cols: number; rows: number } & ScrollPreservingTerminal,
+  fit: { fit: () => void },
+): void {
+  const emberActive =
+    typeof document !== "undefined" &&
+    document.documentElement.getAttribute("data-ember") === "true";
+  if (!emberActive) {
+    fit.fit();
+    return;
+  }
+  const t = term as unknown as {
+    element?: HTMLElement;
+    resize?: (cols: number, rows: number) => void;
+    _core?: {
+      _renderService?: {
+        dimensions?: { css?: { cell?: { width?: number; height?: number } } };
+        clear?: () => void;
+      };
+    };
+  };
+  const cell = t._core?._renderService?.dimensions?.css?.cell;
+  const parent = t.element?.parentElement;
+  if (!cell?.width || !cell?.height || !parent || !t.resize) {
+    fit.fit();
+    return;
+  }
+  const ps = getComputedStyle(parent);
+  const es = getComputedStyle(t.element!);
+  const availH =
+    parseInt(ps.getPropertyValue("height")) -
+    (parseInt(es.getPropertyValue("padding-top")) +
+      parseInt(es.getPropertyValue("padding-bottom")));
+  const availW =
+    Math.max(0, parseInt(ps.getPropertyValue("width"))) -
+    (parseInt(es.getPropertyValue("padding-right")) +
+      parseInt(es.getPropertyValue("padding-left")));
+  const cols = Math.max(2, Math.floor(availW / cell.width));
+  const rows = Math.max(1, Math.floor(availH / cell.height));
+  if (Number.isNaN(cols) || Number.isNaN(rows)) {
+    fit.fit();
+    return;
+  }
+  if (term.cols !== cols || term.rows !== rows) {
+    t._core?._renderService?.clear?.();
+    t.resize(cols, rows);
+  }
+}
+
 export function fitTerminalSurface(
   term: {
     cols: number;
@@ -229,7 +303,7 @@ export function fitTerminalSurface(
 ): void {
   const viewport = captureTerminalViewport(term);
   try {
-    fit.fit();
+    fitFillingScrollbarGutter(term, fit);
   } catch {
     /* container not measured yet */
   }

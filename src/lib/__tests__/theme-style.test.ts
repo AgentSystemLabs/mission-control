@@ -70,6 +70,14 @@ describe("theme-style", () => {
     expect(mod.readCachedThemeStyle()).toBe("noir");
   });
 
+  it("caches ember and mirrors the legacy flag on", async () => {
+    const mod = await import("../theme-style");
+    mod.applyThemeStyle("ember");
+    expect(storage.store.get(mod.THEME_STYLE_CACHE_KEY)).toBe("ember");
+    expect(storage.store.get(mod.MINIMAL_CACHE_KEY)).toBe("1");
+    expect(mod.readCachedThemeStyle()).toBe("ember");
+  });
+
   it("caches painted and mirrors the legacy flag off", async () => {
     const mod = await import("../theme-style");
     mod.applyThemeStyle("minimal");

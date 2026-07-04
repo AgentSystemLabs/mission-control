@@ -22,7 +22,8 @@ import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { useTerminals, type OpenTerminal } from "~/lib/terminal-store";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import { queryKeys } from "~/queries";
+import { readCachedThemeStyle } from "~/lib/theme-style";
+import { queryKeys, useSettings } from "~/queries";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { worktreeScopeKey } from "~/shared/worktrees";
 import { TerminalPane } from "./TerminalPane";
@@ -305,6 +306,9 @@ type GridCellProps = {
   isNavSelected: boolean;
   navActive: boolean;
   reorderEnabled: boolean;
+  /** Grid outer padding (0 in the flush ember layout) — the expanded cell
+   *  insets by this to cover the grid content box exactly. */
+  gridPadding: number;
   onToggleExpanded: (taskId: string) => void;
   onRequestClose: (session: OpenTerminal) => void;
   onPtyReady: (taskId: string, ptyId: string | null, scopeKey: string) => void;
@@ -326,6 +330,7 @@ const GridCell = memo(function GridCell({
   isNavSelected,
   navActive,
   reorderEnabled,
+  gridPadding,
   onToggleExpanded,
   onRequestClose,
   onPtyReady,
@@ -344,7 +349,7 @@ const GridCell = memo(function GridCell({
         // The expanded cell floats above its (hidden) row-mates and every other
         // row, covering the whole grid content box. Because the row containers
         // are non-positioned, `inset` resolves against the positioned grid.
-        ...(expanded ? { position: "absolute" as const, inset: GRID_PADDING } : null),
+        ...(expanded ? { position: "absolute" as const, inset: gridPadding } : null),
         overflow: "hidden",
         // A cell hidden behind an expanded sibling keeps its grid slot (and pixel
         // size — so its terminal never refits), it's just not painted or hit.
@@ -358,8 +363,10 @@ const GridCell = memo(function GridCell({
         outlineOffset: isDragging || isFocused || isNavSelected ? -2 : undefined,
         // The expanded cell floats above its (hidden) siblings; while held, a card
         // floats with a lift shadow as it tracks the pointer; the nav selection
-        // sits above its dimmed neighbours so its ring/glow isn't clipped.
-        zIndex: expanded ? 8 : isDragging ? 5 : isNavSelected ? 4 : undefined,
+        // sits above its dimmed neighbours so its ring/glow isn't clipped. A
+        // focused cell lifts one step so its accent border + drop shadow read
+        // over flush neighbours (the ember layout has no gap between cells).
+        zIndex: expanded ? 8 : isDragging ? 5 : isNavSelected ? 4 : isFocused ? 3 : undefined,
         boxShadow: isDragging
           ? "0 16px 40px rgba(0, 0, 0, 0.5)"
           : isFocused || isNavSelected
@@ -421,6 +428,15 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
   const { bindings } = useKeybindings();
+  const { data: settings } = useSettings();
+  // Ember lays panes out flush + square: no gap between cells, no outer
+  // padding. Every other theme keeps the spacious 8px grid. Fall back to the
+  // cached style so first paint matches before settings hydrate. The divider
+  // hit-area (HANDLE_HIT) stays a grabbable 8px, centred on the 0-width seam.
+  const flushLayout =
+    (settings?.themeStyle ?? readCachedThemeStyle()) === "ember";
+  const gridGap = flushLayout ? 0 : GRID_GAP;
+  const gridPad = flushLayout ? 0 : GRID_PADDING;
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   // Task whose cell is momentarily spotlighted after a notification "Open".
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
@@ -907,25 +923,25 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   const totalRowFr = layout.rowSizes.reduce((a, b) => a + b, 0) || 1;
   const availH = Math.max(
     0,
-    gridSize.height - GRID_PADDING * 2 - Math.max(0, layout.rows.length - 1) * GRID_GAP,
+    gridSize.height - gridPad * 2 - Math.max(0, layout.rows.length - 1) * gridGap,
   );
   // Pixel top/height of a row's band (for the per-row column divider handles).
   const rowBand = useCallback(
     (rowIndex: number): { top: number; height: number } => {
       let accFrac = 0;
       for (let k = 0; k < rowIndex; k++) accFrac += (layout.rowSizes[k] ?? 0) / totalRowFr;
-      const top = GRID_PADDING + accFrac * availH + rowIndex * GRID_GAP;
+      const top = gridPad + accFrac * availH + rowIndex * gridGap;
       const height = ((layout.rowSizes[rowIndex] ?? 0) / totalRowFr) * availH;
       return { top, height };
     },
-    [layout.rowSizes, totalRowFr, availH],
+    [layout.rowSizes, totalRowFr, availH, gridPad, gridGap],
   );
   // Horizontal pixel space a row's column tracks share (every row spans the full
   // grid width, so this only depends on the cell count).
   const rowAvailW = useCallback(
     (cellCount: number): number =>
-      Math.max(0, gridSize.width - GRID_PADDING * 2 - Math.max(0, cellCount - 1) * GRID_GAP),
-    [gridSize.width],
+      Math.max(0, gridSize.width - gridPad * 2 - Math.max(0, cellCount - 1) * gridGap),
+    [gridSize.width, gridPad, gridGap],
   );
   const resizeEnabled =
     !expandedTaskId && !dragLayout && visibleSessions.length > 1 && gridSize.width > 0;
@@ -936,9 +952,9 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
       const total = sizes.reduce((a, b) => a + b, 0) || 1;
       let before = 0;
       for (let k = 0; k <= index; k++) before += sizes[k] ?? 0;
-      return GRID_PADDING + (before / total) * avail + index * GRID_GAP + GRID_GAP / 2;
+      return gridPad + (before / total) * avail + index * gridGap + gridGap / 2;
     },
-    [],
+    [gridPad, gridGap],
   );
 
   // Drag a divider: move the boundary between two tracks, scaling each side's
@@ -1493,8 +1509,8 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
           gridTemplateColumns: "minmax(0, 1fr)",
           gridTemplateRows:
             viewRows.map((r) => `minmax(0, ${r.fr}fr)`).join(" ") || "minmax(0, 1fr)",
-          gap: GRID_GAP,
-          padding: GRID_PADDING,
+          gap: gridGap,
+          padding: gridPad,
           overflow: "hidden",
         }}
       >
@@ -1505,7 +1521,7 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
             style={{
               display: "grid",
               gridTemplateColumns: row.cells.map((c) => `minmax(0, ${c.fr}fr)`).join(" "),
-              gap: GRID_GAP,
+              gap: gridGap,
               minWidth: 0,
               minHeight: 0,
             }}
@@ -1527,6 +1543,7 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
                   isNavSelected={navTaskId === session.taskId}
                   navActive={navActive}
                   reorderEnabled={reorderEnabled}
+                  gridPadding={gridPad}
                   onToggleExpanded={toggleExpanded}
                   onRequestClose={requestClose}
                   onPtyReady={setPtyId}
@@ -1546,8 +1563,8 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
                 style={{
                   position: "absolute",
                   top: dividerOffset(layout.rowSizes, availH, i),
-                  left: GRID_PADDING,
-                  right: GRID_PADDING,
+                  left: gridPad,
+                  right: gridPad,
                   height: HANDLE_HIT,
                   transform: "translateY(-50%)",
                   cursor: "row-resize",

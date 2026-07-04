@@ -82,13 +82,26 @@ export function ThemeSettingsPage() {
 
   const setThemeStyle = async (next: ThemeStyle) => {
     const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    // Ember is built around its warm terracotta accent (sampled from the
+    // reference) — default it out of the box; the user can still pick any
+    // accent afterward and it sticks.
+    const nextAccent =
+      next === "ember" && accentColor !== "terracotta"
+        ? ("terracotta" as AccentColorId)
+        : accentColor;
+    if (nextAccent !== accentColor) applyAccentColor(nextAccent);
     const optimistic = optimisticSettings({
       themeStyle: next,
       minimalTheme: next !== "painted",
+      accentColor: nextAccent,
     });
     queryClient.setQueryData(queryKeys.settings, optimistic);
     try {
-      const updated = await api.updateSettings({ themeStyle: next });
+      const updated = await api.updateSettings(
+        nextAccent !== accentColor
+          ? { themeStyle: next, accentColor: nextAccent }
+          : { themeStyle: next },
+      );
       queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
     } catch (error) {
       if (previous) queryClient.setQueryData(queryKeys.settings, previous);
@@ -99,7 +112,7 @@ export function ThemeSettingsPage() {
   return (
     <SettingsSection
       title="Theme"
-      subtitle="Pick the chrome Mission Control wears: painted pixel art, clean minimal, or flat noir."
+      subtitle="Pick the chrome Mission Control wears: painted pixel art, clean minimal, flat noir, or warm ember."
       headingLevel="h1"
     >
       <Field label="Theme style">
@@ -137,6 +150,12 @@ const THEME_STYLE_OPTIONS: Array<{
     label: "Noir",
     description:
       "Flat near-black surfaces with hairline dividers. Borders only where they mean something.",
+  },
+  {
+    value: "ember",
+    label: "Ember",
+    description:
+      "Warm sepia near-black with edge-to-edge square panes and a clearer bundled mono. The focused session glows.",
   },
 ];
 
