@@ -128,9 +128,9 @@ function UsageSegment({ label, window }: { label: string; window: ClaudeUsageWin
   );
 }
 
-/** Green under 70%, amber 70–85%, red at/above 85% — theme-aware status colors. */
+/** Green under 70%, amber 70–90%, red at/above 90% — theme-aware status colors. */
 function usageColor(pct: number): string {
-  if (pct >= 85) return "var(--status-failed)";
+  if (pct >= 90) return "var(--status-failed)";
   if (pct >= 70) return "var(--status-warning)";
   return "var(--status-done)";
 }
