@@ -36,9 +36,20 @@ const TAP_BASENAME = "statusline-tap.sh";
 // STALE-WRITE GUARD: every live session reruns the statusline on its refresh
 // interval, but an idle session replays the headers of its LAST API response
 // forever. With several sessions open, naive last-writer-wins makes the cache
-// flap between snapshots that are hours apart. So a write is skipped when its
-// session window has already reset, when the cache holds a newer window, or
-// when it would move utilization backwards within the same window.
+// flap between snapshots that are hours apart. Guards, in order:
+//   1. liveness — a session whose transcript hasn't changed in 10 min is idle;
+//      its replayed data never writes (missing transcript_path fails open).
+//   2. expired window — data whose session window already reset is junk.
+//   3. account stamp — the cache records which Claude account (accountUuid in
+//      ~/.claude.json) was logged in at write time. After /login the stamps
+//      differ, and the fresh account's write wins unconditionally; the
+//      monotonicity rules below only compare windows of the SAME account
+//      (a new login legitimately reports lower utilization + earlier resets).
+//   4. window monotonicity — within one window (identical resets_at)
+//      utilization only ever grows. Two DIFFERENT unexpired windows under the
+//      same stamp can only mean mixed tokens right after a login switch (a
+//      real account never has two live 5h windows), so there the last live
+//      writer wins and the flicker resolves as old sessions refresh tokens.
 const TAP_PYTHON = `
 import json, os, sys, tempfile, datetime
 
@@ -66,26 +77,44 @@ def window(w):
         iso = r
     return {"utilization": u, "resets_at": iso}
 
-def is_stale(fh, now):
+def current_account():
+    try:
+        with open(os.path.expanduser("~/.claude.json")) as f:
+            acct = (json.load(f).get("oauthAccount") or {}).get("accountUuid")
+        return acct if isinstance(acct, str) and acct else None
+    except Exception:
+        return None
+
+def session_idle(payload, now):
+    tp = payload.get("transcript_path")
+    if not isinstance(tp, str) or not tp:
+        return False  # no liveness signal: fail open, later guards still apply
+    try:
+        age = now.timestamp() - os.stat(tp).st_mtime
+    except Exception:
+        return False
+    return age > 600
+
+def is_stale(fh, now, acct):
     ra = parse_iso(fh.get("resets_at")) if fh else None
     if ra is not None and ra < now - datetime.timedelta(seconds=60):
-        return True  # session window already reset: this reporter is idle
+        return True  # session window already reset: replayed data
     try:
         cur = json.load(open(CACHE))
     except Exception:
         return False
+    if cur.get("account") != acct:
+        return False  # different login (or unstamped cache): fresh write wins
     cfh = cur.get("five_hour") or {}
     cra = parse_iso(cfh.get("resets_at"))
     if cra is None:
         return False
     if ra is None:
         return cra > now  # cache has a live window; unknown-window data loses
-    if cra > ra:
-        return True  # cache already holds a newer window
     cu = cfh.get("utilization")
     if cra == ra and isinstance(cu, (int, float)) and fh and fh["utilization"] < cu:
         return True  # same window: utilization only ever grows
-    return False
+    return False  # different unexpired windows: mixed tokens, last writer wins
 
 try:
     payload = json.load(sys.stdin)
@@ -97,10 +126,12 @@ try:
     fh = window(rl.get("five_hour"))
     sd = window(rl.get("seven_day"))
     now = datetime.datetime.now(datetime.timezone.utc)
-    if (fh or sd) and not is_stale(fh, now):
+    acct = current_account()
+    if (fh or sd) and not session_idle(payload, now) and not is_stale(fh, now, acct):
         out = {
             "five_hour": fh,
             "seven_day": sd,
+            "account": acct,
             "source": "statusline",
             "written_at": now.isoformat(),
         }
@@ -123,11 +154,15 @@ except Exception:
 `.trim();
 
 /**
- * Bump the version comment whenever the script body changes; the installer
- * compares full file content, so this mostly documents intent for humans.
+ * Bump on EVERY script change. The installer only overwrites an on-disk tap
+ * whose version is <= this one, so an app running older code (the packaged
+ * build vs a newer dev build, or a not-yet-restarted process) can never stomp
+ * a newer script back to an old version on every session spawn.
  */
+export const STATUSLINE_TAP_VERSION = 4;
+
 export const STATUSLINE_TAP_SCRIPT = `#!/bin/sh
-# Mission Control statusline tap v2 (managed - safe to delete; Mission Control reinstalls it).
+# Mission Control statusline tap v${STATUSLINE_TAP_VERSION} (managed - safe to delete; Mission Control reinstalls it).
 # Tees Claude Code's rate_limits from the statusline payload into a shared cache
 # (~/.cache/claude-limits/limits.json), then chains your own statusline command
 # from ~/.claude/settings.json so the visible statusline is unchanged.
@@ -159,22 +194,29 @@ function readUserStatusLine(homedir: string): StatusLineConfig | null {
   }
 }
 
+function readTapVersion(content: string): number {
+  const m = content.match(/statusline tap v(\d+)/);
+  return m ? Number.parseInt(m[1], 10) : 0;
+}
+
 /** Write (or refresh) the tap script under ~/.claude/mission-control. */
-export function ensureStatuslineTapScript(): string | null {
+export function ensureStatuslineTapScript(tapPath: string = STATUSLINE_TAP_PATH): string | null {
   try {
     let current: string | null = null;
     try {
-      current = fs.readFileSync(STATUSLINE_TAP_PATH, "utf8");
+      current = fs.readFileSync(tapPath, "utf8");
     } catch {
       /* first install */
     }
+    // Never downgrade: another (newer) app build owns the script on disk.
+    if (current !== null && readTapVersion(current) > STATUSLINE_TAP_VERSION) return tapPath;
     if (current !== STATUSLINE_TAP_SCRIPT) {
-      fs.mkdirSync(TAP_DIR, { recursive: true });
-      fs.writeFileSync(STATUSLINE_TAP_PATH, STATUSLINE_TAP_SCRIPT, { mode: 0o755 });
+      fs.mkdirSync(path.dirname(tapPath), { recursive: true });
+      fs.writeFileSync(tapPath, STATUSLINE_TAP_SCRIPT, { mode: 0o755 });
     }
     // An earlier install may predate the mode option taking effect on rewrite.
-    fs.chmodSync(STATUSLINE_TAP_PATH, 0o755);
-    return STATUSLINE_TAP_PATH;
+    fs.chmodSync(tapPath, 0o755);
+    return tapPath;
   } catch {
     return null;
   }

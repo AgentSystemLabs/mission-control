@@ -3,7 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { installManagedStatusLine, STATUSLINE_TAP_SCRIPT } from "../statusline-tap";
+import {
+  ensureStatuslineTapScript,
+  installManagedStatusLine,
+  STATUSLINE_TAP_SCRIPT,
+  STATUSLINE_TAP_VERSION,
+} from "../statusline-tap";
 
 let tmpDir: string;
 let cwd: string;
@@ -185,6 +190,96 @@ describe("statusline tap installer", () => {
 
     const cache = JSON.parse(fs.readFileSync(cacheFile(), "utf8"));
     expect(cache.five_hour.utilization).toBe(5);
+  });
+
+  function writeClaudeJson(accountUuid: string): void {
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(
+      path.join(home, ".claude.json"),
+      JSON.stringify({ oauthAccount: { accountUuid } }),
+      "utf8",
+    );
+  }
+
+  it("a login switch overwrites the cache even at lower utilization and earlier reset", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
+
+    writeClaudeJson("account-old");
+    runTap({ rate_limits: { five_hour: { used_percentage: 99, resets_at: futureReset + 3000 } } });
+    expect(JSON.parse(fs.readFileSync(cacheFile(), "utf8")).five_hour.utilization).toBe(99);
+
+    // /login to a different account: lower utilization AND an earlier reset —
+    // both monotonicity rules would reject this, the account stamp must win.
+    writeClaudeJson("account-new");
+    runTap({ rate_limits: { five_hour: { used_percentage: 4, resets_at: futureReset } } });
+
+    const cache = JSON.parse(fs.readFileSync(cacheFile(), "utf8"));
+    expect(cache.five_hour.utilization).toBe(4);
+    expect(cache.account).toBe("account-new");
+  });
+
+  it("same-stamp window conflict (mixed tokens after /login): last live writer wins", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
+
+    writeClaudeJson("account-new");
+    // A not-yet-refreshed session replays the OLD account's still-unexpired
+    // window (later reset), stamped with the new login...
+    runTap({ rate_limits: { five_hour: { used_percentage: 13, resets_at: futureReset + 3000 } } });
+    // ...then the genuinely-new-account session reports its earlier window.
+    runTap({ rate_limits: { five_hour: { used_percentage: 4, resets_at: futureReset } } });
+
+    expect(JSON.parse(fs.readFileSync(cacheFile(), "utf8")).five_hour.utilization).toBe(4);
+  });
+
+  it("skips writes from sessions whose transcript has gone idle", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
+
+    const transcript = path.join(tmpDir, "session.jsonl");
+    fs.writeFileSync(transcript, "{}", "utf8");
+    const old = new Date(Date.now() - 3600_000);
+    fs.utimesSync(transcript, old, old);
+
+    runTap({
+      transcript_path: transcript,
+      rate_limits: { five_hour: { used_percentage: 14, resets_at: futureReset } },
+    });
+
+    expect(fs.existsSync(cacheFile())).toBe(false);
+  });
+
+  it("accepts writes from sessions with a recently active transcript", () => {
+    if (process.platform === "win32" || !hasPython3()) return;
+
+    const transcript = path.join(tmpDir, "session.jsonl");
+    fs.writeFileSync(transcript, "{}", "utf8");
+
+    runTap({
+      transcript_path: transcript,
+      rate_limits: { five_hour: { used_percentage: 21, resets_at: futureReset } },
+    });
+
+    expect(JSON.parse(fs.readFileSync(cacheFile(), "utf8")).five_hour.utilization).toBe(21);
+  });
+
+  it("writes the script on first install and refreshes same-version drift", () => {
+    const target = path.join(tmpDir, "tap-install", "statusline-tap.sh");
+
+    expect(ensureStatuslineTapScript(target)).toBe(target);
+    expect(fs.readFileSync(target, "utf8")).toBe(STATUSLINE_TAP_SCRIPT);
+
+    fs.writeFileSync(target, `# Mission Control statusline tap v${STATUSLINE_TAP_VERSION} drift`);
+    ensureStatuslineTapScript(target);
+    expect(fs.readFileSync(target, "utf8")).toBe(STATUSLINE_TAP_SCRIPT);
+  });
+
+  it("never downgrades a newer on-disk script (older app build still running)", () => {
+    const target = path.join(tmpDir, "tap-install", "statusline-tap.sh");
+    const newer = `#!/bin/sh\n# Mission Control statusline tap v${STATUSLINE_TAP_VERSION + 1} (managed)\n`;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, newer);
+
+    expect(ensureStatuslineTapScript(target)).toBe(target);
+    expect(fs.readFileSync(target, "utf8")).toBe(newer);
   });
 
   it("tap script chains the user statusline and never uses ${...} interpolation pitfalls", () => {
