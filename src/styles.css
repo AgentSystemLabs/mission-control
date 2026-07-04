@@ -802,6 +802,16 @@ select,
   border: 2px solid transparent;
 }
 
+/* Focus Mode session bar: scrolls horizontally without a visible scrollbar so
+   the compact tab strip stays clean. Wheel-to-horizontal is wired in JS. */
+.mc-focus-tabs {
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+.mc-focus-tabs::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;

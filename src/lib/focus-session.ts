@@ -47,6 +47,20 @@ export function resolveReturnPath(stored: string | null): string {
   return stored;
 }
 
+/**
+ * Switch the focused session in place. The floating window is never recreated —
+ * only the route param changes, so the header/session-bar re-render and the
+ * TerminalPane re-keys onto the new session (its xterm surface is cached, so
+ * the swap is instant with no scrollback replay). `enter` is idempotent on the
+ * main process: it just updates which taskId the floating window is showing.
+ */
+export function switchFocusSession(router: FocusRouterLike, taskId: string): void {
+  if (typeof window === "undefined") return;
+  setPendingRefocus(taskId);
+  void router.navigate({ to: "/focus/$taskId", params: { taskId } });
+  void getElectron()?.focusMode.enter(taskId);
+}
+
 export function enterFocusSession(router: FocusRouterLike, taskId: string): void {
   if (typeof window === "undefined") return;
   if (!isFocusPath(router.state.location.pathname)) {

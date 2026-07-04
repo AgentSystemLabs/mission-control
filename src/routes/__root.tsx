@@ -553,8 +553,12 @@ function Shell() {
     // Only the focus route renders: no #root (skips the shell padding /
     // painted frame), no TopBar/ProjectBar/panels/drag-strip. All Shell hooks
     // above keep running so notifications for other sessions stay alive.
+    // `data-navigation-swipe-blocker` opts the whole focus window out of the
+    // global back/forward swipe (useNavigationSwipe): a two-finger horizontal
+    // swipe here scrolls the session bar's tabs, it must never navigate away.
     return (
       <div
+        data-navigation-swipe-blocker
         style={{
           height: "100vh",
           display: "flex",
