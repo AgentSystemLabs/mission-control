@@ -60,6 +60,11 @@ type Ctx = {
   ) => void;
   /** Deselect the active card for `projectId` and hide the panel without killing the PTY. */
   deselect: (projectId: string) => void;
+  /** Mark an already-open session as the active one for its scope, without
+   *  materializing or mutating the session. Focus mode uses it so switching the
+   *  focused tab also moves the scope's active selection — exiting then restores
+   *  the default view onto the session that was on screen while floating. */
+  setActiveSession: (project: ScopedProject, taskId: string) => void;
   /** Tell root-level panel lookup which worktree scope is currently visible for a project. */
   setVisibleScope: (projectId: string, scopeKey: string | null) => void;
   /** Materialize a session entry from a persisted taskId after reload, if not already present. */
@@ -645,6 +650,13 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setActiveSession = useCallback((project: ScopedProject, taskId: string) => {
+    const scopeKey = scopeKeyForProject(project);
+    setActiveByProject((prev) =>
+      prev[scopeKey] === taskId ? prev : { ...prev, [scopeKey]: taskId }
+    );
+  }, []);
+
   const adoptTaskId = useCallback((fromTaskId: string, task: Task) => {
     // Record the id swap so views keyed by taskId (e.g. the grid order) can
     // follow the session in place instead of treating it as a fresh add.
@@ -921,6 +933,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       toggle,
       openSession,
       deselect,
+      setActiveSession,
       setVisibleScope,
       rehydrate,
       close,
@@ -950,6 +963,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       toggle,
       openSession,
       deselect,
+      setActiveSession,
       setVisibleScope,
       rehydrate,
       close,

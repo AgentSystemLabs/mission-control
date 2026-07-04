@@ -88,9 +88,43 @@ function FocusSessionPage() {
     [terminals.sessions, currentProjectId],
   );
 
+  // Latest grid state, read through a ref so the exit callback (which feeds the
+  // stable close-intent + hotkey subscriptions) doesn't churn on every store
+  // update.
+  const gridStateRef = useRef({
+    gridView: terminals.gridView,
+    focusGridSession: terminals.focusGridSession,
+  });
+  gridStateRef.current = {
+    gridView: terminals.gridView,
+    focusGridSession: terminals.focusGridSession,
+  };
+
   const exit = useCallback(() => {
+    // Grid view marks the "active" session by which cell holds the caret + accent
+    // ring (its `focusedTaskId`), NOT by the stored active-session that drives the
+    // panel view (synced by the effect below). So on the way out, ask the grid to
+    // spotlight the tab we're leaving on: the request lives in the terminal store,
+    // survives the route swap, and the grid's spotlight effect consumes it on
+    // mount — its retry poll re-asserts focus + ring across the progressive cell
+    // remount, which the single-shot pending-refocus silently misses.
+    const { gridView, focusGridSession } = gridStateRef.current;
+    if (gridView) focusGridSession(taskId);
     void exitFocusSession(router, taskId);
   }, [router, taskId]);
+
+  // Keep the panel view's active session in step with the focused tab. Every way
+  // the focused session changes here — bar click, cycle hotkey — lands on a new
+  // `session`; recording it as active for its scope means exiting focus mode
+  // restores the panel view onto the session that was on screen while floating,
+  // not the one focus mode was originally opened from. (Grid view is handled by
+  // the spotlight request in `exit` above.) The project route is unmounted while
+  // floating, so this only takes visible effect on exit.
+  const setActiveSession = terminals.setActiveSession;
+  useEffect(() => {
+    if (!session) return;
+    setActiveSession(session.project, session.taskId);
+  }, [session, setActiveSession]);
 
   // The session disappearing from the store (archived, killed, failed
   // revalidation — from any surface) is the one signal to leave focus mode.
