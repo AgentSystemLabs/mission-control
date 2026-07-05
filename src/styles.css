@@ -2112,11 +2112,14 @@ body[data-card-glow] .cursor-glow {
      to ~1.27:1 against surface-0 — invisible). */
   --border: rgba(236, 224, 202, 0.15);
   --border-strong: rgba(236, 224, 202, 0.3);
-  /* Cream text ladder, tuned for the lifted surfaces: dim holds ≥4.5:1 up
-     through surface-2, faint holds ≥3:1 on surface-1. */
+  /* Cream text ladder, lifted a step for legibility on the mid-gray ground.
+     dim now holds ≥7:1 on surface-0 and ≥6:1 through surface-2; faint clears
+     AA (≥4.8:1 on surface-0/1) — the old #8c8274 faint fell to ~3.4:1 on the
+     card surfaces where timestamps, tab counts and section counts sit, so it
+     read muddy. Both stay clearly below --text to keep the tier hierarchy. */
   --text: #e9e3d5;
-  --text-dim: #b6ac9c;
-  --text-faint: #8c8274;
+  --text-dim: #c6bca8;
+  --text-faint: #a89e8c;
   /* Flat warm terminal canvas — matches the sampled ~#2d2d2d ground. */
   --terminal-bg: #2b2a27;
 
@@ -2197,6 +2200,17 @@ body[data-card-glow] .cursor-glow {
    !important. */
 [data-ember="true"] .mc-project-header {
   padding: 6px 20px !important;
+}
+
+/* Pinned-project hotkey badge (1, 2, …). The component's inline chip is
+   surface-3 (#4a463f) — a mid warm gray only ~2.4:1 under the light faint
+   digit, so the number reads muddy on the warm ground. Drop the chip to the
+   near-black ground with a crisper hairline so the light digit sits in a
+   defined dark notch and pops (~4:1). Inline styles, so !important. */
+[data-ember="true"] .mc-project-hotkey-badge {
+  background: var(--bg) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text-dim) !important;
 }
 
 /* Session grid, focused cell: the active window in the reference — a solid
