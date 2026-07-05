@@ -15,6 +15,7 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { Modal } from "~/components/ui/Modal";
+import { SessionIcon } from "~/components/ui/SessionIcon";
 import { TextField } from "~/components/ui/TextField";
 import { EscTooltip, HotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
 import { Z_INDEX } from "~/lib/z-index";
@@ -31,6 +32,7 @@ import {
   type VoicePasteToFocusedSessionDetail,
 } from "~/lib/voice-events";
 import { consumeIntentionalSessionClose } from "~/lib/intentional-session-close";
+import { DEFAULT_SESSION_ICON, isSessionIcon } from "~/lib/session-icons";
 import { isRemotePtyId } from "~/lib/pty-id";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import {
@@ -462,6 +464,7 @@ export function TerminalPane({
   const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
+  const sessionIcon = isSessionIcon(liveTask.icon) ? liveTask.icon : DEFAULT_SESSION_ICON;
   const tasksKey = queryKeys.tasks(
     project.id,
     project.activeWorktreeId ?? null,
@@ -1437,6 +1440,29 @@ export function TerminalPane({
           touchAction: onHeaderPointerDown ? "none" : undefined,
         }}
       >
+        {/* Session icon chip — a miniature of the TaskCard tile. In the tiny
+            tier the title text is gone, so the chip is the cell's only identity
+            marker (the title moves to its tooltip); below micro it yields the
+            last few pixels to the "…" menu. */}
+        {!microHeader && (
+          <div
+            title={tinyHeader ? liveTask.title : undefined}
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 7,
+              flexShrink: 0,
+              background: "linear-gradient(180deg, var(--surface-2), var(--surface-1))",
+              border: "1px solid var(--border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--text-dim)",
+            }}
+          >
+            <SessionIcon name={sessionIcon} size={13} strokeWidth={1.6} />
+          </div>
+        )}
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
           {!tinyHeader && (
             <>
