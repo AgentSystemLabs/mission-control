@@ -1886,19 +1886,21 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session:focus-visible {
   box-shadow: var(--mm-ring);
 }
-/* The settings gear attached to a New session button (the "remembered agent"
-   split) is a ghost button, so on its own it has no border — leaving the
-   outline pill open on the right. Give it the same accent outline so the two
-   read as one closed, continuous pill. `border-color` only (not the `border`
-   shorthand) so the attached-left rule's `border-left: none` still forms the
-   seamless middle seam. */
-[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config {
+/* The ghost segments attached to a New session button (the settings gear and
+   the grid-only new-row segment) have only the dim default ghost border —
+   leaving the outline pill visually open. Give them the same accent outline so
+   the cluster reads as one closed, continuous pill. `border-color` only (not
+   the `border` shorthand) so the attached-left/right rules' `border-*: none`
+   still form the seamless middle seams. */
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row {
   background: transparent;
   border-color: color-mix(in srgb, var(--accent) 48%, transparent);
   color: var(--accent);
   box-shadow: none;
 }
-[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config:hover {
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config:hover,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row:hover {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-color: color-mix(in srgb, var(--accent) 64%, transparent);
 }

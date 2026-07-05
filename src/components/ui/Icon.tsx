@@ -9,6 +9,7 @@ export type IconName =
   | "search"
   | "grid"
   | "list"
+  | "row-plus"
   | "folder"
   | "file"
   | "terminal"
@@ -87,6 +88,8 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       );
     case "list":
       return <svg {...common}><path d="M2 4h12M2 8h12M2 12h12" /></svg>;
+    case "row-plus":
+      return <svg {...common}><path d="M2 4h12M2 8h12M2 12h5" /><path d="M11.5 10v4M9.5 12h4" /></svg>;
     case "folder":
       return (
         <svg {...common}>

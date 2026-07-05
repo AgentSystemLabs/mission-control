@@ -20,6 +20,7 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "terminal.cyclePrev": makeBinding({ mod: true, key: "[" }),
   "session.closeWindow": makeBinding({ mod: true, key: "w" }),
   "session.clone": makeBinding({ mod: true, shift: true, key: "d" }),
+  "session.newRow": makeBinding({ mod: true, key: "d" }),
   "session.cycleNext": makeBinding({ mod: true, shift: true, key: "]" }),
   "session.cyclePrev": makeBinding({ mod: true, shift: true, key: "[" }),
   "session.gridNavigate": makeBinding({ mod: true, shift: true, key: "g" }),

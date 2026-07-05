@@ -14,6 +14,7 @@ export const HOTKEY_ACTIONS = [
   "terminal.cyclePrev",
   "session.closeWindow",
   "session.clone",
+  "session.newRow",
   "session.cycleNext",
   "session.cyclePrev",
   "session.gridNavigate",
@@ -62,6 +63,11 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
       "Archive the open session (no confirmation). If it is already archived, permanently delete it instead.",
   },
   "session.clone": { label: "Clone session", description: "Duplicate the active agent session with the same settings." },
+  "session.newRow": {
+    label: "New session in new row",
+    description:
+      "In grid view, start a new session in a fresh row at the bottom of the grid instead of beside the active session.",
+  },
   "session.cycleNext": { label: "Next session", description: "Cycle to the next open session in the panel." },
   "session.cyclePrev": { label: "Previous session", description: "Cycle to the previous open session in the panel." },
   "session.gridNavigate": {
