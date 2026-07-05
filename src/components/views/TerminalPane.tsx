@@ -119,7 +119,11 @@ import {
   type PtyReplaySnapshot,
   type SequencedPtyData,
 } from "~/lib/terminal-replay";
-import { queryKeys, useTasks } from "~/queries";
+import { queryKeys, useSettings, useTasks } from "~/queries";
+import {
+  DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
+  type SessionHeaderButtonVisibility,
+} from "~/shared/session-header-buttons";
 import { terminalSurfaceIdForProject, useTerminalActions } from "~/lib/terminal-store";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
@@ -188,6 +192,7 @@ function HeaderMoreMenu({
   expanded,
   onToggleExpanded,
   onHide,
+  buttons,
   onRename,
   onClone,
   onFocusMode,
@@ -207,6 +212,8 @@ function HeaderMoreMenu({
   onToggleExpanded?: () => void;
   /** Present only when the close control was also collapsed into the menu. */
   onHide?: () => void;
+  /** Which discretionary actions the user has chosen to show (mirrors the header). */
+  buttons: SessionHeaderButtonVisibility;
   onRename: () => void;
   onClone: () => void;
   onFocusMode: () => void;
@@ -332,21 +339,31 @@ function HeaderMoreMenu({
                 <DropdownMenuSeparator />
               </>
             )}
-            <DropdownMenuItem icon="pencil" onClick={() => pick(onRename)}>
-              Rename session
-            </DropdownMenuItem>
-            <DropdownMenuItem icon="zoom-out" disabled={!canZoomOut} onClick={onZoomOut}>
-              Zoom out
-            </DropdownMenuItem>
-            <DropdownMenuItem icon="zoom-in" disabled={!canZoomIn} onClick={onZoomIn}>
-              Zoom in
-            </DropdownMenuItem>
-            <DropdownMenuItem icon="copy" onClick={() => pick(onClone)}>
-              Clone session
-            </DropdownMenuItem>
-            <DropdownMenuItem icon="pin" onClick={() => pick(onFocusMode)}>
-              Focus session
-            </DropdownMenuItem>
+            {buttons.rename && (
+              <DropdownMenuItem icon="pencil" onClick={() => pick(onRename)}>
+                Rename session
+              </DropdownMenuItem>
+            )}
+            {buttons.zoom && (
+              <>
+                <DropdownMenuItem icon="zoom-out" disabled={!canZoomOut} onClick={onZoomOut}>
+                  Zoom out
+                </DropdownMenuItem>
+                <DropdownMenuItem icon="zoom-in" disabled={!canZoomIn} onClick={onZoomIn}>
+                  Zoom in
+                </DropdownMenuItem>
+              </>
+            )}
+            {buttons.clone && (
+              <DropdownMenuItem icon="copy" onClick={() => pick(onClone)}>
+                Clone session
+              </DropdownMenuItem>
+            )}
+            {buttons.focus && (
+              <DropdownMenuItem icon="pin" onClick={() => pick(onFocusMode)}>
+                Focus session
+              </DropdownMenuItem>
+            )}
             {onToggleExpanded && (
               <DropdownMenuItem
                 icon={expanded ? "minimize" : "maximize"}
@@ -430,6 +447,13 @@ export function TerminalPane({
   useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut, resetZoom);
   useTerminalPaneWheelZoom(paneRef, zoomBy);
 
+  // Which discretionary header buttons the user has chosen to show. Zoom is
+  // hidden by default; the keyboard shortcuts (Cmd/Ctrl +/-/0) still work. The
+  // zoom shortcuts and wheel-zoom above stay wired regardless of visibility.
+  const { data: appSettings } = useSettings();
+  const sessionButtons: SessionHeaderButtonVisibility =
+    appSettings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY;
+
   // Track the header's width *bucket* so narrow grid cells can collapse controls
   // into the "…" menu (compact) and drop the title entirely (tiny). Storing the
   // discrete tier — not the raw pixel width — means a resize drag only triggers
@@ -455,6 +479,14 @@ export function TerminalPane({
   const compactHeader = headerTier !== null && headerTier !== "full";
   const tinyHeader = headerTier === "tiny" || headerTier === "micro";
   const microHeader = headerTier === "micro";
+  // Whether the "…" overflow menu carries anything. At tiny/micro it always
+  // holds the title (and folded expand/close), so it's kept even with every
+  // discretionary button hidden. At the plain compact tier it only holds those
+  // buttons — so if the user hid them all, skip the menu rather than open an
+  // empty popover (expand/close still render inline below).
+  const anyDiscretionaryButton =
+    sessionButtons.rename || sessionButtons.zoom || sessionButtons.clone || sessionButtons.focus;
+  const showMoreMenu = compactHeader && (tinyHeader || anyDiscretionaryButton);
 
   const activeRuntimeScopeId = project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID;
   const { data: liveTasks } = useTasks(
@@ -1514,6 +1546,7 @@ export function TerminalPane({
             </span>
           )}
           {compactHeader ? (
+            showMoreMenu ? (
             <HeaderMoreMenu
               title={liveTask.title}
               statusLabel={statusMeta.label}
@@ -1523,6 +1556,7 @@ export function TerminalPane({
               expanded={expanded}
               onToggleExpanded={tinyHeader ? onToggleExpanded : undefined}
               onHide={microHeader ? onHide : undefined}
+              buttons={sessionButtons}
               onRename={openRenameDialog}
               onClone={requestSessionClone}
               onFocusMode={requestFocusMode}
@@ -1531,45 +1565,54 @@ export function TerminalPane({
               onZoomIn={zoomIn}
               onZoomOut={zoomOut}
             />
+            ) : null
           ) : (
             <>
-              <Tooltip content="Rename session">
-                <Btn
-                  variant="ghost"
-                  size="sm"
-                  icon="pencil"
-                  onClick={openRenameDialog}
-                  aria-label={`Rename session ${liveTask.title}`}
-                  style={{ width: 34, padding: 0 }}
+              {sessionButtons.rename && (
+                <Tooltip content="Rename session">
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    icon="pencil"
+                    onClick={openRenameDialog}
+                    aria-label={`Rename session ${liveTask.title}`}
+                    style={{ width: 34, padding: 0 }}
+                  />
+                </Tooltip>
+              )}
+              {sessionButtons.zoom && (
+                <TerminalZoomControls
+                  level={zoomLevel}
+                  canZoomIn={canZoomIn}
+                  canZoomOut={canZoomOut}
+                  onZoomIn={zoomIn}
+                  onZoomOut={zoomOut}
                 />
-              </Tooltip>
-              <TerminalZoomControls
-                level={zoomLevel}
-                canZoomIn={canZoomIn}
-                canZoomOut={canZoomOut}
-                onZoomIn={zoomIn}
-                onZoomOut={zoomOut}
-              />
-              <HotkeyTooltip action="session.clone" label="Clone session">
-                <Btn
-                  variant="ghost"
-                  size="sm"
-                  icon="copy"
-                  onClick={requestSessionClone}
-                  aria-label="Clone session"
-                  style={{ width: 34, padding: 0 }}
-                />
-              </HotkeyTooltip>
-              <HotkeyTooltip action="session.focusMode" label="Focus session (floating window)">
-                <Btn
-                  variant="ghost"
-                  size="sm"
-                  icon="pin"
-                  onClick={requestFocusMode}
-                  aria-label="Focus session in a floating window"
-                  style={{ width: 34, padding: 0 }}
-                />
-              </HotkeyTooltip>
+              )}
+              {sessionButtons.clone && (
+                <HotkeyTooltip action="session.clone" label="Clone session">
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    icon="copy"
+                    onClick={requestSessionClone}
+                    aria-label="Clone session"
+                    style={{ width: 34, padding: 0 }}
+                  />
+                </HotkeyTooltip>
+              )}
+              {sessionButtons.focus && (
+                <HotkeyTooltip action="session.focusMode" label="Focus session (floating window)">
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    icon="pin"
+                    onClick={requestFocusMode}
+                    aria-label="Focus session in a floating window"
+                    style={{ width: 34, padding: 0 }}
+                  />
+                </HotkeyTooltip>
+              )}
             </>
           )}
           {onToggleExpanded && !tinyHeader && (

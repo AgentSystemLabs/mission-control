@@ -16,6 +16,7 @@ import {
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
+import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
@@ -52,6 +53,8 @@ export function ThemeSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
+    sessionHeaderButtons:
+      settings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
     defaultAgent: settings?.defaultAgent ?? "claude-code",
     defaultModel: settings?.defaultModel ?? null,
     annotationAgent: settings?.annotationAgent ?? "claude-code",

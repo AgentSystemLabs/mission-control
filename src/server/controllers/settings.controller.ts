@@ -47,6 +47,10 @@ import {
   normalizeVoiceCommandAliases,
   type VoiceCommandAliases,
 } from "~/shared/voice-command-aliases";
+import {
+  normalizeSessionHeaderButtonVisibility,
+  type SessionHeaderButtonVisibility,
+} from "~/shared/session-header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { json, parseJsonBody } from "./_helpers";
 
@@ -60,6 +64,7 @@ const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
 const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
 const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
+const SESSION_HEADER_BUTTONS_KEY = "session_header_buttons";
 const THEME_STYLE_KEY = "theme_style";
 const MINIMAL_THEME_KEY = "minimal_theme";
 const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
@@ -124,6 +129,12 @@ const updateSettingsBody = z
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
     terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
+    sessionHeaderButtons: z
+      .record(z.string(), z.boolean())
+      .transform(
+        (value): SessionHeaderButtonVisibility =>
+          normalizeSessionHeaderButtonVisibility(value),
+      ),
     defaultAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     defaultModel: aiModelBody,
     annotationAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
@@ -202,6 +213,12 @@ function getTerminalZoomLevelSetting() {
   return normalizeTerminalZoomLevel(getSetting(TERMINAL_ZOOM_LEVEL_KEY)) ?? DEFAULT_TERMINAL_ZOOM_LEVEL;
 }
 
+function getSessionHeaderButtonsSetting(): SessionHeaderButtonVisibility {
+  return normalizeSessionHeaderButtonVisibility(
+    safeJsonParse<unknown>(getSetting(SESSION_HEADER_BUTTONS_KEY), null),
+  );
+}
+
 function getVoiceCommandAliasesSetting() {
   const raw = getSetting(VOICE_COMMAND_ALIASES_KEY);
   try {
@@ -245,6 +262,7 @@ function settingsPayload() {
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
     terminalZoomLevel: getTerminalZoomLevelSetting(),
+    sessionHeaderButtons: getSessionHeaderButtonsSetting(),
     defaultAgent: getDefaultAgentSetting(),
     defaultModel: getDefaultModelSetting(),
     annotationAgent: getAnnotationAgentSetting(),
@@ -382,6 +400,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.terminalZoomLevel !== undefined) {
     setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
+  }
+  if (body.sessionHeaderButtons !== undefined) {
+    setSetting(SESSION_HEADER_BUTTONS_KEY, JSON.stringify(body.sessionHeaderButtons));
   }
   if (body.defaultAgent !== undefined) {
     setSetting(DEFAULT_AGENT_SETTING_KEY, body.defaultAgent);

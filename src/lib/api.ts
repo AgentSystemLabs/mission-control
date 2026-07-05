@@ -52,6 +52,7 @@ import type {
   GraphSummary,
 } from "~/shared/code-graph";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
+import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 
 // The api bearer token is intentionally NOT part of this HTTP-derived shape.
@@ -91,6 +92,11 @@ export type AppSettings = {
   commitCli: CommitCli | null;
   /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
   terminalZoomLevel: TerminalZoomLevel;
+  /**
+   * Which discretionary session-pane header buttons are shown. Zoom is hidden
+   * by default (it's driven by keyboard shortcuts); the rest default on.
+   */
+  sessionHeaderButtons: SessionHeaderButtonVisibility;
   /**
    * Default harness/model for voice-started agents when the command doesn't name one.
    * `null` means "not set" — don't pass a model flag, so the CLI uses its own default.
@@ -570,6 +576,7 @@ export const api = {
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"
+        | "sessionHeaderButtons"
         | "defaultAgent"
         | "defaultModel"
         | "annotationAgent"

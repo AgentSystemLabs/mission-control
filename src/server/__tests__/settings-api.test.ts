@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
+import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-settings-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
@@ -219,6 +220,37 @@ describe("settings API", () => {
     expect(update?.status).toBe(200);
     expect(await jsonBody(update!)).toMatchObject({ terminalZoomLevel: 2 });
     expect(await jsonBody(read!)).toMatchObject({ terminalZoomLevel: 2 });
+  });
+
+  it("hides the zoom session button by default and shows the rest", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({
+      sessionHeaderButtons: DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
+    });
+    expect(DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY).toMatchObject({
+      rename: true,
+      zoom: false,
+      clone: true,
+      focus: true,
+    });
+  });
+
+  it("persists session button visibility, merging a partial payload over defaults", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        // Only send the two the user changed; unknown keys are dropped and the
+        // rest fall back to their defaults.
+        body: JSON.stringify({ sessionHeaderButtons: { zoom: true, clone: false, bogus: true } }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    const expected = { rename: true, zoom: true, clone: false, focus: true };
+    expect(await jsonBody(update!)).toMatchObject({ sessionHeaderButtons: expected });
+    expect(await jsonBody(read!)).toMatchObject({ sessionHeaderButtons: expected });
   });
 
   it("defaults voice agents to Claude Code with no model until one is chosen", async () => {

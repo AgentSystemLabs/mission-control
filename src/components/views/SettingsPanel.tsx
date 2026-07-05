@@ -10,6 +10,7 @@ import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { RecallSettingsPage } from "./RecallSettings";
+import { SessionButtonsSettingsPage } from "./SessionButtonsSettingsPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
@@ -24,6 +25,7 @@ export const SETTINGS_PANEL_IDS = [
   "defaults",
   "usage",
   "terminal",
+  "session",
   "theme",
   "voice",
   "recall",
@@ -100,6 +102,7 @@ export function SettingsPanel({
     { id: "defaults", label: "Defaults", icon: "terminal" },
     { id: "usage", label: "Usage", icon: "chart" },
     { id: "terminal", label: "Terminal", icon: "terminal" },
+    { id: "session", label: "Session buttons", icon: "eye" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
@@ -338,6 +341,8 @@ export function SettingsPanel({
             <UsageSettingsPage />
           ) : activePanel === "terminal" ? (
             <TerminalSettingsPage />
+          ) : activePanel === "session" ? (
+            <SessionButtonsSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
           ) : activePanel === "voice" ? (
