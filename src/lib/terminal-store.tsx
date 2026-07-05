@@ -112,10 +112,40 @@ type Ctx = {
   takeSessionIdRenames: () => Array<{ from: string; to: string }>;
 };
 
-const TerminalContext = createContext<Ctx | null>(null);
+// The store is split into two contexts so a session-status tick (which churns
+// `sessions`) only re-renders consumers that actually read reactive data. The
+// data slice changes on session/active/gridView updates; the actions slice
+// keeps a constant identity for the provider's lifetime, so pure-action
+// consumers (e.g. every TerminalPane, which only needs syncTask) never
+// re-render when a background session updates.
+type TerminalDataKeys =
+  | "sessions"
+  | "activeFor"
+  | "activeTaskIdFor"
+  | "gridView"
+  | "gridFocusRequest";
+type TerminalData = Pick<Ctx, TerminalDataKeys>;
+type TerminalActions = Omit<Ctx, TerminalDataKeys>;
+
+const TerminalActionsContext = createContext<TerminalActions | null>(null);
+const TerminalDataContext = createContext<TerminalData | null>(null);
 
 function commandFor(agent: TaskAgent): string {
   return AGENT_REGISTRY[agent].startCommand();
+}
+
+/** Shallow field equality for two task rows. Task is a flat DB row of
+ *  primitives, so comparing own-enumerable keys is both correct and robust to
+ *  schema growth — used to skip `sessions` churn on no-op refetches. */
+function tasksEqual(a: Task, b: Task): boolean {
+  if (a === b) return true;
+  const aKeys = Object.keys(a) as (keyof Task)[];
+  const bKeys = Object.keys(b) as (keyof Task)[];
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 }
 
 /**
@@ -389,6 +419,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   );
   const [visibleScopeByProject, setVisibleScopeByProject] = useState<Record<string, string>>({});
   const [gridView, setGridViewState] = useState<boolean>(loadGridView);
+  // Read via a ref so `toggleGridView` keeps a stable identity (it lives in the
+  // stable actions context) instead of re-creating on every gridView flip.
+  const gridViewRef = useRef(gridView);
+  gridViewRef.current = gridView;
 
   const setGridView = useCallback((value: boolean) => {
     setGridViewState(value);
@@ -401,8 +435,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleGridView = useCallback(() => {
-    setGridView(!gridView);
-  }, [gridView, setGridView]);
+    setGridView(!gridViewRef.current);
+  }, [setGridView]);
 
   const [gridFocusRequest, setGridFocusRequest] = useState<
     { taskId: string; nonce: number } | null
@@ -524,7 +558,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const toggle = useCallback(
     (project: ScopedProject, task: Task, opts?: { awaitCreate?: boolean }) => {
       const scopeKey = scopeKeyForProject(project);
-      const hadSession = sessions.some(
+      const hadSession = sessionsRef.current.some(
         (p) => p.taskId === task.id && scopeKeyForProject(p.project) === scopeKey
       );
       setSessions((prev) => {
@@ -557,7 +591,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         return curr === next ? prev : { ...prev, [scopeKey]: next };
       });
     },
-    [sessions]
+    []
   );
 
   const openSession = useCallback(
@@ -877,7 +911,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       let changed = false;
       const next = prev.map((p) => {
         if (p.taskId !== task.id) return p;
-        if (p.task === task) return p;
+        // Tasks come off the query cache as freshly-parsed rows (new refs) on
+        // every refetch, so a reference check alone treats every SSE-driven
+        // refetch as a change and churns `sessions` (re-rendering every
+        // useTerminals() consumer) even when the row is byte-identical. Compare
+        // by field so an unchanged refetch is a genuine no-op.
+        if (tasksEqual(p.task, task)) return p;
         changed = true;
         return { ...p, task };
       });
@@ -888,14 +927,14 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const runIn = useCallback(
     async (taskId: string, command: string) => {
       const electron = getElectron();
-      const target = sessions.find((p) => p.taskId === taskId);
+      const target = sessionsRef.current.find((p) => p.taskId === taskId);
       if (!target?.ptyId) return;
       if (electron) {
         const ptyApi = isRemotePtyId(target.ptyId) ? electron.remotePty : electron.pty;
         await ptyApi.write(target.ptyId, command + "\r");
       }
     },
-    [sessions]
+    []
   );
 
   const activeFor = useCallback(
@@ -925,11 +964,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     [activeByProject, visibleScopeByProject]
   );
 
-  const value = useMemo<Ctx>(
+  // Stable slice: every dependency is a constant-identity callback, so this memo
+  // computes once and the actions context never changes — pure-action consumers
+  // (useTerminalActions) don't re-render when `sessions` churns.
+  const actions = useMemo<TerminalActions>(
     () => ({
-      sessions,
-      activeFor,
-      activeTaskIdFor,
       toggle,
       openSession,
       deselect,
@@ -943,10 +982,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       syncTask,
       startCommandFor: commandFor,
       runIn,
-      gridView,
       setGridView,
       toggleGridView,
-      gridFocusRequest,
       focusGridSession,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
@@ -957,9 +994,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       takeSessionIdRenames,
     }),
     [
-      sessions,
-      activeFor,
-      activeTaskIdFor,
       toggle,
       openSession,
       deselect,
@@ -972,10 +1006,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setPtyId,
       syncTask,
       runIn,
-      gridView,
       setGridView,
       toggleGridView,
-      gridFocusRequest,
       focusGridSession,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
@@ -987,11 +1019,44 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     ]
   );
 
-  return <TerminalContext.Provider value={value}>{children}</TerminalContext.Provider>;
+  // Reactive slice: changes when sessions / active selection / grid state move.
+  const data = useMemo<TerminalData>(
+    () => ({
+      sessions,
+      activeFor,
+      activeTaskIdFor,
+      gridView,
+      gridFocusRequest,
+    }),
+    [sessions, activeFor, activeTaskIdFor, gridView, gridFocusRequest]
+  );
+
+  return (
+    <TerminalActionsContext.Provider value={actions}>
+      <TerminalDataContext.Provider value={data}>{children}</TerminalDataContext.Provider>
+    </TerminalActionsContext.Provider>
+  );
 }
 
-export function useTerminals() {
-  const ctx = useContext(TerminalContext);
-  if (!ctx) throw new Error("useTerminals must be used inside TerminalProvider");
-  return ctx;
+/** Full store (actions + reactive data). Re-renders on any data change; prefer
+ *  `useTerminalActions` when you only need to call methods. The merged object
+ *  keeps a stable identity until actions or data actually change, so consumers
+ *  that list `terminals` in a dependency array don't churn on every render. */
+export function useTerminals(): Ctx {
+  const actions = useContext(TerminalActionsContext);
+  const data = useContext(TerminalDataContext);
+  const merged = useMemo(
+    () => (actions && data ? { ...actions, ...data } : null),
+    [actions, data],
+  );
+  if (!merged) throw new Error("useTerminals must be used inside TerminalProvider");
+  return merged;
+}
+
+/** Stable actions only. A component using this never re-renders when sessions
+ *  or the active selection change — use it for pure command consumers. */
+export function useTerminalActions(): TerminalActions {
+  const actions = useContext(TerminalActionsContext);
+  if (!actions) throw new Error("useTerminalActions must be used inside TerminalProvider");
+  return actions;
 }

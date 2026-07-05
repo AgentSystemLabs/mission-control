@@ -163,7 +163,11 @@ function FocusSessionPage() {
       (e) => {
         applyQuestionServerEvent(e);
         if (e.type.startsWith("task:")) {
+          // Only refetch the scope the event actually belongs to — a task tick
+          // in one project used to invalidate every open session's scope.
+          const projectId = e.projectId;
           for (const p of distinctScopesRef.current) {
+            if (p.id !== projectId) continue;
             void queryClient.invalidateQueries({
               queryKey: queryKeys.tasks(
                 p.id,

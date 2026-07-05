@@ -85,6 +85,12 @@ export interface TerminalSurfaceCache {
    */
   park(id: string): void;
   /**
+   * Mark a surface as on-screen again (re-attached to a live container). Removes
+   * it from the parked-eviction set so it can never be reaped while visible.
+   * Call on every mount — both fresh builds and reattaches.
+   */
+  markMounted(id: string): void;
+  /**
    * Fully dispose a surface: run its teardown (subscriptions + `term.dispose()`),
    * remove its element, and drop it from the cache. Idempotent and safe to call
    * for an unknown id.
@@ -95,8 +101,41 @@ export interface TerminalSurfaceCache {
   size(): number;
 }
 
+/**
+ * Cap on surfaces kept alive while PARKED (offscreen). Parking never disposed,
+ * so navigating across many projects/sessions used to accumulate live xterm
+ * instances + PTY subscriptions without bound (only GPU contexts were capped).
+ * Beyond this many parked surfaces, the least-recently-parked is destroyed; its
+ * session's PTY stays alive in the store, so returning to it just rebuilds the
+ * view and replays — the original pre-cache cost, paid only for cold sessions.
+ * Mounted (visible) surfaces are never counted here, so they're never reaped.
+ */
+export const MAX_PARKED_SURFACES = 16;
+
 export function createTerminalSurfaceCache(env: SurfaceCacheEnv): TerminalSurfaceCache {
   const surfaces = new Map<string, TerminalSurface>();
+  // Insertion-ordered set of currently-parked ids, least-recent first.
+  const parked = new Set<string>();
+
+  const disposeSurface = (id: string): void => {
+    const s = surfaces.get(id);
+    parked.delete(id);
+    if (!s) return;
+    surfaces.delete(id);
+    if (s.destroyed) return;
+    s.destroyed = true;
+    try {
+      s.teardown();
+    } catch {
+      /* best effort */
+    }
+    try {
+      s.el.remove();
+    } catch {
+      /* best effort */
+    }
+  };
+
   return {
     get(id) {
       const s = surfaces.get(id);
@@ -122,6 +161,8 @@ export function createTerminalSurfaceCache(env: SurfaceCacheEnv): TerminalSurfac
           /* best effort */
         }
       }
+      // A freshly-registered surface is being mounted, not parked.
+      parked.delete(surface.id);
       surfaces.set(surface.id, surface);
     },
     park(id) {
@@ -132,23 +173,21 @@ export function createTerminalSurfaceCache(env: SurfaceCacheEnv): TerminalSurfac
       } catch {
         /* best effort — a detached element is still fine, writes keep buffering */
       }
+      // Move to most-recent (re-parking refreshes recency), then evict the
+      // oldest parked surfaces beyond the cap. Never evicts the one just parked.
+      parked.delete(id);
+      parked.add(id);
+      while (parked.size > MAX_PARKED_SURFACES) {
+        const oldest = parked.values().next().value as string | undefined;
+        if (oldest === undefined || oldest === id) break;
+        disposeSurface(oldest);
+      }
+    },
+    markMounted(id) {
+      parked.delete(id);
     },
     destroy(id) {
-      const s = surfaces.get(id);
-      if (!s) return;
-      surfaces.delete(id);
-      if (s.destroyed) return;
-      s.destroyed = true;
-      try {
-        s.teardown();
-      } catch {
-        /* best effort */
-      }
-      try {
-        s.el.remove();
-      } catch {
-        /* best effort */
-      }
+      disposeSurface(id);
     },
     ids() {
       const out: string[] = [];

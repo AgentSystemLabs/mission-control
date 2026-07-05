@@ -69,6 +69,7 @@ import {
   type SessionCreatePayload,
 } from "~/lib/session-warm-pool";
 import { useServerEvents } from "~/lib/use-events";
+import { useDebouncedCallback } from "~/lib/use-debounced-callback";
 import {
   applyQuestionServerEvent,
   setQuestionOverlayEnabled,
@@ -78,11 +79,14 @@ import {
   VOICE_NEW_AGENT_EVENT,
   VOICE_OPEN_BROWSER_EVENT,
   VOICE_OPEN_DIFF_EVENT,
+  VOICE_REMEMBER_EVENT,
   VOICE_RUN_PROJECT_EVENT,
   VOICE_RUN_SCRIPT_EVENT,
   type VoiceNewAgentDetail,
+  type VoiceRememberDetail,
   type VoiceRunScriptDetail,
 } from "~/lib/voice-events";
+import { MEMORY_TITLE_MAX } from "~/shared/project-memory";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { groupTasksByStatusForDisplay } from "~/lib/task-display-order";
@@ -111,6 +115,7 @@ import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
 import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
+import { RecallModal } from "~/components/views/RecallModal";
 import { BranchTypeahead } from "~/components/views/BranchTypeahead";
 import {
   CreatePullRequestDialog,
@@ -555,6 +560,8 @@ function ProjectPage() {
     setFileFinderOpen(true);
   }, []);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
+  const [showRecall, setShowRecall] = useState(false);
+  const [recallInitialFilter, setRecallInitialFilter] = useState<"all" | "recent">("all");
   const [showCustomScriptsConfig, setShowCustomScriptsConfig] = useState(false);
   const [showWorktreeSetupConfig, setShowWorktreeSetupConfig] = useState(false);
   const [showInstallDiagramSkill, setShowInstallDiagramSkill] = useState(false);
@@ -1630,17 +1637,35 @@ function ProjectPage() {
     const onOpenDiff = () => {
       if (projectPathReady) setDiffViewOpen(true);
     };
+    const onRemember = (e: Event) => {
+      const text = (e as CustomEvent<VoiceRememberDetail>).detail?.text?.trim();
+      if (!text) return;
+      // A spoken fact is a user-confirmed discovery. Long dictations overflow the
+      // title, so clamp to its limit — the whole utterance still reads as one line.
+      const title = text.slice(0, MEMORY_TITLE_MAX);
+      void api
+        .createMemory(id, { type: "discovery", title, source: "voice", confidence: "confirmed" })
+        .then(() => {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.projectMemory(id) });
+          toast.success(`Remembered: “${title}”`);
+        })
+        .catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Could not save that memory"),
+        );
+    };
     window.addEventListener(VOICE_RUN_PROJECT_EVENT, onRun);
     window.addEventListener(VOICE_NEW_AGENT_EVENT, onNewAgent as EventListener);
     window.addEventListener(VOICE_OPEN_BROWSER_EVENT, onOpenBrowser);
     window.addEventListener(VOICE_RUN_SCRIPT_EVENT, onRunScript as EventListener);
     window.addEventListener(VOICE_OPEN_DIFF_EVENT, onOpenDiff);
+    window.addEventListener(VOICE_REMEMBER_EVENT, onRemember as EventListener);
     return () => {
       window.removeEventListener(VOICE_RUN_PROJECT_EVENT, onRun);
       window.removeEventListener(VOICE_NEW_AGENT_EVENT, onNewAgent as EventListener);
       window.removeEventListener(VOICE_OPEN_BROWSER_EVENT, onOpenBrowser);
       window.removeEventListener(VOICE_RUN_SCRIPT_EVENT, onRunScript as EventListener);
       window.removeEventListener(VOICE_OPEN_DIFF_EVENT, onOpenDiff);
+      window.removeEventListener(VOICE_REMEMBER_EVENT, onRemember as EventListener);
     };
   }, [
     showNewAgent,
@@ -1659,6 +1684,8 @@ function ProjectPage() {
     runScript,
     projectPathReady,
     setDiffViewOpen,
+    id,
+    queryClient,
   ]);
 
   const anyBlockingDialogOpen =
@@ -1877,21 +1904,55 @@ function ProjectPage() {
     },
   );
 
+  // Coalesce bursts of task events for THIS project into a single refetch. A
+  // running agent emits many task:updated events per second; each used to
+  // refetch this project's tasks + detail + the global projects list. The
+  // sidebar (ProjectBar / ProjectPicker) owns the projects-list refresh, so
+  // this route only refetches its own tasks + detail — and ignores task events
+  // for other projects entirely.
+  const invalidateThisProjectTasks = useDebouncedCallback(() => {
+    void invalidateTasks();
+    void invalidateProject();
+  }, 150);
+
   useServerEvents(
     useCallback(
       (e) => {
         applyQuestionServerEvent(e);
         if (e.type.startsWith("task:")) {
-          void refresh();
+          if (e.projectId === id) invalidateThisProjectTasks();
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
           void invalidateProject();
         } else if (e.type.startsWith("project:")) {
           void invalidateProject();
           void invalidateProjects();
+        } else if (e.type.startsWith("memory:")) {
+          if (e.projectId === id) {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.projectMemory(id) });
+            // Non-blocking review nudge for silent auto-capture (D3): deep-links
+            // into the Recall panel's Recently-learned filter for bulk keep/edit.
+            if (e.type === "memory:learned") {
+              const count = typeof e.count === "number" ? e.count : 0;
+              if (count > 0) {
+                toast.success(
+                  `Learned ${count} ${count === 1 ? "memory" : "memories"} from this session`,
+                  {
+                    action: {
+                      label: "Review",
+                      onClick: () => {
+                        setRecallInitialFilter("recent");
+                        setShowRecall(true);
+                      },
+                    },
+                  },
+                );
+              }
+            }
+          }
         }
       },
-      [refresh, invalidateProject, invalidateProjects, invalidateWorktrees]
+      [id, invalidateThisProjectTasks, invalidateProject, invalidateProjects, invalidateWorktrees, queryClient]
     )
   );
 
@@ -2727,6 +2788,17 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             </HotkeyTooltip>
+            <Btn
+              variant="ghost"
+              icon="sparkles"
+              onClick={() => {
+                setRecallInitialFilter("all");
+                setShowRecall(true);
+              }}
+              aria-label="Recall — project memory"
+              title="Recall — curated project memory fed to new sessions"
+              style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+            />
             <HotkeyTooltip
               action="session.gridView"
               label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
@@ -3182,6 +3254,14 @@ function ProjectPage() {
           setShowEdit(false);
           await refresh();
         }}
+      />
+
+      <RecallModal
+        open={showRecall}
+        onClose={() => setShowRecall(false)}
+        projectId={project.id}
+        projectName={project.name}
+        initialFilter={recallInitialFilter}
       />
 
       <FileFinderDialog

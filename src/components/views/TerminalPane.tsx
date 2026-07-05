@@ -118,7 +118,7 @@ import {
   type SequencedPtyData,
 } from "~/lib/terminal-replay";
 import { queryKeys, useTasks } from "~/queries";
-import { terminalSurfaceIdForProject, useTerminals } from "~/lib/terminal-store";
+import { terminalSurfaceIdForProject, useTerminalActions } from "~/lib/terminal-store";
 import type { Project, Task } from "~/db/schema";
 import { normalizePtySize } from "~/shared/pty-size";
 import { sandboxWorkspacePath, workspaceSlug } from "~/shared/sandbox-workspace";
@@ -163,6 +163,17 @@ interface SessionTerminalSurface extends PaneTerminalSurface {
 const HEADER_COMPACT_MAX = 380;
 const HEADER_TINY_MAX = 210;
 const HEADER_MICRO_MAX = 120;
+
+/** Discrete header-width buckets (widest → narrowest). Storing the bucket rather
+ *  than the raw width keeps a resize drag from re-rendering the pane every
+ *  frame — only a breakpoint crossing changes it. */
+type HeaderTier = "full" | "compact" | "tiny" | "micro";
+function headerTierFor(width: number): HeaderTier {
+  if (width < HEADER_MICRO_MAX) return "micro";
+  if (width < HEADER_TINY_MAX) return "tiny";
+  if (width < HEADER_COMPACT_MAX) return "compact";
+  return "full";
+}
 
 /** "…" dropdown holding the header controls that don't fit a narrow pane.
  *  In tiny mode it also carries the (hidden) session title and status. */
@@ -391,7 +402,7 @@ export function TerminalPane({
   const termSurfaceRef = useRef<CachedTerminalControls | null>(null);
   const renameFormId = useId();
   const queryClient = useQueryClient();
-  const terminals = useTerminals();
+  const terminals = useTerminalActions();
   const [liveStatus, setLiveStatus] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -416,21 +427,31 @@ export function TerminalPane({
   useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut);
   useTerminalPaneWheelZoom(paneRef, zoomBy);
 
-  // Track the header's width so narrow grid cells can collapse controls into
-  // the "…" menu (compact) and drop the title entirely (tiny).
-  const [headerWidth, setHeaderWidth] = useState<number | null>(null);
+  // Track the header's width *bucket* so narrow grid cells can collapse controls
+  // into the "…" menu (compact) and drop the title entirely (tiny). Storing the
+  // discrete tier — not the raw pixel width — means a resize drag only triggers
+  // a re-render on the few frames that actually cross a breakpoint, not every
+  // frame. Reading contentRect (not clientWidth) also avoids a forced reflow.
+  const [headerTier, setHeaderTier] = useState<HeaderTier | null>(null);
   useEffect(() => {
     const el = headerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const update = () => setHeaderWidth(el.clientWidth);
-    update();
-    const ro = new ResizeObserver(update);
+    const apply = (width: number) =>
+      setHeaderTier((prev) => {
+        const next = headerTierFor(width);
+        return prev === next ? prev : next;
+      });
+    apply(el.clientWidth);
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) apply(entry.contentRect.width);
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const compactHeader = headerWidth !== null && headerWidth < HEADER_COMPACT_MAX;
-  const tinyHeader = headerWidth !== null && headerWidth < HEADER_TINY_MAX;
-  const microHeader = headerWidth !== null && headerWidth < HEADER_MICRO_MAX;
+  const compactHeader = headerTier !== null && headerTier !== "full";
+  const tinyHeader = headerTier === "tiny" || headerTier === "micro";
+  const microHeader = headerTier === "micro";
 
   const activeRuntimeScopeId = project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID;
   const { data: liveTasks } = useTasks(
@@ -619,6 +640,8 @@ export function TerminalPane({
     // leaving and returning to this session is a DOM move rather than a teardown +
     // scrollback replay.
     const bindMount = (surface: SessionTerminalSurface) => {
+      // On screen again — exempt from parked-surface eviction while visible.
+      cache.markMounted(surface.id);
       termSurfaceRef.current = surface.controls;
       setIsSandboxTerminal(surface.useSandbox);
       surface.controls.setFontSize(terminalFontSize);

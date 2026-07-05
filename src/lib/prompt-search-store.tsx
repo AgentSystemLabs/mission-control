@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { PromptSearchPalette } from "~/components/views/PromptSearchPalette";
 import { useHotkey } from "~/lib/use-hotkey";
 
@@ -23,8 +23,10 @@ export function PromptSearchProvider({ children }: { children: React.ReactNode }
   // has focus and would otherwise swallow the keydown.
   useHotkey("prompt.search", () => setIsOpen((o) => !o), { capture: true });
 
+  const value = useMemo<Ctx>(() => ({ open, close, isOpen }), [open, close, isOpen]);
+
   return (
-    <PromptSearchContext.Provider value={{ open, close, isOpen }}>
+    <PromptSearchContext.Provider value={value}>
       {children}
       <PromptSearchPalette open={isOpen} onClose={close} />
     </PromptSearchContext.Provider>

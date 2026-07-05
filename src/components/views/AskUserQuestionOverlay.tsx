@@ -11,6 +11,18 @@ import { Kbd } from "~/components/ui/Kbd";
 import type { AgentQuestion, PendingQuestion } from "~/shared/agent-questions";
 import { sanitizeFreeText, type QuestionAnswer } from "~/lib/agent-question-answer";
 
+/** Inline keyboard hint: rendered key glyphs followed by a label. */
+function hint(label: string, keys: string[]): ReactNode {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {keys.map((k) => (
+        <Kbd key={k}>{k}</Kbd>
+      ))}
+      {label}
+    </span>
+  );
+}
+
 /**
  * Native choice UI for a Claude Code AskUserQuestion menu, anchored to the
  * bottom of the session's terminal pane.
@@ -278,15 +290,6 @@ export function AskUserQuestionOverlay({
     }
   };
 
-  const hint = (label: string, keys: string[]) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-      {keys.map((k) => (
-        <Kbd key={k}>{k}</Kbd>
-      ))}
-      {label}
-    </span>
-  );
-
   const optionRow = (props: {
     index: number;
     glyph: ReactNode;
@@ -299,6 +302,7 @@ export function AskUserQuestionOverlay({
     return (
       <button
         key={props.index}
+        type="button"
         ref={(el) => {
           rowRefs.current[props.index] = el;
         }}
@@ -552,6 +556,7 @@ export function AskUserQuestionOverlay({
               <>
                 {questionIdx > 0 && (
                   <button
+                    type="button"
                     onClick={goBack}
                     aria-label="Edit the previous question"
                     style={hintButtonStyle}
@@ -572,7 +577,7 @@ export function AskUserQuestionOverlay({
             )}
             <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
               {multiSelect && !narrow && (
-                <button onClick={onFocusTerminal} style={linkStyle}>
+                <button type="button" onClick={onFocusTerminal} style={linkStyle}>
                   Type a custom answer
                 </button>
               )}

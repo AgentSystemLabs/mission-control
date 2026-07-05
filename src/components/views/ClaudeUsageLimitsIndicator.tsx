@@ -1,6 +1,18 @@
 import type { ClaudeUsageLimits, ClaudeUsageWindow } from "~/shared/claude-usage-limits";
 import { useClaudeUsageLimits, useSettings } from "~/queries";
 
+const containerStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 14,
+  padding: "0 6px",
+  fontFamily: "var(--mono)",
+  fontSize: 11,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  ["WebkitAppRegion" as unknown as string]: "no-drag",
+};
+
 /**
  * Top-bar indicator for Claude Code's live usage limits — session (5h) and
  * weekly windows with reset times. Renders nothing unless the user opted in via
@@ -27,18 +39,6 @@ export function ClaudeUsageLimitsIndicator() {
       segments.push(<UsageSegment key="weekly" label="week" window={data.weekly} />);
     }
   }
-
-  const containerStyle: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 14,
-    padding: "0 6px",
-    fontFamily: "var(--mono)",
-    fontSize: 11,
-    lineHeight: 1,
-    whiteSpace: "nowrap",
-    ["WebkitAppRegion" as unknown as string]: "no-drag",
-  };
 
   // We have real numbers — the normal case.
   if (segments.length > 0) {
@@ -135,18 +135,19 @@ function usageColor(pct: number): string {
   return "var(--status-done)";
 }
 
+const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+const timeFmt = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 /** "Fri 06:49" — short weekday + 24h time in the user's local timezone. */
 function formatReset(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(d);
-  const time = new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(d);
-  return `${weekday} ${time}`;
+  return `${weekdayFmt.format(d)} ${timeFmt.format(d)}`;
 }
 
 function buildTooltip(data: ClaudeUsageLimits): string {

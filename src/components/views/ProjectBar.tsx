@@ -16,6 +16,7 @@ import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { TASK_STATUS_META } from "~/shared/domain";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { useServerEvents } from "~/lib/use-events";
+import { useDebouncedCallback } from "~/lib/use-debounced-callback";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { useBinding } from "~/lib/keybindings/store";
 import { formatBinding } from "~/lib/keybindings/format";
@@ -101,14 +102,18 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
     setDraggingProjectId(null);
     setMenu(null);
   }, [sandboxState?.activeScopeId, sandboxState?.enabled]);
+  // The sidebar's status-dot counts move on task:updated too, so we can't drop
+  // task events — but a burst of them should refetch the projects list once, not
+  // once per event.
+  const debouncedInvalidateProjects = useDebouncedCallback(() => void invalidateProjects(), 150);
   useServerEvents(
     useCallback(
       (e) => {
         if (e.type.startsWith("project:") || e.type.startsWith("task:")) {
-          void invalidateProjects();
+          debouncedInvalidateProjects();
         }
       },
-      [invalidateProjects]
+      [debouncedInvalidateProjects]
     )
   );
   const pinnedSlotBase = useBinding("project.pinnedSlot");

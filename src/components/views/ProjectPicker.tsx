@@ -12,6 +12,7 @@ import { STATUS_META } from "~/lib/design-meta";
 import { projectPickerSections } from "~/lib/group-projects";
 import type { TaskStatus } from "~/shared/domain";
 import { useServerEvents } from "~/lib/use-events";
+import { useDebouncedCallback } from "~/lib/use-debounced-callback";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys, useGroups, useProjects, useScopedProjects } from "~/queries";
@@ -96,17 +97,22 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
   // Flat list of selectable items, in render order — drives keyboard nav indexing.
   const flatItems = useMemo(() => sections.flatMap((s) => s.projects), [sections]);
 
+  // Coalesce task/project bursts into a single projects-list refetch.
+  const debouncedInvalidateProjects = useDebouncedCallback(
+    () => void queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+    150,
+  );
   useServerEvents(
     useCallback(
       (e) => {
         if (e.type.startsWith("project:") || e.type.startsWith("task:")) {
-          void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+          debouncedInvalidateProjects();
         }
         if (e.type.startsWith("group:")) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
         }
       },
-      [queryClient],
+      [queryClient, debouncedInvalidateProjects],
     ),
   );
 

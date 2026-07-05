@@ -186,8 +186,9 @@ function reconcileLayout(
   const layout = cloneLayout(base);
   // 1. Follow provisional→persisted id swaps in place.
   if (renames.length) {
+    const renameMap = new Map(renames.map((r) => [r.from, r.to]));
     for (const row of layout.rows) {
-      row.cells = row.cells.map((id) => renames.find((r) => r.from === id)?.to ?? id);
+      row.cells = row.cells.map((id) => renameMap.get(id) ?? id);
     }
   }
   // 2. Prune cells no longer live, keeping each survivor's width track.
@@ -831,6 +832,15 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   const flipSigRef = useRef<string | null>(null);
   const orderSig = viewRows.map((r) => r.cells.map((c) => c.session.taskId).join(",")).join("|");
   const flipSig = `${expandedTaskId ?? ""}::${orderSig}`;
+  // Everything that can move a cell's box: order/expand, the grid's pixel size,
+  // the gap/pad, and the painted track weights. A background session status tick
+  // re-renders the grid without touching any of these — when the signature is
+  // unchanged (and no drag/animation is live) the measurement below would read
+  // every cell's rect purely to re-store identical values, so we skip it.
+  const lastGeomSigRef = useRef<string | null>(null);
+  const geomSig = `${flipSig}#${gridSize.width}x${gridSize.height}#${gridGap}/${gridPad}#${activeLayout.rowSizes.join(
+    ",",
+  )}#${activeLayout.rows.map((r) => r.colSizes.join(".")).join("_")}`;
   useLayoutEffect(() => {
     // Keep the painted-layout ref in sync so drag math sees what's on screen.
     paintedLayoutRef.current = activeLayout;
@@ -846,6 +856,11 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     }
     const animate = flipSigRef.current !== null && flipSigRef.current !== flipSig;
     flipSigRef.current = flipSig;
+    // Nothing geometric changed and nothing is animating/dragging: the stored
+    // rects are still valid, so skip the forced-layout measurement entirely.
+    const dragging = dragVisualRef.current !== null;
+    if (!animate && !dragging && geomSig === lastGeomSigRef.current) return;
+    lastGeomSigRef.current = geomSig;
     const grid = gridRef.current;
     const cells = grid?.querySelectorAll<HTMLElement>("[data-grid-cell]");
     if (!grid || !cells) return;

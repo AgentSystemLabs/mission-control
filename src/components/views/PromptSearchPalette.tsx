@@ -49,7 +49,6 @@ function highlight(text: string, query: string): ReactNode {
   const needle = q.toLowerCase();
   const parts: ReactNode[] = [];
   let i = 0;
-  let key = 0;
   while (i < text.length) {
     const at = lower.indexOf(needle, i);
     if (at === -1) {
@@ -59,7 +58,7 @@ function highlight(text: string, query: string): ReactNode {
     if (at > i) parts.push(text.slice(i, at));
     parts.push(
       <mark
-        key={key++}
+        key={at}
         style={{ background: "transparent", color: "var(--accent)", fontWeight: 600 }}
       >
         {text.slice(at, at + q.length)}
@@ -217,6 +216,7 @@ export function PromptSearchPalette({ open, onClose }: { open: boolean; onClose:
             return (
               <button
                 key={row.promptId}
+                type="button"
                 ref={(el) => {
                   itemRefs.current[i] = el;
                 }}
