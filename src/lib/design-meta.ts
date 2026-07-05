@@ -49,9 +49,10 @@ export const CLEAR_USER_TERMINAL_EVENT = "mc:clear-user-terminal";
  *  owns the workspace — SessionGrid toggles the focused (or expanded) cell. */
 export const GRID_EXPAND_TOGGLE_EVENT = "mc:grid-expand-toggle";
 
-/** Dispatched on Cmd+/Cmd- when an xterm (user or session) has keyboard focus. */
+/** Dispatched on Cmd+/Cmd-/Cmd0 when an xterm (user or session) has keyboard focus. */
 export const TERMINAL_ZOOM_IN_EVENT = "mc:terminal-zoom-in";
 export const TERMINAL_ZOOM_OUT_EVENT = "mc:terminal-zoom-out";
+export const TERMINAL_ZOOM_RESET_EVENT = "mc:terminal-zoom-reset";
 
 /** Dispatched by leaf components (e.g. ShipFailedDialog) to ask the Shell
  * to open the Settings panel at a specific page. Listened to by __root.tsx. */

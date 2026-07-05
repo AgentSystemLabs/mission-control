@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import {
   TERMINAL_ZOOM_IN_EVENT,
   TERMINAL_ZOOM_OUT_EVENT,
+  TERMINAL_ZOOM_RESET_EVENT,
 } from "~/lib/design-meta";
 import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
@@ -10,6 +11,7 @@ import {
   type TerminalZoomLevel,
 } from "~/shared/terminal-zoom";
 import {
+  clearTerminalInstanceZoom,
   readTerminalInstanceZoom,
   writeTerminalInstanceZoom,
 } from "~/lib/terminal-zoom-storage";
@@ -52,39 +54,53 @@ export function useTerminalZoom(instanceId: string) {
   const zoomIn = useCallback(() => zoomBy(1), [zoomBy]);
   const zoomOut = useCallback(() => zoomBy(-1), [zoomBy]);
 
+  // Drop this terminal's override so it snaps back to the global/default level.
+  // Keep levelRef coherent for any zoom step fired synchronously before re-render.
+  const resetZoom = useCallback(() => {
+    clearTerminalInstanceZoom(instanceId);
+    levelRef.current = globalLevel;
+    setOverride(null);
+  }, [instanceId, globalLevel]);
+
   return {
     level,
     fontSize,
     zoomBy,
     zoomIn,
     zoomOut,
+    resetZoom,
     canZoomIn: stepTerminalZoomLevel(level, 1) !== null,
     canZoomOut: stepTerminalZoomLevel(level, -1) !== null,
   };
 }
 
-/** Listen for global Cmd+/Cmd- zoom events and apply only when this pane owns focus. */
+/** Listen for global Cmd+/Cmd-/Cmd0 zoom events and apply only when this pane owns focus. */
 export function useTerminalPaneZoomShortcuts(
   paneRef: RefObject<HTMLElement | null>,
   zoomIn: () => void,
   zoomOut: () => void,
+  resetZoom: () => void,
 ) {
   useEffect(() => {
+    const owns = () => !!paneRef.current?.contains(document.activeElement);
     const onZoomIn = () => {
-      if (!paneRef.current?.contains(document.activeElement)) return;
-      zoomIn();
+      if (owns()) zoomIn();
     };
     const onZoomOut = () => {
-      if (!paneRef.current?.contains(document.activeElement)) return;
-      zoomOut();
+      if (owns()) zoomOut();
+    };
+    const onReset = () => {
+      if (owns()) resetZoom();
     };
     window.addEventListener(TERMINAL_ZOOM_IN_EVENT, onZoomIn);
     window.addEventListener(TERMINAL_ZOOM_OUT_EVENT, onZoomOut);
+    window.addEventListener(TERMINAL_ZOOM_RESET_EVENT, onReset);
     return () => {
       window.removeEventListener(TERMINAL_ZOOM_IN_EVENT, onZoomIn);
       window.removeEventListener(TERMINAL_ZOOM_OUT_EVENT, onZoomOut);
+      window.removeEventListener(TERMINAL_ZOOM_RESET_EVENT, onReset);
     };
-  }, [paneRef, zoomIn, zoomOut]);
+  }, [paneRef, zoomIn, zoomOut, resetZoom]);
 }
 
 // Wheel delta (px) that must accumulate before stepping one zoom level. Keeps a

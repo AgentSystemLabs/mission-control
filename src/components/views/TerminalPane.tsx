@@ -423,10 +423,11 @@ export function TerminalPane({
     zoomBy,
     zoomIn,
     zoomOut,
+    resetZoom,
     canZoomIn,
     canZoomOut,
   } = useTerminalZoom(descriptor.taskId);
-  useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut);
+  useTerminalPaneZoomShortcuts(paneRef, zoomIn, zoomOut, resetZoom);
   useTerminalPaneWheelZoom(paneRef, zoomBy);
 
   // Track the header's width *bucket* so narrow grid cells can collapse controls

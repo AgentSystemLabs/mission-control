@@ -71,13 +71,14 @@ import {
   type AppNotification,
 } from "~/lib/session-notification-store";
 import { DiagramDialogHost } from "~/lib/use-diagram-events";
-import { isUserTerminalXtermFocused, isTerminalXtermFocused, terminalZoomStepFromKeyboard } from "~/lib/terminal-pane-helpers";
+import { isUserTerminalXtermFocused, isTerminalXtermFocused, terminalZoomIntentFromKeyboard } from "~/lib/terminal-pane-helpers";
 import { useWarmCliAvailability } from "~/lib/cli-availability";
 import {
   CLEAR_USER_TERMINAL_EVENT,
   GRID_EXPAND_TOGGLE_EVENT,
   TERMINAL_ZOOM_IN_EVENT,
   TERMINAL_ZOOM_OUT_EVENT,
+  TERMINAL_ZOOM_RESET_EVENT,
 } from "~/lib/design-meta";
 import {
   LAUNCH_INTRO_CACHE_KEY,
@@ -486,17 +487,22 @@ function Shell() {
     { capture: true },
   );
   useHotkey("nav.toggle", goHome);
-  // Cmd/Ctrl + =/- zoom the focused terminal; otherwise leave browser zoom alone.
+  // Cmd/Ctrl + =/-/0 zoom or reset the focused terminal; otherwise leave browser
+  // zoom alone.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const direction = terminalZoomStepFromKeyboard(e);
-      if (direction === null) return;
+      const intent = terminalZoomIntentFromKeyboard(e);
+      if (intent === null) return;
       if (!isTerminalXtermFocused()) return;
       e.preventDefault();
       e.stopPropagation();
-      window.dispatchEvent(
-        new Event(direction === 1 ? TERMINAL_ZOOM_IN_EVENT : TERMINAL_ZOOM_OUT_EVENT),
-      );
+      const event =
+        intent === "in"
+          ? TERMINAL_ZOOM_IN_EVENT
+          : intent === "out"
+            ? TERMINAL_ZOOM_OUT_EVENT
+            : TERMINAL_ZOOM_RESET_EVENT;
+      window.dispatchEvent(new Event(event));
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);

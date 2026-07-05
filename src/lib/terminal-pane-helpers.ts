@@ -34,39 +34,65 @@ export function stripTerminalSelectionFormatting(text: string): string {
   return text.replace(ANSI_ESCAPE_REGEX, "");
 }
 
-/** True when keyboard focus is inside an xterm surface in the bottom user terminal panel. */
-export function isUserTerminalXtermFocused(): boolean {
+/**
+ * True when `el` sits inside an xterm surface (`.xterm`) that is itself inside
+ * the container matched by `scopeSelector`. Pure over the passed element so the
+ * scope-matching logic stays unit-testable without a DOM environment; the
+ * `is*XtermFocused` wrappers feed it `document.activeElement`.
+ */
+export function isXtermWithinScope(el: Element | null, scopeSelector: string): boolean {
+  if (!el) return false;
+  if (!el.closest(scopeSelector)) return false;
+  return !!el.closest(".xterm");
+}
+
+function activeXtermIsWithin(scopeSelector: string): boolean {
   if (typeof document === "undefined") return false;
   const el = document.activeElement;
   if (!(el instanceof HTMLElement)) return false;
-  if (!el.closest("[data-user-terminal-panel]")) return false;
-  return !!el.closest(".xterm");
+  return isXtermWithinScope(el, scopeSelector);
+}
+
+/** True when keyboard focus is inside an xterm surface in the bottom user terminal panel. */
+export function isUserTerminalXtermFocused(): boolean {
+  return activeXtermIsWithin("[data-user-terminal-panel]");
 }
 
 /** True when keyboard focus is inside an xterm surface in the session terminal panel. */
 export function isSessionTerminalXtermFocused(): boolean {
-  if (typeof document === "undefined") return false;
-  const el = document.activeElement;
-  if (!(el instanceof HTMLElement)) return false;
-  if (!el.closest("[data-session-terminal-panel]")) return false;
-  return !!el.closest(".xterm");
+  return activeXtermIsWithin("[data-session-terminal-panel]");
+}
+
+/** True when keyboard focus is inside an xterm surface in a session grid cell. */
+export function isGridTerminalXtermFocused(): boolean {
+  return activeXtermIsWithin("[data-grid-cell]");
 }
 
 export function isTerminalXtermFocused(): boolean {
-  return isUserTerminalXtermFocused() || isSessionTerminalXtermFocused();
+  return (
+    isUserTerminalXtermFocused() ||
+    isSessionTerminalXtermFocused() ||
+    isGridTerminalXtermFocused()
+  );
 }
 
 export function terminalExitTaskStatus(exitCode?: number): TaskStatus {
   return exitCode === 0 ? "finished" : "terminated";
 }
 
-/** Cmd/Ctrl + =/+ zoom in, Cmd/Ctrl + - zoom out; null when not a zoom chord. */
-export function terminalZoomStepFromKeyboard(e: KeyboardEvent): 1 | -1 | null {
+export type TerminalZoomIntent = "in" | "out" | "reset";
+
+/**
+ * Cmd/Ctrl + =/+ zoom in, Cmd/Ctrl + - zoom out, Cmd/Ctrl + 0 reset to default;
+ * null when not a zoom chord.
+ */
+export function terminalZoomIntentFromKeyboard(e: KeyboardEvent): TerminalZoomIntent | null {
   if (e.type !== "keydown") return null;
   if (!(e.metaKey || e.ctrlKey)) return null;
   if (e.altKey) return null;
-  if (e.key === "+" || e.key === "=" || e.code === "Equal") return 1;
-  if (e.key === "-" || e.code === "Minus") return -1;
+  if (e.key === "+" || e.key === "=" || e.code === "Equal") return "in";
+  if (e.key === "-" || e.code === "Minus") return "out";
+  if (e.key === "0" || e.code === "Digit0") return "reset";
   return null;
 }
 
