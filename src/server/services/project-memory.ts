@@ -354,7 +354,7 @@ function scoreMemory(m: MemoryView, now: number, keywords: Set<string>): number 
   return score;
 }
 
-function renderMemoryLine(m: MemoryView): string {
+export function renderMemoryLine(m: MemoryView): string {
   const body = m.body.trim().replace(/\s+/g, " ");
   const tag = m.confidence === "confirmed" ? "" : ` _(${m.confidence})_`;
   return body ? `- **${m.title}** — ${body}${tag}` : `- **${m.title}**${tag}`;

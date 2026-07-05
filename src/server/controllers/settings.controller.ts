@@ -139,6 +139,7 @@ const updateSettingsBody = z
     recallAgentWriteEnabled: z.boolean(),
     recallInjectBriefEnabled: z.boolean(),
     recallCodeGraphEnabled: z.boolean(),
+    recallProactiveRecallEnabled: z.boolean(),
   })
   .partial();
 
@@ -267,6 +268,7 @@ function recallSettingsPayload() {
     recallAgentWriteEnabled: recall.agentWriteEnabled,
     recallInjectBriefEnabled: recall.injectBriefEnabled,
     recallCodeGraphEnabled: recall.codeGraphEnabled,
+    recallProactiveRecallEnabled: recall.proactiveRecallEnabled,
   };
 }
 
@@ -419,6 +421,7 @@ export async function update(request: Request): Promise<Response> {
     agentWriteEnabled: body.recallAgentWriteEnabled,
     injectBriefEnabled: body.recallInjectBriefEnabled,
     codeGraphEnabled: body.recallCodeGraphEnabled,
+    proactiveRecallEnabled: body.recallProactiveRecallEnabled,
   });
   return json(settingsPayload());
 }

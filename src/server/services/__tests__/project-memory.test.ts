@@ -22,6 +22,9 @@ const {
 } = await import("../project-memory");
 const { getDb } = await import("~/db/client");
 const { projectMemory, projects, groups, tasks, worktrees } = await import("~/db/schema");
+const { buildFtsMatch, __setMemoryFtsAvailableForTest } = await import(
+  "../../repositories/project-memory.repo"
+);
 
 /** Backdate a memory well past the staleness threshold (unverified/unused). */
 function makeStale(id: string) {
@@ -102,6 +105,66 @@ describe("project-memory service", () => {
     expect(searchMemory(project.id, "missed")).toHaveLength(1); // body
     expect(searchMemory(project.id, "startup")).toHaveLength(1); // tag
     expect(searchMemory(project.id, "nothing")).toHaveLength(0);
+  });
+
+  describe("FTS5 search", () => {
+    beforeEach(() => {
+      __setMemoryFtsAvailableForTest(null); // re-probe (real DB has the index)
+    });
+
+    it("returns all matches, pinned first, then by bm25 relevance", () => {
+      const project = makeProject();
+      createMemory({
+        projectId: project.id,
+        type: "architecture",
+        title: "Rate limiter",
+        body: "rate limit strategy",
+      });
+      const pinned = createMemory({
+        projectId: project.id,
+        type: "known-issue",
+        title: "Networking notes",
+        body: "rate limit basics",
+      });
+      updateMemory(pinned.id, { pinned: true });
+      const results = searchMemory(project.id, "rate limit"); // implicit AND
+      expect(results).toHaveLength(2);
+      expect(results[0]!.id).toBe(pinned.id); // pinned floats above bm25 order
+    });
+
+    it("keeps the index in sync through update triggers", () => {
+      const project = makeProject();
+      const mem = createMemory({
+        projectId: project.id,
+        type: "discovery",
+        title: "sync target",
+        body: "alphaword",
+      });
+      expect(searchMemory(project.id, "alphaword")).toHaveLength(1);
+      updateMemory(mem.id, { body: "gammaword" });
+      expect(searchMemory(project.id, "alphaword")).toHaveLength(0); // old term gone
+      expect(searchMemory(project.id, "gammaword")).toHaveLength(1); // new term indexed
+    });
+
+    it("falls back to LIKE substring search when FTS is unavailable", () => {
+      const project = makeProject();
+      createMemory({ projectId: project.id, type: "stack", title: "Auth", body: "authentication flow" });
+      // Mid-token substring: LIKE matches, FTS prefix would not.
+      __setMemoryFtsAvailableForTest(false);
+      try {
+        expect(searchMemory(project.id, "thentic")).toHaveLength(1);
+      } finally {
+        __setMemoryFtsAvailableForTest(null);
+      }
+    });
+
+    it("builds a safe OR prefix MATCH string from free text", () => {
+      expect(buildFtsMatch("Hello World")).toBe('"hello"* OR "world"*');
+      expect(buildFtsMatch("auth-flow.api")).toBe('"auth"* OR "flow"* OR "api"*'); // punctuation splits
+      expect(buildFtsMatch("where is the auth")).toBe('"auth"*'); // stopwords dropped
+      expect(buildFtsMatch("   ")).toBe(""); // no tokens → caller uses LIKE
+      expect(buildFtsMatch('drop"table')).toBe('"drop"* OR "table"*'); // quotes can't break out
+    });
   });
 
   it("updates fields and pins", () => {

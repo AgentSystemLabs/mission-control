@@ -16,6 +16,7 @@ type RecallSettingsPatch = Partial<
     | "recallAgentWriteEnabled"
     | "recallInjectBriefEnabled"
     | "recallCodeGraphEnabled"
+    | "recallProactiveRecallEnabled"
   >
 >;
 
@@ -30,6 +31,7 @@ export function MemorySettingsPage() {
   const agentWrite = settings?.recallAgentWriteEnabled ?? true;
   const injectBrief = settings?.recallInjectBriefEnabled ?? true;
   const codeGraph = settings?.recallCodeGraphEnabled ?? true;
+  const proactiveRecall = settings?.recallProactiveRecallEnabled ?? true;
 
   const [updating, setUpdating] = useState(false);
   const inFlight = useRef(false);
@@ -69,6 +71,14 @@ export function MemorySettingsPage() {
           checked={injectBrief}
           disabled={updating}
           onChange={(next) => void update({ recallInjectBriefEnabled: next })}
+        />
+        <ToggleRow
+          title="Surface relevant memory each turn"
+          description="Before the agent answers, inject the memories and code-graph symbols most relevant to the prompt — so it uses what Recall already knows without having to search first."
+          label="Surface relevant memory each turn"
+          checked={proactiveRecall}
+          disabled={updating}
+          onChange={(next) => void update({ recallProactiveRecallEnabled: next })}
         />
         <ToggleRow
           title="Auto-capture from finished sessions"

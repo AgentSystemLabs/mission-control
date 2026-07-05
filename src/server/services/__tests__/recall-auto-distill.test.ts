@@ -10,6 +10,7 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 const distillSession = vi.fn();
 vi.mock("../recall-engine", () => ({
   distillSession: (...args: unknown[]) => distillSession(...args),
+  DISTILL_INPUT_CHAR_BUDGET: 8000,
 }));
 
 const { createProject } = await import("../projects");
@@ -20,6 +21,7 @@ const { writeRecallSettings } = await import("../recall-settings");
 const { registerRecallAutoDistill, __resetAutoDistillCooldown } = await import(
   "../recall-auto-distill"
 );
+const { setTranscriptPath, __resetTranscriptPaths } = await import("../session-transcripts");
 const { events } = await import("../../events");
 const { getDb } = await import("~/db/client");
 const { projectMemory, projects, groups, tasks, worktrees, prompts } = await import("~/db/schema");
@@ -64,6 +66,7 @@ describe("recall auto-distill on session:finished", () => {
   beforeEach(() => {
     resetDb();
     __resetAutoDistillCooldown();
+    __resetTranscriptPaths();
     distillSession.mockReset();
     writeRecallSettings({ autoCaptureEnabled: true, recallEngineEnabled: true });
   });
@@ -131,5 +134,54 @@ describe("recall auto-distill on session:finished", () => {
     updateStatus(task.id, { status: "finished" });
     expect(await second).toBeNull();
     expect(distillSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("feeds the session transcript to the distiller when one was reported", async () => {
+    const { task } = makeProjectWithSession();
+    const transcriptFile = path.join(tmpRoot, `transcript-${task.id}.jsonl`);
+    fs.writeFileSync(
+      transcriptFile,
+      [
+        JSON.stringify({ type: "user", message: { content: "add a rate limiter" } }),
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            content: [
+              { type: "text", text: "I'll add a token-bucket limiter in middleware." },
+              { type: "tool_use", name: "Edit", input: { file_path: "src/mw/rate-limit.ts" } },
+            ],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    setTranscriptPath(task.id, transcriptFile);
+    distillSession.mockResolvedValue([
+      { type: "architecture", title: "Rate limiting is token-bucket middleware", body: "" },
+    ]);
+
+    const learned = waitForLearned();
+    updateStatus(task.id, { status: "finished" });
+    await learned;
+
+    expect(distillSession).toHaveBeenCalledTimes(1);
+    const arg = distillSession.mock.calls[0][0] as { transcript: string | null };
+    expect(arg.transcript).toContain("ASSISTANT: I'll add a token-bucket limiter");
+    expect(arg.transcript).toContain("TOOL(Edit): src/mw/rate-limit.ts");
+  });
+
+  it("falls back to prompts-only when the transcript path is unreadable", async () => {
+    const { task } = makeProjectWithSession();
+    setTranscriptPath(task.id, path.join(tmpRoot, "does-not-exist.jsonl"));
+    distillSession.mockResolvedValue([{ type: "stack", title: "Electron app", body: "" }]);
+
+    const learned = waitForLearned();
+    updateStatus(task.id, { status: "finished" });
+    await learned;
+
+    expect(distillSession).toHaveBeenCalledTimes(1);
+    const arg = distillSession.mock.calls[0][0] as { transcript: string | null; prompts: string[] };
+    expect(arg.transcript).toBeNull();
+    expect(arg.prompts.length).toBeGreaterThan(0);
   });
 });

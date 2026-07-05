@@ -4,7 +4,10 @@ import { writeOpencodeMissionControlPlugin } from "./opencode-mission-control-pl
 
 const MARKER = "_mcManaged";
 
-type HookEvent = { event: string; matcher?: string };
+// injectContext: for this event, let the hook's HTTP response reach stdout so
+// Claude Code injects it as additional turn context (used by proactive recall).
+// Every other event discards stdout — the response is fire-and-forget status.
+type HookEvent = { event: string; matcher?: string; injectContext?: boolean };
 type HookEntry = {
   type: "command";
   command: string;
@@ -36,8 +39,14 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
     configPath: [".claude", "settings.local.json"],
     endpointSlug: "claude",
     events: [
-      { event: "UserPromptSubmit" },
+      // injectContext: the server answers this hook with a compact "relevant
+      // memory + code" block that Claude injects into the turn (proactive recall).
+      { event: "UserPromptSubmit", injectContext: true },
       { event: "Stop" },
+      // SessionStart carries no status (mapHookEventToStatus returns null); we
+      // hang the code-graph auto-index side effect off it so the graph refreshes
+      // as sessions come online, without a manual Build click.
+      { event: "SessionStart" },
       // PermissionRequest is the precise "human approval required" signal.
       // Notification also fires for idle reminders, so keep it narrowed to the
       // permission notification type for Claude builds that rely on it.
@@ -79,7 +88,8 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
 function buildPosixHookCommand(
   endpointSlug: string,
   event: string,
-  style: "claude" | "cursor"
+  style: "claude" | "cursor",
+  injectContext: boolean
 ): string {
   // Read stdin (the agent's hook payload JSON) and forward to Mission Control.
   // Fail-soft: never block the user's session if MC is down.
@@ -95,6 +105,10 @@ function buildPosixHookCommand(
       "printf '{\"continue\":true}\\n'"
     );
   }
+  // injectContext events keep stdout (the JSON response Claude injects); all
+  // others discard it. Either way stderr is dropped and a non-zero exit is
+  // swallowed, so a slow/down server never blocks or faults the turn.
+  const redirect = injectContext ? "2>/dev/null || true" : ">/dev/null 2>&1 || true";
   return (
     'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
     "curl -sS -m 3 -X POST " +
@@ -103,14 +117,15 @@ function buildPosixHookCommand(
     '-H "Content-Type: application/json" ' +
     "--data-binary @- " +
     `${url} ` +
-    ">/dev/null 2>&1 || true"
+    redirect
   );
 }
 
 function buildPowerShellHookCommand(
   endpointSlug: string,
   event: string,
-  style: "claude" | "cursor"
+  style: "claude" | "cursor",
+  injectContext: boolean
 ): string {
   const eventParam = encodeURIComponent(event);
   const missingEnv =
@@ -120,14 +135,19 @@ function buildPowerShellHookCommand(
   const continueOutput =
     style === "cursor" ? '; Write-Output \'{"continue":true}\'' : "";
 
+  // injectContext: emit the JSON response to stdout (re-serialized) so Claude can
+  // inject it; otherwise pipe to Out-Null. Both swallow errors (fail-soft).
+  const invoke = injectContext
+    ? 'try { $resp = Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop; if ($resp) { $resp | ConvertTo-Json -Depth 10 -Compress } } catch {}'
+    : 'try { Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop | Out-Null } catch {}';
+
   return [
     missingEnv,
     "$payload = [Console]::In.ReadToEnd()",
     "$taskId = [System.Uri]::EscapeDataString($env:MC_TASK_ID)",
     `$url = "$($env:MC_API_URL)/api/hooks/${endpointSlug}?taskId=$taskId&hookEvent=${eventParam}"`,
     '$headers = @{ Authorization = "Bearer $($env:MC_API_TOKEN)"; "X-Mission-Control-Runtime" = "electron-local" }',
-    'try { Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop | Out-Null } catch {}' +
-      continueOutput,
+    invoke + continueOutput,
   ].join("; ");
 }
 
@@ -135,15 +155,16 @@ function buildHookCommand(
   endpointSlug: string,
   event: string,
   style: "claude" | "cursor",
-  platform: NodeJS.Platform
+  platform: NodeJS.Platform,
+  injectContext: boolean
 ): HookCommand {
   if (platform === "win32" && style === "claude") {
     return {
-      command: buildPowerShellHookCommand(endpointSlug, event, style),
+      command: buildPowerShellHookCommand(endpointSlug, event, style, injectContext),
       shell: "powershell",
     };
   }
-  return { command: buildPosixHookCommand(endpointSlug, event, style) };
+  return { command: buildPosixHookCommand(endpointSlug, event, style, injectContext) };
 }
 
 function buildManagedGroup(
@@ -206,8 +227,14 @@ export function installAgentHooks(
     settings.version = 1;
   }
   const hooks = (settings.hooks ??= {});
-  for (const { event, matcher } of spec.events) {
-    const command = buildHookCommand(spec.endpointSlug, event, style, platform);
+  for (const { event, matcher, injectContext } of spec.events) {
+    const command = buildHookCommand(
+      spec.endpointSlug,
+      event,
+      style,
+      platform,
+      injectContext ?? false,
+    );
     const groups = (hooks[event] ??= []);
     const filtered = groups.filter((g) => !g[MARKER]);
     filtered.push(buildManagedGroup(command, style, matcher));

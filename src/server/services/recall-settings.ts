@@ -26,6 +26,7 @@ const ENGINE_MODEL_KEY = "recall_engine_model";
 const AGENT_WRITE_ENABLED_KEY = "recall_agent_write_enabled";
 const INJECT_BRIEF_ENABLED_KEY = "recall_inject_brief_enabled";
 const CODE_GRAPH_ENABLED_KEY = "recall_code_graph_enabled";
+const PROACTIVE_RECALL_ENABLED_KEY = "recall_proactive_recall_enabled";
 
 // The harness fallback mirrors session creation: use the app's configured
 // default agent when Recall's own harness hasn't been set explicitly.
@@ -46,6 +47,8 @@ export interface RecallSettings {
   injectBriefEnabled: boolean;
   /** Whether the brief includes the code-graph "Architecture at a glance" section. */
   codeGraphEnabled: boolean;
+  /** Whether each turn gets relevant memories + graph hits injected (UserPromptSubmit). */
+  proactiveRecallEnabled: boolean;
 }
 
 function getEngineHarness(): AiRuntimeHarness {
@@ -65,6 +68,7 @@ export function readRecallSettings(): RecallSettings {
     agentWriteEnabled: getBooleanSetting(AGENT_WRITE_ENABLED_KEY, true),
     injectBriefEnabled: getBooleanSetting(INJECT_BRIEF_ENABLED_KEY, true),
     codeGraphEnabled: getBooleanSetting(CODE_GRAPH_ENABLED_KEY, true),
+    proactiveRecallEnabled: getBooleanSetting(PROACTIVE_RECALL_ENABLED_KEY, true),
   };
 }
 
@@ -90,6 +94,9 @@ export function writeRecallSettings(patch: Partial<RecallSettings>): void {
   }
   if (patch.codeGraphEnabled !== undefined) {
     setBooleanSetting(CODE_GRAPH_ENABLED_KEY, patch.codeGraphEnabled);
+  }
+  if (patch.proactiveRecallEnabled !== undefined) {
+    setBooleanSetting(PROACTIVE_RECALL_ENABLED_KEY, patch.proactiveRecallEnabled);
   }
 }
 

@@ -625,6 +625,71 @@ function ensureSchema(sqlite: Database.Database) {
     UPDATE tasks SET agent = 'claude-code' WHERE agent = 'shell';
     UPDATE projects SET saved_agent = NULL WHERE saved_agent = 'shell';
   `);
+
+  // Full-text search index over project_memory. Runtime-created (not a migration)
+  // so a SQLite build without FTS5 degrades to LIKE search instead of failing to
+  // boot. Idempotent + backfills existing rows on the upgrade path. See
+  // 0020_project_memory_fts.sql.
+  ensureMemoryFts(sqlite);
+}
+
+/**
+ * Create the FTS5 full-text index over `project_memory` (title/body/tags) plus
+ * the triggers that keep it in sync with every insert/update/delete, and backfill
+ * it once from existing rows. Fail-soft: returns false (and the search layer
+ * falls back to LIKE) if this SQLite build lacks FTS5, so it never breaks boot.
+ */
+export function ensureMemoryFts(sqlite: Database.Database): boolean {
+  try {
+    sqlite.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS project_memory_fts USING fts5(
+        title, body, tags,
+        content='project_memory',
+        content_rowid='rowid'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS project_memory_fts_ai
+      AFTER INSERT ON project_memory BEGIN
+        INSERT INTO project_memory_fts(rowid, title, body, tags)
+        VALUES (new.rowid, new.title, new.body, COALESCE(new.tags, ''));
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS project_memory_fts_ad
+      AFTER DELETE ON project_memory BEGIN
+        INSERT INTO project_memory_fts(project_memory_fts, rowid, title, body, tags)
+        VALUES ('delete', old.rowid, old.title, old.body, COALESCE(old.tags, ''));
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS project_memory_fts_au
+      AFTER UPDATE ON project_memory BEGIN
+        INSERT INTO project_memory_fts(project_memory_fts, rowid, title, body, tags)
+        VALUES ('delete', old.rowid, old.title, old.body, COALESCE(old.tags, ''));
+        INSERT INTO project_memory_fts(rowid, title, body, tags)
+        VALUES (new.rowid, new.title, new.body, COALESCE(new.tags, ''));
+      END;
+    `);
+
+    // One-time backfill (upgrade path): populate the index if it's empty while
+    // memories already exist. Fresh DBs have no rows yet, so this is a no-op there.
+    const ftsCount = (
+      sqlite.prepare("SELECT count(*) AS n FROM project_memory_fts").get() as { n: number }
+    ).n;
+    if (ftsCount === 0) {
+      const memCount = (
+        sqlite.prepare("SELECT count(*) AS n FROM project_memory").get() as { n: number }
+      ).n;
+      if (memCount > 0) {
+        sqlite.exec(`
+          INSERT INTO project_memory_fts(rowid, title, body, tags)
+          SELECT rowid, title, body, COALESCE(tags, '') FROM project_memory;
+        `);
+      }
+    }
+    return true;
+  } catch {
+    // No FTS5 in this build — leave searchMemory on its LIKE path.
+    return false;
+  }
 }
 
 export { schema };

@@ -61,6 +61,7 @@ export function TerminalSettingsPage() {
     recallAgentWriteEnabled: settings?.recallAgentWriteEnabled ?? true,
     recallInjectBriefEnabled: settings?.recallInjectBriefEnabled ?? true,
     recallCodeGraphEnabled: settings?.recallCodeGraphEnabled ?? true,
+    recallProactiveRecallEnabled: settings?.recallProactiveRecallEnabled ?? true,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

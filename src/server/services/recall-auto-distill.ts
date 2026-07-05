@@ -10,8 +10,10 @@ import { events } from "../events";
 import { listPromptTextsForTask } from "../repositories/prompts.repo";
 import { getTask } from "./tasks";
 import { createMemory } from "./project-memory";
-import { distillSession } from "./recall-engine";
+import { distillSession, DISTILL_INPUT_CHAR_BUDGET } from "./recall-engine";
 import { readRecallSettings } from "./recall-settings";
+import { getTranscriptPath } from "./session-transcripts";
+import { readTranscriptForDistill } from "./recall-transcript";
 
 // Stop hooks fire once per agent turn, so session:finished can arrive many times
 // in one working session. Distilling on every turn would fan out a CLI each time;
@@ -46,7 +48,14 @@ async function handleSessionFinished(
   lastDistilledAt.set(taskId, now);
 
   const prompts = listPromptTextsForTask(taskId);
-  if (!prompts.length) return;
+  // Prefer the full session transcript (assistant text + tool activity) when the
+  // Stop hook reported its path; fall back to prompts-only when it's absent or
+  // unreadable (e.g. non-Claude harnesses never provide it).
+  const transcriptPath = getTranscriptPath(taskId);
+  const transcript = transcriptPath
+    ? readTranscriptForDistill(transcriptPath, { charBudget: DISTILL_INPUT_CHAR_BUDGET })
+    : null;
+  if (!prompts.length && !transcript) return;
 
   const task = getTask(taskId);
   const distilled = await distillSession({
@@ -54,6 +63,7 @@ async function handleSessionFinished(
     prompts,
     projectName: event.projectName,
     branch: task?.branch ?? null,
+    transcript,
   });
   if (!distilled.length) return;
 

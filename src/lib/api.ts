@@ -130,6 +130,8 @@ export type AppSettings = {
   recallInjectBriefEnabled: boolean;
   /** Whether the brief includes the code-graph "Architecture at a glance" section. */
   recallCodeGraphEnabled: boolean;
+  /** Whether each turn gets relevant memories + graph hits injected proactively. */
+  recallProactiveRecallEnabled: boolean;
 };
 
 export class ApiError extends Error {
@@ -579,6 +581,7 @@ export const api = {
         | "recallAgentWriteEnabled"
         | "recallInjectBriefEnabled"
         | "recallCodeGraphEnabled"
+        | "recallProactiveRecallEnabled"
       >
     >,
   ) =>

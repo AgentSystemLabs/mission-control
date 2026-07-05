@@ -26,8 +26,10 @@ import { readRecallSettings } from "./recall-settings";
 // more room than the 60s headless default but keep it bounded.
 const DISTILL_TIMEOUT_MS = 90_000;
 
-// Never feed an unbounded transcript to the CLI — cap the joined prompt text.
-const DISTILL_INPUT_CHAR_BUDGET = 8_000;
+// Never feed an unbounded transcript to the CLI — cap the joined input text.
+// Exported so the transcript reader that produces the richer input caps to the
+// same budget before we tail-clamp again here.
+export const DISTILL_INPUT_CHAR_BUDGET = 8_000;
 
 // Only run one distill at a time. Session finishes can arrive in bursts (e.g.
 // closing several worktrees); serializing keeps us from fanning out N CLIs.
@@ -47,12 +49,22 @@ export interface DistillSessionInput {
   /** Extra context (branch, project name) folded into the prompt header. */
   projectName?: string;
   branch?: string | null;
+  /**
+   * Optional condensed session transcript (user + assistant text + tool
+   * activity). When present it SUPERSEDES `prompts` as the distill body, since
+   * it already includes the prompts plus what the agent actually did — richer
+   * signal for durable facts. Null/empty falls back to the prompts-only body.
+   */
+  transcript?: string | null;
 }
 
 const ALLOWED_TYPE_LIST = MEMORY_TYPES.map((t) => `${t} (${MEMORY_TYPE_LABELS[t]})`).join(", ");
 
 export function buildDistillPrompt(input: DistillSessionInput): string {
-  const transcript = joinPrompts(input.prompts);
+  const body =
+    input.transcript && input.transcript.trim()
+      ? clampTail(input.transcript.trim())
+      : joinPrompts(input.prompts);
   const header = [
     `Project: ${input.projectName ?? "(unknown)"}`,
     input.branch ? `Branch: ${input.branch}` : null,
@@ -63,6 +75,8 @@ export function buildDistillPrompt(input: DistillSessionInput): string {
 
   return [
     "You are curating long-term project memory from a finished coding session.",
+    "The session below may include the user's prompts, the assistant's messages,",
+    "and condensed tool activity (edits, commands, results).",
     "Extract ONLY durable, reusable facts about THIS PROJECT that would help a future",
     "session start faster: architecture, decisions and their rationale, conventions,",
     "stack details, glossary terms, known issues, and useful discoveries.",
@@ -84,7 +98,7 @@ export function buildDistillPrompt(input: DistillSessionInput): string {
     "----- SESSION START -----",
     header,
     "",
-    transcript,
+    body,
     "----- SESSION END -----",
   ].join("\n");
 }
@@ -94,9 +108,13 @@ function joinPrompts(prompts: string[]): string {
     .map((p) => p.trim())
     .filter(Boolean)
     .join("\n\n");
-  if (joined.length <= DISTILL_INPUT_CHAR_BUDGET) return joined;
-  // Keep the tail — the latest prompts are the most representative of outcomes.
-  return "…\n" + joined.slice(joined.length - DISTILL_INPUT_CHAR_BUDGET);
+  return clampTail(joined);
+}
+
+// Keep the tail — the latest activity is the most representative of outcomes.
+function clampTail(text: string): string {
+  if (text.length <= DISTILL_INPUT_CHAR_BUDGET) return text;
+  return "…\n" + text.slice(text.length - DISTILL_INPUT_CHAR_BUDGET);
 }
 
 function fieldValue(block: string, field: "TYPE" | "TITLE" | "BODY" | "VERDICT"): string {
@@ -152,7 +170,9 @@ export function isRecallEngineEnabled(): boolean {
 export async function distillSession(input: DistillSessionInput): Promise<DistilledMemory[]> {
   const settings = readRecallSettings();
   if (!settings.recallEngineEnabled) return [];
-  if (!input.prompts.some((p) => p.trim())) return [];
+  const hasContent =
+    input.prompts.some((p) => p.trim()) || Boolean(input.transcript?.trim());
+  if (!hasContent) return [];
   if (inFlightDistills >= MAX_CONCURRENT_DISTILLS) return [];
 
   inFlightDistills++;

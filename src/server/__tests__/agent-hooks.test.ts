@@ -79,6 +79,31 @@ describe("agent hook installation", () => {
     );
   });
 
+  it("registers a SessionStart hook and passes UserPromptSubmit stdout through", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd);
+
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude", "settings.local.json"), "utf8"),
+    ) as {
+      hooks: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
+    };
+
+    // SessionStart drives the code-graph auto-index.
+    const sessionStart = settings.hooks.SessionStart?.[0]?.hooks?.[0]?.command;
+    expect(sessionStart).toContain("hookEvent=SessionStart");
+
+    // UserPromptSubmit keeps stdout (the injected recall block); Stop discards it.
+    const userPrompt = settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.command ?? "";
+    expect(userPrompt).toContain("hookEvent=UserPromptSubmit");
+    expect(userPrompt).not.toContain(">/dev/null 2>&1");
+    expect(userPrompt).toContain("2>/dev/null || true");
+
+    const stop = settings.hooks.Stop?.[0]?.hooks?.[0]?.command ?? "";
+    expect(stop).toContain(">/dev/null 2>&1 || true");
+  });
+
   it("registers Claude hooks as PowerShell commands on Windows", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
 
