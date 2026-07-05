@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Field, ToggleRow } from "~/components/views/SettingsParts";
+import { Field, SettingsSection, ToggleRow } from "~/components/views/SettingsParts";
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
 import { RuntimeDefaultControl, modelForSelectedHarness } from "./DefaultsSettingsPage";
@@ -21,10 +21,10 @@ type RecallSettingsPatch = Partial<
   >
 >;
 
-// Recall lives in the Experimental settings page. The first toggle is the
-// master switch: when off, the server reports every sub-flag as false (stored
-// values survive for re-enable), the detail toggles below are hidden, and the
-// project menu drops its Recall entry.
+// Recall has its own settings page under the Beta group. The first toggle is
+// the master switch: when off, the server reports every sub-flag as false
+// (stored values survive for re-enable), the detail toggles below are hidden,
+// and the project menu drops its Recall entry.
 export function RecallSettings() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
@@ -159,5 +159,19 @@ export function RecallSettings() {
         </Field>
       )}
     </>
+  );
+}
+
+// Standalone Recall settings page rendered from its own sidebar entry under the
+// Beta group, alongside Experimental.
+export function RecallSettingsPage() {
+  return (
+    <SettingsSection
+      title="Recall"
+      subtitle="Curated project memory and a code graph fed to new agent sessions. May change or be removed."
+      headingLevel="h1"
+    >
+      <RecallSettings />
+    </SettingsSection>
   );
 }
