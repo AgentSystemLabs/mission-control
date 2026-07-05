@@ -38,7 +38,6 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
 import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
-import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
@@ -1541,6 +1540,20 @@ function ProjectPage() {
 
   useHotkey("agent.new", onNewAgentPrimary, { ignoreEditable: true });
 
+  // New-row variant of agent.new: the session lands in a fresh grid row at the
+  // bottom instead of beside the active one. Grid-only — rows don't exist
+  // outside the grid.
+  const onNewRowPrimary = useCallback(() => {
+    if (!projectPathReady) return;
+    if (showNewAgent || showEdit) return;
+    if (project?.rememberAgentSettings && project.savedAgent) {
+      void startWithSavedInNewRow();
+      return;
+    }
+    setNewAgentTarget("newRow");
+    setShowNewAgent(true);
+  }, [project, projectPathReady, showNewAgent, showEdit, startWithSavedInNewRow]);
+
   useHotkey("project.edit", () => {
     if (showNewAgent || projectPathIssue || projectPathCheck.state === "error") return;
     setShowEdit((v) => !v);
@@ -1735,13 +1748,6 @@ function ProjectPage() {
     [project, terminalProject, selectedScopeKey, tasks, terminals, anyBlockingDialogOpen],
   );
 
-  // Direct window-capture listener (not useHotkey) — xterm's focused textarea
-  // intermittently masks the action-based hook after a focus change. Mirrors
-  // the proven Cmd+[/Cmd+] pattern in __root.tsx. Cmd+Shift+] / Cmd+Shift+[
-  // arrive as e.key="}" / e.key="{" on US layouts, so match by e.code instead.
-  const cycleSessionRef = useRef(cycleSession);
-  cycleSessionRef.current = cycleSession;
-
   const duplicateActiveSession = useCallback(
     (sourceTaskId?: string) => {
       if (!project) return;
@@ -1782,37 +1788,33 @@ function ProjectPage() {
   const duplicateActiveSessionRef = useRef(duplicateActiveSession);
   duplicateActiveSessionRef.current = duplicateActiveSession;
 
+  // Session cycling + clone go through the rebindable registry so a rebind in
+  // Keybindings settings actually takes effect here (matches focus mode, which
+  // wires the same actions via useHotkey). Capture phase mirrors the old direct
+  // listener — a focused xterm textarea would otherwise swallow the chord first.
+  // The shifted-bracket combos (Cmd+Shift+] → e.key "}") are resolved by
+  // matchBinding's e.code fallback, so no manual e.code handling is needed.
+  useHotkey("session.cycleNext", () => cycleSession(1), { capture: true });
+  useHotkey("session.cyclePrev", () => cycleSession(-1), { capture: true });
+  useHotkey("session.clone", () => duplicateActiveSession(), { capture: true });
+  useHotkey(
+    "session.newRow",
+    () => {
+      if (anyBlockingDialogOpen) return;
+      onNewRowPrimary();
+    },
+    { capture: true, enabled: gridViewActive },
+  );
+
+  // The per-session "Clone" menu button dispatches this to clone a specific
+  // session by id (registered once, so it reads the latest handler via a ref).
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      // The project view stays mounted behind the settings overlay; suppress its
-      // shortcuts there so it behaves like a modal (mirrors the useHotkey guard).
-      if (isSettingsOverlayOpen()) return;
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (!e.shiftKey || e.altKey) return;
-      if (e.code === "BracketRight") {
-        e.preventDefault();
-        e.stopPropagation();
-        cycleSessionRef.current(1);
-      } else if (e.code === "BracketLeft") {
-        e.preventDefault();
-        e.stopPropagation();
-        cycleSessionRef.current(-1);
-      } else if (e.code === "KeyD") {
-        e.preventDefault();
-        e.stopPropagation();
-        duplicateActiveSessionRef.current();
-      }
-    };
     const onDuplicateRequest = (e: Event) => {
       const taskId = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
       duplicateActiveSessionRef.current(taskId);
     };
-    window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
-    };
+    return () => window.removeEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
   }, []);
 
   useHotkey(
@@ -2829,26 +2831,10 @@ function ProjectPage() {
                 >
                   Archive all
                 </Btn>
-                <Btn
-                  variant="ghost"
-                  icon="plus"
-                  onClick={() => {
-                    if (!projectPathReady) return;
-                    if (project?.rememberAgentSettings && project.savedAgent) {
-                      void startWithSavedInNewRow();
-                      return;
-                    }
-                    setNewAgentTarget("newRow");
-                    setShowNewAgent(true);
-                  }}
-                  disabled={!projectPathReady}
-                  title="New session in a new row"
-                >
-                  New row
-                </Btn>
                 <NewAgentButton
                   project={project}
                   onPrimary={onNewAgentPrimary}
+                  onNewRow={onNewRowPrimary}
                   disabled={!projectPathReady}
                   onConfigure={() => {
                     if (projectPathReady) setShowNewAgent(true);
