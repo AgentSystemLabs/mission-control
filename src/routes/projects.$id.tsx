@@ -2809,7 +2809,7 @@ function ProjectPage() {
             >
               <Btn
                 variant="ghost"
-                icon="grid"
+                icon={terminals.gridView ? "list" : "grid"}
                 onClick={toggleGridViewShowingAll}
                 aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
                 aria-pressed={terminals.gridView}
