@@ -1766,7 +1766,7 @@ function ProjectPage() {
       // Resolve which session to clone, most-specific first:
       //  1. The session whose "Clone" button fired the event (menu path).
       //  2. The grid cell that currently holds focus — the pane the user is
-      //     actually looking at when they hit Cmd+Shift+D. Without this the
+      //     actually looking at when they hit Cmd+D. Without this the
       //     keyboard path anchors on the scope's tracked-active session, which
       //     in a multi-pane grid is often a different cell, so the clone lands
       //     beside the "wrong" session (or, if that session isn't in the
