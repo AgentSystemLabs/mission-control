@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
@@ -127,7 +127,15 @@ function ConfidenceSelect({
   );
 }
 
-function AddMemoryForm({ projectId, onAdded }: { projectId: string; onAdded: () => void }) {
+function AddMemoryForm({
+  projectId,
+  onAdded,
+  onCancel,
+}: {
+  projectId: string;
+  onAdded: () => void;
+  onCancel: () => void;
+}) {
   const [type, setType] = useState<MemoryType>("discovery");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -162,6 +170,7 @@ function AddMemoryForm({ projectId, onAdded }: { projectId: string; onAdded: () 
           placeholder="What should the AI remember? (one line)"
           maxLength={MEMORY_TITLE_MAX}
           aria-label="Memory title"
+          autoFocus
           style={{ ...INPUT, flex: 1 }}
         />
       </div>
@@ -173,7 +182,10 @@ function AddMemoryForm({ projectId, onAdded }: { projectId: string; onAdded: () 
         rows={2}
         style={{ ...INPUT, resize: "vertical", fontFamily: "var(--mono)" }}
       />
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <Btn variant="ghost" onClick={onCancel} disabled={saving}>
+          Close
+        </Btn>
         <Btn variant="primary" icon="plus" onClick={() => void submit()} disabled={!title.trim() || saving}>
           Remember this
         </Btn>
@@ -383,54 +395,6 @@ function IconBtn({
   );
 }
 
-function BriefPreview({ projectId }: { projectId: string }) {
-  const [open, setOpen] = useState(false);
-  const [brief, setBrief] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const toggle = async () => {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    setOpen(true);
-    setLoading(true);
-    try {
-      const { brief: md } = await api.getProjectBrief(projectId);
-      setBrief(md || "(no memories yet — a new session gets no brief)");
-    } catch {
-      setBrief("(could not load brief)");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      <Btn variant="ghost" icon="eye" onClick={() => void toggle()}>
-        {open ? "Hide injected brief" : "View injected brief"}
-      </Btn>
-      {open && (
-        <pre
-          style={{
-            ...CARD,
-            margin: 0,
-            maxHeight: 260,
-            overflow: "auto",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            fontFamily: "var(--mono)",
-            fontSize: 11,
-            color: "var(--text-dim)",
-          }}
-        >
-          {loading ? "Loading…" : brief}
-        </pre>
-      )}
-    </div>
-  );
-}
-
 export type RecallFilter = "all" | "recent" | "archived";
 
 /** Auto-captured memories the user may want to review (auto-distill / agent writes). */
@@ -483,6 +447,93 @@ function ArchivedRow({ memory, onChanged }: { memory: MemoryView; onChanged: () 
         />
       </div>
     </div>
+  );
+}
+
+// --- Paged list ---
+
+// Rows rendered per page. Long memory lists render incrementally so the modal
+// stays fast — remount (via key) when the underlying list context changes.
+const PAGE_SIZE = 25;
+
+function PagedList({
+  items,
+  render,
+}: {
+  items: MemoryView[];
+  render: (m: MemoryView) => React.ReactNode;
+}) {
+  const [count, setCount] = useState(PAGE_SIZE);
+  const remaining = items.length - count;
+  return (
+    <>
+      {items.slice(0, count).map(render)}
+      {remaining > 0 && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "2px 0" }}>
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="chevron-down"
+            onClick={() => setCount((c) => c + PAGE_SIZE)}
+          >
+            Show {Math.min(PAGE_SIZE, remaining)} more ({remaining} remaining)
+          </Btn>
+        </div>
+      )}
+    </>
+  );
+}
+
+// --- Session brief tab ---
+
+function BriefSection({ projectId, active }: { projectId: string; active: boolean }) {
+  const [brief, setBrief] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { brief: md } = await api.getProjectBrief(projectId);
+      setBrief(md || "(no memories yet — a new session gets no brief)");
+    } catch {
+      setBrief("(could not load brief)");
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  // Fetch lazily on first activation, not on modal open.
+  useEffect(() => {
+    if (active && brief === null && !loading) void load();
+  }, [active, brief, loading, load]);
+
+  return (
+    <>
+      <p style={{ margin: 0, fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
+        The exact markdown handed to each new agent session — assembled from the most relevant
+        memories, pinned facts first.
+      </p>
+      <pre
+        style={{
+          ...CARD,
+          margin: 0,
+          maxHeight: 380,
+          overflow: "auto",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          fontFamily: "var(--mono)",
+          fontSize: 11,
+          color: "var(--text-dim)",
+        }}
+      >
+        {loading && brief === null ? "Loading…" : brief ?? ""}
+      </pre>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn variant="ghost" size="sm" icon="refresh" onClick={() => void load()} disabled={loading}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </Btn>
+      </div>
+    </>
   );
 }
 
@@ -692,12 +743,12 @@ function GraphIndexedView({
   );
 }
 
-function CodeGraphSection({ projectId }: { projectId: string }) {
+// Graph status + live SSE progress, hoisted to the panel so the tab bar can show
+// a "building" indicator while the user is on another tab.
+function useGraphIndexing(projectId: string) {
   const queryClient = useQueryClient();
   const { data: status } = useCodeGraphStatus(projectId);
-  const [open, setOpen] = useState(true);
   const [live, setLive] = useState<GraphIndexProgress | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.graphStatus(projectId) });
@@ -722,6 +773,18 @@ function CodeGraphSection({ projectId }: { projectId: string }) {
   // Freshest of the SSE stream and the status snapshot (reconnect after reopen).
   const progress = live ?? status?.indexing ?? null;
   const building = progress != null && !TERMINAL_PHASES.includes(progress.phase);
+  return { status, progress, building, setLive, invalidate };
+}
+
+function CodeGraphSection({
+  projectId,
+  graph,
+}: {
+  projectId: string;
+  graph: ReturnType<typeof useGraphIndexing>;
+}) {
+  const { status, progress, building, setLive, invalidate } = graph;
+  const [busy, setBusy] = useState(false);
   const indexed = (status?.indexed ?? false) && !building;
 
   const start = useCallback(
@@ -737,7 +800,7 @@ function CodeGraphSection({ projectId }: { projectId: string }) {
         setBusy(false);
       }
     },
-    [projectId, invalidate],
+    [projectId, setLive, invalidate],
   );
 
   const cancel = useCallback(async () => {
@@ -752,61 +815,148 @@ function CodeGraphSection({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   return (
-    <div style={{ display: "grid", gap: 8, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          background: "transparent",
-          border: 0,
-          padding: 0,
-          cursor: "pointer",
-          color: "var(--text)",
-        }}
-      >
-        <Icon name={open ? "chevron-down" : "chevron-right"} size={13} />
-        <Icon name="git-branch" size={13} />
-        <span style={{ fontSize: 12.5, fontWeight: 700 }}>Code graph</span>
-        {building && (
-          <span style={{ fontSize: 10, color: "var(--accent, #6ea8fe)", fontFamily: "var(--mono)" }}>building…</span>
-        )}
-      </button>
+    <>
+      <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+        A structural map of this project's symbols and how they connect (imports, calls, defines).
+        Agents query it on demand to answer what grep can't — “what calls X”, “what breaks if I change Y”.
+      </p>
 
-      {open && (
-        <>
-          <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
-            A structural map of this project's symbols and how they connect (imports, calls, defines).
-            Agents query it on demand to answer what grep can't — “what calls X”, “what breaks if I change Y”.
-          </p>
-
-          {building && progress ? (
-            <GraphBuildingView progress={progress} onCancel={() => void cancel()} canceling={busy} />
-          ) : indexed && status ? (
-            <GraphIndexedView
-              projectId={projectId}
-              status={status}
-              onRebuild={() => void start("full")}
-              onRefresh={() => void start("incremental")}
-              busy={busy}
-            />
-          ) : (
-            <div style={{ ...CARD, display: "grid", gap: 10, textAlign: "center", padding: "16px 12px" }}>
-              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
-                This project isn't indexed yet. Build the graph so sessions start already understanding the
-                architecture.
-              </div>
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <Btn variant="accent" size="sm" icon="git-branch" onClick={() => void start("full")} disabled={busy}>
-                  {busy ? "Starting…" : "Build code graph"}
-                </Btn>
-              </div>
-            </div>
-          )}
-        </>
+      {building && progress ? (
+        <GraphBuildingView progress={progress} onCancel={() => void cancel()} canceling={busy} />
+      ) : indexed && status ? (
+        <GraphIndexedView
+          projectId={projectId}
+          status={status}
+          onRebuild={() => void start("full")}
+          onRefresh={() => void start("incremental")}
+          busy={busy}
+        />
+      ) : (
+        <div style={{ ...CARD, display: "grid", gap: 10, textAlign: "center", padding: "16px 12px" }}>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+            This project isn't indexed yet. Build the graph so sessions start already understanding the
+            architecture.
+          </div>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <Btn variant="accent" size="sm" icon="git-branch" onClick={() => void start("full")} disabled={busy}>
+              {busy ? "Starting…" : "Build code graph"}
+            </Btn>
+          </div>
+        </div>
       )}
+    </>
+  );
+}
+
+// --- Tabs ---
+
+type RecallTab = "memories" | "graph" | "brief";
+
+function RecallTabBar({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { id: RecallTab; label: string; badge?: number; busy?: boolean }[];
+  active: RecallTab;
+  onChange: (tab: RecallTab) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Recall sections"
+      style={{
+        display: "flex",
+        gap: 2,
+        padding: 3,
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--surface-0)",
+      }}
+    >
+      {tabs.map((tab) => {
+        const selected = tab.id === active;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            id={`recall-tab-${tab.id}`}
+            aria-selected={selected}
+            aria-controls={`recall-panel-${tab.id}`}
+            title={tab.busy ? `${tab.label} — building…` : undefined}
+            onClick={() => onChange(tab.id)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: "7px 10px",
+              borderRadius: 6,
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              fontWeight: selected ? 600 : 500,
+              letterSpacing: "0.02em",
+              color: selected ? "var(--text)" : "var(--text-dim)",
+              background: selected ? "var(--accent-dim)" : "transparent",
+              boxShadow: selected ? "inset 0 0 0 1px var(--accent-border)" : "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tab.label}</span>
+            {tab.badge != null && tab.badge > 0 && (
+              <span
+                aria-hidden
+                style={{
+                  fontSize: 10,
+                  fontVariantNumeric: "tabular-nums",
+                  color: selected ? "var(--accent)" : "var(--text-faint)",
+                }}
+              >
+                {tab.badge}
+              </span>
+            )}
+            {tab.busy && (
+              <span
+                aria-hidden
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 999,
+                  background: "var(--accent, #6ea8fe)",
+                  flexShrink: 0,
+                }}
+              />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Panels stay mounted and hide via display so tab switches keep state (search,
+// pagination, live graph progress) and don't refetch.
+function TabPanel({
+  id,
+  active,
+  children,
+}: {
+  id: RecallTab;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="tabpanel"
+      id={`recall-panel-${id}`}
+      aria-labelledby={`recall-tab-${id}`}
+      style={{ display: active ? "grid" : "none", gap: 12, alignContent: "start" }}
+    >
+      {children}
     </div>
   );
 }
@@ -820,7 +970,9 @@ export function RecallPanel({
 }) {
   const queryClient = useQueryClient();
   const { data: memories, isLoading } = useProjectMemory(projectId);
+  const [tab, setTab] = useState<RecallTab>("memories");
   const [filter, setFilter] = useState<RecallFilter>(initialFilter);
+  const [adding, setAdding] = useState(false);
   const [rawQuery, setRawQuery] = useState("");
   const [query, setQuery] = useState("");
   const commitQuery = useDebouncedCallback((q: string) => setQuery(q), 200);
@@ -832,6 +984,7 @@ export function RecallPanel({
   const searching = searchQuery.length > 0;
   const search = useMemorySearch(projectId, searchQuery);
   const archived = useArchivedMemory(projectId, filter === "archived" && !searching);
+  const graph = useGraphIndexing(projectId);
 
   const refresh = useCallback(() => {
     // The projectMemory prefix key also covers the archived + search sub-keys.
@@ -860,104 +1013,137 @@ export function RecallPanel({
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <p style={{ margin: 0, fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
-        Curated facts about this project. Mission Control assembles the most relevant into a{" "}
-        <strong style={{ color: "var(--text)" }}>Session Brief</strong> and hands it to each new agent
-        session, so agents don't rediscover the project from scratch.
-      </p>
+      <RecallTabBar
+        tabs={[
+          { id: "memories", label: "Memories", badge: memories?.length },
+          { id: "graph", label: "Code graph", busy: graph.building },
+          { id: "brief", label: "Session brief" },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
 
-      <AddMemoryForm projectId={projectId} onAdded={refresh} />
+      <TabPanel id="memories" active={tab === "memories"}>
+        <p style={{ margin: 0, fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
+          Curated facts about this project. Mission Control assembles the most relevant into a{" "}
+          <strong style={{ color: "var(--text)" }}>Session Brief</strong> and hands it to each new agent
+          session, so agents don't rediscover the project from scratch.
+        </p>
 
-      <BriefPreview projectId={projectId} />
-
-      <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-        <Icon
-          name="search"
-          size={13}
-          style={{ position: "absolute", left: 9, color: "var(--text-faint)" }}
-        />
-        <input
-          value={rawQuery}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="Search memories…"
-          aria-label="Search memories"
-          style={{ ...INPUT, paddingLeft: 28, paddingRight: rawQuery ? 28 : 9 }}
-        />
-        {rawQuery && (
-          <button
-            type="button"
-            aria-label="Clear search"
-            title="Clear search"
-            onClick={() => onQueryChange("")}
-            style={{
-              position: "absolute",
-              right: 6,
-              background: "transparent",
-              border: 0,
-              cursor: "pointer",
-              color: "var(--text-dim)",
-              display: "flex",
-              padding: 2,
-            }}
-          >
-            <Icon name="x" size={12} />
-          </button>
-        )}
-      </div>
-
-      {!searching && (
-        <div style={{ display: "flex", gap: 6 }}>
-          <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>
-            All{memories ? ` (${memories.length})` : ""}
-          </FilterChip>
-          <FilterChip
-            active={filter === "recent"}
-            onClick={() => setFilter("recent")}
-            disabled={learnedCount === 0}
-          >
-            Recently learned{learnedCount ? ` (${learnedCount})` : ""}
-          </FilterChip>
-          <FilterChip active={filter === "archived"} onClick={() => setFilter("archived")}>
-            Archived
-          </FilterChip>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ position: "relative", display: "flex", alignItems: "center", flex: 1 }}>
+            <Icon
+              name="search"
+              size={13}
+              style={{ position: "absolute", left: 9, color: "var(--text-faint)" }}
+            />
+            <input
+              value={rawQuery}
+              onChange={(e) => onQueryChange(e.target.value)}
+              placeholder="Search memories…"
+              aria-label="Search memories"
+              style={{ ...INPUT, paddingLeft: 28, paddingRight: rawQuery ? 28 : 9 }}
+            />
+            {rawQuery && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                title="Clear search"
+                onClick={() => onQueryChange("")}
+                style={{
+                  position: "absolute",
+                  right: 6,
+                  background: "transparent",
+                  border: 0,
+                  cursor: "pointer",
+                  color: "var(--text-dim)",
+                  display: "flex",
+                  padding: 2,
+                }}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            )}
+          </div>
+          {!adding && (
+            <Btn variant="ghost" size="sm" icon="plus" onClick={() => setAdding(true)}>
+              Add memory
+            </Btn>
+          )}
         </div>
-      )}
 
-      <div style={{ display: "grid", gap: 8 }}>
-        {searching ? (
-          search.isLoading ? (
-            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Searching…</div>
-          ) : (search.data ?? []).length === 0 ? (
-            <EmptyCard>No memories match “{searchQuery}”.</EmptyCard>
-          ) : (
-            (search.data ?? []).map((m) => (
-              <MemoryRow key={m.id} memory={m} onChanged={refresh} />
-            ))
-          )
-        ) : filter === "archived" ? (
-          archived.isLoading ? (
-            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Loading archived…</div>
-          ) : (archived.data ?? []).length === 0 ? (
-            <EmptyCard>Nothing archived. Deleted and superseded memories land here.</EmptyCard>
-          ) : (
-            (archived.data ?? []).map((m) => (
-              <ArchivedRow key={m.id} memory={m} onChanged={refresh} />
-            ))
-          )
-        ) : isLoading ? (
-          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Loading memories…</div>
-        ) : ordered.length === 0 ? (
-          <EmptyCard>
-            {filter === "recent"
-              ? "Nothing auto-captured yet. Finished sessions land here for review."
-              : "No memories yet. Add one above, or let sessions capture them automatically."}
-          </EmptyCard>
-        ) : (
-          ordered.map((m) => <MemoryRow key={m.id} memory={m} onChanged={refresh} />)
+        {adding && (
+          <AddMemoryForm projectId={projectId} onAdded={refresh} onCancel={() => setAdding(false)} />
         )}
-      </div>
 
-      <CodeGraphSection projectId={projectId} />
+        {!searching && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>
+              All{memories ? ` (${memories.length})` : ""}
+            </FilterChip>
+            <FilterChip
+              active={filter === "recent"}
+              onClick={() => setFilter("recent")}
+              disabled={learnedCount === 0}
+            >
+              Recently learned{learnedCount ? ` (${learnedCount})` : ""}
+            </FilterChip>
+            <FilterChip active={filter === "archived"} onClick={() => setFilter("archived")}>
+              Archived
+            </FilterChip>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gap: 8 }}>
+          {searching ? (
+            search.isLoading ? (
+              <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Searching…</div>
+            ) : (search.data ?? []).length === 0 ? (
+              <EmptyCard>No memories match “{searchQuery}”.</EmptyCard>
+            ) : (
+              <PagedList
+                key={`search:${searchQuery}`}
+                items={search.data ?? []}
+                render={(m) => <MemoryRow key={m.id} memory={m} onChanged={refresh} />}
+              />
+            )
+          ) : filter === "archived" ? (
+            archived.isLoading ? (
+              <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Loading archived…</div>
+            ) : (archived.data ?? []).length === 0 ? (
+              <EmptyCard>Nothing archived. Deleted and superseded memories land here.</EmptyCard>
+            ) : (
+              <PagedList
+                key="archived"
+                items={archived.data ?? []}
+                render={(m) => <ArchivedRow key={m.id} memory={m} onChanged={refresh} />}
+              />
+            )
+          ) : isLoading ? (
+            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Loading memories…</div>
+          ) : ordered.length === 0 ? (
+            <EmptyCard>
+              {filter === "recent"
+                ? "Nothing auto-captured yet. Finished sessions land here for review."
+                : "No memories yet. Add one above, or let sessions capture them automatically."}
+            </EmptyCard>
+          ) : (
+            <PagedList
+              key={`active:${filter}`}
+              items={ordered}
+              render={(m) => <MemoryRow key={m.id} memory={m} onChanged={refresh} />}
+            />
+          )}
+        </div>
+      </TabPanel>
+
+      <TabPanel id="graph" active={tab === "graph"}>
+        <CodeGraphSection projectId={projectId} graph={graph} />
+      </TabPanel>
+
+      <TabPanel id="brief" active={tab === "brief"}>
+        <BriefSection projectId={projectId} active={tab === "brief"} />
+      </TabPanel>
     </div>
   );
 }
