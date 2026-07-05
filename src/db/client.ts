@@ -509,6 +509,68 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS prompts_task_idx ON prompts(task_id);
     CREATE INDEX IF NOT EXISTS prompts_project_idx ON prompts(project_id);
     CREATE INDEX IF NOT EXISTS prompts_ts_idx ON prompts(ts);
+
+    CREATE TABLE IF NOT EXISTS project_memory (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      tags TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      confidence TEXT NOT NULL DEFAULT 'inferred',
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      superseded_by_id TEXT,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      last_verified_at INTEGER,
+      last_used_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS project_memory_project_idx ON project_memory(project_id);
+    CREATE INDEX IF NOT EXISTS project_memory_project_scope_idx ON project_memory(project_id, scope_id);
+    CREATE INDEX IF NOT EXISTS project_memory_type_idx ON project_memory(type);
+    CREATE INDEX IF NOT EXISTS project_memory_status_idx ON project_memory(status);
+    CREATE INDEX IF NOT EXISTS project_memory_pinned_idx ON project_memory(pinned);
+
+    CREATE TABLE IF NOT EXISTS graph_nodes (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      start_line INTEGER NOT NULL DEFAULT 0,
+      end_line INTEGER NOT NULL DEFAULT 0,
+      exported INTEGER NOT NULL DEFAULT 0,
+      signature TEXT,
+      language TEXT NOT NULL,
+      degree INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_idx ON graph_nodes(project_id);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_kind_idx ON graph_nodes(project_id, kind);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_name_idx ON graph_nodes(project_id, name);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_file_idx ON graph_nodes(project_id, file_path);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_degree_idx ON graph_nodes(project_id, degree);
+
+    CREATE TABLE IF NOT EXISTS graph_edges (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      src_id TEXT NOT NULL,
+      dst_id TEXT,
+      dst_name TEXT,
+      kind TEXT NOT NULL,
+      confidence TEXT NOT NULL DEFAULT 'extracted',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS graph_edges_project_idx ON graph_edges(project_id);
+    CREATE INDEX IF NOT EXISTS graph_edges_src_idx ON graph_edges(src_id);
+    CREATE INDEX IF NOT EXISTS graph_edges_dst_idx ON graph_edges(dst_id);
+    CREATE INDEX IF NOT EXISTS graph_edges_project_kind_idx ON graph_edges(project_id, kind);
   `);
 
   // Multi-sandbox scope column. Idempotent + tolerant of a pre-existing column

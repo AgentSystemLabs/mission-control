@@ -46,6 +46,12 @@ export const queryKeys = {
   usage: (days: number) => ["usage", days] as const,
   claudeUsageLimits: ["claude-usage-limits"] as const,
   promptSearch: (query: string) => ["prompt-search", query] as const,
+  projectMemory: (projectId: string) => ["projects", projectId, "memory"] as const,
+  archivedMemory: (projectId: string) => ["projects", projectId, "memory", "archived"] as const,
+  memorySearch: (projectId: string, query: string) =>
+    ["projects", projectId, "memory", "search", query] as const,
+  graphStatus: (projectId: string) => ["projects", projectId, "graph", "status"] as const,
+  graphSummary: (projectId: string) => ["projects", projectId, "graph", "summary"] as const,
 };
 
 export const projectsQueryOptions = () =>
@@ -94,6 +100,67 @@ export const worktreesQueryOptions = (projectId: string) =>
     queryKey: queryKeys.worktrees(projectId),
     queryFn: async () => (await api.listWorktrees(projectId)).worktrees,
   });
+
+// Recall — a project's memories (the Recall panel). Invalidate on `memory:*`
+// SSE events (see use-events consumers) so the panel stays live.
+export const projectMemoryQueryOptions = (projectId: string) =>
+  queryOptions({
+    queryKey: queryKeys.projectMemory(projectId),
+    queryFn: async () => (await api.listMemory(projectId)).memories,
+  });
+
+export const useProjectMemory = (projectId: string) =>
+  useQuery(projectMemoryQueryOptions(projectId));
+
+// Archived memories (soft-deleted + superseded) for the panel's history view.
+// Fetched lazily — only when the Archived filter is opened — via `enabled`.
+export const archivedMemoryQueryOptions = (projectId: string, enabled: boolean) =>
+  queryOptions({
+    queryKey: queryKeys.archivedMemory(projectId),
+    queryFn: async () =>
+      (await api.listMemory(projectId, { includeArchived: true })).memories.filter(
+        (m) => m.status === "archived",
+      ),
+    enabled,
+  });
+
+export const useArchivedMemory = (projectId: string, enabled: boolean) =>
+  useQuery(archivedMemoryQueryOptions(projectId, enabled));
+
+// On-demand FTS search over a project's memories (the Recall panel search box).
+// Only runs for a non-empty query; the panel falls back to the full list otherwise.
+export const memorySearchQueryOptions = (projectId: string, query: string) =>
+  queryOptions({
+    queryKey: queryKeys.memorySearch(projectId, query),
+    queryFn: async () => (await api.searchMemory(projectId, query)).memories,
+    enabled: query.trim().length > 0,
+  });
+
+export const useMemorySearch = (projectId: string, query: string) =>
+  useQuery(memorySearchQueryOptions(projectId, query));
+
+// Recall — code graph status (drives the panel's Code Graph section). Invalidate
+// on `graph:indexed` and refresh from `graph:index-progress` SSE (see the panel).
+export const graphStatusQueryOptions = (projectId: string) =>
+  queryOptions({
+    queryKey: queryKeys.graphStatus(projectId),
+    queryFn: async () => (await api.getGraphStatus(projectId)).status,
+  });
+
+export const useCodeGraphStatus = (projectId: string) =>
+  useQuery(graphStatusQueryOptions(projectId));
+
+// God-nodes + entry points for the indexed state; only fetched once a graph
+// exists (`enabled`) so an un-indexed project makes no summary request.
+export const graphSummaryQueryOptions = (projectId: string, enabled: boolean) =>
+  queryOptions({
+    queryKey: queryKeys.graphSummary(projectId),
+    queryFn: async () => (await api.getGraphSummary(projectId)).summary,
+    enabled,
+  });
+
+export const useCodeGraphSummary = (projectId: string, enabled: boolean) =>
+  useQuery(graphSummaryQueryOptions(projectId, enabled));
 
 export const settingsQueryOptions = () =>
   queryOptions({

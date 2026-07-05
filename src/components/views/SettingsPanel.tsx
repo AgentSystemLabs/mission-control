@@ -9,6 +9,7 @@ import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
+import { MemorySettingsPage } from "./MemorySettingsPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
@@ -25,6 +26,7 @@ export const SETTINGS_PANEL_IDS = [
   "terminal",
   "theme",
   "voice",
+  "memory",
   "beta",
   "keybindings",
   "terms",
@@ -98,6 +100,7 @@ export function SettingsPanel({
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "voice", label: "Voice", icon: "play" },
+    { id: "memory", label: "Recall", icon: "sparkles" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
 
@@ -329,6 +332,8 @@ export function SettingsPanel({
             <ThemeSettingsPage />
           ) : activePanel === "voice" ? (
             <VoiceCommandsPage />
+          ) : activePanel === "memory" ? (
+            <MemorySettingsPage />
           ) : activePanel === "beta" ? (
             <BetaSettingsPage />
           ) : activePanel === "keybindings" ? (

@@ -8,6 +8,21 @@ export function insertPrompt(row: NewPrompt): void {
   getDb().insert(prompts).values(row).run();
 }
 
+/**
+ * All prompt texts for a task in chronological order (oldest first), capped.
+ * Used by the Recall auto-distill pass to summarize what a session was about.
+ */
+export function listPromptTextsForTask(taskId: string, limit = 40): string[] {
+  return getDb()
+    .select({ text: prompts.text })
+    .from(prompts)
+    .where(eq(prompts.taskId, taskId))
+    .orderBy(prompts.ts)
+    .limit(limit)
+    .all()
+    .map((r) => r.text);
+}
+
 /** Newest prompt for a task — used to dedup near-simultaneous captures. */
 export function findRecentPromptForTask(
   taskId: string,

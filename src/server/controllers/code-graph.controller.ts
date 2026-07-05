@@ -1,0 +1,125 @@
+import { z } from "zod";
+import {
+  GRAPH_INDEX_MODES,
+  GRAPH_SEARCH_LIMIT_DEFAULT,
+  GRAPH_SEARCH_LIMIT_MAX,
+} from "~/shared/code-graph";
+import { projectExists } from "../repositories/projects.repo";
+import {
+  getGraphSummary,
+  getGraphStatus,
+  getImpact,
+  getNeighbors,
+  getShortestPath,
+  searchGraph,
+} from "../services/code-graph";
+import {
+  cancelGraphIndex,
+  GraphIndexError,
+  startGraphIndex,
+} from "../services/code-graph-indexer";
+import { handleDomainError, json, jsonError, notFound, parseSearchParams } from "./_helpers";
+import { HTTP_BAD_REQUEST, HTTP_CONFLICT } from "~/shared/http-status";
+
+const enumOf = <T extends string>(values: readonly T[]) => z.enum(values as unknown as [T, ...T[]]);
+
+function requireProject(projectId: string): Response | null {
+  return projectExists(projectId) ? null : notFound("project not found");
+}
+
+export async function status(projectId: string): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  return json({ status: getGraphStatus(projectId) });
+}
+
+export async function summary(projectId: string): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  return json({ summary: getGraphSummary(projectId) });
+}
+
+const indexQuery = z.object({ mode: enumOf(GRAPH_INDEX_MODES).optional() });
+
+export async function index(projectId: string, url: URL): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  const parsed = parseSearchParams(url, indexQuery);
+  if (!parsed.ok) return parsed.response;
+  try {
+    const progress = startGraphIndex(projectId, parsed.data.mode ?? "full");
+    return json({ status: getGraphStatus(projectId), job: progress }, { status: 202 });
+  } catch (e) {
+    if (e instanceof GraphIndexError) return jsonError(HTTP_BAD_REQUEST, e.message);
+    const mapped = handleDomainError(e);
+    if (mapped) return mapped;
+    throw e;
+  }
+}
+
+export async function cancelIndex(projectId: string): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  const canceled = cancelGraphIndex(projectId);
+  if (!canceled) return jsonError(HTTP_CONFLICT, "no index build is running");
+  return json({ status: getGraphStatus(projectId) });
+}
+
+const searchQuery = z.object({
+  q: z.string().optional(),
+  limit: z
+    .string()
+    .optional()
+    .transform((v) => {
+      const n = Number.parseInt(v ?? "", 10);
+      if (!Number.isFinite(n) || n <= 0) return GRAPH_SEARCH_LIMIT_DEFAULT;
+      return Math.min(n, GRAPH_SEARCH_LIMIT_MAX);
+    }),
+});
+
+export async function search(projectId: string, url: URL): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  const parsed = parseSearchParams(url, searchQuery);
+  if (!parsed.ok) return parsed.response;
+  return json({ nodes: searchGraph(projectId, parsed.data.q ?? "", parsed.data.limit) });
+}
+
+const neighborsQuery = z.object({
+  node: z.string().min(1),
+  direction: z.enum(["in", "out", "both"]).optional(),
+});
+
+export async function neighbors(projectId: string, url: URL): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  const parsed = parseSearchParams(url, neighborsQuery);
+  if (!parsed.ok) return parsed.response;
+  const result = getNeighbors(projectId, parsed.data.node, parsed.data.direction ?? "both");
+  if (!result) return notFound("node not found");
+  return json(result);
+}
+
+const pathQuery = z.object({ from: z.string().min(1), to: z.string().min(1) });
+
+export async function path(projectId: string, url: URL): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  const parsed = parseSearchParams(url, pathQuery);
+  if (!parsed.ok) return parsed.response;
+  const result = getShortestPath(projectId, parsed.data.from, parsed.data.to);
+  if (!result) return notFound("node not found");
+  return json(result);
+}
+
+const impactQuery = z.object({ node: z.string().min(1) });
+
+export async function impact(projectId: string, url: URL): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  const parsed = parseSearchParams(url, impactQuery);
+  if (!parsed.ok) return parsed.response;
+  const result = getImpact(projectId, parsed.data.node);
+  if (!result) return notFound("node not found");
+  return json(result);
+}

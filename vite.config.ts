@@ -32,10 +32,13 @@ export default defineConfig({
     }),
   ],
   optimizeDeps: {
-    exclude: ["better-sqlite3", "node-pty"],
+    exclude: ["better-sqlite3", "node-pty", "web-tree-sitter"],
   },
   ssr: {
-    external: ["better-sqlite3", "node-pty"],
+    // web-tree-sitter's emscripten glue resolves its own runtime wasm relative
+    // to the module — keep it external so it loads intact from node_modules
+    // (like the native deps) instead of being mangled by the bundler.
+    external: ["better-sqlite3", "node-pty", "web-tree-sitter"],
     noExternal: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
   },
 });

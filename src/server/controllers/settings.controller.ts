@@ -47,6 +47,7 @@ import {
   normalizeVoiceCommandAliases,
   type VoiceCommandAliases,
 } from "~/shared/voice-command-aliases";
+import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -131,6 +132,13 @@ const updateSettingsBody = z
     claudeUsageLimitsEnabled: z.boolean(),
     claudeUsageLimitsShowSession: z.boolean(),
     claudeUsageLimitsShowWeekly: z.boolean(),
+    recallAutoCaptureEnabled: z.boolean(),
+    recallEngineEnabled: z.boolean(),
+    recallEngineHarness: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    recallEngineModel: aiModelBody,
+    recallAgentWriteEnabled: z.boolean(),
+    recallInjectBriefEnabled: z.boolean(),
+    recallCodeGraphEnabled: z.boolean(),
   })
   .partial();
 
@@ -245,6 +253,20 @@ function settingsPayload() {
     claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
     claudeUsageLimitsShowSession: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY, true),
     claudeUsageLimitsShowWeekly: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, true),
+    ...recallSettingsPayload(),
+  };
+}
+
+function recallSettingsPayload() {
+  const recall = readRecallSettings();
+  return {
+    recallAutoCaptureEnabled: recall.autoCaptureEnabled,
+    recallEngineEnabled: recall.recallEngineEnabled,
+    recallEngineHarness: recall.recallEngineHarness,
+    recallEngineModel: recall.recallEngineModel,
+    recallAgentWriteEnabled: recall.agentWriteEnabled,
+    recallInjectBriefEnabled: recall.injectBriefEnabled,
+    recallCodeGraphEnabled: recall.codeGraphEnabled,
   };
 }
 
@@ -389,6 +411,15 @@ export async function update(request: Request): Promise<Response> {
   if (body.claudeUsageLimitsShowWeekly !== undefined) {
     setBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, body.claudeUsageLimitsShowWeekly);
   }
+  writeRecallSettings({
+    autoCaptureEnabled: body.recallAutoCaptureEnabled,
+    recallEngineEnabled: body.recallEngineEnabled,
+    recallEngineHarness: body.recallEngineHarness,
+    recallEngineModel: body.recallEngineModel,
+    agentWriteEnabled: body.recallAgentWriteEnabled,
+    injectBriefEnabled: body.recallInjectBriefEnabled,
+    codeGraphEnabled: body.recallCodeGraphEnabled,
+  });
   return json(settingsPayload());
 }
 

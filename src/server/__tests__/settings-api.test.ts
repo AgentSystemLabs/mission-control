@@ -100,6 +100,61 @@ describe("settings API", () => {
     });
   });
 
+  it("defaults Recall on: auto-capture, engine, agent-write, inject-brief all enabled", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      recallAutoCaptureEnabled: true,
+      recallEngineEnabled: true,
+      recallEngineHarness: "claude-code",
+      recallEngineModel: null,
+      recallAgentWriteEnabled: true,
+      recallInjectBriefEnabled: true,
+    });
+  });
+
+  it("persists Recall engine harness + model and toggles", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          recallAutoCaptureEnabled: false,
+          recallEngineHarness: "codex",
+          recallEngineModel: "gpt-5.5",
+        }),
+      }),
+    );
+    expect(update?.status).toBe(200);
+
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(read!)).toMatchObject({
+      recallAutoCaptureEnabled: false,
+      recallEngineHarness: "codex",
+      recallEngineModel: "gpt-5.5",
+      recallEngineEnabled: true,
+    });
+  });
+
+  it("clears the Recall engine model when set to null", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEngineModel: "opus" }),
+      }),
+    );
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEngineModel: null }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(read!)).toMatchObject({ recallEngineModel: null });
+  });
+
   it("persists the default terminal zoom level", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {

@@ -29,6 +29,7 @@ export type VoiceCommand =
   | { kind: "ship" }
   | { kind: "run-script"; scriptId: string; scriptName: string }
   | { kind: "new-agent"; prompt: string; agent?: TaskAgent }
+  | { kind: "remember"; text: string }
   | { kind: "unrecognized"; transcript: string }
   | { kind: "empty" };
 
@@ -70,6 +71,11 @@ const NEW_AGENT_RE =
   /^(?:create|spawn|make|start|new|launch|fire up|kick off|spin up|boot up|use|open|add|build)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:(claude(?:\s+code)?|codex|cursor(?:\s+cli)?|opencode)\s+)?(?:(?!agent\b|session\b|task\b)\w+\s+)?(?:agent|session|task)\b\s*(?:to(?:\s+do\b)?|that(?:\s+does\b)?|which|who|for|:)?\s*(.*)$/i;
 const HAVE_CLAUDE_RE =
   /^(?:have|tell|ask|get|let)\s+(?:claude|the agent|an? agent)\s+(?:to\s+)?(.+)$/i;
+// "remember that X", "remember X", "note that X", "make/take a note that X",
+// "jot down X", "keep in mind X". Group 1 = the fact to store in Recall. The
+// leading verb is a strong, unambiguous marker so this is resolved early.
+const REMEMBER_RE =
+  /^(?:remember|note|jot down|keep in mind|make a note(?:\s+of)?|take a note(?:\s+of)?)\s*(?:that|this|to note that)?\s*[:,-]?\s*(.+)$/i;
 // A freeform instruction (no "agent" keyword) that should spin up the default
 // agent. Curated action verbs so it reads as a task, not noise/filler — and it
 // must have content after the verb (≥ 2 tokens). Builtin command verbs (open,
@@ -200,6 +206,14 @@ export function parseVoiceCommand(
     return { kind: "new-agent", prompt: haveClaudeMatch[1].trim(), agent: "claude-code" };
   }
 
+  // 1b. "remember that …" — capture a project memory into Recall. Resolved early
+  //     (before the builtin action verbs) because the leading verb is explicit.
+  const rememberMatch = REMEMBER_RE.exec(cleaned);
+  if (rememberMatch) {
+    const text = rememberMatch[1].trim();
+    if (text) return { kind: "remember", text };
+  }
+
   // 2. Open the running app in the browser ("open the browser/app").
   if (OPEN_BROWSER_RE.test(cleaned)) {
     return { kind: "open-browser" };
@@ -237,6 +251,11 @@ export function parseVoiceCommand(
   const customAgentPrompt = aliasPrefixRemainder(cleaned, aliases, "new-agent");
   if (customAgentPrompt !== null) {
     return { kind: "new-agent", prompt: customAgentPrompt };
+  }
+
+  const customRememberText = aliasPrefixRemainder(cleaned, aliases, "remember");
+  if (customRememberText) {
+    return { kind: "remember", text: customRememberText };
   }
 
   const customScriptQuery = aliasPrefixRemainder(cleaned, aliases, "run-script");
@@ -354,6 +373,17 @@ export const VOICE_COMMANDS: VoiceCommandDoc[] = [
       "create a claude agent to do add tests",
       "use a codex agent fix the login bug",
       "improve the seo on the landing page",
+    ],
+  },
+  {
+    id: "remember",
+    title: "Remember this",
+    description:
+      "Save a fact about the current project to Recall, so future sessions start already knowing it.",
+    examples: [
+      "remember that the auth flow lives in useAuth",
+      "note that migrations run on boot",
+      "make a note of the staging URL",
     ],
   },
 ];

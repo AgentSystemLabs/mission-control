@@ -62,6 +62,13 @@ export function ThemeSettingsPage() {
     claudeUsageLimitsEnabled: settings?.claudeUsageLimitsEnabled ?? false,
     claudeUsageLimitsShowSession: settings?.claudeUsageLimitsShowSession ?? true,
     claudeUsageLimitsShowWeekly: settings?.claudeUsageLimitsShowWeekly ?? true,
+    recallAutoCaptureEnabled: settings?.recallAutoCaptureEnabled ?? true,
+    recallEngineEnabled: settings?.recallEngineEnabled ?? true,
+    recallEngineHarness: settings?.recallEngineHarness ?? "claude-code",
+    recallEngineModel: settings?.recallEngineModel ?? null,
+    recallAgentWriteEnabled: settings?.recallAgentWriteEnabled ?? true,
+    recallInjectBriefEnabled: settings?.recallInjectBriefEnabled ?? true,
+    recallCodeGraphEnabled: settings?.recallCodeGraphEnabled ?? true,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled:
       queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??

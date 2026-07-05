@@ -340,6 +340,32 @@ describe("unrecognized — noise/filler never spawns an agent", () => {
   });
 });
 
+describe("remember (capture a project memory)", () => {
+  it.each([
+    ["remember that the auth flow lives in useAuth", "the auth flow lives in useAuth"],
+    ["remember the staging url is staging.acme.dev", "the staging url is staging.acme.dev"],
+    ["note that migrations run on boot", "migrations run on boot"],
+    ["make a note of the deploy step", "the deploy step"],
+    ["keep in mind we use pnpm", "we use pnpm"],
+  ])("parses %j as a remember command", (phrase, text) => {
+    expect(parse(phrase)).toEqual({ kind: "remember", text });
+  });
+
+  it("takes priority over freeform-task spawning", () => {
+    // "remember to fix the bug" must capture a memory, not start an agent.
+    expect(parse("remember to fix the bug").kind).toBe("remember");
+  });
+
+  it("supports a custom alias prefix", () => {
+    const aliased = parseVoiceCommand("stash this the db is postgres", PROJECTS, SCRIPTS, ALIASES2);
+    expect(aliased).toEqual({ kind: "remember", text: "the db is postgres" });
+  });
+});
+
+const ALIASES2: VoiceCommandAliases = normalizeVoiceCommandAliases({
+  remember: ["stash this"],
+});
+
 describe("VOICE_COMMANDS catalog (Settings page source of truth)", () => {
   it("documents every actionable command kind so the page can't drift", () => {
     const documented = new Set(VOICE_COMMANDS.map((c) => c.id));
@@ -351,6 +377,7 @@ describe("VOICE_COMMANDS catalog (Settings page source of truth)", () => {
       "ship",
       "run-script",
       "new-agent",
+      "remember",
     ];
     for (const kind of actionable) expect(documented.has(kind)).toBe(true);
   });

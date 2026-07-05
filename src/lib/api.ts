@@ -38,6 +38,19 @@ import type {
   MarkdownRefineResponse,
 } from "~/shared/markdown-refine";
 import type { SandboxPublicView } from "~/shared/sandbox";
+import type {
+  MemoryCreateInput,
+  MemoryUpdateInput,
+  MemoryVerifyVerdict,
+  MemoryView,
+} from "~/shared/project-memory";
+import type {
+  GraphIndexMode,
+  GraphNeighbor,
+  GraphNodeView,
+  GraphStatus,
+  GraphSummary,
+} from "~/shared/code-graph";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 
@@ -101,6 +114,22 @@ export type AppSettings = {
   claudeUsageLimitsEnabled: boolean;
   claudeUsageLimitsShowSession: boolean;
   claudeUsageLimitsShowWeekly: boolean;
+  /**
+   * Recall (project memory) controls. Auto-capture distills memories when a
+   * session finishes; the engine settings pick which CLI the LLM passes shell
+   * out to (mirroring session creation). Disabling the engine degrades to
+   * deterministic FTS + heuristic ranking with no CLI round-trip.
+   */
+  recallAutoCaptureEnabled: boolean;
+  recallEngineEnabled: boolean;
+  recallEngineHarness: AiRuntimeHarness;
+  recallEngineModel: AiModelId | null;
+  /** Whether an agent session may write memories back to its project. */
+  recallAgentWriteEnabled: boolean;
+  /** Whether a fresh session gets the Session Brief injected on start. */
+  recallInjectBriefEnabled: boolean;
+  /** Whether the brief includes the code-graph "Architecture at a glance" section. */
+  recallCodeGraphEnabled: boolean;
 };
 
 export class ApiError extends Error {
@@ -307,6 +336,76 @@ export const api = {
     });
   },
 
+  // Recall — project memory.
+  listMemory: (projectId: string, opts: { includeArchived?: boolean } = {}) =>
+    req<{ memories: MemoryView[] }>(
+      `/api/projects/${projectId}/memory${opts.includeArchived ? "?includeArchived=true" : ""}`,
+    ),
+  searchMemory: (projectId: string, query: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return req<{ memories: MemoryView[] }>(
+      `/api/projects/${projectId}/memory/search${qs ? `?${qs}` : ""}`,
+    );
+  },
+  createMemory: (projectId: string, body: Omit<MemoryCreateInput, "projectId">) =>
+    req<{ memory: MemoryView }>(`/api/projects/${projectId}/memory`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateMemory: (memoryId: string, body: MemoryUpdateInput) =>
+    req<{ memory: MemoryView }>(`/api/memory/${memoryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteMemory: (memoryId: string, opts: { hard?: boolean } = {}) =>
+    req<void>(`/api/memory/${memoryId}${opts.hard ? "?hard=true" : ""}`, { method: "DELETE" }),
+  // Verify a memory against the current code. Applies the verdict server-side
+  // (verified / stale / contradicted→supersede) and returns the resulting memory.
+  verifyMemory: (memoryId: string) =>
+    req<{ verdict: MemoryVerifyVerdict; memory: MemoryView }>(
+      `/api/memory/${memoryId}/verify`,
+      { method: "POST" },
+    ),
+  // The assembled Session Brief for a task (what gets injected). `record: false`
+  // previews it without bumping memory usage — for a "view injected brief" panel.
+  getTaskBrief: (taskId: string, opts: { record?: boolean } = {}) =>
+    req<{ brief: string; memoryIds: string[] }>(
+      `/api/tasks/${taskId}/brief${opts.record === false ? "?record=false" : ""}`,
+    ),
+  // Preview the brief a new session in this project would get (no usage bump).
+  getProjectBrief: (projectId: string) =>
+    req<{ brief: string; memoryIds: string[] }>(`/api/projects/${projectId}/brief`),
+
+  // Recall — code graph.
+  getGraphStatus: (projectId: string) =>
+    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/status`),
+  getGraphSummary: (projectId: string) =>
+    req<{ summary: GraphSummary }>(`/api/projects/${projectId}/graph/summary`),
+  buildGraph: (projectId: string, mode: GraphIndexMode = "full") =>
+    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/index?mode=${mode}`, {
+      method: "POST",
+    }),
+  cancelGraphBuild: (projectId: string) =>
+    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/index/cancel`, {
+      method: "POST",
+    }),
+  searchGraph: (projectId: string, query: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return req<{ nodes: GraphNodeView[] }>(
+      `/api/projects/${projectId}/graph/search${qs ? `?${qs}` : ""}`,
+    );
+  },
+  getGraphNeighbors: (projectId: string, node: string, direction: "in" | "out" | "both" = "both") =>
+    req<{ node: GraphNodeView; neighbors: GraphNeighbor[] }>(
+      `/api/projects/${projectId}/graph/neighbors?node=${encodeURIComponent(node)}&direction=${direction}`,
+    ),
+
   listGroups: () => req<{ groups: Group[] }>("/api/groups"),
   createGroup: (body: { name: string; color?: string }) =>
     req<{ group: Group }>("/api/groups", {
@@ -473,6 +572,13 @@ export const api = {
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"
         | "claudeUsageLimitsShowWeekly"
+        | "recallAutoCaptureEnabled"
+        | "recallEngineEnabled"
+        | "recallEngineHarness"
+        | "recallEngineModel"
+        | "recallAgentWriteEnabled"
+        | "recallInjectBriefEnabled"
+        | "recallCodeGraphEnabled"
       >
     >,
   ) =>

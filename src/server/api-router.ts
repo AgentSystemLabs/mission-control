@@ -21,6 +21,8 @@ import * as keybindingsController from "./controllers/keybindings.controller";
 import * as skillsController from "./controllers/skills.controller";
 import * as hooksController from "./controllers/hooks.controller";
 import * as promptsController from "./controllers/prompts.controller";
+import * as projectMemoryController from "./controllers/project-memory.controller";
+import * as codeGraphController from "./controllers/code-graph.controller";
 import * as usageController from "./controllers/usage.controller";
 import * as claudeUsageLimitsController from "./controllers/claude-usage-limits.controller";
 import * as eventsController from "./controllers/events.controller";
@@ -41,6 +43,19 @@ const PROJECT_TASKS_PATH = /^\/api\/projects\/([^/]+)\/tasks$/;
 const PROJECT_FILE_PATH = /^\/api\/projects\/([^/]+)\/file$/;
 const PROJECT_GIT_PATH = /^\/api\/projects\/([^/]+)\/git\/([a-z-]+)$/;
 const PROJECT_USER_TERMINALS_PATH = /^\/api\/projects\/([^/]+)\/user-terminals$/;
+const PROJECT_MEMORY_PATH = /^\/api\/projects\/([^/]+)\/memory$/;
+const PROJECT_BRIEF_PATH = /^\/api\/projects\/([^/]+)\/brief$/;
+const PROJECT_MEMORY_SEARCH_PATH = /^\/api\/projects\/([^/]+)\/memory\/search$/;
+const MEMORY_PATH = /^\/api\/memory\/([^/]+)$/;
+const MEMORY_VERIFY_PATH = /^\/api\/memory\/([^/]+)\/verify$/;
+const PROJECT_GRAPH_STATUS_PATH = /^\/api\/projects\/([^/]+)\/graph\/status$/;
+const PROJECT_GRAPH_SUMMARY_PATH = /^\/api\/projects\/([^/]+)\/graph\/summary$/;
+const PROJECT_GRAPH_INDEX_PATH = /^\/api\/projects\/([^/]+)\/graph\/index$/;
+const PROJECT_GRAPH_INDEX_CANCEL_PATH = /^\/api\/projects\/([^/]+)\/graph\/index\/cancel$/;
+const PROJECT_GRAPH_SEARCH_PATH = /^\/api\/projects\/([^/]+)\/graph\/search$/;
+const PROJECT_GRAPH_NEIGHBORS_PATH = /^\/api\/projects\/([^/]+)\/graph\/neighbors$/;
+const PROJECT_GRAPH_PATH_PATH = /^\/api\/projects\/([^/]+)\/graph\/path$/;
+const PROJECT_GRAPH_IMPACT_PATH = /^\/api\/projects\/([^/]+)\/graph\/impact$/;
 const SANDBOX_PATH = /^\/api\/sandboxes\/([^/]+)$/;
 const SANDBOX_API_KEY_PATH = /^\/api\/sandboxes\/([^/]+)\/api-key$/;
 const GROUP_PATH = /^\/api\/groups\/([^/]+)$/;
@@ -49,6 +64,7 @@ const TASK_STATUS_PATH = /^\/api\/tasks\/([^/]+)\/status$/;
 const TASK_QUESTION_PATH = /^\/api\/tasks\/([^/]+)\/question$/;
 const TASK_ARCHIVE_PATH = /^\/api\/tasks\/([^/]+)\/archive$/;
 const TASK_RESTORE_PATH = /^\/api\/tasks\/([^/]+)\/restore$/;
+const TASK_BRIEF_PATH = /^\/api\/tasks\/([^/]+)\/brief$/;
 const USER_TERMINAL_PATH = /^\/api\/user-terminals\/([^/]+)$/;
 const HOME_USER_TERMINAL_PATH = /^\/api\/home\/user-terminals\/([^/]+)$/;
 const REQUEST_ID_HEADER = "x-request-id";
@@ -278,6 +294,46 @@ async function dispatch(
     if (method === "POST") return userTerminalsController.create(id, request);
   }
 
+  // Recall — project memory. Literal `/memory/search` is matched before the
+  // `/memory$` collection route.
+  m = pathname.match(PROJECT_MEMORY_SEARCH_PATH);
+  if (m && method === "GET") return projectMemoryController.search(decode(m[1]), url);
+  m = pathname.match(PROJECT_MEMORY_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return projectMemoryController.list(id, url);
+    if (method === "POST") return projectMemoryController.create(id, request);
+  }
+  m = pathname.match(PROJECT_BRIEF_PATH);
+  if (m && method === "GET") return projectMemoryController.previewBrief(decode(m[1]));
+  // Literal `/memory/:id/verify` before the `/memory/:id` item route.
+  m = pathname.match(MEMORY_VERIFY_PATH);
+  if (m && method === "POST") return projectMemoryController.verify(decode(m[1]));
+  m = pathname.match(MEMORY_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "PATCH") return projectMemoryController.update(id, request);
+    if (method === "DELETE") return projectMemoryController.remove(id, url);
+  }
+
+  // Recall — code graph. Literal `/graph/index/cancel` before `/graph/index`.
+  m = pathname.match(PROJECT_GRAPH_STATUS_PATH);
+  if (m && method === "GET") return codeGraphController.status(decode(m[1]));
+  m = pathname.match(PROJECT_GRAPH_SUMMARY_PATH);
+  if (m && method === "GET") return codeGraphController.summary(decode(m[1]));
+  m = pathname.match(PROJECT_GRAPH_INDEX_CANCEL_PATH);
+  if (m && method === "POST") return codeGraphController.cancelIndex(decode(m[1]));
+  m = pathname.match(PROJECT_GRAPH_INDEX_PATH);
+  if (m && method === "POST") return codeGraphController.index(decode(m[1]), url);
+  m = pathname.match(PROJECT_GRAPH_SEARCH_PATH);
+  if (m && method === "GET") return codeGraphController.search(decode(m[1]), url);
+  m = pathname.match(PROJECT_GRAPH_NEIGHBORS_PATH);
+  if (m && method === "GET") return codeGraphController.neighbors(decode(m[1]), url);
+  m = pathname.match(PROJECT_GRAPH_PATH_PATH);
+  if (m && method === "GET") return codeGraphController.path(decode(m[1]), url);
+  m = pathname.match(PROJECT_GRAPH_IMPACT_PATH);
+  if (m && method === "GET") return codeGraphController.impact(decode(m[1]), url);
+
   // Groups
   if (pathname === "/api/groups") {
     if (method === "GET") return groupsController.list(request);
@@ -306,6 +362,8 @@ async function dispatch(
   if (m && method === "POST") return tasksController.archive(decode(m[1]), request);
   m = pathname.match(TASK_RESTORE_PATH);
   if (m && method === "POST") return tasksController.restore(decode(m[1]), request);
+  m = pathname.match(TASK_BRIEF_PATH);
+  if (m && method === "GET") return projectMemoryController.brief(decode(m[1]), url);
 
   // User terminals
   m = pathname.match(USER_TERMINAL_PATH);

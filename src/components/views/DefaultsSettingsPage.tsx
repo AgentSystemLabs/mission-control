@@ -332,7 +332,7 @@ export function DefaultsSettingsPage() {
   );
 }
 
-function modelForSelectedHarness(
+export function modelForSelectedHarness(
   agent: AiRuntimeHarness,
   model: AiModelId | null,
 ): AiModelId | null {
@@ -441,7 +441,7 @@ function featureHeadingId(featureId: DefaultsFeatureId): string {
   return `defaults-feature-heading-${featureId}`;
 }
 
-function RuntimeDefaultControl({
+export function RuntimeDefaultControl({
   agent,
   model,
   disabled,

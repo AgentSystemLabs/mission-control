@@ -5,8 +5,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
+import { installAgentMemoryBrief } from "./agent-memory-brief";
 import { ensureStatuslineTap } from "../src/shared/statusline-tap";
 import { ensureDiagramSkillForAgent } from "./ensure-diagram-skill";
+import { ensureRecallSkillForAgent } from "./ensure-recall-skill";
+import { ensureRecallMcpForAgent } from "./ensure-recall-mcp";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
@@ -415,7 +418,7 @@ export function registerPtyHandlers(
   ensureClaudeShiftEnterBinding();
   safeHandle(
     IPC.ptySpawn,
-    (_evt, opts: SpawnRequest) => {
+    async (_evt, opts: SpawnRequest) => {
       const pty = loadNodePty();
       const platform = os.platform();
 
@@ -479,6 +482,10 @@ export function registerPtyHandlers(
       installAgentHooks(opts.agent, plan.cwd);
       if (plan.mode === "agent") {
         ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        ensureRecallSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        // Recall code graph — file-based MCP config for local Claude sessions
+        // only (self-gated inside). Never touches the spawn argv.
+        ensureRecallMcpForAgent(app.getAppPath(), plan.cwd, plan.agent);
         // Claude sessions feed the shared usage-limits cache via the statusline
         // tap, so the top-bar indicator doesn't have to poll Anthropic's
         // aggressively rate-limited OAuth usage endpoint.
@@ -493,6 +500,19 @@ export function registerPtyHandlers(
         env.MC_THEME = opts.missionControlTheme === "light" ? "light" : "dark";
       }
       applyAgentPtyEnv(env, opts.agent);
+
+      // Recall — inject the project's Session Brief into the agent's auto-load
+      // file BEFORE spawning so the agent reads current project memory on
+      // startup. Fetches the rendered brief from the local API server; fully
+      // fail-soft (short timeout, never throws) so it can't block the session.
+      if (plan.mode === "agent") {
+        await installAgentMemoryBrief({
+          agent: opts.agent,
+          cwd: plan.cwd,
+          taskId: opts.taskId,
+          mcEnv,
+        });
+      }
 
       // Agent mode uses the policy-built spawn target. POSIX/native executables
       // still launch directly; Windows npm .cmd/.bat shims go through cmd.exe
