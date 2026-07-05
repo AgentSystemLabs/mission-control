@@ -19,14 +19,20 @@ type CloseSessionFn = (
  * a single deduped `invalidateSessionQueries` afterwards — the global
  * `projects` key (and any shared per-project keys) must not be invalidated
  * once per session.
+ *
+ * `activateTaskId` is handed to `close` so the caller can promote a replacement
+ * session to active (e.g. the grid activating the closed cell's neighbour);
+ * it defaults to null, which leaves the project with no active session.
  */
 export async function archiveOpenSession(
   session: OpenTerminal,
   close: CloseSessionFn,
   queryClient: QueryClient,
-  opts?: { skipInvalidate?: boolean },
+  opts?: { skipInvalidate?: boolean; activateTaskId?: string | null },
 ): Promise<void> {
-  await close(session.taskId, { activateTaskId: null }).catch(() => undefined);
+  await close(session.taskId, {
+    activateTaskId: opts?.activateTaskId ?? null,
+  }).catch(() => undefined);
   await api.archiveTask(session.taskId);
   if (!opts?.skipInvalidate) await invalidateSessionQueries(queryClient, [session]);
 }

@@ -674,16 +674,50 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     [queryClient],
   );
 
-  // Close + archive one session (works across projects).
+  // Move the caret into a grid cell's terminal (after the layout settles) so the
+  // user can type in it straight away, mirroring a click. Only touches gridRef,
+  // so it's stable and safe to call from any of the close/expand handlers.
+  const focusSessionTerminal = useCallback((taskId: string) => {
+    requestAnimationFrame(() => {
+      const selector = `[data-grid-cell][data-task-id="${CSS.escape(taskId)}"]`;
+      gridRef.current
+        ?.querySelector<HTMLElement>(selector)
+        ?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
+        ?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  // The session that should take over when `taskId`'s cell closes: its left/
+  // previous neighbour in the on-screen reading order (rows top-to-bottom, cells
+  // left-to-right), falling back to the next cell when the first one is closed.
+  // Read from the live DOM — which is rendered in exactly that order — before the
+  // closing cell is removed, so the grid never lands on "nothing active".
+  const neighbourAfterClose = useCallback((taskId: string): string | null => {
+    const cells = gridRef.current?.querySelectorAll<HTMLElement>("[data-grid-cell]");
+    if (!cells) return null;
+    const ids = Array.from(cells)
+      .map((c) => c.getAttribute("data-task-id"))
+      .filter((id): id is string => id !== null);
+    const idx = ids.indexOf(taskId);
+    if (idx < 0) return null;
+    return ids[idx - 1] ?? ids[idx + 1] ?? null;
+  }, []);
+
+  // Close + archive one session (works across projects). Hand activation to the
+  // closing cell's neighbour so the grid keeps a focused session instead of
+  // going inert: `close` promotes it to the project's active session (for the
+  // single-panel view) and we move the caret into its terminal (for the grid).
   const archiveSession = useCallback(
     async (session: OpenTerminal) => {
+      const activateTaskId = neighbourAfterClose(session.taskId);
       try {
-        await archiveOpenSession(session, close, queryClient);
+        await archiveOpenSession(session, close, queryClient, { activateTaskId });
       } catch (e: unknown) {
         toast.error(e instanceof Error ? e.message : "Could not archive session");
       }
+      if (activateTaskId) focusSessionTerminal(activateTaskId);
     },
-    [close, queryClient],
+    [close, queryClient, neighbourAfterClose, focusSessionTerminal],
   );
 
   // Cell close (X): archive immediately when known idle; warn first when
@@ -1121,16 +1155,6 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
 
   // Move keyboard focus into a session's terminal so the user can type right
   // away — after the reordered cells have settled into their new DOM positions.
-  const focusSessionTerminal = useCallback((taskId: string) => {
-    requestAnimationFrame(() => {
-      const selector = `[data-grid-cell][data-task-id="${CSS.escape(taskId)}"]`;
-      gridRef.current
-        ?.querySelector<HTMLElement>(selector)
-        ?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
-        ?.focus({ preventScroll: true });
-    });
-  }, []);
-
   // Stable callback handed to the memoized GridCell so its memo holds across
   // per-grid renders — a session just toggles its own expand state.
   const toggleExpanded = useCallback(
