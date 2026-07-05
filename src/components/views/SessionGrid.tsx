@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -417,15 +416,7 @@ const GridCell = memo(function GridCell({
  * — and the layout (order + per-row column widths + row heights) is persisted
  * per scope to localStorage.
  */
-export function SessionGrid({
-  scopeKey,
-  emptyAction,
-}: {
-  scopeKey: string;
-  /** Rendered under the empty-state copy (the same New-session control the
-   *  single-panel view offers) so an empty grid matches the normal view. */
-  emptyAction?: ReactNode;
-}) {
+export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   const {
     sessions,
     close,
@@ -814,6 +805,52 @@ export function SessionGrid({
     () => viewRows.flatMap((r) => r.cells.map((c) => c.session)),
     [viewRows],
   );
+
+  // Cycle focus to the next/previous session in on-screen reading order (rows
+  // top-to-bottom, cells left-to-right), wrapping around. This is the grid's
+  // answer to session.cycleNext/cyclePrev: in the normal view those chords swap
+  // the single visible pane, but the grid shows every pane at once, so cycling
+  // means moving the caret between cells — the same thing a click does. The
+  // project route's own handler for these actions no-ops in grid view so this
+  // one drives it. Anchors on the cell that currently owns the caret, falling
+  // back to the last-focused cell, then the first session.
+  const cycleFocusedSession = useCallback(
+    (delta: 1 | -1) => {
+      const ids = visibleSessions.map((s) => s.taskId);
+      if (ids.length < 2) return;
+      const focusedId =
+        (document.activeElement?.closest("[data-grid-cell]") as HTMLElement | null)?.getAttribute(
+          "data-task-id",
+        ) ?? lastFocusedTaskIdRef.current;
+      const curIdx = focusedId ? ids.indexOf(focusedId) : -1;
+      const nextIdx =
+        curIdx === -1
+          ? delta === 1
+            ? 0
+            : ids.length - 1
+          : (curIdx + delta + ids.length) % ids.length;
+      const nextId = ids[nextIdx];
+      if (!nextId || nextId === focusedId) return;
+      // A cycle is a deliberate move: drop any keyboard-nav selection and collapse
+      // an unrelated expanded cell so the target is actually on screen.
+      setNavTaskId(null);
+      setExpandedTaskId((prev) => (prev && prev !== nextId ? null : prev));
+      const selector = `[data-grid-cell][data-task-id="${CSS.escape(nextId)}"]`;
+      requestAnimationFrame(() => {
+        const cell = gridRef.current?.querySelector<HTMLElement>(selector);
+        cell?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        cell
+          ?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
+          ?.focus({ preventScroll: true });
+      });
+    },
+    [visibleSessions],
+  );
+
+  // Capture phase so a focused xterm surface can't swallow the chord first —
+  // mirrors how the project route wires these same actions in the normal view.
+  useHotkey("session.cycleNext", () => cycleFocusedSession(1), { capture: true });
+  useHotkey("session.cyclePrev", () => cycleFocusedSession(-1), { capture: true });
 
   // Progressive mount: cells beyond the budget render as empty frames and fill
   // in over the following frames. Panes with a cached surface used to bypass
@@ -1524,6 +1561,9 @@ export function SessionGrid({
     [resolveDropTarget, positionDraggedCell, focusSessionTerminal, scopeKey],
   );
 
+  // The project route only mounts the grid once the scope has a session, so an
+  // empty grid falls back to the normal sessions view (matching its empty state
+  // exactly). This branch is just a defensive fallback for a transient frame.
   if (scopedSessions.length === 0) {
     return (
       <div
@@ -1538,7 +1578,6 @@ export function SessionGrid({
         <EmptyState
           title="No active sessions"
           subtitle="Start a new session to begin working on this project."
-          action={emptyAction}
         />
       </div>
     );
