@@ -19,6 +19,7 @@ import {
   setSetting,
 } from "./settings";
 
+const RECALL_ENABLED_KEY = "recall_enabled";
 const AUTO_CAPTURE_ENABLED_KEY = "recall_auto_capture_enabled";
 const ENGINE_ENABLED_KEY = "recall_engine_enabled";
 const ENGINE_HARNESS_KEY = "recall_engine_harness";
@@ -33,6 +34,14 @@ const PROACTIVE_RECALL_ENABLED_KEY = "recall_proactive_recall_enabled";
 const DEFAULT_AGENT_SETTING_KEY = "default_agent";
 
 export interface RecallSettings {
+  /**
+   * Master switch for the whole Recall feature (experimental). When off, every
+   * behavioral flag below reads as false regardless of its stored value, so all
+   * consumers — brief injection, proactive recall, auto-capture, agent writes,
+   * graph indexing, the engine — shut off without checking a second flag. The
+   * stored sub-settings are preserved and come back when re-enabled.
+   */
+  enabled: boolean;
   /** Master switch for auto-distilling memories when a session finishes. */
   autoCaptureEnabled: boolean;
   /** Whether the LLM engine runs (distill/dedup/re-rank). Off = deterministic only. */
@@ -60,19 +69,24 @@ function getEngineHarness(): AiRuntimeHarness {
 }
 
 export function readRecallSettings(): RecallSettings {
+  const enabled = getBooleanSetting(RECALL_ENABLED_KEY, true);
   return {
-    autoCaptureEnabled: getBooleanSetting(AUTO_CAPTURE_ENABLED_KEY, true),
-    recallEngineEnabled: getBooleanSetting(ENGINE_ENABLED_KEY, true),
+    enabled,
+    autoCaptureEnabled: enabled && getBooleanSetting(AUTO_CAPTURE_ENABLED_KEY, true),
+    recallEngineEnabled: enabled && getBooleanSetting(ENGINE_ENABLED_KEY, true),
     recallEngineHarness: getEngineHarness(),
     recallEngineModel: normalizeAiModelId(getSetting(ENGINE_MODEL_KEY)),
-    agentWriteEnabled: getBooleanSetting(AGENT_WRITE_ENABLED_KEY, true),
-    injectBriefEnabled: getBooleanSetting(INJECT_BRIEF_ENABLED_KEY, true),
-    codeGraphEnabled: getBooleanSetting(CODE_GRAPH_ENABLED_KEY, true),
-    proactiveRecallEnabled: getBooleanSetting(PROACTIVE_RECALL_ENABLED_KEY, true),
+    agentWriteEnabled: enabled && getBooleanSetting(AGENT_WRITE_ENABLED_KEY, true),
+    injectBriefEnabled: enabled && getBooleanSetting(INJECT_BRIEF_ENABLED_KEY, true),
+    codeGraphEnabled: enabled && getBooleanSetting(CODE_GRAPH_ENABLED_KEY, true),
+    proactiveRecallEnabled: enabled && getBooleanSetting(PROACTIVE_RECALL_ENABLED_KEY, true),
   };
 }
 
 export function writeRecallSettings(patch: Partial<RecallSettings>): void {
+  if (patch.enabled !== undefined) {
+    setBooleanSetting(RECALL_ENABLED_KEY, patch.enabled);
+  }
   if (patch.autoCaptureEnabled !== undefined) {
     setBooleanSetting(AUTO_CAPTURE_ENABLED_KEY, patch.autoCaptureEnabled);
   }

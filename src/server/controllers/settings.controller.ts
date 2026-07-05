@@ -132,6 +132,7 @@ const updateSettingsBody = z
     claudeUsageLimitsEnabled: z.boolean(),
     claudeUsageLimitsShowSession: z.boolean(),
     claudeUsageLimitsShowWeekly: z.boolean(),
+    recallEnabled: z.boolean(),
     recallAutoCaptureEnabled: z.boolean(),
     recallEngineEnabled: z.boolean(),
     recallEngineHarness: z.enum(AI_RUNTIME_HARNESS_VALUES),
@@ -261,6 +262,7 @@ function settingsPayload() {
 function recallSettingsPayload() {
   const recall = readRecallSettings();
   return {
+    recallEnabled: recall.enabled,
     recallAutoCaptureEnabled: recall.autoCaptureEnabled,
     recallEngineEnabled: recall.recallEngineEnabled,
     recallEngineHarness: recall.recallEngineHarness,
@@ -414,6 +416,7 @@ export async function update(request: Request): Promise<Response> {
     setBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, body.claudeUsageLimitsShowWeekly);
   }
   writeRecallSettings({
+    enabled: body.recallEnabled,
     autoCaptureEnabled: body.recallAutoCaptureEnabled,
     recallEngineEnabled: body.recallEngineEnabled,
     recallEngineHarness: body.recallEngineHarness,

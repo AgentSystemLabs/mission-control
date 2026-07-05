@@ -2618,17 +2618,19 @@ function ProjectPage() {
                     Find file in project
                   </DropdownMenuItem>
                 </HotkeyTooltip>
-                <DropdownMenuItem
-                  icon="sparkles"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    setRecallInitialFilter("all");
-                    setShowRecall(true);
-                  }}
-                  title="Recall — curated project memory fed to new sessions"
-                >
-                  Recall
-                </DropdownMenuItem>
+                {(settings?.recallEnabled ?? true) && (
+                  <DropdownMenuItem
+                    icon="sparkles"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      setRecallInitialFilter("all");
+                      setShowRecall(true);
+                    }}
+                    title="Recall — curated project memory fed to new sessions"
+                  >
+                    Recall
+                  </DropdownMenuItem>
+                )}
                 {project.githubUrl ? (
                   <DropdownMenuItem
                     icon="github"

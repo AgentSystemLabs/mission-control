@@ -104,12 +104,61 @@ describe("settings API", () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
     expect(response?.status).toBe(200);
     expect(await jsonBody(response!)).toMatchObject({
+      recallEnabled: true,
       recallAutoCaptureEnabled: true,
       recallEngineEnabled: true,
       recallEngineHarness: "claude-code",
       recallEngineModel: null,
       recallAgentWriteEnabled: true,
       recallInjectBriefEnabled: true,
+    });
+  });
+
+  it("recallEnabled=false forces every Recall flag off, and re-enabling restores stored values", async () => {
+    // Store an explicit non-default sub-setting so we can see it survive the off/on cycle.
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallAutoCaptureEnabled: false }),
+      }),
+    );
+
+    const disabled = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEnabled: false }),
+      }),
+    );
+    expect(disabled?.status).toBe(200);
+    expect(await jsonBody(disabled!)).toMatchObject({
+      recallEnabled: false,
+      recallAutoCaptureEnabled: false,
+      recallEngineEnabled: false,
+      recallAgentWriteEnabled: false,
+      recallInjectBriefEnabled: false,
+      recallCodeGraphEnabled: false,
+      recallProactiveRecallEnabled: false,
+    });
+
+    const reenabled = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEnabled: true }),
+      }),
+    );
+    expect(await jsonBody(reenabled!)).toMatchObject({
+      recallEnabled: true,
+      // Explicitly stored off — must survive the master toggle round-trip.
+      recallAutoCaptureEnabled: false,
+      // Defaults come back on.
+      recallEngineEnabled: true,
+      recallAgentWriteEnabled: true,
+      recallInjectBriefEnabled: true,
+      recallCodeGraphEnabled: true,
+      recallProactiveRecallEnabled: true,
     });
   });
 

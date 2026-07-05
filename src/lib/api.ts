@@ -115,11 +115,15 @@ export type AppSettings = {
   claudeUsageLimitsShowSession: boolean;
   claudeUsageLimitsShowWeekly: boolean;
   /**
-   * Recall (project memory) controls. Auto-capture distills memories when a
-   * session finishes; the engine settings pick which CLI the LLM passes shell
-   * out to (mirroring session creation). Disabling the engine degrades to
-   * deterministic FTS + heuristic ranking with no CLI round-trip.
+   * Recall (project memory) controls. `recallEnabled` is the experimental
+   * master switch — when off the server reports every behavioral flag below as
+   * false (stored values are preserved for re-enable) and the UI hides Recall
+   * entirely. Auto-capture distills memories when a session finishes; the
+   * engine settings pick which CLI the LLM shells out to (mirroring session
+   * creation). Disabling the engine degrades to deterministic FTS + heuristic
+   * ranking with no CLI round-trip.
    */
+  recallEnabled: boolean;
   recallAutoCaptureEnabled: boolean;
   recallEngineEnabled: boolean;
   recallEngineHarness: AiRuntimeHarness;
@@ -574,6 +578,7 @@ export const api = {
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"
         | "claudeUsageLimitsShowWeekly"
+        | "recallEnabled"
         | "recallAutoCaptureEnabled"
         | "recallEngineEnabled"
         | "recallEngineHarness"

@@ -8,6 +8,7 @@ import {
   writeCachedWorktreesEnabled,
 } from "~/lib/worktrees-preference";
 import { queryKeys, useSandboxes, useSettings } from "~/queries";
+import { RecallSettings } from "./RecallSettings";
 import { Field, SettingsSection, ToggleRow } from "./SettingsParts";
 
 export function BetaSettingsPage() {
@@ -133,6 +134,7 @@ export function BetaSettingsPage() {
           />
         </Field>
       )}
+      <RecallSettings />
     </SettingsSection>
   );
 }
