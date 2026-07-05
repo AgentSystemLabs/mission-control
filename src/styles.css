@@ -2107,12 +2107,16 @@ body[data-card-glow] .cursor-glow {
   --surface-1: #34322d;
   --surface-2: #3e3b35;
   --surface-3: #4a463f;
-  --border: rgba(236, 224, 202, 0.09);
-  --border-strong: rgba(236, 224, 202, 0.18);
-  /* Cream text: bright warm off-white body, warm-tan dim (sampled #a89e92). */
+  /* Hairlines need more alpha here than on the near-black themes: the ground
+     is a mid-gray, so noir-strength borders melt into it (0.09 cream computes
+     to ~1.27:1 against surface-0 — invisible). */
+  --border: rgba(236, 224, 202, 0.15);
+  --border-strong: rgba(236, 224, 202, 0.3);
+  /* Cream text ladder, tuned for the lifted surfaces: dim holds ≥4.5:1 up
+     through surface-2, faint holds ≥3:1 on surface-1. */
   --text: #e9e3d5;
-  --text-dim: #a99f90;
-  --text-faint: #7c7365;
+  --text-dim: #b6ac9c;
+  --text-faint: #8c8274;
   /* Flat warm terminal canvas — matches the sampled ~#2d2d2d ground. */
   --terminal-bg: #2b2a27;
 
@@ -2129,9 +2133,17 @@ body[data-card-glow] .cursor-glow {
   --mm-radius-sm: 0;
   --mm-radius: 0;
   --mm-radius-lg: 0;
-  --mm-ring: 0 0 0 1px color-mix(in srgb, var(--accent) 72%, transparent);
+  /* Keyboard focus: crisp accent line plus a soft halo — a lone 1px ring
+     gets lost against the mid-gray ground. */
+  --mm-ring:
+    0 0 0 1px color-mix(in srgb, var(--accent) 90%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
   --mm-elev-1: none;
   --mm-elev-2: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* Ember's default terracotta accent is a light mid-tone — minimal's
+     near-white button label reads ~2.8:1 on it. Dark warm ink reads ~5.6:1
+     and beats near-white on every selectable accent except indigo. */
+  --mm-on-accent: #251e15;
 }
 
 /* Flat, square panels — kill minimal's card.png texture, accent tint, radius
@@ -2163,12 +2175,12 @@ body[data-card-glow] .cursor-glow {
 [data-ember="true"] .mc-btn-primary:hover {
   box-shadow: none;
 }
-[data-ember="true"] .mc-btn-ghost {
-  background: transparent;
-  border-color: transparent;
-}
+/* Ghost buttons keep minimal's hairline border: on ember's mid-gray ground a
+   borderless ghost has no affordance at all. Hover lifts to surface-2 because
+   session headers already sit on surface-1, where minimal's surface-1 hover
+   would be invisible. */
 [data-ember="true"] .mc-btn-ghost:hover {
-  background: var(--surface-1);
+  background: var(--surface-2);
 }
 [data-ember="true"] .mc-input-frame {
   box-shadow: none !important;
@@ -2179,10 +2191,12 @@ body[data-card-glow] .cursor-glow {
 }
 
 /* Project header: collapse the tall default band (22px 24px 18px) to a tight
-   toolbar strip so the project name + actions sit close to the grid. Overrides
-   the component's inline padding, so it needs !important. */
+   toolbar strip so the project name + actions sit close to the grid. 6px (not
+   flush) so the buttons' hairlines and focus halo aren't clipped against the
+   strip edges. Overrides the component's inline padding, so it needs
+   !important. */
 [data-ember="true"] .mc-project-header {
-  padding: 3px 20px !important;
+  padding: 6px 20px !important;
 }
 
 /* Session grid, focused cell: the active window in the reference — a solid

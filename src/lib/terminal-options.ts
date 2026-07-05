@@ -55,6 +55,41 @@ const TERMINAL_THEMES: Record<TerminalColorScheme, TerminalTheme> = {
   },
 };
 
+// Ember lifts the terminal ground to a warm mid-gray (#2b2a27) where the
+// stock dark ramp collapses: brightBlack #22262c — the color CLIs use for
+// dim/secondary text — is the same tone as that ground (≈1.1:1, invisible),
+// and xterm's default mid-brightness ANSI colors drop below readable. This
+// warm ramp keeps every color ≥4.5:1 on the ember ground; brightBlack stays
+// deliberately dim at ≈4:1.
+const EMBER_TERMINAL_THEME: TerminalTheme = {
+  // Fallback only — the live ground still comes from --terminal-bg.
+  background: "#2b2a27",
+  foreground: "#e9e3d5",
+  black: "#21201d",
+  brightBlack: "#8f8577",
+  red: "#ea6962",
+  brightRed: "#f08a84",
+  green: "#a9b665",
+  brightGreen: "#b6c375",
+  yellow: "#d8a657",
+  brightYellow: "#e0b169",
+  blue: "#7daea3",
+  brightBlue: "#8bbcb1",
+  magenta: "#d3869b",
+  brightMagenta: "#dd95a9",
+  cyan: "#89b482",
+  brightCyan: "#98c391",
+  white: "#e9e3d5",
+  brightWhite: "#f7f2e7",
+};
+
+function isEmberActive(): boolean {
+  return (
+    typeof document !== "undefined" &&
+    document.documentElement.getAttribute("data-ember") === "true"
+  );
+}
+
 export function getTerminalColorScheme(): TerminalColorScheme {
   if (typeof document === "undefined") return "dark";
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
@@ -116,7 +151,10 @@ export function createTerminalTheme({
   colorScheme?: TerminalColorScheme;
   cursorColor?: string;
 } = {}): TerminalTheme {
-  const base = TERMINAL_THEMES[colorScheme];
+  const ember = colorScheme === "dark" && isEmberActive();
+  const base = ember
+    ? { ...TERMINAL_THEMES.dark, ...EMBER_TERMINAL_THEME }
+    : TERMINAL_THEMES[colorScheme];
   // Honor --terminal-bg from CSS — minimal mode mixes the accent into the
   // ground at 10%, so the terminal carries a hint of the active theme.
   const background = getCurrentTerminalBackground(base.background ?? "#050607");
@@ -124,9 +162,11 @@ export function createTerminalTheme({
     ...base,
     background,
     cursor: cursorColor,
+    // The accent selection wash needs more alpha on ember's mid-gray ground
+    // than on the near-black grounds to stay visible.
     selectionBackground: withAlpha(
       getCurrentAccentColor(),
-      colorScheme === "light" ? 0.26 : 0.22
+      colorScheme === "light" ? 0.26 : ember ? 0.3 : 0.22
     ),
   };
 }
@@ -248,10 +288,7 @@ function fitFillingScrollbarGutter(
   term: { cols: number; rows: number } & ScrollPreservingTerminal,
   fit: { fit: () => void },
 ): void {
-  const emberActive =
-    typeof document !== "undefined" &&
-    document.documentElement.getAttribute("data-ember") === "true";
-  if (!emberActive) {
+  if (!isEmberActive()) {
     fit.fit();
     return;
   }
