@@ -9,6 +9,7 @@ dist-server
 .pnpm-store
 .vinxi
 .vite
+.tanstack
 .DS_Store
 *.sw?
 .certs
