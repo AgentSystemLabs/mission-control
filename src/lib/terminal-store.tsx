@@ -467,6 +467,19 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const gridFocusedTaskIdRef = useRef<string | null>(null);
   const noteGridFocusedTask = useCallback((taskId: string | null) => {
     gridFocusedTaskIdRef.current = taskId;
+    if (!taskId) return;
+    // Keep the scope's active session in step with the grid's focused cell, so
+    // leaving the grid lands on the pane the user was on rather than whatever
+    // was active before. The functional update returns `prev` unchanged when it
+    // already matches, so this only re-renders on a real cell-to-cell focus
+    // change (typing in one cell never touches it). sessionsRef is read at call
+    // time — always populated by the time a focusin fires.
+    const session = sessionsRef.current.find((s) => s.taskId === taskId);
+    if (!session) return;
+    const scopeKey = scopeKeyForProject(session.project);
+    setActiveByProject((prev) =>
+      prev[scopeKey] === taskId ? prev : { ...prev, [scopeKey]: taskId },
+    );
   }, []);
   const getGridFocusedTaskId = useCallback(() => gridFocusedTaskIdRef.current, []);
   // Pending "New row" request: the grid drops the next new session into a fresh

@@ -170,6 +170,7 @@ import {
 } from "~/lib/design-meta";
 import { useSyncProjectDiagrams } from "~/lib/use-diagram-events";
 import { useGitDiffViewOpen } from "~/lib/git-diff-view-store";
+import { useResizablePanel } from "~/lib/use-resizable-panel";
 
 export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
@@ -662,22 +663,36 @@ function ProjectPage() {
 
   const terminals = useTerminals();
   const gridViewActive = terminals.gridView;
-  // The grid and the diff view are mutually exclusive full-screen layouts: the
-  // render below shows <SessionGrid> whenever grid view is active, which would
-  // otherwise hide the diff entirely. So opening Review Changes from the grid
-  // drops back to the normal layout — matching how the toggle behaves outside
-  // the grid — instead of silently flipping hidden state and doing nothing.
+  // Review Changes in grid view docks the diff as a resizable panel beside the
+  // live grid (see the split render below) instead of taking over the workspace,
+  // so the sessions stay visible while you review. gridView state stays on, so
+  // closing the diff returns to the full grid.
   const onToggleDiffView = useCallback(() => {
     if (!projectPathReady) return;
-    if (!showDiffView && terminals.gridView) terminals.setGridView(false);
     toggleDiffView();
-  }, [projectPathReady, showDiffView, terminals, toggleDiffView]);
+  }, [projectPathReady, toggleDiffView]);
   // How many sessions the current scope's grid shows (drives "Archive all").
   const gridScopeSessionCount = useMemo(
     () =>
       terminals.sessions.filter((s) => scopeKeyForProject(s.project) === selectedScopeKey).length,
     [terminals.sessions, selectedScopeKey],
   );
+  // The grid only takes over the workspace once the scope has a session to show.
+  // With none, we fall back to the normal sessions view so an empty grid matches
+  // the single-panel empty state exactly (header, scope toggle, and all) instead
+  // of a bare centered message.
+  const showGrid = gridViewActive && gridScopeSessionCount > 0;
+  // Width of the docked diff panel in grid view. It sits on the left, so it
+  // resizes from its right edge. Floors the grid at ~420px and caps the diff at
+  // 60% of the viewport so neither side can be squeezed away.
+  const { size: gridDiffWidth, onMouseDown: onGridDiffResizeMouseDown } = useResizablePanel({
+    storageKey: "mc.gridDiffWidth",
+    axis: "x",
+    defaultSize: 640,
+    minSize: 420,
+    maxSize: (vw) => Math.max(420, Math.min(Math.round(vw * 0.6), vw - 420)),
+    resizeEdge: "end",
+  });
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -688,20 +703,37 @@ function ProjectPage() {
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
   const enterGridView = useCallback(() => {
-    // Leaving the diff open would strand it hidden behind the grid; close it so
-    // the grid and Review Changes never fight over the same full-screen slot.
-    closeDiffView();
+    // Keep any open Review Changes diff open across the switch — the grid docks
+    // it as a side panel rather than fighting for the slot, so switching views
+    // shouldn't dismiss the review.
     terminals.setGridView(true);
     if (!terminalProject) return;
     for (const task of tasksRef.current) {
       if (task.archived) continue;
       rehydrateTerminal(terminalProject, task);
     }
-  }, [terminals, terminalProject, rehydrateTerminal, closeDiffView]);
+    // Focus the session that was active in normal view so entering the grid keeps
+    // the same session current instead of landing on an arbitrary cell.
+    // focusGridSession retries until that cell's pane mounts.
+    const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
+    if (activeTaskId) terminals.focusGridSession(activeTaskId);
+  }, [terminals, terminalProject, rehydrateTerminal, selectedScopeKey]);
   const toggleGridViewShowingAll = useCallback(() => {
-    if (terminals.gridView) terminals.setGridView(false);
-    else enterGridView();
-  }, [terminals, enterGridView]);
+    if (terminals.gridView) {
+      // Carry the grid's focused session into normal view so leaving the grid
+      // shows the pane you were looking at, not whatever was active before.
+      // DOM focus first (hotkey exit, cell still focused); then the grid's
+      // last-focused cell reported to the store (a header-button click moved
+      // focus off the grid).
+      const focused = readFocusedGridTaskId() ?? terminals.getGridFocusedTaskId();
+      if (focused && terminalProject && tasks.some((t) => t.id === focused)) {
+        terminals.setActiveSession(terminalProject, focused);
+      }
+      terminals.setGridView(false);
+    } else {
+      enterGridView();
+    }
+  }, [terminals, enterGridView, terminalProject, tasks]);
   const {
     setProject: setActiveUserTerminalProject,
     createTerminal,
@@ -1734,6 +1766,15 @@ function ProjectPage() {
     (direction: 1 | -1) => {
       if (!project || !terminalProject) return;
       if (anyBlockingDialogOpen) return;
+      // When the grid is on screen it cycles by moving the focused cell through
+      // the on-screen layout, which SessionGrid owns (it tracks "current" via
+      // terminal focus, not the scope's active-session state that toggle() below
+      // mutates). Let its own session.cycleNext/cyclePrev handlers drive it so
+      // cycling is visible. Guard on showGrid (not gridViewActive) so the
+      // empty-grid fallback — where SessionGrid isn't mounted — still falls
+      // through to the normal cycle here. The grid stays mounted alongside the
+      // docked diff panel, so cycling stays grid-owned while reviewing changes.
+      if (showGrid) return;
       const visible = tasks.filter((t) => !t.archived);
       if (visible.length === 0) return;
       const ordered: Task[] = [];
@@ -1756,7 +1797,15 @@ function ProjectPage() {
       if (!nextTask || nextTask.id === currentId) return;
       terminals.toggle(terminalProject, nextTask);
     },
-    [project, terminalProject, selectedScopeKey, tasks, terminals, anyBlockingDialogOpen],
+    [
+      project,
+      terminalProject,
+      selectedScopeKey,
+      tasks,
+      terminals,
+      anyBlockingDialogOpen,
+      showGrid,
+    ],
   );
 
   const duplicateActiveSession = useCallback(
@@ -1828,16 +1877,18 @@ function ProjectPage() {
     return () => window.removeEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
   }, []);
 
+  // Capture phase (and no ignoreEditable) so Review Changes toggles even while a
+  // session terminal is focused. In grid view a cell's xterm always holds focus,
+  // so the old bubble-phase, editable-guarded listener never fired there — the
+  // xterm swallowed the chord and the editable guard bailed out. Matches how
+  // session.gridView / cycle are wired.
   useHotkey(
     "git.diff",
     () => {
-      if (
-        anyBlockingDialogOpen ||
-        !projectPathReady
-      ) return;
+      if (anyBlockingDialogOpen || !projectPathReady) return;
       onToggleDiffView();
     },
-    { ignoreEditable: true },
+    { capture: true },
   );
 
   // Capture phase so a focused session terminal can't swallow the key first —
@@ -2479,7 +2530,7 @@ function ProjectPage() {
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: showDiffView || gridViewActive ? "hidden" : "auto",
+          overflow: showDiffView || showGrid ? "hidden" : "auto",
           padding: 0,
           display: "flex",
           flexDirection: "column",
@@ -2489,14 +2540,14 @@ function ProjectPage() {
       <CardFrame
         style={{
           width: "100%",
-          minHeight: showDiffView || gridViewActive ? 0 : "100%",
-          flex: showDiffView || gridViewActive ? 1 : undefined,
-          flexShrink: showDiffView || gridViewActive ? undefined : 0,
+          minHeight: showDiffView || showGrid ? 0 : "100%",
+          flex: showDiffView || showGrid ? 1 : undefined,
+          flexShrink: showDiffView || showGrid ? undefined : 0,
           boxSizing: "border-box",
           padding: 8,
-          display: showDiffView || gridViewActive ? "flex" : undefined,
-          flexDirection: showDiffView || gridViewActive ? "column" : undefined,
-          overflow: showDiffView || gridViewActive ? "hidden" : undefined,
+          display: showDiffView || showGrid ? "flex" : undefined,
+          flexDirection: showDiffView || showGrid ? "column" : undefined,
+          overflow: showDiffView || showGrid ? "hidden" : undefined,
         }}
       >
         <div
@@ -2507,7 +2558,7 @@ function ProjectPage() {
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            margin: showDiffView || gridViewActive ? "-8px -8px 12px" : "-8px -8px 32px",
+            margin: showDiffView || showGrid ? "-8px -8px 12px" : "-8px -8px 32px",
             padding: "22px 24px 18px",
             position: "relative",
             isolation: "isolate",
@@ -2833,13 +2884,12 @@ function ProjectPage() {
                 }}
               />
             </HotkeyTooltip>
-            {gridViewActive && (
+            {showGrid && (
               <>
                 <Btn
                   variant="danger"
                   icon="archive"
                   onClick={() => setConfirmArchiveAll(true)}
-                  disabled={gridScopeSessionCount === 0}
                   title="Archive all sessions in this grid"
                 >
                   Archive all
@@ -2858,37 +2908,54 @@ function ProjectPage() {
           </div>
         </div>
 
-        {gridViewActive ? (
-          <SessionGrid
-            scopeKey={selectedScopeKey}
-            emptyAction={
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <NewAgentButton
-                  project={project}
-                  onPrimary={onNewAgentPrimary}
-                  onNewRow={onNewRowPrimary}
-                  disabled={!projectPathReady}
-                  onConfigure={() => {
-                    if (projectPathReady) setShowNewAgent(true);
+        {showGrid ? (
+          showDiffView ? (
+            // Grid view + Review Changes: dock the diff as a resizable panel on
+            // the left and keep the live grid on the right, so the sessions stay
+            // visible while reviewing. Closing the diff (Back / toggle) returns to
+            // the full-width grid.
+            <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+              <div
+                style={{
+                  position: "relative",
+                  width: gridDiffWidth,
+                  flexShrink: 0,
+                  minWidth: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  borderRight: "1px solid var(--border)",
+                }}
+              >
+                <GitDiffView
+                  projectId={project.id}
+                  worktreeId={selectedWorktreeId}
+                  projectPath={selectedWorktreePath || project.path}
+                  enabled={projectPathReady}
+                  onBack={closeDiffView}
+                />
+                <div
+                  onMouseDown={onGridDiffResizeMouseDown}
+                  title="Drag to resize"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    right: -5,
+                    bottom: 0,
+                    width: 10,
+                    cursor: "col-resize",
+                    touchAction: "none",
+                    zIndex: 10,
                   }}
                 />
-                {hasArchivedTasks && (
-                  <Btn
-                    variant="ghost"
-                    icon="archive"
-                    onClick={() => {
-                      // The grid owns the workspace regardless of sessionView, so
-                      // leave it before switching to the archived list.
-                      terminals.setGridView(false);
-                      setSessionView("archived");
-                    }}
-                  >
-                    View archived ({archivedTasks.length})
-                  </Btn>
-                )}
               </div>
-            }
-          />
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <SessionGrid scopeKey={selectedScopeKey} />
+              </div>
+            </div>
+          ) : (
+            <SessionGrid scopeKey={selectedScopeKey} />
+          )
         ) : (
         <>
         {cleanupStatus && (
