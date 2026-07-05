@@ -524,10 +524,8 @@ function ProjectPage() {
   });
   const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView, setOpen: setDiffViewOpen } =
     useGitDiffViewOpen(id);
-  const onToggleDiffView = useCallback(() => {
-    if (!projectPathReady) return;
-    toggleDiffView();
-  }, [projectPathReady, toggleDiffView]);
+  // onToggleDiffView is defined lower down (after `terminals`) because opening
+  // the diff must also drop out of the grid view — see the comment there.
   useEffect(() => {
     if (projectPathBlocked) closeDiffView();
   }, [projectPathBlocked, closeDiffView]);
@@ -664,6 +662,16 @@ function ProjectPage() {
 
   const terminals = useTerminals();
   const gridViewActive = terminals.gridView;
+  // The grid and the diff view are mutually exclusive full-screen layouts: the
+  // render below shows <SessionGrid> whenever grid view is active, which would
+  // otherwise hide the diff entirely. So opening Review Changes from the grid
+  // drops back to the normal layout — matching how the toggle behaves outside
+  // the grid — instead of silently flipping hidden state and doing nothing.
+  const onToggleDiffView = useCallback(() => {
+    if (!projectPathReady) return;
+    if (!showDiffView && terminals.gridView) terminals.setGridView(false);
+    toggleDiffView();
+  }, [projectPathReady, showDiffView, terminals, toggleDiffView]);
   // How many sessions the current scope's grid shows (drives "Archive all").
   const gridScopeSessionCount = useMemo(
     () =>
@@ -680,13 +688,16 @@ function ProjectPage() {
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
   const enterGridView = useCallback(() => {
+    // Leaving the diff open would strand it hidden behind the grid; close it so
+    // the grid and Review Changes never fight over the same full-screen slot.
+    closeDiffView();
     terminals.setGridView(true);
     if (!terminalProject) return;
     for (const task of tasksRef.current) {
       if (task.archived) continue;
       rehydrateTerminal(terminalProject, task);
     }
-  }, [terminals, terminalProject, rehydrateTerminal]);
+  }, [terminals, terminalProject, rehydrateTerminal, closeDiffView]);
   const toggleGridViewShowingAll = useCallback(() => {
     if (terminals.gridView) terminals.setGridView(false);
     else enterGridView();
@@ -2848,7 +2859,36 @@ function ProjectPage() {
         </div>
 
         {gridViewActive ? (
-          <SessionGrid scopeKey={selectedScopeKey} />
+          <SessionGrid
+            scopeKey={selectedScopeKey}
+            emptyAction={
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <NewAgentButton
+                  project={project}
+                  onPrimary={onNewAgentPrimary}
+                  onNewRow={onNewRowPrimary}
+                  disabled={!projectPathReady}
+                  onConfigure={() => {
+                    if (projectPathReady) setShowNewAgent(true);
+                  }}
+                />
+                {hasArchivedTasks && (
+                  <Btn
+                    variant="ghost"
+                    icon="archive"
+                    onClick={() => {
+                      // The grid owns the workspace regardless of sessionView, so
+                      // leave it before switching to the archived list.
+                      terminals.setGridView(false);
+                      setSessionView("archived");
+                    }}
+                  >
+                    View archived ({archivedTasks.length})
+                  </Btn>
+                )}
+              </div>
+            }
+          />
         ) : (
         <>
         {cleanupStatus && (

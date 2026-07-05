@@ -7,11 +7,13 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { EmptyState } from "~/components/ui/EmptyState";
 import { archiveOpenSession } from "~/lib/archive-session";
 import { GRID_EXPAND_TOGGLE_EVENT } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
@@ -415,7 +417,15 @@ const GridCell = memo(function GridCell({
  * — and the layout (order + per-row column widths + row heights) is persisted
  * per scope to localStorage.
  */
-export function SessionGrid({ scopeKey }: { scopeKey: string }) {
+export function SessionGrid({
+  scopeKey,
+  emptyAction,
+}: {
+  scopeKey: string;
+  /** Rendered under the empty-state copy (the same New-session control the
+   *  single-panel view offers) so an empty grid matches the normal view. */
+  emptyAction?: ReactNode;
+}) {
   const {
     sessions,
     close,
@@ -1520,16 +1530,16 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
         style={{
           flex: 1,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          color: "var(--text-dim)",
-          fontFamily: "var(--mono)",
-          fontSize: 13,
-          padding: 24,
-          textAlign: "center",
         }}
       >
-        No open sessions. Start a session to see it here.
+        <EmptyState
+          title="No active sessions"
+          subtitle="Start a new session to begin working on this project."
+          action={emptyAction}
+        />
       </div>
     );
   }
