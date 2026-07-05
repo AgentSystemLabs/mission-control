@@ -2616,6 +2616,17 @@ function ProjectPage() {
                     Find file in project
                   </DropdownMenuItem>
                 </HotkeyTooltip>
+                <DropdownMenuItem
+                  icon="sparkles"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setRecallInitialFilter("all");
+                    setShowRecall(true);
+                  }}
+                  title="Recall — curated project memory fed to new sessions"
+                >
+                  Recall
+                </DropdownMenuItem>
                 {project.githubUrl ? (
                   <DropdownMenuItem
                     icon="github"
@@ -2788,17 +2799,6 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             </HotkeyTooltip>
-            <Btn
-              variant="ghost"
-              icon="sparkles"
-              onClick={() => {
-                setRecallInitialFilter("all");
-                setShowRecall(true);
-              }}
-              aria-label="Recall — project memory"
-              title="Recall — curated project memory fed to new sessions"
-              style={{ width: 52, minWidth: 52, paddingInline: 0 }}
-            />
             <HotkeyTooltip
               action="session.gridView"
               label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
