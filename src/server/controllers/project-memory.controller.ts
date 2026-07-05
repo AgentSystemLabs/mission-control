@@ -13,6 +13,7 @@ import {
   assembleSessionBrief,
   createMemory,
   deleteMemory,
+  findSimilarMemories,
   listMemory,
   markMemoriesUsed,
   searchMemory,
@@ -69,6 +70,8 @@ const searchQuery = z.object({
       const n = Number.parseInt(v ?? "", 10);
       return Number.isFinite(n) && n > 0 ? n : undefined;
     }),
+  // `any` (OR terms, default — broad recall) vs `all` (every term must match).
+  match: z.enum(["any", "all"]).optional(),
 });
 
 const deleteQuery = z.object({
@@ -87,7 +90,11 @@ export async function list(projectId: string, url: URL): Promise<Response> {
 export async function search(projectId: string, url: URL): Promise<Response> {
   const parsed = parseSearchParams(url, searchQuery);
   if (!parsed.ok) return parsed.response;
-  return json({ memories: searchMemory(projectId, parsed.data.q ?? "", parsed.data.limit) });
+  return json({
+    memories: searchMemory(projectId, parsed.data.q ?? "", parsed.data.limit, {
+      matchMode: parsed.data.match,
+    }),
+  });
 }
 
 export async function create(projectId: string, request: Request): Promise<Response> {
@@ -99,7 +106,16 @@ export async function create(projectId: string, request: Request): Promise<Respo
   }
   try {
     const memory = createMemory({ projectId, ...parsed.data });
-    return json({ memory }, { status: 201 });
+    // Near-duplicates the exact-title dedup can't catch, surfaced so the
+    // caller (MCP tool, panel) can offer a merge/refine. Additive — existing
+    // clients that only read `memory` are unaffected.
+    const similar = findSimilarMemories(projectId, {
+      title: memory.title,
+      body: memory.body,
+      scopeId: memory.scopeId,
+      excludeId: memory.id,
+    });
+    return json({ memory, similar }, { status: 201 });
   } catch (e) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;
@@ -107,11 +123,22 @@ export async function create(projectId: string, request: Request): Promise<Respo
   }
 }
 
+/**
+ * Optional `?projectId=` on the item routes: when present, the memory must
+ * belong to that project (else 404). Project-aware callers (the MCP tools)
+ * always send it so a stale/foreign id can't mutate another project's memory;
+ * omitting it keeps the plain HTTP API backward compatible.
+ */
+function expectedProjectId(url: URL): string | undefined {
+  return url.searchParams.get("projectId") ?? undefined;
+}
+
 export async function update(memoryId: string, request: Request): Promise<Response> {
   const parsed = await parseJsonBody(request, updateBody);
   if (!parsed.ok) return parsed.response;
   try {
-    return json({ memory: updateMemory(memoryId, parsed.data) });
+    const opts = { expectedProjectId: expectedProjectId(new URL(request.url)) };
+    return json({ memory: updateMemory(memoryId, parsed.data, opts) });
   } catch (e) {
     const mapped = handleDomainError(e);
     if (mapped) return mapped;
@@ -160,9 +187,11 @@ export async function brief(taskId: string, url: URL): Promise<Response> {
  * engine in the project's directory and applies the verdict server-side; returns
  * the verdict plus the resulting memory (a fresh head when contradicted).
  */
-export async function verify(memoryId: string): Promise<Response> {
+export async function verify(memoryId: string, url: URL): Promise<Response> {
   try {
-    const { verdict, memory } = await verifyMemory(memoryId);
+    const { verdict, memory } = await verifyMemory(memoryId, {
+      expectedProjectId: expectedProjectId(url),
+    });
     return json({ verdict, memory });
   } catch (e) {
     const mapped = handleDomainError(e);
@@ -175,7 +204,7 @@ export async function remove(memoryId: string, url: URL): Promise<Response> {
   const parsed = parseSearchParams(url, deleteQuery);
   if (!parsed.ok) return parsed.response;
   try {
-    deleteMemory(memoryId, { hard: parsed.data.hard });
+    deleteMemory(memoryId, { hard: parsed.data.hard, expectedProjectId: expectedProjectId(url) });
     return noContent();
   } catch (e) {
     const mapped = handleDomainError(e);

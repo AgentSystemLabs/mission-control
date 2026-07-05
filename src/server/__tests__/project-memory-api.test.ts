@@ -90,6 +90,103 @@ describe("project memory API", () => {
     expect(((await list?.json()) as { memories: unknown[] }).memories).toHaveLength(0); // archived
   });
 
+  it("surfaces near-duplicate candidates in the create response", async () => {
+    await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "discovery",
+          title: "Webhook retries live in queue.ts",
+          body: "exponential backoff, max 5 attempts",
+        }),
+      }),
+    );
+    const res = await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "decision",
+          title: "Webhook retry backoff is exponential",
+        }),
+      }),
+    );
+    expect(res?.status).toBe(201);
+    const body = (await res?.json()) as {
+      memory: { id: string };
+      similar: Array<{ id: string; title: string }>;
+    };
+    expect(body.similar.length).toBeGreaterThanOrEqual(1);
+    expect(body.similar[0]!.title).toBe("Webhook retries live in queue.ts");
+    // Never suggests the memory it just created.
+    expect(body.similar.some((s) => s.id === body.memory.id)).toBe(false);
+  });
+
+  it("supports match=all on memory search (every term must match)", async () => {
+    await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory`, {
+        method: "POST",
+        body: JSON.stringify({ type: "discovery", title: "webhook delivery notes" }),
+      }),
+    );
+    await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory`, {
+        method: "POST",
+        body: JSON.stringify({ type: "discovery", title: "webhook retry backoff" }),
+      }),
+    );
+    const broad = await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory/search?q=webhook+retry`),
+    );
+    expect(((await broad?.json()) as { memories: unknown[] }).memories).toHaveLength(2);
+    const precise = await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory/search?q=webhook+retry&match=all`),
+    );
+    const preciseBody = (await precise?.json()) as { memories: Array<{ title: string }> };
+    expect(preciseBody.memories).toHaveLength(1);
+    expect(preciseBody.memories[0]!.title).toBe("webhook retry backoff");
+  });
+
+  it("scopes item mutations to ?projectId= when provided (cross-project 404)", async () => {
+    const created = await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory`, {
+        method: "POST",
+        body: JSON.stringify({ type: "decision", title: "keep SQLite" }),
+      }),
+    );
+    const { memory } = (await created?.json()) as { memory: { id: string } };
+    const otherProject = makeProject();
+
+    // A different project's id → 404, nothing mutated.
+    const crossPatch = await handleApiRequest(
+      authed(`/api/memory/${memory.id}?projectId=${otherProject.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pinned: true }),
+      }),
+    );
+    expect(crossPatch?.status).toBe(404);
+    const crossDelete = await handleApiRequest(
+      authed(`/api/memory/${memory.id}?projectId=${otherProject.id}`, { method: "DELETE" }),
+    );
+    expect(crossDelete?.status).toBe(404);
+
+    // The owning project's id → succeeds; omitting it stays backward compatible.
+    const ownPatch = await handleApiRequest(
+      authed(`/api/memory/${memory.id}?projectId=${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pinned: true }),
+      }),
+    );
+    expect(ownPatch?.status).toBe(200);
+    expect(((await ownPatch?.json()) as { memory: { pinned: boolean } }).memory.pinned).toBe(true);
+    const bare = await handleApiRequest(
+      authed(`/api/memory/${memory.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pinned: false }),
+      }),
+    );
+    expect(bare?.status).toBe(200);
+  });
+
   it("renders a task's Session Brief from its project memory", async () => {
     await handleApiRequest(
       authed(`/api/projects/${projectId}/memory`, {

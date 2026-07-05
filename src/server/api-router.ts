@@ -308,7 +308,7 @@ async function dispatch(
   if (m && method === "GET") return projectMemoryController.previewBrief(decode(m[1]));
   // Literal `/memory/:id/verify` before the `/memory/:id` item route.
   m = pathname.match(MEMORY_VERIFY_PATH);
-  if (m && method === "POST") return projectMemoryController.verify(decode(m[1]));
+  if (m && method === "POST") return projectMemoryController.verify(decode(m[1]), url);
   m = pathname.match(MEMORY_PATH);
   if (m) {
     const id = decode(m[1]);

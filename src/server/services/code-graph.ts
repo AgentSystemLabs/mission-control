@@ -22,10 +22,13 @@ import {
   countFileNodes,
   countNodes,
   edgesFrom,
+  edgesFromRanked,
   edgesTo,
+  edgesToRanked,
   findNodesByName,
   getNodeById,
   getNodesByIds,
+  listFileNodes,
   readGraphIndexState,
   searchNodes,
   topNodesByDegree,
@@ -92,8 +95,12 @@ export function getGraphSummary(projectId: string): GraphSummary {
   const godNodes = topNodesByDegree(projectId, GRAPH_GOD_NODE_LIMIT, { excludeFiles: true }).map(
     toSummaryNode,
   );
-  const entryFiles = topNodesByDegree(projectId, 200)
-    .filter((n) => n.kind === "file" && ENTRY_POINT_RE.test(n.filePath))
+  // Query file nodes directly (one row per file) rather than fishing them out
+  // of a top-N-by-degree list — entry points are often low-degree and would
+  // fall outside any cutoff.
+  const entryFiles = listFileNodes(projectId)
+    .filter((n) => ENTRY_POINT_RE.test(n.filePath))
+    .sort((a, b) => b.degree - a.degree)
     .slice(0, GRAPH_ENTRY_POINT_LIMIT)
     .map(toSummaryNode);
   return {
@@ -138,20 +145,30 @@ export function getNeighbors(
   const node = resolveNodeRef(projectId, ref);
   if (!node) return null;
 
-  const out: GraphNeighbor[] = [];
+  // Ranked fetches (most-connected neighbor first) so truncation keeps the
+  // load-bearing edges. With `both`, each side is guaranteed half the limit
+  // and backfills from the other side's surplus — a high-out-degree node can
+  // no longer crowd every inbound neighbor out of the response.
+  const outEdges = direction === "in" ? [] : edgesFromRanked(projectId, node.id, limit);
+  const inEdges = direction === "out" ? [] : edgesToRanked(projectId, node.id, limit);
+  let outTake = outEdges.length;
+  let inTake = inEdges.length;
+  if (outTake + inTake > limit) {
+    const half = Math.ceil(limit / 2);
+    outTake = Math.min(outEdges.length, Math.max(half, limit - inEdges.length));
+    inTake = Math.min(inEdges.length, limit - outTake);
+  }
+
   const idsToHydrate = new Set<string>();
-  const outEdges = direction === "in" ? [] : edgesFrom(projectId, node.id);
-  const inEdges = direction === "out" ? [] : edgesTo(projectId, node.id);
-  for (const e of outEdges) if (e.dstId) idsToHydrate.add(e.dstId);
-  for (const e of inEdges) idsToHydrate.add(e.srcId);
+  for (const e of outEdges.slice(0, outTake)) if (e.dstId) idsToHydrate.add(e.dstId);
+  for (const e of inEdges.slice(0, inTake)) idsToHydrate.add(e.srcId);
   const hydrated = getNodesByIds(projectId, [...idsToHydrate]);
 
-  for (const e of outEdges) {
+  const out: GraphNeighbor[] = [];
+  for (const e of outEdges.slice(0, outTake)) {
     out.push({ edge: toEdgeView(e), node: e.dstId ? nodeViewOrNull(hydrated, e.dstId) : null, direction: "out" });
-    if (out.length >= limit) break;
   }
-  for (const e of inEdges) {
-    if (out.length >= limit) break;
+  for (const e of inEdges.slice(0, inTake)) {
     out.push({ edge: toEdgeView(e), node: nodeViewOrNull(hydrated, e.srcId), direction: "in" });
   }
   return { node: toNodeView(node), neighbors: out };

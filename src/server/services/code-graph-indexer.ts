@@ -14,9 +14,11 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { Parser } from "web-tree-sitter";
 import {
+  GRAPH_INDEX_SCHEMA_VERSION,
   GRAPH_MAX_FILES,
   languageForFile,
   type GraphConfidence,
@@ -25,7 +27,7 @@ import {
   type GraphIndexState,
   type GraphLanguage,
 } from "~/shared/code-graph";
-import type { NewGraphEdge, NewGraphNode } from "~/db/schema";
+import type { NewGraphEdge, NewGraphFile, NewGraphNode } from "~/db/schema";
 import { findProjectById } from "../repositories/projects.repo";
 import { events } from "../events";
 import { newId } from "./_ids";
@@ -37,14 +39,21 @@ import {
   countEdges,
   countFileNodes,
   countNodes,
-  deleteGraphForFiles,
   deleteGraphForProject,
   insertGraphEdges,
   insertGraphNodes,
+  listDanglingCallEdges,
+  listDanglingImportEdges,
   listNodeIndex,
+  pruneGraphForFiles,
+  readGraphFileStats,
   readGraphIndexState,
   recomputeDegrees,
+  replaceGraphFileStats,
+  resolveDanglingEdges,
+  updateGraphFileStats,
   writeGraphIndexState,
+  type GraphFileStat,
 } from "../repositories/code-graph.repo";
 
 export class GraphIndexError extends Error {
@@ -63,6 +72,9 @@ interface IndexJob {
 const runningJobs = new Map<string, IndexJob>();
 
 const PROGRESS_THROTTLE_MS = 200;
+/** Concurrent file reads per batch in the hash phase — batch boundaries are
+ * the event-loop yield points. */
+const READ_BATCH = 8;
 
 export function getGraphIndexProgress(projectId: string): GraphIndexProgress | null {
   return runningJobs.get(projectId)?.progress ?? null;
@@ -150,7 +162,7 @@ function makeIdGen(): (prefix: string) => string {
 async function runBuild(
   projectId: string,
   root: string,
-  mode: GraphIndexMode,
+  requestedMode: GraphIndexMode,
   job: IndexJob,
 ): Promise<void> {
   const { progress } = job;
@@ -169,30 +181,83 @@ async function runBuild(
     if (job.canceled) return finishCanceled(projectId, job);
 
     const priorState = readGraphIndexState(projectId);
-    const priorHashes = mode === "full" ? {} : priorState.fileHashes;
+    // Graph rows written under an older on-disk shape can't be healed
+    // incrementally (e.g. resolved edges without dst_name) — rebuild once.
+    const mode: GraphIndexMode =
+      requestedMode === "incremental" && priorState.schemaVersion !== GRAPH_INDEX_SCHEMA_VERSION
+        ? "full"
+        : requestedMode;
+    if (mode !== requestedMode) {
+      progress.mode = mode;
+      console.warn(
+        `[code-graph] ${projectId}: graph schema v${priorState.schemaVersion} → v${GRAPH_INDEX_SCHEMA_VERSION}; forcing a full rebuild`,
+      );
+    }
+    // Legacy states carried hashes inline (no stat info); the graph_files
+    // table is authoritative now, but the legacy hashes still gate parsing
+    // once so the first post-upgrade pass isn't a full re-parse.
+    const legacyHashes = mode === "full" ? {} : priorState.fileHashes;
+    const priorStats =
+      mode === "full" ? new Map<string, GraphFileStat>() : readGraphFileStats(projectId);
 
-    // --- 2. Hash all current files (cheap); parse only changed/added ones. ---
-    const currentHashes: Record<string, string> = {};
+    // --- 2. Stat-gate + hash: a file whose (size, mtime) matches its stored
+    // row is trusted unread; only moved files are read (async, small batches,
+    // so a watcher-triggered pass never blocks the event loop) and only files
+    // whose content hash actually changed are parsed. Same-size same-mtime
+    // edits are invisible to the fastpath — the acknowledged make(1)-style
+    // tradeoff; a manual Rebuild always covers it.
+    const currentStats = new Map<string, GraphFileStat>();
+    const statUpserts: NewGraphFile[] = [];
     const contentByPath = new Map<string, { language: GraphLanguage; source: string }>();
     const filesToParse: string[] = [];
-    for (const rel of enumeration.files) {
-      const language = languageForFile(rel);
-      if (!language) continue;
-      let source: string;
-      try {
-        source = fs.readFileSync(path.join(root, rel), "utf8");
-      } catch {
-        continue;
-      }
-      const hash = hashContent(source);
-      currentHashes[rel] = hash;
-      if (mode === "full" || priorHashes[rel] !== hash) {
-        filesToParse.push(rel);
-        contentByPath.set(rel, { language, source });
+    for (let i = 0; i < enumeration.files.length; i += READ_BATCH) {
+      if (job.canceled) return finishCanceled(projectId, job);
+      const batch = enumeration.files.slice(i, i + READ_BATCH);
+      const loaded = await Promise.all(
+        batch.map(async (file) => {
+          const language = languageForFile(file.path);
+          if (!language) return null;
+          const prior = priorStats.get(file.path);
+          if (prior && prior.size === file.size && prior.mtimeMs === file.mtimeMs) {
+            return { file, language, source: null as string | null, stat: prior };
+          }
+          let source: string;
+          try {
+            source = await fsp.readFile(path.join(root, file.path), "utf8");
+          } catch {
+            return null;
+          }
+          const stat: GraphFileStat = {
+            size: file.size,
+            mtimeMs: file.mtimeMs,
+            hash: hashContent(source),
+          };
+          return { file, language, source: source as string | null, stat };
+        }),
+      );
+      for (const got of loaded) {
+        if (!got) continue;
+        currentStats.set(got.file.path, got.stat);
+        if (got.source === null) continue; // stat fastpath — unchanged, no parse
+        statUpserts.push({
+          projectId,
+          path: got.file.path,
+          size: got.stat.size,
+          mtimeMs: got.stat.mtimeMs,
+          hash: got.stat.hash,
+        });
+        const priorHash = priorStats.get(got.file.path)?.hash ?? legacyHashes[got.file.path];
+        if (mode === "full" || priorHash !== got.stat.hash) {
+          filesToParse.push(got.file.path);
+          contentByPath.set(got.file.path, { language: got.language, source: got.source });
+        }
       }
     }
-    const removedFiles =
-      mode === "full" ? [] : Object.keys(priorHashes).filter((p) => !(p in currentHashes));
+    const priorPaths =
+      mode === "full"
+        ? []
+        : [...new Set([...priorStats.keys(), ...Object.keys(legacyHashes)])];
+    const removedFiles = priorPaths.filter((p) => !currentStats.has(p));
 
     // --- 3. Parse/extract (cancelable, memory-buffered) ---
     progress.phase = "parsing";
@@ -239,7 +304,10 @@ async function runBuild(
     if (mode === "full") {
       deleteGraphForProject(projectId);
     } else {
-      deleteGraphForFiles(projectId, [...filesToParse, ...removedFiles]);
+      // Deletes changed files' nodes + outgoing edges; DETACHES (keeps by
+      // name) inbound edges from unchanged files so re-resolution below can
+      // re-attach them to the freshly inserted nodes.
+      pruneGraphForFiles(projectId, [...filesToParse, ...removedFiles]);
     }
 
     // Build node rows + a local (relPath → { fileNodeId, symbolIds[] }) map.
@@ -324,10 +392,12 @@ async function runBuild(
       const exported = candidates.filter((c) => c.exported);
       return exported.length === 1 ? exported[0].id : null;
     };
-    const fileSet = new Set(Object.keys(currentHashes));
+    const fileSet = new Set(currentStats.keys());
     const aliasMap = readTsconfigAliases(root);
 
-    // Resolve edges for the (re)parsed files.
+    // Resolve edges for the (re)parsed files. `dstName` is ALWAYS kept on
+    // imports/calls (even when resolved) so a later incremental pass can
+    // detach an edge from a re-created node and re-resolve it by name.
     const edgeRows: NewGraphEdge[] = [];
     const seenEdge = new Set<string>();
     const addEdge = (
@@ -336,11 +406,22 @@ async function runBuild(
       dstId: string | null,
       dstName: string | null,
       confidence: GraphConfidence,
+      isMember = false,
     ) => {
-      const key = `${srcId}|${kind}|${dstId ?? "?" + (dstName ?? "")}`;
+      const key = `${srcId}|${kind}|${dstId ?? "?"}|${dstName ?? ""}`;
       if (seenEdge.has(key)) return;
       seenEdge.add(key);
-      edgeRows.push({ id: nextId("ge"), projectId, srcId, dstId, dstName, kind, confidence, createdAt: now });
+      edgeRows.push({
+        id: nextId("ge"),
+        projectId,
+        srcId,
+        dstId,
+        dstName,
+        kind,
+        confidence,
+        isMember,
+        createdAt: now,
+      });
     };
 
     for (const rel of filesToParse) {
@@ -348,20 +429,16 @@ async function runBuild(
       const local = localFile.get(rel);
       if (!got || !local) continue;
       const { fileNodeId, symbolIds } = local;
-      // defines: file → each symbol
+      // defines: file → each symbol (same-file only, so never dangles by name)
       for (const id of symbolIds) {
         if (id) addEdge(fileNodeId, "defines", id, null, "extracted");
       }
       // imports
       for (const imp of got.extraction.imports) {
         const targetRel = resolveImport(imp.spec, rel, aliasMap, fileSet);
-        if (targetRel) {
-          const dstId = fileNodeIdByPath.get(targetRel) ?? null;
-          if (dstId) addEdge(fileNodeId, "imports", dstId, null, "extracted");
-          else addEdge(fileNodeId, "imports", null, imp.spec, "ambiguous");
-        } else {
-          addEdge(fileNodeId, "imports", null, imp.spec, "ambiguous");
-        }
+        const dstId = targetRel ? fileNodeIdByPath.get(targetRel) ?? null : null;
+        if (dstId) addEdge(fileNodeId, "imports", dstId, imp.spec, "extracted");
+        else addEdge(fileNodeId, "imports", null, imp.spec, "ambiguous");
       }
       // calls
       for (const call of got.extraction.calls) {
@@ -369,15 +446,56 @@ async function runBuild(
           call.enclosingIndex != null ? symbolIds[call.enclosingIndex] ?? fileNodeId : fileNodeId;
         const targetId = resolveCall(call.calleeName, rel, call.isMember);
         if (targetId) {
-          addEdge(srcId, "calls", targetId, null, "inferred");
+          addEdge(srcId, "calls", targetId, call.calleeName, "inferred", call.isMember);
         } else {
-          addEdge(srcId, "calls", null, call.calleeName, "ambiguous");
+          addEdge(srcId, "calls", null, call.calleeName, "ambiguous", call.isMember);
         }
       }
     }
     insertGraphEdges(edgeRows);
     progress.edges = edgeRows.length;
     if (job.canceled) return finishCanceled(projectId, job);
+
+    // --- 4b. Re-resolve dangling edges (incremental only) ---
+    // Edges detached by pruneGraphForFiles — plus older never-resolved ones
+    // whose target name just (re)appeared — point at nothing but still carry
+    // `dst_name`. Re-attach them against the fresh node index. Bounded: calls
+    // are only fetched for symbol names inserted THIS pass (an edge can only
+    // newly resolve if its target name just appeared); imports only for
+    // internal-looking specs. A name that became unique because its duplicate
+    // was deleted is NOT healed here — the next full index covers that.
+    if (mode === "incremental" && (filesToParse.length || removedFiles.length)) {
+      const edgeUpdates: Array<{ id: string; dstId: string; confidence: GraphConfidence }> = [];
+      const insertedSymbolNames = new Set<string>();
+      for (const row of nodeRows) {
+        if (row.kind !== "file") insertedSymbolNames.add(row.name);
+      }
+      if (insertedSymbolNames.size) {
+        for (const e of listDanglingCallEdges(projectId, [...insertedSymbolNames])) {
+          if (!e.srcFilePath) continue;
+          const targetId = resolveCall(e.dstName, e.srcFilePath, e.isMember);
+          if (targetId) edgeUpdates.push({ id: e.id, dstId: targetId, confidence: "inferred" });
+        }
+      }
+      const specPrefixes = [".", ...aliasMap.map((a) => a.prefix)];
+      for (const e of listDanglingImportEdges(projectId, specPrefixes)) {
+        if (!e.srcFilePath) continue;
+        const targetRel = resolveImport(e.dstName, e.srcFilePath, aliasMap, fileSet);
+        const dstId = targetRel ? fileNodeIdByPath.get(targetRel) ?? null : null;
+        if (dstId) edgeUpdates.push({ id: e.id, dstId, confidence: "extracted" });
+      }
+      resolveDanglingEdges(edgeUpdates);
+    }
+    if (job.canceled) return finishCanceled(projectId, job);
+
+    // Persist the per-file stat/hash index alongside the graph rows it
+    // describes (still inside the "commit region" — a cancel above leaves the
+    // prior graph AND prior file index intact together).
+    if (mode === "full") {
+      replaceGraphFileStats(projectId, statUpserts);
+    } else {
+      updateGraphFileStats(projectId, statUpserts, removedFiles);
+    }
 
     // --- 5. Rank + persist ---
     progress.phase = "ranking";
@@ -397,7 +515,10 @@ async function runBuild(
       durationMs,
       lastMode: mode,
       confidenceBreakdown: breakdown,
-      fileHashes: currentHashes,
+      // Hashes live in graph_files now; written empty so legacy states shrink.
+      fileHashes: {},
+      schemaVersion: GRAPH_INDEX_SCHEMA_VERSION,
+      lastParsedCount: filesToParse.length,
     };
     writeGraphIndexState(projectId, state);
 

@@ -18,7 +18,9 @@ vi.mock("../code-graph", () => ({
 const { createProject } = await import("../projects");
 const { createMemory } = await import("../project-memory");
 const { writeRecallSettings } = await import("../recall-settings");
-const { assembleTurnContext, pickSymbolQuery } = await import("../proactive-recall");
+const { assembleTurnContext, pickSymbolQuery, pickSymbolQueries } = await import(
+  "../proactive-recall"
+);
 const { getDb } = await import("~/db/client");
 const { projectMemory, projects, groups, tasks, worktrees } = await import("~/db/schema");
 
@@ -107,6 +109,78 @@ describe("assembleTurnContext", () => {
     const out = assembleTurnContext(project.id, "local", "token", { budget: 120 });
     expect(out.length).toBeLessThanOrEqual(121); // budget + the "…"
     expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("keeps most of the budget when one giant unbroken token would eat it", () => {
+    const project = makeProject();
+    createMemory({
+      projectId: project.id,
+      type: "discovery",
+      title: "token finding",
+      body: `x${"y".repeat(600)}`, // one 600-char unbroken token
+    });
+    const out = assembleTurnContext(project.id, "local", "token", { budget: 200 });
+    expect(out.length).toBeLessThanOrEqual(201);
+    // The word-boundary trim would have cut back to ~40 chars; the hard-slice
+    // fallback keeps the block near the budget instead.
+    expect(out.length).toBeGreaterThanOrEqual(120);
+  });
+
+  it("surfaces in-scope memories even when out-of-scope ones dominate the text ranking", () => {
+    const project = makeProject();
+    // Six strong matches in a foreign scope would previously fill the top-5
+    // before the post-hoc scope filter wiped them all out.
+    for (let i = 0; i < 6; i++) {
+      createMemory({
+        projectId: project.id,
+        scopeId: "sandbox-other",
+        type: "discovery",
+        title: `webhook retry logic detail ${i}`,
+        body: "webhook retry webhook retry webhook retry",
+      });
+    }
+    createMemory({
+      projectId: project.id,
+      scopeId: "local",
+      type: "discovery",
+      title: "webhook retries live in queue.ts",
+    });
+
+    const out = assembleTurnContext(project.id, "local", "how do webhook retries work?");
+    expect(out).toContain("webhook retries live in queue.ts");
+    expect(out).not.toContain("detail 0");
+  });
+
+  it("probes fallback symbol tokens when the best one has no graph hits", () => {
+    const project = makeProject();
+    getGraphStatus.mockReturnValue({ indexed: true });
+    // Longest identifier misses; the second candidate hits.
+    searchGraph.mockImplementation((_pid: unknown, query: unknown) =>
+      query === "getDb"
+        ? [{ name: "getDb", kind: "function", filePath: "src/db/client.ts" }]
+        : [],
+    );
+
+    const out = assembleTurnContext(
+      project.id,
+      "local",
+      "does SomethingNonexistent wrap getDb?",
+    );
+    expect(out).toContain("getDb (function) — src/db/client.ts");
+    expect(searchGraph.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("pickSymbolQueries", () => {
+  it("returns ranked, deduped candidates, longest first", () => {
+    expect(pickSymbolQueries("does recallSettings use getDb or getDb again")).toEqual([
+      "recallSettings",
+      "getDb",
+    ]);
+  });
+
+  it("caps the candidate count", () => {
+    expect(pickSymbolQueries("AlphaOne BetaTwoLong GammaThree DeltaFour", 3)).toHaveLength(3);
   });
 });
 

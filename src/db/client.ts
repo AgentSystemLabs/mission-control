@@ -565,12 +565,22 @@ function ensureSchema(sqlite: Database.Database) {
       dst_name TEXT,
       kind TEXT NOT NULL,
       confidence TEXT NOT NULL DEFAULT 'extracted',
+      is_member INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS graph_edges_project_idx ON graph_edges(project_id);
     CREATE INDEX IF NOT EXISTS graph_edges_src_idx ON graph_edges(src_id);
     CREATE INDEX IF NOT EXISTS graph_edges_dst_idx ON graph_edges(dst_id);
     CREATE INDEX IF NOT EXISTS graph_edges_project_kind_idx ON graph_edges(project_id, kind);
+
+    CREATE TABLE IF NOT EXISTS graph_files (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      PRIMARY KEY (project_id, path)
+    );
   `);
 
   // Multi-sandbox scope column. Idempotent + tolerant of a pre-existing column
@@ -617,6 +627,16 @@ function ensureSchema(sqlite: Database.Database) {
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_scope_idx ON user_terminals(scope_id);");
   ensureColumn(sqlite, "home_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS home_terminals_scope_idx ON home_terminals(scope_id);");
+
+  // Incremental-correct graph edges: `is_member` + the dangling-edge partial
+  // index arrived after graph_edges first shipped (see 0021). ensureColumn
+  // covers schema-divergent builds; the index needs the column to exist first.
+  ensureColumn(sqlite, "graph_edges", "is_member", "INTEGER NOT NULL DEFAULT 0");
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS graph_edges_dangling_idx
+      ON graph_edges(project_id, kind, dst_name)
+      WHERE dst_id IS NULL;
+  `);
 
   // Legacy builds briefly modeled "shell" as a task agent even though shell
   // terminals are not persisted tasks. Normalize stale rows before the narrowed

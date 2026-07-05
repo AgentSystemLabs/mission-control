@@ -112,9 +112,9 @@ describe("project-memory service", () => {
       __setMemoryFtsAvailableForTest(null); // re-probe (real DB has the index)
     });
 
-    it("returns all matches, pinned first, then by bm25 relevance", () => {
+    it("ranks by blended relevance: a strong match outranks a weakly-matching pinned one", () => {
       const project = makeProject();
-      createMemory({
+      const strong = createMemory({
         projectId: project.id,
         type: "architecture",
         title: "Rate limiter",
@@ -127,9 +127,51 @@ describe("project-memory service", () => {
         body: "rate limit basics",
       });
       updateMemory(pinned.id, { pinned: true });
-      const results = searchMemory(project.id, "rate limit"); // implicit AND
+      const results = searchMemory(project.id, "rate limit");
       expect(results).toHaveLength(2);
-      expect(results[0]!.id).toBe(pinned.id); // pinned floats above bm25 order
+      // Text relevance dominates: the pinned boost is deliberately modest, so
+      // the title+body match beats the body-only pinned one.
+      expect(results[0]!.id).toBe(strong.id);
+    });
+
+    it("breaks text-relevance ties with the pinned boost", () => {
+      const project = makeProject();
+      createMemory({
+        projectId: project.id,
+        type: "discovery",
+        title: "Networking notes",
+        body: "rate limit basics",
+      });
+      const pinned = createMemory({
+        projectId: project.id,
+        type: "discovery",
+        title: "Throttling notes",
+        body: "rate limit basics",
+      });
+      updateMemory(pinned.id, { pinned: true });
+      const results = searchMemory(project.id, "rate limit");
+      expect(results).toHaveLength(2);
+      expect(results[0]!.id).toBe(pinned.id);
+    });
+
+    it("prefers the recently-used confirmed memory between equal text matches", () => {
+      const project = makeProject();
+      const stale = createMemory({
+        projectId: project.id,
+        type: "discovery",
+        title: "Webhook notes A",
+        body: "delivery uses queue",
+        confidence: "ambiguous",
+      });
+      const fresh = createMemory({
+        projectId: project.id,
+        type: "discovery",
+        title: "Webhook notes B",
+        body: "delivery uses queue",
+      });
+      updateMemory(fresh.id, { confidence: "confirmed" });
+      const results = searchMemory(project.id, "delivery queue");
+      expect(results.map((m) => m.id)).toEqual([fresh.id, stale.id]);
     });
 
     it("keeps the index in sync through update triggers", () => {
@@ -164,6 +206,10 @@ describe("project-memory service", () => {
       expect(buildFtsMatch("where is the auth")).toBe('"auth"*'); // stopwords dropped
       expect(buildFtsMatch("   ")).toBe(""); // no tokens → caller uses LIKE
       expect(buildFtsMatch('drop"table')).toBe('"drop"* OR "table"*'); // quotes can't break out
+    });
+
+    it("joins with AND in `all` match mode", () => {
+      expect(buildFtsMatch("Hello World", "all")).toBe('"hello"* AND "world"*');
     });
   });
 

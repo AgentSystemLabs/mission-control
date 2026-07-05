@@ -99,24 +99,42 @@ function likeEscaped(column: AnySQLiteColumn, pattern: string): SQL {
   return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
 }
 
+export type MemoryMatchMode = "any" | "all";
+
 interface SearchMemoryArgs {
   projectId: string;
   query: string;
   limit: number;
+  /** Restrict hits to these scopes IN SQL (before LIMIT), when provided. */
+  scopeIds?: readonly string[];
+  /** `any` (OR, default — broad recall) or `all` (AND — precise). */
+  matchMode?: MemoryMatchMode;
+}
+
+/** A search hit with its raw text-relevance rank (bm25: lower = better; null on the LIKE path). */
+export interface RankedMemoryRow {
+  row: ProjectMemory;
+  rank: number | null;
 }
 
 /**
  * Relevance search over title/body/tags within a single project's active
- * memories. Uses the FTS5 index (pinned-first, then bm25) when available and
- * degrades transparently to LIKE substring search otherwise. Same return shape
- * either way.
+ * memories. Uses the FTS5 index (bm25-ranked) when available and degrades
+ * transparently to LIKE substring search otherwise. Same return shape either
+ * way. Final ordering is the service's job (it blends text relevance with
+ * pinned/recency/usage metadata); rows come back best-text-match first.
  */
 export function searchMemory(args: SearchMemoryArgs): ProjectMemory[] {
+  return searchMemoryRanked(args).map((r) => r.row);
+}
+
+/** As searchMemory, but keeps the raw text rank so callers can blend scores. */
+export function searchMemoryRanked(args: SearchMemoryArgs): RankedMemoryRow[] {
   const query = args.query.trim();
   if (!query) return [];
 
   if (memoryFtsAvailable()) {
-    const match = buildFtsMatch(query);
+    const match = buildFtsMatch(query, args.matchMode);
     if (match) {
       try {
         return searchMemoryFts({ ...args, match });
@@ -128,63 +146,100 @@ export function searchMemory(args: SearchMemoryArgs): ProjectMemory[] {
   return searchMemoryLike({ ...args, query });
 }
 
-/** FTS5 path: rank rowids by bm25 (pinned first), then hydrate in that order. */
+/** FTS5 path: rank rowids by bm25, then hydrate in that order. */
 function searchMemoryFts({
   projectId,
   match,
   limit,
+  scopeIds,
 }: {
   projectId: string;
   match: string;
   limit: number;
-}): ProjectMemory[] {
+  scopeIds?: readonly string[];
+}): RankedMemoryRow[] {
   // Use the FTS table's real name in MATCH and bm25() — the bm25 auxiliary
   // function rejects a table alias ("no such column").
+  const scopeClause = scopeIds?.length
+    ? ` AND pm.scope_id IN (${scopeIds.map(() => "?").join(", ")})`
+    : "";
   const rows = getSqlite()
     .prepare(
-      `SELECT pm.id AS id
+      `SELECT pm.id AS id, bm25(project_memory_fts) AS rank
          FROM project_memory_fts
          JOIN project_memory pm ON pm.rowid = project_memory_fts.rowid
         WHERE project_memory_fts MATCH ?
           AND pm.project_id = ?
-          AND pm.status = 'active'
-        ORDER BY pm.pinned DESC, bm25(project_memory_fts)
+          AND pm.status = 'active'${scopeClause}
+        ORDER BY bm25(project_memory_fts)
         LIMIT ?`,
     )
-    .all(match, projectId, limit) as { id: string }[];
-  const ids = rows.map((r) => r.id);
-  if (!ids.length) return [];
+    .all(match, projectId, ...(scopeIds?.length ? scopeIds : []), limit) as {
+    id: string;
+    rank: number;
+  }[];
+  if (!rows.length) return [];
   const byId = new Map(
-    getDb().select().from(projectMemory).where(inArray(projectMemory.id, ids)).all().map((m) => [m.id, m]),
+    getDb()
+      .select()
+      .from(projectMemory)
+      .where(inArray(projectMemory.id, rows.map((r) => r.id)))
+      .all()
+      .map((m) => [m.id, m]),
   );
   // Preserve the bm25 ranking order (the IN() fetch above is unordered).
-  return ids.map((id) => byId.get(id)).filter((m): m is ProjectMemory => Boolean(m));
+  const out: RankedMemoryRow[] = [];
+  for (const r of rows) {
+    const row = byId.get(r.id);
+    if (row) out.push({ row, rank: r.rank });
+  }
+  return out;
 }
 
 /** LIKE fallback: substring match over title/body/tags, pinned-then-recent order. */
-function searchMemoryLike({ projectId, query, limit }: SearchMemoryArgs): ProjectMemory[] {
-  const pattern = `%${escapeLike(query)}%`;
-  const match = or(
-    likeEscaped(projectMemory.title, pattern),
-    likeEscaped(projectMemory.body, pattern),
-    likeEscaped(projectMemory.tags, pattern),
-  );
+function searchMemoryLike({
+  projectId,
+  query,
+  limit,
+  scopeIds,
+  matchMode,
+}: SearchMemoryArgs): RankedMemoryRow[] {
+  // `any`: the whole query as one substring (historic behavior). `all`: every
+  // token must appear somewhere in title/body/tags.
+  const terms =
+    matchMode === "all" ? (query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [query]) : [query];
+  const termClauses = terms.map((t) => {
+    const pattern = `%${escapeLike(t)}%`;
+    return or(
+      likeEscaped(projectMemory.title, pattern),
+      likeEscaped(projectMemory.body, pattern),
+      likeEscaped(projectMemory.tags, pattern),
+    );
+  });
+  const filters = [
+    eq(projectMemory.projectId, projectId),
+    eq(projectMemory.status, "active"),
+    ...termClauses,
+  ];
+  if (scopeIds?.length) filters.push(inArray(projectMemory.scopeId, scopeIds as string[]));
   return getDb()
     .select()
     .from(projectMemory)
-    .where(and(eq(projectMemory.projectId, projectId), eq(projectMemory.status, "active"), match))
+    .where(and(...filters))
     .orderBy(desc(projectMemory.pinned), desc(projectMemory.updatedAt))
     .limit(limit)
-    .all();
+    .all()
+    .map((row) => ({ row, rank: null }));
 }
 
 // Turn a free-text query into a safe FTS5 MATCH string: lowercase alnum/underscore
-// tokens (stopwords + single chars dropped), each a quoted prefix term joined with
-// OR so ANY term can match and bm25 ranks the best hits first. This matters most
-// for proactive recall, which searches with a whole natural-language prompt —
-// implicit-AND would demand every word appear and almost never match. Returns ""
-// when no usable tokens remain, so the caller falls back to LIKE. Capped so a
-// pathological query can't build a huge MATCH expression.
+// tokens (stopwords + single chars dropped), each a quoted prefix term. `any`
+// joins with OR so ANY term can match and bm25 ranks the best hits first —
+// this matters most for proactive recall, which searches with a whole
+// natural-language prompt (implicit-AND would demand every word appear and
+// almost never match). `all` joins with AND for precise keyword search.
+// Returns "" when no usable tokens remain, so the caller falls back to LIKE.
+// Capped so a pathological query can't build a huge MATCH expression.
 const FTS_MAX_TERMS = 12;
 
 // Common words that would only add noise (and false matches) to an OR query.
@@ -195,7 +250,7 @@ const FTS_STOPWORDS = new Set([
   "by", "from", "i", "you", "we", "my", "our", "me", "can", "should", "would",
 ]);
 
-export function buildFtsMatch(query: string): string {
+export function buildFtsMatch(query: string, mode: MemoryMatchMode = "any"): string {
   const raw = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu);
   if (!raw) return "";
   const tokens = raw.filter((t) => t.length > 1 && !FTS_STOPWORDS.has(t));
@@ -203,7 +258,7 @@ export function buildFtsMatch(query: string): string {
   return tokens
     .slice(0, FTS_MAX_TERMS)
     .map((t) => `"${t.replace(/"/g, '""')}"*`)
-    .join(" OR ");
+    .join(mode === "all" ? " AND " : " OR ");
 }
 
 // Cached probe: does this DB have the FTS5 index? getDb() first so the runtime

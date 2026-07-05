@@ -134,14 +134,18 @@ server.registerTool(
   ({ type, title, body }) =>
     runTool(async (projectId) => {
       try {
-        const { memory } = await apiPost(`/api/projects/${projectId}/memory`, {
+        const { memory, similar } = await apiPost(`/api/projects/${projectId}/memory`, {
           type,
           title,
           body,
           source: "agent",
           confidence: "inferred",
         });
-        return textResult(`Saved to Recall: "${memory.title}" (${memory.type}). Future sessions on this project will see it.`);
+        let text = `Saved to Recall: "${memory.title}" (${memory.type}). Future sessions on this project will see it.`;
+        if (Array.isArray(similar) && similar.length) {
+          text += `\n\nPossibly related existing memories — if one already covers this fact, merge with mem_update instead of keeping near-duplicates:\n${similar.map(memoryLine).join("\n")}`;
+        }
+        return textResult(text);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("403")) {
@@ -160,12 +164,17 @@ server.registerTool(
     inputSchema: {
       query: z.string().describe("Keywords to search memory for"),
       limit: z.number().int().positive().max(50).optional().describe("Max results (default 20)"),
+      match_mode: z
+        .enum(["any", "all"])
+        .optional()
+        .describe("any = broad recall, ANY keyword may match (default); all = every keyword must match"),
     },
   },
-  ({ query, limit }) =>
+  ({ query, limit, match_mode }) =>
     runTool(async (projectId) => {
       const qs = new URLSearchParams({ q: query });
       if (limit) qs.set("limit", String(limit));
+      if (match_mode) qs.set("match", match_mode);
       const { memories } = await apiGet(`/api/projects/${projectId}/memory/search?${qs}`);
       if (!memories.length) return textResult(`No memories match "${query}".`);
       return textResult(`${memories.length} memory match(es) for "${query}":\n${memories.map(memoryLine).join("\n")}`);
@@ -206,13 +215,18 @@ server.registerTool(
     },
   },
   ({ id, title, body, type }) =>
-    runTool(async () => {
+    runTool(async (projectId) => {
       const patch = {};
       if (title !== undefined) patch.title = title;
       if (body !== undefined) patch.body = body;
       if (type !== undefined) patch.type = type;
       if (!Object.keys(patch).length) return errorResult("Nothing to update — pass at least one of title, body, or type.");
-      const { memory } = await apiPatch(`/api/memory/${encodeURIComponent(id)}`, patch);
+      // projectId pins the update to THIS session's project — a stale or
+      // foreign id 404s server-side instead of mutating another project.
+      const { memory } = await apiPatch(
+        `/api/memory/${encodeURIComponent(id)}?projectId=${encodeURIComponent(projectId)}`,
+        patch,
+      );
       return textResult(`Updated memory "${memory.title}" (${memory.type}).`);
     }),
 );

@@ -148,6 +148,27 @@ describe("recall MCP server", () => {
     }
   });
 
+  it("mem_save surfaces near-duplicate memories for the agent to merge", async () => {
+    const client = await connectClient();
+    try {
+      const res = await client.callTool({
+        name: "mem_save",
+        arguments: {
+          type: "discovery",
+          title: "Code graph parsing uses web-tree-sitter grammars",
+        },
+      });
+      expect(res.isError).toBeFalsy();
+      const text = textOf(res);
+      expect(text).toContain("Saved to Recall");
+      // The decision saved by the previous test is a near-duplicate candidate.
+      expect(text).toContain("Possibly related existing memories");
+      expect(text).toContain("Use web-tree-sitter for the code graph");
+    } finally {
+      await client.close();
+    }
+  });
+
   it("mem_search finds a saved memory by keyword", async () => {
     const client = await connectClient();
     try {

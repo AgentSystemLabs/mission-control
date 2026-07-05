@@ -8,12 +8,22 @@
 
 // taskId -> latest known transcript path. The path is stable for a session, so
 // we overwrite (not clear on read): the same session finishes many times and
-// each distill should still find it.
+// each distill should still find it. Bounded: nothing else evicts entries in
+// production, so past the cap the oldest-inserted task is dropped (a task that
+// old has long since had its last session:finished).
+const MAX_TRACKED_TASKS = 500;
 const transcriptPaths = new Map<string, string>();
 
 export function setTranscriptPath(taskId: string, transcriptPath: string): void {
   if (!taskId || !transcriptPath) return;
+  // Re-insert so the Map's insertion order doubles as recency order.
+  transcriptPaths.delete(taskId);
   transcriptPaths.set(taskId, transcriptPath);
+  while (transcriptPaths.size > MAX_TRACKED_TASKS) {
+    const oldest = transcriptPaths.keys().next().value;
+    if (oldest === undefined) break;
+    transcriptPaths.delete(oldest);
+  }
 }
 
 export function getTranscriptPath(taskId: string): string | undefined {

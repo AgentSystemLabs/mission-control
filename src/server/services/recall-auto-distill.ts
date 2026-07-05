@@ -14,6 +14,7 @@ import { distillSession, DISTILL_INPUT_CHAR_BUDGET } from "./recall-engine";
 import { readRecallSettings } from "./recall-settings";
 import { getTranscriptPath } from "./session-transcripts";
 import { readTranscriptForDistill } from "./recall-transcript";
+import { sweepStaleCooldowns } from "./_cooldowns";
 
 // Stop hooks fire once per agent turn, so session:finished can arrive many times
 // in one working session. Distilling on every turn would fan out a CLI each time;
@@ -45,6 +46,7 @@ async function handleSessionFinished(
   const now = nowMs();
   const last = lastDistilledAt.get(taskId);
   if (last !== undefined && now - last < DISTILL_COOLDOWN_MS) return;
+  sweepStaleCooldowns(lastDistilledAt, now, DISTILL_COOLDOWN_MS);
   lastDistilledAt.set(taskId, now);
 
   const prompts = listPromptTextsForTask(taskId);

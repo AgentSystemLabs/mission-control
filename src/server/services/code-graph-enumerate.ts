@@ -3,10 +3,17 @@
 // are excluded for free; fall back to a hard-skip-list fs walk for non-git
 // projects. Minified/oversized files are skipped with a recorded reason, and the
 // total is capped with a logged warning (no silent truncation).
+//
+// Fully async: the walk and the per-file stats go through fs.promises in small
+// concurrent batches, so enumerating a big repo never blocks the server's event
+// loop the way the old statSync/readdirSync pass did. Each file's stat (size +
+// mtime) rides along in the result so the indexer can gate reads on it instead
+// of re-hashing everything.
 
 import { execFile } from "node:child_process";
-import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import * as path from "node:path";
+import type { Dirent } from "node:fs";
 import {
   GRAPH_IGNORE_DIRS,
   GRAPH_MAX_FILES,
@@ -15,9 +22,16 @@ import {
   type GraphSkippedFile,
 } from "~/shared/code-graph";
 
+export interface EnumeratedFile {
+  /** Repo-relative path (POSIX separators). */
+  path: string;
+  size: number;
+  mtimeMs: number;
+}
+
 export interface EnumerationResult {
-  /** Repo-relative source-file paths (POSIX separators), sorted, capped. */
-  files: string[];
+  /** Source files with their stat info, sorted by path, capped. */
+  files: EnumeratedFile[];
   skipped: GraphSkippedFile[];
   /** True if the file list was truncated at GRAPH_MAX_FILES. */
   cappedAtLimit: boolean;
@@ -25,6 +39,9 @@ export interface EnumerationResult {
 }
 
 const GIT_TIMEOUT_MS = 30_000;
+/** Concurrent fs.stat calls per batch — enough to hide latency, small enough
+ * to leave the loop responsive between batches. */
+const STAT_BATCH = 32;
 
 function runGit(root: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
@@ -56,16 +73,16 @@ async function gitTracked(root: string): Promise<string[] | null> {
   return [...set];
 }
 
-function fsWalk(root: string): string[] {
+async function fsWalk(root: string): Promise<string[]> {
   const out: string[] = [];
   const ignore = new Set(GRAPH_IGNORE_DIRS);
   const stack: string[] = [""];
   while (stack.length) {
     const rel = stack.pop()!;
     const abs = path.join(root, rel);
-    let entries: fs.Dirent[];
+    let entries: Dirent[];
     try {
-      entries = fs.readdirSync(abs, { withFileTypes: true });
+      entries = await fsp.readdir(abs, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -93,38 +110,47 @@ function isMinified(rel: string): boolean {
 export async function enumerateSourceFiles(root: string): Promise<EnumerationResult> {
   const tracked = await gitTracked(root);
   const usedGit = tracked !== null;
-  const all = (tracked ?? fsWalk(root)).map((p) => p.split(path.sep).join("/"));
+  const all = (tracked ?? (await fsWalk(root))).map((p) => p.split(path.sep).join("/"));
 
   const skipped: GraphSkippedFile[] = [];
-  const candidates: string[] = [];
-  for (const rel of all) {
-    if (!isGraphSourceFile(rel)) continue;
+  const sourceRels = all.filter((rel) => {
+    if (!isGraphSourceFile(rel)) return false;
     if (isMinified(rel)) {
       skipped.push({ path: rel, reason: "minified" });
-      continue;
+      return false;
     }
-    let size = 0;
-    try {
-      size = fs.statSync(path.join(root, rel)).size;
-    } catch {
-      skipped.push({ path: rel, reason: "unreadable" });
-      continue;
+    return true;
+  });
+
+  const candidates: EnumeratedFile[] = [];
+  for (let i = 0; i < sourceRels.length; i += STAT_BATCH) {
+    const batch = sourceRels.slice(i, i + STAT_BATCH);
+    const stats = await Promise.all(
+      batch.map((rel) => fsp.stat(path.join(root, rel)).catch(() => null)),
+    );
+    for (let j = 0; j < batch.length; j++) {
+      const rel = batch[j];
+      const st = stats[j];
+      if (!st || !st.isFile()) {
+        skipped.push({ path: rel, reason: "unreadable" });
+        continue;
+      }
+      if (st.size > GRAPH_MAX_FILE_BYTES) {
+        skipped.push({ path: rel, reason: "too-large" });
+        continue;
+      }
+      candidates.push({ path: rel, size: st.size, mtimeMs: st.mtimeMs });
     }
-    if (size > GRAPH_MAX_FILE_BYTES) {
-      skipped.push({ path: rel, reason: "too-large" });
-      continue;
-    }
-    candidates.push(rel);
   }
 
-  candidates.sort();
+  candidates.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   let cappedAtLimit = false;
   let files = candidates;
   if (candidates.length > GRAPH_MAX_FILES) {
     cappedAtLimit = true;
     files = candidates.slice(0, GRAPH_MAX_FILES);
-    for (const rel of candidates.slice(GRAPH_MAX_FILES)) {
-      skipped.push({ path: rel, reason: "over-cap" });
+    for (const f of candidates.slice(GRAPH_MAX_FILES)) {
+      skipped.push({ path: f.path, reason: "over-cap" });
     }
   }
 

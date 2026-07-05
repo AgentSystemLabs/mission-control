@@ -251,9 +251,19 @@ export interface GraphStatus {
 }
 
 /**
+ * Version of the on-disk graph data the indexer writes. Bumped when the row
+ * shapes change in a way incremental updates can't heal (e.g. `dst_name` now
+ * populated on resolved edges, file hashes moved to `graph_files`); a persisted
+ * state with an older version forces a one-time full rebuild instead of a data
+ * migration.
+ */
+export const GRAPH_INDEX_SCHEMA_VERSION = 2;
+
+/**
  * Persisted index state (a JSON row in `app_settings`, key
- * `code_graph_state:<projectId>`). `fileHashes` drives incremental re-index:
- * only files whose content hash changed are re-parsed.
+ * `code_graph_state:<projectId>`). Per-file stats/hashes driving incremental
+ * re-index live in the `graph_files` table (legacy states carried them inline
+ * as `fileHashes`).
  */
 export interface GraphIndexState {
   lastIndexedAt: number | null;
@@ -263,8 +273,15 @@ export interface GraphIndexState {
   durationMs: number | null;
   lastMode: GraphIndexMode | null;
   confidenceBreakdown: Record<GraphConfidence, number>;
-  /** repo-relative path → content hash of the last-indexed version. */
+  /** Legacy (pre-`graph_files`) repo-relative path → content hash. */
   fileHashes: Record<string, string>;
+  /**
+   * GRAPH_INDEX_SCHEMA_VERSION at last successful build; 0 = written by a
+   * build that predates versioning. A mismatch forces a full rebuild.
+   */
+  schemaVersion: number;
+  /** Files actually re-parsed by the last build (observability + tests). */
+  lastParsedCount: number;
 }
 
 export function emptyConfidenceBreakdown(): Record<GraphConfidence, number> {
@@ -281,6 +298,10 @@ export function emptyGraphIndexState(): GraphIndexState {
     lastMode: null,
     confidenceBreakdown: emptyConfidenceBreakdown(),
     fileHashes: {},
+    // Deliberately 0, NOT the current version: states persisted before
+    // versioning must read back as outdated so the next build runs full.
+    schemaVersion: 0,
+    lastParsedCount: 0,
   };
 }
 

@@ -32,9 +32,10 @@ import {
   insertMemoryRow,
   listBriefCandidates,
   listMemoryByProject,
-  searchMemory as searchMemoryRows,
+  searchMemoryRanked,
   supersedeMemoryRow,
   updateMemoryRow,
+  type MemoryMatchMode,
 } from "../repositories/project-memory.repo";
 import { verifyMemoryAgainstCode, type VerifyResult } from "./recall-engine";
 import { getGraphStatus, getGraphSummary } from "./code-graph";
@@ -152,9 +153,30 @@ export function createMemory(input: MemoryCreateInput): MemoryView {
   return getMemory(id);
 }
 
-export function updateMemory(id: string, patch: MemoryUpdateInput): MemoryView {
+/**
+ * Ownership guard shared by the mutation paths. Callers that know which
+ * project they are acting for (the MCP tools, project-scoped UI) pass
+ * `expectedProjectId`; a memory belonging to another project then reads as
+ * not-found rather than leaking or mutating cross-project state.
+ */
+export interface MemoryMutationOptions {
+  expectedProjectId?: string;
+}
+
+function assertMemoryOwnership(row: ProjectMemory, opts?: MemoryMutationOptions): void {
+  if (opts?.expectedProjectId && row.projectId !== opts.expectedProjectId) {
+    throw new NotFoundError("memory not found");
+  }
+}
+
+export function updateMemory(
+  id: string,
+  patch: MemoryUpdateInput,
+  opts?: MemoryMutationOptions,
+): MemoryView {
   const existing = getMemoryById(id);
   if (!existing) throw new NotFoundError("memory not found");
+  assertMemoryOwnership(existing, opts);
   if (patch.type !== undefined && !isMemoryType(patch.type)) {
     throw new ValidationError("invalid memory type");
   }
@@ -229,9 +251,13 @@ export function supersedeMemory(oldId: string, input: MemorySupersedeInput): Mem
 }
 
 /** Soft-delete (archive) by default; `hard` removes the row entirely. */
-export function deleteMemory(id: string, opts: { hard?: boolean } = {}): void {
+export function deleteMemory(
+  id: string,
+  opts: { hard?: boolean } & MemoryMutationOptions = {},
+): void {
   const existing = getMemoryById(id);
   if (!existing) throw new NotFoundError("memory not found");
+  assertMemoryOwnership(existing, opts);
   if (opts.hard) {
     deleteMemoryRow(id);
   } else {
@@ -252,9 +278,11 @@ export function deleteMemory(id: string, opts: { hard?: boolean } = {}): void {
  */
 export async function verifyMemory(
   id: string,
+  opts?: MemoryMutationOptions,
 ): Promise<{ verdict: MemoryVerifyVerdict; memory: MemoryView }> {
   const existing = getMemoryById(id);
   if (!existing) throw new NotFoundError("memory not found");
+  assertMemoryOwnership(existing, opts);
   const project = findProjectById(existing.projectId);
   if (!project) throw new NotFoundError("project not found");
 
@@ -298,11 +326,86 @@ export async function verifyMemory(
   return { verdict: "skipped", memory: toMemoryView(existing) };
 }
 
-export function searchMemory(projectId: string, query: string, limit = MEMORY_SEARCH_LIMIT): MemoryView[] {
+export interface MemorySearchOptions {
+  /** Restrict hits to these scopes (filtered in SQL, before any limit). */
+  scopeIds?: readonly string[];
+  /** `any` (OR terms, default) or `all` (every term must match). */
+  matchMode?: MemoryMatchMode;
+}
+
+// Blended search ranking: text relevance dominates (bm25 normalized to 0–100,
+// ×3), pinned gets a modest boost (deliberately NOT the brief's +1000 — a
+// pinned weak match must not bury a strong unpinned one), and the shared
+// metadata score (type/recency/usage/confidence/staleness) breaks ties.
+const SEARCH_CANDIDATE_POOL = 50;
+const SEARCH_TEXT_WEIGHT = 3;
+const SEARCH_PINNED_BOOST = 50;
+/** Neutral mid-range stand-in on the LIKE path, where there is no bm25 rank. */
+const SEARCH_TEXT_FALLBACK = 50;
+
+export function searchMemory(
+  projectId: string,
+  query: string,
+  limit = MEMORY_SEARCH_LIMIT,
+  opts: MemorySearchOptions = {},
+): MemoryView[] {
   const capped = Math.min(Math.max(Math.trunc(limit) || MEMORY_SEARCH_LIMIT, 1), MAX_SEARCH_LIMIT);
   const q = query.trim();
   if (!q) return listMemory(projectId).slice(0, capped);
-  return searchMemoryRows({ projectId, query: q, limit: capped }).map(toMemoryView);
+  // Over-fetch so the re-rank sees more than the first page of text matches
+  // (a stale memory can out-bm25 a fresher, more-used one by a hair).
+  const ranked = searchMemoryRanked({
+    projectId,
+    query: q,
+    limit: Math.max(capped, SEARCH_CANDIDATE_POOL),
+    scopeIds: opts.scopeIds,
+    matchMode: opts.matchMode,
+  });
+  if (!ranked.length) return [];
+  const now = Date.now();
+  // SQLite's bm25() is lower-is-better (negative); normalize to 0–100 higher-is-better.
+  const maxAbs = Math.max(...ranked.map((r) => Math.abs(r.rank ?? 0)), 1e-9);
+  return ranked
+    .map(({ row, rank }) => {
+      const view = toMemoryView(row);
+      const text = rank === null ? SEARCH_TEXT_FALLBACK : (-rank / maxAbs) * 100;
+      const score =
+        SEARCH_TEXT_WEIGHT * text +
+        (view.pinned ? SEARCH_PINNED_BOOST : 0) +
+        memoryMetaScore(view, now);
+      return { view, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, capped)
+    .map((s) => s.view);
+}
+
+/**
+ * Near-duplicates of a just-saved (or drafted) memory, for surfacing back to
+ * the agent so it can merge/refine via mem_update instead of piling up
+ * paraphrases the exact-title dedup can't catch. Reuses the blended search
+ * with the memory's own title + body head as the query. Best-effort: any
+ * failure returns [].
+ */
+const SIMILAR_MEMORY_LIMIT = 3;
+
+export function findSimilarMemories(
+  projectId: string,
+  input: { title: string; body?: string; scopeId?: string; excludeId?: string; limit?: number },
+): MemoryView[] {
+  const limit = input.limit ?? SIMILAR_MEMORY_LIMIT;
+  const query = `${input.title} ${(input.body ?? "").slice(0, 100)}`.trim();
+  if (!query) return [];
+  const scopeIds = input.scopeId
+    ? [...new Set([normalizeScopeId(input.scopeId), LOCAL_SCOPE_ID])]
+    : undefined;
+  try {
+    return searchMemory(projectId, query, limit + 1, { scopeIds })
+      .filter((m) => m.id !== input.excludeId)
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
 }
 
 /** Candidate set for the Session Brief (ranking/budgeting done by the caller). */
@@ -329,9 +432,14 @@ function tokenize(text: string): Set<string> {
   );
 }
 
-function scoreMemory(m: MemoryView, now: number, keywords: Set<string>): number {
+/**
+ * Metadata-only relevance core shared by the brief ranker and blended search:
+ * type weight + recency decay + usage + confidence, minus staleness. Pinned
+ * and text/keyword relevance are deliberately NOT here — each caller weights
+ * those very differently.
+ */
+export function memoryMetaScore(m: MemoryView, now: number): number {
   let score = MEMORY_TYPE_WEIGHT[m.type] ?? 0;
-  if (m.pinned) score += 1000;
   // Recency decay from last use (or creation) — newer sinks slower.
   const ref = m.lastUsedAt ?? m.createdAt;
   const ageMs = Math.max(0, now - ref);
@@ -339,9 +447,15 @@ function scoreMemory(m: MemoryView, now: number, keywords: Set<string>): number 
   score += Math.min(20, m.usageCount * 2);
   if (m.confidence === "confirmed") score += 10;
   else if (m.confidence === "ambiguous") score -= 10;
-  // Staleness/decay feedback: unpinned memories that have gone long unverified
-  // and unused sink so a fresh, relevant brief isn't crowded by aging facts.
+  // Staleness/decay feedback: memories that have gone long unverified and
+  // unused sink so fresh, relevant facts aren't crowded out by aging ones.
   if (isMemoryStale(m, now)) score -= 25;
+  return score;
+}
+
+function scoreMemory(m: MemoryView, now: number, keywords: Set<string>): number {
+  let score = memoryMetaScore(m, now);
+  if (m.pinned) score += 1000;
   if (keywords.size) {
     const hay = tokenize(`${m.title} ${m.body} ${m.tags.join(" ")}`);
     for (const k of keywords) {

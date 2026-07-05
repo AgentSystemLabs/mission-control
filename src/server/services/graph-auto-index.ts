@@ -7,6 +7,7 @@
 // hook HTTP path, never on the PTY spawn path, so it can't delay a session.
 
 import { findProjectById } from "../repositories/projects.repo";
+import { sweepStaleCooldowns } from "./_cooldowns";
 import { getGraphStatus } from "./code-graph";
 import { isGraphIndexRunning, startGraphIndex } from "./code-graph-indexer";
 import { readRecallSettings } from "./recall-settings";
@@ -34,6 +35,7 @@ export function maybeAutoIndexGraph(projectId: string): void {
   const now = nowMs();
   const last = lastAutoIndexAt.get(projectId);
   if (last !== undefined && now - last < AUTO_INDEX_COOLDOWN_MS) return;
+  sweepStaleCooldowns(lastAutoIndexAt, now, AUTO_INDEX_COOLDOWN_MS);
   lastAutoIndexAt.set(projectId, now);
 
   // Never re-index from scratch once we have a graph — incremental re-hashes all

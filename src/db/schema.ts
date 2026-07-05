@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, primaryKey, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import {
   DEFAULT_BRANCH,
@@ -429,6 +429,9 @@ export const graphEdges = sqliteTable(
     dstName: text("dst_name"),
     kind: text("kind").$type<GraphEdgeKind>().notNull(),
     confidence: text("confidence").$type<GraphConfidence>().notNull().default("extracted"),
+    // Call came from a member expression (`x.foo()`); the incremental
+    // re-resolution pass must never name-resolve these across files.
+    isMember: integer("is_member", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at").notNull(),
   },
   (t) => ({
@@ -436,6 +439,25 @@ export const graphEdges = sqliteTable(
     srcIdx: index("graph_edges_src_idx").on(t.srcId),
     dstIdx: index("graph_edges_dst_idx").on(t.dstId),
     projectKindIdx: index("graph_edges_project_kind_idx").on(t.projectId, t.kind),
+  })
+);
+
+// Per-file stat + hash index driving the code graph's incremental builds:
+// (size, mtime_ms) match → trust `hash`, never read the file; hash change →
+// re-parse. One row per indexed file, replaced/updated by the indexer.
+export const graphFiles = sqliteTable(
+  "graph_files",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    size: integer("size").notNull(),
+    mtimeMs: integer("mtime_ms").notNull(),
+    hash: text("hash").notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.projectId, t.path] }),
   })
 );
 
@@ -516,6 +538,8 @@ export type GraphNode = typeof graphNodes.$inferSelect;
 export type NewGraphNode = typeof graphNodes.$inferInsert;
 export type GraphEdge = typeof graphEdges.$inferSelect;
 export type NewGraphEdge = typeof graphEdges.$inferInsert;
+export type GraphFile = typeof graphFiles.$inferSelect;
+export type NewGraphFile = typeof graphFiles.$inferInsert;
 export {
   DEFAULT_BRANCH,
   DEFAULT_TASK_STATUS,

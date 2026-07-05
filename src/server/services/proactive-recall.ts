@@ -39,10 +39,12 @@ export function assembleTurnContext(
   const sections: string[] = [];
 
   // Relevant memories, scoped like the brief (this runtime or shared "local").
+  // The scope filter runs IN the search (before its limit) — filtering the top
+  // N afterwards could discard every hit even when in-scope matches exist.
   try {
-    const memories = searchMemory(projectId, query, MAX_MEMORIES)
-      .filter((m) => m.scopeId === scopeId || m.scopeId === LOCAL_SCOPE_ID)
-      .slice(0, MAX_MEMORIES);
+    const memories = searchMemory(projectId, query, MAX_MEMORIES, {
+      scopeIds: [scopeId, LOCAL_SCOPE_ID],
+    });
     if (memories.length) {
       sections.push(
         ["Relevant project memory (from Recall):", ...memories.map(renderMemoryLine)].join("\n"),
@@ -53,12 +55,25 @@ export function assembleTurnContext(
   }
 
   // Related code symbols — only when the graph feature is on, the project is
-  // indexed, and the prompt actually names something identifier-shaped.
+  // indexed, and the prompt actually names something identifier-shaped. Probe
+  // the best few candidate tokens (the longest one may simply not be in the
+  // graph) until the section is full.
   if (settings.codeGraphEnabled) {
     try {
-      const symbol = pickSymbolQuery(query);
-      if (symbol && getGraphStatus(projectId).indexed) {
-        const hits = searchGraph(projectId, symbol, MAX_GRAPH);
+      const symbols = pickSymbolQueries(query);
+      if (symbols.length && getGraphStatus(projectId).indexed) {
+        const hits: { name: string; kind: string; filePath: string }[] = [];
+        const seen = new Set<string>();
+        for (const symbol of symbols) {
+          if (hits.length >= MAX_GRAPH) break;
+          for (const h of searchGraph(projectId, symbol, MAX_GRAPH)) {
+            if (hits.length >= MAX_GRAPH) break;
+            const key = `${h.name}|${h.filePath}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            hits.push(h);
+          }
+        }
         if (hits.length) {
           sections.push(
             [
@@ -76,22 +91,31 @@ export function assembleTurnContext(
   if (!sections.length) return "";
   const text = sections.join("\n\n");
   if (text.length <= budget) return text;
-  // Trim to the budget at a word boundary so we don't cut mid-identifier.
-  return text.slice(0, budget).replace(/\s+\S*$/, "") + "…";
+  // Trim to the budget at a word boundary so we don't cut mid-identifier — but
+  // if that boundary sits far back (one giant unbroken token would otherwise
+  // eat most of the block), fall back to a hard slice.
+  const soft = text.slice(0, budget).replace(/\s+\S*$/, "");
+  if (soft.length >= budget * 0.6) return soft + "…";
+  return text.slice(0, budget - 1) + "…";
 }
 
 /**
- * Pick the single most "symbol-like" token from a prompt to probe the code graph
- * with. Prefers camelCase/PascalCase or snake_case identifiers; otherwise the
- * longest word of length ≥ 5. Returns "" when nothing looks worth a lookup.
+ * Pick the most "symbol-like" tokens from a prompt to probe the code graph
+ * with, best first. Prefers camelCase/PascalCase or snake_case identifiers;
+ * otherwise words of length ≥ 5. Longer tokens rank first (more specific).
+ * Returns [] when nothing looks worth a lookup.
  */
-export function pickSymbolQuery(text: string): string {
+export function pickSymbolQueries(text: string, max = 3): string[] {
   const tokens = text.match(/[A-Za-z_$][A-Za-z0-9_$]{2,}/g);
-  if (!tokens) return "";
+  if (!tokens) return [];
   const identifierish = tokens.filter(
     (t) => /[A-Z]/.test(t) || t.includes("_") || t.includes("$"),
   );
   const pool = identifierish.length ? identifierish : tokens.filter((t) => t.length >= 5);
-  if (!pool.length) return "";
-  return pool.reduce((best, t) => (t.length > best.length ? t : best));
+  return [...new Set(pool)].sort((a, b) => b.length - a.length).slice(0, max);
+}
+
+/** The single best symbol candidate (kept for existing callers/tests). */
+export function pickSymbolQuery(text: string): string {
+  return pickSymbolQueries(text, 1)[0] ?? "";
 }
