@@ -69,7 +69,10 @@ function getEngineHarness(): AiRuntimeHarness {
 }
 
 export function readRecallSettings(): RecallSettings {
-  const enabled = getBooleanSetting(RECALL_ENABLED_KEY, true);
+  // Recall is an experimental feature and ships off by default; users opt in
+  // from Settings. The sub-flags below keep their "on" defaults so that when a
+  // user flips the master switch on, the full feature set comes on with it.
+  const enabled = getBooleanSetting(RECALL_ENABLED_KEY, false);
   return {
     enabled,
     autoCaptureEnabled: enabled && getBooleanSetting(AUTO_CAPTURE_ENABLED_KEY, true),

@@ -2680,7 +2680,7 @@ function ProjectPage() {
                     Find file in project
                   </DropdownMenuItem>
                 </HotkeyTooltip>
-                {(settings?.recallEnabled ?? true) && (
+                {(settings?.recallEnabled ?? false) && (
                   <DropdownMenuItem
                     icon="sparkles"
                     onClick={() => {

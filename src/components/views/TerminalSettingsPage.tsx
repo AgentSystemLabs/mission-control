@@ -57,7 +57,7 @@ export function TerminalSettingsPage() {
     claudeUsageLimitsEnabled: settings?.claudeUsageLimitsEnabled ?? false,
     claudeUsageLimitsShowSession: settings?.claudeUsageLimitsShowSession ?? true,
     claudeUsageLimitsShowWeekly: settings?.claudeUsageLimitsShowWeekly ?? true,
-    recallEnabled: settings?.recallEnabled ?? true,
+    recallEnabled: settings?.recallEnabled ?? false,
     recallAutoCaptureEnabled: settings?.recallAutoCaptureEnabled ?? true,
     recallEngineEnabled: settings?.recallEngineEnabled ?? true,
     recallEngineHarness: settings?.recallEngineHarness ?? "claude-code",

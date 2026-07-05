@@ -122,9 +122,10 @@ export type AppSettings = {
   claudeUsageLimitsShowWeekly: boolean;
   /**
    * Recall (project memory) controls. `recallEnabled` is the experimental
-   * master switch — when off the server reports every behavioral flag below as
-   * false (stored values are preserved for re-enable) and the UI hides Recall
-   * entirely. Auto-capture distills memories when a session finishes; the
+   * master switch — it ships off by default (opt in from Settings). When off
+   * the server reports every behavioral flag below as false (stored values are
+   * preserved for re-enable) and the UI hides Recall entirely. Auto-capture
+   * distills memories when a session finishes; the
    * engine settings pick which CLI the LLM shells out to (mirroring session
    * creation). Disabling the engine degrades to deterministic FTS + heuristic
    * ranking with no CLI round-trip.

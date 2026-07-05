@@ -19,6 +19,7 @@ const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken } = await import("../services/settings");
 const { createTask } = await import("../services/tasks");
 const { writeAgentMemoryFile } = await import("~/shared/agent-memory-file");
+const { writeRecallSettings } = await import("../services/recall-settings");
 
 function toWebRequest(req: http.IncomingMessage, host: string): Request {
   const url = `http://${req.headers.host ?? host}${req.url}`;
@@ -43,6 +44,8 @@ let origin = "";
 let token = "";
 
 beforeAll(async () => {
+  // Recall ships off by default; enable it so the brief endpoint returns memory.
+  writeRecallSettings({ enabled: true });
   token = getOrCreateApiToken();
   server = http.createServer(async (req, res) => {
     try {

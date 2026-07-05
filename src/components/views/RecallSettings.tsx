@@ -29,7 +29,7 @@ export function RecallSettings() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
 
-  const recallEnabled = settings?.recallEnabled ?? true;
+  const recallEnabled = settings?.recallEnabled ?? false;
   const autoCapture = settings?.recallAutoCaptureEnabled ?? true;
   const engineEnabled = settings?.recallEngineEnabled ?? true;
   const engineHarness = settings?.recallEngineHarness ?? "claude-code";

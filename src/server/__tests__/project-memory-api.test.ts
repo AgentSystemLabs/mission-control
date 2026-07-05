@@ -12,6 +12,7 @@ const { createProject } = await import("../services/projects");
 const { createTask } = await import("../services/tasks");
 const { getDb } = await import("~/db/client");
 const { projectMemory, projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
+const { writeRecallSettings } = await import("../services/recall-settings");
 
 const LOOPBACK_HEADERS = { origin: "http://127.0.0.1:5173" };
 
@@ -42,6 +43,8 @@ describe("project memory API", () => {
     db.delete(projects).run();
     db.delete(groups).run();
     db.delete(appSettings).run();
+    // Recall ships off by default; turn it on so brief/agent-write paths run.
+    writeRecallSettings({ enabled: true });
     projectId = makeProject().id;
   });
 

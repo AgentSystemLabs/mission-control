@@ -101,17 +101,20 @@ describe("settings API", () => {
     });
   });
 
-  it("defaults Recall on: auto-capture, engine, agent-write, inject-brief all enabled", async () => {
+  it("defaults Recall off: master switch and every gated flag disabled", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
     expect(response?.status).toBe(200);
     expect(await jsonBody(response!)).toMatchObject({
-      recallEnabled: true,
-      recallAutoCaptureEnabled: true,
-      recallEngineEnabled: true,
+      recallEnabled: false,
+      recallAutoCaptureEnabled: false,
+      recallEngineEnabled: false,
+      // Harness + model aren't gated by the master switch, so they keep defaults.
       recallEngineHarness: "claude-code",
       recallEngineModel: null,
-      recallAgentWriteEnabled: true,
-      recallInjectBriefEnabled: true,
+      recallAgentWriteEnabled: false,
+      recallInjectBriefEnabled: false,
+      recallCodeGraphEnabled: false,
+      recallProactiveRecallEnabled: false,
     });
   });
 
@@ -169,6 +172,7 @@ describe("settings API", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          recallEnabled: true,
           recallAutoCaptureEnabled: false,
           recallEngineHarness: "codex",
           recallEngineModel: "gpt-5.5",

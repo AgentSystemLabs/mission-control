@@ -44,7 +44,7 @@ describe("assembleTurnContext", () => {
     vi.clearAllMocks();
     getGraphStatus.mockReturnValue({ indexed: false });
     searchGraph.mockReturnValue([]);
-    writeRecallSettings({ codeGraphEnabled: true });
+    writeRecallSettings({ enabled: true, codeGraphEnabled: true });
   });
 
   it("renders the memories most relevant to the prompt", () => {

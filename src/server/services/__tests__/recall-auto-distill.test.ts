@@ -68,7 +68,7 @@ describe("recall auto-distill on session:finished", () => {
     __resetAutoDistillCooldown();
     __resetTranscriptPaths();
     distillSession.mockReset();
-    writeRecallSettings({ autoCaptureEnabled: true, recallEngineEnabled: true });
+    writeRecallSettings({ enabled: true, autoCaptureEnabled: true, recallEngineEnabled: true });
   });
 
   afterEach(() => {

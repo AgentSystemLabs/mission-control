@@ -35,6 +35,9 @@ describe("code graph → Session Brief", () => {
   let projectId = "";
 
   beforeAll(async () => {
+    // Recall ships off by default; enable the master switch so the code-graph
+    // brief renders (per-test toggles below only patch codeGraphEnabled).
+    writeRecallSettings({ enabled: true });
     projectId = createProject({ name: "brief-graph", path: writeFixture() }).id;
     await runIndex(projectId);
   });

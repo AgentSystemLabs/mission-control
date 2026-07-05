@@ -257,7 +257,7 @@ describe("proactive per-turn recall over the hook API", () => {
     const task = createHookTask("claude-code");
     taskId = task.id;
     projectId = task.projectId;
-    writeRecallSettings({ proactiveRecallEnabled: true });
+    writeRecallSettings({ enabled: true, proactiveRecallEnabled: true });
     createMemory({
       projectId,
       type: "architecture",

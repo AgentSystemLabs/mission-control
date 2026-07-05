@@ -16,6 +16,7 @@ const { createProject } = await import("../services/projects");
 const { createTask } = await import("../services/tasks");
 const { startGraphIndex, isGraphIndexRunning } = await import("../services/code-graph-indexer");
 const { listMemory } = await import("../services/project-memory");
+const { writeRecallSettings } = await import("../services/recall-settings");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const SCRIPT = path.join(REPO_ROOT, "bundled-mcp", "recall-mcp.mjs");
@@ -60,6 +61,8 @@ function textOf(res: unknown): string {
 }
 
 beforeAll(async () => {
+  // Recall ships off by default; enable it so the agent-write + read tools run.
+  writeRecallSettings({ enabled: true });
   projectId = createProject({ name: "mcp-recall", path: writeFixture() }).id;
   taskId = createTask({ projectId, title: "mcp session", agent: "claude-code" }).id;
 
