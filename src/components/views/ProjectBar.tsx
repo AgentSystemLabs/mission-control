@@ -561,6 +561,7 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
             {hotkey && (
               <span
                 aria-hidden
+                className="mc-project-hotkey-badge"
                 style={{
                   position: "absolute",
                   bottom: -2,
