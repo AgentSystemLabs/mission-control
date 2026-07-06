@@ -137,7 +137,7 @@
     "@electron/rebuild": "4.0.4",
     "@eslint/js": "10.0.1",
     "@tailwindcss/vite": "4.3.0",
-    "@tanstack/router-plugin": "1.167.35",
+    "@tanstack/router-plugin": "1.168.19",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "25.8.0",
     "@types/pngjs": "6.0.5",
