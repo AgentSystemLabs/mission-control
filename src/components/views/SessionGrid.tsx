@@ -614,6 +614,8 @@ export function SessionGrid({
     takeNewRowRequest,
     takeSessionIdRenames,
     noteGridFocusedTask,
+    activeTaskIdFor,
+    consumeGridFocusRequest,
   } = useTerminals();
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
@@ -644,8 +646,8 @@ export function SessionGrid({
     loadHiddenTaskIds(scopeKey),
   );
   // The most recently hidden session, restored when Cmd/Ctrl+L fires with no
-  // hideable cell focused (every session hidden) — mirrors the single-panel
-  // toggle where a second press brings the last hidden session back.
+  // visible session left to hide (every session hidden) — mirrors the single-
+  // panel toggle where a second press brings the last hidden session back.
   const lastHiddenTaskIdRef = useRef<string | null>(null);
 
   // Every session that belongs to this scope, hidden or not — the source of
@@ -825,6 +827,11 @@ export function SessionGrid({
   // terminal so the user can type immediately, and ring it briefly.
   useEffect(() => {
     if (!gridFocusRequest) return;
+    // Claim the request exactly once (store-side ref): the request state lingers
+    // after this effect runs, and the grid remounts across project switches —
+    // without the claim a stale request would replay on mount and un-hide the
+    // (possibly deliberately hidden) session it targeted.
+    if (!consumeGridFocusRequest(gridFocusRequest.nonce)) return;
     const { taskId } = gridFocusRequest;
     // The request may target a session hidden with Cmd/Ctrl+L (e.g. it finished
     // while hidden and the user clicked the notification's "Open") — restore it
@@ -885,7 +892,7 @@ export function SessionGrid({
       window.clearTimeout(poll);
       window.clearTimeout(timer);
     };
-  }, [gridFocusRequest]);
+  }, [gridFocusRequest, consumeGridFocusRequest]);
 
   // Track the grid's pixel box so divider handles can be placed precisely.
   useEffect(() => {
@@ -1064,12 +1071,27 @@ export function SessionGrid({
   // session at once. The project route's own terminal.close handler no-ops while
   // the grid is on screen so this one drives it (mirrors session.cycle*). A
   // focused user terminal claims the shortcut first (matches handleCloseIntent).
-  // With no hideable cell focused — e.g. every session already hidden — the most
+  // Only with no visible session left — every session already hidden — the most
   // recently hidden session is restored, giving the single-panel toggle feel.
   const handleHideIntent = useCallback(() => {
     if (userTerminals.panelOpen && isUserTerminalXtermFocused()) return;
     const focusedCell = document.activeElement?.closest("[data-grid-cell]");
-    const taskId = focusedCell?.getAttribute("data-task-id") ?? expandedTaskId;
+    // The session the chord means by "current": the cell owning the caret, else
+    // the expanded cell, else — when nothing in the grid holds focus, e.g. right
+    // after switching back to this project — the last-focused cell, then the
+    // scope's persisted active session, then the first visible cell. Candidates
+    // must be visible in this scope (a stale ref from another project, or an
+    // active id that is itself hidden, falls through to the next).
+    const candidates = [
+      focusedCell?.getAttribute("data-task-id"),
+      expandedTaskId,
+      lastFocusedTaskIdRef.current,
+      activeTaskIdFor(scopeKey),
+      scopedSessions[0]?.taskId,
+    ];
+    const taskId = candidates.find(
+      (id): id is string => !!id && scopedSessions.some((s) => s.taskId === id),
+    );
     const target = taskId ? scopedSessions.find((s) => s.taskId === taskId) : undefined;
     if (target) {
       // Hand focus to the hiding cell's neighbour (read before removal) so the
@@ -1098,6 +1120,8 @@ export function SessionGrid({
     userTerminals.panelOpen,
     expandedTaskId,
     scopedSessions,
+    scopeKey,
+    activeTaskIdFor,
     hiddenTaskIds,
     neighbourAfterClose,
     focusSessionTerminal,
