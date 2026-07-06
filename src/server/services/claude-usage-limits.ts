@@ -144,7 +144,7 @@ function readSharedLimitsSnapshot(now: number): ClaudeUsageLimits | null {
       weekly,
       weeklyOpus: parseWindow(b?.seven_day_opus),
       status: "ok",
-      fetchedAt: Math.floor(st.mtimeMs),
+      fetchedAt: st.mtimeMs,
     };
   } catch {
     return null;
@@ -296,7 +296,12 @@ async function fetchFromApi(): Promise<FetchResult> {
 export function getClaudeUsageLimits(): Promise<ClaudeUsageLimits> {
   const now = Date.now();
   const fromFile = readSharedLimitsSnapshot(now);
-  if (fromFile && (!cache || fromFile.fetchedAt >= cache.value.fetchedAt)) {
+  if (
+    fromFile &&
+    (!cache ||
+      fromFile.fetchedAt >= cache.value.fetchedAt ||
+      (fromFile.status === "ok" && cache.value.status !== "ok"))
+  ) {
     cache = { value: fromFile, expiresAt: now + FILE_SERVE_TTL_MS };
     return Promise.resolve(fromFile);
   }
