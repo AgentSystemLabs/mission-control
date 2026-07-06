@@ -7,9 +7,11 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { EmptyState } from "~/components/ui/EmptyState";
@@ -595,7 +597,14 @@ function HiddenSessionsBar({
  * — and the layout (order + per-row column widths + row heights) is persisted
  * per scope to localStorage.
  */
-export function SessionGrid({ scopeKey }: { scopeKey: string }) {
+export function SessionGrid({
+  scopeKey,
+  emptyHeader,
+}: {
+  scopeKey: string;
+  /** "Sessions" title row rendered above the empty state (all sessions hidden). */
+  emptyHeader?: ReactNode;
+}) {
   const {
     sessions,
     close,
@@ -1907,13 +1916,16 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   if (scopedSessions.length === 0) {
     return (
       <>
+        {/* Grid mode leaves 12px under the project header where the list view
+            leaves 32px — pad the difference so the header sits identically. */}
+        {emptyHeader != null && <div style={{ marginTop: 20 }}>{emptyHeader}</div>}
         <div
           style={{
             flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
+            minHeight: 0,
+            overflow: "auto",
+            paddingInline: 12,
+            boxSizing: "border-box",
           }}
         >
           <EmptyState
@@ -1922,6 +1934,20 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
               hiddenSessions.length > 0
                 ? "Click a session in the bar below to bring it back."
                 : "Start a new session to begin working on this project."
+            }
+            action={
+              hiddenSessions.length > 0 ? (
+                // mc-btn-new-session gives the outlined accent look the list
+                // view's empty-state "New session" button has.
+                <Btn
+                  variant="primary"
+                  icon="eye"
+                  className="mc-btn-new-session"
+                  onClick={restoreAllHidden}
+                >
+                  Restore all ({hiddenSessions.length})
+                </Btn>
+              ) : undefined
             }
           />
         </div>
