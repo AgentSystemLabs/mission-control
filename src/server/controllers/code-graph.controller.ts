@@ -20,7 +20,8 @@ import {
   GraphIndexError,
   startGraphIndex,
 } from "../services/code-graph-indexer";
-import { rethrowUnlessDomain, json, jsonError, notFound, parseSearchParams } from "./_helpers";
+import { readRecallSettings } from "../services/recall-settings";
+import { forbidden, rethrowUnlessDomain, json, jsonError, notFound, parseSearchParams } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_CONFLICT } from "~/shared/http-status";
 
 const enumOf = <T extends string>(values: readonly T[]) => z.enum(values as unknown as [T, ...T[]]);
@@ -29,13 +30,33 @@ function requireProject(projectId: string): Response | null {
   return projectExists(projectId) ? null : notFound("project not found");
 }
 
+// Refuse graph endpoints when Recall is off so agent-facing MCP tools — even in
+// sessions provisioned before the toggle flipped, or via a stale `.mcp.json`
+// outside Mission Control — go dead immediately instead of reading real data.
+// Status/summary/index gate on the master switch only (the Recall panel drives
+// a manual index regardless of the sub-flag); the navigation reads also honor
+// the code-graph sub-flag. `enabled: false` forces `codeGraphEnabled` false.
+function requireRecallOn(): Response | null {
+  return readRecallSettings().enabled ? null : forbidden("Recall is disabled");
+}
+
+function requireGraphOn(): Response | null {
+  return readRecallSettings().codeGraphEnabled
+    ? null
+    : forbidden("Recall code graph is disabled");
+}
+
 export async function status(projectId: string): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   return json({ status: getGraphStatus(projectId) });
 }
 
 export async function summary(projectId: string): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   return json({ summary: getGraphSummary(projectId) });
@@ -44,6 +65,8 @@ export async function summary(projectId: string): Promise<Response> {
 const indexQuery = z.object({ mode: enumOf(GRAPH_INDEX_MODES).optional() });
 
 export async function index(projectId: string, url: URL): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   const parsed = parseSearchParams(url, indexQuery);
@@ -58,6 +81,8 @@ export async function index(projectId: string, url: URL): Promise<Response> {
 }
 
 export async function cancelIndex(projectId: string): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   const canceled = cancelGraphIndex(projectId);
@@ -79,6 +104,8 @@ const searchQuery = z.object({
 });
 
 export async function search(projectId: string, url: URL): Promise<Response> {
+  const off = requireGraphOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   const parsed = parseSearchParams(url, searchQuery);
@@ -95,6 +122,8 @@ const nodeQuery = z.object({ node: z.string().min(1) });
 
 /** A single resolved node with its verbatim (capped) definition source. */
 export async function node(projectId: string, url: URL): Promise<Response> {
+  const off = requireGraphOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   const parsed = parseSearchParams(url, nodeQuery);
@@ -115,6 +144,8 @@ const neighborsQuery = z.object({
 });
 
 export async function neighbors(projectId: string, url: URL): Promise<Response> {
+  const off = requireGraphOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   const parsed = parseSearchParams(url, neighborsQuery);
@@ -131,6 +162,8 @@ export async function neighbors(projectId: string, url: URL): Promise<Response> 
 const pathQuery = z.object({ from: z.string().min(1), to: z.string().min(1) });
 
 export async function path(projectId: string, url: URL): Promise<Response> {
+  const off = requireGraphOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   const parsed = parseSearchParams(url, pathQuery);
@@ -146,6 +179,8 @@ export async function path(projectId: string, url: URL): Promise<Response> {
 const impactQuery = z.object({ node: z.string().min(1) });
 
 export async function impact(projectId: string, url: URL): Promise<Response> {
+  const off = requireGraphOn();
+  if (off) return off;
   const missing = requireProject(projectId);
   if (missing) return missing;
   const parsed = parseSearchParams(url, impactQuery);

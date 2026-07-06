@@ -141,3 +141,48 @@ export function ensureRecallMcpForAgent(
     /* swallow — MCP config write must never block PTY spawn */
   }
 }
+
+/**
+ * The inverse of ensureRecallMcpForAgent, for when the Recall master switch is
+ * off: strip the managed entry (and the legacy key) from the project's
+ * `.mcp.json` so the next session — Mission Control's or a plain Claude session
+ * in the same directory — stops loading the Recall server. Only our fixed keys
+ * are touched; user-configured servers and top-level keys survive. When removal
+ * leaves nothing but an empty `mcpServers`, the whole file is deleted (it's
+ * machine-generated and gitignored). Fully fail-soft.
+ */
+export function removeRecallMcpForAgent(cwd: string, agent: TaskAgent | undefined): void {
+  if (agent !== "claude-code") return;
+  try {
+    const configPath = path.join(cwd, ".mcp.json");
+    let raw: string;
+    try {
+      raw = fs.readFileSync(configPath, "utf8");
+    } catch {
+      return; // no config — nothing to remove
+    }
+    let config: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+      config = parsed as Record<string, unknown>;
+    } catch {
+      return; // unparseable — not ours to rewrite (or delete)
+    }
+    const servers =
+      config.mcpServers && typeof config.mcpServers === "object" && !Array.isArray(config.mcpServers)
+        ? (config.mcpServers as Record<string, unknown>)
+        : null;
+    if (!servers) return;
+    if (!(MANAGED_SERVER_KEY in servers) && !(LEGACY_SERVER_KEY in servers)) return;
+    delete servers[MANAGED_SERVER_KEY];
+    delete servers[LEGACY_SERVER_KEY];
+    if (Object.keys(servers).length === 0 && Object.keys(config).length === 1) {
+      fs.rmSync(configPath, { force: true });
+      return;
+    }
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+  } catch {
+    /* swallow — cleanup must never block PTY spawn */
+  }
+}

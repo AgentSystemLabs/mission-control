@@ -256,6 +256,51 @@ describe("project memory API", () => {
     expect(manual?.status).toBe(201);
   });
 
+  it("refuses the memory API while the Recall master switch is off", async () => {
+    const created = await handleApiRequest(
+      authed(`/api/projects/${projectId}/memory`, {
+        method: "POST",
+        body: JSON.stringify({ type: "discovery", title: "written while enabled" }),
+      }),
+    );
+    const { memory } = (await created?.json()) as { memory: { id: string } };
+
+    writeRecallSettings({ enabled: false });
+    const refused = await Promise.all([
+      handleApiRequest(authed(`/api/projects/${projectId}/memory`)),
+      handleApiRequest(authed(`/api/projects/${projectId}/memory/search?q=written`)),
+      handleApiRequest(
+        authed(`/api/projects/${projectId}/memory`, {
+          method: "POST",
+          body: JSON.stringify({ type: "discovery", title: "written while disabled" }),
+        }),
+      ),
+      handleApiRequest(
+        authed(`/api/memory/${memory.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ title: "updated while disabled" }),
+        }),
+      ),
+      handleApiRequest(authed(`/api/memory/${memory.id}`, { method: "DELETE" })),
+      handleApiRequest(authed(`/api/projects/${projectId}/brief`)),
+    ]);
+    for (const res of refused) expect(res?.status).toBe(403);
+
+    // The task brief endpoint must stay open: the spawn path relies on an
+    // EMPTY 200 brief to strip stale managed blocks from disk when Recall is off.
+    const task = createTask({ projectId, title: "spawned while disabled", agent: "claude-code" });
+    const brief = await handleApiRequest(authed(`/api/tasks/${task.id}/brief`));
+    expect(brief?.status).toBe(200);
+    expect(((await brief?.json()) as { brief: string }).brief).toBe("");
+
+    // Flipping it back on restores the API — nothing was mutated meanwhile.
+    writeRecallSettings({ enabled: true });
+    const list = await handleApiRequest(authed(`/api/projects/${projectId}/memory`));
+    const body = (await list?.json()) as { memories: Array<{ title: string }> };
+    expect(body.memories).toHaveLength(1);
+    expect(body.memories[0].title).toBe("written while enabled");
+  });
+
   it("verifies a memory via POST /api/memory/:id/verify (engine off → skipped, unchanged)", async () => {
     // Turn the engine off so verification never spawns a CLI — it short-circuits
     // to a `skipped` verdict, which still exercises the route + verdict plumbing.

@@ -9,6 +9,7 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken } = await import("../services/settings");
 const { createProject } = await import("../services/projects");
+const { writeRecallSettings } = await import("../services/recall-settings");
 
 const LOOPBACK_HEADERS = { origin: "http://127.0.0.1:5173" };
 
@@ -50,6 +51,8 @@ async function waitForIdle(projectId: string): Promise<void> {
 describe("code graph API", () => {
   let projectId = "";
   beforeAll(async () => {
+    // Recall ships off by default and the graph endpoints refuse when it's off.
+    writeRecallSettings({ enabled: true });
     projectId = makeFixtureProject();
     const start = await handleApiRequest(
       authed(`/api/projects/${projectId}/graph/index?mode=full`, { method: "POST" }),
@@ -146,6 +149,44 @@ describe("code graph API", () => {
       authed(`/api/projects/${projectId}/graph/index/cancel`, { method: "POST" }),
     );
     expect(res?.status).toBe(409);
+  });
+
+  it("refuses every graph endpoint while the Recall master switch is off", async () => {
+    writeRecallSettings({ enabled: false });
+    try {
+      for (const url of [
+        `/api/projects/${projectId}/graph/status`,
+        `/api/projects/${projectId}/graph/summary`,
+        `/api/projects/${projectId}/graph/search?q=core`,
+        `/api/projects/${projectId}/graph/node?node=core`,
+        `/api/projects/${projectId}/graph/neighbors?node=core`,
+        `/api/projects/${projectId}/graph/impact?node=core`,
+      ]) {
+        const res = await handleApiRequest(authed(url));
+        expect(res?.status).toBe(403);
+      }
+      const index = await handleApiRequest(
+        authed(`/api/projects/${projectId}/graph/index?mode=full`, { method: "POST" }),
+      );
+      expect(index?.status).toBe(403);
+    } finally {
+      writeRecallSettings({ enabled: true });
+    }
+  });
+
+  it("refuses navigation reads (but not status) when only the code-graph sub-flag is off", async () => {
+    writeRecallSettings({ codeGraphEnabled: false });
+    try {
+      const search = await handleApiRequest(
+        authed(`/api/projects/${projectId}/graph/search?q=core`),
+      );
+      expect(search?.status).toBe(403);
+      // Status stays readable so the Recall panel can still render the section.
+      const status = await handleApiRequest(authed(`/api/projects/${projectId}/graph/status`));
+      expect(status?.status).toBe(200);
+    } finally {
+      writeRecallSettings({ codeGraphEnabled: true });
+    }
   });
 
   // Mutates the fixture — keep these last. The edit changes the file SIZE so
