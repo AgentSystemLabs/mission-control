@@ -187,6 +187,61 @@ describe("worktree helpers", () => {
     expect(getDb().select().from(worktrees).all()).toHaveLength(0);
   });
 
+  it("deletes legacy rows whose name and container dir predate the current scheme", async () => {
+    // Older releases stored free-form names under `.worktrees/` (plural). Those
+    // rows fail today's name regex and path derivation, which used to make them
+    // permanently undeletable ("invalid worktree name") — especially once the
+    // directory itself was already gone.
+    const root = createCommittedRepo();
+    const project = createProject({ name: "legacy worktree", path: root });
+    const legacyPath = path.join(root, ".worktrees", "gg");
+    git(root, ["worktree", "add", "-b", "gg", legacyPath, "HEAD"]);
+    const now = Date.now();
+    getDb()
+      .insert(worktrees)
+      .values({
+        id: "wt-legacy-gg",
+        projectId: project.id,
+        name: "gg",
+        path: legacyPath,
+        branch: "gg",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    fs.rmSync(legacyPath, { recursive: true, force: true });
+
+    await expect(
+      deleteWorktree({ projectId: project.id, worktreeId: "wt-legacy-gg" }),
+    ).resolves.toBe(true);
+
+    expect(getDb().select().from(worktrees).all()).toHaveLength(0);
+    expect(git(root, ["worktree", "list"])).not.toContain(legacyPath);
+  });
+
+  it("refuses to delete rows whose stored path escapes the worktree containers", async () => {
+    const root = createCommittedRepo();
+    const project = createProject({ name: "escape guard", path: root });
+    const now = Date.now();
+    getDb()
+      .insert(worktrees)
+      .values({
+        id: "wt-escape",
+        projectId: project.id,
+        name: "solar-river-fox",
+        path: root,
+        branch: "solar-river-fox",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    await expect(
+      deleteWorktree({ projectId: project.id, worktreeId: "wt-escape" }),
+    ).rejects.toThrow("worktree path is invalid");
+    expect(fs.existsSync(root)).toBe(true);
+  });
+
   it("accepts stashChanges from the delete route query string", async () => {
     const { project, root, worktree } = await createProjectWorktree();
     fs.writeFileSync(path.join(worktree.path, "dirty.txt"), "dirty\n");

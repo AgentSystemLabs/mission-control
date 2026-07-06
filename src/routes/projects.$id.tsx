@@ -225,6 +225,14 @@ type ProjectPathCheck =
 
 const OPTIMISTIC_WORKTREE_ID_PREFIX = "wt-optimistic-";
 
+function isCurrentPathIssue(
+  status: Extract<ProjectPathStatus, { ok: false }>,
+  selectedWorktreeId: string | null,
+): boolean {
+  if (status.scope === "project") return selectedWorktreeId === null;
+  return status.worktreeId === selectedWorktreeId;
+}
+
 function isOptimisticWorktree(worktree: WorktreeInfo): boolean {
   return worktree.id.startsWith(OPTIMISTIC_WORKTREE_ID_PREFIX);
 }
@@ -445,7 +453,10 @@ function ProjectPage() {
     projectPathCheck.state === "invalid" || projectPathCheck.state === "error";
   const projectPathUsable = projectPathReady || projectPathCheck.state === "checking";
   const projectPathIssue =
-    projectPathCheck.state === "invalid" ? projectPathCheck.status : null;
+    projectPathCheck.state === "invalid" &&
+    isCurrentPathIssue(projectPathCheck.status, selectedWorktreeId)
+      ? projectPathCheck.status
+      : null;
   const terminalProject = projectPathReady ? scopedProject : null;
   const defaultWarmPayload = useMemo(
     () => (project ? defaultSessionPayload(project) : null),
@@ -1236,21 +1247,23 @@ function ProjectPage() {
     const worktreesKey = queryKeys.worktrees(project.id);
     const previousWorktrees = queryClient.getQueryData<WorktreeInfo[]>(worktreesKey);
     const previousSelectedWorktreeKey = selectedWorktreeKey;
-    await queryClient.cancelQueries({ queryKey: worktreesKey });
-    closeDeleteWorktreeDialog();
-    selectWorktree(MAIN_WORKTREE_ID);
-    queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
-      current?.filter((worktree) => worktree.id !== selectedWorktree.id) ?? current
-    );
-    // Kill any terminals/agents running inside this worktree first. On Windows
-    // their open file handles (notably Claude Code's `.claude/` dir) would
-    // otherwise hold a lock that makes `git worktree remove` fail with
-    // "Permission denied", leaving the worktree half-deleted.
-    const electron = getElectron();
-    if (electron && selectedWorktree.path) {
-      await electron.pty.killUnderPath(selectedWorktree.path).catch(() => undefined);
-    }
     try {
+      await queryClient.cancelQueries({ queryKey: worktreesKey });
+      closeDeleteWorktreeDialog();
+      selectWorktree(MAIN_WORKTREE_ID);
+      setProjectPathCheck({ state: "checking" });
+      setProjectPathActionError(null);
+      queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
+        current?.filter((worktree) => worktree.id !== selectedWorktree.id) ?? current
+      );
+      // Kill any terminals/agents running inside this worktree first. On Windows
+      // their open file handles (notably Claude Code's `.claude/` dir) would
+      // otherwise hold a lock that makes `git worktree remove` fail with
+      // "Permission denied", leaving the worktree half-deleted.
+      const electron = getElectron();
+      if (electron && selectedWorktree.path) {
+        await electron.pty.killUnderPath(selectedWorktree.path).catch(() => undefined);
+      }
       await api.deleteWorktree(
         project.id,
         selectedWorktree.id,
