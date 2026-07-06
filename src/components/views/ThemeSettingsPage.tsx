@@ -37,6 +37,8 @@ export function ThemeSettingsPage() {
     accentColor,
     themeStyle,
     minimalTheme,
+    // Every patch through here writes a theme setting, which marks it chosen.
+    themeChosen: true,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:

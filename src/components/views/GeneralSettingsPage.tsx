@@ -88,6 +88,7 @@ export function GeneralSettingsPage() {
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     themeStyle: settings?.themeStyle ?? "painted",
     minimalTheme: settings?.minimalTheme ?? false,
+    themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,

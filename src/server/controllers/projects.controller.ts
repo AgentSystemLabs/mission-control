@@ -12,7 +12,7 @@ import {
   reorderPinnedProjects,
 } from "../services/projects";
 import {
-  handleDomainError,
+  rethrowUnlessDomain,
   idParam,
   json,
   jsonError,
@@ -95,9 +95,7 @@ export async function create(request: Request): Promise<Response> {
     const p = createProject({ ...localProject, path: localPath });
     return json({ project: p }, { status: HTTP_CREATED });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -126,9 +124,7 @@ export async function reorderPinned(request: Request): Promise<Response> {
   try {
     return json({ projects: reorderPinnedProjects(parsed.data.order) });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -150,9 +146,7 @@ export async function update(rawId: string, request: Request): Promise<Response>
     if (!p) return notFound();
     return json({ project: p });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 

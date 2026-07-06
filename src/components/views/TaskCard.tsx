@@ -9,6 +9,7 @@ import { SessionIcon } from "~/components/ui/SessionIcon";
 import { useDiagrams } from "~/lib/use-diagram-events";
 import { AGENT_META, STATUS_META } from "~/lib/design-meta";
 import { isSentinelTitle } from "~/lib/task-sentinels";
+import { formatRelativeTime } from "~/lib/format-relative-time";
 import { DEFAULT_SESSION_ICON, isSessionIcon } from "~/lib/session-icons";
 import type { Task } from "~/db/schema";
 
@@ -53,7 +54,7 @@ export function TaskCard({
 
   const sentinel = isSentinelTitle(task.title);
   const sessionIcon = isSessionIcon(task.icon) ? task.icon : DEFAULT_SESSION_ICON;
-  const updated = formatRelative(task.updatedAt);
+  const updated = formatRelativeTime(task.updatedAt);
   const toggleTask = () => onToggle(task.id);
 
   // Subtitle: prefer the live preview line, otherwise a status hint.
@@ -427,15 +428,4 @@ export function TaskCard({
       )}
     </CardFrame>
   );
-}
-
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  const m = Math.floor(diff / 60_000);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
 }

@@ -2,6 +2,7 @@ import type { UsageSummary } from "~/shared/token-usage";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
+import { formatRelativeTime } from "~/lib/format-relative-time";
 import { formatN, HorizontalBar, TimeSeriesBars } from "./UsageCharts";
 
 export function UsageView({ data }: { data: UsageSummary }) {
@@ -189,7 +190,7 @@ function PageHeader({ lastSyncedAt }: { lastSyncedAt: number | null }) {
         }}
       >
         {lastSyncedAt
-          ? `Last synced ${formatRelative(lastSyncedAt)}`
+          ? `Last synced ${formatRelativeTime(lastSyncedAt)}`
           : "Reads usage from ~/.claude/projects when you open this page."}
       </div>
     </div>
@@ -288,12 +289,4 @@ function totalOfRow(t: {
   return (
     t.inputTokens + t.outputTokens + t.cacheCreationTokens + t.cacheReadTokens
   );
-}
-
-function formatRelative(ms: number): string {
-  const diff = Date.now() - ms;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return new Date(ms).toLocaleString();
 }

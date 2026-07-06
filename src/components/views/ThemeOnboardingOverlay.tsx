@@ -24,7 +24,7 @@ import {
   markThemeOnboardingComplete,
 } from "~/lib/theme-onboarding";
 import { api } from "~/lib/api";
-import { queryKeys } from "~/queries";
+import { queryKeys, useSettings } from "~/queries";
 
 const OVERLAY_Z_INDEX = 2147483646;
 
@@ -47,13 +47,30 @@ function isMacPlatform(): boolean {
  * First-launch gate: shows the theme picker over the app until the user
  * confirms a choice, then reveals the dashboard. Renders nothing on subsequent
  * launches. Mounted inside the (client-only) Shell, so `window` is available.
+ *
+ * Source of truth is the server-side `themeChosen` settings flag: the packaged
+ * app serves the renderer from a localhost port that can shift between
+ * launches, and each shift is a new origin with empty localStorage — so the
+ * local flag alone kept resurrecting the picker. localStorage remains only as
+ * a warm-start hint to skip the settings round-trip on the common path.
  */
 export function ThemeOnboardingGate() {
-  const [visible, setVisible] = useState<boolean>(
-    () => typeof window !== "undefined" && !hasCompletedThemeOnboarding(),
-  );
-  if (!visible) return null;
-  return <ThemeOnboardingOverlay onDone={() => setVisible(false)} />;
+  const { data: settings } = useSettings();
+  const [dismissed, setDismissed] = useState(false);
+  const [cachedDone] = useState<boolean>(() => hasCompletedThemeOnboarding());
+  const themeChosen = settings?.themeChosen === true;
+
+  // Re-seed the localStorage hint on this origin when the server already
+  // knows a theme was chosen (e.g. a port change wiped the old origin's flag).
+  useEffect(() => {
+    if (themeChosen && !cachedDone) markThemeOnboardingComplete();
+  }, [themeChosen, cachedDone]);
+
+  if (dismissed || cachedDone || themeChosen) return null;
+  // Settings not loaded yet: hold off rather than flash the picker at every
+  // launch before the (authoritative) answer arrives.
+  if (!settings) return null;
+  return <ThemeOnboardingOverlay onDone={() => setDismissed(true)} />;
 }
 
 function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {

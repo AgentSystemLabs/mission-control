@@ -14,7 +14,7 @@ import {
 } from "../services/diagram-store";
 import { getTask } from "../services/tasks";
 import { findProjectNameById } from "../repositories/projects.repo";
-import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
+import { rethrowUnlessDomain, json, jsonError, parseJsonBody } from "./_helpers";
 
 const diagramBody = z.object({
   source: z.string().min(1, "source required"),
@@ -75,8 +75,6 @@ export async function submit(url: URL, request: Request): Promise<Response> {
   try {
     return json({ ok: true, id: diagram.id, appended: true });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
