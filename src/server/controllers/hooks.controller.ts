@@ -8,7 +8,14 @@ import { maybeAutoIndexGraph } from "../services/graph-auto-index";
 import { ensureGraphWatch } from "../services/graph-watcher";
 import { setTranscriptPath } from "../services/session-transcripts";
 import { readRecallSettings } from "../services/recall-settings";
-import { assembleTurnContext } from "../services/proactive-recall";
+import {
+  assembleTurnContext,
+  renderToolLoadInstruction,
+  trimToBudget,
+} from "../services/proactive-recall";
+import { assembleSessionBrief, markMemoriesUsed } from "../services/project-memory";
+import { briefDeliveredAt } from "../services/brief-delivery";
+import type { TaskAgent } from "~/shared/domain";
 import { generateTitleForTask, isTitleGenerationPrompt } from "../services/title-generator";
 import { rethrowUnlessDomain, json, jsonError, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
@@ -25,6 +32,8 @@ const hookPayload = z
     tool_name: z.string(),
     tool_use_id: z.string(),
     tool_input: z.unknown(),
+    // SessionStart's trigger: "startup" | "resume" | "clear" | "compact".
+    source: z.string(),
     // Absolute path to the session's JSONL transcript (Claude Code). Stashed per
     // task so auto-distill can read the full session, not just the prompts.
     transcript_path: z.string(),
@@ -151,6 +160,26 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     }
   }
 
+  // SessionStart carries no status, but it is the fallback channel for the
+  // Session Brief: the spawn-time fetch+file-write can lose its race with app
+  // startup (see recall.brief.fetch_failed), leaving the session memoryless.
+  // This hook fires from INSIDE the live session — if it reached us, we can
+  // answer it — so inject a size-capped brief whenever the file channel
+  // didn't deliver.
+  if (event === AGENT_HOOK_EVENTS.sessionStart) {
+    const additionalContext = buildSessionStartBrief(task, taskId, payload.source);
+    if (additionalContext) {
+      return json({
+        ok: true,
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: AGENT_HOOK_EVENTS.sessionStart,
+          additionalContext,
+        },
+      });
+    }
+  }
+
   if (!status) {
     return json({ ok: true, ignored: event });
   }
@@ -181,10 +210,15 @@ export async function receive(url: URL, request: Request): Promise<Response> {
 
     // Proactive recall: answer the prompt-submit hook with the memories + code
     // most relevant to this turn, which Claude injects as additional context.
+    // On the session's first turn we also prepend a one-shot instruction that
+    // force-loads Recall's deferred MCP tools, so the agent can actually call the
+    // mem_*/graph_* tools rather than only reading what we inject.
     // The hook command for UserPromptSubmit passes our stdout through; every
     // other event discards it, so returning these fields elsewhere is harmless.
     if (event === AGENT_HOOK_EVENTS.userPromptSubmit) {
-      const additionalContext = buildTurnContext(task.projectId, task.scopeId, payload.prompt);
+      const toolLoad = buildToolLoadContext(task.agent, taskId, incomingSessionId);
+      const turnContext = buildTurnContext(task.projectId, task.scopeId, payload.prompt);
+      const additionalContext = [toolLoad, turnContext].filter(Boolean).join("\n\n");
       if (additionalContext) {
         return json({
           ok: true,
@@ -217,6 +251,93 @@ function buildTurnContext(
   if (!readRecallSettings().proactiveRecallEnabled) return "";
   try {
     return assembleTurnContext(projectId, scopeId, promptText);
+  } catch {
+    return "";
+  }
+}
+
+// Sessions we've already told to load Recall's deferred MCP tools. Only Claude
+// Code defers MCP tools behind a ToolSearch, and once loaded they stay loaded for
+// the session, so the nudge fires exactly once per session — re-injecting it every
+// turn would just burn tokens. Keyed by task+session so a resumed session (which
+// gets a fresh session id, hence unloaded tools) is nudged again. In-memory and
+// bounded: losing it on restart costs at most one extra, harmless nudge.
+const toolLoadPromptedSessions = new Set<string>();
+const TOOL_LOAD_PROMPTED_CAP = 2000;
+
+/**
+ * The one-shot, first-turn instruction that force-loads Recall's deferred MCP
+ * tools — or "" when it shouldn't fire (non-Claude agent, proactive recall off,
+ * or already sent for this session). Fail-soft: never throws, never blocks the turn.
+ */
+function buildToolLoadContext(agent: TaskAgent, taskId: string, sessionId: string): string {
+  // Only Claude Code defers MCP tools behind ToolSearch; other agents load theirs
+  // eagerly, so the instruction would be noise (or wrong syntax) for them.
+  if (agent !== "claude-code") return "";
+  if (!readRecallSettings().proactiveRecallEnabled) return "";
+  const key = `${taskId}:${sessionId || "unknown"}`;
+  if (toolLoadPromptedSessions.has(key)) return "";
+  // Bound growth: a long-lived server would otherwise accumulate a key per
+  // session forever. Dropping the whole set on overflow just re-nudges the few
+  // currently-active sessions once more — harmless.
+  if (toolLoadPromptedSessions.size >= TOOL_LOAD_PROMPTED_CAP) toolLoadPromptedSessions.clear();
+  toolLoadPromptedSessions.add(key);
+  try {
+    return renderToolLoadInstruction();
+  } catch {
+    return "";
+  }
+}
+
+// Claude Code truncates hook output past ~10k characters (it lands in a file
+// instead of the context), so the fallback brief must stay well under that
+// after JSON-envelope overhead and string escaping.
+const SESSION_START_BRIEF_CAP = 8000;
+
+// A spawn-time delivery older than this predates the current PTY: electron
+// fetches the brief seconds before spawning, and SessionStart fires right
+// after, so on startup/resume a stale timestamp means THIS spawn's fetch
+// failed (and the stale file block was stripped).
+const SPAWN_DELIVERY_WINDOW_MS = 120_000;
+
+function fileChannelDelivered(taskId: string, source: string | undefined): boolean {
+  const deliveredAt = briefDeliveredAt(taskId);
+  if (deliveredAt === undefined) return false;
+  // clear/compact restart the context mid-session without a new spawn; the
+  // spawn-time file is still on disk and reloads, however long ago it was
+  // written — any recorded delivery means the file channel has it covered.
+  if (source === "clear" || source === "compact") return true;
+  return Date.now() - deliveredAt <= SPAWN_DELIVERY_WINDOW_MS;
+}
+
+/**
+ * The Session Brief to inject at SessionStart when the spawn-time file write
+ * didn't deliver it — or "" when it did (or the feature is off, or the agent
+ * isn't Claude). Size-capped for the hook-output limit; fail-soft: never
+ * throws, never blocks the session from starting.
+ */
+function buildSessionStartBrief(
+  task: { agent: TaskAgent; projectId: string; scopeId: string; title: string | null; branch: string | null },
+  taskId: string,
+  source: string | undefined,
+): string {
+  // Only Claude Code's SessionStart hook supports additionalContext injection;
+  // other agents' hooks discard the response body anyway.
+  if (task.agent !== "claude-code") return "";
+  if (!readRecallSettings().injectBriefEnabled) return "";
+  if (fileChannelDelivered(taskId, source)) return "";
+  try {
+    const { markdown, memoryIds } = assembleSessionBrief(task.projectId, task.scopeId, {
+      taskTitle: task.title ?? undefined,
+      branch: task.branch ?? undefined,
+      budget: SESSION_START_BRIEF_CAP,
+    });
+    const brief = markdown.trim();
+    if (!brief) return "";
+    if (memoryIds.length) markMemoriesUsed(memoryIds);
+    // assembleSessionBrief's budget only bounds the non-core memory section;
+    // pinned/overview/stack always go in, so hard-cap the final text too.
+    return trimToBudget(brief, SESSION_START_BRIEF_CAP);
   } catch {
     return "";
   }

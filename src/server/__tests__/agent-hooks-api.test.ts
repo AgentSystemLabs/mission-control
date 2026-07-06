@@ -13,6 +13,7 @@ const { createProject } = await import("../services/projects");
 const { createTask, getTask } = await import("../services/tasks");
 const { createMemory } = await import("../services/project-memory");
 const { writeRecallSettings } = await import("../services/recall-settings");
+const { resetBriefDeliveries } = await import("../services/brief-delivery");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
 const { TITLE_WAITING } = await import("~/lib/task-sentinels");
@@ -292,7 +293,59 @@ describe("proactive per-turn recall over the hook API", () => {
     await expect(res?.json()).resolves.toEqual({ ok: true, status: "running" });
   });
 
-  it("omits additionalContext when nothing is relevant", async () => {
+  it("force-loads Recall's deferred MCP tools on the first turn, once per session", async () => {
+    // First turn: even an unrelated prompt (no relevant memory) still gets the
+    // one-shot ToolSearch instruction so the deferred mem_*/graph_* tools load.
+    const first = await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "unrelated quantum chromodynamics",
+    });
+    const firstBody = (await first?.json()) as {
+      hookSpecificOutput?: { additionalContext: string };
+    };
+    expect(firstBody.hookSpecificOutput?.additionalContext).toContain("ToolSearch");
+    expect(firstBody.hookSpecificOutput?.additionalContext).toContain(
+      "mcp__recall__graph_search",
+    );
+
+    // Later turns of the same session must NOT repeat it — the tools are loaded.
+    const second = await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "where does authentication happen?",
+    });
+    const secondBody = (await second?.json()) as {
+      status: string;
+      hookSpecificOutput?: { additionalContext: string };
+    };
+    expect(secondBody.status).toBe("running");
+    // Still surfaces the relevant memory, just without the one-shot tool loader.
+    expect(secondBody.hookSpecificOutput?.additionalContext).toContain("useAuth hook");
+    expect(secondBody.hookSpecificOutput?.additionalContext).not.toContain("ToolSearch");
+  });
+
+  it("does not force-load MCP tools for non-Claude agents", async () => {
+    // Same UserPromptSubmit path, but a non-Claude agent whose MCP tools aren't
+    // deferred behind ToolSearch — so the one-shot loader must not be injected.
+    const codexTask = createHookTask("codex");
+    const res = await postHook("codex", codexTask.id, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "unrelated quantum chromodynamics",
+    });
+    expect(res?.status).toBe(200);
+    const body = (await res?.json()) as { hookSpecificOutput?: { additionalContext: string } };
+    expect(body.hookSpecificOutput?.additionalContext ?? "").not.toContain("ToolSearch");
+  });
+
+  it("omits additionalContext on a later turn when nothing is relevant", async () => {
+    // Prime the session so the one-shot tool-load nudge is already spent.
+    await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "where does authentication happen?",
+    });
     const res = await postHook("claude", taskId, {
       hook_event_name: "UserPromptSubmit",
       session_id: SESSION_ID,
@@ -300,5 +353,100 @@ describe("proactive per-turn recall over the hook API", () => {
     });
     expect(res?.status).toBe(200);
     await expect(res?.json()).resolves.toEqual({ ok: true, status: "running" });
+  });
+});
+
+describe("SessionStart brief fallback over the hook API", () => {
+  let taskId = "";
+
+  beforeEach(() => {
+    resetDb();
+    resetBriefDeliveries();
+    const task = createHookTask("claude-code");
+    taskId = task.id;
+    writeRecallSettings({ enabled: true });
+    createMemory({
+      projectId: task.projectId,
+      type: "overview",
+      title: "This app is a session grid for coding agents",
+    });
+  });
+
+  async function sessionStartContext(source: string): Promise<string> {
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "SessionStart",
+      session_id: SESSION_ID,
+      source,
+    });
+    expect(res?.status).toBe(200);
+    const body = (await res?.json()) as {
+      hookSpecificOutput?: { hookEventName: string; additionalContext: string };
+    };
+    return body.hookSpecificOutput?.additionalContext ?? "";
+  }
+
+  /** Simulate electron's spawn-time brief fetch (record=true marks delivery). */
+  async function fetchSpawnBrief(): Promise<void> {
+    const res = await handleApiRequest(
+      authed(`/api/tasks/${encodeURIComponent(taskId)}/brief`),
+    );
+    expect(res?.status).toBe(200);
+  }
+
+  it("injects the Session Brief when the spawn-time fetch never happened", async () => {
+    const context = await sessionStartContext("startup");
+    expect(context).toContain("Project memory (Mission Control Recall)");
+    expect(context).toContain("session grid for coding agents");
+  });
+
+  it("skips injection when the spawn-time fetch just delivered the brief", async () => {
+    await fetchSpawnBrief();
+    expect(await sessionStartContext("startup")).toBe("");
+  });
+
+  it("re-injects on startup once the recorded delivery predates this spawn", async () => {
+    await fetchSpawnBrief();
+    const realNow = Date.now;
+    // A fresh spawn's fetch happens seconds before SessionStart; a delivery
+    // older than the spawn window means this spawn's fetch failed.
+    Date.now = () => realNow() + 10 * 60 * 1000;
+    try {
+      expect(await sessionStartContext("startup")).toContain(
+        "session grid for coding agents",
+      );
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("skips injection on clear/compact whenever the file channel ever delivered", async () => {
+    await fetchSpawnBrief();
+    const realNow = Date.now;
+    Date.now = () => realNow() + 10 * 60 * 1000;
+    try {
+      // The spawn-time file is still on disk mid-session, however old.
+      expect(await sessionStartContext("clear")).toBe("");
+      expect(await sessionStartContext("compact")).toBe("");
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("skips injection when brief injection is disabled", async () => {
+    writeRecallSettings({ injectBriefEnabled: false });
+    expect(await sessionStartContext("startup")).toBe("");
+  });
+
+  it("caps the injected brief under the hook-output limit", async () => {
+    for (let i = 0; i < 200; i++) {
+      createMemory({
+        projectId: getTask(taskId)!.projectId,
+        type: "overview",
+        title: `Oversized memory ${i} with a long descriptive tail to inflate the brief body`,
+      });
+    }
+    const context = await sessionStartContext("startup");
+    expect(context.length).toBeGreaterThan(0);
+    expect(context.length).toBeLessThanOrEqual(8000);
   });
 });

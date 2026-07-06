@@ -43,10 +43,11 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
       // memory + code" block that Claude injects into the turn (proactive recall).
       { event: "UserPromptSubmit", injectContext: true },
       { event: "Stop" },
-      // SessionStart carries no status (mapHookEventToStatus returns null); we
-      // hang the code-graph auto-index side effect off it so the graph refreshes
-      // as sessions come online, without a manual Build click.
-      { event: "SessionStart" },
+      // SessionStart carries no status; the server hangs the code-graph
+      // auto-index off it, and answers with the Session Brief as
+      // additionalContext when the spawn-time file injection didn't land —
+      // so the response must reach stdout (injectContext).
+      { event: "SessionStart", injectContext: true },
       // PermissionRequest is the precise "human approval required" signal.
       // Notification also fires for idle reminders, so keep it narrowed to the
       // permission notification type for Claude builds that rely on it.
@@ -191,10 +192,34 @@ function buildManagedGroup(
   };
 }
 
+// A hook command that posts to Mission Control's own hook endpoint is ours by
+// construction — $MC_TASK_ID / $MC_API_URL only exist inside MC-spawned
+// sessions. Early installer versions wrote these entries WITHOUT the marker, so
+// marker-only filtering let them accumulate as duplicates: each fires an extra
+// POST per event, and for injectContext events the stale (stdout-discarding)
+// copies race the managed hook server-side and swallow its one-shot output.
+function isMissionControlCommand(command: unknown): boolean {
+  return (
+    typeof command === "string" &&
+    command.includes("/api/hooks/") &&
+    command.includes("MC_TASK_ID")
+  );
+}
+
+function isMissionControlGroup(group: HookGroup): boolean {
+  if (group[MARKER]) return true;
+  const hooks = (group as ClaudeHookGroup).hooks;
+  if (Array.isArray(hooks)) {
+    return hooks.length > 0 && hooks.every((h) => isMissionControlCommand(h?.command));
+  }
+  return isMissionControlCommand((group as CursorHookGroup).command);
+}
+
 /**
  * Ensure the agent's project-local hook config carries Mission Control's hook
  * entries. Existing user hooks are preserved; we only add, replace, or remove
- * entries tagged with our `_mcManaged` marker.
+ * entries that are ours — tagged with the `_mcManaged` marker, or legacy
+ * untagged entries recognized by their MC hook-endpoint command.
  */
 export function installAgentHooks(
   agent: string | undefined,
@@ -228,7 +253,7 @@ export function installAgentHooks(
       injectContext ?? false,
     );
     const groups = (hooks[event] ??= []);
-    const filtered = groups.filter((g) => !g[MARKER]);
+    const filtered = groups.filter((g) => !isMissionControlGroup(g));
     filtered.push(buildManagedGroup(command, style, matcher));
     hooks[event] = filtered;
   }
@@ -236,7 +261,7 @@ export function installAgentHooks(
   for (const event of spec.removeManagedEvents ?? []) {
     const groups = hooks[event];
     if (!groups) continue;
-    const filtered = groups.filter((g) => !g[MARKER]);
+    const filtered = groups.filter((g) => !isMissionControlGroup(g));
     if (filtered.length) hooks[event] = filtered;
     else delete hooks[event];
   }

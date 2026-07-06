@@ -19,6 +19,39 @@ export interface TurnContextOptions {
   budget?: number;
 }
 
+// The MCP server id Recall is registered under (see ensure-recall-mcp.ts) and its
+// tool set. Claude Code namespaces MCP tools as `mcp__<serverId>__<tool>`, which
+// is also the shape ToolSearch's `select:` filter expects.
+const RECALL_MCP_SERVER_ID = "recall";
+export const RECALL_MCP_TOOLS = [
+  "mem_search",
+  "mem_context",
+  "mem_save",
+  "mem_update",
+  "graph_search",
+  "get_neighbors",
+  "impact_of",
+  "shortest_path",
+] as const;
+
+/**
+ * The first-turn instruction that force-loads Recall's deferred MCP tools. Claude
+ * Code loads MCP tools on demand (behind a ToolSearch), so a fresh session cannot
+ * call the mem_ and graph_ tools until it runs one — the Session Brief only tells it
+ * the tools exist. Injecting this once at the start of a session gets them loaded
+ * so the agent can actually query the graph and save memories, not just read the
+ * context we inject. The caller decides when it fires (once per session, Claude
+ * only); this just renders the text.
+ */
+export function renderToolLoadInstruction(): string {
+  const select = RECALL_MCP_TOOLS.map((t) => `mcp__${RECALL_MCP_SERVER_ID}__${t}`).join(",");
+  return [
+    "Recall's project-memory and code-graph tools are available in this session but load on demand. Before answering, run this once to load them:",
+    `→ ToolSearch with query "select:${select}"`,
+    "Then use `graph_search` / `get_neighbors` / `impact_of` / `shortest_path` to navigate code instead of grepping, and `mem_search` / `mem_context` to recall prior decisions (and `mem_save` to record new ones).",
+  ].join("\n");
+}
+
 /**
  * Build the compact "here's what Recall knows about this" block for a single
  * turn. Best-effort: any sub-query failing just omits that section. The scopeId
@@ -114,9 +147,10 @@ export function assembleTurnContext(
 /**
  * Trim to a character budget at a word boundary (so we don't cut mid-identifier),
  * with a hard-slice fallback when that boundary sits so far back that one giant
- * unbroken token would otherwise eat most of the block.
+ * unbroken token would otherwise eat most of the block. Exported for the
+ * SessionStart brief fallback, which must fit the hook-output size limit.
  */
-function trimToBudget(text: string, budget: number): string {
+export function trimToBudget(text: string, budget: number): string {
   if (text.length <= budget) return text;
   const soft = text.slice(0, budget).replace(/\s+\S*$/, "");
   if (soft.length >= budget * 0.6) return soft + "…";

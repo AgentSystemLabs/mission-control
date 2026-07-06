@@ -22,6 +22,7 @@ import {
 } from "../services/project-memory";
 import { getTask } from "../services/tasks";
 import { readRecallSettings } from "../services/recall-settings";
+import { markBriefDelivered } from "../services/brief-delivery";
 import { findProjectById } from "../repositories/projects.repo";
 import { forbidden, rethrowUnlessDomain, json, noContent, notFound, parseJsonBody, parseSearchParams } from "./_helpers";
 
@@ -174,7 +175,12 @@ export async function brief(taskId: string, url: URL): Promise<Response> {
     taskTitle: task.title,
     branch: task.branch,
   });
-  if (record && memoryIds.length) markMemoriesUsed(memoryIds);
+  if (record) {
+    if (memoryIds.length) markMemoriesUsed(memoryIds);
+    // Tell the SessionStart fallback this spawn got its brief via the file
+    // channel, so the hook doesn't inject a duplicate.
+    markBriefDelivered(taskId);
+  }
   return json({ brief: markdown, memoryIds });
 }
 
