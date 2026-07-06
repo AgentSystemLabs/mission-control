@@ -207,6 +207,14 @@ describe("pickSymbolQueries", () => {
   it("caps the candidate count", () => {
     expect(pickSymbolQueries("AlphaOne BetaTwoLong GammaThree DeltaFour", 3)).toHaveLength(3);
   });
+
+  it("drops generic verbs/stopwords so the specific noun wins", () => {
+    // Regression: "handle" used to crowd out "toasts" and inject
+    // handleDomainError / registerPtyHandlers instead of mcToast*.
+    expect(pickSymbolQueries("where do we handle toasts here?")).toEqual(["toasts"]);
+    // 4-char nouns now survive (old ≥5 cutoff dropped "grid"/"auth").
+    expect(pickSymbolQueries("what happens when I close a session in grid view")).toContain("grid");
+  });
 });
 
 describe("symbolVariants", () => {

@@ -123,11 +123,32 @@ function trimToBudget(text: string, budget: number): string {
   return text.slice(0, budget - 1) + "…";
 }
 
+// Common English/grammar words and generic action verbs are terrible symbol
+// probes: they substring-match dozens of unrelated symbols and crowd out the
+// specific noun. ("handle" in "where do we handle toasts" matched
+// handleDomainError / registerPtyHandlers and buried `mcToast*`.) Dropped from
+// the plain-word fallback ONLY — a deliberate identifier like `handleClick` is
+// still honored because it's caught by the identifier branch first.
+const SYMBOL_STOPWORDS = new Set([
+  "where", "when", "what", "which", "whose", "how", "does", "did", "done", "doing",
+  "the", "this", "that", "these", "those", "then", "than", "them", "they", "their",
+  "there", "here", "have", "has", "had", "having", "will", "would", "should",
+  "could", "shall", "might", "must", "can", "cannot", "been", "being", "are",
+  "was", "were", "and", "but", "for", "nor", "yet", "all", "any", "some", "each",
+  "from", "into", "onto", "over", "under", "with", "within", "without", "about",
+  "also", "your", "you", "yours", "our", "ours", "its", "please", "make", "makes",
+  "made", "making", "work", "works", "working", "need", "needs", "want", "wants",
+  "show", "shows", "showing", "find", "finds", "look", "looks", "help", "handle",
+  "handles", "handled", "handling", "happen", "happens", "happening", "thing",
+  "things", "something", "anything",
+]);
+
 /**
  * Pick the most "symbol-like" tokens from a prompt to probe the code graph
  * with, best first. Prefers camelCase/PascalCase or snake_case identifiers;
- * otherwise words of length ≥ 5. Longer tokens rank first (more specific).
- * Returns [] when nothing looks worth a lookup.
+ * otherwise plain words of length ≥ 4 that aren't stopwords (so a specific noun
+ * like "toasts"/"grid" survives instead of a generic verb like "handle").
+ * Longer tokens rank first (more specific). Returns [] when nothing's worth it.
  */
 export function pickSymbolQueries(text: string, max = 3): string[] {
   const tokens = text.match(/[A-Za-z_$][A-Za-z0-9_$]{2,}/g);
@@ -135,7 +156,9 @@ export function pickSymbolQueries(text: string, max = 3): string[] {
   const identifierish = tokens.filter(
     (t) => /[A-Z]/.test(t) || t.includes("_") || t.includes("$"),
   );
-  const pool = identifierish.length ? identifierish : tokens.filter((t) => t.length >= 5);
+  const pool = identifierish.length
+    ? identifierish
+    : tokens.filter((t) => t.length >= 4 && !SYMBOL_STOPWORDS.has(t.toLowerCase()));
   return [...new Set(pool)].sort((a, b) => b.length - a.length).slice(0, max);
 }
 
