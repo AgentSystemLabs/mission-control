@@ -6,6 +6,19 @@ import { runCli } from "./claude-cli";
 import { getTask, updateTask } from "./tasks";
 
 /**
+ * Leading sentence of the title meta-prompt. Exported (via
+ * {@link isTitleGenerationPrompt}) so the hook pipeline can recognize — and
+ * ignore — a title-generation helper that fired Mission Control's own hooks,
+ * a defense-in-depth backstop against the recording/recursion feedback loop.
+ */
+const TITLE_PROMPT_SIGNATURE = "You are naming a developer's coding session.";
+
+/** True when `text` is (the start of) our internal title-generation prompt. */
+export function isTitleGenerationPrompt(text: string): boolean {
+  return text.trimStart().startsWith(TITLE_PROMPT_SIGNATURE);
+}
+
+/**
  * Print-mode CLI invocations (claude -p, cursor-agent -p, codex exec) are
  * unreliable about emitting strict JSON when the surrounding prompt is large.
  * Asking for a two-line key:value format ("TITLE: …" / "ICON: …") is far more
@@ -15,7 +28,7 @@ import { getTask, updateTask } from "./tasks";
 function buildMetaPrompt(): string {
   const iconList = SESSION_ICON_OPTIONS.map((o) => `- ${o.id} (${o.hint})`).join("\n");
   return [
-    "You are naming a developer's coding session. Pick a short title and a matching icon.",
+    `${TITLE_PROMPT_SIGNATURE} Pick a short title and a matching icon.`,
     "",
     "Reply with EXACTLY two lines and nothing else:",
     "TITLE: <4 to 7 words, plain text, no quotes, no trailing punctuation>",

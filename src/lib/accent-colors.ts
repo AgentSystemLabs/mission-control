@@ -1,11 +1,13 @@
 export type AccentColorId =
   | "deep-orange"
+  | "terracotta"
   | "blue"
   | "green"
   | "teal"
   | "cyan"
   | "purple"
   | "magenta"
+  | "pink"
   | "red"
   | "amber"
   | "lime"
@@ -23,12 +25,16 @@ export const DEFAULT_ACCENT_COLOR: AccentColorId = "deep-orange";
 
 export const ACCENT_COLORS: AccentColor[] = [
   { id: "deep-orange", name: "Deep orange", value: "#ff5a1f", rgb: "255, 90, 31" },
+  // Warm terracotta-amber sampled from the ember reference (the focused pane's
+  // border + cursor). Ember defaults to this; any theme can use it.
+  { id: "terracotta", name: "Terracotta", value: "#d0854e", rgb: "208, 133, 78" },
   { id: "blue", name: "Blue", value: "#3b82f6", rgb: "59, 130, 246" },
   { id: "green", name: "Green", value: "#22c55e", rgb: "34, 197, 94" },
   { id: "teal", name: "Teal", value: "#14b8a6", rgb: "20, 184, 166" },
   { id: "cyan", name: "Cyan", value: "#06b6d4", rgb: "6, 182, 212" },
   { id: "purple", name: "Purple", value: "#a855f7", rgb: "168, 85, 247" },
   { id: "magenta", name: "Magenta", value: "#d946ef", rgb: "217, 70, 239" },
+  { id: "pink", name: "Pink", value: "#f472b6", rgb: "244, 114, 182" },
   { id: "red", name: "Red", value: "#ef4444", rgb: "239, 68, 68" },
   { id: "amber", name: "Amber", value: "#f59e0b", rgb: "245, 158, 11" },
   { id: "lime", name: "Lime", value: "#84cc16", rgb: "132, 204, 22" },

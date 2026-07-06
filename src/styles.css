@@ -7,6 +7,16 @@
 @import "@fontsource/geist-mono/400.css";
 @import "@fontsource/geist-mono/500.css";
 @import "@fontsource/geist-mono/600.css";
+/* Ember theme's bundled terminal + UI mono face — clearer, warmer mono. */
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
+/* Ember theme's UI sans face. */
+@import "@fontsource/plus-jakarta-sans/400.css";
+@import "@fontsource/plus-jakarta-sans/500.css";
+@import "@fontsource/plus-jakarta-sans/600.css";
+@import "@fontsource/plus-jakarta-sans/700.css";
 
 @import "@xterm/xterm/css/xterm.css";
 
@@ -50,6 +60,7 @@
   --status-interrupted: oklch(0.72 0.18 35);
   --status-done: oklch(0.76 0.16 150);
   --status-idle: rgba(232, 230, 223, 0.3);
+  --status-warning: oklch(0.82 0.14 75);
   --status-failed: oklch(0.7 0.19 25);
 
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -75,6 +86,7 @@
   --status-interrupted: oklch(0.58 0.17 35);
   --status-done: oklch(0.50 0.14 150);
   --status-idle: rgba(26, 26, 26, 0.3);
+  --status-warning: oklch(0.60 0.13 75);
   --banner-bg: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent) 14%, var(--surface-0)),
@@ -788,6 +800,16 @@ select,
   background: rgba(0, 0, 0, 0.15);
   background-clip: content-box;
   border: 2px solid transparent;
+}
+
+/* Focus Mode session bar: scrolls horizontally without a visible scrollbar so
+   the compact tab strip stays clean. Wheel-to-horizontal is wired in JS. */
+.mc-focus-tabs {
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+.mc-focus-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 @keyframes shimmer {
@@ -1670,6 +1692,23 @@ body[data-card-glow] .cursor-glow {
   border-image-source: var(--mc-panel-image) !important;
 }
 
+/* Active session in the grid: the cell whose terminal currently holds focus
+   gets an accent ring and a faintly accent-tinted header bar so it reads as
+   "the one you're in" at a glance. Driven by :focus-within (xterm focuses a
+   textarea inside the card), so it needs no extra React state. */
+[data-session-grid] .mc-card-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 56%, transparent) !important;
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.40),
+    0 10px 26px oklch(0 0 0 / 0.30),
+    0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 0 20px color-mix(in srgb, var(--accent) 20%, transparent) !important;
+}
+[data-session-grid] .mc-card-frame:focus-within [data-session-header] {
+  background: color-mix(in srgb, var(--accent) 7%, transparent) !important;
+  border-bottom-color: color-mix(in srgb, var(--accent) 24%, var(--border)) !important;
+}
+
 /* Dashboard page wrapper: dissolve in minimal — the outer frame would
    otherwise share the card surface and wash the contrast away. Reclaim
    the missing border-width as real inline padding so cards aren't flush
@@ -1847,6 +1886,24 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session:focus-visible {
   box-shadow: var(--mm-ring);
 }
+/* The ghost segments attached to a New session button (the settings gear and
+   the grid-only new-row segment) have only the dim default ghost border —
+   leaving the outline pill visually open. Give them the same accent outline so
+   the cluster reads as one closed, continuous pill. `border-color` only (not
+   the `border` shorthand) so the attached-left/right rules' `border-*: none`
+   still form the seamless middle seams. */
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  color: var(--accent);
+  box-shadow: none;
+}
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config:hover,
+[data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 64%, transparent);
+}
 
 [data-minimal="true"] .mc-btn-primary.mc-btn-attached-left,
 [data-minimal="true"] .mc-btn-frame.mc-btn-attached-left,
@@ -1900,6 +1957,281 @@ body[data-card-glow] .cursor-glow {
 }
 [data-minimal="true"] .dot-grid-bg {
   background-image: none;
+}
+
+/* =====================================================================
+   Noir theme – flat, near-black, hairline.
+   Builds on minimal: noir sets BOTH `data-minimal` (which supplies the
+   clean-CSS chrome, edge-to-edge layout, and button/input grid) and
+   `data-noir` (this layer). Noir flattens what minimal elevates — no card
+   texture, no accent-tinted surfaces, shadows almost gone. Separation
+   comes from hairline dividers, not borders; borders appear only where
+   they carry meaning (the focused pane, the active control).
+   These selectors share specificity with the [data-minimal] rules above,
+   so this block must stay AFTER the minimal block to win the cascade.
+   Activated by `<html data-minimal="true" data-noir="true">`.
+   ===================================================================== */
+
+[data-noir="true"] {
+  /* Neutral near-black ladder with a faint cool-violet cast so a pink or
+     purple accent sits naturally in it. Surfaces stay within a few percent
+     of each other — hierarchy comes from hairlines, not elevation. */
+  --bg: #0a0a0c;
+  --surface-0: #0f0f12;
+  --surface-1: #131317;
+  --surface-2: #19191e;
+  --surface-3: #212127;
+  --border: rgba(255, 255, 255, 0.065);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --text: #e9e9ec;
+  --text-dim: rgba(233, 233, 236, 0.56);
+  --text-faint: rgba(233, 233, 236, 0.33);
+  /* Flat terminal canvas — unlike minimal, no accent mixed into the ground. */
+  --terminal-bg: #0c0c0f;
+
+  /* Tighter chrome: squarer radii; the halo focus ring collapses to a
+     single hairline accent ring. */
+  --mm-radius-sm: 4px;
+  --mm-radius: 5px;
+  --mm-radius-lg: 7px;
+  --mm-ring: 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+  --mm-elev-1: none;
+  --mm-elev-2: 0 12px 32px oklch(0 0 0 / 0.4);
+}
+
+/* Cards: flat panels. Kill minimal's card.png texture and accent tint —
+   a noir card is its surface color, a hairline, and nothing else. */
+[data-noir="true"] .mc-card-frame {
+  border: 1px solid var(--border) !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
+  box-shadow: none !important;
+}
+[data-noir="true"] .mc-card-frame[data-solid="true"] {
+  background: var(--surface-1) !important;
+  background-blend-mode: normal !important;
+}
+/* The focused pane is the one place noir spends a border: a 1px accent
+   line plus a whisper of glow, like a powered-on indicator. */
+[data-noir="true"] .mc-card-frame[data-focused="true"] {
+  border-color: color-mix(in srgb, var(--accent) 66%, transparent) !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 24px color-mix(in srgb, var(--accent) 9%, transparent) !important;
+}
+
+/* Buttons: quieter than minimal. Ghost drops its border entirely; the
+   frame variant keeps a hairline of accent; primary stays a solid accent
+   fill but loses the inset gloss. */
+[data-noir="true"] .mc-btn-primary {
+  border-color: transparent;
+  box-shadow: none;
+}
+[data-noir="true"] .mc-btn-primary:hover {
+  box-shadow: none;
+}
+[data-noir="true"] .mc-btn-frame {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+[data-noir="true"] .mc-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+[data-noir="true"] .mc-btn-ghost:hover {
+  background: var(--surface-1);
+  border-color: transparent;
+}
+[data-noir="true"] .mc-btn-gray-frame {
+  background: var(--surface-1);
+  border-color: var(--border);
+}
+[data-noir="true"] .mc-btn-gray-frame:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+[data-noir="true"] .mc-btn-primary:focus-visible {
+  box-shadow: var(--mm-ring);
+}
+
+/* Inputs: flat field, hairline border; focus swaps the hairline for the
+   accent instead of stacking a halo. */
+[data-noir="true"] .mc-input-frame {
+  box-shadow: none !important;
+}
+[data-noir="true"] .mc-input-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
+  background: var(--surface-0) !important;
+  box-shadow: none !important;
+}
+
+/* Settings toggle: no glow when on — flat accent fill reads clearly. */
+[data-noir="true"] .settings-toggle-switch[aria-checked="true"] {
+  box-shadow: none;
+}
+
+/* Session grid, focused cell: drop the grid's elevation shadows — in noir
+   the active session is a solid accent border and a whisper of bloom on an
+   otherwise flat card. */
+[data-noir="true"] [data-session-grid] .mc-card-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+[data-noir="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
+  background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
+}
+
+/* =====================================================================
+   Ember theme – warm sepia near-black, flush + square, bundled mono.
+   Like noir it builds on minimal (sets BOTH `data-minimal` for the clean-
+   CSS chrome and `data-ember` for this layer), but the mood is warm rather
+   than cool: a brown-black ground, cream text, square corners, and edge-to-
+   edge panes (the grid's gap/padding collapse to 0 in JS — see SessionGrid).
+   The focused pane spends a solid accent border plus a soft drop shadow so
+   the active session lifts off the flush field. Ships JetBrains Mono as the
+   terminal + UI face for a clearer read.
+   Must stay AFTER the minimal and noir blocks to win the shared-specificity
+   cascade. Activated by `<html data-minimal="true" data-ember="true">`.
+   ===================================================================== */
+
+[data-ember="true"] {
+  /* Warm-charcoal ladder sampled from the reference: the pane/terminal ground
+     sits at a mid ~#2d2d2d (not near-black), faintly warm; headers and solid
+     cards lift one step to ~#34322d. Separation is by tone, not elevation. */
+  --bg: #242321;
+  --surface-0: #2c2b28;
+  --surface-1: #34322d;
+  --surface-2: #3e3b35;
+  --surface-3: #4a463f;
+  /* Hairlines need more alpha here than on the near-black themes: the ground
+     is a mid-gray, so noir-strength borders melt into it (0.09 cream computes
+     to ~1.27:1 against surface-0 — invisible). */
+  --border: rgba(236, 224, 202, 0.15);
+  --border-strong: rgba(236, 224, 202, 0.3);
+  /* Cream text ladder, lifted a step for legibility on the mid-gray ground.
+     dim now holds ≥7:1 on surface-0 and ≥6:1 through surface-2; faint clears
+     AA (≥4.8:1 on surface-0/1) — the old #8c8274 faint fell to ~3.4:1 on the
+     card surfaces where timestamps, tab counts and section counts sit, so it
+     read muddy. Both stay clearly below --text to keep the tier hierarchy. */
+  --text: #e9e3d5;
+  --text-dim: #c6bca8;
+  --text-faint: #a89e8c;
+  /* Flat warm terminal canvas — matches the sampled ~#2d2d2d ground. */
+  --terminal-bg: #2b2a27;
+
+  /* Bundled face: clearer, warmer mono for both xterm (via --mc-terminal-font,
+     read by createTerminalOptions) and every UI mono surface. */
+  --mc-terminal-font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Bundled UI sans face — Plus Jakarta Sans. */
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Square everything — no rounded sessions or chrome. */
+  --mm-radius-sm: 0;
+  --mm-radius: 0;
+  --mm-radius-lg: 0;
+  /* Keyboard focus: crisp accent line plus a soft halo — a lone 1px ring
+     gets lost against the mid-gray ground. */
+  --mm-ring:
+    0 0 0 1px color-mix(in srgb, var(--accent) 90%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
+  --mm-elev-1: none;
+  --mm-elev-2: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* Ember's default terracotta accent is a light mid-tone — minimal's
+     near-white button label reads ~2.8:1 on it. Dark warm ink reads ~5.6:1
+     and beats near-white on every selectable accent except indigo. */
+  --mm-on-accent: #251e15;
+}
+
+/* Flat, square panels — kill minimal's card.png texture, accent tint, radius
+   and elevation. An ember card is its warm surface color and a hairline. */
+[data-ember="true"] .mc-card-frame {
+  border: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
+  box-shadow: none !important;
+}
+[data-ember="true"] .mc-card-frame[data-solid="true"] {
+  background: var(--surface-1) !important;
+  background-blend-mode: normal !important;
+}
+/* Dashboard/project focused cards: solid accent border + soft drop shadow. */
+[data-ember="true"] .mc-card-frame[data-focused="true"] {
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent) !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 6px 22px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Buttons/inputs: quiet the minimal glosses; the square radius vars above
+   already flatten their corners. */
+[data-ember="true"] .mc-btn-primary,
+[data-ember="true"] .mc-btn-primary:hover {
+  box-shadow: none;
+}
+/* Ghost buttons keep minimal's hairline border: on ember's mid-gray ground a
+   borderless ghost has no affordance at all. Hover lifts to surface-2 because
+   session headers already sit on surface-1, where minimal's surface-1 hover
+   would be invisible. */
+[data-ember="true"] .mc-btn-ghost:hover {
+  background: var(--surface-2);
+}
+[data-ember="true"] .mc-input-frame {
+  box-shadow: none !important;
+}
+[data-ember="true"] .mc-input-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* Project header: collapse the tall default band (22px 24px 18px) to a tight
+   toolbar strip so the project name + actions sit close to the grid. 6px (not
+   flush) so the buttons' hairlines and focus halo aren't clipped against the
+   strip edges. Overrides the component's inline padding, so it needs
+   !important. */
+[data-ember="true"] .mc-project-header {
+  padding: 6px 20px !important;
+}
+
+/* Pinned-project hotkey badge (1, 2, …). The component's inline chip is
+   surface-3 (#4a463f) — a mid warm gray only ~2.4:1 under the light faint
+   digit, so the number reads muddy on the warm ground. Drop the chip to the
+   near-black ground with a crisper hairline so the light digit sits in a
+   defined dark notch and pops (~4:1). Inline styles, so !important. */
+[data-ember="true"] .mc-project-hotkey-badge {
+  background: var(--bg) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text-dim) !important;
+}
+
+/* Session grid, focused cell: the active window in the reference — a solid
+   accent border with a little shadow lifting it off the flush field, plus a
+   whisper of accent bloom. (The cell is z-lifted in SessionGrid so the drop
+   shadow reads over its flush neighbours.) */
+[data-ember="true"] [data-session-grid] .mc-card-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 88%, transparent) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 0 26px color-mix(in srgb, var(--accent) 13%, transparent) !important;
+  /* Lift the active cell (a grid item, so z-index applies without position)
+     so its drop shadow reads over the flush neighbours. Left un-!important so
+     the inline drag/expand/nav z-indices still win when they're set. */
+  z-index: 3;
+}
+[data-ember="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
+  /* ~18% accent over the header surface reproduces the sampled warm active
+     header (~#4d3e34) — the focused pane's title bar warms noticeably. */
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)) !important;
 }
 
 .sr-only {

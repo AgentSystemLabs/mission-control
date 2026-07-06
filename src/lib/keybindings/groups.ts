@@ -18,8 +18,12 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
       "terminal.expandToggle",
       "session.closeWindow",
       "session.clone",
+      "session.newRow",
       "session.cycleNext",
       "session.cyclePrev",
+      "session.gridNavigate",
+      "session.gridView",
+      "session.focusMode",
     ],
   },
   {
@@ -41,6 +45,7 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
       "file.finder",
       "file.save",
       "git.diff",
+      "prompt.search",
     ],
   },
   {

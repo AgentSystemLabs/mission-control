@@ -12,6 +12,7 @@ export const VOICE_OPEN_DIFF_EVENT = "mc:voice-open-diff";
 export const VOICE_SHIP_EVENT = "mc:voice-ship";
 export const VOICE_RUN_SCRIPT_EVENT = "mc:voice-run-script";
 export const VOICE_NEW_AGENT_EVENT = "mc:voice-new-agent";
+export const VOICE_REMEMBER_EVENT = "mc:voice-remember";
 export const VOICE_PASTE_TO_FOCUSED_SESSION_EVENT = "mc:voice-paste-to-focused-session";
 
 // Push-to-talk control bus. The header mic button drives the same recording flow
@@ -30,6 +31,7 @@ export type VoiceNewAgentDetail = {
 };
 
 export type VoiceRunScriptDetail = { scriptId: string };
+export type VoiceRememberDetail = { text: string };
 export type VoicePasteToFocusedSessionDetail = {
   text: string;
   handled: boolean;
@@ -60,6 +62,12 @@ export function dispatchVoiceRunScript(scriptId: string): void {
 export function dispatchVoiceNewAgent(prompt: string, agent?: TaskAgent): void {
   window.dispatchEvent(
     new CustomEvent<VoiceNewAgentDetail>(VOICE_NEW_AGENT_EVENT, { detail: { prompt, agent } }),
+  );
+}
+
+export function dispatchVoiceRemember(text: string): void {
+  window.dispatchEvent(
+    new CustomEvent<VoiceRememberDetail>(VOICE_REMEMBER_EVENT, { detail: { text } }),
   );
 }
 

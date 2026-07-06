@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseResponse, resolveTitleInvocation } from "../title-generator";
+import {
+  isTitleGenerationPrompt,
+  parseResponse,
+  resolveTitleInvocation,
+} from "../title-generator";
 
 describe("title-generator parseResponse", () => {
   it("parses the canonical TITLE:/ICON: two-line format", () => {
@@ -97,5 +101,25 @@ describe("resolveTitleInvocation", () => {
       cmd: "codex",
       args: ["exec", expect.stringContaining("fix login bug")],
     });
+  });
+});
+
+describe("isTitleGenerationPrompt", () => {
+  it("recognizes the meta-prompt this module actually sends to the CLI", () => {
+    // Round-trip the real generated prompt so the signature can't drift.
+    const metaPrompt = resolveTitleInvocation("claude-code", "fix login bug")
+      ?.args[1];
+    expect(metaPrompt).toBeDefined();
+    expect(isTitleGenerationPrompt(metaPrompt!)).toBe(true);
+  });
+
+  it("tolerates leading whitespace the hook payload may carry", () => {
+    const metaPrompt = resolveTitleInvocation("claude-code", "x")?.args[1];
+    expect(isTitleGenerationPrompt("\n  " + metaPrompt!)).toBe(true);
+  });
+
+  it("does not flag ordinary user prompts", () => {
+    expect(isTitleGenerationPrompt("Fix the double-submit login bug")).toBe(false);
+    expect(isTitleGenerationPrompt("")).toBe(false);
   });
 });

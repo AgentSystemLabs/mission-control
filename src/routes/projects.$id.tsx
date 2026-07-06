@@ -25,6 +25,9 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
+import { SessionGrid } from "~/components/views/SessionGrid";
+import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
+import { enterFocusSession } from "~/lib/focus-session";
 import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
@@ -35,7 +38,6 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
 import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
-import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
@@ -66,16 +68,24 @@ import {
   type SessionCreatePayload,
 } from "~/lib/session-warm-pool";
 import { useServerEvents } from "~/lib/use-events";
+import { useDebouncedCallback } from "~/lib/use-debounced-callback";
+import {
+  applyQuestionServerEvent,
+  setQuestionOverlayEnabled,
+} from "~/lib/agent-question-store";
 import { setPendingInitialInput, takePendingInitialInput } from "~/lib/voice-session-prompts";
 import {
   VOICE_NEW_AGENT_EVENT,
   VOICE_OPEN_BROWSER_EVENT,
   VOICE_OPEN_DIFF_EVENT,
+  VOICE_REMEMBER_EVENT,
   VOICE_RUN_PROJECT_EVENT,
   VOICE_RUN_SCRIPT_EVENT,
   type VoiceNewAgentDetail,
+  type VoiceRememberDetail,
   type VoiceRunScriptDetail,
 } from "~/lib/voice-events";
+import { MEMORY_TITLE_MAX } from "~/shared/project-memory";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { groupTasksByStatusForDisplay } from "~/lib/task-display-order";
@@ -106,6 +116,7 @@ import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
 import { useGitStatus } from "~/queries/git";
 import { GitDiffView } from "~/components/views/GitDiffView";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
+import { RecallModal } from "~/components/views/RecallModal";
 import { BranchTypeahead } from "~/components/views/BranchTypeahead";
 import {
   CreatePullRequestDialog,
@@ -143,6 +154,7 @@ import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
+import { scopeKeyForProject } from "~/lib/scoped-project";
 import {
   readCachedSelectedWorktreeByProject,
   writeCachedSelectedWorktreeByProject,
@@ -160,6 +172,7 @@ import {
 } from "~/lib/design-meta";
 import { useSyncProjectDiagrams } from "~/lib/use-diagram-events";
 import { useGitDiffViewOpen } from "~/lib/git-diff-view-store";
+import { useResizablePanel } from "~/lib/use-resizable-panel";
 
 export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
@@ -214,6 +227,14 @@ type ProjectPathCheck =
 
 const OPTIMISTIC_WORKTREE_ID_PREFIX = "wt-optimistic-";
 
+function isCurrentPathIssue(
+  status: Extract<ProjectPathStatus, { ok: false }>,
+  selectedWorktreeId: string | null,
+): boolean {
+  if (status.scope === "project") return selectedWorktreeId === null;
+  return status.worktreeId === selectedWorktreeId;
+}
+
 function isOptimisticWorktree(worktree: WorktreeInfo): boolean {
   return worktree.id.startsWith(OPTIMISTIC_WORKTREE_ID_PREFIX);
 }
@@ -238,12 +259,29 @@ function firstDisplayedTask<T extends { status: TaskStatus }>(tasks: T[]): T | u
   return undefined;
 }
 
+/** The task id of the grid cell whose terminal currently holds focus (the pane
+ *  the user is looking at), or null outside grid view / when nothing is focused.
+ *  Clone and "new session" both anchor a fresh session on this so it lands
+ *  beside — and takes the caret from — the active pane. */
+function readFocusedGridTaskId(): string | null {
+  if (typeof document === "undefined") return null;
+  const cell = document.activeElement?.closest("[data-grid-cell]") as HTMLElement | null;
+  return cell?.getAttribute("data-task-id") ?? null;
+}
+
 function ProjectPage() {
   const { id } = Route.useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const settingsLoaded = settings !== undefined;
+  // Mirror the beta flag into the question store: gates the pane overlays and
+  // releases any withheld TUI menu the moment the popup is switched off.
+  useEffect(() => {
+    if (typeof settings?.questionOverlayEnabled === "boolean") {
+      setQuestionOverlayEnabled(settings.questionOverlayEnabled);
+    }
+  }, [settings?.questionOverlayEnabled]);
   const storedSelectedWorktreeByProject = settings?.selectedWorktreeByProject ?? null;
   const [selectedWorktreeByProject, setSelectedWorktreeByProject] =
     useState<SelectedWorktreeByProject>(() => {
@@ -417,7 +455,10 @@ function ProjectPage() {
     projectPathCheck.state === "invalid" || projectPathCheck.state === "error";
   const projectPathUsable = projectPathReady || projectPathCheck.state === "checking";
   const projectPathIssue =
-    projectPathCheck.state === "invalid" ? projectPathCheck.status : null;
+    projectPathCheck.state === "invalid" &&
+    isCurrentPathIssue(projectPathCheck.status, selectedWorktreeId)
+      ? projectPathCheck.status
+      : null;
   const terminalProject = projectPathReady ? scopedProject : null;
   const defaultWarmPayload = useMemo(
     () => (project ? defaultSessionPayload(project) : null),
@@ -497,14 +538,16 @@ function ProjectPage() {
   });
   const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView, setOpen: setDiffViewOpen } =
     useGitDiffViewOpen(id);
-  const onToggleDiffView = useCallback(() => {
-    if (!projectPathReady) return;
-    toggleDiffView();
-  }, [projectPathReady, toggleDiffView]);
+  // onToggleDiffView is defined lower down (after `terminals`) because opening
+  // the diff must also drop out of the grid view — see the comment there.
   useEffect(() => {
     if (projectPathBlocked) closeDiffView();
   }, [projectPathBlocked, closeDiffView]);
   const [showNewAgent, setShowNewAgent] = useState(false);
+  // Where the session created from the New Agent dialog should land in the grid:
+  // "newRow" is set by the grid's "New row" button so the result starts a fresh
+  // row; "default" (the New session button / hotkey) uses the current row.
+  const [newAgentTarget, setNewAgentTarget] = useState<"default" | "newRow">("default");
   const [showEdit, setShowEdit] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [sessionView, setSessionView] = useState<SessionView>("active");
@@ -513,6 +556,8 @@ function ProjectPage() {
   const [pinningTaskIds, setPinningTaskIds] = useState<Set<string>>(() => new Set());
   const pinRequestSeqRef = useRef<Record<string, number>>({});
   const [confirmDeleteArchived, setConfirmDeleteArchived] = useState(false);
+  const [confirmArchiveAll, setConfirmArchiveAll] = useState(false);
+  const [archivingAll, setArchivingAll] = useState(false);
   // Leave the archived view automatically once it empties (last one restored
   // or deleted) so the toggle never strands the user on a blank list.
   useEffect(() => {
@@ -526,6 +571,8 @@ function ProjectPage() {
     setFileFinderOpen(true);
   }, []);
   const [showLaunchConfig, setShowLaunchConfig] = useState(false);
+  const [showRecall, setShowRecall] = useState(false);
+  const [recallInitialFilter, setRecallInitialFilter] = useState<"all" | "recent">("all");
   const [showCustomScriptsConfig, setShowCustomScriptsConfig] = useState(false);
   const [showWorktreeSetupConfig, setShowWorktreeSetupConfig] = useState(false);
   const [showInstallDiagramSkill, setShowInstallDiagramSkill] = useState(false);
@@ -628,10 +675,78 @@ function ProjectPage() {
   }, [overflowOpen]);
 
   const terminals = useTerminals();
+  const gridViewActive = terminals.gridView;
+  // Review Changes in grid view docks the diff as a resizable panel beside the
+  // live grid (see the split render below) instead of taking over the workspace,
+  // so the sessions stay visible while you review. gridView state stays on, so
+  // closing the diff returns to the full grid.
+  const onToggleDiffView = useCallback(() => {
+    if (!projectPathReady) return;
+    toggleDiffView();
+  }, [projectPathReady, toggleDiffView]);
+  // How many sessions the current scope's grid shows (drives "Archive all").
+  const gridScopeSessionCount = useMemo(
+    () =>
+      terminals.sessions.filter((s) => scopeKeyForProject(s.project) === selectedScopeKey).length,
+    [terminals.sessions, selectedScopeKey],
+  );
+  // The grid only takes over the workspace once the scope has a session to show.
+  // With none, we fall back to the normal sessions view so an empty grid matches
+  // the single-panel empty state exactly (header, scope toggle, and all) instead
+  // of a bare centered message.
+  const showGrid = gridViewActive && gridScopeSessionCount > 0;
+  // Width of the docked diff panel in grid view. It sits on the left, so it
+  // resizes from its right edge. Floors the grid at ~420px and caps the diff at
+  // 60% of the viewport so neither side can be squeezed away.
+  const { size: gridDiffWidth, onMouseDown: onGridDiffResizeMouseDown } = useResizablePanel({
+    storageKey: "mc.gridDiffWidth",
+    axis: "x",
+    defaultSize: 640,
+    minSize: 420,
+    maxSize: (vw) => Math.max(420, Math.min(Math.round(vw * 0.6), vw - 420)),
+    resizeEdge: "end",
+  });
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
   const setVisibleTerminalScope = terminals.setVisibleScope;
+  // "Grid view — show all sessions": entering the grid materializes every
+  // active session for the visible worktree/scope, not just the already-open
+  // ones. TerminalPane's spawn queue staggers the agent launches.
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+  const enterGridView = useCallback(() => {
+    // Keep any open Review Changes diff open across the switch — the grid docks
+    // it as a side panel rather than fighting for the slot, so switching views
+    // shouldn't dismiss the review.
+    terminals.setGridView(true);
+    if (!terminalProject) return;
+    for (const task of tasksRef.current) {
+      if (task.archived) continue;
+      rehydrateTerminal(terminalProject, task);
+    }
+    // Focus the session that was active in normal view so entering the grid keeps
+    // the same session current instead of landing on an arbitrary cell.
+    // focusGridSession retries until that cell's pane mounts.
+    const activeTaskId = terminals.activeTaskIdFor(selectedScopeKey);
+    if (activeTaskId) terminals.focusGridSession(activeTaskId);
+  }, [terminals, terminalProject, rehydrateTerminal, selectedScopeKey]);
+  const toggleGridViewShowingAll = useCallback(() => {
+    if (terminals.gridView) {
+      // Carry the grid's focused session into normal view so leaving the grid
+      // shows the pane you were looking at, not whatever was active before.
+      // DOM focus first (hotkey exit, cell still focused); then the grid's
+      // last-focused cell reported to the store (a header-button click moved
+      // focus off the grid).
+      const focused = readFocusedGridTaskId() ?? terminals.getGridFocusedTaskId();
+      if (focused && terminalProject && tasks.some((t) => t.id === focused)) {
+        terminals.setActiveSession(terminalProject, focused);
+      }
+      terminals.setGridView(false);
+    } else {
+      enterGridView();
+    }
+  }, [terminals, enterGridView, terminalProject, tasks]);
   const {
     setProject: setActiveUserTerminalProject,
     createTerminal,
@@ -859,6 +974,15 @@ function ProjectPage() {
     (request: PendingSessionOpen) => {
       void (async () => {
         if (!terminalProject || request.projectId !== id) return;
+        // In grid view every open session is already on screen regardless of the
+        // selected worktree/scope, so the panel-switching logic below does
+        // nothing visible. If the target session is live, just spotlight its cell
+        // so the user can pick it out; the scope guards would otherwise no-op.
+        if (terminals.gridView && terminals.sessions.some((s) => s.taskId === request.taskId)) {
+          terminals.focusGridSession(request.taskId);
+          clearPendingSessionOpen(request);
+          return;
+        }
         if (!worktreesQuery.data) return;
         if (!worktreesEnabled && request.worktreeId && request.worktreeId !== MAIN_WORKTREE_ID) {
           clearPendingSessionOpen(request);
@@ -935,6 +1059,8 @@ function ProjectPage() {
           if (activeTaskId === task.id) terminals.rehydrate(terminalProject, task);
           else terminals.toggle(terminalProject, task);
         }
+        // Now that the session is materialized in the grid, spotlight its cell.
+        if (terminals.gridView) terminals.focusGridSession(task.id);
         clearPendingSessionOpen(request);
       })();
     },
@@ -1123,21 +1249,23 @@ function ProjectPage() {
     const worktreesKey = queryKeys.worktrees(project.id);
     const previousWorktrees = queryClient.getQueryData<WorktreeInfo[]>(worktreesKey);
     const previousSelectedWorktreeKey = selectedWorktreeKey;
-    await queryClient.cancelQueries({ queryKey: worktreesKey });
-    closeDeleteWorktreeDialog();
-    selectWorktree(MAIN_WORKTREE_ID);
-    queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
-      current?.filter((worktree) => worktree.id !== selectedWorktree.id) ?? current
-    );
-    // Kill any terminals/agents running inside this worktree first. On Windows
-    // their open file handles (notably Claude Code's `.claude/` dir) would
-    // otherwise hold a lock that makes `git worktree remove` fail with
-    // "Permission denied", leaving the worktree half-deleted.
-    const electron = getElectron();
-    if (electron && selectedWorktree.path) {
-      await electron.pty.killUnderPath(selectedWorktree.path).catch(() => undefined);
-    }
     try {
+      await queryClient.cancelQueries({ queryKey: worktreesKey });
+      closeDeleteWorktreeDialog();
+      selectWorktree(MAIN_WORKTREE_ID);
+      setProjectPathCheck({ state: "checking" });
+      setProjectPathActionError(null);
+      queryClient.setQueryData<WorktreeInfo[]>(worktreesKey, (current) =>
+        current?.filter((worktree) => worktree.id !== selectedWorktree.id) ?? current
+      );
+      // Kill any terminals/agents running inside this worktree first. On Windows
+      // their open file handles (notably Claude Code's `.claude/` dir) would
+      // otherwise hold a lock that makes `git worktree remove` fail with
+      // "Permission denied", leaving the worktree half-deleted.
+      const electron = getElectron();
+      if (electron && selectedWorktree.path) {
+        await electron.pty.killUnderPath(selectedWorktree.path).catch(() => undefined);
+      }
       await api.deleteWorktree(
         project.id,
         selectedWorktree.id,
@@ -1212,7 +1340,10 @@ function ProjectPage() {
   );
 
   const createSession = useCallback(
-    async (payload: SessionCreatePayload, opts?: { initialInput?: string }) => {
+    async (
+      payload: SessionCreatePayload,
+      opts?: { initialInput?: string; focusOnCreate?: boolean },
+    ) => {
       if (!project || !terminalProject) return;
       const selectedAvailability = availabilityFor(cliAvailability, payload.agent);
       if (selectedAvailability.status === "outdated") {
@@ -1241,6 +1372,12 @@ function ProjectPage() {
           activeRuntimeScopeId,
         );
         terminals.openSession(terminalProject, warmSlot.draftTask, { ptyId: warmSlot.ptyId });
+        // Clone/new-session focus: put the caret in the just-added grid cell so
+        // the user can type immediately. focusGridSession retries until the pane
+        // mounts, so calling it before the surface exists is fine.
+        if (opts?.focusOnCreate && terminals.gridView) {
+          terminals.focusGridSession(warmSlot.draftTask.id);
+        }
         void (async () => {
           try {
             const task = await persistWarmSlotTask(
@@ -1311,6 +1448,13 @@ function ProjectPage() {
         setPendingInitialInput(optimisticTask.id, opts.initialInput);
       }
       terminals.toggle(terminalProject, optimisticTask, { awaitCreate: !isLocal });
+      // Clone/new-session focus: put the caret in the just-added grid cell so the
+      // user can type immediately. focusGridSession retries until the pane mounts
+      // (and re-asserts across the awaitingCreate→persisted rebuild), so calling
+      // it here — before the surface exists — is fine.
+      if (opts?.focusOnCreate && terminals.gridView) {
+        terminals.focusGridSession(optimisticTask.id);
+      }
 
       void (async () => {
         try {
@@ -1378,6 +1522,19 @@ function ProjectPage() {
     ]
   );
 
+  // The session a fresh one should anchor on: the grid cell the user is looking
+  // at, falling back to the scope's active session. Clone and "new session" both
+  // use it so a new session lands beside — and takes focus from — that pane.
+  const anchorSessionId = useCallback((): string | undefined => {
+    // Live DOM focus first (a hotkey fires with a cell focused); then the grid's
+    // last-focused cell reported to the store (a header-button click moved DOM
+    // focus to the button); finally the scope's active session.
+    for (const candidate of [readFocusedGridTaskId(), terminals.getGridFocusedTaskId()]) {
+      if (candidate && tasks.some((t) => t.id === candidate)) return candidate;
+    }
+    return terminals.activeFor(selectedScopeKey)?.taskId ?? undefined;
+  }, [tasks, terminals, selectedScopeKey]);
+
   const startWithSaved = useCallback(() => {
     if (!project) return;
     if (!(project.rememberAgentSettings && project.savedAgent)) return;
@@ -1390,13 +1547,44 @@ function ProjectPage() {
       setShowNewAgent(true);
       return;
     }
-    createSession({
-      agent: project.savedAgent,
-      branch: project.branch || DEFAULT_BRANCH,
-      skipPermissions: !!project.savedSkipPermissions,
-      bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
-    });
-  }, [project, createSession, cliAvailability, showAgentUpdateRequired]);
+    // Drop the new session beside the active one and focus it, like Clone.
+    const anchor = anchorSessionId();
+    if (anchor) terminals.requestCloneInsertAfter(anchor);
+    createSession(
+      {
+        agent: project.savedAgent,
+        branch: project.branch || DEFAULT_BRANCH,
+        skipPermissions: !!project.savedSkipPermissions,
+        bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
+      },
+      { focusOnCreate: true },
+    );
+  }, [project, createSession, cliAvailability, showAgentUpdateRequired, anchorSessionId, terminals]);
+
+  const startWithSavedInNewRow = useCallback(() => {
+    if (!project) return;
+    if (!(project.rememberAgentSettings && project.savedAgent)) return;
+    const savedAvailability = availabilityFor(cliAvailability, project.savedAgent);
+    if (savedAvailability.status === "outdated") {
+      showAgentUpdateRequired(project.savedAgent, savedAvailability);
+      return;
+    }
+    if (savedAvailability.status === "missing") {
+      setShowNewAgent(true);
+      return;
+    }
+    // Start session in a fresh grid row instead of beside the active one.
+    terminals.requestNewRow();
+    createSession(
+      {
+        agent: project.savedAgent,
+        branch: project.branch || DEFAULT_BRANCH,
+        skipPermissions: !!project.savedSkipPermissions,
+        bareSession: project.savedAgent === "claude-code" ? !!project.savedBareSession : false,
+      },
+      { focusOnCreate: true },
+    );
+  }, [project, createSession, cliAvailability, showAgentUpdateRequired, terminals]);
 
   const onNewAgentPrimary = useCallback(() => {
     if (!projectPathReady) return;
@@ -1409,6 +1597,20 @@ function ProjectPage() {
   }, [project, projectPathReady, showNewAgent, showEdit, startWithSaved]);
 
   useHotkey("agent.new", onNewAgentPrimary, { ignoreEditable: true });
+
+  // New-row variant of agent.new: the session lands in a fresh grid row at the
+  // bottom instead of beside the active one. Grid-only — rows don't exist
+  // outside the grid.
+  const onNewRowPrimary = useCallback(() => {
+    if (!projectPathReady) return;
+    if (showNewAgent || showEdit) return;
+    if (project?.rememberAgentSettings && project.savedAgent) {
+      void startWithSavedInNewRow();
+      return;
+    }
+    setNewAgentTarget("newRow");
+    setShowNewAgent(true);
+  }, [project, projectPathReady, showNewAgent, showEdit, startWithSavedInNewRow]);
 
   useHotkey("project.edit", () => {
     if (showNewAgent || projectPathIssue || projectPathCheck.state === "error") return;
@@ -1449,12 +1651,23 @@ function ProjectPage() {
         return;
       }
       const payload = defaultSessionPayload(project);
+      // Drop the new session beside the active one and focus it, like Clone.
+      const anchor = anchorSessionId();
+      if (anchor) terminals.requestCloneInsertAfter(anchor);
       void createSession(
         { ...payload, agent: agent ?? settings?.defaultAgent ?? "claude-code", bareSession: false },
-        { initialInput: prompt },
+        { initialInput: prompt, focusOnCreate: true },
       );
     },
-    [project, projectPathReady, activeRuntimeScopeId, createSession, settings?.defaultAgent],
+    [
+      project,
+      projectPathReady,
+      activeRuntimeScopeId,
+      createSession,
+      settings?.defaultAgent,
+      anchorSessionId,
+      terminals,
+    ],
   );
 
   // Command bus: VoiceController (mounted at root) dispatches these for the
@@ -1495,17 +1708,35 @@ function ProjectPage() {
     const onOpenDiff = () => {
       if (projectPathReady) setDiffViewOpen(true);
     };
+    const onRemember = (e: Event) => {
+      const text = (e as CustomEvent<VoiceRememberDetail>).detail?.text?.trim();
+      if (!text) return;
+      // A spoken fact is a user-confirmed discovery. Long dictations overflow the
+      // title, so clamp to its limit — the whole utterance still reads as one line.
+      const title = text.slice(0, MEMORY_TITLE_MAX);
+      void api
+        .createMemory(id, { type: "discovery", title, source: "voice", confidence: "confirmed" })
+        .then(() => {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.projectMemory(id) });
+          toast.success(`Remembered: “${title}”`);
+        })
+        .catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Could not save that memory"),
+        );
+    };
     window.addEventListener(VOICE_RUN_PROJECT_EVENT, onRun);
     window.addEventListener(VOICE_NEW_AGENT_EVENT, onNewAgent as EventListener);
     window.addEventListener(VOICE_OPEN_BROWSER_EVENT, onOpenBrowser);
     window.addEventListener(VOICE_RUN_SCRIPT_EVENT, onRunScript as EventListener);
     window.addEventListener(VOICE_OPEN_DIFF_EVENT, onOpenDiff);
+    window.addEventListener(VOICE_REMEMBER_EVENT, onRemember as EventListener);
     return () => {
       window.removeEventListener(VOICE_RUN_PROJECT_EVENT, onRun);
       window.removeEventListener(VOICE_NEW_AGENT_EVENT, onNewAgent as EventListener);
       window.removeEventListener(VOICE_OPEN_BROWSER_EVENT, onOpenBrowser);
       window.removeEventListener(VOICE_RUN_SCRIPT_EVENT, onRunScript as EventListener);
       window.removeEventListener(VOICE_OPEN_DIFF_EVENT, onOpenDiff);
+      window.removeEventListener(VOICE_REMEMBER_EVENT, onRemember as EventListener);
     };
   }, [
     showNewAgent,
@@ -1524,6 +1755,8 @@ function ProjectPage() {
     runScript,
     projectPathReady,
     setDiffViewOpen,
+    id,
+    queryClient,
   ]);
 
   const anyBlockingDialogOpen =
@@ -1548,6 +1781,15 @@ function ProjectPage() {
     (direction: 1 | -1) => {
       if (!project || !terminalProject) return;
       if (anyBlockingDialogOpen) return;
+      // When the grid is on screen it cycles by moving the focused cell through
+      // the on-screen layout, which SessionGrid owns (it tracks "current" via
+      // terminal focus, not the scope's active-session state that toggle() below
+      // mutates). Let its own session.cycleNext/cyclePrev handlers drive it so
+      // cycling is visible. Guard on showGrid (not gridViewActive) so the
+      // empty-grid fallback — where SessionGrid isn't mounted — still falls
+      // through to the normal cycle here. The grid stays mounted alongside the
+      // docked diff panel, so cycling stays grid-owned while reviewing changes.
+      if (showGrid) return;
       const visible = tasks.filter((t) => !t.archived);
       if (visible.length === 0) return;
       const ordered: Task[] = [];
@@ -1570,73 +1812,129 @@ function ProjectPage() {
       if (!nextTask || nextTask.id === currentId) return;
       terminals.toggle(terminalProject, nextTask);
     },
-    [project, terminalProject, selectedScopeKey, tasks, terminals, anyBlockingDialogOpen],
+    [
+      project,
+      terminalProject,
+      selectedScopeKey,
+      tasks,
+      terminals,
+      anyBlockingDialogOpen,
+      showGrid,
+    ],
   );
 
-  // Direct window-capture listener (not useHotkey) — xterm's focused textarea
-  // intermittently masks the action-based hook after a focus change. Mirrors
-  // the proven Cmd+[/Cmd+] pattern in __root.tsx. Cmd+Shift+] / Cmd+Shift+[
-  // arrive as e.key="}" / e.key="{" on US layouts, so match by e.code instead.
-  const cycleSessionRef = useRef(cycleSession);
-  cycleSessionRef.current = cycleSession;
-
-  const duplicateActiveSession = useCallback(() => {
-    if (!project) return;
-    if (anyBlockingDialogOpen) return;
-    const active = terminals.activeFor(selectedScopeKey);
-    if (!active) return;
-    const sourceTask = tasks.find((t) => t.id === active.taskId);
-    if (!sourceTask) return;
-    void createSession({
-      agent: sourceTask.agent,
-      branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
-      skipPermissions: !!sourceTask.claudeSkipPermissions,
-      bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
-    });
-  }, [project, selectedScopeKey, tasks, terminals, createSession, anyBlockingDialogOpen]);
+  const duplicateActiveSession = useCallback(
+    (sourceTaskId?: string) => {
+      if (!project) return;
+      if (anyBlockingDialogOpen) return;
+      // Resolve which session to clone, most-specific first:
+      //  1. The session whose "Clone" button fired the event (menu path).
+      //  2. The grid cell that currently holds focus — the pane the user is
+      //     actually looking at when they hit Cmd+D. Without this the
+      //     keyboard path anchors on the scope's tracked-active session, which
+      //     in a multi-pane grid is often a different cell, so the clone lands
+      //     beside the "wrong" session (or, if that session isn't in the
+      //     rendered layout, in a seemingly random spot).
+      //  3. The scope's active session (non-grid view / no cell focused).
+      const focusedGridTaskId = readFocusedGridTaskId();
+      const sourceTask =
+        (sourceTaskId && tasks.find((t) => t.id === sourceTaskId)) ||
+        (focusedGridTaskId && tasks.find((t) => t.id === focusedGridTaskId)) ||
+        (() => {
+          const active = terminals.activeFor(selectedScopeKey);
+          return active ? tasks.find((t) => t.id === active.taskId) : undefined;
+        })();
+      if (!sourceTask) return;
+      // In grid view, drop the clone directly beside the session it came from
+      // rather than at the end of the grid.
+      terminals.requestCloneInsertAfter(sourceTask.id);
+      void createSession(
+        {
+          agent: sourceTask.agent,
+          branch: sourceTask.branch || project.branch || DEFAULT_BRANCH,
+          skipPermissions: !!sourceTask.claudeSkipPermissions,
+          bareSession: sourceTask.agent === "claude-code" ? !!sourceTask.claudeBareSession : false,
+        },
+        { focusOnCreate: true },
+      );
+    },
+    [project, selectedScopeKey, tasks, terminals, createSession, anyBlockingDialogOpen],
+  );
   const duplicateActiveSessionRef = useRef(duplicateActiveSession);
   duplicateActiveSessionRef.current = duplicateActiveSession;
 
+  // Session cycling + clone go through the rebindable registry so a rebind in
+  // Keybindings settings actually takes effect here (matches focus mode, which
+  // wires the same actions via useHotkey). Capture phase mirrors the old direct
+  // listener — a focused xterm textarea would otherwise swallow the chord first.
+  // The shifted-bracket combos (Cmd+Shift+] → e.key "}") are resolved by
+  // matchBinding's e.code fallback, so no manual e.code handling is needed.
+  useHotkey("session.cycleNext", () => cycleSession(1), { capture: true });
+  useHotkey("session.cyclePrev", () => cycleSession(-1), { capture: true });
+  useHotkey("session.clone", () => duplicateActiveSession(), { capture: true });
+  useHotkey(
+    "session.newRow",
+    () => {
+      if (anyBlockingDialogOpen) return;
+      onNewRowPrimary();
+    },
+    { capture: true, enabled: gridViewActive },
+  );
+
+  // The per-session "Clone" menu button dispatches this to clone a specific
+  // session by id (registered once, so it reads the latest handler via a ref).
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      // The project view stays mounted behind the settings overlay; suppress its
-      // shortcuts there so it behaves like a modal (mirrors the useHotkey guard).
-      if (isSettingsOverlayOpen()) return;
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (!e.shiftKey || e.altKey) return;
-      if (e.code === "BracketRight") {
-        e.preventDefault();
-        e.stopPropagation();
-        cycleSessionRef.current(1);
-      } else if (e.code === "BracketLeft") {
-        e.preventDefault();
-        e.stopPropagation();
-        cycleSessionRef.current(-1);
-      } else if (e.code === "KeyD") {
-        e.preventDefault();
-        e.stopPropagation();
-        duplicateActiveSessionRef.current();
-      }
+    const onDuplicateRequest = (e: Event) => {
+      const taskId = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      duplicateActiveSessionRef.current(taskId);
     };
-    const onDuplicateRequest = () => duplicateActiveSessionRef.current();
-    window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
-    };
+    return () => window.removeEventListener(DUPLICATE_ACTIVE_SESSION_EVENT, onDuplicateRequest);
   }, []);
 
+  // Capture phase (and no ignoreEditable) so Review Changes toggles even while a
+  // session terminal is focused. In grid view a cell's xterm always holds focus,
+  // so the old bubble-phase, editable-guarded listener never fired there — the
+  // xterm swallowed the chord and the editable guard bailed out. Matches how
+  // session.gridView / cycle are wired.
   useHotkey(
     "git.diff",
     () => {
-      if (
-        anyBlockingDialogOpen ||
-        !projectPathReady
-      ) return;
+      if (anyBlockingDialogOpen || !projectPathReady) return;
       onToggleDiffView();
     },
-    { ignoreEditable: true },
+    { capture: true },
+  );
+
+  // Capture phase so a focused session terminal can't swallow the key first —
+  // this must flip in/out of the grid even while typing in a session.
+  useHotkey(
+    "session.gridView",
+    () => {
+      if (anyBlockingDialogOpen) return;
+      toggleGridViewShowingAll();
+    },
+    { capture: true },
+  );
+
+  // Enter Focused Session Mode (small floating window). Target resolution
+  // mirrors clone: the focused grid cell first, then the scope's active
+  // session. Capture phase so a focused xterm can't swallow the key. Key
+  // repeats are ignored — a held toggle chord repeating across the exit
+  // navigation would land here and immediately re-enter focus mode.
+  useHotkey(
+    "session.focusMode",
+    (e) => {
+      if (e.repeat || anyBlockingDialogOpen) return;
+      const focusedGridTaskId = readFocusedGridTaskId();
+      const taskId =
+        (focusedGridTaskId && tasks.some((t) => t.id === focusedGridTaskId && !t.archived)
+          ? focusedGridTaskId
+          : null) ?? terminals.activeFor(selectedScopeKey)?.taskId;
+      if (!taskId) return;
+      enterFocusSession(router, taskId);
+    },
+    { capture: true },
   );
 
   const hiddenSession = lastHiddenSessionRef.current;
@@ -1685,22 +1983,59 @@ function ProjectPage() {
     },
   );
 
+  // Coalesce bursts of task events for THIS project into a single refetch. A
+  // running agent emits many task:updated events per second; each used to
+  // refetch this project's tasks + detail + the global projects list. The
+  // sidebar (ProjectBar / ProjectPicker) owns the projects-list refresh, so
+  // this route only refetches its own tasks + detail — and ignores task events
+  // for other projects entirely.
+  const invalidateThisProjectTasks = useDebouncedCallback(() => {
+    void invalidateTasks();
+    void invalidateProject();
+  }, 150);
+
   useServerEvents(
     useCallback(
       (e) => {
+        applyQuestionServerEvent(e);
         if (e.type.startsWith("task:")) {
-          void refresh();
-          // Badge dots on non-selected worktrees come from the worktrees query.
-          void invalidateWorktrees();
+          if (e.projectId === id) {
+            invalidateThisProjectTasks();
+            // Badge dots on non-selected worktrees come from the worktrees query.
+            void invalidateWorktrees();
+          }
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
           void invalidateProject();
         } else if (e.type.startsWith("project:")) {
           void invalidateProject();
           void invalidateProjects();
+        } else if (e.type.startsWith("memory:")) {
+          if (e.projectId === id) {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.projectMemory(id) });
+            // Non-blocking review nudge for silent auto-capture (D3): deep-links
+            // into the Recall panel's Recently-learned filter for bulk keep/edit.
+            if (e.type === "memory:learned") {
+              const count = typeof e.count === "number" ? e.count : 0;
+              if (count > 0) {
+                toast.success(
+                  `Learned ${count} ${count === 1 ? "memory" : "memories"} from this session`,
+                  {
+                    action: {
+                      label: "Review",
+                      onClick: () => {
+                        setRecallInitialFilter("recent");
+                        setShowRecall(true);
+                      },
+                    },
+                  },
+                );
+              }
+            }
+          }
         }
       },
-      [refresh, invalidateProject, invalidateProjects, invalidateWorktrees]
+      [id, invalidateThisProjectTasks, invalidateProject, invalidateProjects, invalidateWorktrees, queryClient]
     )
   );
 
@@ -1999,6 +2334,34 @@ function ProjectPage() {
   };
   archiveSessionRef.current = archiveSession;
 
+  // Archive every open session shown in the grid (across all projects). Used by
+  // the grid-view header's "Archive all" action. Plain function (not a hook)
+  // because it lives after this component's early returns.
+  const archiveAllGridSessions = async () => {
+    // Only archive the sessions shown in this project/scope's grid, not every
+    // open session across all projects.
+    const openSessions = terminals.sessions.filter(
+      (s) => scopeKeyForProject(s.project) === selectedScopeKey,
+    );
+    if (openSessions.length === 0) return;
+    const results = await Promise.allSettled(
+      openSessions.map((session) =>
+        archiveOpenSession(session, terminals.close, queryClient, { skipInvalidate: true }),
+      ),
+    );
+    // One deduped invalidation pass instead of a per-session fan-out (the
+    // global projects key alone would otherwise be invalidated N times).
+    await invalidateSessionQueries(queryClient, openSessions);
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed > 0) {
+      toast.error(
+        failed === openSessions.length
+          ? "Could not archive sessions"
+          : `Archived ${openSessions.length - failed} of ${openSessions.length} sessions`,
+      );
+    }
+  };
+
   const restoreSession = (taskId: string) => {
     if (!project) return;
     const task = tasks.find((t) => t.id === taskId);
@@ -2062,12 +2425,24 @@ function ProjectPage() {
     bareSession: boolean;
   }) => {
     setShowNewAgent(false);
-    createSession({
-      agent: data.agent,
-      branch: data.branch,
-      skipPermissions: data.dangerouslySkipPermissions,
-      bareSession: data.bareSession,
-    });
+    if (newAgentTarget === "newRow") {
+      // The "New row" button asked for this session to start a fresh grid row.
+      terminals.requestNewRow();
+    } else {
+      // Default: drop the new session beside the active one, like Clone.
+      const anchor = anchorSessionId();
+      if (anchor) terminals.requestCloneInsertAfter(anchor);
+    }
+    setNewAgentTarget("default");
+    createSession(
+      {
+        agent: data.agent,
+        branch: data.branch,
+        skipPermissions: data.dangerouslySkipPermissions,
+        bareSession: data.bareSession,
+      },
+      { focusOnCreate: true },
+    );
   };
 
   const headerActions = (
@@ -2174,7 +2549,7 @@ function ProjectPage() {
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: showDiffView ? "hidden" : "auto",
+          overflow: showDiffView || showGrid ? "hidden" : "auto",
           padding: 0,
           display: "flex",
           flexDirection: "column",
@@ -2184,14 +2559,14 @@ function ProjectPage() {
       <CardFrame
         style={{
           width: "100%",
-          minHeight: showDiffView ? 0 : "100%",
-          flex: showDiffView ? 1 : undefined,
-          flexShrink: showDiffView ? undefined : 0,
+          minHeight: showDiffView || showGrid ? 0 : "100%",
+          flex: showDiffView || showGrid ? 1 : undefined,
+          flexShrink: showDiffView || showGrid ? undefined : 0,
           boxSizing: "border-box",
           padding: 8,
-          display: showDiffView ? "flex" : undefined,
-          flexDirection: showDiffView ? "column" : undefined,
-          overflow: showDiffView ? "hidden" : undefined,
+          display: showDiffView || showGrid ? "flex" : undefined,
+          flexDirection: showDiffView || showGrid ? "column" : undefined,
+          overflow: showDiffView || showGrid ? "hidden" : undefined,
         }}
       >
         <div
@@ -2202,7 +2577,7 @@ function ProjectPage() {
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            margin: showDiffView ? "-8px -8px 12px" : "-8px -8px 32px",
+            margin: showDiffView || showGrid ? "-8px -8px 12px" : "-8px -8px 32px",
             padding: "22px 24px 18px",
             position: "relative",
             isolation: "isolate",
@@ -2324,6 +2699,19 @@ function ProjectPage() {
                     Find file in project
                   </DropdownMenuItem>
                 </HotkeyTooltip>
+                {(settings?.recallEnabled ?? false) && (
+                  <DropdownMenuItem
+                    icon="sparkles"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      setRecallInitialFilter("all");
+                      setShowRecall(true);
+                    }}
+                    title="Recall — curated project memory fed to new sessions"
+                  >
+                    Recall
+                  </DropdownMenuItem>
+                )}
                 {project.githubUrl ? (
                   <DropdownMenuItem
                     icon="github"
@@ -2496,9 +2884,99 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             </HotkeyTooltip>
+            <HotkeyTooltip
+              action="session.gridView"
+              label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+            >
+              <Btn
+                variant="ghost"
+                icon={terminals.gridView ? "list" : "grid"}
+                onClick={toggleGridViewShowingAll}
+                aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+                aria-pressed={terminals.gridView}
+                style={{
+                  width: 52,
+                  minWidth: 52,
+                  paddingInline: 0,
+                  background: terminals.gridView ? "var(--surface-2)" : undefined,
+                  color: terminals.gridView ? "var(--text)" : undefined,
+                }}
+              />
+            </HotkeyTooltip>
+            {showGrid && (
+              <>
+                <Btn
+                  variant="danger"
+                  icon="archive"
+                  onClick={() => setConfirmArchiveAll(true)}
+                  title="Archive all sessions in this grid"
+                >
+                  Archive all
+                </Btn>
+                <NewAgentButton
+                  project={project}
+                  onPrimary={onNewAgentPrimary}
+                  onNewRow={onNewRowPrimary}
+                  disabled={!projectPathReady}
+                  onConfigure={() => {
+                    if (projectPathReady) setShowNewAgent(true);
+                  }}
+                />
+              </>
+            )}
           </div>
         </div>
 
+        {showGrid ? (
+          showDiffView ? (
+            // Grid view + Review Changes: dock the diff as a resizable panel on
+            // the left and keep the live grid on the right, so the sessions stay
+            // visible while reviewing. Closing the diff (Back / toggle) returns to
+            // the full-width grid.
+            <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+              <div
+                style={{
+                  position: "relative",
+                  width: gridDiffWidth,
+                  flexShrink: 0,
+                  minWidth: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  borderRight: "1px solid var(--border)",
+                }}
+              >
+                <GitDiffView
+                  projectId={project.id}
+                  worktreeId={selectedWorktreeId}
+                  projectPath={selectedWorktreePath || project.path}
+                  enabled={projectPathReady}
+                  onBack={closeDiffView}
+                />
+                <div
+                  onMouseDown={onGridDiffResizeMouseDown}
+                  title="Drag to resize"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    right: -5,
+                    bottom: 0,
+                    width: 10,
+                    cursor: "col-resize",
+                    touchAction: "none",
+                    zIndex: 10,
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <SessionGrid scopeKey={selectedScopeKey} />
+              </div>
+            </div>
+          ) : (
+            <SessionGrid scopeKey={selectedScopeKey} />
+          )
+        ) : (
+        <>
         {cleanupStatus && (
           <div
             role="status"
@@ -2706,6 +3184,8 @@ function ProjectPage() {
             ))
           )}
         </div>
+        </>
+        )}
       </CardFrame>
 
       <CodexHooksNoticeDialog
@@ -2855,7 +3335,10 @@ function ProjectPage() {
       <NewAgentDialog
         open={showNewAgent}
         project={project}
-        onClose={() => setShowNewAgent(false)}
+        onClose={() => {
+          setShowNewAgent(false);
+          setNewAgentTarget("default");
+        }}
         onStart={startAgent}
         onPrepareWarm={prepareWarmForDialog}
         onAgentUpdateRequired={showAgentUpdateRequired}
@@ -2885,6 +3368,14 @@ function ProjectPage() {
           setShowEdit(false);
           await refresh();
         }}
+      />
+
+      <RecallModal
+        open={showRecall}
+        onClose={() => setShowRecall(false)}
+        projectId={project.id}
+        projectName={project.name}
+        initialFilter={recallInitialFilter}
       />
 
       <FileFinderDialog
@@ -3224,6 +3715,35 @@ function ProjectPage() {
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           {archivedTasks.length} archived session{archivedTasks.length === 1 ? "" : "s"} will be deleted. This cannot be undone. Active sessions are unaffected.
+        </div>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmArchiveAll}
+        onClose={() => setConfirmArchiveAll(false)}
+        onConfirm={async () => {
+          setArchivingAll(true);
+          try {
+            await archiveAllGridSessions();
+          } finally {
+            setArchivingAll(false);
+            setConfirmArchiveAll(false);
+          }
+        }}
+        title="Archive all sessions?"
+        confirmLabel="Archive all"
+        variant="danger"
+        icon="archive"
+        loading={archivingAll}
+        width={460}
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+          Archive all {terminals.sessions.length} open session
+          {terminals.sessions.length === 1 ? "" : "s"} across every project?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          Any running sessions will be disconnected and their agents stopped. You
+          can restore archived sessions later, but in-progress runs won&rsquo;t resume.
         </div>
       </ConfirmDialog>
       </div>

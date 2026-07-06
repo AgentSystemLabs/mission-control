@@ -134,6 +134,17 @@ function withinOrEqual(candidate: string, root: string): boolean {
   return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
+// `.worktrees` (plural) is the container older releases used; rows created back
+// then still point there and must stay deletable.
+const WORKTREE_CONTAINER_DIRS = [".worktree", ".worktrees"];
+
+function isContainedWorktreePath(projectRoot: string, worktreePath: string): boolean {
+  return WORKTREE_CONTAINER_DIRS.some((dir) => {
+    const rel = path.relative(path.join(projectRoot, dir), worktreePath);
+    return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+  });
+}
+
 export function resolveWorktreePath(projectPath: string, name: string): string {
   if (!WORKTREE_NAME_RE.test(name)) throw new Error("invalid worktree name");
   const projectRoot = path.resolve(projectPath);
@@ -322,9 +333,15 @@ export async function deleteWorktree(input: {
   if (!row || row.projectId !== input.projectId) return false;
 
   const projectRoot = path.resolve(project.path);
-  const expectedPath = resolveWorktreePath(projectRoot, row.name);
   const worktreePath = path.resolve(row.path);
-  if (worktreePath !== expectedPath) throw new Error("worktree path is invalid");
+  // Don't re-derive the path from the name here: rows written by older releases
+  // can carry names and container dirs the current scheme no longer generates
+  // (free-form names under `.worktrees/`), and re-validating them against
+  // today's rules would make those rows permanently undeletable. Deleting only
+  // needs the stored path to sit safely inside a worktree container.
+  if (!isContainedWorktreePath(projectRoot, worktreePath)) {
+    throw new Error("worktree path is invalid");
+  }
 
   // A previous delete that failed partway (e.g. Windows "Permission denied"
   // while a process held a handle) can leave a half-removed worktree whose

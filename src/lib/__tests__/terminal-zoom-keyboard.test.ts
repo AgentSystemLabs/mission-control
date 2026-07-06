@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { terminalZoomStepFromKeyboard } from "~/lib/terminal-pane-helpers";
+import { terminalZoomIntentFromKeyboard } from "~/lib/terminal-pane-helpers";
 
 function keyEvent(init: Partial<KeyboardEvent> & Pick<KeyboardEvent, "key">): KeyboardEvent {
   return {
@@ -13,25 +13,35 @@ function keyEvent(init: Partial<KeyboardEvent> & Pick<KeyboardEvent, "key">): Ke
   } as KeyboardEvent;
 }
 
-describe("terminalZoomStepFromKeyboard", () => {
+describe("terminalZoomIntentFromKeyboard", () => {
   it("detects mod+= and mod++ as zoom in", () => {
-    expect(terminalZoomStepFromKeyboard(keyEvent({ metaKey: true, key: "=" }))).toBe(1);
-    expect(terminalZoomStepFromKeyboard(keyEvent({ metaKey: true, key: "+" }))).toBe(1);
-    expect(terminalZoomStepFromKeyboard(keyEvent({ ctrlKey: true, key: "=", code: "Equal" }))).toBe(
-      1,
-    );
+    expect(terminalZoomIntentFromKeyboard(keyEvent({ metaKey: true, key: "=" }))).toBe("in");
+    expect(terminalZoomIntentFromKeyboard(keyEvent({ metaKey: true, key: "+" }))).toBe("in");
+    expect(
+      terminalZoomIntentFromKeyboard(keyEvent({ ctrlKey: true, key: "=", code: "Equal" })),
+    ).toBe("in");
   });
 
   it("detects mod+- as zoom out", () => {
-    expect(terminalZoomStepFromKeyboard(keyEvent({ metaKey: true, key: "-" }))).toBe(-1);
-    expect(terminalZoomStepFromKeyboard(keyEvent({ ctrlKey: true, key: "-", code: "Minus" }))).toBe(
-      -1,
-    );
+    expect(terminalZoomIntentFromKeyboard(keyEvent({ metaKey: true, key: "-" }))).toBe("out");
+    expect(
+      terminalZoomIntentFromKeyboard(keyEvent({ ctrlKey: true, key: "-", code: "Minus" })),
+    ).toBe("out");
+  });
+
+  it("detects mod+0 as reset", () => {
+    expect(terminalZoomIntentFromKeyboard(keyEvent({ metaKey: true, key: "0" }))).toBe("reset");
+    expect(
+      terminalZoomIntentFromKeyboard(keyEvent({ ctrlKey: true, key: "0", code: "Digit0" })),
+    ).toBe("reset");
   });
 
   it("ignores unmodified or alt-modified keys", () => {
-    expect(terminalZoomStepFromKeyboard(keyEvent({ key: "=" }))).toBeNull();
-    expect(terminalZoomStepFromKeyboard(keyEvent({ metaKey: true, altKey: true, key: "=" }))).toBeNull();
-    expect(terminalZoomStepFromKeyboard(keyEvent({ metaKey: true, key: "k" }))).toBeNull();
+    expect(terminalZoomIntentFromKeyboard(keyEvent({ key: "=" }))).toBeNull();
+    expect(terminalZoomIntentFromKeyboard(keyEvent({ key: "0" }))).toBeNull();
+    expect(
+      terminalZoomIntentFromKeyboard(keyEvent({ metaKey: true, altKey: true, key: "=" })),
+    ).toBeNull();
+    expect(terminalZoomIntentFromKeyboard(keyEvent({ metaKey: true, key: "k" }))).toBeNull();
   });
 });

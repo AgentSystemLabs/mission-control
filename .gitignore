@@ -9,6 +9,7 @@ dist-server
 .pnpm-store
 .vinxi
 .vite
+.tanstack
 .DS_Store
 *.sw?
 .certs
@@ -32,3 +33,8 @@ artifacts/
 resources/whisper/*
 !resources/whisper/.gitkeep
 !resources/whisper/README.md
+
+# Mission Control Recall (project memory) — private, do not commit
+CLAUDE.local.md
+# Mission Control Recall (code graph MCP) — machine-specific, regenerated per session
+.mcp.json

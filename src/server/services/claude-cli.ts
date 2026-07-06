@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { resolveAgentCommandOnPath } from "../../../electron/agent-cli-resolution";
 import { resolveCommandOnPath, sanitizedProcessEnv } from "../../../electron/shell-env";
 import { isWindowsCommandScript } from "../../../electron/windows-cmd";
+import { MC_AGENT_ENV_KEYS } from "~/shared/opencode-mission-control-plugin";
 
 export type RunCliOptions = {
   cwd?: string;
@@ -23,6 +24,24 @@ type CliSpawnInvocation = {
 };
 
 const CMD_SHIM_TARGET = /%(?:~dp0|dp0)%[\\/]+([^"]+\.(?:cjs|js|mjs))"/gi;
+
+/**
+ * Internal print-mode helpers (title generation, commit messages, model
+ * probes, markdown refinement) run a full agent CLI headlessly. If that CLI
+ * inherits a live session's Mission Control hook env — MC_TASK_ID / MC_API_URL
+ * / MC_API_TOKEN — the spawned agent fires MC's own UserPromptSubmit/Stop hooks
+ * back at the server, which records the helper's prompt to history and
+ * recursively re-triggers title generation (a runaway `claude -p` fan-out).
+ * Blank those keys so the hook commands' `[ -z "$MC_TASK_ID" ]` guard
+ * short-circuits: a helper spawn must never masquerade as a real user prompt.
+ */
+function withoutMissionControlHookEnv(
+  env: Record<string, string>,
+): Record<string, string> {
+  const out = { ...env };
+  for (const key of MC_AGENT_ENV_KEYS) delete out[key];
+  return out;
+}
 
 function resolveWindowsCmdShimInvocation(
   binary: string,
@@ -64,13 +83,14 @@ export function buildCliSpawnInvocation(
   env: Record<string, string> = sanitizedProcessEnv(),
   platform: NodeJS.Platform = os.platform(),
 ): CliSpawnInvocation {
-  const resolved = resolveAgentCommandOnPath(cmd, env, platform) ?? cmd;
+  const safeEnv = withoutMissionControlHookEnv(env);
+  const resolved = resolveAgentCommandOnPath(cmd, safeEnv, platform) ?? cmd;
   if (platform === "win32" && isWindowsCommandScript(resolved)) {
-    const shim = resolveWindowsCmdShimInvocation(resolved, args, env);
+    const shim = resolveWindowsCmdShimInvocation(resolved, args, safeEnv);
     if (shim) return shim;
     throw new Error(`cannot safely launch Windows command shim for ${cmd}`);
   }
-  return { command: resolved, args, env };
+  return { command: resolved, args, env: safeEnv };
 }
 
 /**

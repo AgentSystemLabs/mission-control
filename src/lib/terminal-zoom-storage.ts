@@ -33,6 +33,16 @@ export function writeTerminalInstanceZoom(
   }
 }
 
+/** Drop a terminal's per-instance zoom so it falls back to the global level. */
+export function clearTerminalInstanceZoom(instanceId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(instanceZoomKey(instanceId));
+  } catch {
+    // ignore privacy-mode errors
+  }
+}
+
 export function resolveTerminalZoomLevel(
   instanceId: string,
   globalLevel: TerminalZoomLevel = DEFAULT_TERMINAL_ZOOM_LEVEL,

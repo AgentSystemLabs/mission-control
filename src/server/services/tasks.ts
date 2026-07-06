@@ -4,6 +4,7 @@ import type { Task } from "~/db/schema";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { events } from "../events";
 import { deleteDiagramsForTask } from "./diagram-store";
+import { clearPendingQuestion } from "./pending-questions";
 import {
   deleteTaskRow,
   findTaskById,
@@ -115,6 +116,11 @@ export function updateStatus(
     updatedAt: next.updatedAt,
   });
   events.emit("task:updated", { id, projectId: existing.projectId });
+  // Any status transition away from needs-input means the agent moved on, so
+  // whatever question was pending is stale (answered, cancelled, interrupted).
+  if (patch.status && patch.status !== "needs-input") {
+    clearPendingQuestion(id);
+  }
   if (
     patch.status === "finished" &&
     existing.status !== "finished"
@@ -161,6 +167,7 @@ export function archiveTask(id: string): Task | null {
   if (!existing) return null;
   updateTaskRow(id, { archived: true, updatedAt: Date.now() });
   const next = { ...existing, archived: true } as Task;
+  clearPendingQuestion(id);
   events.emit("task:archived", { id, projectId: existing.projectId });
   return next;
 }
@@ -180,6 +187,7 @@ export function deleteTask(id: string): boolean {
   const changes = deleteTaskRow(id);
   if (changes > 0) {
     deleteDiagramsForTask(id);
+    clearPendingQuestion(id);
     events.emit("task:deleted", { id, projectId: existing.projectId });
     return true;
   }

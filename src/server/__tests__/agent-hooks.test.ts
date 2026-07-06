@@ -43,6 +43,67 @@ describe("agent hook installation", () => {
     expect(settings.hooks.UserInterrupt).toBeUndefined();
   });
 
+  it("registers AskUserQuestion tool-use hooks for Claude", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd);
+
+    const raw = fs.readFileSync(
+      path.join(cwd, ".claude", "settings.local.json"),
+      "utf8"
+    );
+    const settings = JSON.parse(raw) as {
+      hooks: Record<
+        string,
+        Array<{
+          matcher?: string;
+          hooks?: Array<{ command?: string }>;
+          _mcManaged?: boolean;
+        }>
+      >;
+    };
+
+    expect(settings.hooks.PreToolUse?.[0]).toMatchObject({
+      matcher: "AskUserQuestion",
+      _mcManaged: true,
+    });
+    expect(settings.hooks.PreToolUse?.[0]?.hooks?.[0]?.command).toContain(
+      "hookEvent=PreToolUse"
+    );
+    expect(settings.hooks.PostToolUse?.[0]).toMatchObject({
+      matcher: "AskUserQuestion",
+      _mcManaged: true,
+    });
+    expect(settings.hooks.PostToolUse?.[0]?.hooks?.[0]?.command).toContain(
+      "hookEvent=PostToolUse"
+    );
+  });
+
+  it("registers a SessionStart hook and passes UserPromptSubmit stdout through", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd);
+
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude", "settings.local.json"), "utf8"),
+    ) as {
+      hooks: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
+    };
+
+    // SessionStart drives the code-graph auto-index.
+    const sessionStart = settings.hooks.SessionStart?.[0]?.hooks?.[0]?.command;
+    expect(sessionStart).toContain("hookEvent=SessionStart");
+
+    // UserPromptSubmit keeps stdout (the injected recall block); Stop discards it.
+    const userPrompt = settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.command ?? "";
+    expect(userPrompt).toContain("hookEvent=UserPromptSubmit");
+    expect(userPrompt).not.toContain(">/dev/null 2>&1");
+    expect(userPrompt).toContain("2>/dev/null || true");
+
+    const stop = settings.hooks.Stop?.[0]?.hooks?.[0]?.command ?? "";
+    expect(stop).toContain(">/dev/null 2>&1 || true");
+  });
+
   it("registers Claude hooks as PowerShell commands on Windows", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
 

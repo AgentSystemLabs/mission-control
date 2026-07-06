@@ -29,7 +29,7 @@ import { pruneStoredSessionFinishNotifications } from "~/lib/session-notificatio
 import { scopedSandboxesForProject } from "~/lib/project-scoped-sandboxes";
 import { useProjectSandboxFlow } from "~/lib/use-project-sandbox-flow";
 import { useHotkey } from "~/lib/use-hotkey";
-import { useTerminals } from "~/lib/terminal-store";
+import { useTerminalActions } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import {
   queryKeys,
@@ -315,7 +315,7 @@ export function ScopeDropdown() {
   // from the route. On a project screen we scope the list to that project's sandboxes.
   const currentPath = useRouterState({ select: (state) => state.location.pathname });
   const currentProjectId = currentPath.match(/^\/projects\/([^/]+)/)?.[1] ?? null;
-  const terminals = useTerminals();
+  const terminals = useTerminalActions();
   const userTerminals = useUserTerminals();
   const [open, setOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);

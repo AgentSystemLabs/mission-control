@@ -18,7 +18,7 @@ import { ProjectsDashboardViewToggle } from "~/components/views/ProjectsDashboar
 import { ProjectsTable } from "~/components/views/ProjectsTable";
 import { GroupsDialog } from "~/components/views/GroupsDialog";
 import { useAddProject } from "~/lib/add-project-store";
-import { useTerminals } from "~/lib/terminal-store";
+import { useTerminalActions } from "~/lib/terminal-store";
 import { api, type AppSettings } from "~/lib/api";
 import {
   readCachedProjectsDashboardView,
@@ -62,7 +62,7 @@ function MissionControlPage() {
   const [dashboardView, setDashboardView] = useState<ProjectsDashboardView>(() =>
     readCachedProjectsDashboardView() ?? DEFAULT_PROJECTS_DASHBOARD_VIEW,
   );
-  const terminals = useTerminals();
+  const terminals = useTerminalActions();
   const { setProject: setActiveUserTerminalProject, setHomeActive } = useUserTerminals();
   const { open: openAddProject } = useAddProject();
 

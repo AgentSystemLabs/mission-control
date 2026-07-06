@@ -33,6 +33,7 @@ import { IPC } from "./ipc-channels";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
+import { registerFocusMode } from "./focus-mode";
 import { registerSandboxManager, disposeSandboxManager } from "./sandbox-manager";
 import {
   disposeApiTokenStore,
@@ -1465,6 +1466,10 @@ app.whenReady().then(() => {
   configurePermissionHandlers();
   registerProjectImageProtocol();
   registerUpdateManager(ipcMain, () => win, missionControlUserDataDir);
+  registerFocusMode(() => win, missionControlUserDataDir, {
+    width: MAIN_WINDOW_MIN_WIDTH,
+    height: MAIN_WINDOW_MIN_HEIGHT,
+  });
   registerSandboxManager(ipcMain, () => win, missionControlUserDataDir, app.getAppPath(), () =>
     runtimePort
       ? { port: runtimePort, token: getOrCreateApiToken(missionControlUserDataDir) }

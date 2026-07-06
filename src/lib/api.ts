@@ -16,6 +16,9 @@ export type { GitBranch, GitBranchesResult, GitCheckoutResult };
 import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types";
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
+import type { ClaudeUsageLimits } from "~/shared/claude-usage-limits";
+import type { PendingQuestion } from "~/shared/agent-questions";
+import type { PromptSearchResponse } from "~/shared/prompts";
 import type { WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import type {
@@ -29,12 +32,27 @@ import type {
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
+import type { ThemeStyle } from "~/shared/theme-style";
 import type {
   MarkdownRefineRequest,
   MarkdownRefineResponse,
 } from "~/shared/markdown-refine";
 import type { SandboxPublicView } from "~/shared/sandbox";
+import type {
+  MemoryCreateInput,
+  MemoryUpdateInput,
+  MemoryVerifyVerdict,
+  MemoryView,
+} from "~/shared/project-memory";
+import type {
+  GraphIndexMode,
+  GraphNeighbor,
+  GraphNodeView,
+  GraphStatus,
+  GraphSummary,
+} from "~/shared/code-graph";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
+import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 
 // The api bearer token is intentionally NOT part of this HTTP-derived shape.
@@ -44,6 +62,9 @@ import { pruneStoredSessionFinishNotifications } from "~/lib/session-notificatio
 export type AppSettings = {
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
+  /** Which chrome to render: painted (pixel art), minimal, or noir (flat). */
+  themeStyle: ThemeStyle;
+  /** Derived server-side: true when themeStyle renders clean CSS chrome. */
   minimalTheme: boolean;
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
@@ -57,6 +78,8 @@ export type AppSettings = {
   worktreesEnabled: boolean;
   /** Experimental: push-to-talk voice control (off by default). */
   voiceControlEnabled: boolean;
+  /** Beta: native popup for Claude Code AskUserQuestion menus (on by default). */
+  questionOverlayEnabled: boolean;
   gitDiffChangedFilesView: GitDiffChangedFilesView | null;
   gitDiffChangedFilesWidth: number | null;
   /** Projects dashboard layout — cards (default) or table. */
@@ -69,6 +92,11 @@ export type AppSettings = {
   commitCli: CommitCli | null;
   /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
   terminalZoomLevel: TerminalZoomLevel;
+  /**
+   * Which discretionary session-pane header buttons are shown. Zoom is hidden
+   * by default (it's driven by keyboard shortcuts); the rest default on.
+   */
+  sessionHeaderButtons: SessionHeaderButtonVisibility;
   /**
    * Default harness/model for voice-started agents when the command doesn't name one.
    * `null` means "not set" — don't pass a model flag, so the CLI uses its own default.
@@ -84,6 +112,37 @@ export type AppSettings = {
   annotationModel: AiModelId | null;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
+  /**
+   * Show Claude Code's live session (5h) + weekly usage limits in the top bar.
+   * Off by default — enabling it makes the app fetch usage from Anthropic using
+   * the user's Claude login. The two `show*` flags toggle each window.
+   */
+  claudeUsageLimitsEnabled: boolean;
+  claudeUsageLimitsShowSession: boolean;
+  claudeUsageLimitsShowWeekly: boolean;
+  /**
+   * Recall (project memory) controls. `recallEnabled` is the experimental
+   * master switch — it ships off by default (opt in from Settings). When off
+   * the server reports every behavioral flag below as false (stored values are
+   * preserved for re-enable) and the UI hides Recall entirely. Auto-capture
+   * distills memories when a session finishes; the
+   * engine settings pick which CLI the LLM shells out to (mirroring session
+   * creation). Disabling the engine degrades to deterministic FTS + heuristic
+   * ranking with no CLI round-trip.
+   */
+  recallEnabled: boolean;
+  recallAutoCaptureEnabled: boolean;
+  recallEngineEnabled: boolean;
+  recallEngineHarness: AiRuntimeHarness;
+  recallEngineModel: AiModelId | null;
+  /** Whether an agent session may write memories back to its project. */
+  recallAgentWriteEnabled: boolean;
+  /** Whether a fresh session gets the Session Brief injected on start. */
+  recallInjectBriefEnabled: boolean;
+  /** Whether the brief includes the code-graph "Architecture at a glance" section. */
+  recallCodeGraphEnabled: boolean;
+  /** Whether each turn gets relevant memories + graph hits injected proactively. */
+  recallProactiveRecallEnabled: boolean;
 };
 
 export class ApiError extends Error {
@@ -290,6 +349,76 @@ export const api = {
     });
   },
 
+  // Recall — project memory.
+  listMemory: (projectId: string, opts: { includeArchived?: boolean } = {}) =>
+    req<{ memories: MemoryView[] }>(
+      `/api/projects/${projectId}/memory${opts.includeArchived ? "?includeArchived=true" : ""}`,
+    ),
+  searchMemory: (projectId: string, query: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return req<{ memories: MemoryView[] }>(
+      `/api/projects/${projectId}/memory/search${qs ? `?${qs}` : ""}`,
+    );
+  },
+  createMemory: (projectId: string, body: Omit<MemoryCreateInput, "projectId">) =>
+    req<{ memory: MemoryView }>(`/api/projects/${projectId}/memory`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateMemory: (memoryId: string, body: MemoryUpdateInput) =>
+    req<{ memory: MemoryView }>(`/api/memory/${memoryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteMemory: (memoryId: string, opts: { hard?: boolean } = {}) =>
+    req<void>(`/api/memory/${memoryId}${opts.hard ? "?hard=true" : ""}`, { method: "DELETE" }),
+  // Verify a memory against the current code. Applies the verdict server-side
+  // (verified / stale / contradicted→supersede) and returns the resulting memory.
+  verifyMemory: (memoryId: string) =>
+    req<{ verdict: MemoryVerifyVerdict; memory: MemoryView }>(
+      `/api/memory/${memoryId}/verify`,
+      { method: "POST" },
+    ),
+  // The assembled Session Brief for a task (what gets injected). `record: false`
+  // previews it without bumping memory usage — for a "view injected brief" panel.
+  getTaskBrief: (taskId: string, opts: { record?: boolean } = {}) =>
+    req<{ brief: string; memoryIds: string[] }>(
+      `/api/tasks/${taskId}/brief${opts.record === false ? "?record=false" : ""}`,
+    ),
+  // Preview the brief a new session in this project would get (no usage bump).
+  getProjectBrief: (projectId: string) =>
+    req<{ brief: string; memoryIds: string[] }>(`/api/projects/${projectId}/brief`),
+
+  // Recall — code graph.
+  getGraphStatus: (projectId: string) =>
+    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/status`),
+  getGraphSummary: (projectId: string) =>
+    req<{ summary: GraphSummary }>(`/api/projects/${projectId}/graph/summary`),
+  buildGraph: (projectId: string, mode: GraphIndexMode = "full") =>
+    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/index?mode=${mode}`, {
+      method: "POST",
+    }),
+  cancelGraphBuild: (projectId: string) =>
+    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/index/cancel`, {
+      method: "POST",
+    }),
+  searchGraph: (projectId: string, query: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return req<{ nodes: GraphNodeView[] }>(
+      `/api/projects/${projectId}/graph/search${qs ? `?${qs}` : ""}`,
+    );
+  },
+  getGraphNeighbors: (projectId: string, node: string, direction: "in" | "out" | "both" = "both") =>
+    req<{ node: GraphNodeView; neighbors: GraphNeighbor[] }>(
+      `/api/projects/${projectId}/graph/neighbors?node=${encodeURIComponent(node)}&direction=${direction}`,
+    ),
+
   listGroups: () => req<{ groups: Group[] }>("/api/groups"),
   createGroup: (body: { name: string; color?: string }) =>
     req<{ group: Group }>("/api/groups", {
@@ -309,6 +438,8 @@ export const api = {
       `/api/projects/${projectId}/tasks${scopedWorktreeQuery(worktreeId, scopeId)}`,
     ),
   getTask: (id: string) => req<{ task: Task }>(`/api/tasks/${id}`),
+  getTaskQuestion: (id: string) =>
+    req<{ question: PendingQuestion | null }>(`/api/tasks/${id}/question`),
   archiveTask: (id: string) =>
     req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id: string) =>
@@ -428,6 +559,7 @@ export const api = {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "accentColor"
+        | "themeStyle"
         | "minimalTheme"
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"
@@ -438,17 +570,31 @@ export const api = {
         | "automaticUpdateInstallOnQuitEnabled"
         | "worktreesEnabled"
         | "voiceControlEnabled"
+        | "questionOverlayEnabled"
         | "gitDiffChangedFilesView"
         | "gitDiffChangedFilesWidth"
         | "projectsDashboardView"
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"
+        | "sessionHeaderButtons"
         | "defaultAgent"
         | "defaultModel"
         | "annotationAgent"
         | "annotationModel"
         | "voiceCommandAliases"
+        | "claudeUsageLimitsEnabled"
+        | "claudeUsageLimitsShowSession"
+        | "claudeUsageLimitsShowWeekly"
+        | "recallEnabled"
+        | "recallAutoCaptureEnabled"
+        | "recallEngineEnabled"
+        | "recallEngineHarness"
+        | "recallEngineModel"
+        | "recallAgentWriteEnabled"
+        | "recallInjectBriefEnabled"
+        | "recallCodeGraphEnabled"
+        | "recallProactiveRecallEnabled"
       >
     >,
   ) =>
@@ -530,6 +676,12 @@ export const api = {
     }),
   getUsage: (days: number = 30) =>
     req<UsageSummary>(`/api/usage?days=${days}`),
+  getClaudeUsageLimits: () =>
+    req<ClaudeUsageLimits>("/api/claude-usage-limits"),
+  searchPrompts: (query: string, limit?: number) =>
+    req<PromptSearchResponse>(
+      `/api/prompts?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ""}`,
+    ),
   createEventsTicket: () =>
     req<{ ticket: string; expiresAt: number }>("/api/events/ticket", {
       method: "POST",

@@ -14,14 +14,19 @@ export const HOTKEY_ACTIONS = [
   "terminal.cyclePrev",
   "session.closeWindow",
   "session.clone",
+  "session.newRow",
   "session.cycleNext",
   "session.cyclePrev",
+  "session.gridNavigate",
+  "session.gridView",
+  "session.focusMode",
   "dialog.submit",
   "file.finder",
   "file.save",
   "git.diff",
   "project.runToggle",
   "voice.pushToTalk",
+  "prompt.search",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -58,8 +63,28 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
       "Archive the open session (no confirmation). If it is already archived, permanently delete it instead.",
   },
   "session.clone": { label: "Clone session", description: "Duplicate the active agent session with the same settings." },
+  "session.newRow": {
+    label: "New session in new row",
+    description:
+      "In grid view, start a new session in a fresh row at the bottom of the grid instead of beside the active session.",
+  },
   "session.cycleNext": { label: "Next session", description: "Cycle to the next open session in the panel." },
   "session.cyclePrev": { label: "Previous session", description: "Cycle to the previous open session in the panel." },
+  "session.gridNavigate": {
+    label: "Navigate session grid",
+    description:
+      "In the full-width grid view, start keyboard navigation — arrow keys move the selection between open sessions and Enter opens the highlighted one (Esc cancels).",
+  },
+  "session.gridView": {
+    label: "Toggle grid view",
+    description:
+      "Show or hide the full-width grid of every open session across all projects.",
+  },
+  "session.focusMode": {
+    label: "Focus session (floating)",
+    description:
+      "Pop the active session out into a small always-on-top floating window; press again to restore the full app.",
+  },
   "dialog.submit": { label: "Submit dialog", description: "Submit a dialog form (New agent, edit project, etc.)." },
   "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },
   "file.save": { label: "Save file", description: "Save the file currently open in the editor." },
@@ -69,5 +94,10 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
     label: "Push to talk",
     description:
       "Hold to speak a voice command — switch project, run the project, or start an agent. Release to run it.",
+  },
+  "prompt.search": {
+    label: "Search prompt history",
+    description:
+      "Open a searchable popup of every prompt you've sent to a session; pick one to jump to that session.",
   },
 };

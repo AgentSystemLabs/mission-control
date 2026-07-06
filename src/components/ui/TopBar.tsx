@@ -29,7 +29,11 @@ export function TopBar({
         alignItems: "center",
         justifyContent: "space-between",
         height: 48 + contentTopInset,
-        padding: `${contentTopInset}px 20px 0 ${leadingInset ?? 24}px`,
+        // Vertical padding stays symmetric so `align-items: center` truly
+        // centers the wordmark + dropdown in the bar. The extra height from
+        // contentTopInset (minimal/noir/ember) just makes a taller bar; it must
+        // NOT be applied as top-only padding, which pushed content below centre.
+        padding: `0 20px 0 ${leadingInset ?? 24}px`,
         background: "transparent",
         borderBottom: "1px solid var(--border)",
         flexShrink: 0,

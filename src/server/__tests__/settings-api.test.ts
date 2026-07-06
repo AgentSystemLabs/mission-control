@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
+import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-settings-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
@@ -64,6 +65,150 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps Claude usage limits off by default, with both windows shown", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      claudeUsageLimitsEnabled: false,
+      claudeUsageLimitsShowSession: true,
+      claudeUsageLimitsShowWeekly: true,
+    });
+  });
+
+  it("persists Claude usage limit toggles", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          claudeUsageLimitsEnabled: true,
+          claudeUsageLimitsShowWeekly: false,
+        }),
+      }),
+    );
+    expect(update?.status).toBe(200);
+
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+    expect(await jsonBody(read!)).toMatchObject({
+      claudeUsageLimitsEnabled: true,
+      claudeUsageLimitsShowSession: true,
+      claudeUsageLimitsShowWeekly: false,
+    });
+  });
+
+  it("defaults Recall off: master switch and every gated flag disabled", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      recallEnabled: false,
+      recallAutoCaptureEnabled: false,
+      recallEngineEnabled: false,
+      // Harness + model aren't gated by the master switch, so they keep defaults.
+      recallEngineHarness: "claude-code",
+      recallEngineModel: null,
+      recallAgentWriteEnabled: false,
+      recallInjectBriefEnabled: false,
+      recallCodeGraphEnabled: false,
+      recallProactiveRecallEnabled: false,
+    });
+  });
+
+  it("recallEnabled=false forces every Recall flag off, and re-enabling restores stored values", async () => {
+    // Store an explicit non-default sub-setting so we can see it survive the off/on cycle.
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallAutoCaptureEnabled: false }),
+      }),
+    );
+
+    const disabled = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEnabled: false }),
+      }),
+    );
+    expect(disabled?.status).toBe(200);
+    expect(await jsonBody(disabled!)).toMatchObject({
+      recallEnabled: false,
+      recallAutoCaptureEnabled: false,
+      recallEngineEnabled: false,
+      recallAgentWriteEnabled: false,
+      recallInjectBriefEnabled: false,
+      recallCodeGraphEnabled: false,
+      recallProactiveRecallEnabled: false,
+    });
+
+    const reenabled = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEnabled: true }),
+      }),
+    );
+    expect(await jsonBody(reenabled!)).toMatchObject({
+      recallEnabled: true,
+      // Explicitly stored off — must survive the master toggle round-trip.
+      recallAutoCaptureEnabled: false,
+      // Defaults come back on.
+      recallEngineEnabled: true,
+      recallAgentWriteEnabled: true,
+      recallInjectBriefEnabled: true,
+      recallCodeGraphEnabled: true,
+      recallProactiveRecallEnabled: true,
+    });
+  });
+
+  it("persists Recall engine harness + model and toggles", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          recallEnabled: true,
+          recallAutoCaptureEnabled: false,
+          recallEngineHarness: "codex",
+          recallEngineModel: "gpt-5.5",
+        }),
+      }),
+    );
+    expect(update?.status).toBe(200);
+
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(read!)).toMatchObject({
+      recallAutoCaptureEnabled: false,
+      recallEngineHarness: "codex",
+      recallEngineModel: "gpt-5.5",
+      recallEngineEnabled: true,
+    });
+  });
+
+  it("clears the Recall engine model when set to null", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEngineModel: "opus" }),
+      }),
+    );
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recallEngineModel: null }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(read!)).toMatchObject({ recallEngineModel: null });
+  });
+
   it("persists the default terminal zoom level", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
@@ -79,6 +224,37 @@ describe("settings API", () => {
     expect(update?.status).toBe(200);
     expect(await jsonBody(update!)).toMatchObject({ terminalZoomLevel: 2 });
     expect(await jsonBody(read!)).toMatchObject({ terminalZoomLevel: 2 });
+  });
+
+  it("hides the zoom session button by default and shows the rest", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({
+      sessionHeaderButtons: DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
+    });
+    expect(DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY).toMatchObject({
+      rename: true,
+      zoom: false,
+      clone: true,
+      focus: true,
+    });
+  });
+
+  it("persists session button visibility, merging a partial payload over defaults", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        // Only send the two the user changed; unknown keys are dropped and the
+        // rest fall back to their defaults.
+        body: JSON.stringify({ sessionHeaderButtons: { zoom: true, clone: false, bogus: true } }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    const expected = { rename: true, zoom: true, clone: false, focus: true };
+    expect(await jsonBody(update!)).toMatchObject({ sessionHeaderButtons: expected });
+    expect(await jsonBody(read!)).toMatchObject({ sessionHeaderButtons: expected });
   });
 
   it("defaults voice agents to Claude Code with no model until one is chosen", async () => {
@@ -409,6 +585,26 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({ voiceControlEnabled: true });
   });
 
+  it("keeps the question overlay enabled by default (beta)", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({ questionOverlayEnabled: true });
+  });
+
+  it("persists the question overlay preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ questionOverlayEnabled: false }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ questionOverlayEnabled: false });
+    expect(await jsonBody(read!)).toMatchObject({ questionOverlayEnabled: false });
+  });
+
   it("persists durable UI preferences", async () => {
     const selectedWorktreeByProject = { "project-1": "worktree-2" };
     const update = await handleApiRequest(
@@ -439,6 +635,131 @@ describe("settings API", () => {
       gitDiffChangedFilesWidth: 420,
       projectsDashboardView: "table",
       selectedWorktreeByProject,
+    });
+  });
+
+  it("defaults to the painted theme style", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      themeStyle: "painted",
+      minimalTheme: false,
+    });
+  });
+
+  it("persists the theme style and derives minimalTheme from it", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "noir" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "noir",
+      minimalTheme: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      themeStyle: "noir",
+      minimalTheme: true,
+    });
+  });
+
+  it("persists the ember theme style and derives minimalTheme from it", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "ember" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "ember",
+      minimalTheme: true,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      themeStyle: "ember",
+      minimalTheme: true,
+    });
+  });
+
+  it("rejects an unknown theme style", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "vaporwave" }),
+      }),
+    );
+
+    expect(response?.status).toBe(400);
+  });
+
+  it("maps an install that only stored the legacy minimal flag to the minimal style", async () => {
+    // Simulate a database written by a build that predates theme_style.
+    getDb().insert(appSettings).values({ key: "minimal_theme", value: "true" }).run();
+
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(await jsonBody(response!)).toMatchObject({
+      themeStyle: "minimal",
+      minimalTheme: true,
+    });
+  });
+
+  it("keeps noir when a legacy client re-sends minimalTheme: true", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "noir" }),
+      }),
+    );
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ minimalTheme: true }),
+      }),
+    );
+
+    expect(await jsonBody(update!)).toMatchObject({ themeStyle: "noir" });
+  });
+
+  it("returns to painted when a legacy client sends minimalTheme: false", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "noir" }),
+      }),
+    );
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ minimalTheme: false }),
+      }),
+    );
+
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "painted",
+      minimalTheme: false,
     });
   });
 

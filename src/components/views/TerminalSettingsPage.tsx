@@ -14,6 +14,7 @@ import {
   type TerminalZoomLevel,
 } from "~/shared/terminal-zoom";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
+import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 
 export function TerminalSettingsPage() {
   const queryClient = useQueryClient();
@@ -26,6 +27,7 @@ export function TerminalSettingsPage() {
   ): AppSettings => ({
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
+    themeStyle: settings?.themeStyle ?? "painted",
     minimalTheme: settings?.minimalTheme ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
@@ -43,12 +45,27 @@ export function TerminalSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: level,
+    sessionHeaderButtons:
+      settings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
     defaultAgent: settings?.defaultAgent ?? "claude-code",
     defaultModel: settings?.defaultModel ?? null,
     annotationAgent: settings?.annotationAgent ?? "claude-code",
     annotationModel: settings?.annotationModel ?? null,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
+    questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,
+    claudeUsageLimitsEnabled: settings?.claudeUsageLimitsEnabled ?? false,
+    claudeUsageLimitsShowSession: settings?.claudeUsageLimitsShowSession ?? true,
+    claudeUsageLimitsShowWeekly: settings?.claudeUsageLimitsShowWeekly ?? true,
+    recallEnabled: settings?.recallEnabled ?? false,
+    recallAutoCaptureEnabled: settings?.recallAutoCaptureEnabled ?? true,
+    recallEngineEnabled: settings?.recallEngineEnabled ?? true,
+    recallEngineHarness: settings?.recallEngineHarness ?? "claude-code",
+    recallEngineModel: settings?.recallEngineModel ?? null,
+    recallAgentWriteEnabled: settings?.recallAgentWriteEnabled ?? true,
+    recallInjectBriefEnabled: settings?.recallInjectBriefEnabled ?? true,
+    recallCodeGraphEnabled: settings?.recallCodeGraphEnabled ?? true,
+    recallProactiveRecallEnabled: settings?.recallProactiveRecallEnabled ?? true,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

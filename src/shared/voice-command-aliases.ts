@@ -6,6 +6,7 @@ export const VOICE_ALIAS_COMMAND_IDS = [
   "ship",
   "run-script",
   "new-agent",
+  "remember",
 ] as const;
 
 export type VoiceAliasCommandId = (typeof VOICE_ALIAS_COMMAND_IDS)[number];
@@ -23,6 +24,7 @@ export function emptyVoiceCommandAliases(): VoiceCommandAliases {
     ship: [],
     "run-script": [],
     "new-agent": [],
+    remember: [],
   };
 }
 

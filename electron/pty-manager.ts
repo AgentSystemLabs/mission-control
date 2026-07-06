@@ -5,7 +5,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { installAgentHooks } from "./agent-hooks";
+import { installAgentMemoryBrief } from "./agent-memory-brief";
+import { ensureStatuslineTap } from "../src/shared/statusline-tap";
 import { ensureDiagramSkillForAgent } from "./ensure-diagram-skill";
+import { ensureRecallSkillForAgent } from "./ensure-recall-skill";
+import { ensureRecallMcpForAgent } from "./ensure-recall-mcp";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
@@ -23,7 +27,7 @@ import {
   type SpawnRequest,
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
-import { checkAgentCliVersion, agentVersionErrorMessage } from "./agent-cli-version";
+import { checkAgentCliVersionCached, agentVersionErrorMessage } from "./agent-cli-version";
 import { AGENT_CLI_CONFIG } from "./agent-cli-version-requirements";
 import { applyAgentPtyEnv } from "../src/shared/agent-pty-env";
 
@@ -72,6 +76,8 @@ type Pty = {
   cwd: string;
   command: string;
   agent?: string;
+  /** True for user-shell terminals; findByTask only matches agent PTYs. */
+  shell: boolean;
   mcEnv?: PtyHookEnv;
   scanTail: string;
   lastInterruptAt: number;
@@ -412,7 +418,7 @@ export function registerPtyHandlers(
   ensureClaudeShiftEnterBinding();
   safeHandle(
     IPC.ptySpawn,
-    (_evt, opts: SpawnRequest) => {
+    async (_evt, opts: SpawnRequest) => {
       const pty = loadNodePty();
       const platform = os.platform();
 
@@ -463,7 +469,7 @@ export function registerPtyHandlers(
       const env = sanitizeEnv();
       if (plan.mode === "agent") {
         const requirement = AGENT_CLI_CONFIG[plan.agent];
-        const versionCheck = checkAgentCliVersion(plan.binary, env, requirement, platform);
+        const versionCheck = checkAgentCliVersionCached(plan.binary, env, requirement, platform);
         if (!versionCheck.ok) {
           const message = agentVersionErrorMessage(versionCheck);
           throw new Error(message);
@@ -476,6 +482,14 @@ export function registerPtyHandlers(
       installAgentHooks(opts.agent, plan.cwd);
       if (plan.mode === "agent") {
         ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        ensureRecallSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        // Recall code graph — file-based MCP config for local Claude sessions
+        // only (self-gated inside). Never touches the spawn argv.
+        ensureRecallMcpForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        // Claude sessions feed the shared usage-limits cache via the statusline
+        // tap, so the top-bar indicator doesn't have to poll Anthropic's
+        // aggressively rate-limited OAuth usage endpoint.
+        if (plan.agent === "claude-code") ensureStatuslineTap(plan.cwd);
       }
 
       const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
@@ -486,6 +500,19 @@ export function registerPtyHandlers(
         env.MC_THEME = opts.missionControlTheme === "light" ? "light" : "dark";
       }
       applyAgentPtyEnv(env, opts.agent);
+
+      // Recall — inject the project's Session Brief into the agent's auto-load
+      // file BEFORE spawning so the agent reads current project memory on
+      // startup. Fetches the rendered brief from the local API server; fully
+      // fail-soft (short timeout, never throws) so it can't block the session.
+      if (plan.mode === "agent") {
+        await installAgentMemoryBrief({
+          agent: opts.agent,
+          cwd: plan.cwd,
+          taskId: opts.taskId,
+          mcEnv,
+        });
+      }
 
       // Agent mode uses the policy-built spawn target. POSIX/native executables
       // still launch directly; Windows npm .cmd/.bat shims go through cmd.exe
@@ -525,6 +552,7 @@ export function registerPtyHandlers(
         cwd: opts.cwd,
         command: opts.command,
         agent: opts.agent,
+        shell: opts.shell === true,
         mcEnv: mcEnv ?? undefined,
         scanTail: "",
         lastInterruptAt: 0,
@@ -662,6 +690,20 @@ export function registerPtyHandlers(
     },
     ipcMain,
   );
+
+  // Live agent PTY for a task, if any. Local pty ids are not persisted across
+  // renderer reloads, but the processes themselves survive in this map — the
+  // renderer asks here before spawning so a reload reattaches to the running
+  // agent instead of launching a duplicate (which dies with "session ID is
+  // already in use" for agents that pin a session id).
+  safeHandle(IPC.ptyFindByTask, (_evt, { taskId }: { taskId: string }) => {
+    if (typeof taskId !== "string" || !taskId) return { ptyId: null };
+    let found: string | null = null;
+    for (const p of ptys.values()) {
+      if (p.taskId === taskId && !p.shell) found = p.id;
+    }
+    return { ptyId: found };
+  }, ipcMain);
 
   safeHandle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);

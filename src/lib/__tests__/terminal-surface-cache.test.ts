@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createTerminalSurfaceCache,
+  MAX_PARKED_SURFACES,
   type TerminalSurface,
 } from "../terminal-surface-cache";
 
@@ -135,5 +136,76 @@ describe("terminalSurfaceCache", () => {
 
     expect(teardown).not.toHaveBeenCalled();
     expect(cache.get("a")).toBe(surface);
+  });
+
+  // Fill the parked set to exactly the cap; caller asserts on the returned handles.
+  function fillParked(cache: ReturnType<typeof createTerminalSurfaceCache>) {
+    const made: ReturnType<typeof makeSurface>[] = [];
+    for (let i = 0; i < MAX_PARKED_SURFACES; i++) {
+      const s = makeSurface(`s${i}`);
+      made.push(s);
+      cache.set(s.surface);
+      cache.park(`s${i}`);
+    }
+    return made;
+  }
+
+  it("evicts the least-recently-parked surface once the cap is exceeded", () => {
+    const { holder } = makeHolder();
+    const cache = createTerminalSurfaceCache({ getHolder: () => holder });
+    const made = fillParked(cache);
+    // At the cap, nothing is evicted yet.
+    expect(cache.size()).toBe(MAX_PARKED_SURFACES);
+    made.forEach((s) => expect(s.teardown).not.toHaveBeenCalled());
+
+    // One more parked surface pushes the oldest (s0) out.
+    const extra = makeSurface("extra");
+    cache.set(extra.surface);
+    cache.park("extra");
+
+    expect(made[0]!.teardown).toHaveBeenCalledTimes(1);
+    expect(cache.get("s0")).toBeNull();
+    expect(cache.size()).toBe(MAX_PARKED_SURFACES);
+    expect(cache.get("s1")).toBe(made[1]!.surface);
+    expect(cache.get("extra")).toBe(extra.surface);
+  });
+
+  it("never evicts a re-mounted (markMounted) surface, only parked ones", () => {
+    const { holder } = makeHolder();
+    const cache = createTerminalSurfaceCache({ getHolder: () => holder });
+    // A surface the user navigated back to: parked, then re-mounted.
+    const kept = makeSurface("kept");
+    cache.set(kept.surface);
+    cache.park("kept");
+    cache.markMounted("kept");
+
+    const made = fillParked(cache);
+    const extra = makeSurface("extra");
+    cache.set(extra.surface);
+    cache.park("extra");
+
+    // Eviction targets the oldest PARKED surface (s0), never the mounted one.
+    expect(kept.teardown).not.toHaveBeenCalled();
+    expect(cache.get("kept")).toBe(kept.surface);
+    expect(cache.get("s0")).toBeNull();
+    expect(made[0]!.teardown).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-parking refreshes recency so a revisited surface isn't the first evicted", () => {
+    const { holder } = makeHolder();
+    const cache = createTerminalSurfaceCache({ getHolder: () => holder });
+    const made = fillParked(cache);
+    // Touch s0 again (mount + re-park) so it becomes most-recent, not oldest.
+    cache.markMounted("s0");
+    cache.park("s0");
+
+    const extra = makeSurface("extra");
+    cache.set(extra.surface);
+    cache.park("extra");
+
+    // s1 is now the oldest and gets evicted; s0 survives.
+    expect(cache.get("s0")).toBe(made[0]!.surface);
+    expect(cache.get("s1")).toBeNull();
+    expect(made[1]!.teardown).toHaveBeenCalledTimes(1);
   });
 });

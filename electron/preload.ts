@@ -404,6 +404,8 @@ const electronAPI = {
       subscribe(IPC.ptyExit, cb),
     replay: (ptyId: string): Promise<{ data: string; nextSeq: number }> =>
       ipcRenderer.invoke(IPC.ptyReplay, { ptyId }) as Promise<{ data: string; nextSeq: number }>,
+    findByTask: (taskId: string): Promise<{ ptyId: string | null }> =>
+      ipcRenderer.invoke(IPC.ptyFindByTask, { taskId }) as Promise<{ ptyId: string | null }>,
   },
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) =>
     subscribe(IPC.appSwipe, cb),
@@ -411,6 +413,18 @@ const electronAPI = {
   onFullScreenChange: (cb: (isFullScreen: boolean) => void) =>
     subscribe(IPC.appFullScreenChange, cb),
   onCloseIntent: (cb: () => void) => subscribe(IPC.appCloseIntent, cb),
+  focusMode: {
+    enter: (taskId: string): Promise<{ active: boolean; taskId: string | null; alwaysOnTop: boolean }> =>
+      ipcRenderer.invoke(IPC.appEnterFocusMode, { taskId }),
+    exit: (): Promise<{ active: boolean; taskId: string | null; alwaysOnTop: boolean }> =>
+      ipcRenderer.invoke(IPC.appExitFocusMode),
+    get: (): Promise<{ active: boolean; taskId: string | null; alwaysOnTop: boolean }> =>
+      ipcRenderer.invoke(IPC.appGetFocusMode),
+    setAlwaysOnTop: (
+      enabled: boolean,
+    ): Promise<{ active: boolean; taskId: string | null; alwaysOnTop: boolean }> =>
+      ipcRenderer.invoke(IPC.appSetFocusModeAlwaysOnTop, { enabled }),
+  },
   updater: {
     getState: (): Promise<UpdateStateBridge> =>
       ipcRenderer.invoke(IPC.updateGetState) as Promise<UpdateStateBridge>,

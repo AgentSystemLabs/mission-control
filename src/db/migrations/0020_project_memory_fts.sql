@@ -1,0 +1,17 @@
+-- Recall memory search: an FTS5 full-text index over project_memory (title,
+-- body, tags) so mem_search and proactive per-turn recall rank by relevance
+-- (bm25) instead of raw LIKE substring order.
+--
+-- Intentionally a NO-OP migration. The FTS5 virtual table + sync triggers are
+-- created at runtime by ensureMemoryFts() in src/db/client.ts, NOT here, because:
+--   1. FTS5 availability must be feature-probed and its absence tolerated (the
+--      search layer falls back to LIKE) — a hard failure inside a migration
+--      transaction would break app bootstrap on a SQLite build without FTS5.
+--   2. ensureSchema runs on every open (fresh AND existing DBs) and creates the
+--      index idempotently there, including a one-time backfill of existing rows.
+-- This file only reserves the migration number and documents the change.
+--
+-- Reference DDL (kept for readers; actually executed by ensureMemoryFts):
+--   CREATE VIRTUAL TABLE project_memory_fts USING fts5(
+--     title, body, tags, content='project_memory', content_rowid='rowid');
+--   + AFTER INSERT/UPDATE/DELETE triggers keeping it in sync.

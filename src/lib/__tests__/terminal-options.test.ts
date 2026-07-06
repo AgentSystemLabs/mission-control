@@ -38,6 +38,32 @@ describe("terminal options", () => {
     expect(getTerminalColorScheme()).toBe("dark");
   });
 
+  it("swaps in the warm high-contrast ANSI ramp when ember is active", () => {
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) => (name === "data-ember" ? "true" : null),
+      },
+    });
+    try {
+      const theme = createTerminalTheme();
+      // brightBlack is what CLIs use for dim/secondary text — the stock
+      // #22262c is the same tone as ember's #2b2a27 ground (≈1.1:1).
+      expect(theme).toMatchObject({
+        background: "#2b2a27",
+        foreground: "#e9e3d5",
+        brightBlack: "#8f8577",
+      });
+      // The accent selection wash carries more alpha on the mid-gray ground.
+      expect(theme.selectionBackground).toBe("#ff5a1f4d");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the stock dark ramp when ember is not active", () => {
+    expect(createTerminalTheme().brightBlack).toBe("#22262c");
+  });
+
   it("preserves the viewport line when zoom refits a scrolled terminal", () => {
     const term = {
       options: { fontSize: 12 },

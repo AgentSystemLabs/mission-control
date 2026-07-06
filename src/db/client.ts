@@ -494,6 +494,93 @@ function ensureSchema(sqlite: Database.Database) {
       byte_offset INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS prompts (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      worktree_id TEXT,
+      scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
+      claude_session_id TEXT,
+      agent TEXT NOT NULL,
+      text TEXT NOT NULL,
+      ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS prompts_task_idx ON prompts(task_id);
+    CREATE INDEX IF NOT EXISTS prompts_project_idx ON prompts(project_id);
+    CREATE INDEX IF NOT EXISTS prompts_ts_idx ON prompts(ts);
+
+    CREATE TABLE IF NOT EXISTS project_memory (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      scope_id TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}',
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      tags TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      confidence TEXT NOT NULL DEFAULT 'inferred',
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      superseded_by_id TEXT,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      last_verified_at INTEGER,
+      last_used_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS project_memory_project_idx ON project_memory(project_id);
+    CREATE INDEX IF NOT EXISTS project_memory_project_scope_idx ON project_memory(project_id, scope_id);
+    CREATE INDEX IF NOT EXISTS project_memory_type_idx ON project_memory(type);
+    CREATE INDEX IF NOT EXISTS project_memory_status_idx ON project_memory(status);
+    CREATE INDEX IF NOT EXISTS project_memory_pinned_idx ON project_memory(pinned);
+
+    CREATE TABLE IF NOT EXISTS graph_nodes (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      start_line INTEGER NOT NULL DEFAULT 0,
+      end_line INTEGER NOT NULL DEFAULT 0,
+      exported INTEGER NOT NULL DEFAULT 0,
+      signature TEXT,
+      language TEXT NOT NULL,
+      degree INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_idx ON graph_nodes(project_id);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_kind_idx ON graph_nodes(project_id, kind);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_name_idx ON graph_nodes(project_id, name);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_file_idx ON graph_nodes(project_id, file_path);
+    CREATE INDEX IF NOT EXISTS graph_nodes_project_degree_idx ON graph_nodes(project_id, degree);
+
+    CREATE TABLE IF NOT EXISTS graph_edges (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      src_id TEXT NOT NULL,
+      dst_id TEXT,
+      dst_name TEXT,
+      kind TEXT NOT NULL,
+      confidence TEXT NOT NULL DEFAULT 'extracted',
+      is_member INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS graph_edges_project_idx ON graph_edges(project_id);
+    CREATE INDEX IF NOT EXISTS graph_edges_src_idx ON graph_edges(src_id);
+    CREATE INDEX IF NOT EXISTS graph_edges_dst_idx ON graph_edges(dst_id);
+    CREATE INDEX IF NOT EXISTS graph_edges_project_kind_idx ON graph_edges(project_id, kind);
+
+    CREATE TABLE IF NOT EXISTS graph_files (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      PRIMARY KEY (project_id, path)
+    );
   `);
 
   // Multi-sandbox scope column. Idempotent + tolerant of a pre-existing column
@@ -541,6 +628,16 @@ function ensureSchema(sqlite: Database.Database) {
   ensureColumn(sqlite, "home_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS home_terminals_scope_idx ON home_terminals(scope_id);");
 
+  // Incremental-correct graph edges: `is_member` + the dangling-edge partial
+  // index arrived after graph_edges first shipped (see 0021). ensureColumn
+  // covers schema-divergent builds; the index needs the column to exist first.
+  ensureColumn(sqlite, "graph_edges", "is_member", "INTEGER NOT NULL DEFAULT 0");
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS graph_edges_dangling_idx
+      ON graph_edges(project_id, kind, dst_name)
+      WHERE dst_id IS NULL;
+  `);
+
   // Legacy builds briefly modeled "shell" as a task agent even though shell
   // terminals are not persisted tasks. Normalize stale rows before the narrowed
   // TaskAgent union reaches UI code that indexes AGENT_REGISTRY.
@@ -548,6 +645,71 @@ function ensureSchema(sqlite: Database.Database) {
     UPDATE tasks SET agent = 'claude-code' WHERE agent = 'shell';
     UPDATE projects SET saved_agent = NULL WHERE saved_agent = 'shell';
   `);
+
+  // Full-text search index over project_memory. Runtime-created (not a migration)
+  // so a SQLite build without FTS5 degrades to LIKE search instead of failing to
+  // boot. Idempotent + backfills existing rows on the upgrade path. See
+  // 0020_project_memory_fts.sql.
+  ensureMemoryFts(sqlite);
+}
+
+/**
+ * Create the FTS5 full-text index over `project_memory` (title/body/tags) plus
+ * the triggers that keep it in sync with every insert/update/delete, and backfill
+ * it once from existing rows. Fail-soft: returns false (and the search layer
+ * falls back to LIKE) if this SQLite build lacks FTS5, so it never breaks boot.
+ */
+export function ensureMemoryFts(sqlite: Database.Database): boolean {
+  try {
+    sqlite.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS project_memory_fts USING fts5(
+        title, body, tags,
+        content='project_memory',
+        content_rowid='rowid'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS project_memory_fts_ai
+      AFTER INSERT ON project_memory BEGIN
+        INSERT INTO project_memory_fts(rowid, title, body, tags)
+        VALUES (new.rowid, new.title, new.body, COALESCE(new.tags, ''));
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS project_memory_fts_ad
+      AFTER DELETE ON project_memory BEGIN
+        INSERT INTO project_memory_fts(project_memory_fts, rowid, title, body, tags)
+        VALUES ('delete', old.rowid, old.title, old.body, COALESCE(old.tags, ''));
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS project_memory_fts_au
+      AFTER UPDATE ON project_memory BEGIN
+        INSERT INTO project_memory_fts(project_memory_fts, rowid, title, body, tags)
+        VALUES ('delete', old.rowid, old.title, old.body, COALESCE(old.tags, ''));
+        INSERT INTO project_memory_fts(rowid, title, body, tags)
+        VALUES (new.rowid, new.title, new.body, COALESCE(new.tags, ''));
+      END;
+    `);
+
+    // One-time backfill (upgrade path): populate the index if it's empty while
+    // memories already exist. Fresh DBs have no rows yet, so this is a no-op there.
+    const ftsCount = (
+      sqlite.prepare("SELECT count(*) AS n FROM project_memory_fts").get() as { n: number }
+    ).n;
+    if (ftsCount === 0) {
+      const memCount = (
+        sqlite.prepare("SELECT count(*) AS n FROM project_memory").get() as { n: number }
+      ).n;
+      if (memCount > 0) {
+        sqlite.exec(`
+          INSERT INTO project_memory_fts(rowid, title, body, tags)
+          SELECT rowid, title, body, COALESCE(tags, '') FROM project_memory;
+        `);
+      }
+    }
+    return true;
+  } catch {
+    // No FTS5 in this build — leave searchMemory on its LIKE path.
+    return false;
+  }
 }
 
 export { schema };

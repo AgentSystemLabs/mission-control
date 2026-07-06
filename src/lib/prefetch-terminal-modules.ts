@@ -1,3 +1,5 @@
+import { prefetchTerminalWebgl } from "./terminal-webgl";
+
 type TerminalModuleBundle = {
   Terminal: typeof import("@xterm/xterm").Terminal;
   FitAddon: typeof import("@xterm/addon-fit").FitAddon;
@@ -14,6 +16,9 @@ export function prefetchTerminalModules(): Promise<TerminalModuleBundle> {
         import("@xterm/addon-fit"),
         import("./terminal-options"),
       ]);
+      // Warm the WebGL renderer chunk in the background; terminals open on the
+      // DOM renderer and upgrade to GPU once their lease attaches.
+      prefetchTerminalWebgl();
       await waitForTerminalFont();
       return { Terminal, FitAddon };
     })();

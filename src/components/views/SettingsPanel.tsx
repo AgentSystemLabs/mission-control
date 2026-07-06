@@ -9,9 +9,12 @@ import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
+import { RecallSettingsPage } from "./RecallSettings";
+import { SessionButtonsSettingsPage } from "./SessionButtonsSettingsPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
+import { UsageSettingsPage } from "./UsageSettingsPage";
 import { VoiceCommandsPage } from "./VoiceCommandsPage";
 
 // Single source of truth for settings panel ids. The union type and the
@@ -20,9 +23,12 @@ import { VoiceCommandsPage } from "./VoiceCommandsPage";
 export const SETTINGS_PANEL_IDS = [
   "general",
   "defaults",
+  "usage",
   "terminal",
+  "session",
   "theme",
   "voice",
+  "recall",
   "beta",
   "keybindings",
   "terms",
@@ -33,6 +39,8 @@ type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
 function normalizeStoredPanel(stored: string | null, fallback: SettingsPanelId): SettingsPanelId {
   if (stored === "sandbox") return "beta";
+  // Recall's old "memory" panel id now maps to its restored "recall" page.
+  if (stored === "memory") return "recall";
   if (stored && SETTINGS_PANEL_IDS.includes(stored as SettingsPanelId)) {
     return stored as SettingsPanelId;
   }
@@ -92,7 +100,9 @@ export function SettingsPanel({
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
     { id: "defaults", label: "Defaults", icon: "terminal" },
+    { id: "usage", label: "Usage", icon: "chart" },
     { id: "terminal", label: "Terminal", icon: "terminal" },
+    { id: "session", label: "Session buttons", icon: "eye" },
     { id: "theme", label: "Theme", icon: "sun" },
     { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
@@ -257,13 +267,22 @@ export function SettingsPanel({
             >
               Beta
             </div>
-            <SettingsNavButton
-              id="beta"
-              label="Experimental"
-              icon="sparkles"
-              active={activePanel === "beta"}
-              onClick={() => setActivePanel("beta")}
-            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <SettingsNavButton
+                id="beta"
+                label="Experimental"
+                icon="sparkles"
+                active={activePanel === "beta"}
+                onClick={() => setActivePanel("beta")}
+              />
+              <SettingsNavButton
+                id="recall"
+                label="Recall"
+                icon="sparkles"
+                active={activePanel === "recall"}
+                onClick={() => setActivePanel("recall")}
+              />
+            </div>
           </div>
           <div
             style={{
@@ -318,12 +337,18 @@ export function SettingsPanel({
             <GeneralSettingsPage />
           ) : activePanel === "defaults" ? (
             <DefaultsSettingsPage />
+          ) : activePanel === "usage" ? (
+            <UsageSettingsPage />
           ) : activePanel === "terminal" ? (
             <TerminalSettingsPage />
+          ) : activePanel === "session" ? (
+            <SessionButtonsSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
           ) : activePanel === "voice" ? (
             <VoiceCommandsPage />
+          ) : activePanel === "recall" ? (
+            <RecallSettingsPage />
           ) : activePanel === "beta" ? (
             <BetaSettingsPage />
           ) : activePanel === "keybindings" ? (

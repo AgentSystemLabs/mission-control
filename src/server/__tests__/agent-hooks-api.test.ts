@@ -11,6 +11,8 @@ const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken } = await import("../services/settings");
 const { createProject } = await import("../services/projects");
 const { createTask, getTask } = await import("../services/tasks");
+const { createMemory } = await import("../services/project-memory");
+const { writeRecallSettings } = await import("../services/recall-settings");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
 const { TITLE_WAITING } = await import("~/lib/task-sentinels");
@@ -243,5 +245,60 @@ describe("cursor-cli hook API", () => {
       claudeSessionId: SESSION_ID,
       status: "finished",
     });
+  });
+});
+
+describe("proactive per-turn recall over the hook API", () => {
+  let taskId = "";
+  let projectId = "";
+
+  beforeEach(() => {
+    resetDb();
+    const task = createHookTask("claude-code");
+    taskId = task.id;
+    projectId = task.projectId;
+    writeRecallSettings({ enabled: true, proactiveRecallEnabled: true });
+    createMemory({
+      projectId,
+      type: "architecture",
+      title: "Authentication lives in the useAuth hook",
+    });
+  });
+
+  it("returns relevant memory as additionalContext on UserPromptSubmit", async () => {
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "where does authentication happen?",
+    });
+    expect(res?.status).toBe(200);
+    const body = (await res?.json()) as {
+      status: string;
+      hookSpecificOutput?: { hookEventName: string; additionalContext: string };
+    };
+    expect(body.status).toBe("running");
+    expect(body.hookSpecificOutput?.hookEventName).toBe("UserPromptSubmit");
+    expect(body.hookSpecificOutput?.additionalContext).toContain("useAuth hook");
+  });
+
+  it("omits additionalContext when proactive recall is disabled", async () => {
+    writeRecallSettings({ proactiveRecallEnabled: false });
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "where does authentication happen?",
+    });
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, status: "running" });
+  });
+
+  it("omits additionalContext when nothing is relevant", async () => {
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "unrelated quantum chromodynamics",
+    });
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, status: "running" });
   });
 });

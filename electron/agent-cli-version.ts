@@ -176,6 +176,35 @@ export function checkAgentCliVersion(
   };
 }
 
+// pty:spawn runs the version probe synchronously on the main process, so an
+// uncached probe blocks ALL windows for its full duration (the agent CLI is a
+// Node app; `--version` alone can take seconds). Opening many sessions at once
+// (the grid view) would serialize N probes and freeze the app. A passing probe
+// is cached for the app's lifetime; a failing one is retried after a short TTL
+// so an in-place CLI update is picked up without restarting Mission Control.
+const versionCheckCache = new Map<string, { check: AgentVersionCheck; at: number }>();
+const VERSION_CHECK_FAILURE_TTL_MS = 30_000;
+
+export function checkAgentCliVersionCached(
+  binary: string,
+  env: NodeJS.ProcessEnv,
+  requirement: AgentCliVersionRequirement,
+  platform: NodeJS.Platform = os.platform(),
+): AgentVersionCheck {
+  const key = `${binary}\0${requirement.label}\0${requirement.minimumVersion}`;
+  const hit = versionCheckCache.get(key);
+  if (hit && (hit.check.ok || Date.now() - hit.at < VERSION_CHECK_FAILURE_TTL_MS)) {
+    return hit.check;
+  }
+  const check = checkAgentCliVersion(binary, env, requirement, platform);
+  versionCheckCache.set(key, { check, at: Date.now() });
+  return check;
+}
+
+export function clearAgentCliVersionCache(): void {
+  versionCheckCache.clear();
+}
+
 export function agentVersionErrorMessage(check: Exclude<AgentVersionCheck, { ok: true }>): string {
   if (check.reason === "outdated" && check.version) {
     return `${check.label} ${check.version} is installed, but MissionControl requires ${check.label} ${check.requiredVersion} or newer.`;

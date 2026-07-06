@@ -11,6 +11,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { getPinnedProjects } from "~/lib/pinned-project-order";
 import { getElectron } from "~/lib/electron";
+import { isFocusPath } from "~/lib/focus-session";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -28,11 +29,14 @@ import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
+import { PromptSearchProvider } from "~/lib/prompt-search-store";
+import { PromptSearchButton } from "~/components/views/PromptSearchButton";
 import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
 import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } from "~/queries";
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
 import { ScopeDropdown } from "~/components/views/ScopeDropdown";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
+import { ClaudeUsageLimitsIndicator } from "~/components/views/ClaudeUsageLimitsIndicator";
 import {
   ACCENT_CACHE_KEY,
   ACCENT_COLORS,
@@ -67,12 +71,14 @@ import {
   type AppNotification,
 } from "~/lib/session-notification-store";
 import { DiagramDialogHost } from "~/lib/use-diagram-events";
-import { isUserTerminalXtermFocused, isTerminalXtermFocused, terminalZoomStepFromKeyboard } from "~/lib/terminal-pane-helpers";
+import { isUserTerminalXtermFocused, isTerminalXtermFocused, terminalZoomIntentFromKeyboard } from "~/lib/terminal-pane-helpers";
 import { useWarmCliAvailability } from "~/lib/cli-availability";
 import {
   CLEAR_USER_TERMINAL_EVENT,
+  GRID_EXPAND_TOGGLE_EVENT,
   TERMINAL_ZOOM_IN_EVENT,
   TERMINAL_ZOOM_OUT_EVENT,
+  TERMINAL_ZOOM_RESET_EVENT,
 } from "~/lib/design-meta";
 import {
   LAUNCH_INTRO_CACHE_KEY,
@@ -86,9 +92,10 @@ import {
 } from "~/lib/worktrees-preference";
 import {
   MINIMAL_CACHE_KEY,
-  applyMinimalTheme,
-  readCachedMinimalTheme,
-} from "~/lib/minimal-theme";
+  THEME_STYLE_CACHE_KEY,
+  applyThemeStyle,
+  readCachedThemeStyle,
+} from "~/lib/theme-style";
 import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
@@ -100,14 +107,19 @@ const useThemeLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 // Pre-hydration script: runs synchronously in <head> before first paint so
-// theme state (`data-minimal` + accent CSS vars) is in place before any CSS
-// layout. Without this, the SSR'd HTML paints with default (painted+orange)
-// theme for one frame — every accent-tinted surface flashes orange before
-// React/useSettings hydrate. Mirrors `applyAccentColor`
-// (src/lib/accent-colors.ts); keep them in sync.
+// theme state (`data-minimal`/`data-noir` + accent CSS vars) is in place
+// before any CSS layout. Without this, the SSR'd HTML paints with default
+// (painted+orange) theme for one frame — every accent-tinted surface flashes
+// orange before React/useSettings hydrate. Mirrors `applyThemeStyle`
+// (src/lib/theme-style.ts) and `applyAccentColor` (src/lib/accent-colors.ts);
+// keep them in sync.
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
 var d=document.documentElement;
-if(localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"){d.setAttribute("data-minimal","true");}
+var st=localStorage.getItem(${JSON.stringify(THEME_STYLE_CACHE_KEY)});
+if(st!=="painted"&&st!=="minimal"&&st!=="noir"&&st!=="ember"){st=localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"?"minimal":"painted";}
+if(st!=="painted"){d.setAttribute("data-minimal","true");}
+if(st==="noir"){d.setAttribute("data-noir","true");}
+if(st==="ember"){d.setAttribute("data-ember","true");}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),
@@ -167,26 +179,28 @@ function RootComponent() {
           <TerminalProvider>
             <UserTerminalProvider>
               <AddProjectProvider>
-                <HeaderActionsProvider>
-                  <DiagramDialogHost>
-                    {/*
-                     * The entire app shell reads client-only state — react-query
-                     * data seeded synchronously from localStorage (installShellQueryCache)
-                     * plus direct localStorage reads (theme, minimal mode).
-                     * The server has none of that, so server HTML and the first
-                     * client render disagree → hydration mismatch on every data-driven
-                     * node (ProjectPicker, …). ClientOnly renders the
-                     * fallback on the server AND the first client render so they match,
-                     * then mounts the real shell after hydration. Past this boundary
-                     * there's no SSR markup to match, so children are free to show
-                     * skeletons/loading states however they like. `fallback` is the
-                     * slot for an app-wide skeleton if we want one later.
-                     */}
-                    <ClientOnly fallback={null}>
-                      <Shell />
-                    </ClientOnly>
-                  </DiagramDialogHost>
-                </HeaderActionsProvider>
+                <PromptSearchProvider>
+                  <HeaderActionsProvider>
+                    <DiagramDialogHost>
+                      {/*
+                       * The entire app shell reads client-only state — react-query
+                       * data seeded synchronously from localStorage (installShellQueryCache)
+                       * plus direct localStorage reads (theme, minimal mode).
+                       * The server has none of that, so server HTML and the first
+                       * client render disagree → hydration mismatch on every data-driven
+                       * node (ProjectPicker, …). ClientOnly renders the
+                       * fallback on the server AND the first client render so they match,
+                       * then mounts the real shell after hydration. Past this boundary
+                       * there's no SSR markup to match, so children are free to show
+                       * skeletons/loading states however they like. `fallback` is the
+                       * slot for an app-wide skeleton if we want one later.
+                       */}
+                      <ClientOnly fallback={null}>
+                        <Shell />
+                      </ClientOnly>
+                    </DiagramDialogHost>
+                  </HeaderActionsProvider>
+                </PromptSearchProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
           </TerminalProvider>
@@ -269,7 +283,7 @@ function Shell() {
       ? sandboxState.sandboxes.find((s) => s.id === sandboxState.activeScopeId) ?? null
       : null;
   const activeResuming = activeSandbox?.remoteStatus === "resuming";
-  const { activeFor, close, deselect, setPtyId } = useTerminals();
+  const { activeFor, close, deselect, setPtyId, gridView } = useTerminals();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
   const {
@@ -284,7 +298,8 @@ function Shell() {
   } = userTerminals;
   // Bootstrap from the same localStorage cache the pre-hydration script reads,
   // so the inset applies on first paint instead of waiting for settings to load.
-  const cachedMinimal = readCachedMinimalTheme();
+  // Noir shares minimal's clean chrome, so any non-painted style counts.
+  const cachedMinimal = readCachedThemeStyle() !== "painted";
   const effectiveMinimal = settings?.minimalTheme ?? cachedMinimal;
   // The top bar's leading inset applies in minimal mode.
   const topBarLeadingInset = effectiveMinimal ? 130 : undefined;
@@ -321,6 +336,26 @@ function Shell() {
   const path = useRouterState({ select: (state) => state.location.pathname });
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const projectId = projectMatch ? projectMatch[1]! : null;
+  // Focused Session Mode strips the whole shell: the /focus route renders the
+  // only visible chrome, and the Electron window is a small floating card.
+  const focusActive = isFocusPath(path);
+
+  // Boot resync guard: if the main process says the window is still in focus
+  // mode but we didn't land on a focus path (e.g. state drifted across a dev
+  // restart), restore the window rather than leaving a shrunken full app.
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron) return;
+    void electron.focusMode
+      .get()
+      .then((state) => {
+        if (state.active && !isFocusPath(window.location.pathname)) {
+          void electron.focusMode.exit();
+        }
+      })
+      .catch(() => undefined);
+    // Once per app boot, not on navigation.
+  }, []);
 
   const expandedKey = projectId ? `mc:terminalExpanded:${projectId}` : null;
   const [terminalExpanded, setTerminalExpanded] = useState<boolean>(false);
@@ -349,6 +384,10 @@ function Shell() {
   }, [expandedKey]);
   const sessionExpanded =
     !!projectId && terminalExpanded && !!activeFor(projectId);
+  // Grid view takes over the whole workspace: the Outlet (which renders the
+  // grid below the project header) spans full width and the single right-hand
+  // terminal panel is hidden.
+  const gridActive = !!projectMatch && gridView;
   const crumbs: Crumb[] = settingsOpen
     ? [{ label: "Settings" }]
     : projectMatch
@@ -370,7 +409,7 @@ function Shell() {
   }, [settings?.accentColor]);
 
   const launchOverlayEnabled = settings?.launchOverlayEnabled;
-  const minimalTheme = settings?.minimalTheme;
+  const themeStyle = settings?.themeStyle;
 
   useThemeLayoutEffect(() => {
     if (typeof launchOverlayEnabled !== "boolean") return;
@@ -385,10 +424,17 @@ function Shell() {
   }, [settings?.worktreesEnabled]);
 
   useThemeLayoutEffect(() => {
-    if (typeof minimalTheme !== "boolean") return;
-    applyMinimalTheme(minimalTheme);
-  }, [minimalTheme]);
+    if (!themeStyle) return;
+    applyThemeStyle(themeStyle);
+  }, [themeStyle]);
 
+  // Recompute + re-observe the workspace bounds whenever the workspace div is
+  // (un)mounted. Focus mode early-returns above and tears down the whole #root
+  // subtree, so on entry `workspaceRef.current` is null and on exit it's a brand
+  // new node. Keying this on `focusActive` re-runs the effect across those
+  // transitions: the cleanup disconnects the stale observer/listener (which
+  // otherwise keep measuring the detached old node and collapse overlays sized
+  // off --mc-workspace-* to 0×0), and the re-run re-binds to the live div.
   useEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace) return;
@@ -420,7 +466,7 @@ function Shell() {
       document.documentElement.style.removeProperty("--mc-workspace-right");
       document.documentElement.style.removeProperty("--mc-workspace-bottom");
     };
-  }, []);
+  }, [focusActive]);
 
   useHotkey("terminal.toggle", () => togglePanel());
   useHotkey(
@@ -430,22 +476,33 @@ function Shell() {
         window.dispatchEvent(new Event(CLEAR_USER_TERMINAL_EVENT));
         return;
       }
+      // While the grid owns the workspace there's no single-session panel; hand
+      // the shortcut to SessionGrid so it expands/collapses the focused cell.
+      if (gridActive) {
+        window.dispatchEvent(new Event(GRID_EXPAND_TOGGLE_EVENT));
+        return;
+      }
       if (projectId && activeFor(projectId)) toggleTerminalExpanded();
     },
     { capture: true },
   );
   useHotkey("nav.toggle", goHome);
-  // Cmd/Ctrl + =/- zoom the focused terminal; otherwise leave browser zoom alone.
+  // Cmd/Ctrl + =/-/0 zoom or reset the focused terminal; otherwise leave browser
+  // zoom alone.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const direction = terminalZoomStepFromKeyboard(e);
-      if (direction === null) return;
+      const intent = terminalZoomIntentFromKeyboard(e);
+      if (intent === null) return;
       if (!isTerminalXtermFocused()) return;
       e.preventDefault();
       e.stopPropagation();
-      window.dispatchEvent(
-        new Event(direction === 1 ? TERMINAL_ZOOM_IN_EVENT : TERMINAL_ZOOM_OUT_EVENT),
-      );
+      const event =
+        intent === "in"
+          ? TERMINAL_ZOOM_IN_EVENT
+          : intent === "out"
+            ? TERMINAL_ZOOM_OUT_EVENT
+            : TERMINAL_ZOOM_RESET_EVENT;
+      window.dispatchEvent(new Event(event));
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -505,6 +562,29 @@ function Shell() {
     });
   }, [userTerminalPanelOpen, focusedUserTerminalId]);
 
+  if (focusActive) {
+    // Only the focus route renders: no #root (skips the shell padding /
+    // painted frame), no TopBar/ProjectBar/panels/drag-strip. All Shell hooks
+    // above keep running so notifications for other sessions stay alive.
+    // `data-navigation-swipe-blocker` opts the whole focus window out of the
+    // global back/forward swipe (useNavigationSwipe): a two-finger horizontal
+    // swipe here scrolls the session bar's tabs, it must never navigate away.
+    return (
+      <div
+        data-navigation-swipe-blocker
+        style={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          background: "var(--bg)",
+        }}
+      >
+        <Outlet />
+      </div>
+    );
+  }
+
   return (
     <>
       <div id="root">
@@ -533,10 +613,16 @@ function Shell() {
           }
           leadingInset={topBarLeadingInset}
           contentTopInset={topBarContentTopInset}
-          dragRegion={!effectiveMinimal}
+          // Keep the header draggable in every theme. In minimal mode #root
+          // has no top padding and the fixed drag strip is only 8px tall, so
+          // disabling drag here left the window with essentially no grab
+          // surface. Interactive children already opt out via `no-drag`.
+          dragRegion
           right={
             <>
+              <ClaudeUsageLimitsIndicator />
               <UpdateAvailableButton />
+              <PromptSearchButton />
               <VoicePushToTalkButton />
               <SessionNotificationsButton
                 notifications={appNotifications}
@@ -571,20 +657,24 @@ function Shell() {
               style={{
                 position: "relative",
                 flex: 1,
-                display: sessionExpanded ? "none" : "flex",
+                // Grid view lives inside the Outlet, so the expanded-terminal
+                // flag must never hide it — both can be true at once (the
+                // expand flag persists per project, the grid flag globally).
+                display: sessionExpanded && !gridActive ? "none" : "flex",
                 flexDirection: "column",
                 overflow: "hidden",
                 // On the project detail view the terminal panel sits to the
                 // right; floor the left panel so dragging the terminal wider
                 // shrinks the terminal instead of wrapping the session columns.
-                minWidth: projectMatch ? 700 : 0,
+                // In grid view the panel is hidden, so let the Outlet go full width.
+                minWidth: projectMatch && !gridActive ? 700 : 0,
                 minHeight: 0,
               }}
             >
               <Outlet />
               {activeResuming && activeSandbox && <SandboxResumingOverlay name={activeSandbox.name} />}
             </div>
-            {projectMatch && (
+            {projectMatch && !gridActive && (
               <TerminalPanel
                 active={activeFor(projectMatch[1]!)}
                 onClose={close}

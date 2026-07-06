@@ -5,6 +5,8 @@ import * as path from "node:path";
 import {
   buildCliVersionProbe,
   checkAgentCliVersion,
+  checkAgentCliVersionCached,
+  clearAgentCliVersionCache,
   compareCliVersions,
   extractCliVersion,
 } from "../agent-cli-version";
@@ -134,4 +136,42 @@ describe("agent CLI version helpers", () => {
       "brew upgrade codex",
     ]);
   });
+
+  if (os.platform() !== "win32") {
+    it("caches a passing version probe so repeat spawns skip the CLI launch", () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-version-cache-"));
+      try {
+        const counter = path.join(root, "count");
+        const binary = path.join(root, "claude");
+        fs.writeFileSync(
+          binary,
+          `#!/bin/sh\necho probe >> "${counter}"\necho "${AGENT_CLI_CONFIG["claude-code"].minimumVersion} (Claude Code)"\n`,
+          { mode: 0o755 },
+        );
+
+        clearAgentCliVersionCache();
+        const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" };
+        const first = checkAgentCliVersionCached(
+          binary,
+          env,
+          AGENT_CLI_CONFIG["claude-code"],
+          "darwin",
+        );
+        const second = checkAgentCliVersionCached(
+          binary,
+          env,
+          AGENT_CLI_CONFIG["claude-code"],
+          "darwin",
+        );
+
+        expect(first.ok).toBe(true);
+        expect(second).toBe(first);
+        const probes = fs.readFileSync(counter, "utf8").trim().split("\n");
+        expect(probes).toHaveLength(1);
+      } finally {
+        clearAgentCliVersionCache();
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 });

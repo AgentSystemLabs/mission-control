@@ -22,6 +22,7 @@ import {
   dispatchVoiceNewAgent,
   dispatchVoiceOpenBrowser,
   dispatchVoiceOpenDiff,
+  dispatchVoiceRemember,
   dispatchVoiceRunProject,
   dispatchVoiceRunScript,
   dispatchVoiceShip,
@@ -183,6 +184,13 @@ export function VoiceController() {
         toast.success(
           command.prompt ? `Starting agent: “${command.prompt}”` : "Starting a new agent",
         );
+        return;
+      case "remember":
+        if (!activeProjectId(ctx.current.pathname)) {
+          toast.error("Open a project first to remember something.");
+          return;
+        }
+        dispatchVoiceRemember(command.text);
         return;
       case "unrecognized":
         if (sessionInputFocused) {

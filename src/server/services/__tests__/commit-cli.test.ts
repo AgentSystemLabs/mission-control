@@ -92,6 +92,31 @@ describe("print-mode CLI spawning", () => {
     expect(invocation.args).toEqual(["-p", "hello"]);
   });
 
+  it("strips Mission Control hook env so helper spawns can't re-fire hooks", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-commit-hookenv-"));
+    const binDir = path.join(root, "bin");
+    writeExecutable(path.join(binDir, "claude"));
+
+    const invocation = buildCliSpawnInvocation(
+      "claude",
+      ["-p", "hello"],
+      {
+        PATH: binDir,
+        MC_TASK_ID: "t-123",
+        MC_API_URL: "http://127.0.0.1:5173",
+        MC_API_TOKEN: "secret",
+        KEEP_ME: "yes",
+      },
+      "darwin",
+    );
+
+    expect(invocation.env.MC_TASK_ID).toBeUndefined();
+    expect(invocation.env.MC_API_URL).toBeUndefined();
+    expect(invocation.env.MC_API_TOKEN).toBeUndefined();
+    // Unrelated env is preserved.
+    expect(invocation.env.KEEP_ME).toBe("yes");
+  });
+
   it("rejects unrecognized Windows command shims instead of shelling user prompts", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-commit-unsafe-shim-"));
     const binDir = path.join(root, "npm shims");

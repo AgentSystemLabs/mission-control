@@ -10,6 +10,7 @@ import {
 import {
   HTTP_BAD_REQUEST,
   HTTP_CONFLICT,
+  HTTP_FORBIDDEN,
   HTTP_NO_CONTENT,
   HTTP_NOT_FOUND,
   HTTP_UNAUTHORIZED,
@@ -41,6 +42,10 @@ export function noContent(): Response {
 
 export function notFound(message = "not found"): Response {
   return jsonError(HTTP_NOT_FOUND, message);
+}
+
+export function forbidden(message = "forbidden"): Response {
+  return jsonError(HTTP_FORBIDDEN, message);
 }
 
 async function readBodyText(request: Request): Promise<string> {

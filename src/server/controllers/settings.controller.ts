@@ -35,6 +35,7 @@ import {
   normalizeSelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import { safeJsonParse } from "~/shared/safe-json";
+import { isThemeStyle, type ThemeStyle } from "~/shared/theme-style";
 import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
   TERMINAL_ZOOM_MAX,
@@ -46,6 +47,11 @@ import {
   normalizeVoiceCommandAliases,
   type VoiceCommandAliases,
 } from "~/shared/voice-command-aliases";
+import {
+  normalizeSessionHeaderButtonVisibility,
+  type SessionHeaderButtonVisibility,
+} from "~/shared/session-header-buttons";
+import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -58,7 +64,13 @@ const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
 const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
 const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
+const SESSION_HEADER_BUTTONS_KEY = "session_header_buttons";
+const THEME_STYLE_KEY = "theme_style";
+const MINIMAL_THEME_KEY = "minimal_theme";
 const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
+const CLAUDE_USAGE_LIMITS_ENABLED_KEY = "claude_usage_limits_enabled";
+const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
+const CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY = "claude_usage_limits_show_weekly";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
   try {
@@ -95,6 +107,7 @@ const updateSettingsBody = z
     agentSystemBannerDisabled: z.boolean(),
     accentColor: z.string().refine(isAccentColorId, { message: "invalid accentColor" }),
     minimalTheme: z.boolean(),
+    themeStyle: z.string().refine(isThemeStyle, { message: "invalid themeStyle" }),
     mouseGradientDisabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
@@ -104,6 +117,7 @@ const updateSettingsBody = z
     automaticUpdateInstallOnQuitEnabled: z.boolean(),
     worktreesEnabled: z.boolean(),
     voiceControlEnabled: z.boolean(),
+    questionOverlayEnabled: z.boolean(),
     gitDiffChangedFilesView: z.enum(GIT_DIFF_CHANGED_FILES_VIEWS).nullable(),
     gitDiffChangedFilesWidth: z
       .number()
@@ -115,17 +129,42 @@ const updateSettingsBody = z
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
     terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
+    sessionHeaderButtons: z
+      .record(z.string(), z.boolean())
+      .transform(
+        (value): SessionHeaderButtonVisibility =>
+          normalizeSessionHeaderButtonVisibility(value),
+      ),
     defaultAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     defaultModel: aiModelBody,
     annotationAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     annotationModel: aiModelBody,
     voiceCommandAliases: voiceCommandAliasesBody,
+    claudeUsageLimitsEnabled: z.boolean(),
+    claudeUsageLimitsShowSession: z.boolean(),
+    claudeUsageLimitsShowWeekly: z.boolean(),
+    recallEnabled: z.boolean(),
+    recallAutoCaptureEnabled: z.boolean(),
+    recallEngineEnabled: z.boolean(),
+    recallEngineHarness: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    recallEngineModel: aiModelBody,
+    recallAgentWriteEnabled: z.boolean(),
+    recallInjectBriefEnabled: z.boolean(),
+    recallCodeGraphEnabled: z.boolean(),
+    recallProactiveRecallEnabled: z.boolean(),
   })
   .partial();
 
 function getAccentColorSetting(): AccentColorId {
   const value = getSetting("accent_color");
   return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
+}
+
+function getThemeStyleSetting(): ThemeStyle {
+  const value = getSetting(THEME_STYLE_KEY);
+  if (isThemeStyle(value)) return value;
+  // Installs that predate theme_style only stored the minimal/painted toggle.
+  return getBooleanSetting(MINIMAL_THEME_KEY) ? "minimal" : "painted";
 }
 
 function getCommitCliSetting(): CommitCli | null {
@@ -174,6 +213,12 @@ function getTerminalZoomLevelSetting() {
   return normalizeTerminalZoomLevel(getSetting(TERMINAL_ZOOM_LEVEL_KEY)) ?? DEFAULT_TERMINAL_ZOOM_LEVEL;
 }
 
+function getSessionHeaderButtonsSetting(): SessionHeaderButtonVisibility {
+  return normalizeSessionHeaderButtonVisibility(
+    safeJsonParse<unknown>(getSetting(SESSION_HEADER_BUTTONS_KEY), null),
+  );
+}
+
 function getVoiceCommandAliasesSetting() {
   const raw = getSetting(VOICE_COMMAND_ALIASES_KEY);
   try {
@@ -184,10 +229,14 @@ function getVoiceCommandAliasesSetting() {
 }
 
 function settingsPayload() {
+  const themeStyle = getThemeStyleSetting();
   return {
     agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
     accentColor: getAccentColorSetting(),
-    minimalTheme: getBooleanSetting("minimal_theme"),
+    themeStyle,
+    // Derived: true whenever the style renders clean CSS chrome (minimal or
+    // noir). Layout consumers key off this; the style picker reads themeStyle.
+    minimalTheme: themeStyle !== "painted",
     mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
     sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
@@ -206,17 +255,40 @@ function settingsPayload() {
     ),
     worktreesEnabled: getBooleanSetting("worktrees_enabled", false),
     voiceControlEnabled: getBooleanSetting("voice_control_enabled", false),
+    questionOverlayEnabled: getBooleanSetting("question_overlay_enabled", true),
     gitDiffChangedFilesView: getGitDiffChangedFilesViewSetting(),
     gitDiffChangedFilesWidth: getGitDiffChangedFilesWidthSetting(),
     projectsDashboardView: getProjectsDashboardViewSetting(),
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
     terminalZoomLevel: getTerminalZoomLevelSetting(),
+    sessionHeaderButtons: getSessionHeaderButtonsSetting(),
     defaultAgent: getDefaultAgentSetting(),
     defaultModel: getDefaultModelSetting(),
     annotationAgent: getAnnotationAgentSetting(),
     annotationModel: getAnnotationModelSetting(),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
+    // Off by default: this is the only feature that reaches out to Anthropic
+    // (using the user's Claude login), so it's strictly opt-in.
+    claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
+    claudeUsageLimitsShowSession: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY, true),
+    claudeUsageLimitsShowWeekly: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, true),
+    ...recallSettingsPayload(),
+  };
+}
+
+function recallSettingsPayload() {
+  const recall = readRecallSettings();
+  return {
+    recallEnabled: recall.enabled,
+    recallAutoCaptureEnabled: recall.autoCaptureEnabled,
+    recallEngineEnabled: recall.recallEngineEnabled,
+    recallEngineHarness: recall.recallEngineHarness,
+    recallEngineModel: recall.recallEngineModel,
+    recallAgentWriteEnabled: recall.agentWriteEnabled,
+    recallInjectBriefEnabled: recall.injectBriefEnabled,
+    recallCodeGraphEnabled: recall.codeGraphEnabled,
+    recallProactiveRecallEnabled: recall.proactiveRecallEnabled,
   };
 }
 
@@ -235,7 +307,19 @@ export async function update(request: Request): Promise<Response> {
     setSetting("accent_color", body.accentColor);
   }
   if (body.minimalTheme !== undefined) {
-    setBooleanSetting("minimal_theme", body.minimalTheme);
+    // Legacy toggle: turning it off always means painted; turning it on keeps
+    // an existing clean-chrome style (noir) instead of clobbering it.
+    setBooleanSetting(MINIMAL_THEME_KEY, body.minimalTheme);
+    const current = getThemeStyleSetting();
+    setSetting(
+      THEME_STYLE_KEY,
+      body.minimalTheme ? (current === "painted" ? "minimal" : current) : "painted",
+    );
+  }
+  if (body.themeStyle !== undefined) {
+    setSetting(THEME_STYLE_KEY, body.themeStyle);
+    // Keep the legacy boolean in sync so a downgraded build restores the choice.
+    setBooleanSetting(MINIMAL_THEME_KEY, body.themeStyle !== "painted");
   }
   if (body.mouseGradientDisabled !== undefined) {
     setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
@@ -272,6 +356,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.voiceControlEnabled !== undefined) {
     setBooleanSetting("voice_control_enabled", body.voiceControlEnabled);
+  }
+  if (body.questionOverlayEnabled !== undefined) {
+    setBooleanSetting("question_overlay_enabled", body.questionOverlayEnabled);
   }
   if (body.gitDiffChangedFilesView !== undefined) {
     if (body.gitDiffChangedFilesView === null) {
@@ -314,6 +401,9 @@ export async function update(request: Request): Promise<Response> {
   if (body.terminalZoomLevel !== undefined) {
     setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
   }
+  if (body.sessionHeaderButtons !== undefined) {
+    setSetting(SESSION_HEADER_BUTTONS_KEY, JSON.stringify(body.sessionHeaderButtons));
+  }
   if (body.defaultAgent !== undefined) {
     setSetting(DEFAULT_AGENT_SETTING_KEY, body.defaultAgent);
   }
@@ -337,6 +427,26 @@ export async function update(request: Request): Promise<Response> {
   if (body.voiceCommandAliases !== undefined) {
     setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));
   }
+  if (body.claudeUsageLimitsEnabled !== undefined) {
+    setBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, body.claudeUsageLimitsEnabled);
+  }
+  if (body.claudeUsageLimitsShowSession !== undefined) {
+    setBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY, body.claudeUsageLimitsShowSession);
+  }
+  if (body.claudeUsageLimitsShowWeekly !== undefined) {
+    setBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, body.claudeUsageLimitsShowWeekly);
+  }
+  writeRecallSettings({
+    enabled: body.recallEnabled,
+    autoCaptureEnabled: body.recallAutoCaptureEnabled,
+    recallEngineEnabled: body.recallEngineEnabled,
+    recallEngineHarness: body.recallEngineHarness,
+    recallEngineModel: body.recallEngineModel,
+    agentWriteEnabled: body.recallAgentWriteEnabled,
+    injectBriefEnabled: body.recallInjectBriefEnabled,
+    codeGraphEnabled: body.recallCodeGraphEnabled,
+    proactiveRecallEnabled: body.recallProactiveRecallEnabled,
+  });
   return json(settingsPayload());
 }
 

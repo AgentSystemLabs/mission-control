@@ -20,7 +20,7 @@ import {
   remoteVmDeployStatusCopy,
 } from "~/lib/remote-vm-deploy";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
-import { useTerminals } from "~/lib/terminal-store";
+import { useTerminalActions } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys, useProjects, useSandboxes } from "~/queries";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
@@ -491,7 +491,7 @@ export function SandboxConfigPanel({
   const queryClient = useQueryClient();
   const { data: scopes } = useSandboxes();
   const { data: allProjects } = useProjects();
-  const terminals = useTerminals();
+  const terminals = useTerminalActions();
   const userTerminals = useUserTerminals();
 
   const selectedSandbox = useMemo(

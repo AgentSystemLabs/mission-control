@@ -284,6 +284,12 @@ export type VoiceTranscribeResult =
   | { ok: true; text: string }
   | { ok: false; error: string; code?: "unavailable" };
 
+export type FocusModeStateBridge = {
+  active: boolean;
+  taskId: string | null;
+  alwaysOnTop: boolean;
+};
+
 export type ElectronBridge = {
   settings: {
     getToken: () => Promise<string>;
@@ -353,9 +359,18 @@ export type ElectronBridge = {
     onData: (cb: (msg: { ptyId: string; data: string; seq: number }) => void) => () => void;
     onExit: (cb: (msg: { ptyId: string; exitCode: number; signal?: number }) => void) => () => void;
     replay: (ptyId: string) => Promise<{ data: string; nextSeq: number }>;
+    /** Live agent PTY for a task (renderer reloads lose local pty ids). */
+    findByTask: (taskId: string) => Promise<{ ptyId: string | null }>;
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
+  /** Focused Session Mode: transform the main window into a small floating session card. */
+  focusMode: {
+    enter: (taskId: string) => Promise<FocusModeStateBridge>;
+    exit: () => Promise<FocusModeStateBridge>;
+    get: () => Promise<FocusModeStateBridge>;
+    setAlwaysOnTop: (enabled: boolean) => Promise<FocusModeStateBridge>;
+  };
   files: {
     list: (projectRoot: string) => Promise<FileListResult>;
     read: (projectRoot: string, relPath: string) => Promise<FileReadResult>;

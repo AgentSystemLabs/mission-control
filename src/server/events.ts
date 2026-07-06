@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events";
+import type { AgentQuestion } from "~/shared/agent-questions";
+import type { GraphIndexProgress } from "~/shared/code-graph";
 
 export type AppEvent =
   | { type: "project:created"; id: string }
@@ -23,6 +25,20 @@ export type AppEvent =
       projectName: string;
       taskTitle: string;
     }
+  | {
+      type: "task:question";
+      taskId: string;
+      projectId: string;
+      questionId: string;
+      questions: AgentQuestion[];
+    }
+  | { type: "task:question-cleared"; taskId: string; projectId: string }
+  | { type: "memory:created"; id: string; projectId: string }
+  | { type: "memory:updated"; id: string; projectId: string }
+  | { type: "memory:deleted"; id: string; projectId: string }
+  | { type: "memory:learned"; projectId: string; count: number; sourceTaskId: string | null }
+  | { type: "graph:index-progress"; projectId: string; progress: GraphIndexProgress }
+  | { type: "graph:indexed"; projectId: string; ok: boolean; nodeCount: number; edgeCount: number }
   | {
       type: "diagram:show";
       id: string;
