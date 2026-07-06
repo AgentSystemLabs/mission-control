@@ -1946,6 +1946,12 @@ function ProjectPage() {
     "terminal.close",
     () => {
       if (!project) return;
+      // On screen, the grid owns terminal.close: it hides the focused cell's
+      // session (SessionGrid's handleHideIntent) instead of toggling the single
+      // active panel this handler tracks. Guard on showGrid (not gridViewActive)
+      // so the empty-grid fallback — where SessionGrid isn't mounted — still
+      // falls through to the panel hide here. Mirrors cycleSession.
+      if (showGrid) return;
       const active = terminals.activeFor(selectedScopeKey);
       if (active) {
         lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId: active.taskId };

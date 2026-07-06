@@ -446,13 +446,47 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   const [navTaskId, setNavTaskId] = useState<string | null>(null);
   const [pendingArchive, setPendingArchive] = useState<OpenTerminal | null>(null);
   const [archiving, setArchiving] = useState(false);
+  // Sessions the user has hidden with Cmd/Ctrl+L (terminal.close). Their pane is
+  // pulled out of the grid but the PTY keeps running, so re-showing re-attaches
+  // via replay — the grid's non-destructive answer to the single-panel view's
+  // "hide session panel". Grid-local and transient (it resets when the grid
+  // unmounts, e.g. leaving grid view), which is also the recovery path for now.
+  const [hiddenTaskIds, setHiddenTaskIds] = useState<ReadonlySet<string>>(() => new Set());
+  // The most recently hidden session, restored when Cmd/Ctrl+L fires with no
+  // hideable cell focused (every session hidden) — mirrors the single-panel
+  // toggle where a second press brings the last hidden session back.
+  const lastHiddenTaskIdRef = useRef<string | null>(null);
 
-  // Only this scope's sessions belong to this grid (matches the single-panel
-  // view's scoping) — so switching projects/worktrees shows a different grid.
-  const scopedSessions = useMemo(
+  // Every session that belongs to this scope, hidden or not — the source of
+  // truth for what may be hidden/restored and for pruning stale hidden ids.
+  const allScopedSessions = useMemo(
     () => sessions.filter((s) => scopeKeyFor(s) === scopeKey),
     [sessions, scopeKey],
   );
+
+  // Only this scope's *visible* sessions belong to the rendered grid (matches
+  // the single-panel view's scoping) — so switching projects/worktrees shows a
+  // different grid, and hidden sessions drop out of the layout entirely.
+  const scopedSessions = useMemo(
+    () => allScopedSessions.filter((s) => !hiddenTaskIds.has(s.taskId)),
+    [allScopedSessions, hiddenTaskIds],
+  );
+
+  // Drop hidden ids whose session is gone (archived/closed elsewhere) so a hide
+  // never lingers and the empty-state math stays honest.
+  useEffect(() => {
+    setHiddenTaskIds((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(allScopedSessions.map((s) => s.taskId));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (live.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [allScopedSessions]);
 
   // The authored layout for the current scope. Reconciled against live sessions:
   // new sessions land in the current/new row, closed ones (and empty rows) are
@@ -769,6 +803,60 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
 
   useHotkey("session.closeWindow", handleCloseIntent, {
     enabled: !isElectron() && scopedSessions.length > 0,
+    capture: true,
+  });
+
+  // Cmd/Ctrl+L (terminal.close) in grid view: hide the focused cell's session —
+  // pull its pane out of the grid without archiving it (the PTY keeps running
+  // and re-attaches when it comes back). This is the grid's take on the normal
+  // view's "hide session panel", but per focused cell since the grid shows every
+  // session at once. The project route's own terminal.close handler no-ops while
+  // the grid is on screen so this one drives it (mirrors session.cycle*). A
+  // focused user terminal claims the shortcut first (matches handleCloseIntent).
+  // With no hideable cell focused — e.g. every session already hidden — the most
+  // recently hidden session is restored, giving the single-panel toggle feel.
+  const handleHideIntent = useCallback(() => {
+    if (userTerminals.panelOpen && isUserTerminalXtermFocused()) return;
+    const focusedCell = document.activeElement?.closest("[data-grid-cell]");
+    const taskId = focusedCell?.getAttribute("data-task-id") ?? expandedTaskId;
+    const target = taskId ? scopedSessions.find((s) => s.taskId === taskId) : undefined;
+    if (target) {
+      // Hand focus to the hiding cell's neighbour (read before removal) so the
+      // grid keeps a focused pane instead of going inert — mirrors archive.
+      const neighbour = neighbourAfterClose(target.taskId);
+      if (expandedTaskId === target.taskId) setExpandedTaskId(null);
+      lastHiddenTaskIdRef.current = target.taskId;
+      setHiddenTaskIds((prev) => {
+        const next = new Set(prev);
+        next.add(target.taskId);
+        return next;
+      });
+      if (neighbour) focusSessionTerminal(neighbour);
+      return;
+    }
+    const restore = lastHiddenTaskIdRef.current;
+    if (!restore || !hiddenTaskIds.has(restore)) return;
+    setHiddenTaskIds((prev) => {
+      if (!prev.has(restore)) return prev;
+      const next = new Set(prev);
+      next.delete(restore);
+      return next;
+    });
+    lastHiddenTaskIdRef.current = null;
+    focusSessionTerminal(restore);
+  }, [
+    userTerminals.panelOpen,
+    expandedTaskId,
+    scopedSessions,
+    hiddenTaskIds,
+    neighbourAfterClose,
+    focusSessionTerminal,
+  ]);
+
+  // Capture phase so a focused xterm surface can't swallow the chord first —
+  // mirrors how session.closeWindow / session.cycle* are wired here.
+  useHotkey("terminal.close", handleHideIntent, {
+    enabled: allScopedSessions.length > 0,
     capture: true,
   });
 
