@@ -16,19 +16,8 @@ import {
   type GraphNodeView,
   type GraphNodeViewWithSource,
 } from "~/shared/code-graph";
-import { findProjectById } from "../repositories/projects.repo";
+import { resolveGraphDiskRoot } from "./code-graph-staleness";
 import { resolveNodeRef, toNodeView } from "./code-graph";
-
-/**
- * The on-disk root source is read from, or null when there isn't one (project
- * gone, sandboxed — files live remotely — or path missing on disk).
- */
-export function resolveGraphSourceRoot(projectId: string): string | null {
-  const project = findProjectById(projectId);
-  if (!project || project.sandboxId) return null;
-  const root = path.resolve(project.path);
-  return fs.existsSync(root) ? root : null;
-}
 
 /**
  * Read a node's source slice from disk. File nodes (stored as startLine 1 /
@@ -81,7 +70,7 @@ export function attachSearchSources(
   projectId: string,
   nodes: GraphNodeView[],
 ): GraphNodeViewWithSource[] {
-  const root = resolveGraphSourceRoot(projectId);
+  const root = resolveGraphDiskRoot(projectId);
   return nodes.map((node, i) => ({
     ...node,
     source:
@@ -100,7 +89,7 @@ export interface NodeSourceResult {
 export function getNodeSource(projectId: string, ref: string): NodeSourceResult | null {
   const node = resolveNodeRef(projectId, ref);
   if (!node) return null;
-  const root = resolveGraphSourceRoot(projectId);
+  const root = resolveGraphDiskRoot(projectId);
   return {
     node: toNodeView(node),
     source: root ? readNodeSource(root, node, GRAPH_SOURCE_MAX_LINES) : null,

@@ -35,6 +35,7 @@ import {
   topNodesByDegree,
 } from "../repositories/code-graph.repo";
 import { getGraphIndexProgress } from "./code-graph-indexer";
+import { countStaleFiles } from "./code-graph-staleness";
 
 export function toNodeView(row: GraphNode): GraphNodeView {
   return {
@@ -80,7 +81,8 @@ export function getGraphStatus(projectId: string): GraphStatus {
     edgeCount: countEdges(projectId),
     durationMs: state.durationMs,
     confidenceBreakdown: state.confidenceBreakdown,
-    staleFileCount: 0, // best-effort stale detection is a follow-up; 0 for now.
+    // Skipped while a build runs — it's about to be superseded anyway.
+    staleFileCount: indexed && !indexing ? countStaleFiles(projectId, state.lastIndexedAt) : 0,
     indexing,
   };
 }

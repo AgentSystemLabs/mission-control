@@ -108,6 +108,16 @@ function nodeLine(n) {
   return `- ${n.name} (${n.kind}${exp}) — ${n.filePath}:${n.startLine} [degree ${n.degree}]${sig}`;
 }
 
+// Per-file staleness banner: the server compares each result file's on-disk
+// (size, mtime) against its indexed stats and returns the changed ones, so the
+// agent knows when line numbers may be shifted instead of trusting them blindly.
+function staleBanner(staleFiles) {
+  if (!Array.isArray(staleFiles) || !staleFiles.length) return "";
+  const shown = staleFiles.slice(0, 5).join(", ");
+  const more = staleFiles.length > 5 ? ` (+${staleFiles.length - 5} more)` : "";
+  return `\n⚠ Changed on disk since the last index — line numbers may be shifted: ${shown}${more}. The graph re-indexes automatically; verify with Read if precision matters.`;
+}
+
 // Fenced, line-numbered verbatim source slice for a node (graph_node /
 // graph_search include_source). Mirrors the numbering style of the Read tool
 // so the agent can quote exact locations without opening the file.
@@ -266,13 +276,15 @@ server.registerTool(
       const qs = new URLSearchParams({ q: query });
       if (limit) qs.set("limit", String(limit));
       if (include_source) qs.set("source", "1");
-      const { nodes } = await apiGet(`/api/projects/${projectId}/graph/search?${qs}`);
+      const { nodes, staleFiles } = await apiGet(`/api/projects/${projectId}/graph/search?${qs}`);
       if (!nodes.length) {
         const hint = await emptyGraphHint(projectId);
         return textResult(hint ?? `No symbols match "${query}".`);
       }
       const lines = nodes.map((n) => (n.source ? `${nodeLine(n)}\n${sourceBlock(n, n.source)}` : nodeLine(n)));
-      return textResult(`${nodes.length} match(es) for "${query}":\n${lines.join("\n")}`);
+      return textResult(
+        `${nodes.length} match(es) for "${query}":\n${lines.join("\n")}${staleBanner(staleFiles)}`,
+      );
     }),
 );
 
@@ -296,7 +308,11 @@ server.registerTool(
           hint ?? `${header}\n(source unavailable — the file may have moved since the last index; use Read on ${res.node.filePath})`,
         );
       }
-      return textResult(`${header}\n${sourceBlock(res.node, res.source)}`);
+      // Source is read live from disk; a stale index only shifts the range.
+      const stale = res.stale
+        ? `\n⚠ ${res.node.filePath} changed since the last index — the source above is live, but the symbol's line range may be shifted.`
+        : "";
+      return textResult(`${header}\n${sourceBlock(res.node, res.source)}${stale}`);
     }),
 );
 
@@ -325,7 +341,7 @@ server.registerTool(
         return `- ${arrow} ${nb.edge.kind} [${nb.edge.confidence}] ${target}`;
       });
       return textResult(
-        `${center.name} (${center.kind}) — ${center.filePath}:${center.startLine}\n${lines.join("\n")}`,
+        `${center.name} (${center.kind}) — ${center.filePath}:${center.startLine}\n${lines.join("\n")}${staleBanner(res.staleFiles)}`,
       );
     }),
 );
@@ -348,7 +364,7 @@ server.registerTool(
         return textResult(`No dependency path found from ${res.from.name} to ${res.to.name} within the search depth.`);
       }
       const chain = res.nodes.map((n) => `${n.name} (${n.filePath}:${n.startLine})`).join("\n  → ");
-      return textResult(`Path (${res.nodes.length} hop(s)):\n  ${chain}`);
+      return textResult(`Path (${res.nodes.length} hop(s)):\n  ${chain}${staleBanner(res.staleFiles)}`);
     }),
 );
 
@@ -371,7 +387,7 @@ server.registerTool(
       }
       const trunc = res.truncated ? " (truncated — many dependents)" : "";
       return textResult(
-        `${res.dependents.length} dependent(s) of ${res.node.name}${trunc}:\n${res.dependents.map(nodeLine).join("\n")}`,
+        `${res.dependents.length} dependent(s) of ${res.node.name}${trunc}:\n${res.dependents.map(nodeLine).join("\n")}${staleBanner(res.staleFiles)}`,
       );
     }),
 );

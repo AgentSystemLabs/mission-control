@@ -45,14 +45,16 @@ let port = 0;
 let projectId = "";
 let taskId = "";
 
+let fixtureDir = "";
+
 function writeFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-mcp-fixture-"));
-  fs.writeFileSync(path.join(dir, "core.ts"), `export function core(): number { return 1; }\n`);
+  fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-mcp-fixture-"));
+  fs.writeFileSync(path.join(fixtureDir, "core.ts"), `export function core(): number { return 1; }\n`);
   fs.writeFileSync(
-    path.join(dir, "a.ts"),
+    path.join(fixtureDir, "a.ts"),
     `import { core } from "./core";\nexport function a(): number { return core(); }\n`,
   );
-  return dir;
+  return fixtureDir;
 }
 
 function textOf(res: unknown): string {
@@ -233,6 +235,22 @@ describe("recall MCP server", () => {
     try {
       const res = await client.callTool({ name: "impact_of", arguments: { node: "core" } });
       expect(textOf(res)).toContain("a");
+    } finally {
+      await client.close();
+    }
+  });
+
+  // Mutates the fixture (size-changing edit) — keep last.
+  it("banners files changed since the last index on graph results", async () => {
+    fs.appendFileSync(path.join(fixtureDir, "core.ts"), `export const extra = 2;\n`);
+    const client = await connectClient();
+    try {
+      const search = await client.callTool({ name: "graph_search", arguments: { query: "core" } });
+      expect(textOf(search)).toContain("Changed on disk since the last index");
+      expect(textOf(search)).toContain("core.ts");
+
+      const node = await client.callTool({ name: "graph_node", arguments: { node: "core" } });
+      expect(textOf(node)).toContain("changed since the last index");
     } finally {
       await client.close();
     }

@@ -24,14 +24,16 @@ function authed(input: string, init: RequestInit = {}): Request {
   });
 }
 
+let projectDir = "";
+
 function makeFixtureProject(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-graph-api-proj-"));
-  fs.writeFileSync(path.join(dir, "core.ts"), `export function core(): number { return 1; }\n`);
+  projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-graph-api-proj-"));
+  fs.writeFileSync(path.join(projectDir, "core.ts"), `export function core(): number { return 1; }\n`);
   fs.writeFileSync(
-    path.join(dir, "a.ts"),
+    path.join(projectDir, "a.ts"),
     `import { core } from "./core";\nexport function a(): number { return core(); }\n`,
   );
-  return createProject({ name: "graph-api", path: dir }).id;
+  return createProject({ name: "graph-api", path: projectDir }).id;
 }
 
 async function waitForIdle(projectId: string): Promise<void> {
@@ -144,5 +146,25 @@ describe("code graph API", () => {
       authed(`/api/projects/${projectId}/graph/index/cancel`, { method: "POST" }),
     );
     expect(res?.status).toBe(409);
+  });
+
+  // Mutates the fixture — keep these last. The edit changes the file SIZE so
+  // staleness detection is deterministic on coarse-mtime CI filesystems.
+  it("flags stale files on query results and in status after an edit", async () => {
+    fs.appendFileSync(path.join(projectDir, "core.ts"), `export const extra = 2;\n`);
+
+    const search = await handleApiRequest(authed(`/api/projects/${projectId}/graph/search?q=core`));
+    const searchBody = (await search!.json()) as { staleFiles: string[] };
+    expect(searchBody.staleFiles).toEqual(["core.ts"]);
+
+    const node = await handleApiRequest(authed(`/api/projects/${projectId}/graph/node?node=core`));
+    const nodeBody = (await node!.json()) as { stale: boolean };
+    expect(nodeBody.stale).toBe(true);
+
+    const { __resetStaleCountCache } = await import("../services/code-graph-staleness");
+    __resetStaleCountCache();
+    const status = await handleApiRequest(authed(`/api/projects/${projectId}/graph/status`));
+    const statusBody = (await status!.json()) as { status: { staleFileCount: number } };
+    expect(statusBody.status.staleFileCount).toBe(1);
   });
 });

@@ -14,6 +14,7 @@ import {
   searchGraph,
 } from "../services/code-graph";
 import { attachSearchSources, getNodeSource } from "../services/code-graph-source";
+import { staleFilesAmong } from "../services/code-graph-staleness";
 import {
   cancelGraphIndex,
   GraphIndexError,
@@ -84,7 +85,10 @@ export async function search(projectId: string, url: URL): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   const nodes = searchGraph(projectId, parsed.data.q ?? "", parsed.data.limit);
   const withSource = parsed.data.source === "1" || parsed.data.source === "true";
-  return json({ nodes: withSource ? attachSearchSources(projectId, nodes) : nodes });
+  return json({
+    nodes: withSource ? attachSearchSources(projectId, nodes) : nodes,
+    staleFiles: staleFilesAmong(projectId, nodes.map((n) => n.filePath)),
+  });
 }
 
 const nodeQuery = z.object({ node: z.string().min(1) });
@@ -97,7 +101,12 @@ export async function node(projectId: string, url: URL): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   const result = getNodeSource(projectId, parsed.data.node);
   if (!result) return notFound("node not found");
-  return json(result);
+  return json({
+    ...result,
+    // Source is read live from disk, but the line RANGE came from the index —
+    // a stale file means the range may be shifted.
+    stale: staleFilesAmong(projectId, [result.node.filePath]).length > 0,
+  });
 }
 
 const neighborsQuery = z.object({
@@ -112,7 +121,11 @@ export async function neighbors(projectId: string, url: URL): Promise<Response> 
   if (!parsed.ok) return parsed.response;
   const result = getNeighbors(projectId, parsed.data.node, parsed.data.direction ?? "both");
   if (!result) return notFound("node not found");
-  return json(result);
+  const paths = [
+    result.node.filePath,
+    ...result.neighbors.flatMap((nb) => (nb.node ? [nb.node.filePath] : [])),
+  ];
+  return json({ ...result, staleFiles: staleFilesAmong(projectId, paths) });
 }
 
 const pathQuery = z.object({ from: z.string().min(1), to: z.string().min(1) });
@@ -124,7 +137,10 @@ export async function path(projectId: string, url: URL): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   const result = getShortestPath(projectId, parsed.data.from, parsed.data.to);
   if (!result) return notFound("node not found");
-  return json(result);
+  return json({
+    ...result,
+    staleFiles: staleFilesAmong(projectId, result.nodes.map((n) => n.filePath)),
+  });
 }
 
 const impactQuery = z.object({ node: z.string().min(1) });
@@ -136,5 +152,6 @@ export async function impact(projectId: string, url: URL): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   const result = getImpact(projectId, parsed.data.node);
   if (!result) return notFound("node not found");
-  return json(result);
+  const paths = [result.node.filePath, ...result.dependents.map((n) => n.filePath)];
+  return json({ ...result, staleFiles: staleFilesAmong(projectId, paths) });
 }
