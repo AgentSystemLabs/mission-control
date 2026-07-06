@@ -654,15 +654,15 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     [allScopedSessions, hiddenTaskIds],
   );
 
-  // The hidden sessions, in the order they were hidden (Set preserves
-  // insertion order) — drives the restore bar under the grid.
+  // The hidden sessions, most recently hidden first (Set preserves insertion
+  // order; reversed so the newest hide lands leftmost in the restore bar).
   const hiddenSessions = useMemo(() => {
     if (hiddenTaskIds.size === 0) return [];
     const byId = new Map(allScopedSessions.map((s) => [s.taskId, s]));
     const out: OpenTerminal[] = [];
     for (const id of hiddenTaskIds) {
       const session = byId.get(id);
-      if (session) out.push(session);
+      if (session) out.unshift(session);
     }
     return out;
   }, [hiddenTaskIds, allScopedSessions]);
@@ -817,6 +817,17 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   useEffect(() => {
     if (!gridFocusRequest) return;
     const { taskId } = gridFocusRequest;
+    // The request may target a session hidden with Cmd/Ctrl+L (e.g. it finished
+    // while hidden and the user clicked the notification's "Open") — restore it
+    // first so there is a cell to spotlight. Setter + ref are stable, so this
+    // adds no effect deps.
+    setHiddenTaskIds((prev) => {
+      if (!prev.has(taskId)) return prev;
+      const next = new Set(prev);
+      next.delete(taskId);
+      return next;
+    });
+    if (lastHiddenTaskIdRef.current === taskId) lastHiddenTaskIdRef.current = null;
     // A spotlight targets one session — end any keyboard-nav selection so its
     // dimming/ring doesn't fight the spotlight and Enter can't open a stale pick.
     setNavTaskId(null);
