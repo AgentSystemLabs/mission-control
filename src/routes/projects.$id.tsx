@@ -2003,7 +2003,7 @@ function ProjectPage() {
             void queryClient.invalidateQueries({ queryKey: queryKeys.projectMemory(id) });
             // Non-blocking review nudge for silent auto-capture (D3): deep-links
             // into the Recall panel's Recently-learned filter for bulk keep/edit.
-            if (e.type === "memory:learned") {
+            if (e.type === "memory:learned" && (settings?.recallLearnedToastEnabled ?? true)) {
               const count = typeof e.count === "number" ? e.count : 0;
               if (count > 0) {
                 toast.success(
@@ -2023,7 +2023,7 @@ function ProjectPage() {
           }
         }
       },
-      [id, invalidateThisProjectTasks, invalidateProject, invalidateProjects, invalidateWorktrees, queryClient]
+      [id, invalidateThisProjectTasks, invalidateProject, invalidateProjects, invalidateWorktrees, queryClient, settings?.recallLearnedToastEnabled]
     )
   );
 

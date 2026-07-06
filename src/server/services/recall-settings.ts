@@ -28,6 +28,7 @@ const AGENT_WRITE_ENABLED_KEY = "recall_agent_write_enabled";
 const INJECT_BRIEF_ENABLED_KEY = "recall_inject_brief_enabled";
 const CODE_GRAPH_ENABLED_KEY = "recall_code_graph_enabled";
 const PROACTIVE_RECALL_ENABLED_KEY = "recall_proactive_recall_enabled";
+const LEARNED_TOAST_ENABLED_KEY = "recall_learned_toast_enabled";
 
 // The harness fallback mirrors session creation: use the app's configured
 // default agent when Recall's own harness hasn't been set explicitly.
@@ -58,6 +59,8 @@ export interface RecallSettings {
   codeGraphEnabled: boolean;
   /** Whether each turn gets relevant memories + graph hits injected (UserPromptSubmit). */
   proactiveRecallEnabled: boolean;
+  /** Whether the "Learned N memories from this session" toast fires after auto-capture. */
+  learnedToastEnabled: boolean;
 }
 
 function getEngineHarness(): AiRuntimeHarness {
@@ -83,6 +86,7 @@ export function readRecallSettings(): RecallSettings {
     injectBriefEnabled: enabled && getBooleanSetting(INJECT_BRIEF_ENABLED_KEY, true),
     codeGraphEnabled: enabled && getBooleanSetting(CODE_GRAPH_ENABLED_KEY, true),
     proactiveRecallEnabled: enabled && getBooleanSetting(PROACTIVE_RECALL_ENABLED_KEY, true),
+    learnedToastEnabled: enabled && getBooleanSetting(LEARNED_TOAST_ENABLED_KEY, true),
   };
 }
 
@@ -114,6 +118,9 @@ export function writeRecallSettings(patch: Partial<RecallSettings>): void {
   }
   if (patch.proactiveRecallEnabled !== undefined) {
     setBooleanSetting(PROACTIVE_RECALL_ENABLED_KEY, patch.proactiveRecallEnabled);
+  }
+  if (patch.learnedToastEnabled !== undefined) {
+    setBooleanSetting(LEARNED_TOAST_ENABLED_KEY, patch.learnedToastEnabled);
   }
 }
 

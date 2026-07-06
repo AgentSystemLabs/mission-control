@@ -148,6 +148,8 @@ export type AppSettings = {
   recallCodeGraphEnabled: boolean;
   /** Whether each turn gets relevant memories + graph hits injected proactively. */
   recallProactiveRecallEnabled: boolean;
+  /** Whether the "Learned N memories from this session" toast fires after auto-capture. */
+  recallLearnedToastEnabled: boolean;
 };
 
 export class ApiError extends Error {
@@ -600,6 +602,7 @@ export const api = {
         | "recallInjectBriefEnabled"
         | "recallCodeGraphEnabled"
         | "recallProactiveRecallEnabled"
+        | "recallLearnedToastEnabled"
       >
     >,
   ) =>

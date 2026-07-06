@@ -152,6 +152,7 @@ const updateSettingsBody = z
     recallInjectBriefEnabled: z.boolean(),
     recallCodeGraphEnabled: z.boolean(),
     recallProactiveRecallEnabled: z.boolean(),
+    recallLearnedToastEnabled: z.boolean(),
   })
   .partial();
 
@@ -298,6 +299,7 @@ function recallSettingsPayload() {
     recallInjectBriefEnabled: recall.injectBriefEnabled,
     recallCodeGraphEnabled: recall.codeGraphEnabled,
     recallProactiveRecallEnabled: recall.proactiveRecallEnabled,
+    recallLearnedToastEnabled: recall.learnedToastEnabled,
   };
 }
 
@@ -455,6 +457,7 @@ export async function update(request: Request): Promise<Response> {
     injectBriefEnabled: body.recallInjectBriefEnabled,
     codeGraphEnabled: body.recallCodeGraphEnabled,
     proactiveRecallEnabled: body.recallProactiveRecallEnabled,
+    learnedToastEnabled: body.recallLearnedToastEnabled,
   });
   return json(settingsPayload());
 }
