@@ -18,7 +18,7 @@ import {
   GraphIndexError,
   startGraphIndex,
 } from "../services/code-graph-indexer";
-import { handleDomainError, json, jsonError, notFound, parseSearchParams } from "./_helpers";
+import { rethrowUnlessDomain, json, jsonError, notFound, parseSearchParams } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_CONFLICT } from "~/shared/http-status";
 
 const enumOf = <T extends string>(values: readonly T[]) => z.enum(values as unknown as [T, ...T[]]);
@@ -51,9 +51,7 @@ export async function index(projectId: string, url: URL): Promise<Response> {
     return json({ status: getGraphStatus(projectId), job: progress }, { status: 202 });
   } catch (e) {
     if (e instanceof GraphIndexError) return jsonError(HTTP_BAD_REQUEST, e.message);
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 

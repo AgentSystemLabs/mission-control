@@ -66,6 +66,11 @@ export type AppSettings = {
   themeStyle: ThemeStyle;
   /** Derived server-side: true when themeStyle renders clean CSS chrome. */
   minimalTheme: boolean;
+  /**
+   * Derived server-side, read-only: false only on a fresh install where no
+   * theme setting was ever saved. Gates the first-launch theme picker.
+   */
+  themeChosen: boolean;
   mouseGradientDisabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;

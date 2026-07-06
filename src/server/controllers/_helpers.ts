@@ -122,3 +122,15 @@ export function handleDomainError(e: unknown): Response | null {
   if (e instanceof DomainError) return jsonError(HTTP_BAD_REQUEST, e.message);
   return null;
 }
+
+/**
+ * Map a caught error to its HTTP response, or rethrow it if it isn't a known
+ * domain error. Collapses the ubiquitous
+ * `const mapped = handleDomainError(e); if (mapped) return mapped; throw e;`
+ * catch body into a single call.
+ */
+export function rethrowUnlessDomain(e: unknown): Response {
+  const mapped = handleDomainError(e);
+  if (mapped) return mapped;
+  throw e;
+}

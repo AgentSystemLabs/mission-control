@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createGroup, deleteGroup, listGroups, updateGroup } from "../services/groups";
-import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
+import { rethrowUnlessDomain, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_CREATED } from "~/shared/http-status";
 
 const createGroupBody = z.object({
@@ -26,9 +26,7 @@ export async function create(request: Request): Promise<Response> {
     const g = createGroup(parsed.data);
     return json({ group: g }, { status: HTTP_CREATED });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 

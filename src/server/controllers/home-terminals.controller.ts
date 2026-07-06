@@ -5,7 +5,7 @@ import {
   listHomeTerminals,
   renameHomeTerminal,
 } from "../services/home-terminals";
-import { handleDomainError, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
+import { rethrowUnlessDomain, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_CREATED } from "~/shared/http-status";
 
 const createHomeTerminalBody = z.object({
@@ -36,9 +36,7 @@ export async function create(request: Request): Promise<Response> {
     });
     return json({ terminal }, { status: HTTP_CREATED });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -52,9 +50,7 @@ export async function rename(rawId: string, request: Request): Promise<Response>
     if (!terminal) return notFound();
     return json({ terminal });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 

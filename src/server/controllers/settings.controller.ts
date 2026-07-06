@@ -237,6 +237,15 @@ function settingsPayload() {
     // Derived: true whenever the style renders clean CSS chrome (minimal or
     // noir). Layout consumers key off this; the style picker reads themeStyle.
     minimalTheme: themeStyle !== "painted",
+    // Raw-key check — the getters above normalize absent rows to defaults,
+    // which would erase the "never chosen" signal. False only on a fresh
+    // install where no theme setting was ever written. Gates the first-launch
+    // theme picker; localStorage can't, because the renderer's localhost port
+    // (and thus its storage origin) can change between launches.
+    themeChosen:
+      getSetting("accent_color") !== null ||
+      getSetting(THEME_STYLE_KEY) !== null ||
+      getSetting(MINIMAL_THEME_KEY) !== null,
     mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
     sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(

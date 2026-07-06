@@ -696,6 +696,61 @@ describe("settings API", () => {
     });
   });
 
+  it("reports no theme chosen on a fresh install", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({ themeChosen: false });
+  });
+
+  it("reports the theme as chosen once a style is saved, even the default one", async () => {
+    // "painted" is the default themeStyle: the raw-key check must distinguish
+    // "picked the default" from "never picked", which the normalized
+    // themeStyle field cannot.
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "painted" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ themeChosen: true });
+    expect(await jsonBody(read!)).toMatchObject({ themeChosen: true });
+  });
+
+  it("reports the theme as chosen once an accent color is saved", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accentColor: "terracotta" }),
+      }),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ themeChosen: true });
+  });
+
+  it("counts the legacy minimalTheme toggle as a chosen theme", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ minimalTheme: true }),
+      }),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ themeChosen: true });
+  });
+
   it("rejects an unknown theme style", async () => {
     const response = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {

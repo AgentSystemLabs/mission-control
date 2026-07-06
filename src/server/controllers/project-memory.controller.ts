@@ -23,7 +23,7 @@ import {
 import { getTask } from "../services/tasks";
 import { readRecallSettings } from "../services/recall-settings";
 import { findProjectById } from "../repositories/projects.repo";
-import { forbidden, handleDomainError, json, noContent, notFound, parseJsonBody, parseSearchParams } from "./_helpers";
+import { forbidden, rethrowUnlessDomain, json, noContent, notFound, parseJsonBody, parseSearchParams } from "./_helpers";
 
 const enumOf = <T extends string>(values: readonly T[]) =>
   z.enum(values as unknown as [T, ...T[]]);
@@ -117,9 +117,7 @@ export async function create(projectId: string, request: Request): Promise<Respo
     });
     return json({ memory, similar }, { status: 201 });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -140,9 +138,7 @@ export async function update(memoryId: string, request: Request): Promise<Respon
     const opts = { expectedProjectId: expectedProjectId(new URL(request.url)) };
     return json({ memory: updateMemory(memoryId, parsed.data, opts) });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -194,9 +190,7 @@ export async function verify(memoryId: string, url: URL): Promise<Response> {
     });
     return json({ verdict, memory });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -207,8 +201,6 @@ export async function remove(memoryId: string, url: URL): Promise<Response> {
     deleteMemory(memoryId, { hard: parsed.data.hard, expectedProjectId: expectedProjectId(url) });
     return noContent();
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }

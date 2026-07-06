@@ -13,28 +13,11 @@ import { SessionIcon } from "~/components/ui/SessionIcon";
 import { AgentGlyph } from "~/components/ui/AgentGlyph";
 import { Kbd } from "~/components/ui/Kbd";
 import { usePromptSearch } from "~/queries";
+import { formatRelativeTime } from "~/lib/format-relative-time";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
 import type { PromptSearchResult } from "~/shared/prompts";
 
 const DEBOUNCE_MS = 150;
-
-// Compact relative time for a result's timestamp.
-function formatWhen(ts: number, now: number): string {
-  const diff = Math.max(0, now - ts);
-  const sec = Math.floor(diff / 1000);
-  if (sec < 45) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}d ago`;
-  const wk = Math.floor(day / 7);
-  if (wk < 5) return `${wk}w ago`;
-  const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(day / 365)}y ago`;
-}
 
 // Single-line preview: collapse whitespace so multi-line prompts read cleanly.
 function previewText(text: string): string {
@@ -291,7 +274,7 @@ export function PromptSearchPalette({ open, onClose }: { open: boolean; onClose:
                   </span>
                   <AgentGlyph agent={row.agent} size={10} />
                   <span style={{ marginLeft: "auto", flexShrink: 0, paddingLeft: 8 }}>
-                    {formatWhen(row.ts, nowRef.current)}
+                    {formatRelativeTime(row.ts, nowRef.current)}
                   </span>
                 </span>
               </button>

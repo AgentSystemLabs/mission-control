@@ -10,7 +10,7 @@ import { setTranscriptPath } from "../services/session-transcripts";
 import { readRecallSettings } from "../services/recall-settings";
 import { assembleTurnContext } from "../services/proactive-recall";
 import { generateTitleForTask, isTitleGenerationPrompt } from "../services/title-generator";
-import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
+import { rethrowUnlessDomain, json, jsonError, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
 
 const hookPayload = z
@@ -199,9 +199,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     }
     return json({ ok: true, status });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 

@@ -13,16 +13,52 @@ export function getMissionControlColorScheme(): MissionControlColorScheme {
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
-function readCssVar(name: string, fallback: string): string {
-  if (typeof window === "undefined") return fallback;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
+/**
+ * Build a reader that resolves theme CSS variables into colors mermaid can
+ * parse. Custom properties keep their authored text — the minimal theme's
+ * surfaces are `oklch(…)` — but mermaid's color parser (khroma) only
+ * understands hex/rgb/hsl, so raw values crash `mermaid.render` with
+ * "Unsupported color format". A canvas fillStyle round-trip has the browser
+ * serialize any color it can parse to hex/rgba; values it can't parse fall
+ * back to the hardcoded default rather than failing the render.
+ */
+function createCssColorReader(): (name: string, fallback: string) => string {
+  if (typeof window === "undefined") return (_name, fallback) => fallback;
+  const rootStyle = getComputedStyle(document.documentElement);
+  let ctx: CanvasRenderingContext2D | null = null;
+  try {
+    ctx = document.createElement("canvas").getContext("2d");
+  } catch {
+    ctx = null;
+  }
+  return (name, fallback) => {
+    const raw = rootStyle.getPropertyValue(name).trim();
+    if (!raw) return fallback;
+    if (!ctx) return raw;
+    // fillStyle silently keeps its previous value when assigned something
+    // unparseable, so round-trip against two sentinels to tell "parsed to
+    // black" apart from "not a color".
+    ctx.fillStyle = "#000000";
+    ctx.fillStyle = raw;
+    const serialized = ctx.fillStyle;
+    if (serialized === "#000000") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = raw;
+      if (ctx.fillStyle === "#ffffff") return fallback;
+    }
+    // Canvas serializes to #rrggbb / rgba(); anything else (a future engine
+    // emitting color(srgb …)) would still crash khroma, so fall back.
+    return typeof serialized === "string" && /^(#|rgba?\()/.test(serialized)
+      ? serialized
+      : fallback;
+  };
 }
 
 export function buildMermaidInitConfig(
   scheme: MissionControlColorScheme = getMissionControlColorScheme(),
 ): MermaidInitConfig {
   const isDark = scheme === "dark";
+  const readCssVar = createCssColorReader();
 
   const accent = readCssVar("--accent", "#ff5a1f");
   const text = readCssVar("--text", isDark ? "#e8e6df" : "#1a1a1a");

@@ -7,6 +7,7 @@ import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ProjectStatusBadge } from "~/components/ui/ProjectStatusBadge";
 import { StatusPill } from "~/components/ui/StatusDot";
 import { TASK_STATUSES } from "~/shared/domain";
+import { formatRelativeTime } from "~/lib/format-relative-time";
 import {
   DEFAULT_PROJECT_SORT,
   sortProjects,
@@ -159,7 +160,7 @@ export function ProjectsTable({
                     {formatDate(project.createdAt)}
                   </td>
                   <td className="mc-projects-table-cell mc-projects-table-date">
-                    {formatRelative(project.updatedAt)}
+                    {formatRelativeTime(project.updatedAt)}
                   </td>
                   <td className="mc-projects-table-cell mc-projects-table-pin">
                     <Btn
@@ -215,17 +216,6 @@ function SortHeader({
       </button>
     </th>
   );
-}
-
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 function formatDate(ts: number): string {

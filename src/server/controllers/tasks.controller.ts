@@ -13,7 +13,7 @@ import {
 } from "../services/tasks";
 import { getPendingQuestion } from "../services/pending-questions";
 import {
-  handleDomainError,
+  rethrowUnlessDomain,
   idParam,
   json,
   noContent,
@@ -73,9 +73,7 @@ export async function listForProject(rawProjectId: string, request: Request): Pr
         : listTasksForProjectWorktree(parsed.data, worktreeId, scopeId),
     });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -94,9 +92,7 @@ export async function create(rawProjectId: string, request: Request): Promise<Re
     });
     return json({ task: t }, { status: HTTP_CREATED });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -129,9 +125,7 @@ export async function update(rawId: string, request: Request): Promise<Response>
     if (!t) return notFound();
     return json({ task: t });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
@@ -162,9 +156,7 @@ export async function setStatus(rawId: string, request: Request): Promise<Respon
     }
     return json({ task: t });
   } catch (e) {
-    const mapped = handleDomainError(e);
-    if (mapped) return mapped;
-    throw e;
+    return rethrowUnlessDomain(e);
   }
 }
 
