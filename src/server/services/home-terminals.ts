@@ -10,20 +10,7 @@ import {
 import { isClientDomainId } from "~/shared/client-id";
 import { normalizeScopeId } from "~/shared/sandbox";
 import { newId } from "./_ids";
-
-const DEFAULT_TERMINAL_NAME_RE = /^Terminal (\d+)$/;
-
-/** Pick the lowest unused "Terminal N" name within one scope. */
-function nextDefaultHomeTerminalName(rows: HomeTerminal[]): string {
-  const used = new Set<number>();
-  for (const t of rows) {
-    const match = DEFAULT_TERMINAL_NAME_RE.exec(t.name);
-    if (match) used.add(Number(match[1]));
-  }
-  let n = 1;
-  while (used.has(n)) n++;
-  return `Terminal ${n}`;
-}
+import { nextTerminalName } from "./_terminal-names";
 
 export function listHomeTerminals(scopeId?: string | null): UserTerminal[] {
   return findHomeTerminalsByScope(normalizeScopeId(scopeId)).map(toUserTerminal);
@@ -44,7 +31,7 @@ export function createHomeTerminal(input: {
   const row: HomeTerminal = {
     id: requestedId || newId("ht"),
     scopeId,
-    name: input.name?.trim() || nextDefaultHomeTerminalName(existing),
+    name: input.name?.trim() || nextTerminalName(existing.map((t) => t.name)),
     cwd: input.cwd ?? null,
     position: existing.length,
     createdAt: now,

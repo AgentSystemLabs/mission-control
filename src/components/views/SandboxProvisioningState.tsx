@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Icon } from "~/components/ui/Icon";
+import { Spinner } from "~/components/ui/Spinner";
 import { sandboxProvisioningStatusCopy } from "~/lib/use-remote-vm-deploy-for-sandbox";
 import type { RemoteVmDeployJobSnapshot } from "~/shared/electron-contract";
 
@@ -40,16 +40,7 @@ export function SandboxProvisioningState({
         boxSizing: "border-box",
       }}
     >
-      <span
-        aria-hidden
-        style={{
-          display: "inline-flex",
-          color: "var(--accent)",
-          animation: "spin 0.8s linear infinite",
-        }}
-      >
-        <Icon name="refresh" size={30} />
-      </span>
+      <Spinner size={30} color="var(--accent)" aria-hidden />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6, textAlign: "center" }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>

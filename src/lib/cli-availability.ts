@@ -3,6 +3,7 @@ import { getElectron } from "~/lib/electron";
 import { AGENT_REGISTRY, UI_AGENTS } from "~/shared/agents";
 import type { TaskAgent } from "~/shared/domain";
 import type { CliCheckResult } from "~/shared/electron-contract";
+import { createListenerSet } from "./listener-set";
 
 export type CliAvailabilityStatus = "unknown" | "checking" | "available" | "missing" | "outdated";
 
@@ -20,20 +21,11 @@ export type CliAvailability = {
 export type CliAvailabilityMap = Partial<Record<TaskAgent, CliAvailability>>;
 
 const UNKNOWN: CliAvailability = { status: "unknown" };
-const listeners = new Set<() => void>();
+const { subscribe, notify: emit } = createListenerSet();
 let snapshot: CliAvailabilityMap = Object.fromEntries(
   UI_AGENTS.map((agent) => [agent, UNKNOWN])
 ) as CliAvailabilityMap;
 let started = false;
-
-function emit() {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
 
 function getSnapshot() {
   return snapshot;

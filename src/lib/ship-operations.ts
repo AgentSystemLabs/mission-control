@@ -1,4 +1,5 @@
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
+import { createListenerSet } from "./listener-set";
 
 export type ShipPhase = "committing" | "pushing";
 
@@ -8,7 +9,8 @@ type ActiveShipOperation = {
 };
 
 const activeShipOperations = new Map<string, ActiveShipOperation>();
-const shipOperationListeners = new Set<() => void>();
+const shipOperationStore = createListenerSet();
+const notifyShipOperationListeners = shipOperationStore.notify;
 
 export function shipKey(projectId: string, worktreeId?: string | null) {
   return `${projectId}:${worktreeId || MAIN_WORKTREE_ID}`;
@@ -29,10 +31,6 @@ export function getProjectShipPhase(
   const op = getShipOperation(projectId, worktreeId);
   if (!op || op.count <= 0) return null;
   return op.phase;
-}
-
-function notifyShipOperationListeners() {
-  for (const listener of shipOperationListeners) listener();
 }
 
 export function beginShipOperation(projectId: string, worktreeId?: string | null) {
@@ -67,10 +65,7 @@ export function endShipOperation(projectId: string, worktreeId?: string | null) 
 }
 
 export function subscribeShipOperations(listener: () => void) {
-  shipOperationListeners.add(listener);
-  return () => {
-    shipOperationListeners.delete(listener);
-  };
+  return shipOperationStore.subscribe(listener);
 }
 
 /** Test-only: reset global ship state between cases. */

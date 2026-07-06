@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { assertSafeProjectRelativePath } from "./_skills-install-helpers";
+import { assertSafeProjectRelativePath, copySkillTree } from "./_skills-install-helpers";
 import { resolveRegisteredProjectPath } from "./path-security";
 import {
   diagramSkillInstalledPaths,
@@ -19,21 +19,6 @@ export type InstallDiagramSkillArgs = {
 };
 
 export type InstallDiagramSkillResult = DiagramSkillInstallResult;
-
-async function copySkillTree(sourceDir: string, targetDir: string): Promise<void> {
-  await fs.promises.mkdir(targetDir, { recursive: true });
-  const entries = await fs.promises.readdir(sourceDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const from = path.join(sourceDir, entry.name);
-    const to = path.join(targetDir, entry.name);
-    if (entry.isDirectory()) {
-      await copySkillTree(from, to);
-      continue;
-    }
-    if (!entry.isFile()) continue;
-    await fs.promises.copyFile(from, to);
-  }
-}
 
 function emptyInstallResult(): InstallDiagramSkillResult {
   return { claudeInstalled: false, codexInstalled: false, cursorInstalled: false };

@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnCapture } from "./_spawn";
 import { MAIN_WORKTREE_ID, WORKTREE_NAME_RE, normalizeWorktreeId } from "~/shared/worktrees";
 import type { WorktreeInfo, WorktreeTaskCounts } from "~/shared/worktrees";
 import { TASK_STATUSES } from "~/shared/domain";
@@ -75,32 +75,11 @@ export class WorktreeGitError extends Error {
 }
 
 function runGit(cwd: string, args: string[]): Promise<RunResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", args, {
-      cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new WorktreeGitError(`git ${args[0]} timed out`));
-    }, GIT_WORKTREE_TIMEOUT_MS);
-    child.stdout.on("data", (chunk: Buffer) => out.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => err.push(chunk));
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
-        stdout: Buffer.concat(out).toString("utf8"),
-        stderr: Buffer.concat(err).toString("utf8"),
-        code: code ?? 1,
-      });
-    });
+  return spawnCapture("git", args, {
+    cwd,
+    timeoutMs: GIT_WORKTREE_TIMEOUT_MS,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    onTimeout: () => new WorktreeGitError(`git ${args[0]} timed out`),
   });
 }
 

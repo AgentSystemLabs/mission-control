@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { VOICE_SHIP_EVENT } from "~/lib/voice-events";
-import { mcToastCustom, McToastCloseButton } from "~/lib/mc-toast";
-import { CardFrame } from "~/components/ui/CardFrame";
-import { Icon } from "~/components/ui/Icon";
+import { mcToastResultCard } from "~/lib/mc-toast";
+import { Spinner } from "~/components/ui/Spinner";
 import { ApiError } from "~/lib/api";
 import { useGitCommit, useGitPush, useGitStatus } from "~/queries/git";
 import { isCommitCli, type CommitCli } from "~/shared/commit-cli";
@@ -34,19 +33,6 @@ function useProjectShipPhase(projectId: string, worktreeId?: string | null) {
     subscribeShipOperations,
     () => getProjectShipPhase(projectId, worktreeId),
     () => null,
-  );
-}
-
-function Spinner() {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        animation: "spin 0.8s linear infinite",
-      }}
-    >
-      <Icon name="refresh" size={11} />
-    </span>
   );
 }
 
@@ -81,116 +67,11 @@ function readCommitCliFailure(error: unknown): CommitCliFailure | null {
  * same sonner channel as the success path so the user never sees a Ship
  * spinner stop with no follow-up. */
 function showShipErrorToast(title: string, detail: string) {
-  mcToastCustom(
-    (toastId) => (
-      <CardFrame
-        solid
-        style={{
-          position: "relative",
-          minWidth: 320,
-          maxWidth: 460,
-          padding: "14px 96px 14px 16px",
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 12,
-        }}
-      >
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            background: "color-mix(in srgb, var(--status-failed) 22%, transparent)",
-            border:
-              "1px solid color-mix(in srgb, var(--status-failed) 50%, transparent)",
-            color: "var(--status-failed)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <Icon name="x" size={14} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 13 }}>
-            {title}
-          </div>
-          <div
-            title={detail}
-            style={{
-              color: "var(--text-faint)",
-              fontSize: 12,
-              marginTop: 2,
-              whiteSpace: "pre-wrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {detail}
-          </div>
-        </div>
-        <McToastCloseButton toastId={toastId} />
-      </CardFrame>
-    ),
-    { duration: 8000 },
-  );
+  mcToastResultCard({ tone: "error", title, detail }, { duration: 8000 });
 }
 
 function showShipToast(title: string, detail: string) {
-  mcToastCustom(
-    (toastId) => (
-      <CardFrame
-        solid
-        style={{
-          position: "relative",
-          minWidth: 320,
-          maxWidth: 460,
-          padding: "14px 96px 14px 16px",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            background: "color-mix(in srgb, var(--accent) 22%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--accent) 50%, transparent)",
-            color: "var(--accent)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <Icon name="check" size={14} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 13 }}>
-            {title}
-          </div>
-          <div
-            title={detail}
-            style={{
-              color: "var(--text-faint)",
-              fontSize: 12,
-              marginTop: 2,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {detail}
-          </div>
-        </div>
-        <McToastCloseButton toastId={toastId} />
-      </CardFrame>
-    ),
-    { duration: 5000 },
-  );
+  mcToastResultCard({ tone: "success", title, detail }, { duration: 5000 });
 }
 
 export function CommitPushButton({
@@ -366,7 +247,7 @@ export function CommitPushButton({
 
   const labelBusy = (
     <>
-      <Spinner />
+      <Spinner size={11} />
       {shipPhase === "pushing" ? "Pushing…" : "Committing…"}
     </>
   );

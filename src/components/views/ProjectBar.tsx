@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { createPortal } from "react-dom";
-import { Z_INDEX } from "~/lib/z-index";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
@@ -11,6 +9,7 @@ import type { Group } from "~/db/schema";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Icon } from "~/components/ui/Icon";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { ContextMenuPopover } from "~/components/ui/ContextMenuPopover";
 import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { TASK_STATUS_META } from "~/shared/domain";
@@ -588,23 +587,8 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
           </button>
         );
       })}
-      {menu &&
-        createPortal(
-          <CardFrame
-            role="menu"
-            aria-label={`${menu.name} actions`}
-            solid
-            className="mc-project-actions-menu"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              top: menu.y,
-              left: menu.x,
-              minWidth: 196,
-              boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-              zIndex: Z_INDEX.popover,
-            }}
-          >
+      {menu && (
+        <ContextMenuPopover anchor={menu} label={`${menu.name} actions`} minWidth={196}>
             <DropdownMenuItem
               icon="settings"
               autoFocus
@@ -627,9 +611,8 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
             >
               Unpin project
             </DropdownMenuItem>
-          </CardFrame>,
-          document.body,
-        )}
+        </ContextMenuPopover>
+      )}
     </CardFrame>
     {editingProject && (
       <ProjectDialog

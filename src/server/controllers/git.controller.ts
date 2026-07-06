@@ -13,6 +13,7 @@ import {
 } from "../services/git";
 import { handleDomainError, idParam, json, jsonError, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST } from "~/shared/http-status";
+import { normalizeWorktreeId } from "~/shared/worktrees";
 
 const stageBody = z.object({
   files: z.array(z.string()).optional().default([]),
@@ -32,8 +33,7 @@ const checkoutBody = z.object({
 });
 
 function queryWorktreeId(url: URL): string | null {
-  const value = url.searchParams.get("worktreeId");
-  return value && value !== "main" ? value : null;
+  return normalizeWorktreeId(url.searchParams.get("worktreeId"));
 }
 
 function asGitErrorResponse(e: unknown): Response {

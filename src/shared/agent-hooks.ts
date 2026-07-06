@@ -1,6 +1,6 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeOpencodeMissionControlPlugin } from "./opencode-mission-control-plugin";
+import { readJsonSettingsFile, writeJsonSettingsFile } from "./json-settings-file";
 
 const MARKER = "_mcManaged";
 
@@ -210,17 +210,9 @@ export function installAgentHooks(
   if (!spec) return;
 
   const file = path.join(cwd, ...spec.configPath);
-  const dir = path.dirname(file);
 
-  let settings: HooksFile = {};
-  try {
-    const raw = fs.readFileSync(file, "utf8");
-    if (raw.trim()) settings = JSON.parse(raw);
-  } catch (err) {
-    // ENOENT is expected on first install; any other error (parse failure,
-    // permission denied) means we should not clobber the file.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") return;
-  }
+  const settings = readJsonSettingsFile<HooksFile>(file);
+  if (settings === null) return; // read failed (not just missing) — don't clobber
 
   const style = spec.style ?? "claude";
   if (style === "cursor") {
@@ -249,10 +241,6 @@ export function installAgentHooks(
     else delete hooks[event];
   }
 
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
-  } catch {
-    // best-effort - bubble up nothing; status will simply not update.
-  }
+  // best-effort - bubble up nothing; status will simply not update.
+  writeJsonSettingsFile(file, settings);
 }

@@ -114,14 +114,41 @@ log.initialize();
 log.transports.file.level = "info";
 log.transports.console.level = "debug";
 
+// stdout/stderr writes can fail with EPIPE/EIO/EBADF once the controlling
+// terminal or parent pipe goes away — almost always during shutdown. These
+// console writes are non-fatal, so treat them as benign wherever they surface:
+// the async stream "error" event below, or a synchronous throw caught by the
+// process-level handler.
+function isBenignStreamWriteError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null | undefined)?.code;
+  return code === "EPIPE" || code === "EIO" || code === "EBADF";
+}
+
 function ignoreBrokenPipe(stream: NodeJS.WriteStream | undefined): void {
   stream?.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EPIPE") return;
+    if (isBenignStreamWriteError(err)) return;
     throw err;
   });
 }
 ignoreBrokenPipe(process.stdout);
 ignoreBrokenPipe(process.stderr);
+
+// A synchronous `console.*` write to a dead stdout/stderr throws straight out of
+// Electron's console shim, bypassing the stream "error" event above. Without a
+// handler here, Electron's built-in fatal-error dialog fires on every quit
+// ("Uncaught Exception: Error: write EIO"). Swallow those benign writes; keep
+// Electron's default dialog for genuine main-process crashes.
+process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+  if (isBenignStreamWriteError(err)) return;
+  try {
+    log.error("main.uncaught-exception", err);
+  } catch {}
+  const stack = err.stack ?? `${err.name}: ${err.message}`;
+  dialog.showErrorBox(
+    "A JavaScript error occurred in the main process",
+    `Uncaught Exception:\n${stack}`,
+  );
+});
 
 const isDev = process.env.NODE_ENV === "development";
 const devServerHost = process.env.MC_DEV_HOST ?? "127.0.0.1";
@@ -885,8 +912,11 @@ async function startProductionServer(): Promise<string> {
   });
 
   serverProcess.on("exit", (code) => {
-    console.error(`[server] exited with code ${code}`);
+    // On a normal quit `before-quit` kills the server, so an exit here is
+    // expected — stay silent to avoid a shutdown-time stdout write (EIO). Only
+    // an unexpected death is worth logging, and it triggers app teardown.
     if (!(app as any).isQuiting) {
+      console.error(`[server] exited with code ${code}`);
       app.quit();
     }
   });

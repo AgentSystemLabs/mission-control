@@ -15,6 +15,8 @@
  * a many-core machine doesn't stampede disk/memory with a dozen Node boots.
  */
 
+import { createAsyncSemaphore } from "./async-semaphore";
+
 const MIN_SPAWN_SLOTS = 2;
 const MAX_SPAWN_SLOTS = 6;
 
@@ -38,28 +40,13 @@ export function setSpawnConcurrencyForTests(n: number): number {
 /** Slot is released this long after spawn even if the agent stays silent. */
 export const SPAWN_SETTLE_MS = 2_500;
 
-let active = 0;
-const waiters: Array<() => void> = [];
+const spawnSemaphore = createAsyncSemaphore(() => maxConcurrentSpawns);
 
 /**
  * Wait for a spawn slot. Resolves to a release function; callers MUST call it
  * exactly once (calling it again is a no-op) when the spawned agent has
  * settled — on first PTY output, on spawn failure, or on teardown.
  */
-export async function acquireSpawnSlot(): Promise<() => void> {
-  if (active < maxConcurrentSpawns) {
-    active += 1;
-  } else {
-    // The releaser hands its slot to us directly (active stays counted), so a
-    // fresh acquirer can't slip in between the release and this wake-up.
-    await new Promise<void>((resolve) => waiters.push(resolve));
-  }
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const next = waiters.shift();
-    if (next) next();
-    else active -= 1;
-  };
+export function acquireSpawnSlot(): Promise<() => void> {
+  return spawnSemaphore.acquire();
 }

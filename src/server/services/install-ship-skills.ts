@@ -5,7 +5,7 @@ import {
   discoverCorePluginSkills,
   resolveCorePluginRoot,
 } from "../core-plugin-path";
-import { assertSafeProjectRelativePath } from "./_skills-install-helpers";
+import { assertSafeProjectRelativePath, copySkillTree } from "./_skills-install-helpers";
 import { resolveRegisteredProjectPath } from "./path-security";
 import {
   convertAgentToCodexToml,
@@ -26,21 +26,6 @@ export type InstallShipSkillsArgs = {
 };
 
 export type InstallShipSkillsResult = ShipSkillInstallResult;
-
-async function copySkillTree(sourceDir: string, targetDir: string): Promise<void> {
-  await fs.promises.mkdir(targetDir, { recursive: true });
-  const entries = await fs.promises.readdir(sourceDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const from = path.join(sourceDir, entry.name);
-    const to = path.join(targetDir, entry.name);
-    if (entry.isDirectory()) {
-      await copySkillTree(from, to);
-      continue;
-    }
-    if (!entry.isFile()) continue;
-    await fs.promises.copyFile(from, to);
-  }
-}
 
 function emptyInstallResult(): ShipSkillInstallResult {
   return {

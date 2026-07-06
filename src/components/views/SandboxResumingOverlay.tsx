@@ -1,4 +1,4 @@
-import { Icon } from "~/components/ui/Icon";
+import { Spinner } from "~/components/ui/Spinner";
 
 /**
  * Full-cover overlay shown over the route content while the active sandbox's
@@ -29,12 +29,7 @@ export function SandboxResumingOverlay({ name }: { name: string }) {
         pointerEvents: "auto",
       }}
     >
-      <span
-        aria-hidden
-        style={{ display: "inline-flex", color: "var(--accent)", animation: "spin 0.8s linear infinite" }}
-      >
-        <Icon name="refresh" size={30} />
-      </span>
+      <Spinner size={30} color="var(--accent)" aria-hidden />
       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
         <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--text)" }}>Resuming {name}…</p>
         <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.5 }}>

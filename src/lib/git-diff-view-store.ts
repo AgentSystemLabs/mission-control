@@ -1,11 +1,12 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { readJson, writeJson } from "./local-storage-json";
+import { createListenerSet } from "./listener-set";
 
 export type GitDiffViewOpenByProject = Record<string, boolean>;
 
 const STORAGE_KEY = "mc.gitDiffViewOpenByProject";
 
-const listeners = new Set<() => void>();
+const { subscribe, notify: emit } = createListenerSet();
 
 function normalizeGitDiffViewOpenByProject(value: unknown): GitDiffViewOpenByProject {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -26,15 +27,6 @@ function saveGitDiffViewOpenByProject(next: GitDiffViewOpenByProject): void {
 }
 
 let snapshot: GitDiffViewOpenByProject = loadGitDiffViewOpenByProject();
-
-function emit() {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
 
 function getSnapshot() {
   return snapshot;

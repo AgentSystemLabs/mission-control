@@ -57,7 +57,9 @@ import {
 import { useHotkey } from "~/lib/use-hotkey";
 import { SandboxCloneOfferBanner } from "~/components/views/SandboxCloneOfferBanner";
 import { TerminalZoomControls } from "~/components/views/TerminalZoomControls";
-import { ApiError, api, resolveApiToken } from "~/lib/api";
+import { api, resolveApiToken } from "~/lib/api";
+import { remoteStartErrorMessage } from "~/lib/remote-runtime-errors";
+import { useSandboxCloneConfirm } from "~/lib/use-sandbox-clone-confirm";
 import {
   agentUsesPersistedSession,
   buildFreshAgentLaunchCommand,
@@ -1372,21 +1374,13 @@ export function TerminalPane({
     };
   }, [descriptor.taskId, descriptor.awaitingCreate, descriptor.pendingValidation, retryNonce]);
 
-  const confirmClone = useCallback(async () => {
-    const electron = getElectron();
-    if (!electron || !cloneOffer) return;
-    setCloning(true);
-    setStartError(null);
-    try {
-      await electron.remoteGit.clone(cloneOffer.remote, cloneOffer.slug);
-      setCloneOffer(null);
-      setRetryNonce((n) => n + 1); // re-run: repo now present → the agent spawns
-    } catch (e) {
-      setStartError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCloning(false);
-    }
-  }, [cloneOffer]);
+  const confirmClone = useSandboxCloneConfirm({
+    cloneOffer,
+    setCloneOffer,
+    setCloning,
+    setStartError,
+    setRetryNonce,
+  });
 
   return (
     <>
@@ -1720,20 +1714,3 @@ export function TerminalPane({
   );
 }
 
-function remoteStartErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.status === 401) {
-      return "Academy entitlement is required before hosted runtime can start.";
-    }
-    if (error.status === 402) {
-      return error.message || "Hosted compute limit reached. Open Academy billing to upgrade or wait for the usage window to reset.";
-    }
-    if (error.status === 503) {
-      return error.message || "Hosted remote runtime is temporarily disabled. Try again later or contact support.";
-    }
-    if (error.status === 429) {
-      return "Too many remote runtime starts. Wait a minute, then retry.";
-    }
-  }
-  return error instanceof Error ? error.message : String(error || "unknown error");
-}

@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnCapture } from "./_spawn";
 import {
   CommitMessageGenerationError,
   resolveCommitCli,
@@ -82,32 +82,11 @@ function runGit(
   options: { timeoutMs?: number; encoding?: "utf8" | "buffer" } = {},
 ): Promise<RunGitResult> {
   const { timeoutMs = GIT_TIMEOUT_MS } = options;
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", args, {
-      cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const outChunks: Buffer[] = [];
-    const errChunks: Buffer[] = [];
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new GitError(`git ${args[0]} timed out`));
-    }, timeoutMs);
-    child.stdout.on("data", (d: Buffer) => outChunks.push(d));
-    child.stderr.on("data", (d: Buffer) => errChunks.push(d));
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
-        stdout: Buffer.concat(outChunks).toString("utf8"),
-        stderr: Buffer.concat(errChunks).toString("utf8"),
-        code: code ?? 1,
-      });
-    });
+  return spawnCapture("git", args, {
+    cwd,
+    timeoutMs,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    onTimeout: () => new GitError(`git ${args[0]} timed out`),
   });
 }
 
@@ -443,36 +422,12 @@ function runGh(
   options: { timeoutMs?: number } = {},
 ): Promise<RunGitResult> {
   const { timeoutMs = GH_TIMEOUT_MS } = options;
-  return new Promise((resolve, reject) => {
-    const child = spawn("gh", args, {
-      cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const outChunks: Buffer[] = [];
-    const errChunks: Buffer[] = [];
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new GitError(`gh ${args[0]} timed out`));
-    }, timeoutMs);
-    child.stdout.on("data", (d: Buffer) => outChunks.push(d));
-    child.stderr.on("data", (d: Buffer) => errChunks.push(d));
-    child.on("error", (e: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
-      if (e.code === "ENOENT") {
-        resolve({ stdout: "", stderr: e.message, code: 127 });
-        return;
-      }
-      reject(e);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
-        stdout: Buffer.concat(outChunks).toString("utf8"),
-        stderr: Buffer.concat(errChunks).toString("utf8"),
-        code: code ?? 1,
-      });
-    });
+  return spawnCapture("gh", args, {
+    cwd,
+    timeoutMs,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    onTimeout: () => new GitError(`gh ${args[0]} timed out`),
+    enoentCode: 127,
   });
 }
 

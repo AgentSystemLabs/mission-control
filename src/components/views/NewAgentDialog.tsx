@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
+import { FormErrorBox } from "~/components/ui/FormErrorBox";
 import { Btn } from "~/components/ui/Btn";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
@@ -448,21 +449,7 @@ export function NewAgentDialog({
           </div>
         </label>
 
-        {error && (
-          <div
-            style={{
-              padding: "8px 12px",
-              border: "1px solid var(--status-failed)",
-              background: "color-mix(in oklch, var(--status-failed) 12%, transparent)",
-              borderRadius: 7,
-              color: "var(--status-failed)",
-              fontFamily: "var(--mono)",
-              fontSize: 11.5,
-            }}
-          >
-            {error}
-          </div>
-        )}
+        <FormErrorBox error={error} />
       </div>
       </Modal>
     </>

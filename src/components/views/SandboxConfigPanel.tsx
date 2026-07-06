@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
-import { Icon } from "~/components/ui/Icon";
+import { Spinner } from "~/components/ui/Spinner";
 import { TextField } from "~/components/ui/TextField";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
@@ -349,19 +349,7 @@ function TabBar({
 }
 
 function StatusSpinner({ color }: { color: string }) {
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: "inline-flex",
-        flexShrink: 0,
-        color,
-        animation: "spin 0.8s linear infinite",
-      }}
-    >
-      <Icon name="refresh" size={12} />
-    </span>
-  );
+  return <Spinner size={12} color={color} aria-hidden style={{ flexShrink: 0 }} />;
 }
 
 function StatusStrip({

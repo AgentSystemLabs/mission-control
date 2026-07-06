@@ -15,8 +15,10 @@
  * work (paint latency). A pane holds both, at different stages.
  */
 
-let building = false;
-const waiters: Array<() => void> = [];
+import { createAsyncSemaphore } from "./async-semaphore";
+
+// Max 1 concurrent build — a plain mutex. Serializes heavy surface builds.
+const buildSemaphore = createAsyncSemaphore(() => 1);
 
 /** Resolves after the next frame has painted (macrotask fallback off-DOM). */
 function afterNextPaint(): Promise<void> {
@@ -37,20 +39,7 @@ function afterNextPaint(): Promise<void> {
  * including on error and cancelled-mid-build paths.
  */
 export async function acquireSurfaceBuildTurn(): Promise<() => void> {
-  if (building) {
-    // The releaser hands its turn to us directly (building stays true), so a
-    // fresh acquirer can't slip in between the release and this wake-up.
-    await new Promise<void>((resolve) => waiters.push(resolve));
-  } else {
-    building = true;
-  }
+  const release = await buildSemaphore.acquire();
   await afterNextPaint();
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const next = waiters.shift();
-    if (next) next();
-    else building = false;
-  };
+  return release;
 }

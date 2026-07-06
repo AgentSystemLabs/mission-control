@@ -6,6 +6,7 @@ import { ARCHIVE_ACTIVE_SESSION_EVENT } from "~/lib/design-meta";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
 import { getElectron, isElectron } from "~/lib/electron";
 import { useHotkey } from "~/lib/use-hotkey";
+import { useFocusWithin } from "~/lib/use-focus-within";
 import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { api } from "~/lib/api";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -143,26 +144,7 @@ export function TerminalPanel({
   });
 
   const rootRef = useRef<HTMLElement | null>(null);
-  const [focused, setFocused] = useState(false);
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const onFocusIn = () => setFocused(true);
-    const onFocusOut = () => {
-      requestAnimationFrame(() => {
-        const root = rootRef.current;
-        if (!root) return;
-        setFocused(root.contains(document.activeElement));
-      });
-    };
-    el.addEventListener("focusin", onFocusIn);
-    el.addEventListener("focusout", onFocusOut);
-    setFocused(el.contains(document.activeElement));
-    return () => {
-      el.removeEventListener("focusin", onFocusIn);
-      el.removeEventListener("focusout", onFocusOut);
-    };
-  }, [active?.taskId]);
+  const focused = useFocusWithin(rootRef, [active?.taskId]);
 
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:agentsPanelWidth",

@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { api } from "~/lib/api";
 import type { ServerEvent } from "~/lib/use-events";
 import { parseAskUserQuestionInput, type PendingQuestion } from "~/shared/agent-questions";
+import { createListenerSet } from "./listener-set";
 
 /**
  * Renderer-side cache of pending AskUserQuestion payloads, keyed by task.
@@ -15,17 +16,9 @@ const entries = new Map<string, Entry>();
 // Questions the user hid locally (esc) — keyed by question id so a NEW
 // question on the same task still shows its overlay.
 const dismissed = new Set<string>();
-const listeners = new Set<() => void>();
 const hydrating = new Set<string>();
 
-function notify() {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
+const { subscribe, notify } = createListenerSet();
 
 export function getTaskQuestion(taskId: string): Entry | undefined {
   return entries.get(taskId);

@@ -114,7 +114,7 @@ import {
 } from "~/queries";
 import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
 import { useGitStatus } from "~/queries/git";
-import { GitDiffView } from "~/components/views/GitDiffView";
+import { GitDiffModal } from "~/components/views/GitDiffView/GitDiffModal";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { RecallModal } from "~/components/views/RecallModal";
 import { BranchTypeahead } from "~/components/views/BranchTypeahead";
@@ -172,7 +172,6 @@ import {
 } from "~/lib/design-meta";
 import { useSyncProjectDiagrams } from "~/lib/use-diagram-events";
 import { useGitDiffViewOpen } from "~/lib/git-diff-view-store";
-import { useResizablePanel } from "~/lib/use-resizable-panel";
 
 export const Route = createFileRoute("/projects/$id")({
   component: ProjectPage,
@@ -695,17 +694,6 @@ function ProjectPage() {
   // the single-panel empty state exactly (header, scope toggle, and all) instead
   // of a bare centered message.
   const showGrid = gridViewActive && gridScopeSessionCount > 0;
-  // Width of the docked diff panel in grid view. It sits on the left, so it
-  // resizes from its right edge. Floors the grid at ~420px and caps the diff at
-  // 60% of the viewport so neither side can be squeezed away.
-  const { size: gridDiffWidth, onMouseDown: onGridDiffResizeMouseDown } = useResizablePanel({
-    storageKey: "mc.gridDiffWidth",
-    axis: "x",
-    defaultSize: 640,
-    minSize: 420,
-    maxSize: (vw) => Math.max(420, Math.min(Math.round(vw * 0.6), vw - 420)),
-    resizeEdge: "end",
-  });
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -2549,7 +2537,7 @@ function ProjectPage() {
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: showDiffView || showGrid ? "hidden" : "auto",
+          overflow: showGrid ? "hidden" : "auto",
           padding: 0,
           display: "flex",
           flexDirection: "column",
@@ -2559,14 +2547,14 @@ function ProjectPage() {
       <CardFrame
         style={{
           width: "100%",
-          minHeight: showDiffView || showGrid ? 0 : "100%",
-          flex: showDiffView || showGrid ? 1 : undefined,
-          flexShrink: showDiffView || showGrid ? undefined : 0,
+          minHeight: showGrid ? 0 : "100%",
+          flex: showGrid ? 1 : undefined,
+          flexShrink: showGrid ? undefined : 0,
           boxSizing: "border-box",
           padding: 8,
-          display: showDiffView || showGrid ? "flex" : undefined,
-          flexDirection: showDiffView || showGrid ? "column" : undefined,
-          overflow: showDiffView || showGrid ? "hidden" : undefined,
+          display: showGrid ? "flex" : undefined,
+          flexDirection: showGrid ? "column" : undefined,
+          overflow: showGrid ? "hidden" : undefined,
         }}
       >
         <div
@@ -2577,7 +2565,7 @@ function ProjectPage() {
             gap: 12,
             rowGap: 10,
             flexWrap: "wrap",
-            margin: showDiffView || showGrid ? "-8px -8px 12px" : "-8px -8px 32px",
+            margin: showGrid ? "-8px -8px 12px" : "-8px -8px 32px",
             padding: "22px 24px 18px",
             position: "relative",
             isolation: "isolate",
@@ -2928,53 +2916,7 @@ function ProjectPage() {
         </div>
 
         {showGrid ? (
-          showDiffView ? (
-            // Grid view + Review Changes: dock the diff as a resizable panel on
-            // the left and keep the live grid on the right, so the sessions stay
-            // visible while reviewing. Closing the diff (Back / toggle) returns to
-            // the full-width grid.
-            <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-              <div
-                style={{
-                  position: "relative",
-                  width: gridDiffWidth,
-                  flexShrink: 0,
-                  minWidth: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
-                  borderRight: "1px solid var(--border)",
-                }}
-              >
-                <GitDiffView
-                  projectId={project.id}
-                  worktreeId={selectedWorktreeId}
-                  projectPath={selectedWorktreePath || project.path}
-                  enabled={projectPathReady}
-                  onBack={closeDiffView}
-                />
-                <div
-                  onMouseDown={onGridDiffResizeMouseDown}
-                  title="Drag to resize"
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    right: -5,
-                    bottom: 0,
-                    width: 10,
-                    cursor: "col-resize",
-                    touchAction: "none",
-                    zIndex: 10,
-                  }}
-                />
-              </div>
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                <SessionGrid scopeKey={selectedScopeKey} />
-              </div>
-            </div>
-          ) : (
-            <SessionGrid scopeKey={selectedScopeKey} />
-          )
+          <SessionGrid scopeKey={selectedScopeKey} />
         ) : (
         <>
         {cleanupStatus && (
@@ -2997,7 +2939,7 @@ function ProjectPage() {
           </div>
         )}
 
-        {!showDiffView && tasks.length > 0 && (
+        {tasks.length > 0 && (
           <div
             style={{
               display: "flex",
@@ -3059,23 +3001,12 @@ function ProjectPage() {
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: showDiffView ? 0 : 48,
-            paddingInline: showDiffView ? 0 : 12,
+            gap: 48,
+            paddingInline: 12,
             boxSizing: "border-box",
-            flex: showDiffView ? 1 : undefined,
-            minHeight: showDiffView ? 0 : undefined,
-            overflow: showDiffView ? "hidden" : undefined,
           }}
         >
-          {showDiffView ? (
-            <GitDiffView
-              projectId={project.id}
-              worktreeId={selectedWorktreeId}
-              projectPath={selectedWorktreePath || project.path}
-              enabled={projectPathReady}
-              onBack={closeDiffView}
-            />
-          ) : sandboxProvisioning && activeRuntimeSandbox ? (
+          {sandboxProvisioning && activeRuntimeSandbox ? (
             <SandboxProvisioningState
               name={activeRuntimeSandbox.name}
               deployJob={deployJob}
@@ -3187,6 +3118,15 @@ function ProjectPage() {
         </>
         )}
       </CardFrame>
+
+      <GitDiffModal
+        open={showDiffView}
+        projectId={project.id}
+        worktreeId={selectedWorktreeId}
+        projectPath={selectedWorktreePath || project.path}
+        enabled={projectPathReady}
+        onClose={closeDiffView}
+      />
 
       <CodexHooksNoticeDialog
         open={showCodexHooksNotice}
@@ -3951,7 +3891,9 @@ function WorktreeToggleGroup({
         maxWidth,
         overflowX: "auto",
         overflowY: "visible",
-        padding: 2,
+        // Horizontal scrollers clip vertical overflow, so the badge dots need
+        // to live inside the scrollport instead of relying on z-index.
+        padding: "7px 2px",
         flexShrink: 1,
       }}
     >

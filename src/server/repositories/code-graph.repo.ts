@@ -1,6 +1,6 @@
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
-import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "~/db/client";
+import { escapeLike, likeEscaped } from "./_sql";
 import {
   graphEdges,
   graphFiles,
@@ -388,14 +388,6 @@ export function topNodesByDegree(
     .orderBy(desc(graphNodes.degree))
     .limit(limit)
     .all();
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
-
-function likeEscaped(column: AnySQLiteColumn, pattern: string): SQL {
-  return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
 }
 
 /** Substring search over node name/path (LIKE), most-connected first. */

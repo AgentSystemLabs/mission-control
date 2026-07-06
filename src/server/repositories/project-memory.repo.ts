@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
-import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { getDb, getSqlite } from "~/db/client";
 import { projectMemory, type NewProjectMemory, type ProjectMemory } from "~/db/schema";
+import { escapeLike, likeEscaped } from "./_sql";
 
 export function insertMemoryRow(row: NewProjectMemory): void {
   getDb().insert(projectMemory).values(row).run();
@@ -87,16 +87,6 @@ export function bumpMemoryUsage(ids: readonly string[], now: number): void {
         .run();
     }
   });
-}
-
-// Escape SQLite LIKE wildcards so a user typing `%`, `_`, or `\` searches
-// literally. Paired with an explicit `ESCAPE '\'` clause below.
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
-
-function likeEscaped(column: AnySQLiteColumn, pattern: string): SQL {
-  return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
 }
 
 export type MemoryMatchMode = "any" | "all";

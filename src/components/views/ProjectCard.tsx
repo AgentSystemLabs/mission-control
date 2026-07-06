@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { createPortal } from "react-dom";
-import { Z_INDEX } from "~/lib/z-index";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { ContextMenuPopover } from "~/components/ui/ContextMenuPopover";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Btn } from "~/components/ui/Btn";
@@ -231,23 +230,8 @@ export function ProjectCard({
           </div>
         )}
       </div>
-      {menu &&
-        createPortal(
-          <CardFrame
-            role="menu"
-            aria-label={`${project.name} actions`}
-            solid
-            className="mc-project-actions-menu"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              top: menu.y,
-              left: menu.x,
-              minWidth: MENU_WIDTH,
-              boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
-              zIndex: Z_INDEX.popover,
-            }}
-          >
+      {menu && (
+        <ContextMenuPopover anchor={menu} label={`${project.name} actions`} minWidth={MENU_WIDTH}>
             <DropdownMenuItem
               icon="settings"
               autoFocus
@@ -270,9 +254,8 @@ export function ProjectCard({
             >
               Remove project
             </DropdownMenuItem>
-          </CardFrame>,
-          document.body,
-        )}
+        </ContextMenuPopover>
+      )}
     </CardFrame>
   );
 }

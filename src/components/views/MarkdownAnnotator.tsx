@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Icon } from "~/components/ui/Icon";
+import { Spinner } from "~/components/ui/Spinner";
 import {
   MarkdownAnnotationContext,
   MarkdownPreview,
@@ -255,9 +256,7 @@ function RefiningBar() {
         color: "var(--text-dim)",
       }}
     >
-      <span style={{ display: "inline-flex", animation: "spin 0.8s linear infinite" }}>
-        <Icon name="refresh" size={12} />
-      </span>
+      <Spinner size={12} />
       Refining markdown…
     </div>
   );

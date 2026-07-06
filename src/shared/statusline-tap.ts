@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { readJsonSettingsFile, writeJsonSettingsFile } from "./json-settings-file";
 
 /**
  * Statusline tap — the local, zero-request source for Claude usage limits.
@@ -237,15 +238,8 @@ export function installManagedStatusLine(
   if (platform === "win32") return; // the tap is a POSIX sh script
 
   const file = path.join(cwd, ".claude", "settings.local.json");
-  let settings: { statusLine?: StatusLineConfig; [k: string]: unknown } = {};
-  try {
-    const raw = fs.readFileSync(file, "utf8");
-    if (raw.trim()) settings = JSON.parse(raw);
-  } catch (err) {
-    // ENOENT is expected on first install; any other error (parse failure,
-    // permission denied) means we should not clobber the file.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") return;
-  }
+  const settings = readJsonSettingsFile<{ statusLine?: StatusLineConfig; [k: string]: unknown }>(file);
+  if (settings === null) return; // read failed (not just missing) — don't clobber
 
   const existing = settings.statusLine;
   const existingCommand = typeof existing?.command === "string" ? existing.command : "";
@@ -261,12 +255,8 @@ export function installManagedStatusLine(
   }
 
   settings.statusLine = managed;
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
-  } catch {
-    // best-effort — the indicator falls back to the endpoint fetcher.
-  }
+  // best-effort — the indicator falls back to the endpoint fetcher.
+  writeJsonSettingsFile(file, settings);
 }
 
 /** Ensure the tap script exists and the project statusLine points at it. */

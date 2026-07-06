@@ -1,8 +1,8 @@
-import { and, desc, eq, or, sql, type SQL } from "drizzle-orm";
-import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, desc, eq, or, type SQL } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { projects, prompts, tasks, type NewPrompt } from "~/db/schema";
 import type { PromptSearchResult } from "~/shared/prompts";
+import { escapeLike, likeEscaped } from "./_sql";
 
 export function insertPrompt(row: NewPrompt): void {
   getDb().insert(prompts).values(row).run();
@@ -63,17 +63,6 @@ function selectResults(where: SQL | undefined, limit: number): PromptSearchResul
     .orderBy(desc(prompts.ts))
     .limit(limit)
     .all();
-}
-
-// Escape SQLite LIKE wildcards so a user typing `%`, `_`, or `\` searches
-// literally. Paired with an explicit `ESCAPE '\'` clause below.
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
-
-function likeEscaped(column: AnySQLiteColumn, pattern: string): SQL {
-  // `'\\'` in this template literal is a single literal backslash in the SQL.
-  return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
 }
 
 /** Newest prompts across all non-archived sessions (empty-query state). */

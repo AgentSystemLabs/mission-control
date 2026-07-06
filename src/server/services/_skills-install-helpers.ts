@@ -43,6 +43,25 @@ export function assertSafeProjectRelativePath(
   }
 }
 
+/**
+ * Recursively copy a skill source tree into `targetDir`. Nested directories are
+ * recreated; only regular files are copied (symlinks/special entries skipped).
+ */
+export async function copySkillTree(sourceDir: string, targetDir: string): Promise<void> {
+  await fs.promises.mkdir(targetDir, { recursive: true });
+  const entries = await fs.promises.readdir(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const from = path.join(sourceDir, entry.name);
+    const to = path.join(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      await copySkillTree(from, to);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    await fs.promises.copyFile(from, to);
+  }
+}
+
 // Stream the response body into `tempFile` while hashing it. Throws if the
 // fetch fails, the body is missing, or the resulting sha256 doesn't match.
 // `kind` is used only in the error message (e.g., "skills", "Launch Kit").

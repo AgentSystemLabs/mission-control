@@ -24,12 +24,19 @@ export function GitDiffView({
   projectPath,
   enabled = true,
   onBack,
+  showHeader = true,
 }: {
   projectId: string;
   worktreeId?: string | null;
   projectPath: string;
   enabled?: boolean;
   onBack: () => void;
+  /**
+   * When false the view renders body-only (no Back/branch header) and does not
+   * bind its own Esc handler — the host (e.g. a Modal) owns that chrome. This
+   * is purely presentational; all git state/compute below is unchanged.
+   */
+  showHeader?: boolean;
 }) {
   // For a sandbox project the repo lives in the container; status/diff read over
   // remoteGit (the host HTTP path is used otherwise). Derived from the host dir.
@@ -82,7 +89,7 @@ export function GitDiffView({
     lastSelectedRef.current = selection;
   }, [selection]);
 
-  useHotkey("escape", onBack, { preventDefault: false });
+  useHotkey("escape", onBack, { preventDefault: false, enabled: showHeader });
 
   const onStageAll = useCallback(() => {
     if (unstagedFiles.length === 0) return;
@@ -123,9 +130,10 @@ export function GitDiffView({
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        borderTop: "1px solid var(--border)",
+        borderTop: showHeader ? "1px solid var(--border)" : undefined,
       }}
     >
+      {showHeader && (
       <div
         style={{
           display: "flex",
@@ -190,6 +198,7 @@ export function GitDiffView({
           </span>
         </div>
       </div>
+      )}
 
       {error ? (
         <div

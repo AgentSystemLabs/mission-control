@@ -15,65 +15,55 @@ export const PROJECTS_DASHBOARD_VIEW_STORAGE_KEY = "mc:projectsDashboardView";
 export const FILE_FINDER_VIEW_STORAGE_KEY = "mc:fileFinderView";
 export const SELECTED_WORKTREE_BY_PROJECT_STORAGE_KEY = "mc.selectedWorktreeByProject";
 
-export function readCachedGitDiffChangedFilesView(): GitDiffChangedFilesView | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return normalizeGitDiffChangedFilesView(
-      window.localStorage.getItem(GIT_DIFF_CHANGED_FILES_VIEW_STORAGE_KEY),
-    );
-  } catch {
-    return null;
-  }
+/**
+ * A string-valued UI preference persisted in localStorage, normalized on read.
+ * SSR-safe: `read` returns null and `write` no-ops outside the browser, and
+ * both swallow storage errors.
+ */
+function makeStringPreference<T extends string>(
+  key: string,
+  normalize: (raw: string | null) => T | null,
+): { read: () => T | null; write: (view: T) => void } {
+  return {
+    read() {
+      if (typeof window === "undefined") return null;
+      try {
+        return normalize(window.localStorage.getItem(key));
+      } catch {
+        return null;
+      }
+    },
+    write(view: T) {
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(key, view);
+      } catch {
+        /* localStorage unavailable */
+      }
+    },
+  };
 }
 
-export function writeCachedGitDiffChangedFilesView(view: GitDiffChangedFilesView): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(GIT_DIFF_CHANGED_FILES_VIEW_STORAGE_KEY, view);
-  } catch {
-    /* localStorage unavailable */
-  }
-}
+const gitDiffChangedFilesView = makeStringPreference<GitDiffChangedFilesView>(
+  GIT_DIFF_CHANGED_FILES_VIEW_STORAGE_KEY,
+  normalizeGitDiffChangedFilesView,
+);
+export const readCachedGitDiffChangedFilesView = gitDiffChangedFilesView.read;
+export const writeCachedGitDiffChangedFilesView = gitDiffChangedFilesView.write;
 
-export function readCachedProjectsDashboardView(): ProjectsDashboardView | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return normalizeProjectsDashboardView(
-      window.localStorage.getItem(PROJECTS_DASHBOARD_VIEW_STORAGE_KEY),
-    );
-  } catch {
-    return null;
-  }
-}
+const projectsDashboardView = makeStringPreference<ProjectsDashboardView>(
+  PROJECTS_DASHBOARD_VIEW_STORAGE_KEY,
+  normalizeProjectsDashboardView,
+);
+export const readCachedProjectsDashboardView = projectsDashboardView.read;
+export const writeCachedProjectsDashboardView = projectsDashboardView.write;
 
-export function writeCachedProjectsDashboardView(view: ProjectsDashboardView): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(PROJECTS_DASHBOARD_VIEW_STORAGE_KEY, view);
-  } catch {
-    /* localStorage unavailable */
-  }
-}
-
-export function readCachedFileFinderView(): FileFinderView | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return normalizeFileFinderView(
-      window.localStorage.getItem(FILE_FINDER_VIEW_STORAGE_KEY),
-    );
-  } catch {
-    return null;
-  }
-}
-
-export function writeCachedFileFinderView(view: FileFinderView): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(FILE_FINDER_VIEW_STORAGE_KEY, view);
-  } catch {
-    /* localStorage unavailable */
-  }
-}
+const fileFinderView = makeStringPreference<FileFinderView>(
+  FILE_FINDER_VIEW_STORAGE_KEY,
+  normalizeFileFinderView,
+);
+export const readCachedFileFinderView = fileFinderView.read;
+export const writeCachedFileFinderView = fileFinderView.write;
 
 export function readCachedSelectedWorktreeByProject(): SelectedWorktreeByProject | null {
   if (typeof window === "undefined") return null;

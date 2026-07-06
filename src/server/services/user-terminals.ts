@@ -14,8 +14,7 @@ import { projectExists } from "../repositories/projects.repo";
 import { newId } from "./_ids";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { normalizeProjectScopeId } from "./sandbox-scope";
-
-const DEFAULT_TERMINAL_NAME_RE = /^Terminal (\d+)$/;
+import { nextTerminalName } from "./_terminal-names";
 
 /** Pick the lowest unused "Terminal N" name across the whole project. */
 export function nextDefaultTerminalName(
@@ -23,14 +22,10 @@ export function nextDefaultTerminalName(
   scopeId: string | null = LOCAL_SCOPE_ID,
 ): string {
   const normalizedScopeId = normalizeProjectScopeId(projectId, scopeId);
-  const usedNumbers = new Set<number>();
-  for (const terminal of findVisibleUserTerminalsByProject(projectId, normalizedScopeId)) {
-    const match = DEFAULT_TERMINAL_NAME_RE.exec(terminal.name);
-    if (match) usedNumbers.add(Number(match[1]));
-  }
-  let n = 1;
-  while (usedNumbers.has(n)) n++;
-  return `Terminal ${n}`;
+  const names = findVisibleUserTerminalsByProject(projectId, normalizedScopeId).map(
+    (t) => t.name,
+  );
+  return nextTerminalName(names);
 }
 
 export function listUserTerminals(

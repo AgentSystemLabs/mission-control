@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { Modal } from "~/components/ui/Modal";
-import { Icon } from "~/components/ui/Icon";
+import { Spinner } from "~/components/ui/Spinner";
 import { formatCreatePullRequestError } from "~/lib/pull-request-errors";
 import { openExternal } from "~/lib/open-external";
 import { DEFAULT_BRANCH } from "~/shared/domain";
@@ -23,13 +23,6 @@ export type CreatePullRequestDialogState =
       message: string;
     };
 
-function Spinner() {
-  return (
-    <span style={{ display: "inline-flex", animation: "spin 0.8s linear infinite" }}>
-      <Icon name="refresh" size={11} />
-    </span>
-  );
-}
 
 export function useCreatePullRequestAction({
   projectId,
@@ -167,7 +160,7 @@ export function CreatePullRequestDialog({
             fontSize: 13,
           }}
         >
-          <Spinner />
+          <Spinner size={11} />
           <p style={{ margin: 0, lineHeight: 1.5 }}>
             Pushing your branch and opening a pull request on GitHub. This can take a few seconds.
           </p>
@@ -223,7 +216,7 @@ export function CreatePullRequestMenuItem({
   return (
     <DropdownMenuItem
       icon={busy ? undefined : "github"}
-      leading={busy ? <span className="mc-dropdown-menu-item-icon"><Spinner /></span> : undefined}
+      leading={busy ? <span className="mc-dropdown-menu-item-icon"><Spinner size={11} /></span> : undefined}
       onClick={onSelect}
       disabled={busy}
       title={`Create pull request to origin/${DEFAULT_BRANCH}`}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
+import { FormErrorBox } from "~/components/ui/FormErrorBox";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
@@ -626,21 +627,7 @@ export function ProjectDialog({
           />
         )}
 
-        {error && (
-          <div
-            style={{
-              padding: "8px 12px",
-              border: "1px solid var(--status-failed)",
-              background: "color-mix(in oklch, var(--status-failed) 12%, transparent)",
-              borderRadius: 7,
-              color: "var(--status-failed)",
-              fontFamily: "var(--mono)",
-              fontSize: 11.5,
-            }}
-          >
-            {error}
-          </div>
-        )}
+        <FormErrorBox error={error} />
       </div>
     </Modal>
   );
