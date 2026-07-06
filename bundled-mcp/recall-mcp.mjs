@@ -237,7 +237,7 @@ server.registerTool(
   "graph_search",
   {
     description:
-      "Search this project's code graph for symbols (functions, classes, methods, interfaces, types, files) by name or path. Returns the most-connected matches first. Use this to locate a symbol before calling get_neighbors / impact_of / shortest_path.",
+      "Prefer this over grep/glob to find WHERE a function, class, method, interface, type, React component, or file is defined. This project is pre-indexed into a code graph, so a name/path lookup here is faster than scanning files and returns the most-connected (most central) matches first. Reach for it first when locating a symbol, then trace usage with get_neighbors / impact_of / shortest_path.",
     inputSchema: {
       query: z.string().describe("Name or path substring to search for"),
       limit: z.number().int().positive().max(100).optional().describe("Max results (default 30)"),
@@ -260,7 +260,7 @@ server.registerTool(
   "get_neighbors",
   {
     description:
-      "List a symbol's direct graph neighbors: callers/callees (calls), importers/imports, and defines. `direction` = 'in' (who points at it), 'out' (what it points at), or 'both'. Answers 'what calls X' / 'what does X depend on'. Pass a symbol name, a file path, or a node id.",
+      "List a symbol's direct graph neighbors: callers/callees (calls), importers/imports, and defines. Prefer this over grepping for call sites to answer 'what calls X' / 'what does X depend on' — the edges are indexed, so it's complete and instant. `direction` = 'in' (who points at it), 'out' (what it points at), or 'both'. Pass a symbol name, a file path, or a node id.",
     inputSchema: {
       node: z.string().describe("Symbol name, file path, or node id"),
       direction: z.enum(["in", "out", "both"]).optional().describe("Edge direction (default both)"),
@@ -290,7 +290,7 @@ server.registerTool(
   "shortest_path",
   {
     description:
-      "Find a dependency path (imports/calls) between two symbols — 'how does A connect to B'. Returns the chain of symbols from `from` to `to`, or reports none within the search depth. Pass symbol names, file paths, or node ids.",
+      "Find a dependency path (imports/calls) between two symbols — 'how does A connect to B', a question grep can't answer. Returns the chain of symbols from `from` to `to`, or reports none within the search depth. Pass symbol names, file paths, or node ids.",
     inputSchema: {
       from: z.string().describe("Start symbol name, file path, or node id"),
       to: z.string().describe("End symbol name, file path, or node id"),
@@ -312,7 +312,7 @@ server.registerTool(
   "impact_of",
   {
     description:
-      "Show what transitively depends on a symbol — 'what breaks if I change this'. Returns the reverse-reachable dependents (callers and importers, several hops out), most-connected first. Pass a symbol name, file path, or node id.",
+      "Show what transitively depends on a symbol — 'what breaks if I change this'. Prefer this over grepping for usages before an edit: it returns the reverse-reachable dependents (callers and importers, several hops out), most-connected first. Pass a symbol name, file path, or node id.",
     inputSchema: {
       node: z.string().describe("Symbol name, file path, or node id"),
     },

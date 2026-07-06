@@ -480,7 +480,7 @@ export function renderMemoryLine(m: MemoryView): string {
  * brief renders so the agent knows the tools exist even before it uses them.
  */
 const RECALL_TOOLS_NUDGE =
-  "If the Recall MCP tools are available: save durable project facts as you learn them with `mem_save`, and recall more with `mem_search` / `mem_context`; navigate the code with `graph_search` / `get_neighbors` / `shortest_path` / `impact_of` (what calls a symbol, what a change would impact, how two areas connect).";
+  "This project is indexed into a Recall code graph. When you need to find where something is defined, what calls it, or what a change would impact, reach for `graph_search` / `get_neighbors` / `impact_of` / `shortest_path` instead of grepping — the lookup is pre-indexed, ranked, and complete. And save durable project facts as you learn them with `mem_save`; recall more with `mem_search` / `mem_context`.";
 
 /**
  * "Architecture at a glance" — a compact orientation block from the code graph,

@@ -6,7 +6,7 @@
 // the hook injects nothing.
 
 import { searchMemory, renderMemoryLine } from "./project-memory";
-import { getGraphStatus, searchGraph } from "./code-graph";
+import { getGraphStatus, searchGraphFuzzy } from "./code-graph";
 import { readRecallSettings } from "./recall-settings";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
@@ -36,7 +36,8 @@ export function assembleTurnContext(
   const budget = options.budget ?? DEFAULT_BUDGET;
   const settings = readRecallSettings();
 
-  const sections: string[] = [];
+  let memoryBlock = "";
+  let codeBlock = "";
 
   // Relevant memories, scoped like the brief (this runtime or shared "local").
   // The scope filter runs IN the search (before its limit) — filtering the top
@@ -46,8 +47,8 @@ export function assembleTurnContext(
       scopeIds: [scopeId, LOCAL_SCOPE_ID],
     });
     if (memories.length) {
-      sections.push(
-        ["Relevant project memory (from Recall):", ...memories.map(renderMemoryLine)].join("\n"),
+      memoryBlock = ["Relevant project memory (from Recall):", ...memories.map(renderMemoryLine)].join(
+        "\n",
       );
     }
   } catch {
@@ -66,21 +67,28 @@ export function assembleTurnContext(
         const seen = new Set<string>();
         for (const symbol of symbols) {
           if (hits.length >= MAX_GRAPH) break;
-          for (const h of searchGraph(projectId, symbol, MAX_GRAPH)) {
+          // Probe each token's variants (stemmed / sub-words) so a descriptive
+          // word finds a differently-spelled symbol — e.g. "toaster" → "toast"
+          // finds `mcToast*`, which the raw word never would.
+          for (const variant of symbolVariants(symbol)) {
             if (hits.length >= MAX_GRAPH) break;
-            const key = `${h.name}|${h.filePath}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            hits.push(h);
+            for (const h of searchGraphFuzzy(projectId, variant, MAX_GRAPH)) {
+              if (hits.length >= MAX_GRAPH) break;
+              const key = `${h.name}|${h.filePath}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              hits.push(h);
+            }
           }
         }
         if (hits.length) {
-          sections.push(
-            [
-              "Related code (from the Recall code graph):",
-              ...hits.map((h) => `- ${h.name} (${h.kind}) — ${h.filePath}`),
-            ].join("\n"),
-          );
+          // Re-arm the tool nudge every turn (the start-of-session brief's nudge
+          // goes stale): point the agent at the graph tools rather than grep.
+          codeBlock = [
+            "Related code (from the Recall code graph):",
+            ...hits.map((h) => `- ${h.name} (${h.kind}) — ${h.filePath}`),
+            "→ Trace callers/impact with `get_neighbors` / `impact_of`, or locate more with `graph_search` — prefer these over grep.",
+          ].join("\n");
         }
       }
     } catch {
@@ -88,12 +96,28 @@ export function assembleTurnContext(
     }
   }
 
-  if (!sections.length) return "";
-  const text = sections.join("\n\n");
+  // Guarantee the code section its slot: it's small and bounded (≤ MAX_GRAPH
+  // lines + nudge), and it's the part the agent otherwise ignores — so reserve
+  // room for it and trim MEMORY to what's left, rather than letting an abundant
+  // memory section crowd the code out of a shared budget (which starved it before).
+  if (!memoryBlock && !codeBlock) return "";
+  const sep = memoryBlock && codeBlock ? "\n\n" : "";
+  const memBudget = budget - (codeBlock ? codeBlock.length + sep.length : 0);
+  const mem = memoryBlock && memoryBlock.length > memBudget
+    ? trimToBudget(memoryBlock, Math.max(0, memBudget))
+    : memoryBlock;
+  const out = [mem, codeBlock].filter(Boolean).join("\n\n");
+  // Safety net if even the (bounded) code block alone overruns the budget.
+  return out.length <= budget ? out : trimToBudget(out, budget);
+}
+
+/**
+ * Trim to a character budget at a word boundary (so we don't cut mid-identifier),
+ * with a hard-slice fallback when that boundary sits so far back that one giant
+ * unbroken token would otherwise eat most of the block.
+ */
+function trimToBudget(text: string, budget: number): string {
   if (text.length <= budget) return text;
-  // Trim to the budget at a word boundary so we don't cut mid-identifier — but
-  // if that boundary sits far back (one giant unbroken token would otherwise
-  // eat most of the block), fall back to a hard slice.
   const soft = text.slice(0, budget).replace(/\s+\S*$/, "");
   if (soft.length >= budget * 0.6) return soft + "…";
   return text.slice(0, budget - 1) + "…";
@@ -113,6 +137,47 @@ export function pickSymbolQueries(text: string, max = 3): string[] {
   );
   const pool = identifierish.length ? identifierish : tokens.filter((t) => t.length >= 5);
   return [...new Set(pool)].sort((a, b) => b.length - a.length).slice(0, max);
+}
+
+// Conservative suffixes, longest-first, stripped only when ≥ 4 chars remain so
+// the stem stays a real searchable prefix. Deliberately excludes -ing/-ings
+// (they over-stem plurals like "settings" → "sett").
+const STEM_SUFFIXES = ["ers", "er", "s"] as const;
+
+function stemWord(word: string): string | null {
+  const lower = word.toLowerCase();
+  for (const suf of STEM_SUFFIXES) {
+    if (word.length - suf.length >= 4 && lower.endsWith(suf)) {
+      return word.slice(0, word.length - suf.length);
+    }
+  }
+  return null;
+}
+
+/**
+ * Expand a picked token into the forms worth probing the graph with, most
+ * specific first: the token itself, its camelCase/snake/`$` sub-words, and a
+ * lightly-stemmed form (drop a trailing -er/-ers/-s, e.g. "toaster" → "toast",
+ * "toasts" → "toast"). This is what lets a natural-language word reach a
+ * differently-spelled symbol. Case-insensitively deduped, original form kept.
+ */
+export function symbolVariants(token: string): string[] {
+  const out: string[] = [token];
+  const parts = token
+    .split(/(?<=[a-z0-9])(?=[A-Z])|[_$]/)
+    .filter((p) => p.length >= 3 && p !== token);
+  out.push(...parts);
+  for (const base of [token, ...parts]) {
+    const stemmed = stemWord(base);
+    if (stemmed) out.push(stemmed);
+  }
+  const seen = new Set<string>();
+  return out.filter((v) => {
+    const key = v.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** The single best symbol candidate (kept for existing callers/tests). */

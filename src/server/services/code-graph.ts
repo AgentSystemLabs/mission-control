@@ -31,6 +31,7 @@ import {
   listFileNodes,
   readGraphIndexState,
   searchNodes,
+  searchNodesFuzzy,
   topNodesByDegree,
 } from "../repositories/code-graph.repo";
 import { getGraphIndexProgress } from "./code-graph-indexer";
@@ -117,6 +118,18 @@ export function searchGraph(projectId: string, query: string, limit: number): Gr
   const trimmed = query.trim();
   if (!trimmed) return [];
   return searchNodes(projectId, trimmed, limit).map(toNodeView);
+}
+
+/**
+ * Fuzzy, bidirectional variant of {@link searchGraph} for the proactive per-turn
+ * recall push — tolerant of the gap between how a user describes code and how it's
+ * named (e.g. "toaster"/"toasts" → `Toast`). Kept separate so the on-demand
+ * `graph_search` tool stays precise.
+ */
+export function searchGraphFuzzy(projectId: string, query: string, limit: number): GraphNodeView[] {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  return searchNodesFuzzy(projectId, trimmed, limit).map(toNodeView);
 }
 
 /** Resolve a node reference (id, exact name, or path/name substring) to a node. */

@@ -403,6 +403,41 @@ export function searchNodes(projectId: string, query: string, limit: number): Gr
     .all();
 }
 
+// A fuzzy match tolerates the lexical gap between how a user describes code and
+// how it's named. Short queries are skipped (too noisy) and only reasonably long
+// symbol names qualify for the reverse direction (see searchNodesFuzzy).
+const FUZZY_MIN_QUERY = 3;
+const FUZZY_MIN_NAME = 4;
+
+/**
+ * Fuzzy, BIDIRECTIONAL substring search — for the proactive per-turn recall push,
+ * NOT the precise `graph_search` tool. Matches a node when the query is contained
+ * in its name/path (forward, e.g. "auth" → `authenticate`) OR when its name is
+ * contained in the query (reverse, e.g. "toaster"/"toasts" → `Toast`) — the
+ * reverse direction is what rescues descriptive prompts whose word is longer than
+ * or a suffix-variant of the real symbol. `instr` is a plain substring test (no
+ * LIKE wildcards), lowercased for case-insensitivity; the name-length floor keeps
+ * short names (`id`, `run`) from matching everything. Ranked by degree like the rest.
+ */
+export function searchNodesFuzzy(projectId: string, query: string, limit: number): GraphNode[] {
+  const q = query.trim().toLowerCase();
+  if (q.length < FUZZY_MIN_QUERY) return [];
+  const nameLower = sql`lower(${graphNodes.name})`;
+  const pathLower = sql`lower(${graphNodes.filePath})`;
+  const match = or(
+    sql`instr(${nameLower}, ${q}) > 0`, // forward: query inside the symbol name
+    sql`instr(${pathLower}, ${q}) > 0`, // forward: query inside the file path
+    sql`(length(${graphNodes.name}) >= ${FUZZY_MIN_NAME} AND instr(${q}, ${nameLower}) > 0)`, // reverse: name inside query
+  );
+  return getDb()
+    .select()
+    .from(graphNodes)
+    .where(and(eq(graphNodes.projectId, projectId), match))
+    .orderBy(desc(graphNodes.degree))
+    .limit(limit)
+    .all();
+}
+
 /** Nodes matching an exact name (for resolving a `graph_*` tool's node arg). */
 export function findNodesByName(projectId: string, name: string, limit: number): GraphNode[] {
   return getDb()
