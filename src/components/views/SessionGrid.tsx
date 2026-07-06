@@ -483,7 +483,7 @@ function HiddenSessionsBar({
         display: "flex",
         alignItems: "center",
         gap: 8,
-        padding: flush ? "2px 8px" : "0 8px 4px",
+        padding: flush ? "7px 0 0" : "0 8px 4px",
         minWidth: 0,
         borderTop: flush ? "1px solid var(--border)" : "none",
       }}
