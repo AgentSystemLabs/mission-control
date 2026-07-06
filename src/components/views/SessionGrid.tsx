@@ -13,18 +13,22 @@ import { toast } from "sonner";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { EmptyState } from "~/components/ui/EmptyState";
+import { SessionIcon } from "~/components/ui/SessionIcon";
+import { StatusDot } from "~/components/ui/StatusDot";
+import { Tooltip } from "~/components/ui/Tooltip";
 import { archiveOpenSession } from "~/lib/archive-session";
-import { GRID_EXPAND_TOGGLE_EVENT } from "~/lib/design-meta";
+import { AGENT_META, GRID_EXPAND_TOGGLE_EVENT, STATUS_META } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
 import { matchBinding } from "~/lib/keybindings/match";
 import { useKeybindings } from "~/lib/keybindings/store";
+import { DEFAULT_SESSION_ICON, isSessionIcon } from "~/lib/session-icons";
 import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
 import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { useTerminals, type OpenTerminal } from "~/lib/terminal-store";
 import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { readCachedThemeStyle } from "~/lib/theme-style";
-import { queryKeys, useSettings } from "~/queries";
+import { queryKeys, useSettings, useTasks } from "~/queries";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { worktreeScopeKey } from "~/shared/worktrees";
 import { TerminalPane } from "./TerminalPane";
@@ -114,6 +118,41 @@ function saveGridLayout(scopeKey: string, layout: GridLayout): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(layoutStorageKey(scopeKey), JSON.stringify(layout));
+  } catch {
+    /* quota or disabled */
+  }
+}
+
+// Hidden sessions are stored per scope alongside the layout, so a hide
+// survives leaving grid view and app restarts. Stale ids (archived/closed
+// sessions) are pruned against the live session list after load.
+const GRID_HIDDEN_PREFIX = "mc.gridHidden";
+
+function hiddenStorageKey(scopeKey: string): string {
+  return `${GRID_HIDDEN_PREFIX}:${scopeKey}`;
+}
+
+function loadHiddenTaskIds(scopeKey: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(hiddenStorageKey(scopeKey));
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenTaskIds(scopeKey: string, ids: ReadonlySet<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (ids.size === 0) {
+      window.localStorage.removeItem(hiddenStorageKey(scopeKey));
+    } else {
+      window.localStorage.setItem(hiddenStorageKey(scopeKey), JSON.stringify(Array.from(ids)));
+    }
   } catch {
     /* quota or disabled */
   }
@@ -408,6 +447,146 @@ const GridCell = memo(function GridCell({
 });
 
 /**
+ * Slim bar pinned under the grid listing the sessions hidden with Cmd/Ctrl+L,
+ * so a hidden session stays one click away instead of vanishing entirely.
+ * Each chip shows the session's icon + title + live status dot; hovering a
+ * chip opens a summary popover (title, agent, status) and clicking restores
+ * the pane — the PTY kept running, so it re-attaches via replay.
+ */
+function HiddenSessionsBar({
+  sessions,
+  flush,
+  onRestore,
+  onRestoreAll,
+}: {
+  sessions: OpenTerminal[];
+  flush: boolean;
+  onRestore: (taskId: string) => void;
+  onRestoreAll: () => void;
+}) {
+  // Live task rows so titles/statuses keep updating while hidden (the store's
+  // task is a snapshot from open time). Every session in the bar belongs to
+  // the grid's scope, so one query covers all of them.
+  const scopeProject = sessions[0]?.project;
+  const { data: liveTasks } = useTasks(
+    scopeProject?.id ?? "",
+    scopeProject?.activeWorktreeId ?? null,
+    scopeProject?.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
+  );
+
+  return (
+    <div
+      data-hidden-sessions-bar
+      aria-label="Hidden sessions"
+      style={{
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: flush ? "2px 8px" : "0 8px 4px",
+        minWidth: 0,
+        borderTop: flush ? "1px solid var(--border)" : "none",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          flex: 1,
+          minWidth: 0,
+          overflowX: "auto",
+          // Chips carry their own visual bounds; keep the strip scrollable
+          // without a visible scrollbar stealing height from the bar.
+          scrollbarWidth: "none",
+        }}
+      >
+        {sessions.map((session) => {
+          const live = liveTasks?.find((t) => t.id === session.taskId) ?? session.task;
+          const icon = isSessionIcon(live.icon) ? live.icon : DEFAULT_SESSION_ICON;
+          const agentMeta = AGENT_META[live.agent];
+          const statusMeta = STATUS_META[live.status];
+          return (
+            <Tooltip
+              key={session.taskId}
+              placement="top"
+              content={
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {/* Miniature of the pane header's icon tile, so the popover
+                      reads as the hidden cell's identity card. */}
+                  <div
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 7,
+                      flexShrink: 0,
+                      background:
+                        "linear-gradient(180deg, var(--surface-2), var(--surface-1))",
+                      border: "1px solid var(--border)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "var(--text-dim)",
+                    }}
+                  >
+                    <SessionIcon name={icon} size={13} strokeWidth={1.6} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{live.title}</div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontFamily: "var(--mono)",
+                        fontSize: 11,
+                      }}
+                    >
+                      <span style={{ color: agentMeta.color }}>{agentMeta.label}</span>
+                      <span style={{ color: "var(--text-dim)" }}>·</span>
+                      <span style={{ color: statusMeta.color }}>{statusMeta.label}</span>
+                    </div>
+                  </div>
+                </div>
+              }
+            >
+              <button
+                type="button"
+                className="mc-hidden-chip"
+                onClick={() => onRestore(session.taskId)}
+                aria-label={`Restore session ${live.title}`}
+              >
+                <SessionIcon name={icon} size={12} strokeWidth={1.6} />
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: 140,
+                  }}
+                >
+                  {live.title}
+                </span>
+                <StatusDot status={live.status} size={5} />
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
+      {sessions.length > 1 && (
+        <button
+          type="button"
+          className="mc-hidden-chip mc-hidden-restore-all"
+          onClick={onRestoreAll}
+        >
+          Restore all
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * Grid of the current project/scope's open sessions, laid out as authored rows.
  * Each cell reuses TerminalPane (which carries its own title header + expand/
  * close controls). Every row sizes its own columns independently; expanding a
@@ -449,9 +628,12 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   // Sessions the user has hidden with Cmd/Ctrl+L (terminal.close). Their pane is
   // pulled out of the grid but the PTY keeps running, so re-showing re-attaches
   // via replay — the grid's non-destructive answer to the single-panel view's
-  // "hide session panel". Grid-local and transient (it resets when the grid
-  // unmounts, e.g. leaving grid view), which is also the recovery path for now.
-  const [hiddenTaskIds, setHiddenTaskIds] = useState<ReadonlySet<string>>(() => new Set());
+  // "hide session panel". Hidden sessions stay reachable in the restore bar
+  // under the grid, and the set is persisted per scope so hides survive
+  // leaving grid view and app restarts.
+  const [hiddenTaskIds, setHiddenTaskIds] = useState<ReadonlySet<string>>(() =>
+    loadHiddenTaskIds(scopeKey),
+  );
   // The most recently hidden session, restored when Cmd/Ctrl+L fires with no
   // hideable cell focused (every session hidden) — mirrors the single-panel
   // toggle where a second press brings the last hidden session back.
@@ -472,6 +654,19 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     [allScopedSessions, hiddenTaskIds],
   );
 
+  // The hidden sessions, in the order they were hidden (Set preserves
+  // insertion order) — drives the restore bar under the grid.
+  const hiddenSessions = useMemo(() => {
+    if (hiddenTaskIds.size === 0) return [];
+    const byId = new Map(allScopedSessions.map((s) => [s.taskId, s]));
+    const out: OpenTerminal[] = [];
+    for (const id of hiddenTaskIds) {
+      const session = byId.get(id);
+      if (session) out.push(session);
+    }
+    return out;
+  }, [hiddenTaskIds, allScopedSessions]);
+
   // Drop hidden ids whose session is gone (archived/closed elsewhere) so a hide
   // never lingers and the empty-state math stays honest.
   useEffect(() => {
@@ -487,6 +682,12 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
       return changed ? next : prev;
     });
   }, [allScopedSessions]);
+
+  // Persist the hidden set whenever it changes, so hides survive leaving grid
+  // view and app restarts (the scope-swap block reloads it per scope).
+  useEffect(() => {
+    saveHiddenTaskIds(scopeKey, hiddenTaskIds);
+  }, [scopeKey, hiddenTaskIds]);
 
   // The authored layout for the current scope. Reconciled against live sessions:
   // new sessions land in the current/new row, closed ones (and empty rows) are
@@ -534,6 +735,8 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
   if (scopeSwapRef.current !== scopeKey) {
     scopeSwapRef.current = scopeKey;
     setLayout(loadGridLayout(scopeKey) ?? EMPTY_LAYOUT);
+    setHiddenTaskIds(loadHiddenTaskIds(scopeKey));
+    lastHiddenTaskIdRef.current = null;
     setExpandedTaskId(null);
     setNavTaskId(null);
     setDragLayout(null);
@@ -806,6 +1009,34 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     capture: true,
   });
 
+  // Un-hide one session (bar chip click, or Cmd/Ctrl+L's restore fallback):
+  // put its pane back in the grid and hand it the caret so the restore feels
+  // like switching to it, not just re-adding a cell.
+  const restoreHiddenSession = useCallback(
+    (taskId: string) => {
+      setHiddenTaskIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+      if (lastHiddenTaskIdRef.current === taskId) lastHiddenTaskIdRef.current = null;
+      focusSessionTerminal(taskId);
+    },
+    [focusSessionTerminal],
+  );
+
+  // Un-hide everything at once (the bar's "Restore all"), focusing the most
+  // recently hidden session — the one the user is most likely coming back for.
+  const restoreAllHidden = useCallback(() => {
+    const ids = Array.from(hiddenTaskIds);
+    if (ids.length === 0) return;
+    const focusId = lastHiddenTaskIdRef.current ?? ids[ids.length - 1];
+    setHiddenTaskIds(new Set());
+    lastHiddenTaskIdRef.current = null;
+    if (focusId) focusSessionTerminal(focusId);
+  }, [hiddenTaskIds, focusSessionTerminal]);
+
   // Cmd/Ctrl+L (terminal.close) in grid view: hide the focused cell's session —
   // pull its pane out of the grid without archiving it (the PTY keeps running
   // and re-attaches when it comes back). This is the grid's take on the normal
@@ -834,16 +1065,15 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
       if (neighbour) focusSessionTerminal(neighbour);
       return;
     }
-    const restore = lastHiddenTaskIdRef.current;
-    if (!restore || !hiddenTaskIds.has(restore)) return;
-    setHiddenTaskIds((prev) => {
-      if (!prev.has(restore)) return prev;
-      const next = new Set(prev);
-      next.delete(restore);
-      return next;
-    });
-    lastHiddenTaskIdRef.current = null;
-    focusSessionTerminal(restore);
+    // The ref only lives for this mount; after a reload (or view switch) fall
+    // back to the most recently hidden id in the persisted set.
+    const remembered = lastHiddenTaskIdRef.current;
+    const restore =
+      remembered && hiddenTaskIds.has(remembered)
+        ? remembered
+        : Array.from(hiddenTaskIds).at(-1);
+    if (!restore) return;
+    restoreHiddenSession(restore);
   }, [
     userTerminals.panelOpen,
     expandedTaskId,
@@ -851,6 +1081,7 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     hiddenTaskIds,
     neighbourAfterClose,
     focusSessionTerminal,
+    restoreHiddenSession,
   ]);
 
   // Capture phase so a focused xterm surface can't swallow the chord first —
@@ -1649,25 +1880,42 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
     [resolveDropTarget, positionDraggedCell, focusSessionTerminal, scopeKey],
   );
 
+  const hiddenBar =
+    hiddenSessions.length > 0 ? (
+      <HiddenSessionsBar
+        sessions={hiddenSessions}
+        flush={flushLayout}
+        onRestore={restoreHiddenSession}
+        onRestoreAll={restoreAllHidden}
+      />
+    ) : null;
+
   // The project route only mounts the grid once the scope has a session, so an
-  // empty grid falls back to the normal sessions view (matching its empty state
-  // exactly). This branch is just a defensive fallback for a transient frame.
+  // empty grid usually means a transient frame — unless the user hid every
+  // session, in which case the restore bar must stay reachable.
   if (scopedSessions.length === 0) {
     return (
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <EmptyState
-          title="No active sessions"
-          subtitle="Start a new session to begin working on this project."
-        />
-      </div>
+      <>
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <EmptyState
+            title={hiddenSessions.length > 0 ? "All sessions hidden" : "No active sessions"}
+            subtitle={
+              hiddenSessions.length > 0
+                ? "Click a session in the bar below to bring it back."
+                : "Start a new session to begin working on this project."
+            }
+          />
+        </div>
+        {hiddenBar}
+      </>
     );
   }
 
@@ -1827,6 +2075,7 @@ export function SessionGrid({ scopeKey }: { scopeKey: string }) {
           </>
         )}
       </div>
+      {hiddenBar}
       <ConfirmDialog
         open={!!pendingArchive}
         onClose={() => setPendingArchive(null)}
