@@ -144,7 +144,7 @@ function readSharedLimitsSnapshot(now: number): ClaudeUsageLimits | null {
       weekly,
       weeklyOpus: parseWindow(b?.seven_day_opus),
       status: "ok",
-      fetchedAt: Math.floor(st.mtimeMs),
+      fetchedAt: st.mtimeMs,
     };
   } catch {
     return null;
@@ -296,7 +296,12 @@ async function fetchFromApi(): Promise<FetchResult> {
 export function getClaudeUsageLimits(): Promise<ClaudeUsageLimits> {
   const now = Date.now();
   const fromFile = readSharedLimitsSnapshot(now);
-  if (fromFile && (!cache || fromFile.fetchedAt >= cache.value.fetchedAt)) {
+  // A fresh statusline tap must win over a rate-limited endpoint snapshot even
+  // when its mtime is a few ms behind the 429 response timestamp.
+  if (
+    fromFile &&
+    (!cache || fromFile.fetchedAt >= cache.value.fetchedAt || cache.value.status === "rate_limited")
+  ) {
     cache = { value: fromFile, expiresAt: now + FILE_SERVE_TTL_MS };
     return Promise.resolve(fromFile);
   }
