@@ -144,7 +144,7 @@ function readSharedLimitsSnapshot(now: number): ClaudeUsageLimits | null {
       weekly,
       weeklyOpus: parseWindow(b?.seven_day_opus),
       status: "ok",
-      fetchedAt: Math.floor(st.mtimeMs),
+      fetchedAt: st.mtimeMs,
     };
   } catch {
     return null;
