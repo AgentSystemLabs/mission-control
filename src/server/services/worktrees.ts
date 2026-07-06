@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { MAIN_WORKTREE_ID, WORKTREE_NAME_RE, normalizeWorktreeId } from "~/shared/worktrees";
-import type { WorktreeInfo } from "~/shared/worktrees";
+import type { WorktreeInfo, WorktreeTaskCounts } from "~/shared/worktrees";
+import { TASK_STATUSES } from "~/shared/domain";
 import { findProjectById } from "../repositories/projects.repo";
 import {
   deleteWorktreeRow,
@@ -11,6 +12,7 @@ import {
   findWorktreesByProjectId,
   insertWorktree,
 } from "../repositories/worktrees.repo";
+import { findTasksByProjectIdAllScopes } from "../repositories/tasks.repo";
 import { newId } from "./_ids";
 import { events } from "../events";
 
@@ -153,19 +155,25 @@ export function resolveWorktreePath(projectPath: string, name: string): string {
   return resolved;
 }
 
-function toInfo(row: {
-  id: string;
-  projectId: string;
-  name: string;
-  path: string;
-  branch: string;
-  createdAt: number;
-  updatedAt: number;
-}): WorktreeInfo {
-  return { ...row, isMain: row.id === MAIN_WORKTREE_ID };
+function toInfo(
+  row: {
+    id: string;
+    projectId: string;
+    name: string;
+    path: string;
+    branch: string;
+    createdAt: number;
+    updatedAt: number;
+  },
+  taskCounts?: WorktreeTaskCounts,
+): WorktreeInfo {
+  return { ...row, isMain: row.id === MAIN_WORKTREE_ID, taskCounts };
 }
 
-function mainInfo(project: NonNullable<ReturnType<typeof findProjectById>>): WorktreeInfo {
+function mainInfo(
+  project: NonNullable<ReturnType<typeof findProjectById>>,
+  taskCounts?: WorktreeTaskCounts,
+): WorktreeInfo {
   return {
     id: MAIN_WORKTREE_ID,
     projectId: project.id,
@@ -175,13 +183,68 @@ function mainInfo(project: NonNullable<ReturnType<typeof findProjectById>>): Wor
     isMain: true,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+    taskCounts,
   };
+}
+
+function emptyTaskCounts(): WorktreeTaskCounts {
+  const counts = {} as WorktreeTaskCounts;
+  for (const status of TASK_STATUSES) counts[status] = 0;
+  return counts;
+}
+
+/** Non-archived sessions per worktree id (null key = main), across all scopes. */
+function countTasksByWorktree(projectId: string): Map<string | null, WorktreeTaskCounts> {
+  const byWorktree = new Map<string | null, WorktreeTaskCounts>();
+  for (const task of findTasksByProjectIdAllScopes(projectId)) {
+    if (task.archived) continue;
+    const key = task.worktreeId ?? null;
+    let counts = byWorktree.get(key);
+    if (!counts) {
+      counts = emptyTaskCounts();
+      byWorktree.set(key, counts);
+    }
+    counts[task.status]++;
+  }
+  return byWorktree;
+}
+
+/**
+ * Drop worktree rows whose directory no longer exists on disk — e.g. removed
+ * with a manual `git worktree remove`/`rm -rf`, or legacy rows from before the
+ * `.worktrees` → `.worktree` layout rename that `deleteWorktree` refuses to
+ * touch. Their sessions cascade-delete with the row, so project task counts
+ * (the pinned-icon status dots) stop reporting sessions no UI can reach.
+ *
+ * Skipped entirely when the project root itself is missing: an unmounted
+ * drive or temporarily moved repo must not wipe worktree/session history.
+ */
+export function reconcileProjectWorktrees(project: { id: string; path: string }): void {
+  const rows = findWorktreesByProjectId(project.id);
+  if (rows.length === 0) return;
+  if (!fs.existsSync(path.resolve(project.path))) return;
+  let pruned = false;
+  for (const row of rows) {
+    if (fs.existsSync(path.resolve(row.path))) continue;
+    if (deleteWorktreeRow(row.id) > 0) {
+      pruned = true;
+      events.emit("worktree:deleted", { id: row.id, projectId: project.id });
+    }
+  }
+  if (pruned) events.emit("project:updated", { id: project.id });
 }
 
 export function listWorktrees(projectId: string): WorktreeInfo[] {
   const project = findProjectById(projectId);
   if (!project) throw new Error("project not found");
-  return [mainInfo(project), ...findWorktreesByProjectId(projectId).map(toInfo)];
+  reconcileProjectWorktrees(project);
+  const taskCounts = countTasksByWorktree(projectId);
+  return [
+    mainInfo(project, taskCounts.get(null) ?? emptyTaskCounts()),
+    ...findWorktreesByProjectId(projectId).map((row) =>
+      toInfo(row, taskCounts.get(row.id) ?? emptyTaskCounts())
+    ),
+  ];
 }
 
 export function getWorktree(projectId: string, worktreeId?: string | null): WorktreeInfo {

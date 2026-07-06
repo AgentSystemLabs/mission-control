@@ -96,8 +96,10 @@ import {
   parseCustomScripts,
   serializeCustomScripts,
   STATUS_DISPLAY_ORDER,
+  TASK_STATUS_META,
   type CustomScript,
 } from "~/shared/domain";
+import { getPinnedProjectStatusDots } from "~/components/views/project-bar-status-dots";
 import { hasRunningLaunchSessions } from "~/lib/project-launch-running";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import {
@@ -1997,7 +1999,11 @@ function ProjectPage() {
       (e) => {
         applyQuestionServerEvent(e);
         if (e.type.startsWith("task:")) {
-          if (e.projectId === id) invalidateThisProjectTasks();
+          if (e.projectId === id) {
+            invalidateThisProjectTasks();
+            // Badge dots on non-selected worktrees come from the worktrees query.
+            void invalidateWorktrees();
+          }
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
           void invalidateProject();
@@ -3853,6 +3859,58 @@ function SessionScopeToggle({
   );
 }
 
+function WorktreeBadgeDots({
+  launchRunning,
+  taskCounts,
+}: {
+  /** A launch command's terminal is running in this worktree. */
+  launchRunning: boolean;
+  taskCounts?: WorktreeInfo["taskCounts"];
+}) {
+  const statusDots = taskCounts ? getPinnedProjectStatusDots(taskCounts) : [];
+  if (!launchRunning && statusDots.length === 0) return null;
+  return (
+    <span
+      aria-hidden
+      style={{
+        position: "absolute",
+        top: -4,
+        left: "50%",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        transform: "translateX(-50%)",
+        pointerEvents: "none",
+        zIndex: 1,
+      }}
+    >
+      {launchRunning && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "var(--accent)",
+            boxShadow: "0 0 6px var(--accent-glow)",
+          }}
+        />
+      )}
+      {statusDots.map((status, dot) => (
+        <span
+          key={`${status}-${dot}`}
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: "50%",
+            background: status === "running" ? "var(--accent)" : TASK_STATUS_META[status].color,
+            boxShadow: status === "running" ? "0 0 5px var(--accent-glow)" : "none",
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
 function WorktreeToggleGroup({
   worktrees,
   selectedId,
@@ -3918,23 +3976,7 @@ function WorktreeToggleGroup({
                 flexShrink: 0,
               }}
             >
-              {running && (
-                <span
-                  aria-hidden
-                  style={{
-                    position: "absolute",
-                    top: -4,
-                    left: "50%",
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: "var(--accent)",
-                    transform: "translateX(-50%)",
-                    boxShadow: "0 0 6px var(--accent-glow)",
-                    zIndex: 1,
-                  }}
-                />
-              )}
+              <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
               {mainBranchUnavailable ? (
                 <Btn
                   variant="ghost"
@@ -3988,22 +4030,7 @@ function WorktreeToggleGroup({
               flexShrink: 0,
             }}
           >
-            {running && (
-              <span
-                aria-hidden
-                style={{
-                  position: "absolute",
-                  top: -4,
-                  left: "50%",
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "var(--accent)",
-                  transform: "translateX(-50%)",
-                  boxShadow: "0 0 6px var(--accent-glow)",
-                }}
-              />
-            )}
+            <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
             <button
               type="button"
               role="radio"

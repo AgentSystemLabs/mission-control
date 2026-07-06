@@ -13,9 +13,11 @@ const {
   createWorktree,
   deleteWorktree,
   generateWorktreeName,
+  listWorktrees,
   resolveWorktreePath,
 } = await import("../worktrees");
-const { createProject } = await import("../projects");
+const { createProject, listProjects } = await import("../projects");
+const { archiveTask, createTask } = await import("../tasks");
 const { remove: removeWorktree } = await import("~/server/controllers/worktrees.controller");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
@@ -240,6 +242,93 @@ describe("worktree helpers", () => {
       deleteWorktree({ projectId: project.id, worktreeId: "wt-escape" }),
     ).rejects.toThrow("worktree path is invalid");
     expect(fs.existsSync(root)).toBe(true);
+  });
+
+  it("prunes worktree rows whose directory is missing and cascades their sessions", async () => {
+    const { project, worktree } = await createProjectWorktree();
+    createTask({ projectId: project.id, title: "main session", agent: "claude-code", status: "finished" });
+    createTask({
+      projectId: project.id,
+      worktreeId: worktree.id,
+      title: "worktree session",
+      agent: "claude-code",
+      status: "finished",
+    });
+    fs.rmSync(worktree.path, { recursive: true, force: true });
+
+    const listed = listWorktrees(project.id);
+
+    expect(listed.map((w) => w.id)).toEqual(["main"]);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(0);
+    const remaining = getDb().select().from(tasks).all();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.title).toBe("main session");
+  });
+
+  it("keeps worktree rows when the project root itself is missing", async () => {
+    const { project, root, worktree } = await createProjectWorktree();
+    fs.rmSync(root, { recursive: true, force: true });
+
+    const listed = listWorktrees(project.id);
+
+    expect(listed.map((w) => w.id)).toContain(worktree.id);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(1);
+  });
+
+  it("reports non-archived session counts per worktree", async () => {
+    const { project, worktree } = await createProjectWorktree();
+    createTask({ projectId: project.id, title: "main done", agent: "claude-code", status: "finished" });
+    createTask({
+      projectId: project.id,
+      worktreeId: worktree.id,
+      title: "wt running",
+      agent: "claude-code",
+      status: "running",
+    });
+    createTask({
+      projectId: project.id,
+      worktreeId: worktree.id,
+      title: "wt done",
+      agent: "claude-code",
+      status: "finished",
+    });
+    const archived = createTask({
+      projectId: project.id,
+      worktreeId: worktree.id,
+      title: "wt archived",
+      agent: "claude-code",
+      status: "finished",
+    });
+    archiveTask(archived.id);
+
+    const listed = listWorktrees(project.id);
+    const main = listed.find((w) => w.isMain);
+    const branch = listed.find((w) => w.id === worktree.id);
+
+    expect(main?.taskCounts?.finished).toBe(1);
+    expect(main?.taskCounts?.running).toBe(0);
+    expect(branch?.taskCounts?.running).toBe(1);
+    expect(branch?.taskCounts?.finished).toBe(1);
+  });
+
+  it("drops sessions of pruned worktrees from project task counts", async () => {
+    const { project, worktree } = await createProjectWorktree();
+    createTask({ projectId: project.id, title: "main done", agent: "claude-code", status: "finished" });
+    for (let i = 0; i < 3; i++) {
+      createTask({
+        projectId: project.id,
+        worktreeId: worktree.id,
+        title: `wt done ${i}`,
+        agent: "claude-code",
+        status: "finished",
+      });
+    }
+    expect(listProjects()[0]!.taskCounts.finished).toBe(4);
+
+    fs.rmSync(worktree.path, { recursive: true, force: true });
+
+    expect(listProjects()[0]!.taskCounts.finished).toBe(1);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(0);
   });
 
   it("accepts stashChanges from the delete route query string", async () => {
