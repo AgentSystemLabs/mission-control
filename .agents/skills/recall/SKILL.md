@@ -24,7 +24,7 @@ Mission Control also indexes this project into a **code graph** — every functi
 - `impact_of(node)` — **what transitively breaks if I change this** (reverse-reachable dependents, several hops out). Run it before an edit instead of grepping for usages.
 - `shortest_path(from, to)` — **how two areas connect** through imports/calls — a question `grep` can't answer.
 
-If a graph tool reports the project isn't indexed yet, fall back to `grep` for that lookup; don't block on it. The graph covers JavaScript/TypeScript (`.ts` / `.tsx` / `.js` / `.jsx`).
+If a graph tool reports the project isn't indexed yet, fall back to `grep` for that lookup; don't block on it. The graph covers JavaScript/TypeScript (`.ts` / `.tsx` / `.js` / `.jsx` / `.mts` / `.cts` / `.mjs` / `.cjs`) and Python (`.py`).
 
 ## When to save a memory
 

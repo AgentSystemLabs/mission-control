@@ -21,6 +21,7 @@ const GRAMMAR_FILE: Record<GraphLanguage, string> = {
   tsx: "tree-sitter-tsx.wasm",
   js: "tree-sitter-javascript.wasm",
   jsx: "tree-sitter-javascript.wasm", // the JS grammar handles JSX
+  py: "tree-sitter-python.wasm",
 };
 
 /** Candidate dirs holding the grammar wasm, in resolution priority order. */
@@ -111,6 +112,6 @@ export async function getGraphParser(language: GraphLanguage): Promise<Parser> {
 export async function ensureGraphParserReady(): Promise<void> {
   await ensureParserInit();
   await Promise.all(
-    (["ts", "tsx", "js"] as GraphLanguage[]).map((l) => loadLanguage(l)),
+    (["ts", "tsx", "js", "py"] as GraphLanguage[]).map((l) => loadLanguage(l)),
   );
 }

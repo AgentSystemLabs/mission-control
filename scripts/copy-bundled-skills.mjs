@@ -75,6 +75,7 @@ const wasmFiles = [
   [path.join(grammarSrc, "tree-sitter-typescript.wasm"), "tree-sitter-typescript.wasm"],
   [path.join(grammarSrc, "tree-sitter-tsx.wasm"), "tree-sitter-tsx.wasm"],
   [path.join(grammarSrc, "tree-sitter-javascript.wasm"), "tree-sitter-javascript.wasm"],
+  [path.join(grammarSrc, "tree-sitter-python.wasm"), "tree-sitter-python.wasm"],
   [runtimeWasm, "web-tree-sitter.wasm"],
 ];
 let wasmCopied = 0;
