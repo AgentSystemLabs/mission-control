@@ -108,6 +108,20 @@ function nodeLine(n) {
   return `- ${n.name} (${n.kind}${exp}) — ${n.filePath}:${n.startLine} [degree ${n.degree}]${sig}`;
 }
 
+// Fenced, line-numbered verbatim source slice for a node (graph_node /
+// graph_search include_source). Mirrors the numbering style of the Read tool
+// so the agent can quote exact locations without opening the file.
+function sourceBlock(node, source) {
+  const lines = source.text.split("\n");
+  const numbered = lines
+    .map((line, i) => `${String(source.startLine + i).padStart(5)}\t${line}`)
+    .join("\n");
+  const trunc = source.truncated
+    ? `\n  … truncated at line ${source.endLine} — Read ${node.filePath} for the rest.`
+    : "";
+  return `\`\`\`${node.language ?? ""}\n${numbered}\n\`\`\`${trunc}`;
+}
+
 function memoryLine(m) {
   const detail = m.body ? ` — ${m.body.replace(/\s+/g, " ").trim()}` : "";
   const conf = m.confidence && m.confidence !== "confirmed" ? ` (${m.confidence})` : "";
@@ -237,22 +251,52 @@ server.registerTool(
   "graph_search",
   {
     description:
-      "Prefer this over grep/glob to find WHERE a function, class, method, interface, type, React component, or file is defined. This project is pre-indexed into a code graph, so a name/path lookup here is faster than scanning files and returns the most-connected (most central) matches first. Reach for it first when locating a symbol, then trace usage with get_neighbors / impact_of / shortest_path.",
+      "Prefer this over grep/glob to find WHERE a function, class, method, interface, type, React component, or file is defined. This project is pre-indexed into a code graph, so a name/path lookup here is faster than scanning files and returns the most-connected (most central) matches first. Set include_source when you'll need the definition bodies too — the top matches come back with their verbatim source inline, skipping the follow-up file Read. Reach for it first when locating a symbol, then trace usage with get_neighbors / impact_of / shortest_path, or read one definition with graph_node.",
     inputSchema: {
       query: z.string().describe("Name or path substring to search for"),
       limit: z.number().int().positive().max(100).optional().describe("Max results (default 30)"),
+      include_source: z
+        .boolean()
+        .optional()
+        .describe("Include verbatim, line-numbered source for the top matches (skips a follow-up Read)"),
     },
   },
-  ({ query, limit }) =>
+  ({ query, limit, include_source }) =>
     runTool(async (projectId) => {
       const qs = new URLSearchParams({ q: query });
       if (limit) qs.set("limit", String(limit));
+      if (include_source) qs.set("source", "1");
       const { nodes } = await apiGet(`/api/projects/${projectId}/graph/search?${qs}`);
       if (!nodes.length) {
         const hint = await emptyGraphHint(projectId);
         return textResult(hint ?? `No symbols match "${query}".`);
       }
-      return textResult(`${nodes.length} match(es) for "${query}":\n${nodes.map(nodeLine).join("\n")}`);
+      const lines = nodes.map((n) => (n.source ? `${nodeLine(n)}\n${sourceBlock(n, n.source)}` : nodeLine(n)));
+      return textResult(`${nodes.length} match(es) for "${query}":\n${lines.join("\n")}`);
+    }),
+);
+
+server.registerTool(
+  "graph_node",
+  {
+    description:
+      "Read a symbol's definition source straight from the code graph — verbatim and line-numbered — without opening the file. Prefer this over Read/grep when you need the body of ONE function, class, method, type, or component: pass its name (or file path / node id, as returned by graph_search) and get the exact lines back. Passing a file path returns the top of that file.",
+    inputSchema: {
+      node: z.string().describe("Symbol name, file path, or node id"),
+    },
+  },
+  ({ node }) =>
+    runTool(async (projectId) => {
+      const qs = new URLSearchParams({ node });
+      const res = await apiGet(`/api/projects/${projectId}/graph/node?${qs}`);
+      const header = nodeLine(res.node).replace(/^- /, "");
+      if (!res.source) {
+        const hint = await emptyGraphHint(projectId);
+        return textResult(
+          hint ?? `${header}\n(source unavailable — the file may have moved since the last index; use Read on ${res.node.filePath})`,
+        );
+      }
+      return textResult(`${header}\n${sourceBlock(res.node, res.source)}`);
     }),
 );
 

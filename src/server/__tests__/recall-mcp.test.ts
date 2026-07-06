@@ -116,6 +116,7 @@ describe("recall MCP server", () => {
       const names = tools.map((t) => t.name).sort();
       expect(names).toEqual([
         "get_neighbors",
+        "graph_node",
         "graph_search",
         "impact_of",
         "mem_context",
@@ -193,6 +194,35 @@ describe("recall MCP server", () => {
       expect(res.isError).toBeFalsy();
       expect(text).toContain("core");
       expect(text).toContain("function");
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("graph_node returns a symbol's verbatim, line-numbered source", async () => {
+    const client = await connectClient();
+    try {
+      const res = await client.callTool({ name: "graph_node", arguments: { node: "core" } });
+      const text = textOf(res);
+      expect(res.isError).toBeFalsy();
+      expect(text).toContain("core (function");
+      expect(text).toContain("export function core(): number { return 1; }");
+      expect(text).toMatch(/^\s+1\t/m); // line-numbered like Read
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("graph_search include_source inlines definition bodies", async () => {
+    const client = await connectClient();
+    try {
+      const res = await client.callTool({
+        name: "graph_search",
+        arguments: { query: "core", include_source: true },
+      });
+      const text = textOf(res);
+      expect(res.isError).toBeFalsy();
+      expect(text).toContain("export function core(): number { return 1; }");
     } finally {
       await client.close();
     }

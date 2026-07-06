@@ -115,6 +115,18 @@ export const GRAPH_NEIGHBORS_MAX = 200;
 export const GRAPH_SEARCH_LIMIT_DEFAULT = 30;
 export const GRAPH_SEARCH_LIMIT_MAX = 100;
 
+// --- Verbatim-source hydration (graph/node + graph/search?source=1). The
+// graph stores each symbol's line range, so queries can return the definition
+// body itself and spare the agent a follow-up file read. Caps keep a single
+// response bounded no matter how large the symbol or result set. ---
+
+/** Max source lines returned for a single node (`graph/node`). */
+export const GRAPH_SOURCE_MAX_LINES = 200;
+/** Tighter per-node cap when source is inlined into search results. */
+export const GRAPH_SOURCE_SEARCH_MAX_LINES = 60;
+/** Only the top-N search hits get source inlined; the rest stay location-only. */
+export const GRAPH_SOURCE_SEARCH_MAX_NODES = 5;
+
 /** Map a repo-relative path to the grammar language, or null if not a source file. */
 export function languageForFile(relPath: string): GraphLanguage | null {
   const lower = relPath.toLowerCase();
@@ -178,6 +190,24 @@ export interface GraphEdgeView {
   kind: GraphEdgeKind;
   confidence: GraphConfidence;
   createdAt: number;
+}
+
+/**
+ * A verbatim slice of a node's source, read from disk at query time (never
+ * stored). `endLine` is the last line actually included — when the symbol
+ * continues past a cap, `truncated` is true and the reader should open the
+ * file for the rest.
+ */
+export interface GraphNodeSource {
+  text: string;
+  startLine: number;
+  endLine: number;
+  truncated: boolean;
+}
+
+/** A search hit optionally hydrated with its definition source. */
+export interface GraphNodeViewWithSource extends GraphNodeView {
+  source: GraphNodeSource | null;
 }
 
 /**

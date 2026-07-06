@@ -53,6 +53,7 @@ const PROJECT_GRAPH_SUMMARY_PATH = /^\/api\/projects\/([^/]+)\/graph\/summary$/;
 const PROJECT_GRAPH_INDEX_PATH = /^\/api\/projects\/([^/]+)\/graph\/index$/;
 const PROJECT_GRAPH_INDEX_CANCEL_PATH = /^\/api\/projects\/([^/]+)\/graph\/index\/cancel$/;
 const PROJECT_GRAPH_SEARCH_PATH = /^\/api\/projects\/([^/]+)\/graph\/search$/;
+const PROJECT_GRAPH_NODE_PATH = /^\/api\/projects\/([^/]+)\/graph\/node$/;
 const PROJECT_GRAPH_NEIGHBORS_PATH = /^\/api\/projects\/([^/]+)\/graph\/neighbors$/;
 const PROJECT_GRAPH_PATH_PATH = /^\/api\/projects\/([^/]+)\/graph\/path$/;
 const PROJECT_GRAPH_IMPACT_PATH = /^\/api\/projects\/([^/]+)\/graph\/impact$/;
@@ -327,6 +328,8 @@ async function dispatch(
   if (m && method === "POST") return codeGraphController.index(decode(m[1]), url);
   m = pathname.match(PROJECT_GRAPH_SEARCH_PATH);
   if (m && method === "GET") return codeGraphController.search(decode(m[1]), url);
+  m = pathname.match(PROJECT_GRAPH_NODE_PATH);
+  if (m && method === "GET") return codeGraphController.node(decode(m[1]), url);
   m = pathname.match(PROJECT_GRAPH_NEIGHBORS_PATH);
   if (m && method === "GET") return codeGraphController.neighbors(decode(m[1]), url);
   m = pathname.match(PROJECT_GRAPH_PATH_PATH);

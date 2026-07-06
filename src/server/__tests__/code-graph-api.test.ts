@@ -84,6 +84,44 @@ describe("code graph API", () => {
     expect(body.nodes.some((n) => n.name === "core")).toBe(true);
   });
 
+  it("inlines verbatim source for top search hits when source=1", async () => {
+    const res = await handleApiRequest(
+      authed(`/api/projects/${projectId}/graph/search?q=core&source=1`),
+    );
+    const body = (await res!.json()) as {
+      nodes: Array<{ name: string; source: { text: string; startLine: number } | null }>;
+    };
+    const hit = body.nodes.find((n) => n.name === "core");
+    expect(hit?.source?.text).toContain("export function core(): number { return 1; }");
+    expect(hit?.source?.startLine).toBe(1);
+  });
+
+  it("omits source from search results by default", async () => {
+    const res = await handleApiRequest(authed(`/api/projects/${projectId}/graph/search?q=core`));
+    const body = (await res!.json()) as { nodes: Array<Record<string, unknown>> };
+    expect(body.nodes[0]).not.toHaveProperty("source");
+  });
+
+  it("returns a node's definition source via /graph/node", async () => {
+    const res = await handleApiRequest(
+      authed(`/api/projects/${projectId}/graph/node?node=core`),
+    );
+    const body = (await res!.json()) as {
+      node: { name: string; kind: string };
+      source: { text: string; truncated: boolean } | null;
+    };
+    expect(body.node.name).toBe("core");
+    expect(body.source?.text).toContain("export function core");
+    expect(body.source?.truncated).toBe(false);
+  });
+
+  it("404s /graph/node for an unknown symbol", async () => {
+    const res = await handleApiRequest(
+      authed(`/api/projects/${projectId}/graph/node?node=definitely-not-a-symbol`),
+    );
+    expect(res?.status).toBe(404);
+  });
+
   it("returns neighbors for a node", async () => {
     const res = await handleApiRequest(
       authed(`/api/projects/${projectId}/graph/neighbors?node=${encodeURIComponent("a.ts")}&direction=out`),

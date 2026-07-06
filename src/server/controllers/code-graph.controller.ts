@@ -13,6 +13,7 @@ import {
   getShortestPath,
   searchGraph,
 } from "../services/code-graph";
+import { attachSearchSources, getNodeSource } from "../services/code-graph-source";
 import {
   cancelGraphIndex,
   GraphIndexError,
@@ -73,6 +74,7 @@ const searchQuery = z.object({
       if (!Number.isFinite(n) || n <= 0) return GRAPH_SEARCH_LIMIT_DEFAULT;
       return Math.min(n, GRAPH_SEARCH_LIMIT_MAX);
     }),
+  source: z.string().optional(),
 });
 
 export async function search(projectId: string, url: URL): Promise<Response> {
@@ -80,7 +82,22 @@ export async function search(projectId: string, url: URL): Promise<Response> {
   if (missing) return missing;
   const parsed = parseSearchParams(url, searchQuery);
   if (!parsed.ok) return parsed.response;
-  return json({ nodes: searchGraph(projectId, parsed.data.q ?? "", parsed.data.limit) });
+  const nodes = searchGraph(projectId, parsed.data.q ?? "", parsed.data.limit);
+  const withSource = parsed.data.source === "1" || parsed.data.source === "true";
+  return json({ nodes: withSource ? attachSearchSources(projectId, nodes) : nodes });
+}
+
+const nodeQuery = z.object({ node: z.string().min(1) });
+
+/** A single resolved node with its verbatim (capped) definition source. */
+export async function node(projectId: string, url: URL): Promise<Response> {
+  const missing = requireProject(projectId);
+  if (missing) return missing;
+  const parsed = parseSearchParams(url, nodeQuery);
+  if (!parsed.ok) return parsed.response;
+  const result = getNodeSource(projectId, parsed.data.node);
+  if (!result) return notFound("node not found");
+  return json(result);
 }
 
 const neighborsQuery = z.object({

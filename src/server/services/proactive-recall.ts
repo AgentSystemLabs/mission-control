@@ -29,6 +29,7 @@ export const RECALL_MCP_TOOLS = [
   "mem_save",
   "mem_update",
   "graph_search",
+  "graph_node",
   "get_neighbors",
   "impact_of",
   "shortest_path",
@@ -48,7 +49,7 @@ export function renderToolLoadInstruction(): string {
   return [
     "Recall's project-memory and code-graph tools are available in this session but load on demand. Before answering, run this once to load them:",
     `→ ToolSearch with query "select:${select}"`,
-    "Then use `graph_search` / `get_neighbors` / `impact_of` / `shortest_path` to navigate code instead of grepping, and `mem_search` / `mem_context` to recall prior decisions (and `mem_save` to record new ones).",
+    "Then use `graph_search` / `graph_node` / `get_neighbors` / `impact_of` / `shortest_path` to navigate code instead of grepping — `graph_node` returns a symbol's verbatim source, so you often don't need to Read the file — and `mem_search` / `mem_context` to recall prior decisions (and `mem_save` to record new ones).",
   ].join("\n");
 }
 
@@ -120,7 +121,7 @@ export function assembleTurnContext(
           codeBlock = [
             "Related code (from the Recall code graph):",
             ...hits.map((h) => `- ${h.name} (${h.kind}) — ${h.filePath}`),
-            "→ Trace callers/impact with `get_neighbors` / `impact_of`, or locate more with `graph_search` — prefer these over grep.",
+            "→ Trace callers/impact with `get_neighbors` / `impact_of`, read a definition with `graph_node` (returns the source — no file Read needed), or locate more with `graph_search` — prefer these over grep.",
           ].join("\n");
         }
       }

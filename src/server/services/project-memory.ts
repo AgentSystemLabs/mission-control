@@ -480,7 +480,7 @@ export function renderMemoryLine(m: MemoryView): string {
  * brief renders so the agent knows the tools exist even before it uses them.
  */
 const RECALL_TOOLS_NUDGE =
-  "This project is indexed into a Recall code graph. When you need to find where something is defined, what calls it, or what a change would impact, reach for `graph_search` / `get_neighbors` / `impact_of` / `shortest_path` instead of grepping — the lookup is pre-indexed, ranked, and complete. And save durable project facts as you learn them with `mem_save`; recall more with `mem_search` / `mem_context`.";
+  "This project is indexed into a Recall code graph. When you need to find where something is defined, what calls it, or what a change would impact, reach for `graph_search` / `get_neighbors` / `impact_of` / `shortest_path` instead of grepping — the lookup is pre-indexed, ranked, and complete. `graph_node` (or `graph_search` with include_source) returns a symbol's verbatim source, so you can read a definition without opening the file. And save durable project facts as you learn them with `mem_save`; recall more with `mem_search` / `mem_context`.";
 
 /**
  * "Architecture at a glance" — a compact orientation block from the code graph,
