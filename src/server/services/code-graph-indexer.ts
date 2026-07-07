@@ -552,7 +552,7 @@ function finishCanceled(projectId: string, job: IndexJob): void {
 
 type AliasMap = Array<{ prefix: string; targets: string[] }>;
 
-const RESOLVE_EXTS = [".ts", ".tsx", ".js", ".jsx"];
+const RESOLVE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
 
 function readTsconfigAliases(root: string): AliasMap {
   const out: AliasMap = [];
@@ -650,6 +650,9 @@ function resolveImport(
   aliasMap: AliasMap,
   fileSet: Set<string>,
 ): string | null {
+  // Python modules are dotted paths, not file specifiers — separate resolver.
+  if (fromRel.endsWith(".py")) return resolvePythonImport(spec, fromRel, fileSet);
+
   let baseRel: string | null = null;
   if (spec.startsWith(".")) {
     baseRel = posixJoin(path.posix.dirname(fromRel), spec);
@@ -668,13 +671,45 @@ function resolveImport(
   const candidates: string[] = [];
   const pushExtVariants = (base: string) => {
     if (RESOLVE_EXTS.some((e) => base.endsWith(e)) && fileSet.has(base)) candidates.push(base);
-    // TS ESM often writes `./x.js` for a `./x.ts` source.
-    const jsToTs = base.replace(/\.js$/, "");
+    // TS ESM often writes `./x.js` (or `.mjs`/`.cjs`) for a `./x.ts` source.
+    const jsToTs = base.replace(/\.[mc]?js$/, "");
     for (const e of RESOLVE_EXTS) candidates.push(base + e, `${base}/index${e}`, jsToTs + e);
   };
   pushExtVariants(baseRel);
   for (const c of candidates) {
     if (fileSet.has(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * Resolve a Python module spec (`pkg.mod`, `.sibling`, `..pkg`) to a repo-relative
+ * `.py` file. Relative specs anchor at the importing file's package (one leading
+ * dot) and climb one directory per extra dot; absolute specs are tried against
+ * the repo root and the common `src/` layout (a sys.path approximation — bare
+ * library imports simply won't match and stay external/ambiguous).
+ */
+function resolvePythonImport(spec: string, fromRel: string, fileSet: Set<string>): string | null {
+  let rest = spec;
+  let dots = 0;
+  while (rest.startsWith(".")) {
+    dots++;
+    rest = rest.slice(1);
+  }
+  const segs = rest ? rest.split(".") : [];
+  const bases: string[] = [];
+  if (dots > 0) {
+    let dir = path.posix.dirname(fromRel);
+    for (let i = 1; i < dots; i++) dir = path.posix.dirname(dir);
+    bases.push([dir === "." ? "" : dir, ...segs].filter(Boolean).join("/"));
+  } else if (segs.length) {
+    bases.push(segs.join("/"), ["src", ...segs].join("/"));
+  }
+  for (const base of bases) {
+    const candidates = base ? [`${base}.py`, `${base}/__init__.py`] : ["__init__.py"];
+    for (const c of candidates) {
+      if (fileSet.has(c)) return c;
+    }
   }
   return null;
 }

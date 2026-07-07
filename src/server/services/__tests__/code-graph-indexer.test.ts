@@ -295,3 +295,72 @@ describe("code-graph incremental re-index", () => {
     expect(readGraphFileStats(projectId).has("c6.ts")).toBe(false);
   });
 });
+
+// Coverage beyond .ts/.tsx/.js/.jsx: the ESM/CJS variants (shared grammars)
+// and Python (own grammar + dotted-module import resolution).
+describe("code-graph multi-language coverage", () => {
+  let pid: string;
+
+  beforeAll(async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-graph-lang-fixture-"));
+    fs.writeFileSync(path.join(dir, "util.mjs"), `export function util() { return 1; }\n`);
+    fs.writeFileSync(
+      path.join(dir, "main.ts"),
+      `import { util } from "./util.mjs";\nexport function main(): number { return util(); }\n`,
+    );
+    fs.mkdirSync(path.join(dir, "pkg"));
+    fs.writeFileSync(path.join(dir, "pkg", "__init__.py"), "");
+    fs.writeFileSync(path.join(dir, "pkg", "core.py"), `def core_fn(x):\n    return x + 1\n`);
+    fs.writeFileSync(
+      path.join(dir, "pkg", "app.py"),
+      `from .core import core_fn\n\ndef run(n):\n    return core_fn(n)\n`,
+    );
+    fs.writeFileSync(
+      path.join(dir, "cli.py"),
+      `from pkg.core import core_fn\n\ndef main_py():\n    return core_fn(2)\n`,
+    );
+    pid = createProject({ name: "graph-lang-fixture", path: dir }).id;
+    await runIndex(pid);
+  }, 30_000);
+
+  it("indexes .mjs files and resolves a ts → mjs import", () => {
+    const nodes = searchGraph(pid, "util", 10);
+    expect(nodes.some((n) => n.name === "util" && n.kind === "function" && n.language === "js")).toBe(
+      true,
+    );
+    const out = getNeighbors(pid, "main.ts", "out");
+    expect(
+      out?.neighbors.some(
+        (nb) =>
+          nb.edge.kind === "imports" &&
+          nb.edge.confidence === "extracted" &&
+          nb.node?.filePath === "util.mjs",
+      ),
+    ).toBe(true);
+  });
+
+  it("indexes python symbols with public defs marked exported", () => {
+    const nodes = searchGraph(pid, "core_fn", 10);
+    expect(
+      nodes.some((n) => n.name === "core_fn" && n.language === "py" && n.exported),
+    ).toBe(true);
+  });
+
+  it("resolves relative (.core) and absolute (pkg.core) python imports", () => {
+    const app = getNeighbors(pid, "pkg/app.py", "out");
+    expect(
+      app?.neighbors.some((nb) => nb.edge.kind === "imports" && nb.node?.filePath === "pkg/core.py"),
+    ).toBe(true);
+    const cli = getNeighbors(pid, "cli.py", "out");
+    expect(
+      cli?.neighbors.some((nb) => nb.edge.kind === "imports" && nb.node?.filePath === "pkg/core.py"),
+    ).toBe(true);
+  });
+
+  it("resolves python cross-file calls and computes impact", () => {
+    const impact = getImpact(pid, "core_fn");
+    expect(impact).not.toBeNull();
+    const names = new Set(impact!.dependents.map((n) => n.name));
+    expect(names.has("run")).toBe(true);
+  });
+});

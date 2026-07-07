@@ -8,8 +8,9 @@ import { installAgentHooks } from "./agent-hooks";
 import { installAgentMemoryBrief } from "./agent-memory-brief";
 import { ensureStatuslineTap } from "../src/shared/statusline-tap";
 import { ensureDiagramSkillForAgent } from "./ensure-diagram-skill";
-import { ensureRecallSkillForAgent } from "./ensure-recall-skill";
-import { ensureRecallMcpForAgent } from "./ensure-recall-mcp";
+import { ensureRecallSkillForAgent, removeRecallSkillForAgent } from "./ensure-recall-skill";
+import { ensureRecallMcpForAgent, removeRecallMcpForAgent } from "./ensure-recall-mcp";
+import { fetchRecallEnabled } from "./recall-enabled";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
@@ -480,19 +481,31 @@ export function registerPtyHandlers(
       // symlink-swap race between validation and spawn can't move us into a
       // post-validation target outside the project root.
       installAgentHooks(opts.agent, plan.cwd);
+      const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       if (plan.mode === "agent") {
         ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
-        ensureRecallSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
-        // Recall code graph — file-based MCP config for local Claude sessions
-        // only (self-gated inside). Never touches the spawn argv.
-        ensureRecallMcpForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        // Recall provisioning follows the LIVE master switch so flipping the
+        // toggle applies to the next session without an app restart. Off →
+        // actively remove the managed skill + `.mcp.json` entry; on (or
+        // unknown — the fetch is fail-soft) → install as before. A running
+        // session can't hot-swap its MCP config, but the server also refuses
+        // Recall reads while disabled, so its tools go dead regardless.
+        const recallEnabled = await fetchRecallEnabled(mcEnv);
+        if (recallEnabled === false) {
+          removeRecallSkillForAgent(plan.cwd, plan.agent);
+          removeRecallMcpForAgent(plan.cwd, plan.agent);
+        } else {
+          ensureRecallSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
+          // Recall code graph — file-based MCP config for local Claude sessions
+          // only (self-gated inside). Never touches the spawn argv.
+          ensureRecallMcpForAgent(app.getAppPath(), plan.cwd, plan.agent);
+        }
         // Claude sessions feed the shared usage-limits cache via the statusline
         // tap, so the top-bar indicator doesn't have to poll Anthropic's
         // aggressively rate-limited OAuth usage endpoint.
         if (plan.agent === "claude-code") ensureStatuslineTap(plan.cwd);
       }
 
-      const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       env.MC_TASK_ID = opts.taskId;
       if (mcEnv) {
         env.MC_API_URL = mcEnv.apiUrl;

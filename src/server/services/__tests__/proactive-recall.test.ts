@@ -9,16 +9,16 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 // Control the code-graph side so tests don't build a real graph; memories come
 // from the real DB via the project-memory service.
 const getGraphStatus = vi.fn();
-const searchGraph = vi.fn();
+const searchGraphFuzzy = vi.fn();
 vi.mock("../code-graph", () => ({
   getGraphStatus: (...a: unknown[]) => getGraphStatus(...a),
-  searchGraph: (...a: unknown[]) => searchGraph(...a),
+  searchGraphFuzzy: (...a: unknown[]) => searchGraphFuzzy(...a),
 }));
 
 const { createProject } = await import("../projects");
 const { createMemory } = await import("../project-memory");
 const { writeRecallSettings } = await import("../recall-settings");
-const { assembleTurnContext, pickSymbolQuery, pickSymbolQueries } = await import(
+const { assembleTurnContext, pickSymbolQuery, pickSymbolQueries, symbolVariants } = await import(
   "../proactive-recall"
 );
 const { getDb } = await import("~/db/client");
@@ -43,7 +43,7 @@ describe("assembleTurnContext", () => {
     resetDb();
     vi.clearAllMocks();
     getGraphStatus.mockReturnValue({ indexed: false });
-    searchGraph.mockReturnValue([]);
+    searchGraphFuzzy.mockReturnValue([]);
     writeRecallSettings({ enabled: true, codeGraphEnabled: true });
   });
 
@@ -67,25 +67,27 @@ describe("assembleTurnContext", () => {
   it("adds a code section when the graph is indexed and the prompt names a symbol", () => {
     const project = makeProject();
     getGraphStatus.mockReturnValue({ indexed: true });
-    searchGraph.mockReturnValue([
+    searchGraphFuzzy.mockReturnValue([
       { name: "getDb", kind: "function", filePath: "src/db/client.ts" },
     ]);
 
     const out = assembleTurnContext(project.id, "local", "what calls getDb?");
     expect(out).toContain("Related code");
     expect(out).toContain("getDb (function) — src/db/client.ts");
-    expect(searchGraph).toHaveBeenCalledWith(project.id, "getDb", expect.any(Number));
+    // The block re-arms the "use the graph tools, not grep" nudge every turn.
+    expect(out).toContain("prefer these over grep");
+    expect(searchGraphFuzzy).toHaveBeenCalledWith(project.id, "getDb", expect.any(Number));
   });
 
   it("omits the code section when the code graph setting is off", () => {
     const project = makeProject();
     getGraphStatus.mockReturnValue({ indexed: true });
-    searchGraph.mockReturnValue([{ name: "getDb", kind: "function", filePath: "src/db/client.ts" }]);
+    searchGraphFuzzy.mockReturnValue([{ name: "getDb", kind: "function", filePath: "src/db/client.ts" }]);
     writeRecallSettings({ codeGraphEnabled: false });
 
     const out = assembleTurnContext(project.id, "local", "what calls getDb?");
     expect(out).toBe("");
-    expect(searchGraph).not.toHaveBeenCalled();
+    expect(searchGraphFuzzy).not.toHaveBeenCalled();
   });
 
   it("omits the code section when the graph is not indexed", () => {
@@ -93,7 +95,30 @@ describe("assembleTurnContext", () => {
     getGraphStatus.mockReturnValue({ indexed: false });
     const out = assembleTurnContext(project.id, "local", "what calls getDb?");
     expect(out).toBe("");
-    expect(searchGraph).not.toHaveBeenCalled();
+    expect(searchGraphFuzzy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the code section even when abundant memory would fill the budget", () => {
+    const project = makeProject();
+    getGraphStatus.mockReturnValue({ indexed: true });
+    searchGraphFuzzy.mockReturnValue([
+      { name: "getDb", kind: "function", filePath: "src/db/client.ts" },
+    ]);
+    // Five long memories that on their own overflow the default budget — the
+    // code section is appended after them and used to get trimmed away entirely.
+    for (let i = 0; i < 5; i++) {
+      createMemory({
+        projectId: project.id,
+        scopeId: "local",
+        type: "discovery",
+        title: `getDb usage detail ${i}`,
+        body: "x".repeat(200),
+      });
+    }
+    const out = assembleTurnContext(project.id, "local", "what calls getDb?");
+    expect(out).toContain("Related code");
+    expect(out).toContain("getDb (function) — src/db/client.ts");
+    expect(out).toContain("Relevant project memory"); // memory still present, just trimmed
   });
 
   it("trims to the char budget", () => {
@@ -155,7 +180,7 @@ describe("assembleTurnContext", () => {
     const project = makeProject();
     getGraphStatus.mockReturnValue({ indexed: true });
     // Longest identifier misses; the second candidate hits.
-    searchGraph.mockImplementation((_pid: unknown, query: unknown) =>
+    searchGraphFuzzy.mockImplementation((_pid: unknown, query: unknown) =>
       query === "getDb"
         ? [{ name: "getDb", kind: "function", filePath: "src/db/client.ts" }]
         : [],
@@ -167,7 +192,7 @@ describe("assembleTurnContext", () => {
       "does SomethingNonexistent wrap getDb?",
     );
     expect(out).toContain("getDb (function) — src/db/client.ts");
-    expect(searchGraph.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(searchGraphFuzzy.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -181,6 +206,33 @@ describe("pickSymbolQueries", () => {
 
   it("caps the candidate count", () => {
     expect(pickSymbolQueries("AlphaOne BetaTwoLong GammaThree DeltaFour", 3)).toHaveLength(3);
+  });
+
+  it("drops generic verbs/stopwords so the specific noun wins", () => {
+    // Regression: "handle" used to crowd out "toasts" and inject
+    // handleDomainError / registerPtyHandlers instead of mcToast*.
+    expect(pickSymbolQueries("where do we handle toasts here?")).toEqual(["toasts"]);
+    // 4-char nouns now survive (old ≥5 cutoff dropped "grid"/"auth").
+    expect(pickSymbolQueries("what happens when I close a session in grid view")).toContain("grid");
+  });
+});
+
+describe("symbolVariants", () => {
+  it("stems agent-noun and plural words down to a searchable stem", () => {
+    // The screenshot case: "toaster" must yield "toast" so it reaches `mcToast*`.
+    expect(symbolVariants("toaster")).toContain("toast");
+    expect(symbolVariants("toasts")).toContain("toast");
+  });
+
+  it("splits camelCase/snake identifiers into sub-words, original first", () => {
+    const v = symbolVariants("ToastProvider");
+    expect(v[0]).toBe("ToastProvider");
+    expect(v).toContain("Toast");
+    expect(v).toContain("Provider");
+  });
+
+  it("leaves short/plain tokens untouched", () => {
+    expect(symbolVariants("getDb")).toEqual(["getDb", "get"]);
   });
 });
 

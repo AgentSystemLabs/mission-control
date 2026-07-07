@@ -108,6 +108,30 @@ function nodeLine(n) {
   return `- ${n.name} (${n.kind}${exp}) — ${n.filePath}:${n.startLine} [degree ${n.degree}]${sig}`;
 }
 
+// Per-file staleness banner: the server compares each result file's on-disk
+// (size, mtime) against its indexed stats and returns the changed ones, so the
+// agent knows when line numbers may be shifted instead of trusting them blindly.
+function staleBanner(staleFiles) {
+  if (!Array.isArray(staleFiles) || !staleFiles.length) return "";
+  const shown = staleFiles.slice(0, 5).join(", ");
+  const more = staleFiles.length > 5 ? ` (+${staleFiles.length - 5} more)` : "";
+  return `\n⚠ Changed on disk since the last index — line numbers may be shifted: ${shown}${more}. The graph re-indexes automatically; verify with Read if precision matters.`;
+}
+
+// Fenced, line-numbered verbatim source slice for a node (graph_node /
+// graph_search include_source). Mirrors the numbering style of the Read tool
+// so the agent can quote exact locations without opening the file.
+function sourceBlock(node, source) {
+  const lines = source.text.split("\n");
+  const numbered = lines
+    .map((line, i) => `${String(source.startLine + i).padStart(5)}\t${line}`)
+    .join("\n");
+  const trunc = source.truncated
+    ? `\n  … truncated at line ${source.endLine} — Read ${node.filePath} for the rest.`
+    : "";
+  return `\`\`\`${node.language ?? ""}\n${numbered}\n\`\`\`${trunc}`;
+}
+
 function memoryLine(m) {
   const detail = m.body ? ` — ${m.body.replace(/\s+/g, " ").trim()}` : "";
   const conf = m.confidence && m.confidence !== "confirmed" ? ` (${m.confidence})` : "";
@@ -237,22 +261,58 @@ server.registerTool(
   "graph_search",
   {
     description:
-      "Search this project's code graph for symbols (functions, classes, methods, interfaces, types, files) by name or path. Returns the most-connected matches first. Use this to locate a symbol before calling get_neighbors / impact_of / shortest_path.",
+      "Prefer this over grep/glob to find WHERE a function, class, method, interface, type, React component, or file is defined. This project is pre-indexed into a code graph, so a name/path lookup here is faster than scanning files and returns the most-connected (most central) matches first. Set include_source when you'll need the definition bodies too — the top matches come back with their verbatim source inline, skipping the follow-up file Read. Reach for it first when locating a symbol, then trace usage with get_neighbors / impact_of / shortest_path, or read one definition with graph_node.",
     inputSchema: {
       query: z.string().describe("Name or path substring to search for"),
       limit: z.number().int().positive().max(100).optional().describe("Max results (default 30)"),
+      include_source: z
+        .boolean()
+        .optional()
+        .describe("Include verbatim, line-numbered source for the top matches (skips a follow-up Read)"),
     },
   },
-  ({ query, limit }) =>
+  ({ query, limit, include_source }) =>
     runTool(async (projectId) => {
       const qs = new URLSearchParams({ q: query });
       if (limit) qs.set("limit", String(limit));
-      const { nodes } = await apiGet(`/api/projects/${projectId}/graph/search?${qs}`);
+      if (include_source) qs.set("source", "1");
+      const { nodes, staleFiles } = await apiGet(`/api/projects/${projectId}/graph/search?${qs}`);
       if (!nodes.length) {
         const hint = await emptyGraphHint(projectId);
         return textResult(hint ?? `No symbols match "${query}".`);
       }
-      return textResult(`${nodes.length} match(es) for "${query}":\n${nodes.map(nodeLine).join("\n")}`);
+      const lines = nodes.map((n) => (n.source ? `${nodeLine(n)}\n${sourceBlock(n, n.source)}` : nodeLine(n)));
+      return textResult(
+        `${nodes.length} match(es) for "${query}":\n${lines.join("\n")}${staleBanner(staleFiles)}`,
+      );
+    }),
+);
+
+server.registerTool(
+  "graph_node",
+  {
+    description:
+      "Read a symbol's definition source straight from the code graph — verbatim and line-numbered — without opening the file. Prefer this over Read/grep when you need the body of ONE function, class, method, type, or component: pass its name (or file path / node id, as returned by graph_search) and get the exact lines back. Passing a file path returns the top of that file.",
+    inputSchema: {
+      node: z.string().describe("Symbol name, file path, or node id"),
+    },
+  },
+  ({ node }) =>
+    runTool(async (projectId) => {
+      const qs = new URLSearchParams({ node });
+      const res = await apiGet(`/api/projects/${projectId}/graph/node?${qs}`);
+      const header = nodeLine(res.node).replace(/^- /, "");
+      if (!res.source) {
+        const hint = await emptyGraphHint(projectId);
+        return textResult(
+          hint ?? `${header}\n(source unavailable — the file may have moved since the last index; use Read on ${res.node.filePath})`,
+        );
+      }
+      // Source is read live from disk; a stale index only shifts the range.
+      const stale = res.stale
+        ? `\n⚠ ${res.node.filePath} changed since the last index — the source above is live, but the symbol's line range may be shifted.`
+        : "";
+      return textResult(`${header}\n${sourceBlock(res.node, res.source)}${stale}`);
     }),
 );
 
@@ -260,7 +320,7 @@ server.registerTool(
   "get_neighbors",
   {
     description:
-      "List a symbol's direct graph neighbors: callers/callees (calls), importers/imports, and defines. `direction` = 'in' (who points at it), 'out' (what it points at), or 'both'. Answers 'what calls X' / 'what does X depend on'. Pass a symbol name, a file path, or a node id.",
+      "List a symbol's direct graph neighbors: callers/callees (calls), importers/imports, and defines. Prefer this over grepping for call sites to answer 'what calls X' / 'what does X depend on' — the edges are indexed, so it's complete and instant. `direction` = 'in' (who points at it), 'out' (what it points at), or 'both'. Pass a symbol name, a file path, or a node id.",
     inputSchema: {
       node: z.string().describe("Symbol name, file path, or node id"),
       direction: z.enum(["in", "out", "both"]).optional().describe("Edge direction (default both)"),
@@ -281,7 +341,7 @@ server.registerTool(
         return `- ${arrow} ${nb.edge.kind} [${nb.edge.confidence}] ${target}`;
       });
       return textResult(
-        `${center.name} (${center.kind}) — ${center.filePath}:${center.startLine}\n${lines.join("\n")}`,
+        `${center.name} (${center.kind}) — ${center.filePath}:${center.startLine}\n${lines.join("\n")}${staleBanner(res.staleFiles)}`,
       );
     }),
 );
@@ -290,7 +350,7 @@ server.registerTool(
   "shortest_path",
   {
     description:
-      "Find a dependency path (imports/calls) between two symbols — 'how does A connect to B'. Returns the chain of symbols from `from` to `to`, or reports none within the search depth. Pass symbol names, file paths, or node ids.",
+      "Find a dependency path (imports/calls) between two symbols — 'how does A connect to B', a question grep can't answer. Returns the chain of symbols from `from` to `to`, or reports none within the search depth. Pass symbol names, file paths, or node ids.",
     inputSchema: {
       from: z.string().describe("Start symbol name, file path, or node id"),
       to: z.string().describe("End symbol name, file path, or node id"),
@@ -304,7 +364,7 @@ server.registerTool(
         return textResult(`No dependency path found from ${res.from.name} to ${res.to.name} within the search depth.`);
       }
       const chain = res.nodes.map((n) => `${n.name} (${n.filePath}:${n.startLine})`).join("\n  → ");
-      return textResult(`Path (${res.nodes.length} hop(s)):\n  ${chain}`);
+      return textResult(`Path (${res.nodes.length} hop(s)):\n  ${chain}${staleBanner(res.staleFiles)}`);
     }),
 );
 
@@ -312,7 +372,7 @@ server.registerTool(
   "impact_of",
   {
     description:
-      "Show what transitively depends on a symbol — 'what breaks if I change this'. Returns the reverse-reachable dependents (callers and importers, several hops out), most-connected first. Pass a symbol name, file path, or node id.",
+      "Show what transitively depends on a symbol — 'what breaks if I change this'. Prefer this over grepping for usages before an edit: it returns the reverse-reachable dependents (callers and importers, several hops out), most-connected first. Pass a symbol name, file path, or node id.",
     inputSchema: {
       node: z.string().describe("Symbol name, file path, or node id"),
     },
@@ -327,7 +387,7 @@ server.registerTool(
       }
       const trunc = res.truncated ? " (truncated — many dependents)" : "";
       return textResult(
-        `${res.dependents.length} dependent(s) of ${res.node.name}${trunc}:\n${res.dependents.map(nodeLine).join("\n")}`,
+        `${res.dependents.length} dependent(s) of ${res.node.name}${trunc}:\n${res.dependents.map(nodeLine).join("\n")}${staleBanner(res.staleFiles)}`,
       );
     }),
 );

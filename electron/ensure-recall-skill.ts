@@ -85,3 +85,34 @@ export function ensureRecallSkillForAgent(
     }
   }
 }
+
+// A copy is only "ours" when its SKILL.md self-identifies as Mission Control's
+// Recall skill — every bundled version has carried both phrases. The installer
+// above never overwrites an existing SKILL.md, so a user-authored skill that
+// happens to live at the same path must survive removal.
+function isManagedRecallSkill(skillFile: string): boolean {
+  try {
+    const content = fs.readFileSync(skillFile, "utf8");
+    return content.includes("Mission Control") && content.includes("Recall");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The inverse of ensureRecallSkillForAgent, for when the Recall master switch
+ * is off: delete the managed skill folder(s) so the next session stops seeing
+ * Recall instructions. Only removes copies that pass the ownership check.
+ * Fully fail-soft — cleanup must never block PTY spawn.
+ */
+export function removeRecallSkillForAgent(cwd: string, agent: TaskAgent | undefined): void {
+  if (!agent) return;
+  for (const targetDir of recallSkillTargetPaths(cwd, agent)) {
+    try {
+      if (!isManagedRecallSkill(path.join(targetDir, "SKILL.md"))) continue;
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    } catch {
+      /* swallow */
+    }
+  }
+}

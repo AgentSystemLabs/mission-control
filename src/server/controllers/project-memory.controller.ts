@@ -22,6 +22,7 @@ import {
 } from "../services/project-memory";
 import { getTask } from "../services/tasks";
 import { readRecallSettings } from "../services/recall-settings";
+import { markBriefDelivered } from "../services/brief-delivery";
 import { findProjectById } from "../repositories/projects.repo";
 import { forbidden, rethrowUnlessDomain, json, noContent, notFound, parseJsonBody, parseSearchParams } from "./_helpers";
 
@@ -81,13 +82,26 @@ const deleteQuery = z.object({
     .transform((v) => v === "true" || v === "1"),
 });
 
+// Refuse the memory API when the Recall master switch is off, so agent-facing
+// MCP tools keep working sessions honest — including sessions provisioned
+// before the toggle flipped, whose MCP config can't be hot-swapped. The task
+// `brief` endpoint stays open: it must hand back an EMPTY brief when disabled
+// so the spawn path strips any stale managed block from disk.
+function requireRecallOn(): Response | null {
+  return readRecallSettings().enabled ? null : forbidden("Recall is disabled");
+}
+
 export async function list(projectId: string, url: URL): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const parsed = parseSearchParams(url, listQuery);
   if (!parsed.ok) return parsed.response;
   return json({ memories: listMemory(projectId, { includeArchived: parsed.data.includeArchived }) });
 }
 
 export async function search(projectId: string, url: URL): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const parsed = parseSearchParams(url, searchQuery);
   if (!parsed.ok) return parsed.response;
   return json({
@@ -98,6 +112,8 @@ export async function search(projectId: string, url: URL): Promise<Response> {
 }
 
 export async function create(projectId: string, request: Request): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const parsed = await parseJsonBody(request, createBody);
   if (!parsed.ok) return parsed.response;
   // Agent-written memories obey the agent-write toggle; user/voice writes don't.
@@ -132,6 +148,8 @@ function expectedProjectId(url: URL): string | undefined {
 }
 
 export async function update(memoryId: string, request: Request): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const parsed = await parseJsonBody(request, updateBody);
   if (!parsed.ok) return parsed.response;
   try {
@@ -148,6 +166,8 @@ export async function update(memoryId: string, request: Request): Promise<Respon
  * for the Recall panel's "what a new session will know" affordance.
  */
 export async function previewBrief(projectId: string): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const project = findProjectById(projectId);
   if (!project) return notFound("project not found");
   const scopeId = project.sandboxId ? normalizeScopeId(project.sandboxId) : LOCAL_SCOPE_ID;
@@ -174,7 +194,12 @@ export async function brief(taskId: string, url: URL): Promise<Response> {
     taskTitle: task.title,
     branch: task.branch,
   });
-  if (record && memoryIds.length) markMemoriesUsed(memoryIds);
+  if (record) {
+    if (memoryIds.length) markMemoriesUsed(memoryIds);
+    // Tell the SessionStart fallback this spawn got its brief via the file
+    // channel, so the hook doesn't inject a duplicate.
+    markBriefDelivered(taskId);
+  }
   return json({ brief: markdown, memoryIds });
 }
 
@@ -184,6 +209,8 @@ export async function brief(taskId: string, url: URL): Promise<Response> {
  * the verdict plus the resulting memory (a fresh head when contradicted).
  */
 export async function verify(memoryId: string, url: URL): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   try {
     const { verdict, memory } = await verifyMemory(memoryId, {
       expectedProjectId: expectedProjectId(url),
@@ -195,6 +222,8 @@ export async function verify(memoryId: string, url: URL): Promise<Response> {
 }
 
 export async function remove(memoryId: string, url: URL): Promise<Response> {
+  const off = requireRecallOn();
+  if (off) return off;
   const parsed = parseSearchParams(url, deleteQuery);
   if (!parsed.ok) return parsed.response;
   try {

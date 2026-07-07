@@ -33,10 +33,21 @@ export async function installAgentMemoryBrief(params: {
     if (!res.ok) return;
     const data = (await res.json()) as { brief?: string };
     brief = typeof data.brief === "string" ? data.brief : "";
-  } catch {
-    // Timeout / server unreachable / bad JSON — skip injection, keep any
-    // previously-written brief on disk, and let the session start normally.
-    log.warn("recall.brief.fetch_failed", { taskId, agent: agent ?? null });
+  } catch (err) {
+    // Timeout / server unreachable / bad JSON. Strip any previously-written
+    // brief so the SessionStart hook's fallback injection (which fires once the
+    // session is live and the server reachable) never doubles up with a stale
+    // on-disk block — then let the session start normally.
+    log.warn("recall.brief.fetch_failed", {
+      taskId,
+      agent: agent ?? null,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    try {
+      writeAgentMemoryFile(agent, cwd, "");
+    } catch {
+      /* writer is already fail-soft */
+    }
     return;
   } finally {
     clearTimeout(timer);

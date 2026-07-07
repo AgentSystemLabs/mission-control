@@ -90,9 +90,12 @@ describe("agent hook installation", () => {
       hooks: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
     };
 
-    // SessionStart drives the code-graph auto-index.
-    const sessionStart = settings.hooks.SessionStart?.[0]?.hooks?.[0]?.command;
+    // SessionStart drives the code-graph auto-index and keeps stdout so the
+    // server can answer it with the Session Brief fallback.
+    const sessionStart = settings.hooks.SessionStart?.[0]?.hooks?.[0]?.command ?? "";
     expect(sessionStart).toContain("hookEvent=SessionStart");
+    expect(sessionStart).not.toContain(">/dev/null 2>&1");
+    expect(sessionStart).toContain("2>/dev/null || true");
 
     // UserPromptSubmit keeps stdout (the injected recall block); Stop discards it.
     const userPrompt = settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.command ?? "";
@@ -102,6 +105,50 @@ describe("agent hook installation", () => {
 
     const stop = settings.hooks.Stop?.[0]?.hooks?.[0]?.command ?? "";
     expect(stop).toContain(">/dev/null 2>&1 || true");
+  });
+
+  it("removes legacy marker-less Mission Control hook groups but keeps user hooks", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+    const file = path.join(cwd, ".claude", "settings.local.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // A pre-marker installer wrote MC hook entries without _mcManaged; they must
+    // be recognized by their MC endpoint command and replaced, while a genuine
+    // user hook in the same event survives untouched.
+    const legacyCommand =
+      'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
+      'curl -sS -m 3 -X POST --data-binary @- "$MC_API_URL/api/hooks/claude?taskId=$MC_TASK_ID&hookEvent=UserPromptSubmit" >/dev/null 2>&1 || true';
+    const userHook = { hooks: [{ type: "command", command: "echo my-own-hook" }] };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [
+            { hooks: [{ type: "command", command: legacyCommand }] },
+            { hooks: [{ type: "command", command: legacyCommand }] },
+            userHook,
+          ],
+          // Legacy entries under a retired event must be swept out too.
+          UserInterrupt: [{ hooks: [{ type: "command", command: legacyCommand }] }],
+        },
+      }),
+      "utf8",
+    );
+
+    installAgentHooks("claude-code", cwd);
+
+    const settings = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      hooks: Record<
+        string,
+        Array<{ hooks?: Array<{ command?: string }>; _mcManaged?: boolean }>
+      >;
+    };
+
+    const groups = settings.hooks.UserPromptSubmit ?? [];
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.hooks?.[0]?.command).toBe("echo my-own-hook");
+    expect(groups[0]?._mcManaged).toBeUndefined();
+    expect(groups[1]?._mcManaged).toBe(true);
+    expect(settings.hooks.UserInterrupt).toBeUndefined();
   });
 
   it("registers Claude hooks as PowerShell commands on Windows", () => {

@@ -87,4 +87,64 @@ function inner() {}
     expect(ex.hadError).toBe(false);
     expect(ex.symbols.some((s) => s.name === "App")).toBe(true);
   });
+
+  it("extracts Python declarations, imports, and calls", async () => {
+    const src = `
+import os
+import util.helpers as helpers
+from .sibling import thing
+from ..pkg import mod
+
+CONFIG = {"a": 1}
+_private = 2
+
+def top(a, b=1):
+    return helper(a)
+
+def _hidden():
+    pass
+
+class Engine:
+    def run(self):
+        self.tick()
+        return top(1)
+
+def outer():
+    def inner():
+        pass
+    inner()
+`;
+    const ex = await extractFile(src, "py");
+    expect(ex.hadError).toBe(false);
+
+    const byName = new Map(ex.symbols.map((s) => [s.name, s]));
+    // Public module-level defs map to exported; underscore-prefixed don't.
+    expect(byName.get("top")?.kind).toBe("function");
+    expect(byName.get("top")?.exported).toBe(true);
+    expect(byName.get("top")?.signature).toContain("a, b=1");
+    expect(byName.get("_hidden")?.exported).toBe(false);
+    // Classes, methods, and nested functions.
+    expect(byName.get("Engine")?.kind).toBe("class");
+    expect(byName.get("Engine")?.exported).toBe(true);
+    expect(byName.get("run")?.kind).toBe("method");
+    expect(byName.get("run")?.exported).toBe(false);
+    expect(byName.get("inner")?.kind).toBe("function");
+    expect(byName.get("inner")?.exported).toBe(false);
+    // Module-level assignments become variables; private ones are skipped.
+    expect(byName.get("CONFIG")?.kind).toBe("variable");
+    expect(byName.has("_private")).toBe(false);
+
+    // Imports: plain, aliased, relative, and parent-relative specs.
+    const specs = ex.imports.map((i) => i.spec).sort();
+    expect(specs).toEqual(["..pkg", ".sibling", "os", "util.helpers"]);
+
+    // Calls: bare vs attribute (member), attributed to their enclosing symbol.
+    const run = ex.symbols.find((s) => s.name === "run")!;
+    const topCall = ex.calls.find((c) => c.calleeName === "top");
+    expect(topCall?.enclosingIndex).toBe(run.index);
+    expect(topCall?.isMember).toBe(false);
+    const tick = ex.calls.find((c) => c.calleeName === "tick");
+    expect(tick?.isMember).toBe(true);
+    expect(ex.calls.some((c) => c.calleeName === "inner")).toBe(true);
+  });
 });

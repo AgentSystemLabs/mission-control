@@ -81,9 +81,11 @@ const REQUIRE_LIKE = new Set(["require"]);
 /**
  * Walk the tree once. `enclosing` is the index of the nearest containing symbol
  * (for attributing call sites); declarations push themselves as the enclosing
- * symbol for their own subtree.
+ * symbol for their own subtree. Dispatches to a per-grammar walk — JS/TS
+ * variants share one walk, Python has its own (different AST node types).
  */
-export function extractFromTree(rootNode: Node, _language: GraphLanguage): FileExtraction {
+export function extractFromTree(rootNode: Node, language: GraphLanguage): FileExtraction {
+  if (language === "py") return extractFromPythonTree(rootNode);
   const symbols: ExtractedSymbol[] = [];
   const imports: ExtractedImport[] = [];
   const calls: ExtractedCall[] = [];
@@ -193,6 +195,109 @@ export function extractFromTree(rootNode: Node, _language: GraphLanguage): FileE
             const prop = nameText(fn.childForFieldName("property"));
             if (prop) calls.push({ calleeName: prop, enclosingIndex: enclosing, isMember: true });
           }
+        }
+        break;
+      }
+    }
+    for (const child of node.namedChildren) {
+      if (child) walk(child, nextEnclosing);
+    }
+  };
+
+  walk(rootNode, null);
+  return { symbols, imports, calls, hadError: rootNode.hasError };
+}
+
+/**
+ * The Python walk (tree-sitter-python node types). Mirrors the JS/TS walk's
+ * decisions: "exported" maps to Python's public-surface convention (a
+ * module-level def/class/assignment whose name has no leading underscore),
+ * methods are function_definitions directly inside a class and are never
+ * exported themselves, and only module-level assignments become `variable`
+ * nodes (keeps noise down).
+ */
+function extractFromPythonTree(rootNode: Node): FileExtraction {
+  const symbols: ExtractedSymbol[] = [];
+  const imports: ExtractedImport[] = [];
+  const calls: ExtractedCall[] = [];
+
+  const pushSymbol = (
+    kind: GraphNodeKind,
+    name: string,
+    node: Node,
+    exported: boolean,
+    signature: string | null,
+  ): number => {
+    const index = symbols.length;
+    symbols.push({
+      index,
+      kind,
+      name,
+      startLine: node.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
+      exported,
+      signature,
+    });
+    return index;
+  };
+
+  const isPublic = (name: string) => !name.startsWith("_");
+
+  const walk = (node: Node, enclosing: number | null): void => {
+    let nextEnclosing = enclosing;
+    switch (node.type) {
+      case "function_definition": {
+        const name = nameText(node.childForFieldName("name"));
+        if (name) {
+          const enclosingKind = enclosing != null ? symbols[enclosing].kind : null;
+          const kind = enclosingKind === "class" ? "method" : "function";
+          const exported = kind === "function" && enclosing === null && isPublic(name);
+          nextEnclosing = pushSymbol(kind, name, node, exported, signatureOf(node));
+        }
+        break;
+      }
+      case "class_definition": {
+        const name = nameText(node.childForFieldName("name"));
+        if (name) {
+          nextEnclosing = pushSymbol("class", name, node, enclosing === null && isPublic(name), null);
+        }
+        break;
+      }
+      case "assignment": {
+        // Module-level `NAME = ...` / `NAME: T = ...` only.
+        if (enclosing === null) {
+          const left = node.childForFieldName("left");
+          if (left?.type === "identifier" && isPublic(left.text)) {
+            pushSymbol("variable", left.text, node, true, null);
+          }
+        }
+        break;
+      }
+      case "import_statement": {
+        // `import a.b, c as d` — one spec per (aliased) dotted name.
+        for (const child of node.namedChildren) {
+          if (!child) continue;
+          if (child.type === "dotted_name") imports.push({ spec: child.text });
+          else if (child.type === "aliased_import") {
+            const mod = child.childForFieldName("name");
+            if (mod) imports.push({ spec: mod.text });
+          }
+        }
+        break;
+      }
+      case "import_from_statement": {
+        // `from .mod import x` / `from pkg.mod import y` — the module is the spec.
+        const mod = node.childForFieldName("module_name");
+        if (mod) imports.push({ spec: mod.text });
+        break;
+      }
+      case "call": {
+        const fn = node.childForFieldName("function");
+        if (fn?.type === "identifier") {
+          calls.push({ calleeName: fn.text, enclosingIndex: enclosing, isMember: false });
+        } else if (fn?.type === "attribute") {
+          const prop = nameText(fn.childForFieldName("attribute"));
+          if (prop) calls.push({ calleeName: prop, enclosingIndex: enclosing, isMember: true });
         }
         break;
       }

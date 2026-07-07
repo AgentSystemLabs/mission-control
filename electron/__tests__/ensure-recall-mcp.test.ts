@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ensureRecallMcpForAgent } from "../ensure-recall-mcp";
+import { ensureRecallMcpForAgent, removeRecallMcpForAgent } from "../ensure-recall-mcp";
 
 // The repo root, where bundled-mcp/recall-mcp.mjs lives (dev resolution).
 const APP_PATH = path.resolve(__dirname, "..", "..");
@@ -77,5 +77,55 @@ describe("ensureRecallMcpForAgent", () => {
     expect(() => ensureRecallMcpForAgent(APP_PATH, cwd, "claude-code")).not.toThrow();
     const cfg = readConfig(cwd);
     expect(cfg.mcpServers["recall"]).toBeTruthy();
+  });
+});
+
+describe("removeRecallMcpForAgent", () => {
+  it("strips the managed and legacy entries, keeping user servers and keys", () => {
+    const cwd = tmpCwd();
+    fs.writeFileSync(
+      path.join(cwd, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          recall: { command: "node", args: ["/x/recall-mcp.mjs"] },
+          "recall-graph": { command: "node", args: ["/old/recall-graph-mcp.mjs"] },
+          other: { command: "foo", args: [] },
+        },
+        someUserKey: 1,
+      }),
+    );
+    removeRecallMcpForAgent(cwd, "claude-code");
+    const cfg = readConfig(cwd);
+    expect(cfg.mcpServers["recall"]).toBeUndefined();
+    expect(cfg.mcpServers["recall-graph"]).toBeUndefined();
+    expect(cfg.mcpServers.other.command).toBe("foo");
+    expect(cfg.someUserKey).toBe(1);
+  });
+
+  it("deletes the file when only the managed entry existed", () => {
+    const cwd = tmpCwd();
+    ensureRecallMcpForAgent(APP_PATH, cwd, "claude-code");
+    removeRecallMcpForAgent(cwd, "claude-code");
+    expect(fs.existsSync(path.join(cwd, ".mcp.json"))).toBe(false);
+  });
+
+  it("is a no-op when there is no config file", () => {
+    const cwd = tmpCwd();
+    expect(() => removeRecallMcpForAgent(cwd, "claude-code")).not.toThrow();
+    expect(fs.existsSync(path.join(cwd, ".mcp.json"))).toBe(false);
+  });
+
+  it("never rewrites or deletes a corrupt config", () => {
+    const cwd = tmpCwd();
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), "{ not valid json");
+    removeRecallMcpForAgent(cwd, "claude-code");
+    expect(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8")).toBe("{ not valid json");
+  });
+
+  it("is a no-op for non-claude agents", () => {
+    const cwd = tmpCwd();
+    ensureRecallMcpForAgent(APP_PATH, cwd, "claude-code");
+    removeRecallMcpForAgent(cwd, "codex");
+    expect(readConfig(cwd).mcpServers["recall"]).toBeTruthy();
   });
 });
