@@ -2564,12 +2564,12 @@ body[data-card-glow] .cursor-glow {
    Specificity (0,3,0) beats both the [data-minimal] palette and the light
    block. */
 [data-minimal="true"][data-theme="dark"][data-tint="intense"] {
-  --bg: color-mix(in srgb, var(--accent) 7%, #222222);
-  --surface-0: color-mix(in srgb, var(--accent) 8%, #2a2a2a);
-  --surface-1: color-mix(in srgb, var(--accent) 8%, #313131);
-  --surface-2: color-mix(in srgb, var(--accent) 9%, #3a3a3a);
-  --surface-3: color-mix(in srgb, var(--accent) 9%, #444444);
-  --terminal-bg: color-mix(in srgb, var(--accent) 6%, #2d2d2d);
+  --bg: color-mix(in srgb, var(--accent) 6%, #1b1b1b);
+  --surface-0: color-mix(in srgb, var(--accent) 8%, #2b2b2b);
+  --surface-1: color-mix(in srgb, var(--accent) 8%, #323232);
+  --surface-2: color-mix(in srgb, var(--accent) 9%, #3b3b3b);
+  --surface-3: color-mix(in srgb, var(--accent) 9%, #454545);
+  --terminal-bg: color-mix(in srgb, var(--accent) 6%, #2e2e2e);
   /* The mid-gray ground melts thin hairlines, so these run a touch stronger
      than the near-black base — neutral white so they pair with any accent
      (the old cream hairlines clashed with cool accents). */
