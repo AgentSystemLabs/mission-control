@@ -538,7 +538,7 @@ select,
   width: 100%;
   max-width: 100%;
   min-height: 64px;
-  padding: 14px 96px 14px 16px;
+  padding: 14px 52px 14px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -665,15 +665,77 @@ select,
 .mc-toast-close-btn {
   position: absolute;
   top: 50%;
-  right: 12px;
+  right: 14px;
   transform: translateY(-50%);
   flex-shrink: 0;
   z-index: 1;
 }
 
+/* Themed close button: a round chip tinted to the toast tone so it reads as
+   part of the frame, replacing the gray mc-btn-ghost pill that clashed with
+   the colored toast. Scoped to .mc-toast-panel so tone-less custom toasts keep
+   their own close styling.
+
+   The full class chain (.mc-toast-close-btn.mc-btn-ghost) is intentional: it
+   lifts specificity to (0,4,0) so this wins over the minimal/noir/ember
+   `[data-minimal] .mc-btn-ghost.mc-btn-sm` rules (0,3,0) further down the
+   sheet, which would otherwise repaint the chip as a flat gray button in those
+   themes. Keep it tone-tinted in every theme. */
+.mc-toast-panel [data-close-button].mc-toast-close-btn.mc-btn-ghost {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--mc-toast-tone) 42%, transparent);
+  background: color-mix(in srgb, var(--mc-toast-tone) 14%, transparent);
+  color: color-mix(in srgb, var(--mc-toast-tone) 78%, var(--text));
+  filter: none;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+/* Kill the mc-btn-ghost gray frame image so only the tinted chip shows. */
+.mc-toast-panel [data-close-button].mc-toast-close-btn.mc-btn-ghost::before {
+  content: none;
+}
+
+.mc-toast-panel [data-close-button].mc-toast-close-btn.mc-btn-ghost:hover {
+  background: color-mix(in srgb, var(--mc-toast-tone) 24%, transparent);
+  border-color: color-mix(in srgb, var(--mc-toast-tone) 58%, transparent);
+  color: color-mix(in srgb, var(--mc-toast-tone) 88%, white);
+}
+
 .mc-toast-panel:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--mc-toast-tone) 82%, white);
   outline-offset: 3px;
+}
+
+/* Minimal / noir / ember explicitly drop all painted chrome (their cards are
+   flat hairlines), so the painted pixel-frame toast is out of place there.
+   Flatten it to a tone-tinted hairline panel that matches those themes — the
+   icon badge, action, and close chip already track --mc-toast-tone, so they
+   carry over unchanged. Painted themes keep the border-image frame above. */
+[data-minimal="true"] .mc-toast-panel {
+  padding: 14px 48px 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--mc-toast-tone) 40%, var(--border-strong)) !important;
+  border-image: none !important;
+  border-radius: var(--mm-radius) !important;
+  background: color-mix(in srgb, var(--surface-1) 90%, var(--mc-toast-tone) 10%);
+  filter: none;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 4%) inset,
+    0 10px 30px rgb(0 0 0 / 42%),
+    0 0 0 1px color-mix(in srgb, var(--mc-toast-tone) 12%, transparent);
+}
+
+/* Ember squares every corner. Must stay after the minimal rule to win the
+   shared-specificity tie (ember sets both data-minimal and data-ember). */
+[data-ember="true"] .mc-toast-panel {
+  border-radius: 0 !important;
 }
 
 /* Custom toasts render their own CardFrame; strip the outer Sonner shell frame. */

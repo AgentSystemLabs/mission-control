@@ -115,6 +115,7 @@ describe("settings API", () => {
       recallInjectBriefEnabled: false,
       recallCodeGraphEnabled: false,
       recallProactiveRecallEnabled: false,
+      recallLearnedToastEnabled: false,
     });
   });
 
@@ -144,6 +145,7 @@ describe("settings API", () => {
       recallInjectBriefEnabled: false,
       recallCodeGraphEnabled: false,
       recallProactiveRecallEnabled: false,
+      recallLearnedToastEnabled: false,
     });
 
     const reenabled = await handleApiRequest(
@@ -163,6 +165,7 @@ describe("settings API", () => {
       recallInjectBriefEnabled: true,
       recallCodeGraphEnabled: true,
       recallProactiveRecallEnabled: true,
+      recallLearnedToastEnabled: true,
     });
   });
 

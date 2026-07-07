@@ -18,6 +18,7 @@ type RecallSettingsPatch = Partial<
     | "recallInjectBriefEnabled"
     | "recallCodeGraphEnabled"
     | "recallProactiveRecallEnabled"
+    | "recallLearnedToastEnabled"
   >
 >;
 
@@ -38,6 +39,7 @@ export function RecallSettings() {
   const injectBrief = settings?.recallInjectBriefEnabled ?? true;
   const codeGraph = settings?.recallCodeGraphEnabled ?? true;
   const proactiveRecall = settings?.recallProactiveRecallEnabled ?? true;
+  const learnedToast = settings?.recallLearnedToastEnabled ?? true;
 
   const [updating, setUpdating] = useState(false);
   const inFlight = useRef(false);
@@ -100,6 +102,14 @@ export function RecallSettings() {
                 checked={autoCapture}
                 disabled={updating || !engineEnabled}
                 onChange={(next) => void update({ recallAutoCaptureEnabled: next })}
+              />
+              <ToggleRow
+                title="Notify when memories are learned"
+                description="Show a “Learned N memories from this session” toast after auto-capture, with a shortcut to review them. Turn off to capture silently."
+                label="Notify when memories are learned"
+                checked={learnedToast}
+                disabled={updating || !autoCapture}
+                onChange={(next) => void update({ recallLearnedToastEnabled: next })}
               />
               <ToggleRow
                 title="Allow agents to write memories"
