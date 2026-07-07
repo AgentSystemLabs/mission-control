@@ -175,6 +175,19 @@ function meanWeight(sizes: number[]): number {
   return total > 0 ? total / sizes.length : 1;
 }
 
+/** Build a `grid-template` track list (`minmax(0, Nfr)…`) from relative weights,
+ *  normalized so the weights always sum to at least the track count. CSS grid
+ *  floors the flex-factor sum at 1, so a track list summing below 1 — e.g. a lone
+ *  survivor cell left with a 0.9fr weight after its row-mate is removed — only
+ *  fills that fraction of the container, leaving a gap. Scaling every weight by
+ *  count/total keeps each track's relative size but guarantees they fill. */
+export function frTracks(weights: number[]): string {
+  if (weights.length === 0) return "";
+  const total = weights.reduce((a, b) => a + b, 0);
+  const scale = total > 0 ? weights.length / total : 1;
+  return weights.map((w) => `minmax(0, ${w * scale}fr)`).join(" ");
+}
+
 /** A fresh scope with no saved layout seeds this near-square shape (mirrors the
  *  old auto-grid: `ceil(√n)` columns per row) so the first paint doesn't jump. */
 function chunkIntoRows(ids: string[]): GridLayout {
@@ -1992,8 +2005,7 @@ export function SessionGrid({
           minWidth: 0,
           display: "grid",
           gridTemplateColumns: "minmax(0, 1fr)",
-          gridTemplateRows:
-            viewRows.map((r) => `minmax(0, ${r.fr}fr)`).join(" ") || "minmax(0, 1fr)",
+          gridTemplateRows: frTracks(viewRows.map((r) => r.fr)) || "minmax(0, 1fr)",
           gap: gridGap,
           padding: gridPad,
           overflow: "hidden",
@@ -2005,7 +2017,7 @@ export function SessionGrid({
             data-grid-row={String(ri)}
             style={{
               display: "grid",
-              gridTemplateColumns: row.cells.map((c) => `minmax(0, ${c.fr}fr)`).join(" "),
+              gridTemplateColumns: frTracks(row.cells.map((c) => c.fr)),
               gap: gridGap,
               minWidth: 0,
               minHeight: 0,
