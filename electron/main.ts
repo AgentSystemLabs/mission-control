@@ -9,6 +9,7 @@ import {
   session,
   clipboard,
   nativeImage,
+  systemPreferences,
   type NativeImage,
 } from "electron";
 import log from "electron-log/main";
@@ -95,6 +96,14 @@ function configureUserDataDir(): string {
 }
 
 const missionControlUserDataDir = configureUserDataDir();
+
+// Kill Chromium's own two-finger/Magic Mouse swipe-to-go-back. The macOS
+// `AppleEnableSwipeNavigateWithScrolls` default (set per-window in createWindow)
+// only covers the OS-driven path; the horizontal swipe on a Magic Mouse still
+// reaches Chromium's built-in overscroll history navigation, which pops the
+// router in this single-shell app. Disabling the feature closes that path. Must
+// run before app-ready, so it's a module-level statement here.
+app.commandLine.appendSwitch("disable-features", "OverscrollHistoryNavigation");
 
 /** Env for spawning the bundled remote-vm CLI as a plain Node process. */
 function remoteVmSpawnEnv(): NodeJS.ProcessEnv {
@@ -936,6 +945,17 @@ async function bootDevServer(): Promise<string> {
 }
 
 async function createWindow() {
+  // macOS wires horizontal two-finger swipes (trackpad and Magic Mouse) to
+  // session-history back/forward. Opt this window's app domain out so a swipe
+  // never pops the router. Must be set before the window loads.
+  if (process.platform === "darwin") {
+    systemPreferences.setUserDefault(
+      "AppleEnableSwipeNavigateWithScrolls",
+      "boolean",
+      false,
+    );
+  }
+
   const url = isDev ? await bootDevServer() : await startProductionServer();
   // The renderer is only ever loaded from this URL — pin the IPC allow-list
   // to that origin so a future renderer compromise (XSS in markdown, agent
@@ -985,6 +1005,16 @@ async function createWindow() {
   // macOS-only: 3-finger swipe (System Settings → Trackpad → More Gestures).
   win.on("swipe", (_e, direction) => {
     win?.webContents.send(IPC.appSwipe, direction);
+  });
+
+  // Kill history navigation from the mouse back/forward buttons (Windows/Linux
+  // fire this as app-command; macOS routes them through swipe navigation which
+  // is disabled via the AppleEnableSwipeNavigateWithScrolls user default). This
+  // app is a single shell — a stray button click must not pop the router.
+  win.on("app-command", (event, command) => {
+    if (command === "browser-backward" || command === "browser-forward") {
+      event.preventDefault();
+    }
   });
 
   win.on("enter-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, true));
