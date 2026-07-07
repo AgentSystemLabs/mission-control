@@ -325,6 +325,9 @@ export type ElectronBridge = {
   getUserDataDir: () => Promise<string>;
   getUserName: () => Promise<{ source: "git" | "os"; fullName: string; firstName: string }>;
   reload: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Sync the native window background with the renderer theme (dark/light)
+   *  so resize gutters and the launch frame match the page ground. */
+  setWindowBackgroundColor: (color: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   notifications: {
     getPermission: () => Promise<"granted" | "unsupported">;
     showSessionFinished: (payload: {

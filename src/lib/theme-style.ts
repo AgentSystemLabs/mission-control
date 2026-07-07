@@ -1,8 +1,9 @@
 import {
   DEFAULT_THEME_STYLE,
-  isThemeStyle,
+  normalizeThemeStyle,
   type ThemeStyle,
 } from "~/shared/theme-style";
+import { readCachedTheme, syncWindowBackground } from "~/lib/use-theme";
 
 export { isCleanChromeStyle } from "~/shared/theme-style";
 export type { ThemeStyle } from "~/shared/theme-style";
@@ -16,14 +17,17 @@ export const THEME_STYLE_CACHE_KEY = "mc:themeStyle";
 // (an approximation of) the choice.
 export const MINIMAL_CACHE_KEY = "mc:minimal";
 
-/** The cached style preference, falling back to the legacy minimal flag. */
+/**
+ * The cached style preference, migrating any legacy value (minimal / noir /
+ * ember) to "flat" and falling back to the legacy minimal flag.
+ */
 export function readCachedThemeStyle(): ThemeStyle {
   if (typeof window === "undefined") return DEFAULT_THEME_STYLE;
   try {
     const value = window.localStorage.getItem(THEME_STYLE_CACHE_KEY);
-    if (isThemeStyle(value)) return value;
+    if (value !== null) return normalizeThemeStyle(value);
     return window.localStorage.getItem(MINIMAL_CACHE_KEY) === "1"
-      ? "minimal"
+      ? "flat"
       : DEFAULT_THEME_STYLE;
   } catch {
     return DEFAULT_THEME_STYLE;
@@ -34,29 +38,23 @@ export function readCachedThemeStyle(): ThemeStyle {
  * Apply a theme style to the document and cache the choice so the
  * pre-hydration script can restore it on the next launch.
  *
- * DOM contract: painted mode is the absence of every attribute. Minimal sets
- * `data-minimal`. Noir and ember set `data-minimal` too (both build on
- * minimal's clean-CSS chrome) and layer `data-noir` / `data-ember` on top for
- * their own flat palette, corners, and (ember) bundled font.
+ * DOM contract: painted mode is the absence of `data-minimal`; the flat theme
+ * sets `data-minimal="true"` (the attribute name is retained for cascade-churn
+ * reasons — read it as "the flat theme"). Also reconciles `data-theme`:
+ * painted is always dark, while flat honours the cached dark/light preference.
  */
 export function applyThemeStyle(style: ThemeStyle): void {
   if (typeof document !== "undefined") {
     const root = document.documentElement;
     if (style === "painted") {
       root.removeAttribute("data-minimal");
+      // Painted is dark-only; never let a stored light preference leak in.
+      root.setAttribute("data-theme", "dark");
     } else {
       root.setAttribute("data-minimal", "true");
+      root.setAttribute("data-theme", readCachedTheme());
     }
-    if (style === "noir") {
-      root.setAttribute("data-noir", "true");
-    } else {
-      root.removeAttribute("data-noir");
-    }
-    if (style === "ember") {
-      root.setAttribute("data-ember", "true");
-    } else {
-      root.removeAttribute("data-ember");
-    }
+    syncWindowBackground();
   }
   if (typeof window === "undefined") return;
   try {

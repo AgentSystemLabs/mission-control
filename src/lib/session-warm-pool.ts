@@ -41,6 +41,12 @@ export function sessionCreateSignature(payload: SessionCreatePayload, cwd: strin
     payload.branch,
     payload.skipPermissions ? "1" : "0",
     payload.bareSession ? "1" : "0",
+    // A warm slot pre-spawns the agent PTY with the theme captured at prepare
+    // time (COLORFGBG / MC_THEME). Include the theme so switching light/dark
+    // invalidates a slot warmed under the old theme — otherwise a new session
+    // would claim a stale-theme agent. On claim, takeSessionWarmSlot recomputes
+    // this fresh, so a theme mismatch falls through to a cold spawn.
+    getTerminalColorScheme(),
   ].join("\0");
 }
 

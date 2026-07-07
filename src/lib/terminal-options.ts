@@ -83,10 +83,13 @@ const EMBER_TERMINAL_THEME: TerminalTheme = {
   brightWhite: "#f7f2e7",
 };
 
-function isEmberActive(): boolean {
+// The flat theme (data-minimal) carries the warm sepia terminal ramp + bundled
+// JetBrains Mono face and fills the terminal to the pane edge. (In light mode
+// the flat theme uses the standard light ramp — see createTerminalTheme.)
+function isFlatActive(): boolean {
   return (
     typeof document !== "undefined" &&
-    document.documentElement.getAttribute("data-ember") === "true"
+    document.documentElement.getAttribute("data-minimal") === "true"
   );
 }
 
@@ -151,22 +154,22 @@ export function createTerminalTheme({
   colorScheme?: TerminalColorScheme;
   cursorColor?: string;
 } = {}): TerminalTheme {
-  const ember = colorScheme === "dark" && isEmberActive();
-  const base = ember
+  const flatDark = colorScheme === "dark" && isFlatActive();
+  const base = flatDark
     ? { ...TERMINAL_THEMES.dark, ...EMBER_TERMINAL_THEME }
     : TERMINAL_THEMES[colorScheme];
-  // Honor --terminal-bg from CSS — minimal mode mixes the accent into the
-  // ground at 10%, so the terminal carries a hint of the active theme.
+  // Honor --terminal-bg from CSS — the flat theme mixes the accent into the
+  // ground, so the terminal carries a hint of the active theme.
   const background = getCurrentTerminalBackground(base.background ?? "#050607");
   return {
     ...base,
     background,
     cursor: cursorColor,
-    // The accent selection wash needs more alpha on ember's mid-gray ground
-    // than on the near-black grounds to stay visible.
+    // The accent selection wash needs more alpha on the flat theme's mid-gray
+    // ground than on the near-black painted ground to stay visible.
     selectionBackground: withAlpha(
       getCurrentAccentColor(),
-      colorScheme === "light" ? 0.26 : ember ? 0.3 : 0.22
+      colorScheme === "light" ? 0.26 : flatDark ? 0.3 : 0.22
     ),
   };
 }
@@ -181,12 +184,14 @@ export function watchTerminalColorScheme(
   const styleFlags = () => {
     const root = document.documentElement;
     const minimal = root.getAttribute("data-minimal") === "true" ? "1" : "0";
-    const noir = root.getAttribute("data-noir") === "true" ? "1" : "0";
-    const ember = root.getAttribute("data-ember") === "true" ? "1" : "0";
-    return `${minimal}${noir}${ember}`;
+    // Surface tint feeds --terminal-bg (the flat theme mixes accent into the
+    // ground, and Intense re-binds it to the warm-charcoal ladder), so a tint
+    // change must re-theme the running terminal to match the chrome.
+    const tint = root.getAttribute("data-tint") ?? "off";
+    return `${minimal}:${tint}`;
   };
-  // Font is part of the key so switching to/from a theme with a bundled face
-  // (ember) re-fires and the consumer can restyle + refit the terminal.
+  // Font is part of the key so switching to/from the flat theme (which ships a
+  // bundled face) re-fires and the consumer can restyle + refit the terminal.
   const currentKey = () =>
     `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${getCurrentTerminalFont()}:${styleFlags()}`;
   let previous = currentKey();
@@ -198,7 +203,7 @@ export function watchTerminalColorScheme(
   });
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme", "data-minimal", "data-noir", "data-ember", "style"],
+    attributeFilter: ["data-theme", "data-minimal", "data-tint", "style"],
   });
   return () => observer.disconnect();
 }
@@ -275,11 +280,11 @@ function restoreTerminalViewport(
   term.scrollToLine?.(snapshot.viewportY);
 }
 
-// Ember lets the terminal fill to the pane edge. xterm's FitAddon always
-// reserves the scrollbar width — `overviewRuler?.width || 14` = 14px — on the
-// right when scrollback is on, even though xterm 6's scrollbar is an overlay
-// that needs no gutter. That reserved 14px is the visible strip between the
-// terminal text and the pane edge. In ember we recompute cols reserving 0 so
+// The flat theme lets the terminal fill to the pane edge. xterm's FitAddon
+// always reserves the scrollbar width — `overviewRuler?.width || 14` = 14px —
+// on the right when scrollback is on, even though xterm 6's scrollbar is an
+// overlay that needs no gutter. That reserved 14px is the visible strip between
+// the terminal text and the pane edge. In flat we recompute cols reserving 0 so
 // the content reaches the edge (the overlay scrollbar floats over the last
 // column when it appears, which is fine); every other theme keeps the addon's
 // default. Mirrors FitAddon.proposeDimensions via the same internals, with a
@@ -288,7 +293,7 @@ function fitFillingScrollbarGutter(
   term: { cols: number; rows: number } & ScrollPreservingTerminal,
   fit: { fit: () => void },
 ): void {
-  if (!isEmberActive()) {
+  if (!isFlatActive()) {
     fit.fit();
     return;
   }

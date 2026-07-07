@@ -512,6 +512,16 @@ export function registerPtyHandlers(
         env.MC_API_TOKEN = mcEnv.token;
         env.MC_THEME = opts.missionControlTheme === "light" ? "light" : "dark";
       }
+      // Mirror Mission Control's light/dark to the agent's own UI. COLORFGBG is
+      // the terminal-background hint Claude Code (and other COLORFGBG-aware TUIs)
+      // read to auto-pick a theme: the trailing number is the background color
+      // index — 15 (white) reads as light, 0 (black) as dark. This only takes
+      // effect when the agent's own theme is set to "auto"; an explicit
+      // light/dark in the agent's config wins. Overrides any COLORFGBG inherited
+      // from the launching shell so the session matches the app, not the host.
+      if (plan.mode === "agent") {
+        env.COLORFGBG = opts.missionControlTheme === "light" ? "0;15" : "15;0";
+      }
       applyAgentPtyEnv(env, opts.agent);
 
       // Recall — inject the project's Session Brief into the agent's auto-load

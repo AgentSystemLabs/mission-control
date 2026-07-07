@@ -177,13 +177,43 @@ const MAIN_WINDOW_DEFAULT_WIDTH = 1440;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 900;
 const MAIN_WINDOW_MIN_WIDTH = 1024;
 const MAIN_WINDOW_MIN_HEIGHT = 640;
-const TRAFFIC_LIGHT_POSITION_DARWIN = { x: 48, y: 16 } as const;
+const TRAFFIC_LIGHT_POSITION_DARWIN = { x: 20, y: 16 } as const;
+
+// Native window background — tracks the renderer's dark/light theme so the
+// window frame (launch flash, resize gutters, overscroll) never shows the
+// wrong ground. The renderer pushes updates via IPC.appSetBackgroundColor;
+// the last value is persisted so the next launch paints right from frame one.
+const WINDOW_BACKGROUND_DEFAULT = "#000000";
+const WINDOW_BACKGROUND_HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 augmentProcessEnv();
 
 let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let runtimePort: number | null = null;
+
+function windowBackgroundFile(): string {
+  return path.join(missionControlUserDataDir, ".window-bg");
+}
+
+function readPersistedWindowBackground(): string {
+  try {
+    const raw = fs.readFileSync(windowBackgroundFile(), "utf8").trim();
+    if (WINDOW_BACKGROUND_HEX_RE.test(raw)) return raw;
+  } catch {
+    /* first launch or unreadable — fall back to dark */
+  }
+  return WINDOW_BACKGROUND_DEFAULT;
+}
+
+function persistWindowBackground(color: string): void {
+  try {
+    fs.mkdirSync(path.dirname(windowBackgroundFile()), { recursive: true });
+    fs.writeFileSync(windowBackgroundFile(), color, "utf8");
+  } catch {
+    /* non-fatal: only costs a wrong-colored first frame next launch */
+  }
+}
 
 function pickPort(startPort: number): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -967,7 +997,7 @@ async function createWindow() {
     height: MAIN_WINDOW_DEFAULT_HEIGHT,
     minWidth: MAIN_WINDOW_MIN_WIDTH,
     minHeight: MAIN_WINDOW_MIN_HEIGHT,
-    backgroundColor: "#000000",
+    backgroundColor: readPersistedWindowBackground(),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition:
       process.platform === "darwin" ? TRAFFIC_LIGHT_POSITION_DARWIN : undefined,
@@ -1359,6 +1389,16 @@ safeHandle(IPC.appGetUserName, () => {
   } catch {}
   const username = os.userInfo().username;
   return { source: "os" as const, fullName: username, firstName: username };
+});
+
+safeHandle(IPC.appSetBackgroundColor, (event, color: string) => {
+  if (typeof color !== "string" || !WINDOW_BACKGROUND_HEX_RE.test(color)) {
+    return { ok: false as const, error: "invalid-color" };
+  }
+  const target = BrowserWindow.fromWebContents(event.sender) ?? win;
+  if (target && !target.isDestroyed()) target.setBackgroundColor(color);
+  persistWindowBackground(color);
+  return { ok: true as const };
 });
 
 safeHandle(IPC.appReload, (event) => {

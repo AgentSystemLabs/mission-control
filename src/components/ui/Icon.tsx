@@ -52,6 +52,7 @@ export type IconName =
   | "mic";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
+  const iconStyle: CSSProperties = { display: "block", flexShrink: 0, ...style };
   const common = {
     width: size,
     height: size,
@@ -61,15 +62,17 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
     strokeWidth: 1.4,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
-    style,
+    // display: block removes the inline-SVG baseline gap so icons sit on the
+    // true vertical center of adjacent text inside flex buttons.
+    style: iconStyle,
   };
   switch (name) {
     case "plus":
       return <svg {...common}><path d="M8 3v10M3 8h10" /></svg>;
     case "pin":
-      return <TiPinOutline size={size} style={style} />;
+      return <TiPinOutline size={size} style={iconStyle} />;
     case "pin-fill":
-      return <TiPin size={size} style={style} />;
+      return <TiPin size={size} style={iconStyle} />;
     case "search":
       return (
         <svg {...common}>
@@ -162,7 +165,7 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
-          style={style}
+          style={iconStyle}
         >
           <path d="M9.67 2h4.66l.55 3.05c.43.18.83.41 1.2.69l2.91-1.04 2.33 4.04-2.36 2.01a7.7 7.7 0 010 1.5l2.36 2.01-2.33 4.04-2.91-1.04c-.37.28-.77.51-1.2.69L14.33 21H9.67l-.55-3.05a6.88 6.88 0 01-1.2-.69L5.01 18.3l-2.33-4.04 2.36-2.01a7.7 7.7 0 010-1.5L2.68 8.74 5.01 4.7l2.91 1.04c.37-.28.77-.51 1.2-.69L9.67 2z" />
           <circle cx="12" cy="12" r="3" />
@@ -224,7 +227,7 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
         </svg>
       );
     case "pencil":
-      return <Pencil size={size} strokeWidth={1.8} absoluteStrokeWidth style={style} />;
+      return <Pencil size={size} strokeWidth={1.8} absoluteStrokeWidth style={iconStyle} />;
     case "eye":
       return (
         <svg {...common}>

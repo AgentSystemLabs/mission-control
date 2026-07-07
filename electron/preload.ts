@@ -330,6 +330,8 @@ const electronAPI = {
     ipcRenderer.invoke(IPC.appGetUserName),
   reload: (): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IPC.appReload),
+  setWindowBackgroundColor: (color: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IPC.appSetBackgroundColor, color),
   notifications: {
     getPermission: (): Promise<"granted" | "unsupported"> =>
       ipcRenderer.invoke(IPC.notificationsGetPermission),

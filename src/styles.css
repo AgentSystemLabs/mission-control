@@ -7,12 +7,12 @@
 @import "@fontsource/geist-mono/400.css";
 @import "@fontsource/geist-mono/500.css";
 @import "@fontsource/geist-mono/600.css";
-/* Ember theme's bundled terminal + UI mono face — clearer, warmer mono. */
+/* Flat theme's bundled terminal + UI mono face — clearer, warmer mono. */
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
 @import "@fontsource/jetbrains-mono/600.css";
 @import "@fontsource/jetbrains-mono/700.css";
-/* Ember theme's UI sans face. */
+/* Flat theme's UI sans face. */
 @import "@fontsource/plus-jakarta-sans/400.css";
 @import "@fontsource/plus-jakarta-sans/500.css";
 @import "@fontsource/plus-jakarta-sans/600.css";
@@ -26,17 +26,26 @@
 }
 
 :root {
-  --bg: #000000;
-  --surface-0: #0e1013;
-  --surface-1: #14171b;
-  --surface-2: #1a1d22;
-  --surface-3: #22262c;
+  /* Surface tint: how much accent is mixed into the surface tokens below.
+     0% = each style's exact base palette. Raised by the `data-tint` blocks at
+     the bottom of this file (per-style recipes); applied via applySurfaceTint
+     (src/lib/surface-tint.ts). lo = page/terminal ground, md = surface-0/1,
+     hi = surface-2/3 (raised chrome reads slightly more tinted). */
+  --tint-lo: 0%;
+  --tint-md: 0%;
+  --tint-hi: 0%;
+
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #000000);
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #0e1013);
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #14171b);
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #1a1d22);
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #22262c);
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.12);
   --text: #e8e6df;
   --text-dim: rgba(232, 230, 223, 0.6);
   --text-faint: rgba(232, 230, 223, 0.38);
-  --terminal-bg: #050607;
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #050607);
 
   --accent: #ff5a1f;
   --accent-dim: rgba(255, 90, 31, 0.18);
@@ -71,31 +80,106 @@
   --radius-lg: 14px;
 }
 
-[data-theme="light"] {
-  --bg: #f7f6f2;
-  --surface-0: #ffffff;
-  --surface-1: #fafaf7;
-  --surface-2: #f1f0eb;
-  --surface-3: #e7e6e0;
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --text: #1a1a1a;
-  --text-dim: rgba(26, 26, 26, 0.62);
-  --text-faint: rgba(26, 26, 26, 0.38);
-  --terminal-bg: #ffffff;
+/* =====================================================================
+   SEMANTIC ROLE TOKENS — the vocabulary components should reference.
+   Every token answers "what is this for?" (surface / text tier / intent /
+   status / action) rather than naming a raw value. They ALIAS onto the
+   physical, tint-aware tokens above (--bg / --surface-* / --text* /
+   --accent* / --status-*), so each theme × dark-light re-binds the whole
+   app for free just by re-binding the physical layer, and the surface-tint
+   color-mix machinery flows through untouched. Prefer these names in
+   components over the physical bg / surface / text tokens.
+   ===================================================================== */
+:root {
+  /* Surfaces */
+  --background: var(--bg);
+  --card: var(--surface-0);
+  --card-raised: var(--surface-1);
+  --popover: var(--surface-2);
+  --elevated: var(--surface-3);
+  --terminal: var(--terminal-bg);
+  --overlay-scrim: color-mix(in srgb, var(--background) 68%, transparent);
+
+  /* Text hierarchy */
+  --foreground: var(--text);
+  --foreground-secondary: var(--text-dim);
+  --foreground-muted: var(--text-faint);
+
+  /* Intent */
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  /* Ink that sits ON a solid accent fill. Painted has no --mm-on-accent, so
+     it falls back to white; flat/flat-light re-bind --mm-on-accent. */
+  --primary-foreground: var(--mm-on-accent, #ffffff);
+  --destructive: var(--status-failed);
+  --destructive-foreground: var(--text);
+  --ring: color-mix(in srgb, var(--accent) 75%, transparent);
+  --input: var(--border-strong);
+  --input-bg: var(--surface-0);
+
+  /* Status roles — the canonical session-state vocabulary — each paired with
+     a low-alpha -bg tint for badges/pills. --status-* physical values live in
+     the palette blocks and re-bind per theme, so these derive for free. */
+  --status-info: oklch(0.78 0.1 220);
+  --status-ready-bg: color-mix(in srgb, var(--status-ready) 14%, transparent);
+  --status-running-bg: color-mix(in srgb, var(--status-running) 14%, transparent);
+  --status-needs-bg: color-mix(in srgb, var(--status-needs) 14%, transparent);
+  --status-interrupted-bg: color-mix(in srgb, var(--status-interrupted) 14%, transparent);
+  --status-done-bg: color-mix(in srgb, var(--status-done) 14%, transparent);
+  --status-warning-bg: color-mix(in srgb, var(--status-warning) 14%, transparent);
+  --status-failed-bg: color-mix(in srgb, var(--status-failed) 14%, transparent);
+  --status-info-bg: color-mix(in srgb, var(--status-info) 14%, transparent);
+
+  /* Domain-verb ACTION tokens — named by app behavior, mapped onto status
+     hues so a theme swap recolors them for free. */
+  --action-commit: var(--status-done);
+  --action-commit-text: var(--primary-foreground);
+  --action-verify: var(--status-ready);
+  --action-interrupt: var(--status-interrupted);
+  --running-indicator: var(--status-running);
+  --running-indicator-text: var(--text);
+}
+
+/* Flat theme, LIGHT mode — a clean neutral SaaS light: pure white cards on a
+   cool near-white ground, near-black ink, hairline cool-gray borders.
+   Scoped to the flat theme (data-minimal): Painted is always dark (its
+   data-theme is forced to "dark" at apply time), so light only ever means
+   flat-light. */
+[data-minimal="true"][data-theme="light"] {
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #f4f4f6);
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #ffffff);
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #fafafb);
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #f2f2f4);
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e9e9ee);
+  /* The active accent color at low opacity, so the hairline tracks whatever
+     accent is selected — 15% for the base border, a touch stronger for
+     --border-strong. */
+  --border: color-mix(in srgb, var(--accent) 15%, transparent);
+  --border-strong: color-mix(in srgb, var(--accent) 30%, transparent);
+  --text: #17181c;
+  --text-dim: rgba(23, 24, 28, 0.6);
+  --text-faint: rgba(23, 24, 28, 0.4);
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #ffffff);
+  /* Light accent fills take white ink again. */
+  --mm-on-accent: #ffffff;
+  /* Status hues darken for contrast on white; the dark-theme pastels wash out. */
+  --status-ready: oklch(0.55 0.1 220);
+  --status-running: oklch(0.6 0.13 75);
+  --status-needs: oklch(0.55 0.19 25);
+  --status-failed: oklch(0.55 0.19 25);
   --status-interrupted: oklch(0.58 0.17 35);
-  --status-done: oklch(0.50 0.14 150);
-  --status-idle: rgba(26, 26, 26, 0.3);
-  --status-warning: oklch(0.60 0.13 75);
+  --status-done: oklch(0.5 0.14 150);
+  --status-idle: rgba(23, 24, 28, 0.3);
+  --status-warning: oklch(0.6 0.13 75);
   --banner-bg: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--accent) 14%, var(--surface-0)),
+    color-mix(in srgb, var(--accent) 12%, var(--surface-0)),
     var(--surface-0) 34%,
-    color-mix(in srgb, var(--accent) 14%, var(--surface-0))
+    color-mix(in srgb, var(--accent) 12%, var(--surface-0))
   );
-  --banner-muted: rgba(26, 26, 26, 0.78);
+  --banner-muted: rgba(23, 24, 28, 0.78);
   --banner-link: color-mix(in srgb, var(--accent) 62%, black);
-  --banner-icon-bg: color-mix(in srgb, var(--accent) 16%, var(--surface-0));
+  --banner-icon-bg: color-mix(in srgb, var(--accent) 14%, var(--surface-0));
 }
 
 * {
@@ -714,11 +798,11 @@ select,
   outline-offset: 3px;
 }
 
-/* Minimal / noir / ember explicitly drop all painted chrome (their cards are
-   flat hairlines), so the painted pixel-frame toast is out of place there.
-   Flatten it to a tone-tinted hairline panel that matches those themes — the
-   icon badge, action, and close chip already track --mc-toast-tone, so they
-   carry over unchanged. Painted themes keep the border-image frame above. */
+/* The flat theme drops all painted chrome (its cards are flat hairlines), so
+   the painted pixel-frame toast is out of place. Flatten it to a tone-tinted
+   hairline panel — the icon badge, action, and close chip already track
+   --mc-toast-tone, so they carry over unchanged; --mm-radius (0) squares it.
+   Painted keeps the border-image frame above. */
 [data-minimal="true"] .mc-toast-panel {
   padding: 14px 48px 14px 16px;
   border: 1px solid color-mix(in srgb, var(--mc-toast-tone) 40%, var(--border-strong)) !important;
@@ -730,12 +814,6 @@ select,
     0 1px 0 rgb(255 255 255 / 4%) inset,
     0 10px 30px rgb(0 0 0 / 42%),
     0 0 0 1px color-mix(in srgb, var(--mc-toast-tone) 12%, transparent);
-}
-
-/* Ember squares every corner. Must stay after the minimal rule to win the
-   shared-specificity tie (ember sets both data-minimal and data-ember). */
-[data-ember="true"] .mc-toast-panel {
-  border-radius: 0 !important;
 }
 
 /* Custom toasts render their own CardFrame; strip the outer Sonner shell frame. */
@@ -1675,6 +1753,89 @@ body[data-card-glow] .cursor-glow {
   background: transparent;
 }
 
+/* Pinned-project rail tiles (ProjectBar.tsx): a faint tonal wash on hover so
+   the tiles acknowledge the pointer before a click/drag. */
+.mc-pinned-tile {
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 120ms ease, border-color 150ms ease;
+}
+.mc-pinned-tile:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* Status pills (StatusDot.tsx) and project activity badges
+   (ProjectStatusBadge.tsx). Painted keeps the hairlines; flat drops them —
+   the tonal fill + status dot carry the pill on their own. */
+.mc-status-pill {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.mc-project-status-badge {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+}
+.mc-project-status-badge[data-active] {
+  background: var(--accent-faint);
+  border-color: var(--accent-border);
+}
+[data-minimal="true"] .mc-status-pill,
+[data-minimal="true"] .mc-project-status-badge {
+  border-color: transparent;
+}
+[data-minimal="true"] .mc-project-status-badge:not([data-active]) {
+  background: var(--surface-2);
+}
+
+/* Terminal tabs (project/user terminal bar). Layout stays inline in
+   UserTerminalPanel; the visual state lives here so tabs get hover feedback. */
+.mc-terminal-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.mc-terminal-tab:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+.mc-terminal-tab[data-active] {
+  background: var(--surface-1);
+  border-color: var(--accent);
+}
+.mc-terminal-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Sessions view segmented control (Active / Pinned / Archived). Same split:
+   layout inline in SessionScopeToggle, visual state + hover here. */
+.mc-session-scope-toggle {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+}
+.mc-session-scope-tab {
+  background: transparent;
+  color: var(--text-dim);
+  transition: background 120ms ease, color 120ms ease;
+}
+.mc-session-scope-tab:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
+.mc-session-scope-tab[data-selected] {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.mc-session-scope-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: -2px;
+}
+
 /* xterm overrides to match the active app theme */
 .xterm-viewport {
   background-color: var(--terminal-bg) !important;
@@ -1684,45 +1845,69 @@ body[data-card-glow] .cursor-glow {
 }
 
 /* =====================================================================
-   Minimal theme – considered, modern, restrained.
-   Warm brand-tinted neutrals, hairline elevation, halo focus rings,
-   squared chrome, and single-source motion tokens. No painted chrome.
-   Activated by `<html data-minimal="true">`.
+   FLAT theme – warm sepia near-black, flush + square, bundled mono.
+   The app's one clean-chrome theme (the former minimal / noir / ember styles
+   collapsed into this single look, which adopts Ember's character). Activated
+   by `<html data-minimal="true">` — the attribute name is retained so the ~360
+   lines of clean-chrome layout/button/input rules below (and the JS consumers
+   that key off it) don't churn; read "data-minimal" as "the flat theme".
+   Warm brown-black ground, cream text, square corners, edge-to-edge panes (the
+   grid gap/padding collapse to 0 in SessionGrid), a solid accent border + soft
+   drop shadow on the focused pane, and bundled JetBrains Mono + Plus Jakarta
+   Sans faces. Supports a light mode (see [data-minimal][data-theme="light"]).
    ===================================================================== */
 
 [data-minimal="true"] {
-  /* Near-black neutral ground with a barely-perceptible cool undertone (245°).
-     Cards (which sit on /card.png) need to read clearly as objects against
-     the page, so the page itself sits well below them. */
-  --bg: oklch(0.08 0.003 245);
-  --surface-0: oklch(0.115 0.004 245);
-  --surface-1: oklch(0.145 0.005 245);
-  --surface-2: oklch(0.185 0.006 245);
-  --surface-3: oklch(0.235 0.008 245);
-  --border: oklch(0.62 0.010 245 / 0.16);
-  --border-strong: oklch(0.72 0.016 245 / 0.26);
-  /* Terminal canvas: same near-black ground, lifted 5% toward the accent
-     so the running terminal carries a barely-there hint of the active theme. */
-  --terminal-bg: color-mix(in srgb, var(--accent) 5%, oklch(0.07 0.003 245));
+  /* Real dark near-black ladder — the depth the old Minimal theme had, with a
+     whisper of warmth (hue 65, near-zero chroma) so it still pairs with the
+     cream text + terracotta accent rather than reading cold. The page ground
+     sits well below the panes; hierarchy is by elevation, near-black up. */
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), oklch(0.09 0.004 65));
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.125 0.005 65));
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.155 0.006 65));
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.2 0.007 65));
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.25 0.009 65));
+  /* On a near-black ground the surface ladder does most of the separating, so
+     the hairlines run very quiet — chrome buttons are borderless-tonal below,
+     and what keeps a border (cards, inputs) only needs a whisper of an edge. */
+  --border: rgba(236, 224, 202, 0.09);
+  --border-strong: rgba(236, 224, 202, 0.18);
+  /* Warm cream text ladder — even higher contrast on the deep ground. Both dim
+     and faint stay clearly below --text to keep the tier hierarchy. */
+  --text: #e9e3d5;
+  --text-dim: #c6bca8;
+  --text-faint: #a89e8c;
+  /* Terminal canvas: the deepest step, just below the page ground. */
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), oklch(0.075 0.004 65));
 
-  /* Minimal-only design tokens. Subtle rounded chrome matches the reference
-     aesthetic — small radii read as considered, not playful. */
-  --mm-radius-sm: 5px;
+  /* Bundled faces: clearer, warmer mono for both xterm (via --mc-terminal-font,
+     read by createTerminalOptions) and every UI mono surface, plus Plus Jakarta
+     Sans for UI sans. */
+  --mc-terminal-font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Gently rounded chrome — enough to take the edge off the flat panels
+     without going pill-shaped. Session-grid panes stay square (flush layout,
+     see the [data-session-grid] override below). */
+  --mm-radius-sm: 4px;
   --mm-radius: 6px;
   --mm-radius-lg: 8px;
   --mm-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --mm-dur: 140ms;
+  /* Keyboard focus: crisp accent line plus a soft halo — a lone 1px ring gets
+     lost against the mid-gray ground. */
   --mm-ring:
-    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--accent) 75%, transparent);
-  --mm-elev-1:
-    0 1px 0 oklch(1 0 0 / 0.04) inset,
-    0 1px 2px oklch(0 0 0 / 0.30);
-  --mm-elev-2:
-    0 1px 0 oklch(1 0 0 / 0.05) inset,
-    0 1px 3px oklch(0 0 0 / 0.34),
-    0 6px 18px oklch(0 0 0 / 0.22);
-  --mm-on-accent: oklch(0.985 0.008 60);
+    0 0 0 1px color-mix(in srgb, var(--accent) 90%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
+  --mm-elev-1: none;
+  --mm-elev-2: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* Ink that sits ON a solid accent fill (the primary/Ship button label + its
+     icon, which inherits this color). White for a clean, conventional filled-
+     button look on the accent. Consumed by --primary-foreground. */
+  --mm-on-accent: #ffffff;
 }
 
 /* Hide the painted shell frame around the app and reclaim the gutter
@@ -1734,52 +1919,54 @@ body[data-card-glow] .cursor-glow {
   display: none !important;
 }
 
-/* Cards: textured surface that picks up the active accent color.
-   Three-layer background composited with background-blend-mode:
-     1. Top: dark gradient overlay (normal) — keeps text legible across the card
-     2. Middle: /card.png texture (overlay) — its bright highlights/waves
-        blend with the accent below, so the texture is recolored by the theme
-     3. Bottom: solid var(--accent) — the canvas the texture is tinted against
-   With `overlay`, dark parts of card.png stay dark while light parts pick up
-   the accent — producing subtle theme-colored highlights along the card edge
-   without any extra layers or filter chains per-accent. */
-/* Cards: textured surface tinted ~12% by the active accent. The base layer
-   mixes only 12% accent into the dark ground, so the overlay-blended card.png
-   highlights pick up a hint of theme color — never a wash. Adjust the
-   `--mm-card-tint` value at the top of [data-minimal] to dial intensity. */
+/* Cards: flat, gently rounded panels — no card.png texture, no accent tint,
+   no elevation. A flat card is its warm surface color and a hairline. */
 [data-minimal="true"] .mc-card-frame {
-  border: 1px solid oklch(0.62 0.010 245 / 0.24) !important;
+  border: 1px solid var(--border) !important;
   border-image: none !important;
-  border-radius: var(--mm-radius) !important;
-  background:
-    url("/card.png") center / cover no-repeat,
-    color-mix(in srgb, var(--accent) 12%, oklch(0.14 0.005 245)) !important;
-  background-blend-mode: overlay, normal !important;
-  box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.05) inset,
-    0 1px 2px oklch(0 0 0 / 0.40),
-    0 8px 22px oklch(0 0 0 / 0.30) !important;
+  border-radius: var(--mm-radius-lg) !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
+  box-shadow: none !important;
   transition:
+    background-color var(--mm-dur) var(--mm-ease),
     border-color var(--mm-dur) var(--mm-ease),
     box-shadow var(--mm-dur) var(--mm-ease) !important;
 }
-[data-minimal="true"] .mc-card-frame[data-solid="true"] {
-  background:
-    url("/card.png") center / cover no-repeat,
-    color-mix(in srgb, var(--accent) 12%, oklch(0.17 0.006 245)) !important;
-  background-blend-mode: overlay, normal !important;
+/* Session-grid panes are laid out flush (gap 0), so their corners stay square —
+   rounding would notch the seams between touching cells. */
+[data-minimal="true"] [data-session-grid] .mc-card-frame {
+  border-radius: 0 !important;
 }
+/* The flush cell seams need to read stronger than the base hairline, so grid
+   pane dividers push 15% off each theme's own primary border color. Both
+   derive from var(--border) (preserving its accent tint), but the direction
+   flips per mode: on the light paper ground "stronger" means darker, while on
+   the dark ground darkening would sink the faint light-on-dark hairline into
+   the surface — so dark brightens instead. Skip the focused cell so it keeps
+   its accent border (see the :focus-within rule below). */
+[data-minimal="true"][data-theme="light"]
+  [data-session-grid]
+  .mc-card-frame:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--border), black 15%) !important;
+}
+[data-minimal="true"][data-theme="dark"]
+  [data-session-grid]
+  .mc-card-frame:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--border), white 15%) !important;
+}
+[data-minimal="true"] .mc-card-frame[data-solid="true"] {
+  background: var(--surface-1) !important;
+  background-blend-mode: normal !important;
+}
+/* Dashboard/project focused cards: solid accent border + soft drop shadow. */
 [data-minimal="true"] .mc-card-frame[data-focused="true"] {
-  border-color: color-mix(in srgb, var(--accent) 56%, transparent) !important;
-  background:
-    url("/card.png") center / cover no-repeat,
-    color-mix(in srgb, var(--accent) 18%, oklch(0.15 0.005 245)) !important;
-  background-blend-mode: overlay, normal !important;
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent) !important;
+  background: var(--surface-0) !important;
+  background-blend-mode: normal !important;
   box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.07) inset,
-    0 1px 2px oklch(0 0 0 / 0.40),
-    0 10px 26px oklch(0 0 0 / 0.30),
-    0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent) !important;
+    0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 6px 22px rgba(0, 0, 0, 0.45) !important;
 }
 
 :root:not([data-minimal="true"]) .mc-project-card[data-focused="true"] {
@@ -1888,19 +2075,24 @@ body[data-card-glow] .cursor-glow {
   border-color: color-mix(in srgb, var(--accent) 38%, transparent);
   color: color-mix(in srgb, var(--accent) 72%, white);
 }
+/* Ghost / gray-frame / danger go borderless-tonal: on the flat ground a
+   hairline on every chrome button reads as wireframe noise. Affordance comes
+   from the icon/label + a tonal fill that appears on hover (gray-frame keeps
+   a resting fill so it still reads one step above ghost). The 1px border is
+   kept transparent so hover can light it without a layout shift. */
 [data-minimal="true"] .mc-btn-ghost {
   background: transparent;
-  border-color: var(--border-strong);
+  border-color: transparent;
   color: var(--text-dim);
 }
 [data-minimal="true"] .mc-btn-gray-frame {
   background: var(--surface-1);
-  border-color: var(--border-strong);
+  border-color: transparent;
   color: var(--text);
 }
 [data-minimal="true"] .mc-btn-danger {
   background: transparent;
-  border-color: color-mix(in srgb, var(--status-failed) 38%, transparent);
+  border-color: transparent;
   color: var(--status-failed);
 }
 
@@ -1921,11 +2113,9 @@ body[data-card-glow] .cursor-glow {
 }
 [data-minimal="true"] .mc-btn-gray-frame:hover {
   background: var(--surface-2);
-  border-color: color-mix(in srgb, var(--text-dim) 30%, var(--border-strong));
 }
 [data-minimal="true"] .mc-btn-danger:hover {
   background: color-mix(in srgb, var(--status-failed) 12%, transparent);
-  border-color: color-mix(in srgb, var(--status-failed) 58%, transparent);
 }
 
 /* Press: 0.5px micro-translate, faster ease-out to feel tactile */
@@ -1945,6 +2135,30 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-danger::before,
 [data-minimal="true"] .mc-btn-gray-frame::before {
   display: none !important;
+}
+
+/* Review-changes + Ship segmented pair. The painted themes fuse these two into
+   one control via adjacent pixel frames (attached-left/right drop the touching
+   edge). The flat theme hides those ::before frames, so the borderless ghost
+   count and the Ship button read as two loose items. Restore the grouping with
+   a single hairline frame around the pair plus one divider between the cells. */
+[data-minimal="true"] .mc-ship-group {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--mm-radius);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+[data-minimal="true"] .mc-ship-group .mc-btn {
+  border-radius: 0;
+}
+/* Ship is the group's direct child (the count sits inside a display:contents
+   tooltip span). Give it the divider; drop the rest of its frame so the fill
+   tiles edge-to-edge within the shared border. */
+[data-minimal="true"] .mc-ship-group > .mc-btn {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 1px solid var(--border-strong);
 }
 
 /* Focus: soft brand-tinted halo, no hard outline */
@@ -2054,237 +2268,90 @@ body[data-card-glow] .cursor-glow {
 }
 
 /* =====================================================================
-   Noir theme – flat, near-black, hairline.
-   Builds on minimal: noir sets BOTH `data-minimal` (which supplies the
-   clean-CSS chrome, edge-to-edge layout, and button/input grid) and
-   `data-noir` (this layer). Noir flattens what minimal elevates — no card
-   texture, no accent-tinted surfaces, shadows almost gone. Separation
-   comes from hairline dividers, not borders; borders appear only where
-   they carry meaning (the focused pane, the active control).
-   These selectors share specificity with the [data-minimal] rules above,
-   so this block must stay AFTER the minimal block to win the cascade.
-   Activated by `<html data-minimal="true" data-noir="true">`.
+   FLAT theme — chrome overrides (Ember character).
+   These sit AFTER the [data-minimal] button/input grid above so they win the
+   shared-specificity cascade. The palette + card rules already live in the
+   [data-minimal] block near the top of the flat section.
    ===================================================================== */
 
-[data-noir="true"] {
-  /* Neutral near-black ladder with a faint cool-violet cast so a pink or
-     purple accent sits naturally in it. Surfaces stay within a few percent
-     of each other — hierarchy comes from hairlines, not elevation. */
-  --bg: #0a0a0c;
-  --surface-0: #0f0f12;
-  --surface-1: #131317;
-  --surface-2: #19191e;
-  --surface-3: #212127;
-  --border: rgba(255, 255, 255, 0.065);
-  --border-strong: rgba(255, 255, 255, 0.12);
-  --text: #e9e9ec;
-  --text-dim: rgba(233, 233, 236, 0.56);
-  --text-faint: rgba(233, 233, 236, 0.33);
-  /* Flat terminal canvas — unlike minimal, no accent mixed into the ground. */
-  --terminal-bg: #0c0c0f;
-
-  /* Tighter chrome: squarer radii; the halo focus ring collapses to a
-     single hairline accent ring. */
-  --mm-radius-sm: 4px;
-  --mm-radius: 5px;
-  --mm-radius-lg: 7px;
-  --mm-ring: 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
-  --mm-elev-1: none;
-  --mm-elev-2: 0 12px 32px oklch(0 0 0 / 0.4);
+/* Buttons/inputs: quiet the base glosses; the square radius vars flatten the
+   corners. */
+[data-minimal="true"] .mc-btn-primary,
+[data-minimal="true"] .mc-btn-primary:hover {
+  box-shadow: none;
 }
-
-/* Cards: flat panels. Kill minimal's card.png texture and accent tint —
-   a noir card is its surface color, a hairline, and nothing else. */
-[data-noir="true"] .mc-card-frame {
-  border: 1px solid var(--border) !important;
-  background: var(--surface-0) !important;
-  background-blend-mode: normal !important;
+/* Ghost hover lifts to surface-2 because session headers already sit on
+   surface-1, where a surface-1 hover would be invisible. */
+[data-minimal="true"] .mc-btn-ghost:hover {
+  background: var(--surface-2);
+}
+[data-minimal="true"] .mc-input-frame {
   box-shadow: none !important;
 }
-[data-noir="true"] .mc-card-frame[data-solid="true"] {
-  background: var(--surface-1) !important;
-  background-blend-mode: normal !important;
-}
-/* The focused pane is the one place noir spends a border: a 1px accent
-   line plus a whisper of glow, like a powered-on indicator. */
-[data-noir="true"] .mc-card-frame[data-focused="true"] {
-  border-color: color-mix(in srgb, var(--accent) 66%, transparent) !important;
-  background: var(--surface-0) !important;
-  background-blend-mode: normal !important;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
-    0 0 24px color-mix(in srgb, var(--accent) 9%, transparent) !important;
+[data-minimal="true"] .mc-input-frame:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
+  box-shadow: none !important;
 }
 
-/* Buttons: quieter than minimal. Ghost drops its border entirely; the
-   frame variant keeps a hairline of accent; primary stays a solid accent
-   fill but loses the inset gloss. */
-[data-noir="true"] .mc-btn-primary {
+/* Terminal tabs: borderless-tonal; the active tab reads by accent-tinted fill
+   instead of an accent outline. */
+[data-minimal="true"] .mc-terminal-tab {
   border-color: transparent;
-  box-shadow: none;
+  border-radius: var(--mm-radius-sm);
 }
-[data-noir="true"] .mc-btn-primary:hover {
-  box-shadow: none;
-}
-[data-noir="true"] .mc-btn-frame {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
-}
-[data-noir="true"] .mc-btn-ghost {
-  background: transparent;
+[data-minimal="true"] .mc-terminal-tab:hover {
   border-color: transparent;
-}
-[data-noir="true"] .mc-btn-ghost:hover {
-  background: var(--surface-1);
-  border-color: transparent;
-}
-[data-noir="true"] .mc-btn-gray-frame {
-  background: var(--surface-1);
-  border-color: var(--border);
-}
-[data-noir="true"] .mc-btn-gray-frame:hover {
   background: var(--surface-2);
+}
+[data-minimal="true"] .mc-terminal-tab[data-active] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* Sessions segmented control: the surface-1 tray separates it from the band
+   without a hairline. */
+[data-minimal="true"] .mc-session-scope-toggle {
+  border-color: transparent;
+  background: var(--surface-1);
+}
+[data-minimal="true"] .mc-session-scope-tab[data-selected] {
+  background: var(--surface-3);
+}
+
+/* Chips join the borderless-tonal grammar: fill carries them, hover lifts. */
+[data-minimal="true"] .mc-hidden-chip {
+  border-color: transparent;
+  background: var(--surface-1);
+  border-radius: var(--mm-radius);
+}
+[data-minimal="true"] .mc-hidden-chip:hover {
+  border-color: transparent;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Every button acknowledges the press — the 0.5px dip the named variants
+   already have, extended to the base mc-btn variants (solid/accent/plain).
+   The base .mc-btn transition list doesn't include transform, so it's added
+   here or the dip would snap instead of easing back. */
+[data-minimal="true"] .mc-btn {
+  transition:
+    background-color var(--mm-dur) var(--mm-ease),
+    border-color var(--mm-dur) var(--mm-ease),
+    color var(--mm-dur) var(--mm-ease),
+    opacity var(--mm-dur) var(--mm-ease),
+    box-shadow var(--mm-dur) var(--mm-ease),
+    transform var(--mm-dur) var(--mm-ease);
+}
+[data-minimal="true"] .mc-btn:not(:disabled):not([aria-disabled="true"]):active {
+  transform: translateY(0.5px);
+  transition-duration: 60ms;
+}
+
+/* Toggle switches hint on hover before they're flipped. */
+[data-minimal="true"] .settings-toggle-switch:not(:disabled):not([aria-checked="true"]):hover {
   border-color: var(--border-strong);
-}
-[data-noir="true"] .mc-btn-primary:focus-visible {
-  box-shadow: var(--mm-ring);
-}
-
-/* Inputs: flat field, hairline border; focus swaps the hairline for the
-   accent instead of stacking a halo. */
-[data-noir="true"] .mc-input-frame {
-  box-shadow: none !important;
-}
-[data-noir="true"] .mc-input-frame:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
-  background: var(--surface-0) !important;
-  box-shadow: none !important;
-}
-
-/* Settings toggle: no glow when on — flat accent fill reads clearly. */
-[data-noir="true"] .settings-toggle-switch[aria-checked="true"] {
-  box-shadow: none;
-}
-
-/* Session grid, focused cell: drop the grid's elevation shadows — in noir
-   the active session is a solid accent border and a whisper of bloom on an
-   otherwise flat card. */
-[data-noir="true"] [data-session-grid] .mc-card-frame:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 78%, transparent) !important;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
-    0 0 18px color-mix(in srgb, var(--accent) 10%, transparent) !important;
-}
-[data-noir="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
-  background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
-}
-
-/* =====================================================================
-   Ember theme – warm sepia near-black, flush + square, bundled mono.
-   Like noir it builds on minimal (sets BOTH `data-minimal` for the clean-
-   CSS chrome and `data-ember` for this layer), but the mood is warm rather
-   than cool: a brown-black ground, cream text, square corners, and edge-to-
-   edge panes (the grid's gap/padding collapse to 0 in JS — see SessionGrid).
-   The focused pane spends a solid accent border plus a soft drop shadow so
-   the active session lifts off the flush field. Ships JetBrains Mono as the
-   terminal + UI face for a clearer read.
-   Must stay AFTER the minimal and noir blocks to win the shared-specificity
-   cascade. Activated by `<html data-minimal="true" data-ember="true">`.
-   ===================================================================== */
-
-[data-ember="true"] {
-  /* Warm-charcoal ladder sampled from the reference: the pane/terminal ground
-     sits at a mid ~#2d2d2d (not near-black), faintly warm; headers and solid
-     cards lift one step to ~#34322d. Separation is by tone, not elevation. */
-  --bg: #242321;
-  --surface-0: #2c2b28;
-  --surface-1: #34322d;
-  --surface-2: #3e3b35;
-  --surface-3: #4a463f;
-  /* Hairlines need more alpha here than on the near-black themes: the ground
-     is a mid-gray, so noir-strength borders melt into it (0.09 cream computes
-     to ~1.27:1 against surface-0 — invisible). */
-  --border: rgba(236, 224, 202, 0.15);
-  --border-strong: rgba(236, 224, 202, 0.3);
-  /* Cream text ladder, lifted a step for legibility on the mid-gray ground.
-     dim now holds ≥7:1 on surface-0 and ≥6:1 through surface-2; faint clears
-     AA (≥4.8:1 on surface-0/1) — the old #8c8274 faint fell to ~3.4:1 on the
-     card surfaces where timestamps, tab counts and section counts sit, so it
-     read muddy. Both stay clearly below --text to keep the tier hierarchy. */
-  --text: #e9e3d5;
-  --text-dim: #c6bca8;
-  --text-faint: #a89e8c;
-  /* Flat warm terminal canvas — matches the sampled ~#2d2d2d ground. */
-  --terminal-bg: #2b2a27;
-
-  /* Bundled face: clearer, warmer mono for both xterm (via --mc-terminal-font,
-     read by createTerminalOptions) and every UI mono surface. */
-  --mc-terminal-font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  /* Bundled UI sans face — Plus Jakarta Sans. */
-  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-
-  /* Square everything — no rounded sessions or chrome. */
-  --mm-radius-sm: 0;
-  --mm-radius: 0;
-  --mm-radius-lg: 0;
-  /* Keyboard focus: crisp accent line plus a soft halo — a lone 1px ring
-     gets lost against the mid-gray ground. */
-  --mm-ring:
-    0 0 0 1px color-mix(in srgb, var(--accent) 90%, transparent),
-    0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
-  --mm-elev-1: none;
-  --mm-elev-2: 0 12px 32px rgba(0, 0, 0, 0.45);
-  /* Ember's default terracotta accent is a light mid-tone — minimal's
-     near-white button label reads ~2.8:1 on it. Dark warm ink reads ~5.6:1
-     and beats near-white on every selectable accent except indigo. */
-  --mm-on-accent: #251e15;
-}
-
-/* Flat, square panels — kill minimal's card.png texture, accent tint, radius
-   and elevation. An ember card is its warm surface color and a hairline. */
-[data-ember="true"] .mc-card-frame {
-  border: 1px solid var(--border) !important;
-  border-radius: 0 !important;
-  background: var(--surface-0) !important;
-  background-blend-mode: normal !important;
-  box-shadow: none !important;
-}
-[data-ember="true"] .mc-card-frame[data-solid="true"] {
-  background: var(--surface-1) !important;
-  background-blend-mode: normal !important;
-}
-/* Dashboard/project focused cards: solid accent border + soft drop shadow. */
-[data-ember="true"] .mc-card-frame[data-focused="true"] {
-  border-color: color-mix(in srgb, var(--accent) 72%, transparent) !important;
-  background: var(--surface-0) !important;
-  background-blend-mode: normal !important;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
-    0 6px 22px rgba(0, 0, 0, 0.45) !important;
-}
-
-/* Buttons/inputs: quiet the minimal glosses; the square radius vars above
-   already flatten their corners. */
-[data-ember="true"] .mc-btn-primary,
-[data-ember="true"] .mc-btn-primary:hover {
-  box-shadow: none;
-}
-/* Ghost buttons keep minimal's hairline border: on ember's mid-gray ground a
-   borderless ghost has no affordance at all. Hover lifts to surface-2 because
-   session headers already sit on surface-1, where minimal's surface-1 hover
-   would be invisible. */
-[data-ember="true"] .mc-btn-ghost:hover {
-  background: var(--surface-2);
-}
-[data-ember="true"] .mc-input-frame {
-  box-shadow: none !important;
-}
-[data-ember="true"] .mc-input-frame:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
-  box-shadow: none !important;
+  background: var(--surface-3);
 }
 
 /* Project header: collapse the tall default band (22px 24px 18px) to a tight
@@ -2292,7 +2359,7 @@ body[data-card-glow] .cursor-glow {
    flush) so the buttons' hairlines and focus halo aren't clipped against the
    strip edges. Overrides the component's inline padding, so it needs
    !important. */
-[data-ember="true"] .mc-project-header {
+[data-minimal="true"] .mc-project-header {
   padding: 6px 20px !important;
 }
 
@@ -2301,17 +2368,17 @@ body[data-card-glow] .cursor-glow {
    digit, so the number reads muddy on the warm ground. Drop the chip to the
    near-black ground with a crisper hairline so the light digit sits in a
    defined dark notch and pops (~4:1). Inline styles, so !important. */
-[data-ember="true"] .mc-project-hotkey-badge {
+[data-minimal="true"] .mc-project-hotkey-badge {
   background: var(--bg) !important;
   border-color: var(--border-strong) !important;
   color: var(--text-dim) !important;
 }
 
-/* Session grid, focused cell: the active window in the reference — a solid
-   accent border with a little shadow lifting it off the flush field, plus a
-   whisper of accent bloom. (The cell is z-lifted in SessionGrid so the drop
-   shadow reads over its flush neighbours.) */
-[data-ember="true"] [data-session-grid] .mc-card-frame:focus-within {
+/* Session grid, focused cell: the active window — a solid accent border with a
+   little shadow lifting it off the flush field, plus a whisper of accent
+   bloom. (The cell is z-lifted in SessionGrid so the drop shadow reads over
+   its flush neighbours.) */
+[data-minimal="true"] [data-session-grid] .mc-card-frame:focus-within {
   border-color: color-mix(in srgb, var(--accent) 88%, transparent) !important;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
@@ -2322,10 +2389,33 @@ body[data-card-glow] .cursor-glow {
      the inline drag/expand/nav z-indices still win when they're set. */
   z-index: 3;
 }
-[data-ember="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
+[data-minimal="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
   /* ~18% accent over the header surface reproduces the sampled warm active
      header (~#4d3e34) — the focused pane's title bar warms noticeably. */
   background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)) !important;
+}
+
+/* Light mode: soften the drop shadows — the near-opaque blacks tuned for the
+   dark ground read as heavy smudges on white. Same geometry, lower alpha. */
+[data-minimal="true"][data-theme="light"] .mc-card-frame[data-focused="true"] {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 4px 14px rgba(18, 22, 33, 0.1) !important;
+}
+[data-minimal="true"][data-theme="light"] [data-session-grid] .mc-card-frame:focus-within {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 4px 16px rgba(18, 22, 33, 0.12),
+    0 0 20px color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+[data-minimal="true"][data-theme="light"] .mc-toast-panel {
+  box-shadow:
+    0 6px 20px rgba(18, 22, 33, 0.12),
+    0 0 0 1px color-mix(in srgb, var(--mc-toast-tone) 12%, transparent);
+}
+[data-theme="light"] .mc-tooltip,
+[data-theme="light"] [data-sonner-toast].mc-toast-custom-shell [data-content] {
+  box-shadow: 0 4px 14px rgba(18, 22, 33, 0.14);
 }
 
 .sr-only {
@@ -2432,4 +2522,57 @@ body[data-card-glow] .cursor-glow {
 .mc-md-annot-add:hover {
   background: var(--surface-2);
   color: var(--text);
+}
+
+/* =====================================================================
+   SURFACE TINT — per-style accent-in-the-ground recipes.
+   `data-tint="subtle" | "vivid"` on <html> (absent = off) raises the
+   --tint-lo/md/hi percentages that every palette block above mixes into
+   --bg / --surface-0..3 / --terminal-bg via color-mix. Applied by
+   applySurfaceTint (src/lib/surface-tint.ts) and mirrored by the
+   pre-hydration script in __root.tsx.
+
+   Both themes (painted and the near-black flat theme) take the same wash —
+   the generic recipe below. ============ */
+
+[data-tint="subtle"] {
+  --tint-lo: 2.5%;
+  --tint-md: 3.5%;
+  --tint-hi: 4.5%;
+}
+[data-tint="vivid"] {
+  --tint-lo: 7%;
+  --tint-md: 9%;
+  --tint-hi: 11%;
+}
+/* Heavy accent wash (painted, and flat-light) — lifts the ground strongly
+   toward the accent. Flat-dark gets a dedicated recipe below instead. */
+[data-tint="intense"] {
+  --tint-lo: 13%;
+  --tint-md: 16%;
+  --tint-hi: 19%;
+}
+
+/* Flat + Intense (DARK only) lifts the near-black base to Ember's mid-charcoal
+   ladder — but the cast comes from the ACCENT mixed over a neutral charcoal,
+   not from a baked-in warm hex ladder. A terracotta accent reproduces the old
+   warm Ember ground; a blue accent gives a cool blue-charcoal; every accent
+   gets its own ground (this is the whole point of the Intense tint). The
+   terminal ground takes the same mix at a lower dose so session content still
+   separates from the chrome. Scoped to data-theme="dark" so flat-light keeps
+   its paper ground (it falls back to the generic intense wash above).
+   Specificity (0,3,0) beats both the [data-minimal] palette and the light
+   block. */
+[data-minimal="true"][data-theme="dark"][data-tint="intense"] {
+  --bg: color-mix(in srgb, var(--accent) 6%, #1b1b1b);
+  --surface-0: color-mix(in srgb, var(--accent) 8%, #2b2b2b);
+  --surface-1: color-mix(in srgb, var(--accent) 8%, #323232);
+  --surface-2: color-mix(in srgb, var(--accent) 9%, #3b3b3b);
+  --surface-3: color-mix(in srgb, var(--accent) 9%, #454545);
+  --terminal-bg: color-mix(in srgb, var(--accent) 6%, #2e2e2e);
+  /* The mid-gray ground melts thin hairlines, so these run a touch stronger
+     than the near-black base — neutral white so they pair with any accent
+     (the old cream hairlines clashed with cool accents). */
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.2);
 }
