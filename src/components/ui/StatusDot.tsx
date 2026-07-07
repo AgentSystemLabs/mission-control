@@ -24,14 +24,13 @@ export function StatusPill({ status, count }: { status: TaskStatus; count?: numb
   const meta = STATUS_META[status];
   return (
     <span
+      className="mc-status-pill"
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
         padding: "2px 8px 2px 7px",
         borderRadius: 999,
-        background: "var(--surface-2)",
-        border: "1px solid var(--border)",
         fontFamily: "var(--mono)",
         fontSize: 11,
         color: "var(--text-dim)",

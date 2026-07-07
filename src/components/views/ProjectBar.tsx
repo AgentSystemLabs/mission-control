@@ -430,15 +430,14 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
               e.stopPropagation();
               setMenu({ x: e.clientX, y: e.clientY, id: project.id, name: project.name });
             }}
+            className="mc-pinned-tile"
             style={{
               position: "relative",
               width: hasStatusDots ? ITEM_WIDTH : IDLE_ITEM_WIDTH,
               height: ITEM_HEIGHT,
               flexShrink: 0,
               padding: hasStatusDots ? "4px 6px 4px 14px" : 4,
-              border: "1px solid transparent",
               borderRadius: ITEM_RADIUS,
-              background: "transparent",
               zIndex: isActive ? 3 : 1,
               cursor: reorderSaving ? "default" : isDragging ? "grabbing" : "grab",
               opacity: isDragging ? 0.55 : 1,
@@ -449,7 +448,6 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              transition: "border-color 0.15s",
             }}
           >
             {statusDots.length > 0 && (

@@ -177,7 +177,7 @@ const MAIN_WINDOW_DEFAULT_WIDTH = 1440;
 const MAIN_WINDOW_DEFAULT_HEIGHT = 900;
 const MAIN_WINDOW_MIN_WIDTH = 1024;
 const MAIN_WINDOW_MIN_HEIGHT = 640;
-const TRAFFIC_LIGHT_POSITION_DARWIN = { x: 48, y: 16 } as const;
+const TRAFFIC_LIGHT_POSITION_DARWIN = { x: 20, y: 16 } as const;
 
 // Native window background — tracks the renderer's dark/light theme so the
 // window frame (launch flash, resize gutters, overscroll) never shows the

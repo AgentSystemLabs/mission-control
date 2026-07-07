@@ -104,7 +104,7 @@ import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
 const LAUNCH_OVERLAY_DURATION_MS = 2700;
-const MINIMAL_TOP_BAR_CONTENT_TOP_INSET = 10;
+const MINIMAL_TOP_BAR_CONTENT_TOP_INSET = 2;
 const MINIMAL_WINDOW_DRAG_LAYER_HEIGHT = 8;
 const WINDOW_DRAG_LAYER_Z_INDEX = 30;
 const useThemeLayoutEffect =
@@ -311,7 +311,7 @@ function Shell() {
   const cachedMinimal = readCachedThemeStyle() !== "painted";
   const effectiveMinimal = settings?.minimalTheme ?? cachedMinimal;
   // The top bar's leading inset applies in minimal mode.
-  const topBarLeadingInset = effectiveMinimal ? 130 : undefined;
+  const topBarLeadingInset = effectiveMinimal ? 88 : undefined;
   const topBarContentTopInset = effectiveMinimal
     ? MINIMAL_TOP_BAR_CONTENT_TOP_INSET
     : 0;

@@ -261,14 +261,13 @@ export function UserTerminalPanel() {
                         : `Open terminal ${s.terminal.name}`
                     }
                     aria-pressed={panelOpen ? !hidden : undefined}
+                    className="mc-terminal-tab"
+                    data-active={active || undefined}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
                       padding: "3px 9px",
-                      background: active ? "var(--surface-1)" : "transparent",
-                      border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                      borderRadius: 4,
                       fontFamily: "var(--mono)",
                       fontSize: 11,
                       color: dimmed ? "var(--text-faint)" : "var(--text)",

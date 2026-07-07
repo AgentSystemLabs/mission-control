@@ -2901,6 +2901,7 @@ function ProjectPage() {
             <div
               role="group"
               aria-label="Review changes and commit"
+              className="mc-ship-group"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -3716,11 +3717,11 @@ function SessionScopeToggle({
   showArchivedTab: boolean;
   onChange: (view: SessionView) => void;
 }) {
-  const segment = (selected: boolean): CSSProperties => ({
+  // Visual state (background/color/box-shadow + hover) lives in styles.css
+  // under .mc-session-scope-tab so unselected tabs get a hover treatment.
+  const segment: CSSProperties = {
     appearance: "none",
     border: 0,
-    background: selected ? "var(--surface-2)" : "transparent",
-    color: selected ? "var(--text)" : "var(--text-dim)",
     fontFamily: "var(--mono)",
     fontSize: 11,
     fontWeight: 600,
@@ -3732,10 +3733,7 @@ function SessionScopeToggle({
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    boxShadow: selected
-      ? "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 2px rgba(0,0,0,0.3)"
-      : "none",
-  });
+  };
   const countStyle: CSSProperties = {
     color: "var(--text-faint)",
     fontVariantNumeric: "tabular-nums",
@@ -3758,14 +3756,13 @@ function SessionScopeToggle({
     <div
       role="radiogroup"
       aria-label="Show sessions by type"
+      className="mc-session-scope-toggle"
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: 2,
         padding: 3,
         borderRadius: 9,
-        background: "var(--surface-0)",
-        border: "1px solid var(--border)",
       }}
     >
       {tabs.map((tab) => {
@@ -3781,7 +3778,9 @@ function SessionScopeToggle({
             role="radio"
             aria-checked={selected}
             tabIndex={selected ? 0 : -1}
-            style={segment(selected)}
+            className="mc-session-scope-tab"
+            data-selected={selected || undefined}
+            style={segment}
             onClick={() => onChange(tab.view)}
             onKeyDown={(e) => {
               if (e.key === "ArrowRight" || e.key === "ArrowDown") {

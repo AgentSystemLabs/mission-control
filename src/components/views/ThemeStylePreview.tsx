@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { getAccentColor, type AccentColorId } from "~/lib/accent-colors";
 import type { ThemeStyle } from "~/shared/theme-style";
 import type { SurfaceTint } from "~/shared/surface-tint";
+import type { Theme } from "~/lib/use-theme";
 
 /**
  * Live-rendered miniature of the app (title bar, session grid with a focused
@@ -13,7 +14,8 @@ import type { SurfaceTint } from "~/shared/surface-tint";
  * Palette values are copied from the corresponding blocks in src/styles.css
  * (:root for painted, [data-minimal] for flat) — keep them in sync when a
  * palette is retuned. Tint percentages mirror the [data-tint] recipe blocks at
- * the bottom of styles.css. The flat miniature shows its dark palette.
+ * the bottom of styles.css. Painted is dark-only; the flat miniature follows
+ * the current light/dark appearance ([data-minimal][data-theme="light"]).
  */
 
 type StylePalette = {
@@ -55,6 +57,20 @@ const STYLE_PALETTES: Record<ThemeStyle, StylePalette> = {
   },
 };
 
+// Flat's light appearance — mirrors [data-minimal][data-theme="light"] in
+// styles.css so the miniature matches the app when light mode is picked.
+// (Painted is dark-only, so it has no light variant.)
+const FLAT_LIGHT_PALETTE: StylePalette = {
+  bg: "#f4f4f6",
+  surface0: "#ffffff",
+  surface1: "#fafafb",
+  border: "rgba(18, 22, 33, 0.09)",
+  textDim: "rgba(23, 24, 28, 0.6)",
+  textFaint: "rgba(23, 24, 28, 0.4)",
+  radius: 0,
+  focus: "solid",
+};
+
 // Mirrors the [data-tint] recipes in styles.css: [lo, md] percentages per
 // theme × level (hi isn't needed — the mock has no raised chrome).
 const TINT_RECIPES: Record<ThemeStyle, Record<SurfaceTint, [number, number]>> = {
@@ -71,18 +87,24 @@ export function ThemeStylePreview({
   style,
   accentId,
   tint,
+  theme = "dark",
 }: {
   style: ThemeStyle;
   accentId: AccentColorId;
   tint: SurfaceTint;
+  /** Current light/dark appearance. Painted is dark-only; flat follows this. */
+  theme?: Theme;
 }) {
   const accent = getAccentColor(accentId);
-  const palette = STYLE_PALETTES[style];
-  // Flat + Intense re-binds the ground to the old Ember warm-charcoal ladder
-  // (see [data-minimal][data-theme="dark"][data-tint="intense"] in styles.css)
-  // rather than washing the near-black base — mirror that here so the miniature
-  // matches. A whisper of accent, matching the CSS recipe.
-  const flatIntense = style === "flat" && tint === "intense";
+  // Painted is dark-only; flat swaps to its paper palette in light mode.
+  const lightFlat = style === "flat" && theme === "light";
+  const palette = lightFlat ? FLAT_LIGHT_PALETTE : STYLE_PALETTES[style];
+  // Flat + Intense (DARK only) re-binds the ground to the Ember warm-charcoal
+  // ladder (see [data-minimal][data-theme="dark"][data-tint="intense"] in
+  // styles.css) rather than washing the near-black base — mirror that here so
+  // the miniature matches. Flat-light + Intense keeps its paper ground and
+  // takes the generic wash below. A whisper of accent, matching the CSS recipe.
+  const flatIntense = style === "flat" && tint === "intense" && theme === "dark";
   const base = flatIntense
     ? { bg: "#242321", surface0: "#2c2b28", surface1: "#34322d", lo: 4, md: 5 }
     : {
@@ -105,7 +127,9 @@ export function ThemeStylePreview({
         }
       : {
           border: `1px solid ${accent.value}`,
-          boxShadow: `0 3px 8px rgba(0, 0, 0, 0.35)`,
+          boxShadow: lightFlat
+            ? `0 2px 6px rgba(18, 22, 33, 0.14)`
+            : `0 3px 8px rgba(0, 0, 0, 0.35)`,
         };
 
   const pane = (focused: boolean, lines: number[]) => (

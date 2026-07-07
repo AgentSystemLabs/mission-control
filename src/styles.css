@@ -1750,6 +1750,89 @@ body[data-card-glow] .cursor-glow {
   background: transparent;
 }
 
+/* Pinned-project rail tiles (ProjectBar.tsx): a faint tonal wash on hover so
+   the tiles acknowledge the pointer before a click/drag. */
+.mc-pinned-tile {
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 120ms ease, border-color 150ms ease;
+}
+.mc-pinned-tile:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* Status pills (StatusDot.tsx) and project activity badges
+   (ProjectStatusBadge.tsx). Painted keeps the hairlines; flat drops them —
+   the tonal fill + status dot carry the pill on their own. */
+.mc-status-pill {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.mc-project-status-badge {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+}
+.mc-project-status-badge[data-active] {
+  background: var(--accent-faint);
+  border-color: var(--accent-border);
+}
+[data-minimal="true"] .mc-status-pill,
+[data-minimal="true"] .mc-project-status-badge {
+  border-color: transparent;
+}
+[data-minimal="true"] .mc-project-status-badge:not([data-active]) {
+  background: var(--surface-2);
+}
+
+/* Terminal tabs (project/user terminal bar). Layout stays inline in
+   UserTerminalPanel; the visual state lives here so tabs get hover feedback. */
+.mc-terminal-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.mc-terminal-tab:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+.mc-terminal-tab[data-active] {
+  background: var(--surface-1);
+  border-color: var(--accent);
+}
+.mc-terminal-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Sessions view segmented control (Active / Pinned / Archived). Same split:
+   layout inline in SessionScopeToggle, visual state + hover here. */
+.mc-session-scope-toggle {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+}
+.mc-session-scope-tab {
+  background: transparent;
+  color: var(--text-dim);
+  transition: background 120ms ease, color 120ms ease;
+}
+.mc-session-scope-tab:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
+.mc-session-scope-tab[data-selected] {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.mc-session-scope-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: -2px;
+}
+
 /* xterm overrides to match the active app theme */
 .xterm-viewport {
   background-color: var(--terminal-bg) !important;
@@ -1781,10 +1864,11 @@ body[data-card-glow] .cursor-glow {
   --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.155 0.006 65));
   --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.2 0.007 65));
   --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.25 0.009 65));
-  /* On a near-black ground a thin cream hairline reads cleanly, so it can be
-     dialled back from the mid-gray-tuned strength. */
-  --border: rgba(236, 224, 202, 0.12);
-  --border-strong: rgba(236, 224, 202, 0.24);
+  /* On a near-black ground the surface ladder does most of the separating, so
+     the hairlines run very quiet — chrome buttons are borderless-tonal below,
+     and what keeps a border (cards, inputs) only needs a whisper of an edge. */
+  --border: rgba(236, 224, 202, 0.09);
+  --border-strong: rgba(236, 224, 202, 0.18);
   /* Warm cream text ladder — even higher contrast on the deep ground. Both dim
      and faint stay clearly below --text to keep the tier hierarchy. */
   --text: #e9e3d5;
@@ -1802,10 +1886,12 @@ body[data-card-glow] .cursor-glow {
   --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  /* Square everything — no rounded sessions or chrome. */
-  --mm-radius-sm: 0;
-  --mm-radius: 0;
-  --mm-radius-lg: 0;
+  /* Gently rounded chrome — enough to take the edge off the flat panels
+     without going pill-shaped. Session-grid panes stay square (flush layout,
+     see the [data-session-grid] override below). */
+  --mm-radius-sm: 4px;
+  --mm-radius: 6px;
+  --mm-radius-lg: 8px;
   --mm-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --mm-dur: 140ms;
   /* Keyboard focus: crisp accent line plus a soft halo — a lone 1px ring gets
@@ -1830,18 +1916,24 @@ body[data-card-glow] .cursor-glow {
   display: none !important;
 }
 
-/* Cards: flat, square panels — no card.png texture, no accent tint, no radius,
+/* Cards: flat, gently rounded panels — no card.png texture, no accent tint,
    no elevation. A flat card is its warm surface color and a hairline. */
 [data-minimal="true"] .mc-card-frame {
   border: 1px solid var(--border) !important;
   border-image: none !important;
-  border-radius: 0 !important;
+  border-radius: var(--mm-radius-lg) !important;
   background: var(--surface-0) !important;
   background-blend-mode: normal !important;
   box-shadow: none !important;
   transition:
+    background-color var(--mm-dur) var(--mm-ease),
     border-color var(--mm-dur) var(--mm-ease),
     box-shadow var(--mm-dur) var(--mm-ease) !important;
+}
+/* Session-grid panes are laid out flush (gap 0), so their corners stay square —
+   rounding would notch the seams between touching cells. */
+[data-minimal="true"] [data-session-grid] .mc-card-frame {
+  border-radius: 0 !important;
 }
 [data-minimal="true"] .mc-card-frame[data-solid="true"] {
   background: var(--surface-1) !important;
@@ -1963,19 +2055,24 @@ body[data-card-glow] .cursor-glow {
   border-color: color-mix(in srgb, var(--accent) 38%, transparent);
   color: color-mix(in srgb, var(--accent) 72%, white);
 }
+/* Ghost / gray-frame / danger go borderless-tonal: on the flat ground a
+   hairline on every chrome button reads as wireframe noise. Affordance comes
+   from the icon/label + a tonal fill that appears on hover (gray-frame keeps
+   a resting fill so it still reads one step above ghost). The 1px border is
+   kept transparent so hover can light it without a layout shift. */
 [data-minimal="true"] .mc-btn-ghost {
   background: transparent;
-  border-color: var(--border-strong);
+  border-color: transparent;
   color: var(--text-dim);
 }
 [data-minimal="true"] .mc-btn-gray-frame {
   background: var(--surface-1);
-  border-color: var(--border-strong);
+  border-color: transparent;
   color: var(--text);
 }
 [data-minimal="true"] .mc-btn-danger {
   background: transparent;
-  border-color: color-mix(in srgb, var(--status-failed) 38%, transparent);
+  border-color: transparent;
   color: var(--status-failed);
 }
 
@@ -1996,11 +2093,9 @@ body[data-card-glow] .cursor-glow {
 }
 [data-minimal="true"] .mc-btn-gray-frame:hover {
   background: var(--surface-2);
-  border-color: color-mix(in srgb, var(--text-dim) 30%, var(--border-strong));
 }
 [data-minimal="true"] .mc-btn-danger:hover {
   background: color-mix(in srgb, var(--status-failed) 12%, transparent);
-  border-color: color-mix(in srgb, var(--status-failed) 58%, transparent);
 }
 
 /* Press: 0.5px micro-translate, faster ease-out to feel tactile */
@@ -2020,6 +2115,30 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-danger::before,
 [data-minimal="true"] .mc-btn-gray-frame::before {
   display: none !important;
+}
+
+/* Review-changes + Ship segmented pair. The painted themes fuse these two into
+   one control via adjacent pixel frames (attached-left/right drop the touching
+   edge). The flat theme hides those ::before frames, so the borderless ghost
+   count and the Ship button read as two loose items. Restore the grouping with
+   a single hairline frame around the pair plus one divider between the cells. */
+[data-minimal="true"] .mc-ship-group {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--mm-radius);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+[data-minimal="true"] .mc-ship-group .mc-btn {
+  border-radius: 0;
+}
+/* Ship is the group's direct child (the count sits inside a display:contents
+   tooltip span). Give it the divider; drop the rest of its frame so the fill
+   tiles edge-to-edge within the shared border. */
+[data-minimal="true"] .mc-ship-group > .mc-btn {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 1px solid var(--border-strong);
 }
 
 /* Focus: soft brand-tinted halo, no hard outline */
@@ -2141,10 +2260,8 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-primary:hover {
   box-shadow: none;
 }
-/* Ghost buttons keep their hairline border: on the mid-gray ground a
-   borderless ghost has no affordance. Hover lifts to surface-2 because session
-   headers already sit on surface-1, where a surface-1 hover would be
-   invisible. */
+/* Ghost hover lifts to surface-2 because session headers already sit on
+   surface-1, where a surface-1 hover would be invisible. */
 [data-minimal="true"] .mc-btn-ghost:hover {
   background: var(--surface-2);
 }
@@ -2154,6 +2271,67 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-input-frame:focus-within {
   border-color: color-mix(in srgb, var(--accent) 58%, transparent) !important;
   box-shadow: none !important;
+}
+
+/* Terminal tabs: borderless-tonal; the active tab reads by accent-tinted fill
+   instead of an accent outline. */
+[data-minimal="true"] .mc-terminal-tab {
+  border-color: transparent;
+  border-radius: var(--mm-radius-sm);
+}
+[data-minimal="true"] .mc-terminal-tab:hover {
+  border-color: transparent;
+  background: var(--surface-2);
+}
+[data-minimal="true"] .mc-terminal-tab[data-active] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* Sessions segmented control: the surface-1 tray separates it from the band
+   without a hairline. */
+[data-minimal="true"] .mc-session-scope-toggle {
+  border-color: transparent;
+  background: var(--surface-1);
+}
+[data-minimal="true"] .mc-session-scope-tab[data-selected] {
+  background: var(--surface-3);
+}
+
+/* Chips join the borderless-tonal grammar: fill carries them, hover lifts. */
+[data-minimal="true"] .mc-hidden-chip {
+  border-color: transparent;
+  background: var(--surface-1);
+  border-radius: var(--mm-radius);
+}
+[data-minimal="true"] .mc-hidden-chip:hover {
+  border-color: transparent;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Every button acknowledges the press — the 0.5px dip the named variants
+   already have, extended to the base mc-btn variants (solid/accent/plain).
+   The base .mc-btn transition list doesn't include transform, so it's added
+   here or the dip would snap instead of easing back. */
+[data-minimal="true"] .mc-btn {
+  transition:
+    background-color var(--mm-dur) var(--mm-ease),
+    border-color var(--mm-dur) var(--mm-ease),
+    color var(--mm-dur) var(--mm-ease),
+    opacity var(--mm-dur) var(--mm-ease),
+    box-shadow var(--mm-dur) var(--mm-ease),
+    transform var(--mm-dur) var(--mm-ease);
+}
+[data-minimal="true"] .mc-btn:not(:disabled):not([aria-disabled="true"]):active {
+  transform: translateY(0.5px);
+  transition-duration: 60ms;
+}
+
+/* Toggle switches hint on hover before they're flipped. */
+[data-minimal="true"] .settings-toggle-switch:not(:disabled):not([aria-checked="true"]):hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
 }
 
 /* Project header: collapse the tall default band (22px 24px 18px) to a tight
@@ -2355,25 +2533,26 @@ body[data-card-glow] .cursor-glow {
   --tint-hi: 19%;
 }
 
-/* Flat + Intense (DARK only) reproduces the old Ember theme's warm-charcoal
-   ground: the near-black base lifts to a neutral mid warm charcoal (#242321
-   ladder) with only a whisper of the accent, so the ground reads warm but
-   un-tinted while the accent still shows on buttons/dots/focus. This is the
-   "like Ember" look. Scoped to data-theme="dark" so flat-light keeps its paper
-   ground (it falls back to the generic intense wash above). Specificity (0,3,0)
-   beats both the [data-minimal] palette and the light block. */
+/* Flat + Intense (DARK only) lifts the near-black base to Ember's mid-charcoal
+   ladder — but the cast comes from the ACCENT mixed over a neutral charcoal,
+   not from a baked-in warm hex ladder. A terracotta accent reproduces the old
+   warm Ember ground; a blue accent gives a cool blue-charcoal; every accent
+   gets its own ground (this is the whole point of the Intense tint). The
+   terminal ground takes the same mix at a lower dose so session content still
+   separates from the chrome. Scoped to data-theme="dark" so flat-light keeps
+   its paper ground (it falls back to the generic intense wash above).
+   Specificity (0,3,0) beats both the [data-minimal] palette and the light
+   block. */
 [data-minimal="true"][data-theme="dark"][data-tint="intense"] {
-  --bg: color-mix(in srgb, var(--accent) 4%, #242321);
-  --surface-0: color-mix(in srgb, var(--accent) 5%, #2c2b28);
-  --surface-1: color-mix(in srgb, var(--accent) 5%, #34322d);
-  --surface-2: color-mix(in srgb, var(--accent) 6%, #3e3b35);
-  --surface-3: color-mix(in srgb, var(--accent) 6%, #4a463f);
-  /* Terminal ground: a distinct neutral warm tone against the card/header
-     surface so the session content separates from the chrome. Set directly (no
-     accent mix) so a warm accent like terracotta doesn't cast it red. */
-  --terminal-bg: oklab(0.28 0 0.01);
-  /* The mid-gray ground melts thin hairlines — restore Ember's stronger cream
-     borders. */
-  --border: rgba(236, 224, 202, 0.15);
-  --border-strong: rgba(236, 224, 202, 0.3);
+  --bg: color-mix(in srgb, var(--accent) 7%, #222222);
+  --surface-0: color-mix(in srgb, var(--accent) 8%, #2a2a2a);
+  --surface-1: color-mix(in srgb, var(--accent) 8%, #313131);
+  --surface-2: color-mix(in srgb, var(--accent) 9%, #3a3a3a);
+  --surface-3: color-mix(in srgb, var(--accent) 9%, #444444);
+  --terminal-bg: color-mix(in srgb, var(--accent) 6%, #2d2d2d);
+  /* The mid-gray ground melts thin hairlines, so these run a touch stronger
+     than the near-black base — neutral white so they pair with any accent
+     (the old cream hairlines clashed with cool accents). */
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.2);
 }

@@ -170,6 +170,7 @@ export function ThemeSettingsPage() {
           style={themeStyle}
           accentColor={accentColor}
           surfaceTint={surfaceTint}
+          theme={theme}
           onChange={setThemeStyle}
         />
       </Field>
@@ -214,11 +215,13 @@ function ThemeStyleGrid({
   style,
   accentColor,
   surfaceTint,
+  theme,
   onChange,
 }: {
   style: ThemeStyle;
   accentColor: AccentColorId;
   surfaceTint: SurfaceTint;
+  theme: Theme;
   onChange: (next: ThemeStyle) => void;
 }) {
   const labelId = useId();
@@ -239,6 +242,22 @@ function ThemeStyleGrid({
       </span>
       {THEME_STYLE_OPTIONS.map((option) => {
         const selected = style === option.value;
+        const isPainted = option.value === "painted";
+        // The painted card always wears dark pixel-art chrome — even while the
+        // app is in light mode (painted is dark-only) — so its labels take fixed
+        // light-on-dark ink rather than the theme's --text, which would be
+        // near-black and unreadable on the dark frame. The flat card's chrome
+        // follows the theme, so its labels use the theme vars.
+        const labelColor = isPainted
+          ? selected
+            ? "#e8e6df"
+            : "rgba(232, 230, 223, 0.6)"
+          : selected
+            ? "var(--text)"
+            : "var(--text-dim)";
+        const descColor = isPainted
+          ? "rgba(232, 230, 223, 0.4)"
+          : "var(--text-faint)";
         // Each card wears its own theme's chrome: the painted card gets the
         // pixel-art panel frame (the CardFrame recipe, inlined so the
         // [data-minimal] flattening rules can't strip it when the flat theme
@@ -318,19 +337,20 @@ function ThemeStyleGrid({
               style={option.value}
               accentId={accentColor}
               tint={surfaceTint}
+              theme={theme}
             />
             <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <span
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
-                  color: selected ? "var(--text)" : "var(--text-dim)",
+                  color: labelColor,
                 }}
               >
                 {option.label}
               </span>
               <span
-                style={{ fontSize: 11.5, lineHeight: 1.45, color: "var(--text-faint)" }}
+                style={{ fontSize: 11.5, lineHeight: 1.45, color: descColor }}
               >
                 {option.description}
               </span>
