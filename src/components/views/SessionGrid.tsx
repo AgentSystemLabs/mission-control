@@ -621,12 +621,12 @@ export function SessionGrid({
   const userTerminals = useUserTerminals();
   const { bindings } = useKeybindings();
   const { data: settings } = useSettings();
-  // Ember lays panes out flush + square: no gap between cells, no outer
-  // padding. Every other theme keeps the spacious 8px grid. Fall back to the
-  // cached style so first paint matches before settings hydrate. The divider
-  // hit-area (HANDLE_HIT) stays a grabbable 8px, centred on the 0-width seam.
+  // The flat theme lays panes out flush + square: no gap between cells, no
+  // outer padding. Painted keeps the spacious 8px grid. Fall back to the cached
+  // style so first paint matches before settings hydrate. The divider hit-area
+  // (HANDLE_HIT) stays a grabbable 8px, centred on the 0-width seam.
   const flushLayout =
-    (settings?.themeStyle ?? readCachedThemeStyle()) === "ember";
+    (settings?.themeStyle ?? readCachedThemeStyle()) === "flat";
   const gridGap = flushLayout ? 0 : GRID_GAP;
   const gridPad = flushLayout ? 0 : GRID_PADDING;
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);

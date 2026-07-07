@@ -11,9 +11,9 @@ import type { SurfaceTint } from "~/shared/surface-tint";
  * and the first-launch onboarding overlay.
  *
  * Palette values are copied from the corresponding blocks in src/styles.css
- * (:root, [data-minimal], [data-noir], [data-ember]) — keep them in sync when
- * a palette is retuned. Tint percentages mirror the [data-tint] recipe blocks
- * at the bottom of styles.css.
+ * (:root for painted, [data-minimal] for flat) — keep them in sync when a
+ * palette is retuned. Tint percentages mirror the [data-tint] recipe blocks at
+ * the bottom of styles.css. The flat miniature shows its dark palette.
  */
 
 type StylePalette = {
@@ -26,10 +26,10 @@ type StylePalette = {
   border: string;
   textDim: string;
   textFaint: string;
-  /** Pane corner radius — ember is square, painted the roundest. */
+  /** Pane corner radius — flat is square, painted rounded. */
   radius: number;
   /** How the focused pane announces itself. */
-  focus: "painted" | "ring" | "hairline" | "solid";
+  focus: "painted" | "solid";
 };
 
 const STYLE_PALETTES: Record<ThemeStyle, StylePalette> = {
@@ -43,31 +43,11 @@ const STYLE_PALETTES: Record<ThemeStyle, StylePalette> = {
     radius: 6,
     focus: "painted",
   },
-  minimal: {
-    bg: "oklch(0.08 0.003 245)",
-    surface0: "oklch(0.115 0.004 245)",
-    surface1: "oklch(0.145 0.005 245)",
-    border: "oklch(0.62 0.010 245 / 0.16)",
-    textDim: "rgba(232, 230, 223, 0.6)",
-    textFaint: "rgba(232, 230, 223, 0.38)",
-    radius: 5,
-    focus: "ring",
-  },
-  noir: {
-    bg: "#0a0a0c",
-    surface0: "#0f0f12",
-    surface1: "#131317",
-    border: "rgba(255, 255, 255, 0.065)",
-    textDim: "rgba(233, 233, 236, 0.56)",
-    textFaint: "rgba(233, 233, 236, 0.33)",
-    radius: 4,
-    focus: "hairline",
-  },
-  ember: {
-    bg: "#242321",
-    surface0: "#2c2b28",
-    surface1: "#34322d",
-    border: "rgba(236, 224, 202, 0.15)",
+  flat: {
+    bg: "oklch(0.09 0.004 65)",
+    surface0: "oklch(0.125 0.005 65)",
+    surface1: "oklch(0.155 0.006 65)",
+    border: "rgba(236, 224, 202, 0.12)",
     textDim: "#c6bca8",
     textFaint: "#a89e8c",
     radius: 0,
@@ -76,12 +56,10 @@ const STYLE_PALETTES: Record<ThemeStyle, StylePalette> = {
 };
 
 // Mirrors the [data-tint] recipes in styles.css: [lo, md] percentages per
-// style × level (hi isn't needed — the mock has no raised chrome).
+// theme × level (hi isn't needed — the mock has no raised chrome).
 const TINT_RECIPES: Record<ThemeStyle, Record<SurfaceTint, [number, number]>> = {
-  painted: { off: [0, 0], subtle: [2.5, 3.5], vivid: [7, 9] },
-  minimal: { off: [0, 0], subtle: [2.5, 3.5], vivid: [7, 9] },
-  noir: { off: [0, 0], subtle: [1.5, 2], vivid: [4, 5.5] },
-  ember: { off: [0, 0], subtle: [3, 4], vivid: [7, 9] },
+  painted: { off: [0, 0], subtle: [2.5, 3.5], vivid: [7, 9], intense: [13, 16] },
+  flat: { off: [0, 0], subtle: [2.5, 3.5], vivid: [7, 9], intense: [13, 16] },
 };
 
 function mix(accent: string, pct: number, base: string): string {
@@ -100,10 +78,23 @@ export function ThemeStylePreview({
 }) {
   const accent = getAccentColor(accentId);
   const palette = STYLE_PALETTES[style];
-  const [lo, md] = TINT_RECIPES[style][tint];
-  const bg = mix(accent.value, lo, palette.bg);
-  const surface0 = mix(accent.value, md, palette.surface0);
-  const surface1 = mix(accent.value, md, palette.surface1);
+  // Flat + Intense re-binds the ground to the old Ember warm-charcoal ladder
+  // (see [data-minimal][data-theme="dark"][data-tint="intense"] in styles.css)
+  // rather than washing the near-black base — mirror that here so the miniature
+  // matches. A whisper of accent, matching the CSS recipe.
+  const flatIntense = style === "flat" && tint === "intense";
+  const base = flatIntense
+    ? { bg: "#242321", surface0: "#2c2b28", surface1: "#34322d", lo: 4, md: 5 }
+    : {
+        bg: palette.bg,
+        surface0: palette.surface0,
+        surface1: palette.surface1,
+        lo: TINT_RECIPES[style][tint][0],
+        md: TINT_RECIPES[style][tint][1],
+      };
+  const bg = mix(accent.value, base.lo, base.bg);
+  const surface0 = mix(accent.value, base.md, base.surface0);
+  const surface1 = mix(accent.value, base.md, base.surface1);
   const accentRgba = (a: number) => `rgba(${accent.rgb}, ${a})`;
 
   const focusedPaneStyle: CSSProperties =
@@ -112,20 +103,10 @@ export function ThemeStylePreview({
           border: `2px solid ${accentRgba(0.8)}`,
           boxShadow: `0 0 10px ${accentRgba(0.4)}`,
         }
-      : palette.focus === "ring"
-        ? {
-            border: `1px solid ${accentRgba(0.75)}`,
-            boxShadow: `0 0 0 2px ${accentRgba(0.22)}`,
-          }
-        : palette.focus === "hairline"
-          ? {
-              border: `1px solid ${accentRgba(0.66)}`,
-              boxShadow: `0 0 8px ${accentRgba(0.12)}`,
-            }
-          : {
-              border: `1px solid ${accent.value}`,
-              boxShadow: `0 3px 8px rgba(0, 0, 0, 0.35)`,
-            };
+      : {
+          border: `1px solid ${accent.value}`,
+          boxShadow: `0 3px 8px rgba(0, 0, 0, 0.35)`,
+        };
 
   const pane = (focused: boolean, lines: number[]) => (
     <div

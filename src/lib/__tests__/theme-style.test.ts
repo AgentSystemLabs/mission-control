@@ -41,10 +41,10 @@ describe("theme-style", () => {
     expect(mod.readCachedThemeStyle()).toBe("painted");
   });
 
-  it("falls back to the legacy minimal flag when only it is cached", async () => {
+  it("falls back to the legacy minimal flag (→ flat) when only it is cached", async () => {
     const mod = await import("../theme-style");
     storage.store.set(mod.MINIMAL_CACHE_KEY, "1");
-    expect(mod.readCachedThemeStyle()).toBe("minimal");
+    expect(mod.readCachedThemeStyle()).toBe("flat");
   });
 
   it("prefers the style cache over the legacy flag", async () => {
@@ -54,33 +54,33 @@ describe("theme-style", () => {
     expect(mod.readCachedThemeStyle()).toBe("painted");
   });
 
+  it("migrates a legacy cached style (minimal / noir / ember) to flat", async () => {
+    const mod = await import("../theme-style");
+    for (const legacy of ["minimal", "noir", "ember"]) {
+      storage.store.set(mod.THEME_STYLE_CACHE_KEY, legacy);
+      expect(mod.readCachedThemeStyle()).toBe("flat");
+    }
+  });
+
   it("ignores an invalid cached style", async () => {
     const mod = await import("../theme-style");
     storage.store.set(mod.THEME_STYLE_CACHE_KEY, "vaporwave");
     expect(mod.readCachedThemeStyle()).toBe("painted");
   });
 
-  it("caches noir and mirrors the legacy flag on", async () => {
+  it("caches flat and mirrors the legacy flag on", async () => {
     const mod = await import("../theme-style");
     // In the node test env `document` is undefined, so applyThemeStyle only
     // touches localStorage — exactly the branch we want to assert.
-    mod.applyThemeStyle("noir");
-    expect(storage.store.get(mod.THEME_STYLE_CACHE_KEY)).toBe("noir");
+    mod.applyThemeStyle("flat");
+    expect(storage.store.get(mod.THEME_STYLE_CACHE_KEY)).toBe("flat");
     expect(storage.store.get(mod.MINIMAL_CACHE_KEY)).toBe("1");
-    expect(mod.readCachedThemeStyle()).toBe("noir");
-  });
-
-  it("caches ember and mirrors the legacy flag on", async () => {
-    const mod = await import("../theme-style");
-    mod.applyThemeStyle("ember");
-    expect(storage.store.get(mod.THEME_STYLE_CACHE_KEY)).toBe("ember");
-    expect(storage.store.get(mod.MINIMAL_CACHE_KEY)).toBe("1");
-    expect(mod.readCachedThemeStyle()).toBe("ember");
+    expect(mod.readCachedThemeStyle()).toBe("flat");
   });
 
   it("caches painted and mirrors the legacy flag off", async () => {
     const mod = await import("../theme-style");
-    mod.applyThemeStyle("minimal");
+    mod.applyThemeStyle("flat");
     mod.applyThemeStyle("painted");
     expect(storage.store.get(mod.THEME_STYLE_CACHE_KEY)).toBe("painted");
     expect(storage.store.get(mod.MINIMAL_CACHE_KEY)).toBe("0");

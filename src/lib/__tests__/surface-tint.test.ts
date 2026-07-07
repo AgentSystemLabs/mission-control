@@ -41,6 +41,7 @@ describe("surface-tint", () => {
     expect(isSurfaceTint("off")).toBe(true);
     expect(isSurfaceTint("subtle")).toBe(true);
     expect(isSurfaceTint("vivid")).toBe(true);
+    expect(isSurfaceTint("intense")).toBe(true);
     expect(isSurfaceTint("neon")).toBe(false);
     expect(isSurfaceTint(null)).toBe(false);
     expect(isSurfaceTint(1)).toBe(false);

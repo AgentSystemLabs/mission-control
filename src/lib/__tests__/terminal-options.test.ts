@@ -38,16 +38,16 @@ describe("terminal options", () => {
     expect(getTerminalColorScheme()).toBe("dark");
   });
 
-  it("swaps in the warm high-contrast ANSI ramp when ember is active", () => {
+  it("swaps in the warm high-contrast ANSI ramp when the flat theme is active (dark)", () => {
     vi.stubGlobal("document", {
       documentElement: {
-        getAttribute: (name: string) => (name === "data-ember" ? "true" : null),
+        getAttribute: (name: string) => (name === "data-minimal" ? "true" : null),
       },
     });
     try {
       const theme = createTerminalTheme();
       // brightBlack is what CLIs use for dim/secondary text — the stock
-      // #22262c is the same tone as ember's #2b2a27 ground (≈1.1:1).
+      // #22262c is the same tone as the flat theme's #2b2a27 ground (≈1.1:1).
       expect(theme).toMatchObject({
         background: "#2b2a27",
         foreground: "#e9e3d5",
@@ -60,7 +60,23 @@ describe("terminal options", () => {
     }
   });
 
-  it("keeps the stock dark ramp when ember is not active", () => {
+  it("uses the stock light ramp for the flat theme in light mode", () => {
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) => (name === "data-minimal" ? "true" : null),
+      },
+    });
+    try {
+      // Light overrides the warm dark ramp — flatDark requires colorScheme dark.
+      expect(createTerminalTheme({ colorScheme: "light" }).brightBlack).not.toBe(
+        "#8f8577",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the stock dark ramp when the flat theme is not active", () => {
     expect(createTerminalTheme().brightBlack).toBe("#22262c");
   });
 

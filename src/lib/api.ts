@@ -63,7 +63,8 @@ import { pruneStoredSessionFinishNotifications } from "~/lib/session-notificatio
 export type AppSettings = {
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
-  /** Which chrome to render: painted (pixel art), minimal, or noir (flat). */
+  /** Which chrome to render: painted (pixel art, dark-only) or flat (clean,
+   *  Ember character, supports dark/light). */
   themeStyle: ThemeStyle;
   /** How much accent to mix into surface tokens (off / subtle / vivid). */
   surfaceTint: SurfaceTint;

@@ -17,6 +17,7 @@ import {
   type SurfaceTint,
 } from "~/shared/surface-tint";
 import { applySurfaceTint } from "~/lib/surface-tint";
+import { useTheme, type Theme } from "~/lib/use-theme";
 import { queryKeys, useSettings } from "~/queries";
 import {
   hasCachedLaunchIntroPreference,
@@ -29,6 +30,7 @@ import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-heade
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
+  const { theme, set: setTheme } = useTheme();
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
   const themeStyle = settings?.themeStyle ?? DEFAULT_THEME_STYLE;
   const surfaceTint = settings?.surfaceTint ?? DEFAULT_SURFACE_TINT;
@@ -113,11 +115,11 @@ export function ThemeSettingsPage() {
 
   const setThemeStyle = async (next: ThemeStyle) => {
     const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
-    // Ember is built around its warm terracotta accent (sampled from the
-    // reference) — default it out of the box; the user can still pick any
+    // The flat theme is built around its warm terracotta accent (sampled from
+    // the reference) — default it out of the box; the user can still pick any
     // accent afterward and it sticks.
     const nextAccent =
-      next === "ember" && accentColor !== "terracotta"
+      next === "flat" && accentColor !== "terracotta"
         ? ("terracotta" as AccentColorId)
         : accentColor;
     if (nextAccent !== accentColor) applyAccentColor(nextAccent);
@@ -160,7 +162,7 @@ export function ThemeSettingsPage() {
   return (
     <SettingsSection
       title="Theme"
-      subtitle="Pick the chrome Mission Control wears: painted pixel art, clean minimal, flat noir, or warm ember."
+      subtitle="Pick the chrome Mission Control wears: painted pixel art or the warm, flat Ember look — the latter in dark or light."
       headingLevel="h1"
     >
       <Field label="Theme style">
@@ -171,6 +173,11 @@ export function ThemeSettingsPage() {
           onChange={setThemeStyle}
         />
       </Field>
+      {themeStyle === "flat" && (
+        <Field label="Appearance">
+          <DarkLightToggle theme={theme} onChange={setTheme} />
+        </Field>
+      )}
       <Field label="Accent color">
         <AccentColorGrid
           minimal={minimalTheme}
@@ -193,25 +200,13 @@ const THEME_STYLE_OPTIONS: Array<{
   {
     value: "painted",
     label: "Painted",
-    description: "Pixel-art borders and shell imagery. The full Mission Control look.",
+    description: "Pixel-art borders and shell imagery. The full Mission Control look. Dark only.",
   },
   {
-    value: "minimal",
-    label: "Minimal",
+    value: "flat",
+    label: "Flat",
     description:
-      "Clean CSS borders and textured cards. Lighter on the eyes, faster to render.",
-  },
-  {
-    value: "noir",
-    label: "Noir",
-    description:
-      "Flat near-black surfaces with hairline dividers. Borders only where they mean something.",
-  },
-  {
-    value: "ember",
-    label: "Ember",
-    description:
-      "Warm sepia near-black with edge-to-edge square panes and a clearer bundled mono. The focused session glows.",
+      "Warm sepia near-black with edge-to-edge square panes and a clearer bundled mono. The focused session glows. Supports dark and light.",
   },
 ];
 
@@ -313,6 +308,76 @@ function ThemeStyleGrid({
   );
 }
 
+const DARK_LIGHT_OPTIONS: Record<Theme, { label: string; description: string }> = {
+  dark: { label: "Dark", description: "Deep near-black ground — the default." },
+  light: { label: "Light", description: "Warm-paper surfaces for bright rooms." },
+};
+
+/** Dark/light switch — only rendered for the flat theme (painted is dark-only).
+ *  Preference lives in localStorage via useTheme, not server settings. */
+function DarkLightToggle({
+  theme,
+  onChange,
+}: {
+  theme: Theme;
+  onChange: (next: Theme) => void;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const active = DARK_LIGHT_OPTIONS[theme];
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 16,
+        padding: "12px 14px",
+        background: "var(--surface-0)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--mm-radius, 7px)",
+      }}
+    >
+      <div>
+        <div
+          id={titleId}
+          style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}
+        >
+          {active.label}
+        </div>
+        <div
+          id={descriptionId}
+          style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45 }}
+        >
+          {active.description}
+        </div>
+      </div>
+      <div
+        role="radiogroup"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        style={{
+          display: "inline-flex",
+          padding: 2,
+          background: "var(--surface-1)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--mm-radius, 7px)",
+          flexShrink: 0,
+        }}
+      >
+        {(["dark", "light"] as const).map((value) => (
+          <ModeOption
+            key={value}
+            label={DARK_LIGHT_OPTIONS[value].label}
+            selected={theme === value}
+            onSelect={() => onChange(value)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const SURFACE_TINT_OPTIONS: Record<SurfaceTint, { label: string; description: string }> = {
   off: {
     label: "Off",
@@ -325,6 +390,11 @@ const SURFACE_TINT_OPTIONS: Record<SurfaceTint, { label: string; description: st
   vivid: {
     label: "Vivid",
     description: "A clearly visible accent wash across the whole app.",
+  },
+  intense: {
+    label: "Intense",
+    description:
+      "Warm-charcoal ground — the old Ember look. Best on a warm accent like Terracotta.",
   },
 };
 

@@ -653,12 +653,12 @@ describe("settings API", () => {
     });
   });
 
-  it("persists the theme style and derives minimalTheme from it", async () => {
+  it("persists the flat theme style and derives minimalTheme from it", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeStyle: "noir" }),
+        body: JSON.stringify({ themeStyle: "flat" }),
       }),
     );
     const read = await handleApiRequest(
@@ -667,36 +667,43 @@ describe("settings API", () => {
 
     expect(update?.status).toBe(200);
     expect(await jsonBody(update!)).toMatchObject({
-      themeStyle: "noir",
+      themeStyle: "flat",
       minimalTheme: true,
     });
     expect(await jsonBody(read!)).toMatchObject({
-      themeStyle: "noir",
+      themeStyle: "flat",
       minimalTheme: true,
     });
   });
 
-  it("persists the ember theme style and derives minimalTheme from it", async () => {
-    const update = await handleApiRequest(
-      authedRequest("http://localhost/api/settings", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeStyle: "ember" }),
-      }),
-    );
-    const read = await handleApiRequest(
-      authedRequest("http://localhost/api/settings"),
-    );
+  it("rejects a legacy theme style (noir / ember) on write", async () => {
+    for (const legacy of ["noir", "ember", "minimal"]) {
+      const response = await handleApiRequest(
+        authedRequest("http://localhost/api/settings", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ themeStyle: legacy }),
+        }),
+      );
+      expect(response?.status).toBe(400);
+    }
+  });
 
-    expect(update?.status).toBe(200);
-    expect(await jsonBody(update!)).toMatchObject({
-      themeStyle: "ember",
-      minimalTheme: true,
-    });
-    expect(await jsonBody(read!)).toMatchObject({
-      themeStyle: "ember",
-      minimalTheme: true,
-    });
+  it("migrates a legacy theme_style row (noir / ember / minimal) to flat on read", async () => {
+    for (const legacy of ["noir", "ember", "minimal"]) {
+      getDb().delete(appSettings).run();
+      getDb()
+        .insert(appSettings)
+        .values({ key: "theme_style", value: legacy })
+        .run();
+      const read = await handleApiRequest(
+        authedRequest("http://localhost/api/settings"),
+      );
+      expect(await jsonBody(read!)).toMatchObject({
+        themeStyle: "flat",
+        minimalTheme: true,
+      });
+    }
   });
 
   it("defaults the surface tint to subtle", async () => {
@@ -723,6 +730,23 @@ describe("settings API", () => {
     expect(update?.status).toBe(200);
     expect(await jsonBody(update!)).toMatchObject({ surfaceTint: "vivid" });
     expect(await jsonBody(read!)).toMatchObject({ surfaceTint: "vivid" });
+  });
+
+  it("persists the intense surface tint", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ surfaceTint: "intense" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ surfaceTint: "intense" });
+    expect(await jsonBody(read!)).toMatchObject({ surfaceTint: "intense" });
   });
 
   it("persists an explicit off surface tint", async () => {
@@ -820,7 +844,7 @@ describe("settings API", () => {
     expect(response?.status).toBe(400);
   });
 
-  it("maps an install that only stored the legacy minimal flag to the minimal style", async () => {
+  it("maps an install that only stored the legacy minimal flag to the flat style", async () => {
     // Simulate a database written by a build that predates theme_style.
     getDb().insert(appSettings).values({ key: "minimal_theme", value: "true" }).run();
 
@@ -829,19 +853,12 @@ describe("settings API", () => {
     );
 
     expect(await jsonBody(response!)).toMatchObject({
-      themeStyle: "minimal",
+      themeStyle: "flat",
       minimalTheme: true,
     });
   });
 
-  it("keeps noir when a legacy client re-sends minimalTheme: true", async () => {
-    await handleApiRequest(
-      authedRequest("http://localhost/api/settings", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeStyle: "noir" }),
-      }),
-    );
+  it("selects flat when a legacy client sends minimalTheme: true", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
@@ -850,7 +867,10 @@ describe("settings API", () => {
       }),
     );
 
-    expect(await jsonBody(update!)).toMatchObject({ themeStyle: "noir" });
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "flat",
+      minimalTheme: true,
+    });
   });
 
   it("returns to painted when a legacy client sends minimalTheme: false", async () => {
@@ -858,7 +878,7 @@ describe("settings API", () => {
       authedRequest("http://localhost/api/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeStyle: "noir" }),
+        body: JSON.stringify({ themeStyle: "flat" }),
       }),
     );
     const update = await handleApiRequest(

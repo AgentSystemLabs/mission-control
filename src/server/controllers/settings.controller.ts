@@ -35,7 +35,11 @@ import {
   normalizeSelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import { safeJsonParse } from "~/shared/safe-json";
-import { isThemeStyle, type ThemeStyle } from "~/shared/theme-style";
+import {
+  isThemeStyle,
+  normalizeThemeStyle,
+  type ThemeStyle,
+} from "~/shared/theme-style";
 import {
   DEFAULT_SURFACE_TINT,
   isSurfaceTint,
@@ -170,9 +174,11 @@ function getAccentColorSetting(): AccentColorId {
 
 function getThemeStyleSetting(): ThemeStyle {
   const value = getSetting(THEME_STYLE_KEY);
-  if (isThemeStyle(value)) return value;
+  // Migrate on read: legacy rows stored "minimal" / "noir" / "ember", which all
+  // collapse to "flat"; anything unrecognized falls back to painted.
+  if (value !== null) return normalizeThemeStyle(value);
   // Installs that predate theme_style only stored the minimal/painted toggle.
-  return getBooleanSetting(MINIMAL_THEME_KEY) ? "minimal" : "painted";
+  return getBooleanSetting(MINIMAL_THEME_KEY) ? "flat" : "painted";
 }
 
 function getSurfaceTintSetting(): SurfaceTint {
@@ -248,8 +254,8 @@ function settingsPayload() {
     accentColor: getAccentColorSetting(),
     themeStyle,
     surfaceTint: getSurfaceTintSetting(),
-    // Derived: true whenever the style renders clean CSS chrome (minimal or
-    // noir). Layout consumers key off this; the style picker reads themeStyle.
+    // Derived: true whenever the style renders clean CSS chrome (the flat
+    // theme). Layout consumers key off this; the style picker reads themeStyle.
     minimalTheme: themeStyle !== "painted",
     // Raw-key check — the getters above normalize absent rows to defaults,
     // which would erase the "never chosen" signal. False only on a fresh
@@ -331,14 +337,10 @@ export async function update(request: Request): Promise<Response> {
     setSetting("accent_color", body.accentColor);
   }
   if (body.minimalTheme !== undefined) {
-    // Legacy toggle: turning it off always means painted; turning it on keeps
-    // an existing clean-chrome style (noir) instead of clobbering it.
+    // Legacy toggle: on means the flat theme, off means painted. (getThemeStyle
+    // -Setting already migrates any stored legacy style to "flat".)
     setBooleanSetting(MINIMAL_THEME_KEY, body.minimalTheme);
-    const current = getThemeStyleSetting();
-    setSetting(
-      THEME_STYLE_KEY,
-      body.minimalTheme ? (current === "painted" ? "minimal" : current) : "painted",
-    );
+    setSetting(THEME_STYLE_KEY, body.minimalTheme ? "flat" : "painted");
   }
   if (body.themeStyle !== undefined) {
     setSetting(THEME_STYLE_KEY, body.themeStyle);

@@ -89,13 +89,13 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
     applyAccentColor(next);
   }, []);
 
-  // Picking a style live-applies it instantly. Ember is built around its warm
-  // terracotta accent, so selecting it defaults the swatch there (the user can
-  // still pick another color afterward).
+  // Picking a style live-applies it instantly. The flat theme is built around
+  // its warm terracotta accent, so selecting it defaults the swatch there (the
+  // user can still pick another color afterward).
   const selectStyle = useCallback((next: ThemeStyle) => {
     setStyle(next);
     applyThemeStyle(next);
-    if (next === "ember") {
+    if (next === "flat") {
       setColor("terracotta");
       applyAccentColor("terracotta");
     }
@@ -216,35 +216,19 @@ function ThemeOnboardingOverlay({ onDone }: { onDone: () => void }) {
           >
             <StyleChoiceCard
               title="Painted"
-              description="Pixel-art borders and shell imagery. The full Mission Control look."
+              description="Pixel-art borders and shell imagery. The full Mission Control look. Dark only."
               accentId={color}
               stylePreview="painted"
               selected={style === "painted"}
               onSelect={() => selectStyle("painted")}
             />
             <StyleChoiceCard
-              title="Minimal"
-              description="Clean CSS borders. Lighter on the eyes and faster to render."
+              title="Flat"
+              description="Warm sepia, edge-to-edge square panes, and a clearer bundled mono. The focused session glows. Dark or light."
               accentId={color}
-              stylePreview="minimal"
-              selected={style === "minimal"}
-              onSelect={() => selectStyle("minimal")}
-            />
-            <StyleChoiceCard
-              title="Noir"
-              description="Flat near-black with hairline dividers. Borders only where they mean something."
-              accentId={color}
-              stylePreview="noir"
-              selected={style === "noir"}
-              onSelect={() => selectStyle("noir")}
-            />
-            <StyleChoiceCard
-              title="Ember"
-              description="Warm sepia, edge-to-edge square panes, and a clearer bundled mono. The focused session glows."
-              accentId={color}
-              stylePreview="ember"
-              selected={style === "ember"}
-              onSelect={() => selectStyle("ember")}
+              stylePreview="flat"
+              selected={style === "flat"}
+              onSelect={() => selectStyle("flat")}
             />
           </div>
         </section>
