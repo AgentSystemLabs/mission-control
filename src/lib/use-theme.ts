@@ -1,6 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { getElectron } from "~/lib/electron";
+
 export type Theme = "dark" | "light";
+
+/** Native window grounds per theme — keep in sync with --bg in styles.css
+ *  (dark base / flat-light base) so resize gutters match the page. */
+const WINDOW_BACKGROUND: Record<Theme, string> = {
+  dark: "#000000",
+  light: "#f4f4f6",
+};
+
+/** Push the effective DOM theme's ground to the Electron window so the native
+ *  frame (launch flash, resize gutters) matches. No-op in the browser. */
+export function syncWindowBackground(): void {
+  if (typeof document === "undefined") return;
+  const effective: Theme =
+    document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  void getElectron()?.setWindowBackgroundColor?.(WINDOW_BACKGROUND[effective]);
+}
 
 const KEY = "mc.theme";
 
@@ -41,6 +59,7 @@ function applyTheme(theme: Theme): void {
     "data-theme",
     isFlatActive() ? theme : "dark",
   );
+  syncWindowBackground();
 }
 
 function persistTheme(theme: Theme): void {

@@ -3,7 +3,7 @@ import {
   normalizeThemeStyle,
   type ThemeStyle,
 } from "~/shared/theme-style";
-import { readCachedTheme } from "~/lib/use-theme";
+import { readCachedTheme, syncWindowBackground } from "~/lib/use-theme";
 
 export { isCleanChromeStyle } from "~/shared/theme-style";
 export type { ThemeStyle } from "~/shared/theme-style";
@@ -54,6 +54,7 @@ export function applyThemeStyle(style: ThemeStyle): void {
       root.setAttribute("data-minimal", "true");
       root.setAttribute("data-theme", readCachedTheme());
     }
+    syncWindowBackground();
   }
   if (typeof window === "undefined") return;
   try {

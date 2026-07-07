@@ -20,6 +20,7 @@ export const IPC = {
   appExitFocusMode: "app:exitFocusMode",
   appGetFocusMode: "app:getFocusMode",
   appSetFocusModeAlwaysOnTop: "app:setFocusModeAlwaysOnTop",
+  appSetBackgroundColor: "app:setBackgroundColor",
   cliCheck: "cli:check",
   ptySpawn: "pty:spawn",
   ptyWrite: "pty:write",

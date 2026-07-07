@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
 import { AccentColorGrid } from "~/components/views/AccentColorPicker";
@@ -228,7 +228,9 @@ function ThemeStyleGrid({
       aria-labelledby={labelId}
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        // Cap card width so the 16:10 previews stay thumbnail-sized on wide
+        // windows instead of stretching to fill the settings column.
+        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 280px))",
         gap: 12,
       }}
     >
@@ -237,6 +239,42 @@ function ThemeStyleGrid({
       </span>
       {THEME_STYLE_OPTIONS.map((option) => {
         const selected = style === option.value;
+        // Each card wears its own theme's chrome: the painted card gets the
+        // pixel-art panel frame (the CardFrame recipe, inlined so the
+        // [data-minimal] flattening rules can't strip it when the flat theme
+        // is active), the flat card stays a hairline surface.
+        const paintedFrame = selected
+          ? "var(--mc-panel-focused-image)"
+          : "var(--mc-panel-image)";
+        const cardChrome: CSSProperties =
+          option.value === "painted"
+            ? {
+                // 16px frame + 0 padding = same 16px content inset as the
+                // flat card (1px border + 15px padding), so both previews
+                // render at the same size.
+                padding: 0,
+                backgroundColor: "transparent",
+                backgroundClip: "padding-box",
+                backgroundImage: `linear-gradient(rgba(3, 6, 8, 0.15), rgba(3, 6, 8, 0.15)), ${paintedFrame}`,
+                backgroundPosition: "0% 0%, 39.0625% 39.0625%",
+                backgroundSize: "auto, 200% 200%",
+                backgroundRepeat: "repeat, no-repeat",
+                borderStyle: "solid",
+                borderColor: "transparent",
+                borderWidth: 16,
+                borderImageSource: paintedFrame,
+                borderImageSlice: 48,
+                borderImageWidth: "16px",
+                borderImageRepeat: "stretch",
+                borderRadius: 0,
+              }
+            : {
+                padding: 15,
+                background: "var(--surface-1)",
+                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: "var(--mm-radius-lg, 10px)",
+                boxShadow: selected ? "0 0 0 1px var(--accent) inset" : "none",
+              };
         return (
           <button
             key={option.value}
@@ -249,14 +287,10 @@ function ThemeStyleGrid({
               display: "flex",
               flexDirection: "column",
               gap: 10,
-              padding: 10,
               cursor: "pointer",
               textAlign: "left",
-              background: "var(--surface-1)",
-              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-              borderRadius: "var(--mm-radius-lg, 10px)",
-              boxShadow: selected ? "0 0 0 1px var(--accent) inset" : "none",
               transition: "border-color 0.15s, box-shadow 0.15s",
+              ...cardChrome,
             }}
           >
             {selected && (
@@ -310,7 +344,7 @@ function ThemeStyleGrid({
 
 const DARK_LIGHT_OPTIONS: Record<Theme, { label: string; description: string }> = {
   dark: { label: "Dark", description: "Deep near-black ground — the default." },
-  light: { label: "Light", description: "Warm-paper surfaces for bright rooms." },
+  light: { label: "Light", description: "Clean white surfaces for bright rooms." },
 };
 
 /** Dark/light switch — only rendered for the flat theme (painted is dark-only).

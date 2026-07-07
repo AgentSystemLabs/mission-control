@@ -140,38 +140,43 @@
   --running-indicator-text: var(--text);
 }
 
-/* Flat theme, LIGHT mode — a warm-paper inversion of the Ember dark ground.
+/* Flat theme, LIGHT mode — a clean neutral SaaS light: pure white cards on a
+   cool near-white ground, near-black ink, hairline cool-gray borders.
    Scoped to the flat theme (data-minimal): Painted is always dark (its
    data-theme is forced to "dark" at apply time), so light only ever means
-   flat-light. Warm off-white surfaces + warm-charcoal text keep the Ember
-   character in daylight. */
+   flat-light. */
 [data-minimal="true"][data-theme="light"] {
-  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #f5f2ea);
-  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #fffdf8);
-  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #f7f4ec);
-  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #efe9dd);
-  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e3dccc);
-  --border: rgba(60, 50, 30, 0.14);
-  --border-strong: rgba(60, 50, 30, 0.22);
-  --text: #2a241c;
-  --text-dim: rgba(42, 36, 28, 0.64);
-  --text-faint: rgba(42, 36, 28, 0.42);
-  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #fffdf8);
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #f4f4f6);
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #ffffff);
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #fafafb);
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #f2f2f4);
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e9e9ee);
+  --border: rgba(18, 22, 33, 0.09);
+  --border-strong: rgba(18, 22, 33, 0.16);
+  --text: #17181c;
+  --text-dim: rgba(23, 24, 28, 0.6);
+  --text-faint: rgba(23, 24, 28, 0.4);
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #ffffff);
   /* Light accent fills take white ink again. */
   --mm-on-accent: #ffffff;
+  /* Status hues darken for contrast on white; the dark-theme pastels wash out. */
+  --status-ready: oklch(0.55 0.1 220);
+  --status-running: oklch(0.6 0.13 75);
+  --status-needs: oklch(0.55 0.19 25);
+  --status-failed: oklch(0.55 0.19 25);
   --status-interrupted: oklch(0.58 0.17 35);
-  --status-done: oklch(0.50 0.14 150);
-  --status-idle: rgba(42, 36, 28, 0.3);
-  --status-warning: oklch(0.60 0.13 75);
+  --status-done: oklch(0.5 0.14 150);
+  --status-idle: rgba(23, 24, 28, 0.3);
+  --status-warning: oklch(0.6 0.13 75);
   --banner-bg: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--accent) 14%, var(--surface-0)),
+    color-mix(in srgb, var(--accent) 12%, var(--surface-0)),
     var(--surface-0) 34%,
-    color-mix(in srgb, var(--accent) 14%, var(--surface-0))
+    color-mix(in srgb, var(--accent) 12%, var(--surface-0))
   );
-  --banner-muted: rgba(42, 36, 28, 0.78);
+  --banner-muted: rgba(23, 24, 28, 0.78);
   --banner-link: color-mix(in srgb, var(--accent) 62%, black);
-  --banner-icon-bg: color-mix(in srgb, var(--accent) 16%, var(--surface-0));
+  --banner-icon-bg: color-mix(in srgb, var(--accent) 14%, var(--surface-0));
 }
 
 * {
@@ -1810,10 +1815,10 @@ body[data-card-glow] .cursor-glow {
     0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
   --mm-elev-1: none;
   --mm-elev-2: 0 12px 32px rgba(0, 0, 0, 0.45);
-  /* The default terracotta accent is a light mid-tone — near-white label reads
-     ~2.8:1 on it. Dark warm ink reads ~5.6:1 and wins on every accent but
-     indigo. Consumed by --primary-foreground. */
-  --mm-on-accent: #251e15;
+  /* Ink that sits ON a solid accent fill (the primary/Ship button label + its
+     icon, which inherits this color). White for a clean, conventional filled-
+     button look on the accent. Consumed by --primary-foreground. */
+  --mm-on-accent: #ffffff;
 }
 
 /* Hide the painted shell frame around the app and reclaim the gutter
@@ -2190,6 +2195,29 @@ body[data-card-glow] .cursor-glow {
   /* ~18% accent over the header surface reproduces the sampled warm active
      header (~#4d3e34) — the focused pane's title bar warms noticeably. */
   background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)) !important;
+}
+
+/* Light mode: soften the drop shadows — the near-opaque blacks tuned for the
+   dark ground read as heavy smudges on white. Same geometry, lower alpha. */
+[data-minimal="true"][data-theme="light"] .mc-card-frame[data-focused="true"] {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 4px 14px rgba(18, 22, 33, 0.1) !important;
+}
+[data-minimal="true"][data-theme="light"] [data-session-grid] .mc-card-frame:focus-within {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 4px 16px rgba(18, 22, 33, 0.12),
+    0 0 20px color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+[data-minimal="true"][data-theme="light"] .mc-toast-panel {
+  box-shadow:
+    0 6px 20px rgba(18, 22, 33, 0.12),
+    0 0 0 1px color-mix(in srgb, var(--mc-toast-tone) 12%, transparent);
+}
+[data-theme="light"] .mc-tooltip,
+[data-theme="light"] [data-sonner-toast].mc-toast-custom-shell [data-content] {
+  box-shadow: 0 4px 14px rgba(18, 22, 33, 0.14);
 }
 
 .sr-only {
