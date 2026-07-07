@@ -1939,13 +1939,21 @@ body[data-card-glow] .cursor-glow {
   border-radius: 0 !important;
 }
 /* The flush cell seams need to read stronger than the base hairline, so grid
-   pane dividers run 15% darker than each theme's own primary border color.
-   Deriving from var(--border) keeps this correct across every flat palette
-   (and preserves the accent tint already baked into --border). Skip the
-   focused cell so it keeps its accent border (see the :focus-within rule
-   below). */
-[data-minimal="true"] [data-session-grid] .mc-card-frame:not(:focus-within) {
+   pane dividers push 15% off each theme's own primary border color. Both
+   derive from var(--border) (preserving its accent tint), but the direction
+   flips per mode: on the light paper ground "stronger" means darker, while on
+   the dark ground darkening would sink the faint light-on-dark hairline into
+   the surface — so dark brightens instead. Skip the focused cell so it keeps
+   its accent border (see the :focus-within rule below). */
+[data-minimal="true"][data-theme="light"]
+  [data-session-grid]
+  .mc-card-frame:not(:focus-within) {
   border-color: color-mix(in srgb, var(--border), black 15%) !important;
+}
+[data-minimal="true"][data-theme="dark"]
+  [data-session-grid]
+  .mc-card-frame:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--border), white 15%) !important;
 }
 [data-minimal="true"] .mc-card-frame[data-solid="true"] {
   background: var(--surface-1) !important;
