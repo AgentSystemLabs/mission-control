@@ -97,6 +97,14 @@ function configureUserDataDir(): string {
 
 const missionControlUserDataDir = configureUserDataDir();
 
+// Kill Chromium's own two-finger/Magic Mouse swipe-to-go-back. The macOS
+// `AppleEnableSwipeNavigateWithScrolls` default (set per-window in createWindow)
+// only covers the OS-driven path; the horizontal swipe on a Magic Mouse still
+// reaches Chromium's built-in overscroll history navigation, which pops the
+// router in this single-shell app. Disabling the feature closes that path. Must
+// run before app-ready, so it's a module-level statement here.
+app.commandLine.appendSwitch("disable-features", "OverscrollHistoryNavigation");
+
 /** Env for spawning the bundled remote-vm CLI as a plain Node process. */
 function remoteVmSpawnEnv(): NodeJS.ProcessEnv {
   return {
