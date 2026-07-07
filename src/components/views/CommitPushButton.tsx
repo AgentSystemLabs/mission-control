@@ -258,15 +258,19 @@ export function CommitPushButton({
         <span
           style={{
             marginLeft: 6,
-            padding: "0 6px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxSizing: "border-box",
+            padding: "0 5px",
+            height: 16,
+            minWidth: 16,
             borderRadius: 999,
             background: splitTrailing ? "rgba(0,0,0,0.35)" : "var(--surface-2)",
             color: splitTrailing ? "#ffffff" : "var(--text)",
             fontFamily: "var(--mono)",
             fontSize: 10,
-            lineHeight: "16px",
-            minWidth: 16,
-            textAlign: "center",
+            lineHeight: 1,
           }}
         >
           {aheadCount}
