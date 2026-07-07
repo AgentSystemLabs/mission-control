@@ -151,10 +151,11 @@
   --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #fafafb);
   --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #f2f2f4);
   --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e9e9ee);
-  /* Warm hairline gray (#cec5c0). Opaque rather than translucent, but still
-     accent-tinted via color-mix so it tracks the palette like the surfaces do. */
-  --border: color-mix(in srgb, var(--accent) var(--tint-md), #cec5c0);
-  --border-strong: color-mix(in srgb, var(--accent) var(--tint-hi), #b3a9a2);
+  /* The active accent color at low opacity, so the hairline tracks whatever
+     accent is selected — 15% for the base border, a touch stronger for
+     --border-strong. */
+  --border: color-mix(in srgb, var(--accent) 15%, transparent);
+  --border-strong: color-mix(in srgb, var(--accent) 30%, transparent);
   --text: #17181c;
   --text-dim: rgba(23, 24, 28, 0.6);
   --text-faint: rgba(23, 24, 28, 0.4);
@@ -1936,6 +1937,15 @@ body[data-card-glow] .cursor-glow {
    rounding would notch the seams between touching cells. */
 [data-minimal="true"] [data-session-grid] .mc-card-frame {
   border-radius: 0 !important;
+}
+/* The flush cell seams need to read stronger than the base hairline, so grid
+   pane dividers run 15% darker than each theme's own primary border color.
+   Deriving from var(--border) keeps this correct across every flat palette
+   (and preserves the accent tint already baked into --border). Skip the
+   focused cell so it keeps its accent border (see the :focus-within rule
+   below). */
+[data-minimal="true"] [data-session-grid] .mc-card-frame:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--border), black 15%) !important;
 }
 [data-minimal="true"] .mc-card-frame[data-solid="true"] {
   background: var(--surface-1) !important;
