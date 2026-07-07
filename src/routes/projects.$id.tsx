@@ -1946,6 +1946,12 @@ function ProjectPage() {
     "terminal.close",
     () => {
       if (!project) return;
+      // On screen, the grid owns terminal.close: it hides the focused cell's
+      // session (SessionGrid's handleHideIntent) instead of toggling the single
+      // active panel this handler tracks. Guard on showGrid (not gridViewActive)
+      // so the empty-grid fallback — where SessionGrid isn't mounted — still
+      // falls through to the panel hide here. Mirrors cycleSession.
+      if (showGrid) return;
       const active = terminals.activeFor(selectedScopeKey);
       if (active) {
         lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId: active.taskId };
@@ -2530,6 +2536,66 @@ function ProjectPage() {
     </HeaderActions>
   );
 
+  // "Sessions" title row (scope tabs + New session). Shared between the list
+  // view and the grid's all-hidden empty state so both read identically.
+  const sessionsHeader = (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        marginBottom: 34,
+        paddingInline: 12,
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div
+          style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: "var(--text)",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          Sessions
+        </div>
+        <SessionScopeToggle
+          view={sessionView}
+          activeCount={activeTasks.length}
+          pinnedCount={pinnedTasks.length}
+          archivedCount={archivedTasks.length}
+          showArchivedTab={hasArchivedTasks || showArchived}
+          onChange={setSessionView}
+        />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {showArchived ? (
+          archivedTasks.length > 0 ? (
+            <Btn
+              variant="danger"
+              icon="trash"
+              onClick={() => setConfirmDeleteArchived(true)}
+              title="Permanently delete all archived sessions"
+            >
+              Delete all archived
+            </Btn>
+          ) : null
+        ) : (
+          <NewAgentButton
+            project={project}
+            onPrimary={onNewAgentPrimary}
+            disabled={!projectPathReady}
+            onConfigure={() => {
+              if (projectPathReady) setShowNewAgent(true);
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <>
       <CursorGlow />
@@ -2916,7 +2982,7 @@ function ProjectPage() {
         </div>
 
         {showGrid ? (
-          <SessionGrid scopeKey={selectedScopeKey} />
+          <SessionGrid scopeKey={selectedScopeKey} emptyHeader={sessionsHeader} />
         ) : (
         <>
         {cleanupStatus && (
@@ -2939,63 +3005,7 @@ function ProjectPage() {
           </div>
         )}
 
-        {tasks.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              marginBottom: 34,
-              paddingInline: 12,
-              boxSizing: "border-box",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div
-                style={{
-                  fontSize: 22,
-                  fontWeight: 700,
-                  color: "var(--text)",
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                Sessions
-              </div>
-              <SessionScopeToggle
-                view={sessionView}
-                activeCount={activeTasks.length}
-                pinnedCount={pinnedTasks.length}
-                archivedCount={archivedTasks.length}
-                showArchivedTab={hasArchivedTasks || showArchived}
-                onChange={setSessionView}
-              />
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {showArchived ? (
-                archivedTasks.length > 0 ? (
-                  <Btn
-                    variant="danger"
-                    icon="trash"
-                    onClick={() => setConfirmDeleteArchived(true)}
-                    title="Permanently delete all archived sessions"
-                  >
-                    Delete all archived
-                  </Btn>
-                ) : null
-              ) : (
-                <NewAgentButton
-                  project={project}
-                  onPrimary={onNewAgentPrimary}
-                  disabled={!projectPathReady}
-                  onConfigure={() => {
-                    if (projectPathReady) setShowNewAgent(true);
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )}
+        {tasks.length > 0 && sessionsHeader}
 
         <div
           style={{

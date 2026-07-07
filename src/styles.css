@@ -1581,6 +1581,38 @@ body[data-card-glow] .cursor-glow {
   }
 }
 
+/* Hidden-sessions bar (session grid) */
+.mc-hidden-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.mc-hidden-chip:hover {
+  background: var(--surface-3, var(--surface-2));
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.mc-hidden-chip:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.mc-hidden-restore-all {
+  border-color: transparent;
+  background: transparent;
+}
+
 /* xterm overrides to match the active app theme */
 .xterm-viewport {
   background-color: var(--terminal-bg) !important;

@@ -91,6 +91,11 @@ type Ctx = {
   gridFocusRequest: { taskId: string; nonce: number } | null;
   /** Ask the grid to scroll to, highlight, and focus a session's cell. */
   focusGridSession: (taskId: string) => void;
+  /** Claim a spotlight request for handling. True exactly once per nonce: the
+   *  request state lingers after the grid's focus effect runs, and the grid
+   *  remounts across project switches, so without this a stale request would
+   *  replay on mount and un-hide the session it targeted. */
+  consumeGridFocusRequest: (nonce: number) => boolean;
   /** Ask the grid to drop the next newly-created session directly after this
    *  source session (used by "Clone session" so a clone lands beside its
    *  origin instead of at the end of the grid). */
@@ -445,6 +450,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const focusGridSession = useCallback((taskId: string) => {
     gridFocusNonceRef.current += 1;
     setGridFocusRequest({ taskId, nonce: gridFocusNonceRef.current });
+  }, []);
+  // Highest nonce the grid has handled. Kept here (not in the grid) so it
+  // survives the grid unmounting/remounting across project switches — a ref,
+  // not state, so consuming never re-renders (and never cancels the grid's
+  // in-flight focus polling).
+  const gridFocusConsumedNonceRef = useRef(0);
+  const consumeGridFocusRequest = useCallback((nonce: number) => {
+    if (nonce <= gridFocusConsumedNonceRef.current) return false;
+    gridFocusConsumedNonceRef.current = nonce;
+    return true;
   }, []);
 
   // Source session id for a pending clone: the grid drops the next new session
@@ -998,6 +1013,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setGridView,
       toggleGridView,
       focusGridSession,
+      consumeGridFocusRequest,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
       noteGridFocusedTask,
@@ -1022,6 +1038,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setGridView,
       toggleGridView,
       focusGridSession,
+      consumeGridFocusRequest,
       requestCloneInsertAfter,
       takeCloneInsertAfter,
       noteGridFocusedTask,
