@@ -96,6 +96,10 @@ import {
   applyThemeStyle,
   readCachedThemeStyle,
 } from "~/lib/theme-style";
+import {
+  SURFACE_TINT_CACHE_KEY,
+  applySurfaceTint,
+} from "~/lib/surface-tint";
 import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
@@ -111,8 +115,8 @@ const useThemeLayoutEffect =
 // before any CSS layout. Without this, the SSR'd HTML paints with default
 // (painted+orange) theme for one frame — every accent-tinted surface flashes
 // orange before React/useSettings hydrate. Mirrors `applyThemeStyle`
-// (src/lib/theme-style.ts) and `applyAccentColor` (src/lib/accent-colors.ts);
-// keep them in sync.
+// (src/lib/theme-style.ts), `applySurfaceTint` (src/lib/surface-tint.ts) and
+// `applyAccentColor` (src/lib/accent-colors.ts); keep them in sync.
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
 var d=document.documentElement;
 var st=localStorage.getItem(${JSON.stringify(THEME_STYLE_CACHE_KEY)});
@@ -120,6 +124,8 @@ if(st!=="painted"&&st!=="minimal"&&st!=="noir"&&st!=="ember"){st=localStorage.ge
 if(st!=="painted"){d.setAttribute("data-minimal","true");}
 if(st==="noir"){d.setAttribute("data-noir","true");}
 if(st==="ember"){d.setAttribute("data-ember","true");}
+var tt=localStorage.getItem(${JSON.stringify(SURFACE_TINT_CACHE_KEY)});
+if(tt!=="off"){d.setAttribute("data-tint",tt==="vivid"?"vivid":"subtle");}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),
@@ -427,6 +433,13 @@ function Shell() {
     if (!themeStyle) return;
     applyThemeStyle(themeStyle);
   }, [themeStyle]);
+
+  const surfaceTint = settings?.surfaceTint;
+
+  useThemeLayoutEffect(() => {
+    if (!surfaceTint) return;
+    applySurfaceTint(surfaceTint);
+  }, [surfaceTint]);
 
   // Recompute + re-observe the workspace bounds whenever the workspace div is
   // (un)mounted. Focus mode early-returns above and tears down the whole #root

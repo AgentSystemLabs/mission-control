@@ -15,6 +15,7 @@ import {
 } from "~/shared/terminal-zoom";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
+import { DEFAULT_SURFACE_TINT } from "~/shared/surface-tint";
 
 export function TerminalSettingsPage() {
   const queryClient = useQueryClient();
@@ -28,6 +29,7 @@ export function TerminalSettingsPage() {
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     themeStyle: settings?.themeStyle ?? "painted",
+    surfaceTint: settings?.surfaceTint ?? DEFAULT_SURFACE_TINT,
     minimalTheme: settings?.minimalTheme ?? false,
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,

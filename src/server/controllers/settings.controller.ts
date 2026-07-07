@@ -37,6 +37,11 @@ import {
 import { safeJsonParse } from "~/shared/safe-json";
 import { isThemeStyle, type ThemeStyle } from "~/shared/theme-style";
 import {
+  DEFAULT_SURFACE_TINT,
+  isSurfaceTint,
+  type SurfaceTint,
+} from "~/shared/surface-tint";
+import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
   TERMINAL_ZOOM_MAX,
   TERMINAL_ZOOM_MIN,
@@ -67,6 +72,7 @@ const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
 const SESSION_HEADER_BUTTONS_KEY = "session_header_buttons";
 const THEME_STYLE_KEY = "theme_style";
 const MINIMAL_THEME_KEY = "minimal_theme";
+const SURFACE_TINT_KEY = "surface_tint";
 const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
 const CLAUDE_USAGE_LIMITS_ENABLED_KEY = "claude_usage_limits_enabled";
 const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
@@ -108,6 +114,7 @@ const updateSettingsBody = z
     accentColor: z.string().refine(isAccentColorId, { message: "invalid accentColor" }),
     minimalTheme: z.boolean(),
     themeStyle: z.string().refine(isThemeStyle, { message: "invalid themeStyle" }),
+    surfaceTint: z.string().refine(isSurfaceTint, { message: "invalid surfaceTint" }),
     mouseGradientDisabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
@@ -166,6 +173,11 @@ function getThemeStyleSetting(): ThemeStyle {
   if (isThemeStyle(value)) return value;
   // Installs that predate theme_style only stored the minimal/painted toggle.
   return getBooleanSetting(MINIMAL_THEME_KEY) ? "minimal" : "painted";
+}
+
+function getSurfaceTintSetting(): SurfaceTint {
+  const value = getSetting(SURFACE_TINT_KEY);
+  return isSurfaceTint(value) ? value : DEFAULT_SURFACE_TINT;
 }
 
 function getCommitCliSetting(): CommitCli | null {
@@ -235,6 +247,7 @@ function settingsPayload() {
     agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
     accentColor: getAccentColorSetting(),
     themeStyle,
+    surfaceTint: getSurfaceTintSetting(),
     // Derived: true whenever the style renders clean CSS chrome (minimal or
     // noir). Layout consumers key off this; the style picker reads themeStyle.
     minimalTheme: themeStyle !== "painted",
@@ -331,6 +344,9 @@ export async function update(request: Request): Promise<Response> {
     setSetting(THEME_STYLE_KEY, body.themeStyle);
     // Keep the legacy boolean in sync so a downgraded build restores the choice.
     setBooleanSetting(MINIMAL_THEME_KEY, body.themeStyle !== "painted");
+  }
+  if (body.surfaceTint !== undefined) {
+    setSetting(SURFACE_TINT_KEY, body.surfaceTint);
   }
   if (body.mouseGradientDisabled !== undefined) {
     setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);

@@ -26,17 +26,26 @@
 }
 
 :root {
-  --bg: #000000;
-  --surface-0: #0e1013;
-  --surface-1: #14171b;
-  --surface-2: #1a1d22;
-  --surface-3: #22262c;
+  /* Surface tint: how much accent is mixed into the surface tokens below.
+     0% = each style's exact base palette. Raised by the `data-tint` blocks at
+     the bottom of this file (per-style recipes); applied via applySurfaceTint
+     (src/lib/surface-tint.ts). lo = page/terminal ground, md = surface-0/1,
+     hi = surface-2/3 (raised chrome reads slightly more tinted). */
+  --tint-lo: 0%;
+  --tint-md: 0%;
+  --tint-hi: 0%;
+
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #000000);
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #0e1013);
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #14171b);
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #1a1d22);
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #22262c);
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.12);
   --text: #e8e6df;
   --text-dim: rgba(232, 230, 223, 0.6);
   --text-faint: rgba(232, 230, 223, 0.38);
-  --terminal-bg: #050607;
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #050607);
 
   --accent: #ff5a1f;
   --accent-dim: rgba(255, 90, 31, 0.18);
@@ -72,17 +81,17 @@
 }
 
 [data-theme="light"] {
-  --bg: #f7f6f2;
-  --surface-0: #ffffff;
-  --surface-1: #fafaf7;
-  --surface-2: #f1f0eb;
-  --surface-3: #e7e6e0;
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #f7f6f2);
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #ffffff);
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #fafaf7);
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #f1f0eb);
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e7e6e0);
   --border: rgba(0, 0, 0, 0.08);
   --border-strong: rgba(0, 0, 0, 0.14);
   --text: #1a1a1a;
   --text-dim: rgba(26, 26, 26, 0.62);
   --text-faint: rgba(26, 26, 26, 0.38);
-  --terminal-bg: #ffffff;
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #ffffff);
   --status-interrupted: oklch(0.58 0.17 35);
   --status-done: oklch(0.50 0.14 150);
   --status-idle: rgba(26, 26, 26, 0.3);
@@ -1694,16 +1703,21 @@ body[data-card-glow] .cursor-glow {
   /* Near-black neutral ground with a barely-perceptible cool undertone (245°).
      Cards (which sit on /card.png) need to read clearly as objects against
      the page, so the page itself sits well below them. */
-  --bg: oklch(0.08 0.003 245);
-  --surface-0: oklch(0.115 0.004 245);
-  --surface-1: oklch(0.145 0.005 245);
-  --surface-2: oklch(0.185 0.006 245);
-  --surface-3: oklch(0.235 0.008 245);
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), oklch(0.08 0.003 245));
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.115 0.004 245));
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.145 0.005 245));
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.185 0.006 245));
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.235 0.008 245));
   --border: oklch(0.62 0.010 245 / 0.16);
   --border-strong: oklch(0.72 0.016 245 / 0.26);
   /* Terminal canvas: same near-black ground, lifted 5% toward the accent
-     so the running terminal carries a barely-there hint of the active theme. */
-  --terminal-bg: color-mix(in srgb, var(--accent) 5%, oklch(0.07 0.003 245));
+     so the running terminal carries a barely-there hint of the active theme
+     even with tint off; the surface tint adds on top of that baseline. */
+  --terminal-bg: color-mix(
+    in srgb,
+    var(--accent) calc(5% + var(--tint-lo)),
+    oklch(0.07 0.003 245)
+  );
 
   /* Minimal-only design tokens. Subtle rounded chrome matches the reference
      aesthetic — small radii read as considered, not playful. */
@@ -2070,18 +2084,19 @@ body[data-card-glow] .cursor-glow {
   /* Neutral near-black ladder with a faint cool-violet cast so a pink or
      purple accent sits naturally in it. Surfaces stay within a few percent
      of each other — hierarchy comes from hairlines, not elevation. */
-  --bg: #0a0a0c;
-  --surface-0: #0f0f12;
-  --surface-1: #131317;
-  --surface-2: #19191e;
-  --surface-3: #212127;
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #0a0a0c);
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #0f0f12);
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #131317);
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #19191e);
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #212127);
   --border: rgba(255, 255, 255, 0.065);
   --border-strong: rgba(255, 255, 255, 0.12);
   --text: #e9e9ec;
   --text-dim: rgba(233, 233, 236, 0.56);
   --text-faint: rgba(233, 233, 236, 0.33);
-  /* Flat terminal canvas — unlike minimal, no accent mixed into the ground. */
-  --terminal-bg: #0c0c0f;
+  /* Flat terminal canvas — unlike minimal, no baseline accent in the ground;
+     only the (noir-damped) surface tint can lean it toward the accent. */
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #0c0c0f);
 
   /* Tighter chrome: squarer radii; the halo focus ring collapses to a
      single hairline accent ring. */
@@ -2196,11 +2211,11 @@ body[data-card-glow] .cursor-glow {
   /* Warm-charcoal ladder sampled from the reference: the pane/terminal ground
      sits at a mid ~#2d2d2d (not near-black), faintly warm; headers and solid
      cards lift one step to ~#34322d. Separation is by tone, not elevation. */
-  --bg: #242321;
-  --surface-0: #2c2b28;
-  --surface-1: #34322d;
-  --surface-2: #3e3b35;
-  --surface-3: #4a463f;
+  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #242321);
+  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #2c2b28);
+  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #34322d);
+  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #3e3b35);
+  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #4a463f);
   /* Hairlines need more alpha here than on the near-black themes: the ground
      is a mid-gray, so noir-strength borders melt into it (0.09 cream computes
      to ~1.27:1 against surface-0 — invisible). */
@@ -2215,7 +2230,7 @@ body[data-card-glow] .cursor-glow {
   --text-dim: #c6bca8;
   --text-faint: #a89e8c;
   /* Flat warm terminal canvas — matches the sampled ~#2d2d2d ground. */
-  --terminal-bg: #2b2a27;
+  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #2b2a27);
 
   /* Bundled face: clearer, warmer mono for both xterm (via --mc-terminal-font,
      read by createTerminalOptions) and every UI mono surface. */
@@ -2432,4 +2447,53 @@ body[data-card-glow] .cursor-glow {
 .mc-md-annot-add:hover {
   background: var(--surface-2);
   color: var(--text);
+}
+
+/* =====================================================================
+   SURFACE TINT — per-style accent-in-the-ground recipes.
+   `data-tint="subtle" | "vivid"` on <html> (absent = off) raises the
+   --tint-lo/md/hi percentages that every palette block above mixes into
+   --bg / --surface-0..3 / --terminal-bg via color-mix. Applied by
+   applySurfaceTint (src/lib/surface-tint.ts) and mirrored by the
+   pre-hydration script in __root.tsx.
+
+   Recipes are tuned per style: painted/minimal take a clearly visible
+   wash; noir stays a whisper (its identity is the flat near-black
+   ground); ember leans its warm charcoal toward the accent hue without
+   losing the mid-gray lightness its text/hairline contrast ladder was
+   tuned against (keep vivid low enough that those ratios hold).
+   Cascade: these sit last in the file, and the per-style rows use two
+   attribute selectors so they beat the two generic rows. ============ */
+
+[data-tint="subtle"] {
+  --tint-lo: 2.5%;
+  --tint-md: 3.5%;
+  --tint-hi: 4.5%;
+}
+[data-tint="vivid"] {
+  --tint-lo: 7%;
+  --tint-md: 9%;
+  --tint-hi: 11%;
+}
+
+[data-noir="true"][data-tint="subtle"] {
+  --tint-lo: 1.5%;
+  --tint-md: 2%;
+  --tint-hi: 3%;
+}
+[data-noir="true"][data-tint="vivid"] {
+  --tint-lo: 4%;
+  --tint-md: 5.5%;
+  --tint-hi: 7%;
+}
+
+[data-ember="true"][data-tint="subtle"] {
+  --tint-lo: 3%;
+  --tint-md: 4%;
+  --tint-hi: 5%;
+}
+[data-ember="true"][data-tint="vivid"] {
+  --tint-lo: 7%;
+  --tint-md: 9%;
+  --tint-hi: 10%;
 }

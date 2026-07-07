@@ -23,6 +23,7 @@ import {
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import { DEFAULT_SURFACE_TINT } from "~/shared/surface-tint";
 import {
   readOsNotificationPermission,
   requestOsNotificationPermission,
@@ -87,6 +88,7 @@ export function GeneralSettingsPage() {
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     themeStyle: settings?.themeStyle ?? "painted",
+    surfaceTint: settings?.surfaceTint ?? DEFAULT_SURFACE_TINT,
     minimalTheme: settings?.minimalTheme ?? false,
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,

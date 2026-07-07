@@ -2,6 +2,8 @@ import { useId } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
 import { AccentColorGrid } from "~/components/views/AccentColorPicker";
+import { ThemeStylePreview } from "~/components/views/ThemeStylePreview";
+import { Icon } from "~/components/ui/Icon";
 import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
@@ -9,6 +11,12 @@ import {
 } from "~/lib/accent-colors";
 import { api, type AppSettings } from "~/lib/api";
 import { DEFAULT_THEME_STYLE, type ThemeStyle } from "~/shared/theme-style";
+import {
+  DEFAULT_SURFACE_TINT,
+  SURFACE_TINTS,
+  type SurfaceTint,
+} from "~/shared/surface-tint";
+import { applySurfaceTint } from "~/lib/surface-tint";
 import { queryKeys, useSettings } from "~/queries";
 import {
   hasCachedLaunchIntroPreference,
@@ -23,6 +31,7 @@ export function ThemeSettingsPage() {
   const { data: settings } = useSettings();
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
   const themeStyle = settings?.themeStyle ?? DEFAULT_THEME_STYLE;
+  const surfaceTint = settings?.surfaceTint ?? DEFAULT_SURFACE_TINT;
   const minimalTheme = settings?.minimalTheme ?? false;
   const launchOverlayEnabled = typeof settings?.launchOverlayEnabled === "boolean"
     ? settings.launchOverlayEnabled
@@ -31,11 +40,14 @@ export function ThemeSettingsPage() {
       : false;
 
   const optimisticSettings = (
-    patch: Partial<Pick<AppSettings, "accentColor" | "themeStyle" | "minimalTheme">>,
+    patch: Partial<
+      Pick<AppSettings, "accentColor" | "themeStyle" | "surfaceTint" | "minimalTheme">
+    >,
   ): AppSettings => ({
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
     accentColor,
     themeStyle,
+    surfaceTint,
     minimalTheme,
     // Every patch through here writes a theme setting, which marks it chosen.
     themeChosen: true,
@@ -128,6 +140,23 @@ export function ThemeSettingsPage() {
     }
   };
 
+  const setSurfaceTint = async (next: SurfaceTint) => {
+    applySurfaceTint(next);
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    const optimistic = optimisticSettings({ surfaceTint: next });
+    queryClient.setQueryData(queryKeys.settings, optimistic);
+    try {
+      const updated = await api.updateSettings({ surfaceTint: next });
+      queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(queryKeys.settings, previous);
+        applySurfaceTint(previous.surfaceTint ?? DEFAULT_SURFACE_TINT);
+      }
+      throw error;
+    }
+  };
+
   return (
     <SettingsSection
       title="Theme"
@@ -135,7 +164,12 @@ export function ThemeSettingsPage() {
       headingLevel="h1"
     >
       <Field label="Theme style">
-        <ThemeStyleToggle style={themeStyle} onChange={setThemeStyle} />
+        <ThemeStyleGrid
+          style={themeStyle}
+          accentColor={accentColor}
+          surfaceTint={surfaceTint}
+          onChange={setThemeStyle}
+        />
       </Field>
       <Field label="Accent color">
         <AccentColorGrid
@@ -143,6 +177,9 @@ export function ThemeSettingsPage() {
           selected={accentColor}
           onSelect={setAccentColor}
         />
+      </Field>
+      <Field label="Surface tint">
+        <SurfaceTintToggle tint={surfaceTint} onChange={setSurfaceTint} />
       </Field>
     </SettingsSection>
   );
@@ -178,17 +215,129 @@ const THEME_STYLE_OPTIONS: Array<{
   },
 ];
 
-function ThemeStyleToggle({
+function ThemeStyleGrid({
   style,
+  accentColor,
+  surfaceTint,
   onChange,
 }: {
   style: ThemeStyle;
+  accentColor: AccentColorId;
+  surfaceTint: SurfaceTint;
   onChange: (next: ThemeStyle) => void;
+}) {
+  const labelId = useId();
+  return (
+    <div
+      role="radiogroup"
+      aria-labelledby={labelId}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        gap: 12,
+      }}
+    >
+      <span id={labelId} style={{ display: "none" }}>
+        Theme style
+      </span>
+      {THEME_STYLE_OPTIONS.map((option) => {
+        const selected = style === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(option.value)}
+            style={{
+              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              padding: 10,
+              cursor: "pointer",
+              textAlign: "left",
+              background: "var(--surface-1)",
+              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+              borderRadius: "var(--mm-radius-lg, 10px)",
+              boxShadow: selected ? "0 0 0 1px var(--accent) inset" : "none",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }}
+          >
+            {selected && (
+              <span
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  right: 8,
+                  zIndex: 1,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 999,
+                  background: "var(--accent)",
+                  color: "var(--mm-on-accent, #fff)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Icon name="check" size={11} />
+              </span>
+            )}
+            <ThemeStylePreview
+              style={option.value}
+              accentId={accentColor}
+              tint={surfaceTint}
+            />
+            <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: selected ? "var(--text)" : "var(--text-dim)",
+                }}
+              >
+                {option.label}
+              </span>
+              <span
+                style={{ fontSize: 11.5, lineHeight: 1.45, color: "var(--text-faint)" }}
+              >
+                {option.description}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const SURFACE_TINT_OPTIONS: Record<SurfaceTint, { label: string; description: string }> = {
+  off: {
+    label: "Off",
+    description: "Surfaces keep each style's exact base palette.",
+  },
+  subtle: {
+    label: "Subtle",
+    description: "A whisper of your accent in backgrounds, bars and sessions.",
+  },
+  vivid: {
+    label: "Vivid",
+    description: "A clearly visible accent wash across the whole app.",
+  },
+};
+
+function SurfaceTintToggle({
+  tint,
+  onChange,
+}: {
+  tint: SurfaceTint;
+  onChange: (next: SurfaceTint) => void;
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const active = THEME_STYLE_OPTIONS.find((option) => option.value === style)
-    ?? THEME_STYLE_OPTIONS[0]!;
+  const active = SURFACE_TINT_OPTIONS[tint];
   return (
     <div
       style={{
@@ -234,12 +383,12 @@ function ThemeStyleToggle({
           flexShrink: 0,
         }}
       >
-        {THEME_STYLE_OPTIONS.map((option) => (
+        {SURFACE_TINTS.map((value) => (
           <ModeOption
-            key={option.value}
-            label={option.label}
-            selected={style === option.value}
-            onSelect={() => onChange(option.value)}
+            key={value}
+            label={SURFACE_TINT_OPTIONS[value].label}
+            selected={tint === value}
+            onSelect={() => onChange(value)}
           />
         ))}
       </div>

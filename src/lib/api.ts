@@ -33,6 +33,7 @@ import type {
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
 import type { ThemeStyle } from "~/shared/theme-style";
+import type { SurfaceTint } from "~/shared/surface-tint";
 import type {
   MarkdownRefineRequest,
   MarkdownRefineResponse,
@@ -64,6 +65,8 @@ export type AppSettings = {
   accentColor: AccentColorId;
   /** Which chrome to render: painted (pixel art), minimal, or noir (flat). */
   themeStyle: ThemeStyle;
+  /** How much accent to mix into surface tokens (off / subtle / vivid). */
+  surfaceTint: SurfaceTint;
   /** Derived server-side: true when themeStyle renders clean CSS chrome. */
   minimalTheme: boolean;
   /**
@@ -567,6 +570,7 @@ export const api = {
         | "agentSystemBannerDisabled"
         | "accentColor"
         | "themeStyle"
+        | "surfaceTint"
         | "minimalTheme"
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"

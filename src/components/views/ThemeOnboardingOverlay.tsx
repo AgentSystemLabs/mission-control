@@ -6,14 +6,15 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { Icon } from "~/components/ui/Icon";
 import { KbdCombo } from "~/components/ui/Kbd";
 import { AccentColorGrid } from "~/components/views/AccentColorPicker";
+import { ThemeStylePreview } from "~/components/views/ThemeStylePreview";
 import {
   ACCENT_CACHE_KEY,
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
-  getAccentColor,
   isAccentColorId,
   type AccentColorId,
 } from "~/lib/accent-colors";
+import { readCachedSurfaceTint } from "~/lib/surface-tint";
 import {
   applyThemeStyle,
   readCachedThemeStyle,
@@ -317,7 +318,6 @@ function StyleChoiceCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const accent = getAccentColor(accentId);
   return (
     <button
       type="button"
@@ -359,7 +359,11 @@ function StyleChoiceCard({
           <Icon name="check" size={12} />
         </span>
       )}
-      <StylePreviewChip accent={accent} stylePreview={stylePreview} />
+      <ThemeStylePreview
+        style={stylePreview}
+        accentId={accentId}
+        tint={readCachedSurfaceTint()}
+      />
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span
           style={{
@@ -377,91 +381,5 @@ function StyleChoiceCard({
         </span>
       </div>
     </button>
-  );
-}
-
-/**
- * A small "Action" chip previewing the chrome each style renders: painted
- * (border-image), minimal (flat accent fill), noir (flat near-black with a
- * hairline accent outline).
- */
-function StylePreviewChip({
-  accent,
-  stylePreview,
-}: {
-  accent: ReturnType<typeof getAccentColor>;
-  stylePreview: ThemeStyle;
-}) {
-  const accentRgba = (a: number) => `rgba(${accent.rgb}, ${a})`;
-  const buttonBorder = `url("/borders/button_filled_${accent.id}.png")`;
-  return (
-    <span
-      aria-hidden
-      style={
-        stylePreview === "minimal"
-          ? {
-              display: "inline-flex",
-              alignSelf: "flex-start",
-              padding: "6px 14px",
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#fff",
-              borderRadius: "var(--mm-radius-sm, 5px)",
-              background: accent.value,
-            }
-          : stylePreview === "noir"
-            ? {
-                boxSizing: "border-box",
-                display: "inline-flex",
-                alignSelf: "flex-start",
-                padding: "6px 14px",
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                fontWeight: 600,
-                color: accent.value,
-                borderRadius: "var(--mm-radius-sm, 4px)",
-                border: `1px solid ${accentRgba(0.55)}`,
-                background: "#0f0f12",
-              }
-            : stylePreview === "ember"
-              ? {
-                  // Warm, square, solid accent border — the ember mood.
-                  boxSizing: "border-box",
-                  display: "inline-flex",
-                  alignSelf: "flex-start",
-                  padding: "6px 14px",
-                  fontFamily: "var(--mono)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: accent.value,
-                  borderRadius: 0,
-                  border: `1px solid ${accentRgba(0.7)}`,
-                  background: "#1b1610",
-                }
-            : {
-                boxSizing: "border-box",
-                display: "inline-flex",
-                alignSelf: "flex-start",
-                padding: "6px 12px",
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#fff",
-                borderStyle: "solid",
-                borderColor: "transparent",
-                borderWidth: 12,
-                borderImageSource: buttonBorder,
-                borderImageSlice: "48",
-                borderImageWidth: "12px",
-                borderImageRepeat: "stretch",
-                background: accentRgba(0.18),
-                backgroundClip: "padding-box",
-                textShadow: `0 0 8px ${accentRgba(0.6)}`,
-              }
-      }
-    >
-      Action
-    </span>
   );
 }

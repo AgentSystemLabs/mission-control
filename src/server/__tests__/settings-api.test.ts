@@ -699,6 +699,60 @@ describe("settings API", () => {
     });
   });
 
+  it("defaults the surface tint to subtle", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({ surfaceTint: "subtle" });
+  });
+
+  it("persists the surface tint", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ surfaceTint: "vivid" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ surfaceTint: "vivid" });
+    expect(await jsonBody(read!)).toMatchObject({ surfaceTint: "vivid" });
+  });
+
+  it("persists an explicit off surface tint", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ surfaceTint: "off" }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(read!)).toMatchObject({ surfaceTint: "off" });
+  });
+
+  it("rejects an invalid surface tint", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ surfaceTint: "neon" }),
+      }),
+    );
+
+    expect(update?.status).toBe(400);
+  });
+
   it("reports no theme chosen on a fresh install", async () => {
     const response = await handleApiRequest(
       authedRequest("http://localhost/api/settings"),
