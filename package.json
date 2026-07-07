@@ -106,7 +106,7 @@
     "@tanstack/react-query": "5.101.2",
     "@tanstack/react-router": "1.169.2",
     "@tanstack/react-router-with-query": "1.130.17",
-    "@tanstack/react-start": "1.167.65",
+    "@tanstack/react-start": "1.168.27",
     "@uiw/react-codemirror": "4.25.9",
     "@vscode/tree-sitter-wasm": "0.3.1",
     "@xterm/addon-fit": "0.11.0",
