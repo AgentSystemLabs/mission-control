@@ -2898,6 +2898,31 @@ function ProjectPage() {
               onRun={runScript}
               disabled={!projectPathUsable}
             />
+            {showGrid && (
+              <Btn
+                variant="ghost"
+                icon="archive"
+                onClick={() => setConfirmArchiveAll(true)}
+                aria-label="Archive all sessions in this grid"
+                title="Archive all sessions in this grid"
+                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+              />
+            )}
+            <HotkeyTooltip action="file.finder" label="Find file">
+              <Btn
+                variant="ghost"
+                icon="search"
+                onClick={openFileFinderFresh}
+                disabled={!projectPathUsable}
+                aria-label="Find file in project"
+                title={
+                  projectPathBlocked
+                    ? "Project folder unavailable"
+                    : "Find file in project"
+                }
+                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+              />
+            </HotkeyTooltip>
             <div
               role="group"
               aria-label="Review changes and commit"
@@ -2924,21 +2949,17 @@ function ProjectPage() {
                 enabled={projectPathUsable}
               />
             </div>
-            <HotkeyTooltip action="file.finder" label="Find file">
-              <Btn
-                variant="ghost"
-                icon="search"
-                onClick={openFileFinderFresh}
-                disabled={!projectPathUsable}
-                aria-label="Find file in project"
-                title={
-                  projectPathBlocked
-                    ? "Project folder unavailable"
-                    : "Find file in project"
-                }
-                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+            {showGrid && (
+              <NewAgentButton
+                project={project}
+                onPrimary={onNewAgentPrimary}
+                onNewRow={onNewRowPrimary}
+                disabled={!projectPathReady}
+                onConfigure={() => {
+                  if (projectPathReady) setShowNewAgent(true);
+                }}
               />
-            </HotkeyTooltip>
+            )}
             <HotkeyTooltip
               action="session.gridView"
               label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
@@ -2958,27 +2979,6 @@ function ProjectPage() {
                 }}
               />
             </HotkeyTooltip>
-            {showGrid && (
-              <>
-                <Btn
-                  variant="danger"
-                  icon="archive"
-                  onClick={() => setConfirmArchiveAll(true)}
-                  title="Archive all sessions in this grid"
-                >
-                  Archive all
-                </Btn>
-                <NewAgentButton
-                  project={project}
-                  onPrimary={onNewAgentPrimary}
-                  onNewRow={onNewRowPrimary}
-                  disabled={!projectPathReady}
-                  onConfigure={() => {
-                    if (projectPathReady) setShowNewAgent(true);
-                  }}
-                />
-              </>
-            )}
           </div>
         </div>
 
@@ -3689,8 +3689,8 @@ function ProjectPage() {
         width={460}
       >
         <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Archive all {terminals.sessions.length} open session
-          {terminals.sessions.length === 1 ? "" : "s"} across every project?
+          Archive all {gridScopeSessionCount} open session
+          {gridScopeSessionCount === 1 ? "" : "s"} in &ldquo;{project.name}&rdquo;?
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           Any running sessions will be disconnected and their agents stopped. You
