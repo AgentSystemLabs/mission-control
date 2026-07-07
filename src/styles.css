@@ -151,8 +151,10 @@
   --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #fafafb);
   --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #f2f2f4);
   --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e9e9ee);
-  --border: rgba(18, 22, 33, 0.09);
-  --border-strong: rgba(18, 22, 33, 0.16);
+  /* Warm hairline gray (#cec5c0). Opaque rather than translucent, but still
+     accent-tinted via color-mix so it tracks the palette like the surfaces do. */
+  --border: color-mix(in srgb, var(--accent) var(--tint-md), #cec5c0);
+  --border-strong: color-mix(in srgb, var(--accent) var(--tint-hi), #b3a9a2);
   --text: #17181c;
   --text-dim: rgba(23, 24, 28, 0.6);
   --text-faint: rgba(23, 24, 28, 0.4);
