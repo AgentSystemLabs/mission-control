@@ -2623,9 +2623,14 @@ body[data-card-glow] .cursor-glow {
     var(--mm-ring) !important;
 }
 
-/* No decorative cursor glow or dot grid in minimal */
+/* Flat keeps the cursor glow but quieter than painted; no dot grid. */
 [data-minimal="true"] .cursor-glow {
-  display: none !important;
+  --cursor-glow-color: color-mix(in srgb, var(--accent) 9%, transparent);
+  --cursor-glow-filter: brightness(1.06) saturate(1.08);
+}
+[data-minimal="true"][data-theme="light"] .cursor-glow {
+  --cursor-glow-color: color-mix(in srgb, var(--accent) 6%, transparent);
+  --cursor-glow-filter: brightness(1.02) saturate(1.04);
 }
 [data-minimal="true"] .dot-grid-bg {
   background-image: none;
