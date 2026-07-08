@@ -293,6 +293,10 @@ function drawArrow(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: nu
 // annotation renders its thumbnail at the same size as a fresh capture.
 const PREVIEW_WIDTH_PX = 320;
 
+// Breathing room kept between the screenshot and the matte edges, so even a
+// full-width capture floats inside the workspace instead of bleeding to the rim.
+const MATTE_PAD_PX = 36;
+
 export function ScreenshotAnnotator({
   shot,
   onCancel,
@@ -375,7 +379,11 @@ export function ScreenshotAnnotator({
 
   const display = useMemo(() => {
     if (!dims.w || !dims.h || !stageBox.w || !stageBox.h) return { w: 0, h: 0 };
-    const scale = Math.min(stageBox.w / dims.w, stageBox.h / dims.h, 2.5);
+    // Fit inside the matte with guaranteed margins on all sides (stageBox is the
+    // matte's own box, already excluding the header and footer bars).
+    const availW = Math.max(1, stageBox.w - MATTE_PAD_PX * 2);
+    const availH = Math.max(1, stageBox.h - MATTE_PAD_PX * 2);
+    const scale = Math.min(availW / dims.w, availH / dims.h, 2.5);
     return { w: Math.round(dims.w * scale), h: Math.round(dims.h * scale) };
   }, [dims, stageBox]);
 
@@ -912,7 +920,9 @@ export function ScreenshotAnnotator({
         inset: 0,
         zIndex: 10050,
         display: "flex",
-        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
         background: "rgba(4, 7, 10, 0.72)",
         backdropFilter: "blur(6px)",
         WebkitBackdropFilter: "blur(6px)",
@@ -920,164 +930,179 @@ export function ScreenshotAnnotator({
     >
       <style>{ANNOT_CSS}</style>
 
-      {/* Toolbar */}
-      <div className="mc-annot-bar-wrap">
-        <div className="mc-annot-bar">
-          <div className="mc-annot-group">
-            {TOOLS.map((t) => (
+      {/* A bounded editor window: header toolbar → canvas matte → footer, in
+          three tonal steps so it reads as a workspace rather than a floating
+          toolbar dropped over the app. */}
+      <div className="mc-annot-panel">
+        {/* Header: the working toolbar, attached as real app chrome. */}
+        <div className="mc-annot-header">
+          <div className="mc-annot-bar">
+            <div className="mc-annot-group">
+              {TOOLS.map((t) => (
+                <button
+                  key={t.tool}
+                  type="button"
+                  className={`mc-annot-tool${tool === t.tool ? " is-active" : ""}`}
+                  title={`${t.label} · ${t.key}`}
+                  aria-label={t.label}
+                  aria-pressed={tool === t.tool}
+                  onClick={() => setTool(t.tool)}
+                >
+                  <Icon name={t.icon} size={16} />
+                </button>
+              ))}
+            </div>
+
+            <span className="mc-annot-div" />
+
+            <div className="mc-annot-group">
+              {COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`mc-annot-swatch${color === c ? " is-active" : ""}`}
+                  title={c}
+                  aria-label={`Color ${c}`}
+                  aria-pressed={color === c}
+                  onClick={() => {
+                    setColor(c);
+                    recolorSelected(c);
+                  }}
+                  style={{ background: c }}
+                />
+              ))}
+              <label className="mc-annot-swatch mc-annot-custom" title="Custom color">
+                <input
+                  type="color"
+                  value={color}
+                  onChange={(e) => {
+                    setColor(e.target.value);
+                    recolorSelected(e.target.value);
+                  }}
+                />
+              </label>
+            </div>
+
+            <span className="mc-annot-div" />
+
+            <div className="mc-annot-group">
+              {WIDTHS.map((w, i) => (
+                <button
+                  key={w.label}
+                  type="button"
+                  className={`mc-annot-width${widthIdx === i ? " is-active" : ""}`}
+                  title={w.label}
+                  aria-label={w.label}
+                  aria-pressed={widthIdx === i}
+                  onClick={() => setWidthIdx(i)}
+                >
+                  <span style={{ width: w.dot, height: w.dot, borderRadius: 999, background: "currentColor" }} />
+                </button>
+              ))}
+            </div>
+
+            <span className="mc-annot-div" />
+
+            <div className="mc-annot-group">
               <button
-                key={t.tool}
                 type="button"
-                className={`mc-annot-tool${tool === t.tool ? " is-active" : ""}`}
-                title={`${t.label} · ${t.key}`}
-                aria-label={t.label}
-                aria-pressed={tool === t.tool}
-                onClick={() => setTool(t.tool)}
+                className="mc-annot-tool"
+                title="Undo · ⌘Z"
+                aria-label="Undo"
+                disabled={!canUndo}
+                onClick={undo}
               >
-                <Icon name={t.icon} size={16} />
+                <Icon name="undo" size={16} />
               </button>
-            ))}
-          </div>
-
-          <span className="mc-annot-div" />
-
-          <div className="mc-annot-group">
-            {COLORS.map((c) => (
               <button
-                key={c}
                 type="button"
-                className={`mc-annot-swatch${color === c ? " is-active" : ""}`}
-                title={c}
-                aria-label={`Color ${c}`}
-                aria-pressed={color === c}
-                onClick={() => {
-                  setColor(c);
-                  recolorSelected(c);
-                }}
-                style={{ background: c }}
-              />
-            ))}
-            <label className="mc-annot-swatch mc-annot-custom" title="Custom color">
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => {
-                  setColor(e.target.value);
-                  recolorSelected(e.target.value);
-                }}
-              />
-            </label>
-          </div>
-
-          <span className="mc-annot-div" />
-
-          <div className="mc-annot-group">
-            {WIDTHS.map((w, i) => (
-              <button
-                key={w.label}
-                type="button"
-                className={`mc-annot-width${widthIdx === i ? " is-active" : ""}`}
-                title={w.label}
-                aria-label={w.label}
-                aria-pressed={widthIdx === i}
-                onClick={() => setWidthIdx(i)}
+                className="mc-annot-tool"
+                title="Redo · ⇧⌘Z"
+                aria-label="Redo"
+                disabled={!canRedo}
+                onClick={redo}
               >
-                <span style={{ width: w.dot, height: w.dot, borderRadius: 999, background: "currentColor" }} />
+                <Icon name="redo" size={16} />
               </button>
-            ))}
+              <button
+                type="button"
+                className="mc-annot-tool"
+                title="Clear all"
+                aria-label="Clear all"
+                disabled={shapes.length === 0}
+                onClick={clearAll}
+              >
+                <Icon name="trash" size={16} />
+              </button>
+            </div>
           </div>
 
-          <span className="mc-annot-div" />
-
-          <div className="mc-annot-group">
-            <button
-              type="button"
-              className="mc-annot-tool"
-              title="Undo · ⌘Z"
-              aria-label="Undo"
-              disabled={!canUndo}
-              onClick={undo}
-            >
-              <Icon name="undo" size={16} />
-            </button>
-            <button
-              type="button"
-              className="mc-annot-tool"
-              title="Redo · ⇧⌘Z"
-              aria-label="Redo"
-              disabled={!canRedo}
-              onClick={redo}
-            >
-              <Icon name="redo" size={16} />
-            </button>
-            <button
-              type="button"
-              className="mc-annot-tool"
-              title="Clear all"
-              aria-label="Clear all"
-              disabled={shapes.length === 0}
-              onClick={clearAll}
-            >
-              <Icon name="trash" size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stage */}
-      <div ref={stageRef} className="mc-annot-stage">
-        {status === "loading" && <div className="mc-annot-hint">Loading screenshot…</div>}
-        {status === "error" && <div className="mc-annot-hint">Couldn’t load the screenshot.</div>}
-        {status === "ready" && (
-          <div
-            className="mc-annot-canvas-frame"
-            style={{ width: display.w || undefined, height: display.h || undefined }}
-          >
-            <canvas
-              ref={canvasRef}
-              width={dims.w}
-              height={dims.h}
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onDoubleClick={onDoubleClick}
-              style={{
-                display: "block",
-                width: display.w || "100%",
-                height: display.h || "auto",
-                borderRadius: 10,
-                cursor,
-                touchAction: "none",
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Footer actions */}
-      <div className="mc-annot-footer">
-        <div className="mc-annot-footer-hint">
-          {tool === "text"
-            ? "Click to place text · double-click text to edit"
-            : tool === "select"
-              ? "Drag to move · handles to resize · ⌫ to delete"
-              : "Drag on the image to draw"}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="mc-annot-btn" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="mc-annot-btn" onClick={save} disabled={busy !== null}>
-            {busy === "save" ? "Saving…" : "Save"}
-          </button>
           <button
             type="button"
-            className="mc-annot-btn is-primary"
-            onClick={attach}
-            disabled={busy !== null}
+            className="mc-annot-close"
+            title="Close · Esc"
+            aria-label="Close editor"
+            onClick={onCancel}
           >
-            {busy === "attach" ? "Attaching…" : "Attach to session"}
+            <Icon name="x" size={16} />
           </button>
+        </div>
+
+        {/* Canvas matte: the workspace the screenshot floats in. */}
+        <div ref={stageRef} className="mc-annot-stage">
+          {status === "loading" && <div className="mc-annot-hint">Loading screenshot…</div>}
+          {status === "error" && <div className="mc-annot-hint">Couldn’t load the screenshot.</div>}
+          {status === "ready" && (
+            <div
+              className="mc-annot-canvas-frame"
+              style={{ width: display.w || undefined, height: display.h || undefined }}
+            >
+              <canvas
+                ref={canvasRef}
+                width={dims.w}
+                height={dims.h}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onDoubleClick={onDoubleClick}
+                style={{
+                  display: "block",
+                  width: display.w || "100%",
+                  height: display.h || "auto",
+                  borderRadius: 8,
+                  cursor,
+                  touchAction: "none",
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Footer: contextual hint + primary actions. */}
+        <div className="mc-annot-footer">
+          <div className="mc-annot-footer-hint">
+            {tool === "text"
+              ? "Click to place text · double-click text to edit"
+              : tool === "select"
+                ? "Drag to move · handles to resize · ⌫ to delete"
+                : "Drag on the image to draw"}
+          </div>
+          <div className="mc-annot-actions">
+            <button type="button" className="mc-annot-btn" onClick={onCancel}>
+              Cancel
+            </button>
+            <button type="button" className="mc-annot-btn" onClick={save} disabled={busy !== null}>
+              {busy === "save" ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              className="mc-annot-btn is-primary"
+              onClick={attach}
+              disabled={busy !== null}
+            >
+              {busy === "attach" ? "Attaching…" : "Attach to session"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1122,15 +1147,29 @@ export function ScreenshotAnnotator({
 const ANNOT_CSS = `
 .mc-annot-root { animation: mc-annot-fade 140ms ease-out; }
 @keyframes mc-annot-fade { from { opacity: 0; } to { opacity: 1; } }
-.mc-annot-bar-wrap { display: flex; justify-content: center; padding: 16px 16px 0; }
-.mc-annot-bar {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px; border-radius: 14px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  box-shadow: 0 10px 34px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
-  animation: mc-annot-rise 200ms cubic-bezier(0.16,1,0.3,1);
+.mc-annot-panel {
+  display: flex; flex-direction: column;
+  width: min(1200px, 94vw); height: min(860px, 92vh);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 40px 120px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+  animation: mc-annot-pop 220ms cubic-bezier(0.16,1,0.3,1);
 }
-@keyframes mc-annot-rise { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.mc-annot-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px; border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.mc-annot-bar {
+  display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; flex-wrap: wrap;
+}
+.mc-annot-close {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 34px; height: 34px; padding: 0; border-radius: 9px;
+  border: 1px solid transparent; background: transparent; color: var(--text-dim);
+  cursor: pointer; transition: background 120ms, color 120ms;
+}
+.mc-annot-close:hover { background: var(--surface-3); color: var(--text); }
 .mc-annot-group { display: flex; align-items: center; gap: 3px; }
 .mc-annot-div { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--border); }
 .mc-annot-tool {
@@ -1160,17 +1199,28 @@ const ANNOT_CSS = `
 .mc-annot-custom { display: inline-flex; align-items: center; justify-content: center; overflow: hidden;
   background: conic-gradient(from 0deg, #f5333f, #ffd23f, #39d353, #3b9dff, #a05bff, #f5333f); }
 .mc-annot-custom input { position: absolute; inset: -6px; opacity: 0; cursor: pointer; }
-.mc-annot-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 16px 24px; }
-.mc-annot-canvas-frame {
-  border-radius: 12px; overflow: hidden; box-shadow: 0 24px 70px rgba(0,0,0,0.55);
-  animation: mc-annot-pop 220ms cubic-bezier(0.16,1,0.3,1);
+.mc-annot-stage {
+  flex: 1; min-height: 0; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-0);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
+  background-image:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text) 6%, transparent) 1px, transparent 0);
+  background-size: 22px 22px;
 }
-@keyframes mc-annot-pop { from { transform: scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+.mc-annot-canvas-frame {
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 16px 44px rgba(0,0,0,0.55), 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent);
+  animation: mc-annot-frame 220ms cubic-bezier(0.16,1,0.3,1);
+}
+@keyframes mc-annot-pop { from { transform: scale(0.985); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes mc-annot-frame { from { transform: scale(0.99); opacity: 0; } to { transform: none; opacity: 1; } }
 .mc-annot-hint { color: var(--text-dim); font-family: var(--mono); font-size: 12px; }
 .mc-annot-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 12px 20px 18px;
+  padding: 11px 16px; border-top: 1px solid var(--border); background: var(--surface-2);
 }
+.mc-annot-actions { display: flex; gap: 8px; }
 .mc-annot-footer-hint { color: var(--text-faint); font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; }
 .mc-annot-btn {
   height: 34px; padding: 0 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
@@ -1194,6 +1244,6 @@ const ANNOT_CSS = `
 }
 .mc-annot-textarea::placeholder { color: rgba(200,215,240,0.45); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) {
-  .mc-annot-root, .mc-annot-bar, .mc-annot-canvas-frame { animation: none; }
+  .mc-annot-root, .mc-annot-panel, .mc-annot-canvas-frame { animation: none; }
 }
 `;
