@@ -1,41 +1,28 @@
 import {
   useCallback,
+  useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type PointerEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import { Icon } from "~/components/ui/Icon";
 import {
   ScreenshotAnnotator,
   type Shape as AnnotationShape,
 } from "~/components/views/ScreenshotAnnotator";
-import { useTerminals, type PendingScreenshot } from "~/lib/terminal-store";
+import { useTerminals, type ScreenshotEntry } from "~/lib/terminal-store";
 import { playScreenshotDrop } from "~/lib/screenshot-sound";
 
 // Match the grid's reorder drag: only start dragging once the pointer clears a
-// few pixels, so a plain click still registers as a click (attach-to-active).
+// few pixels, so a plain click still registers as a click (open the editor).
 const DRAG_THRESHOLD_PX = 6;
-const THUMB_WIDTH_PX = 168;
-// Cap how tall a single thumbnail can grow so a portrait/tall capture doesn't
-// balloon the card. Taller images are cropped (top-anchored) to this height.
-const THUMB_MAX_HEIGHT_PX = 200;
-
-const cardBaseStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "stretch",
-  gap: 6,
-  padding: 8,
-  width: THUMB_WIDTH_PX + 16,
-  borderRadius: 12,
-  border: "1px solid var(--border)",
-  background: "var(--surface-1)",
-  boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
-  userSelect: "none",
-  boxSizing: "border-box",
-};
+// Fixed thumbnail height keeps the strip a predictable height; width follows the
+// image aspect ratio up to a cap so a wide capture doesn't hog the row.
+const THUMB_HEIGHT_PX = 68;
+const THUMB_MAX_WIDTH_PX = 200;
+const THUMB_MIN_WIDTH_PX = 40;
 
 // The session cell / terminal panel under a screen point, if any.
 function sessionHostAtPoint(x: number, y: number): HTMLElement | null {
@@ -43,46 +30,59 @@ function sessionHostAtPoint(x: number, y: number): HTMLElement | null {
   return (el?.closest?.("[data-task-id]") as HTMLElement | null) ?? null;
 }
 
+const thumbFrameStyle: CSSProperties = {
+  position: "relative",
+  height: THUMB_HEIGHT_PX,
+  minWidth: THUMB_MIN_WIDTH_PX,
+  maxWidth: THUMB_MAX_WIDTH_PX,
+  borderRadius: 8,
+  overflow: "hidden",
+  border: "1px solid var(--border)",
+  background: "var(--surface-2)",
+  lineHeight: 0,
+  flexShrink: 0,
+  userSelect: "none",
+  boxSizing: "border-box",
+};
+
 /**
- * One draggable thumbnail in the screenshot stack. Drag it onto any session
- * cell (grid) or the active terminal panel (single view) to attach the image to
- * that session; a plain click attaches it to the currently active session.
- * Dismiss with the ✕. Each card owns its own drag state so cards in the stack
- * move independently.
+ * One draggable screenshot in the history strip. Drag it onto any session cell
+ * (grid) or the active terminal panel to attach the image to that session; a
+ * plain click opens the annotation editor; the ✕ hard-deletes it. Attaching
+ * keeps the screenshot in history — the strip is a persistent archive, not a
+ * one-shot queue.
  */
-function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; projectId: string }) {
-  const { dismissPendingScreenshot, updateScreenshot, attachImageToSession, activeTaskIdFor } =
+function ScreenshotHistoryCard({
+  shot,
+  projectId,
+}: {
+  shot: ScreenshotEntry;
+  projectId: string;
+}) {
+  const { removeScreenshot, updateScreenshot, attachImageToSession, activeTaskIdFor } =
     useTerminals();
 
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
   const [editing, setEditing] = useState(false);
-  // Play the slide-out before the card is actually pulled from the store.
   const [leaving, setLeaving] = useState(false);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
-  // The session the pointer is currently over: its taskId (drop target) plus
-  // screen rect (dropzone highlight). Recomputed on every move while dragging.
   const [dropTarget, setDropTarget] = useState<{
     taskId: string;
     rect: { x: number; y: number; w: number; h: number };
   } | null>(null);
 
-  // Drop from the floating stack only — the shot stays in the history strip so
-  // the user can return to it. Hard delete lives in the history strip's ✕.
-  const dismiss = useCallback(
-    () => dismissPendingScreenshot(shot.id),
-    [dismissPendingScreenshot, shot.id],
-  );
+  const remove = useCallback(() => removeScreenshot(shot.id), [removeScreenshot, shot.id]);
 
   // ✕ removal: slide the card out, then drop it from the store on animationend.
   // Reduced-motion users skip straight to removal.
   const beginLeave = useCallback(() => {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      dismiss();
+      remove();
       return;
     }
     setLeaving(true);
-  }, [dismiss]);
+  }, [remove]);
 
   const onPointerDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -112,8 +112,8 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
   // Tear down an in-flight drag without attaching. Chromium fires
   // `pointercancel` (not `pointerup`) when it interrupts the gesture — window
   // blur, the OS hijacking the pointer, a native drag starting — and without
-  // this the ghost card and "Drop to attach" overlay stay stuck on screen.
-  // Idempotent, so it's safe as a `lostpointercapture` catch-all too.
+  // this the ghost card and dropzone overlay stay stuck on screen. Idempotent,
+  // so it's safe as a `lostpointercapture` catch-all too.
   const abortDrag = useCallback((e: PointerEvent<HTMLDivElement>) => {
     if (!startRef.current && !draggingRef.current) return;
     startRef.current = null;
@@ -140,38 +140,34 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
 
       if (wasDragging) {
         const taskId = sessionHostAtPoint(e.clientX, e.clientY)?.getAttribute("data-task-id");
-        // Dropped on empty space: keep the thumbnail for another try.
+        // Dropped on empty space: no-op, the screenshot stays in history.
         if (!taskId) return;
         void attachImageToSession(taskId, shot.path);
         playScreenshotDrop();
-        dismiss();
+        // No removal — history persists after attaching.
         return;
       }
 
       // Plain click: open the annotation editor.
       setEditing(true);
     },
-    [attachImageToSession, dismiss, shot.path],
+    [attachImageToSession, shot.path],
   );
 
-  // Attach the (possibly annotated) image to the active session, mirroring the
-  // old click-to-attach behaviour once the editor closes.
+  // Attach the (possibly annotated) image to the active session from the editor.
+  // Keeps the screenshot in history.
   const attachToActive = useCallback(
     (imagePath: string) => {
       const active = activeTaskIdFor(projectId);
       setEditing(false);
-      if (!active) {
-        dismiss();
-        return;
-      }
+      if (!active) return;
       void attachImageToSession(active, imagePath);
       playScreenshotDrop();
-      dismiss();
     },
-    [activeTaskIdFor, attachImageToSession, dismiss, projectId],
+    [activeTaskIdFor, attachImageToSession, projectId],
   );
 
-  // Save (without attaching): swap this card's image for the annotated one, so
+  // Save (without attaching): swap this entry's image for the annotated one, so
   // the thumbnail shows the edits and a later click/drag uses the edited file.
   // Also persist the original base image + vector shapes so re-editing restores
   // the previously-added annotations as editable shapes.
@@ -194,68 +190,27 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
 
   const dragging = dragPoint !== null;
 
-  // Shared card visuals so the anchored card and the drag ghost are identical —
-  // the ghost is what makes the *whole card* appear to lift and follow the
-  // cursor, not just the image.
-  const cardContent = (ghost: boolean) => (
-    <>
-      <div style={{ position: "relative" }}>
-        <div style={{ borderRadius: 8, overflow: "hidden", lineHeight: 0 }}>
-          <img
-            src={shot.previewDataUrl}
-            alt={ghost ? "" : "Screenshot preview"}
-            aria-hidden={ghost || undefined}
-            draggable={false}
-            style={{
-              display: "block",
-              width: "100%",
-              height: "auto",
-              maxHeight: THUMB_MAX_HEIGHT_PX,
-              objectFit: "cover",
-              objectPosition: "top",
-            }}
-          />
-        </div>
-        {!ghost && (
-          <button
-            type="button"
-            aria-label="Dismiss screenshot"
-            title="Dismiss"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={beginLeave}
-            style={{
-              position: "absolute",
-              top: 4,
-              right: 4,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 20,
-              height: 20,
-              padding: 0,
-              borderRadius: 6,
-              border: "none",
-              cursor: "pointer",
-              color: "#fff",
-              background: "rgba(0,0,0,0.55)",
-            }}
-          >
-            <Icon name="x" size={12} />
-          </button>
-        )}
-      </div>
-      <div
+  // Shared thumbnail visuals so the anchored card and the drag ghost match.
+  const thumb = (ghost: boolean) =>
+    shot.previewDataUrl ? (
+      <img
+        src={shot.previewDataUrl}
+        alt={ghost ? "" : "Screenshot preview"}
+        aria-hidden={ghost || undefined}
+        draggable={false}
         style={{
-          fontSize: 11,
-          color: "var(--text-dim)",
-          textAlign: "center",
-          fontFamily: "var(--mono)",
+          display: "block",
+          height: THUMB_HEIGHT_PX,
+          width: "auto",
+          maxWidth: THUMB_MAX_WIDTH_PX,
+          objectFit: "cover",
+          objectPosition: "center",
         }}
-      >
-        Click to edit · drag to attach
-      </div>
-    </>
-  );
+      />
+    ) : (
+      // Restored-from-disk entry whose preview hasn't loaded yet.
+      <div style={{ width: 96, height: THUMB_HEIGHT_PX }} aria-hidden />
+    );
 
   return (
     <>
@@ -267,6 +222,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
           onSave={saveEdits}
         />
       )}
+
       {/* Anchored card: holds the pointer capture; hidden (but kept mounted, so
           it keeps receiving move/up events) while the ghost is lifted. */}
       <div
@@ -274,23 +230,50 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
         role="button"
         tabIndex={0}
         aria-label="Click to edit the screenshot, or drag onto a session to attach"
+        title="Click to edit · drag to attach"
         onPointerDown={leaving ? undefined : onPointerDown}
         onPointerMove={leaving ? undefined : onPointerMove}
         onPointerUp={leaving ? undefined : onPointerUp}
         onPointerCancel={leaving ? undefined : abortDrag}
         onLostPointerCapture={leaving ? undefined : abortDrag}
-        onAnimationEnd={leaving ? dismiss : undefined}
+        onAnimationEnd={leaving ? remove : undefined}
         style={{
-          ...cardBaseStyle,
+          ...thumbFrameStyle,
           cursor: dragging ? "grabbing" : "grab",
-          opacity: dragging ? 0 : 1,
+          opacity: dragging ? 0.35 : 1,
           // Pointer capture still routes move/up here while dragging, so drop
-          // this out of hit-testing to expose the session under the corner.
+          // this out of hit-testing to expose the session under the cursor.
           // Also lock out interaction while the card is sliding away.
           pointerEvents: dragging || leaving ? "none" : "auto",
         }}
       >
-        {cardContent(false)}
+        {thumb(false)}
+        <button
+          type="button"
+          className="screenshot-strip-delete"
+          aria-label="Delete screenshot"
+          title="Delete"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={beginLeave}
+          style={{
+            position: "absolute",
+            top: 3,
+            right: 3,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 18,
+            height: 18,
+            padding: 0,
+            borderRadius: 5,
+            border: "none",
+            cursor: "pointer",
+            color: "#fff",
+            background: "rgba(0,0,0,0.55)",
+          }}
+        >
+          <Icon name="x" size={11} />
+        </button>
       </div>
 
       {/* Dropzone highlight over the session currently under the cursor. */}
@@ -336,7 +319,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
         <div
           aria-hidden
           style={{
-            ...cardBaseStyle,
+            ...thumbFrameStyle,
             position: "fixed",
             left: dragPoint.x,
             top: dragPoint.y,
@@ -346,7 +329,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
             zIndex: 10001,
           }}
         >
-          {cardContent(true)}
+          {thumb(true)}
         </div>
       )}
     </>
@@ -354,40 +337,92 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
 }
 
 /**
- * Floating stack of freshly captured screenshots, pinned bottom-right. Each new
- * capture piles on top; the oldest sits at the bottom of the stack. Attaching or
- * dismissing a card only removes it from this stack — the screenshot lives on in
- * the on-demand history strip. Rendered globally via a portal so it floats above
- * the grid and drops can hit-test the whole document.
+ * Screenshot history for a project, rendered as the body of the "Project
+ * Terminals" panel's Screenshots tab: a single-row horizontal slider of every
+ * screenshot captured here (newest first) — never wrapped onto multiple lines.
+ * Drag a thumbnail onto a session to attach it, click to edit, or ✕ to
+ * permanently delete it (from history and disk). The panel supplies its own
+ * header/tab chrome; this is just the slider.
  */
-export function ScreenshotThumbnail({ projectId }: { projectId: string }) {
-  const { pendingScreenshots } = useTerminals();
-  const shots = pendingScreenshots.filter((s) => s.projectId === projectId);
+export function ScreenshotHistoryContent({ projectId }: { projectId: string }) {
+  const { screenshots } = useTerminals();
 
-  if (shots.length === 0) return null;
+  // Newest first. The store keeps history oldest-first; reverse for display.
+  const shots = useMemo(
+    () =>
+      screenshots
+        .filter((s) => s.projectId === projectId)
+        .slice()
+        .sort((a, b) => b.capturedAt - a.capturedAt),
+    [screenshots, projectId],
+  );
 
-  return createPortal(
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Wheel over the slider scrolls it horizontally (mice have only a vertical
+  // wheel; trackpads already emit horizontal deltas which we leave alone).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      if (el.scrollWidth <= el.clientWidth) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Keep the newest (leftmost) capture in view when one arrives.
+  const newestId = shots[0]?.id ?? null;
+  const lastNewestRef = useRef<string | null>(newestId);
+  useEffect(() => {
+    if (newestId && newestId !== lastNewestRef.current) {
+      scrollRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+    }
+    lastNewestRef.current = newestId;
+  }, [newestId]);
+
+  if (shots.length === 0) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--text-dim)",
+          fontFamily: "var(--mono)",
+          fontSize: 12,
+        }}
+      >
+        No screenshots yet
+      </div>
+    );
+  }
+
+  return (
     <div
+      ref={scrollRef}
+      data-screenshot-history
+      aria-label="Screenshot history"
       style={{
-        position: "fixed",
-        right: 16,
-        bottom: 16,
-        zIndex: 10000,
+        flex: 1,
+        minHeight: 0,
         display: "flex",
-        // Newest on top, oldest at the bottom of the pile. The stack is pinned
-        // at the bottom edge, so it grows upward as captures accumulate.
-        flexDirection: "column-reverse",
-        alignItems: "flex-end",
+        alignItems: "center",
+        // Single row: never wrap onto multiple lines — scroll horizontally.
+        flexWrap: "nowrap",
         gap: 8,
-        // Let clicks fall through the gaps between cards; each card re-enables
-        // pointer events for itself.
-        pointerEvents: "none",
+        padding: 8,
+        overflowX: "auto",
+        overflowY: "hidden",
       }}
     >
       {shots.map((shot) => (
-        <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId} />
+        <ScreenshotHistoryCard key={shot.id} shot={shot} projectId={projectId} />
       ))}
-    </div>,
-    document.body,
+    </div>
   );
 }

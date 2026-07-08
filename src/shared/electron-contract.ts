@@ -321,6 +321,8 @@ export type ElectronBridge = {
     saveClipboard: () => Promise<TerminalImageSaveResult | null>;
     /** Put a saved terminal image on the OS clipboard for a Ctrl+V image paste. */
     copyToClipboard: (path: string) => Promise<{ ok: true } | { error: string }>;
+    /** Hard-delete a saved terminal image from disk (used by screenshot history). */
+    delete: (path: string) => Promise<{ ok: true } | { error: string }>;
   };
   screenshot: {
     /** Native macOS region capture; resolves once the user finishes or cancels the selection. */

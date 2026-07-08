@@ -9,6 +9,7 @@ export const IPC = {
   terminalSaveDroppedImage: "terminal:saveDroppedImage",
   terminalSaveClipboardImage: "terminal:saveClipboardImage",
   terminalCopyImageToClipboard: "terminal:copyImageToClipboard",
+  terminalDeleteImage: "terminal:deleteImage",
   screenshotCaptureRegion: "screenshot:captureRegion",
   screenshotReadImage: "screenshot:readImage",
   appGetRuntimePort: "app:getRuntimePort",

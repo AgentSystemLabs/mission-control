@@ -45,12 +45,17 @@ export type OpenTerminal = {
   pendingValidation?: boolean;
 };
 
-export type PendingScreenshot = {
-  /** Stable id so each stacked thumbnail can be dragged/dismissed on its own. */
+export type ScreenshotEntry = {
+  /** Stable id so each thumbnail can be dragged/edited/deleted on its own. */
   id: string;
+  /** Project this screenshot was captured in; the history strip filters on it. */
+  projectId: string;
+  /** Capture time (epoch ms). Persisted so history keeps its order across reloads. */
+  capturedAt: number;
   /** Absolute path to the saved PNG, pasted into the terminal on drop. */
   path: string;
-  /** Downscaled data URL rendered as the floating thumbnail preview. */
+  /** Downscaled data URL rendered as the thumbnail preview. Not persisted —
+   *  re-loaded from `path` on launch to keep localStorage small. */
   previewDataUrl: string;
   /** Un-annotated original screenshot. Set once the shot is first saved from the
    *  annotator so a re-edit draws on the original rather than the flattened PNG. */
@@ -59,6 +64,13 @@ export type PendingScreenshot = {
    *  previously-added annotations stay selectable instead of baked-in pixels. */
   shapes?: AnnotationShape[];
 };
+
+/** @deprecated alias kept so the annotator's `shot: PendingScreenshot` prop
+ *  keeps compiling; use {@link ScreenshotEntry}. */
+export type PendingScreenshot = ScreenshotEntry;
+
+/** Metadata persisted to localStorage (everything but the heavy preview). */
+type ScreenshotMeta = Omit<ScreenshotEntry, "previewDataUrl">;
 
 type Ctx = {
   /** All live sessions (PTYs alive in background). */
@@ -100,16 +112,25 @@ type Ctx = {
   /** Paste an image path into a session's terminal (no submit) and make it
    *  active + focused — the drop target of the native screenshot flow. */
   attachImageToSession: (taskId: string, imagePath: string) => Promise<void>;
-  /** Captured-but-undropped screenshots shown as a floating stack, oldest
-   *  first. Each new capture is pushed on top of the pile instead of replacing
-   *  the previous one. */
-  pendingScreenshots: PendingScreenshot[];
-  /** Push a freshly captured screenshot onto the stack. */
-  setPendingScreenshot: (shot: Omit<PendingScreenshot, "id">) => void;
+  /** Persistent, per-project screenshot history (oldest first), backed by the
+   *  PNGs on disk and restored across app restarts. The on-demand history strip
+   *  filters this by project and renders it newest-first. */
+  screenshots: ScreenshotEntry[];
+  /** Captured-but-not-yet-handled screenshots shown as the floating bottom-right
+   *  stack (oldest first). Transient (session-only): a subset of `screenshots`
+   *  the user hasn't dismissed/attached from the stack yet. Dismissing here does
+   *  NOT delete — the shot stays in `screenshots` for the history strip. */
+  pendingScreenshots: ScreenshotEntry[];
+  /** Append a freshly captured screenshot to both history and the floating stack. */
+  addScreenshot: (shot: Omit<ScreenshotEntry, "id" | "capturedAt">) => void;
   /** Swap a thumbnail's image in place (e.g. after saving annotations). */
-  updatePendingScreenshot: (id: string, patch: Partial<Omit<PendingScreenshot, "id">>) => void;
-  /** Dismiss one thumbnail by id, or the whole stack when no id is given. */
-  clearPendingScreenshot: (id?: string) => void;
+  updateScreenshot: (id: string, patch: Partial<Omit<ScreenshotEntry, "id">>) => void;
+  /** Drop one screenshot from the floating stack only (attach/✕ in the stack).
+   *  It stays in history so the user can return to it later. */
+  dismissPendingScreenshot: (id: string) => void;
+  /** Hard-delete one screenshot by id: drop it from history AND the stack, and
+   *  unlink the PNG (and its un-annotated original, if any) from disk. */
+  removeScreenshot: (id: string) => void;
   /** Whether the full-width "all sessions" grid view is active. */
   gridView: boolean;
   setGridView: (value: boolean) => void;
@@ -159,6 +180,7 @@ type TerminalDataKeys =
   | "activeTaskIdFor"
   | "gridView"
   | "gridFocusRequest"
+  | "screenshots"
   | "pendingScreenshots";
 type TerminalData = Pick<Ctx, TerminalDataKeys>;
 type TerminalActions = Omit<Ctx, TerminalDataKeys>;
@@ -234,6 +256,42 @@ function loadGridView(): boolean {
     return window.localStorage.getItem(GRID_VIEW_KEY) === "1";
   } catch {
     return false;
+  }
+}
+
+const SCREENSHOTS_KEY = "mc.screenshots";
+
+/** Restore screenshot history metadata (previews are re-loaded from disk). */
+function loadScreenshotMeta(): ScreenshotMeta[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(SCREENSHOTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (e): e is ScreenshotMeta =>
+        !!e &&
+        typeof e === "object" &&
+        typeof (e as ScreenshotMeta).id === "string" &&
+        typeof (e as ScreenshotMeta).path === "string" &&
+        typeof (e as ScreenshotMeta).projectId === "string" &&
+        typeof (e as ScreenshotMeta).capturedAt === "number",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Persist history metadata only — never the heavy preview data URLs, which
+ *  would blow the localStorage quota once a handful accumulate. */
+function saveScreenshotMeta(list: ScreenshotEntry[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const meta: ScreenshotMeta[] = list.map(({ previewDataUrl: _preview, ...rest }) => rest);
+    window.localStorage.setItem(SCREENSHOTS_KEY, JSON.stringify(meta));
+  } catch {
+    /* quota or disabled */
   }
 }
 
@@ -474,22 +532,92 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setGridView(!gridViewRef.current);
   }, [setGridView]);
 
-  const [pendingScreenshots, setPendingScreenshots] = useState<PendingScreenshot[]>([]);
+  // Restore history metadata synchronously; previews start empty and are
+  // hydrated from disk by the effect below.
+  const [screenshots, setScreenshots] = useState<ScreenshotEntry[]>(() =>
+    loadScreenshotMeta().map((m) => ({ ...m, previewDataUrl: "" })),
+  );
+  const screenshotsRef = useRef(screenshots);
+  screenshotsRef.current = screenshots;
   const screenshotSeq = useRef(0);
-  const setPendingScreenshot = useCallback((shot: Omit<PendingScreenshot, "id">) => {
-    screenshotSeq.current += 1;
-    const id = `shot-${screenshotSeq.current}`;
-    setPendingScreenshots((prev) => [...prev, { id, ...shot }]);
+  // Ids currently in the floating bottom-right stack. Transient (not persisted):
+  // the stack starts empty on launch; history is what survives restarts.
+  const [pendingScreenshotIds, setPendingScreenshotIds] = useState<string[]>([]);
+
+  // Persist metadata whenever history changes (low frequency: capture/edit/delete).
+  useEffect(() => {
+    saveScreenshotMeta(screenshots);
+  }, [screenshots]);
+
+  // On mount, load each restored screenshot's preview from its PNG on disk, and
+  // drop any whose file is gone (pruned by the count/size cap, or deleted while
+  // the app was closed). Runs once — fresh captures arrive with a preview.
+  useEffect(() => {
+    const electron = getElectron();
+    if (!electron) return;
+    const missing = screenshotsRef.current.filter((s) => !s.previewDataUrl);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const loaded = await Promise.all(
+        missing.map(async (s) => {
+          const res = await electron.screenshot.readImage(s.path).catch(() => null);
+          return { id: s.id, dataUrl: res && "dataUrl" in res ? res.dataUrl : null };
+        }),
+      );
+      if (cancelled) return;
+      const byId = new Map(loaded.map((r) => [r.id, r.dataUrl]));
+      setScreenshots((prev) =>
+        prev.flatMap((s) => {
+          if (s.previewDataUrl || !byId.has(s.id)) return [s];
+          const url = byId.get(s.id);
+          if (!url) return []; // file gone → drop from history
+          return [{ ...s, previewDataUrl: url }];
+        }),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
-  const updatePendingScreenshot = useCallback(
-    (id: string, patch: Partial<Omit<PendingScreenshot, "id">>) => {
-      setPendingScreenshots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+
+  const addScreenshot = useCallback((shot: Omit<ScreenshotEntry, "id" | "capturedAt">) => {
+    screenshotSeq.current += 1;
+    const capturedAt = Date.now();
+    const id = `shot-${capturedAt}-${screenshotSeq.current}`;
+    setScreenshots((prev) => [...prev, { id, capturedAt, ...shot }]);
+    setPendingScreenshotIds((prev) => [...prev, id]);
+  }, []);
+  const updateScreenshot = useCallback(
+    (id: string, patch: Partial<Omit<ScreenshotEntry, "id">>) => {
+      setScreenshots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     },
     [],
   );
-  const clearPendingScreenshot = useCallback((id?: string) => {
-    setPendingScreenshots((prev) => (id ? prev.filter((s) => s.id !== id) : []));
+  const dismissPendingScreenshot = useCallback((id: string) => {
+    // Leave `screenshots` intact — the shot lives on in the history strip.
+    setPendingScreenshotIds((prev) => prev.filter((sid) => sid !== id));
   }, []);
+  const removeScreenshot = useCallback((id: string) => {
+    // Unlink the PNG(s) off the React path so the state updater stays pure.
+    const target = screenshotsRef.current.find((s) => s.id === id);
+    if (target) {
+      const electron = getElectron();
+      void electron?.terminalImages.delete(target.path).catch(() => {});
+      if (target.originalPath && target.originalPath !== target.path) {
+        void electron?.terminalImages.delete(target.originalPath).catch(() => {});
+      }
+    }
+    setScreenshots((prev) => prev.filter((s) => s.id !== id));
+    setPendingScreenshotIds((prev) => prev.filter((sid) => sid !== id));
+  }, []);
+  // Floating-stack subset: history entries the user hasn't dismissed yet, in
+  // capture order (history is oldest-first, and ids are pushed as captured).
+  const pendingScreenshots = useMemo(() => {
+    if (pendingScreenshotIds.length === 0) return [];
+    const pendingSet = new Set(pendingScreenshotIds);
+    return screenshots.filter((s) => pendingSet.has(s.id));
+  }, [screenshots, pendingScreenshotIds]);
 
   const [gridFocusRequest, setGridFocusRequest] = useState<
     { taskId: string; nonce: number } | null
@@ -1088,9 +1216,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       startCommandFor: commandFor,
       runIn,
       attachImageToSession,
-      setPendingScreenshot,
-      updatePendingScreenshot,
-      clearPendingScreenshot,
+      addScreenshot,
+      updateScreenshot,
+      dismissPendingScreenshot,
+      removeScreenshot,
       setGridView,
       toggleGridView,
       focusGridSession,
@@ -1117,9 +1246,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       syncTask,
       runIn,
       attachImageToSession,
-      setPendingScreenshot,
-      updatePendingScreenshot,
-      clearPendingScreenshot,
+      addScreenshot,
+      updateScreenshot,
+      dismissPendingScreenshot,
+      removeScreenshot,
       setGridView,
       toggleGridView,
       focusGridSession,
@@ -1142,9 +1272,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       activeTaskIdFor,
       gridView,
       gridFocusRequest,
+      screenshots,
       pendingScreenshots,
     }),
-    [sessions, activeFor, activeTaskIdFor, gridView, gridFocusRequest, pendingScreenshots]
+    [
+      sessions,
+      activeFor,
+      activeTaskIdFor,
+      gridView,
+      gridFocusRequest,
+      screenshots,
+      pendingScreenshots,
+    ]
   );
 
   return (

@@ -1,11 +1,13 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { Icon } from "~/components/ui/Icon";
-import { HotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
+import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
+import { ScreenshotHistoryContent } from "./ScreenshotHistory";
 import { UserTerminalPane } from "./UserTerminalPane";
 
 const MIN_HEIGHT = 160;
@@ -55,6 +57,21 @@ export function UserTerminalPanel() {
 
   const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.terminal.id));
 
+  // Screenshot history lives here as a tab: the panel body switches between the
+  // terminal panes and the project's captured screenshots. Screenshots are
+  // per-project (the home scope has none).
+  const { screenshots } = useTerminals();
+  const screenshotCount = useMemo(
+    () => (project ? screenshots.filter((s) => s.projectId === project.id).length : 0),
+    [screenshots, project],
+  );
+  const [showScreenshots, setShowScreenshots] = useState(false);
+  // Fall back to the terminals view if the screenshots run out or the project
+  // scope goes away (e.g. switching to the home dashboard).
+  useEffect(() => {
+    if (showScreenshots && screenshotCount === 0) setShowScreenshots(false);
+  }, [showScreenshots, screenshotCount]);
+
   const { size: height, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:userTerminalsPanelHeight",
     axis: "y",
@@ -79,6 +96,8 @@ export function UserTerminalPanel() {
 
   const onTerminalTabClick = useCallback(
     (id: string, hidden: boolean) => {
+      // Selecting a terminal tab leaves the Screenshots view.
+      setShowScreenshots(false);
       if (!panelOpen) {
         if (hidden) toggleHidden(id);
         focusTerminal(id);
@@ -95,6 +114,25 @@ export function UserTerminalPanel() {
     },
     [focusTerminal, panelOpen, setPanelOpen, toggleHidden],
   );
+
+  // Whether the screenshots view is actually on screen right now. Keyed off the
+  // panel being open AND screenshots selected, so the toggle below stays honest
+  // even after the panel was collapsed with the chevron (which leaves
+  // `showScreenshots` set but nothing visible).
+  const screenshotsVisible = panelOpen && showScreenshots;
+  // The Screenshots button is a show/hide toggle: click to open the panel on the
+  // history slider; click again while it's showing to collapse the whole panel.
+  // Collapsing also drops screenshot mode so re-expanding with the chevron lands
+  // on the terminals, not the slider.
+  const onScreenshotsTabClick = useCallback(() => {
+    if (screenshotsVisible) {
+      setShowScreenshots(false);
+      setPanelOpen(false);
+    } else {
+      setShowScreenshots(true);
+      if (!panelOpen) setPanelOpen(true);
+    }
+  }, [screenshotsVisible, panelOpen, setPanelOpen]);
 
   const onSplitterDrag = useCallback(
     (leftId: string, rightId: string, event: React.MouseEvent) => {
@@ -240,7 +278,7 @@ export function UserTerminalPanel() {
               {sessions.map((s) => {
                 const hidden = hiddenIds.has(s.terminal.id);
                 const focused = focusedId === s.terminal.id;
-                const active = panelOpen ? !hidden && focused : focused;
+                const active = showScreenshots ? false : panelOpen ? !hidden && focused : focused;
                 const dimmed = panelOpen && hidden;
                 return (
                   <button
@@ -305,6 +343,21 @@ export function UserTerminalPanel() {
           )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
+          {screenshotCount > 0 && (
+            <Tooltip content="Screenshots — captures you can reuse in this project">
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon="camera"
+                aria-label="Screenshots"
+                aria-pressed={screenshotsVisible}
+                onClick={onScreenshotsTabClick}
+                style={{ background: screenshotsVisible ? "var(--surface-2)" : undefined }}
+              >
+                {screenshotCount}
+              </Btn>
+            </Tooltip>
+          )}
           <HotkeyTooltip action="terminal.newTab" label="New terminal">
             <Btn
               variant="ghost"
@@ -312,6 +365,7 @@ export function UserTerminalPanel() {
               icon="plus"
               disabled={!active}
               onClick={() => {
+                setShowScreenshots(false);
                 if (active) void createTerminal();
               }}
             >
@@ -332,7 +386,9 @@ export function UserTerminalPanel() {
           </HotkeyTooltip>
         </div>
       </div>
-      {panelOpen && (
+      {panelOpen && showScreenshots && project ? (
+        <ScreenshotHistoryContent projectId={project.id} />
+      ) : panelOpen ? (
       <div
         ref={paneRowRef}
         style={{
@@ -432,7 +488,7 @@ export function UserTerminalPanel() {
           })
         )}
       </div>
-      )}
+      ) : null}
     </CardFrame>
   );
 }

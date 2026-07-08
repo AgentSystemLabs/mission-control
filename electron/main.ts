@@ -1240,6 +1240,24 @@ function copyTerminalImageToClipboard(input: unknown): { ok: true } | { error: s
   }
 }
 
+/**
+ * Hard-delete a saved terminal image from disk. Path-sandboxed to the
+ * terminal-images dir via {@link resolveTerminalImageFile}. An already-missing
+ * file counts as success — the caller's intent is "make it gone".
+ */
+function deleteTerminalImageFile(input: unknown): { ok: true } | { error: string } {
+  try {
+    const file = resolveTerminalImageFile(input);
+    if ("error" in file) return file;
+    fs.unlinkSync(file.path);
+    return { ok: true };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { ok: true };
+    log.warn("terminal-images.delete-failed", { error: String(err) });
+    return { error: "delete failed" };
+  }
+}
+
 const SCREENSHOT_PREVIEW_WIDTH_PX = 320;
 
 /**
@@ -1479,6 +1497,7 @@ safeHandle(IPC.terminalSaveClipboardImage, () => {
 safeHandle(IPC.terminalCopyImageToClipboard, (_evt, p: unknown) =>
   copyTerminalImageToClipboard(p),
 );
+safeHandle(IPC.terminalDeleteImage, (_evt, p: unknown) => deleteTerminalImageFile(p));
 safeHandle(IPC.screenshotCaptureRegion, () => captureScreenshotRegion());
 safeHandle(IPC.screenshotReadImage, (_evt, p: unknown) => readTerminalImageForEdit(p));
 

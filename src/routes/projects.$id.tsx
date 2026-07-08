@@ -689,7 +689,7 @@ function ProjectPage() {
     () => getElectron()?.platform === "darwin",
     [],
   );
-  const setPendingScreenshot = terminals.setPendingScreenshot;
+  const addScreenshot = terminals.addScreenshot;
   const captureScreenshot = useCallback(async () => {
     const electron = getElectron();
     if (!electron) return;
@@ -701,9 +701,9 @@ function ProjectPage() {
     const shot = screenshotFromResult(result);
     if (shot) {
       playScreenshotCapture();
-      setPendingScreenshot(shot);
+      addScreenshot({ ...shot, projectId: id });
     }
-  }, [setPendingScreenshot]);
+  }, [addScreenshot, id]);
   // Review Changes in grid view docks the diff as a resizable panel beside the
   // live grid (see the split render below) instead of taking over the workspace,
   // so the sessions stay visible while you review. gridView state stays on, so

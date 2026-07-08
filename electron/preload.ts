@@ -318,6 +318,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.terminalSaveClipboardImage),
     copyToClipboard: (path: string): Promise<{ ok: true } | { error: string }> =>
       ipcRenderer.invoke(IPC.terminalCopyImageToClipboard, path),
+    delete: (path: string): Promise<{ ok: true } | { error: string }> =>
+      ipcRenderer.invoke(IPC.terminalDeleteImage, path),
   },
   screenshot: {
     captureRegion: (): Promise<
