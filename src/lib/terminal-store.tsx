@@ -45,6 +45,8 @@ export type OpenTerminal = {
 };
 
 export type PendingScreenshot = {
+  /** Stable id so each stacked thumbnail can be dragged/dismissed on its own. */
+  id: string;
   /** Absolute path to the saved PNG, pasted into the terminal on drop. */
   path: string;
   /** Downscaled data URL rendered as the floating thumbnail preview. */
@@ -91,13 +93,14 @@ type Ctx = {
   /** Paste an image path into a session's terminal (no submit) and make it
    *  active + focused — the drop target of the native screenshot flow. */
   attachImageToSession: (taskId: string, imagePath: string) => Promise<void>;
-  /** The captured-but-undropped screenshot shown as a floating thumbnail, if
-   *  any. A new capture replaces the previous one. */
-  pendingScreenshot: PendingScreenshot | null;
-  /** Store a freshly captured screenshot, replacing any undropped one. */
-  setPendingScreenshot: (shot: PendingScreenshot) => void;
-  /** Dismiss the floating screenshot thumbnail. */
-  clearPendingScreenshot: () => void;
+  /** Captured-but-undropped screenshots shown as a floating stack, oldest
+   *  first. Each new capture is pushed on top of the pile instead of replacing
+   *  the previous one. */
+  pendingScreenshots: PendingScreenshot[];
+  /** Push a freshly captured screenshot onto the stack. */
+  setPendingScreenshot: (shot: Omit<PendingScreenshot, "id">) => void;
+  /** Dismiss one thumbnail by id, or the whole stack when no id is given. */
+  clearPendingScreenshot: (id?: string) => void;
   /** Whether the full-width "all sessions" grid view is active. */
   gridView: boolean;
   setGridView: (value: boolean) => void;
@@ -147,7 +150,7 @@ type TerminalDataKeys =
   | "activeTaskIdFor"
   | "gridView"
   | "gridFocusRequest"
-  | "pendingScreenshot";
+  | "pendingScreenshots";
 type TerminalData = Pick<Ctx, TerminalDataKeys>;
 type TerminalActions = Omit<Ctx, TerminalDataKeys>;
 
@@ -462,14 +465,15 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setGridView(!gridViewRef.current);
   }, [setGridView]);
 
-  const [pendingScreenshot, setPendingScreenshotState] = useState<PendingScreenshot | null>(
-    null,
-  );
-  const setPendingScreenshot = useCallback((shot: PendingScreenshot) => {
-    setPendingScreenshotState(shot);
+  const [pendingScreenshots, setPendingScreenshots] = useState<PendingScreenshot[]>([]);
+  const screenshotSeq = useRef(0);
+  const setPendingScreenshot = useCallback((shot: Omit<PendingScreenshot, "id">) => {
+    screenshotSeq.current += 1;
+    const id = `shot-${screenshotSeq.current}`;
+    setPendingScreenshots((prev) => [...prev, { id, ...shot }]);
   }, []);
-  const clearPendingScreenshot = useCallback(() => {
-    setPendingScreenshotState(null);
+  const clearPendingScreenshot = useCallback((id?: string) => {
+    setPendingScreenshots((prev) => (id ? prev.filter((s) => s.id !== id) : []));
   }, []);
 
   const [gridFocusRequest, setGridFocusRequest] = useState<
@@ -1109,9 +1113,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       activeTaskIdFor,
       gridView,
       gridFocusRequest,
-      pendingScreenshot,
+      pendingScreenshots,
     }),
-    [sessions, activeFor, activeTaskIdFor, gridView, gridFocusRequest, pendingScreenshot]
+    [sessions, activeFor, activeTaskIdFor, gridView, gridFocusRequest, pendingScreenshots]
   );
 
   return (
