@@ -11,6 +11,7 @@ import { Icon } from "~/components/ui/Icon";
 import {
   ScreenshotAnnotator,
   type Shape as AnnotationShape,
+  type CropBox,
 } from "~/components/views/ScreenshotAnnotator";
 import { useTerminals, type ScreenshotEntry } from "~/lib/terminal-store";
 import { playScreenshotDrop } from "~/lib/screenshot-sound";
@@ -175,13 +176,14 @@ function ScreenshotHistoryCard({
     (
       imagePath: string,
       previewDataUrl: string,
-      editable: { originalPath: string; shapes: AnnotationShape[] },
+      editable: { originalPath: string; shapes: AnnotationShape[]; crop: CropBox | null },
     ) => {
       updateScreenshot(shot.id, {
         path: imagePath,
         previewDataUrl,
         originalPath: editable.originalPath,
         shapes: editable.shapes,
+        crop: editable.crop ?? undefined,
       });
       setEditing(false);
     },
