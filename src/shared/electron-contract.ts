@@ -280,6 +280,11 @@ export type TerminalImageSaveInput = {
 
 export type TerminalImageSaveResult = { path: string } | { error: string };
 
+export type ScreenshotCaptureResult =
+  | { path: string; previewDataUrl: string }
+  | { cancelled: true }
+  | { error: string };
+
 export type VoiceTranscribeResult =
   | { ok: true; text: string }
   | { ok: false; error: string; code?: "unavailable" };
@@ -312,6 +317,10 @@ export type ElectronBridge = {
   terminalImages: {
     saveDropped: (input: TerminalImageSaveInput) => Promise<TerminalImageSaveResult>;
     saveClipboard: () => Promise<TerminalImageSaveResult | null>;
+  };
+  screenshot: {
+    /** Native macOS region capture; resolves once the user finishes or cancels the selection. */
+    captureRegion: () => Promise<ScreenshotCaptureResult>;
   };
   pickImage: () => Promise<
     { sourcePath: string; extension: string } | { error: string } | null

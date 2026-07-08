@@ -1183,6 +1183,59 @@ function saveTerminalNativeImage(
   return saveTerminalImageBuffer(image.toPNG(), "png", name);
 }
 
+const SCREENSHOT_PREVIEW_WIDTH_PX = 320;
+
+/**
+ * Native macOS region capture via `screencapture -i`. The OS draws the crosshair
+ * and selection rectangle above every window, so the Mission Control window
+ * stays put and visible throughout — the user selects any region on screen,
+ * including over the app. Cancelling (Esc) writes no file.
+ */
+async function captureScreenshotRegion(): Promise<
+  { path: string; previewDataUrl: string } | { cancelled: true } | { error: string }
+> {
+  if (process.platform !== "darwin") return { error: "unsupported" };
+  const tmpPath = path.join(
+    os.tmpdir(),
+    `mc-screenshot-${Date.now()}-${Math.random().toString(16).slice(2, 10)}.png`,
+  );
+  try {
+    await new Promise<void>((resolve) => {
+      const child = spawn("screencapture", ["-i", "-x", tmpPath], { stdio: "ignore" });
+      child.on("error", () => resolve());
+      child.on("close", () => resolve());
+    });
+    if (!fs.existsSync(tmpPath)) {
+      // No file written: either the user pressed Esc, or macOS blocked capture.
+      if (systemPreferences.getMediaAccessStatus("screen") !== "granted") {
+        return { error: "screen-permission" };
+      }
+      return { cancelled: true };
+    }
+    const image = nativeImage.createFromPath(tmpPath);
+    if (image.isEmpty()) {
+      if (systemPreferences.getMediaAccessStatus("screen") !== "granted") {
+        return { error: "screen-permission" };
+      }
+      return { error: "capture failed" };
+    }
+    const saved = saveTerminalNativeImage(image, "screenshot");
+    if ("error" in saved) return { error: saved.error };
+    const preview =
+      image.getSize().width > SCREENSHOT_PREVIEW_WIDTH_PX
+        ? image.resize({ width: SCREENSHOT_PREVIEW_WIDTH_PX })
+        : image;
+    return { path: saved.path, previewDataUrl: preview.toDataURL() };
+  } catch (err) {
+    log.warn("screenshot.capture-failed", { error: String(err) });
+    return { error: "capture failed" };
+  } finally {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {}
+  }
+}
+
 function registerProjectImageProtocol() {
   protocol.handle("app", async (req) => {
     try {
@@ -1356,6 +1409,7 @@ safeHandle(IPC.terminalSaveClipboardImage, () => {
   if (image.isEmpty()) return null;
   return saveTerminalNativeImage(image, "clipboard-image");
 });
+safeHandle(IPC.screenshotCaptureRegion, () => captureScreenshotRegion());
 
 safeHandle(IPC.voiceAvailable, () => isWhisperAvailable());
 safeHandle(IPC.voicePrewarm, () => {

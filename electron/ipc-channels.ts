@@ -8,6 +8,7 @@ export const IPC = {
   clipboardWriteText: "clipboard:writeText",
   terminalSaveDroppedImage: "terminal:saveDroppedImage",
   terminalSaveClipboardImage: "terminal:saveClipboardImage",
+  screenshotCaptureRegion: "screenshot:captureRegion",
   appGetRuntimePort: "app:getRuntimePort",
   appGetUserDataDir: "app:getUserDataDir",
   appGetUserName: "app:getUserName",

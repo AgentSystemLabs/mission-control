@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { getElectron } from "./electron";
+import { formatPathForTerminalPaste } from "./project-path-drag";
 import { markIntentionalSessionClose } from "./intentional-session-close";
 import { isRemotePtyId } from "./pty-id";
 import { terminalSurfaceCache } from "./terminal-surface-cache";
@@ -41,6 +42,13 @@ export type OpenTerminal = {
    *  against the server. Dead/archived tasks are dropped instead of respawning,
    *  and live ones get a fresh snapshot + rebuilt start command. */
   pendingValidation?: boolean;
+};
+
+export type PendingScreenshot = {
+  /** Absolute path to the saved PNG, pasted into the terminal on drop. */
+  path: string;
+  /** Downscaled data URL rendered as the floating thumbnail preview. */
+  previewDataUrl: string;
 };
 
 type Ctx = {
@@ -80,6 +88,16 @@ type Ctx = {
   startCommandFor: (agent: TaskAgent) => string;
   /** Run an arbitrary command in the active PTY for this task. */
   runIn: (taskId: string, command: string) => Promise<void>;
+  /** Paste an image path into a session's terminal (no submit) and make it
+   *  active + focused — the drop target of the native screenshot flow. */
+  attachImageToSession: (taskId: string, imagePath: string) => Promise<void>;
+  /** The captured-but-undropped screenshot shown as a floating thumbnail, if
+   *  any. A new capture replaces the previous one. */
+  pendingScreenshot: PendingScreenshot | null;
+  /** Store a freshly captured screenshot, replacing any undropped one. */
+  setPendingScreenshot: (shot: PendingScreenshot) => void;
+  /** Dismiss the floating screenshot thumbnail. */
+  clearPendingScreenshot: () => void;
   /** Whether the full-width "all sessions" grid view is active. */
   gridView: boolean;
   setGridView: (value: boolean) => void;
@@ -128,7 +146,8 @@ type TerminalDataKeys =
   | "activeFor"
   | "activeTaskIdFor"
   | "gridView"
-  | "gridFocusRequest";
+  | "gridFocusRequest"
+  | "pendingScreenshot";
 type TerminalData = Pick<Ctx, TerminalDataKeys>;
 type TerminalActions = Omit<Ctx, TerminalDataKeys>;
 
@@ -442,6 +461,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const toggleGridView = useCallback(() => {
     setGridView(!gridViewRef.current);
   }, [setGridView]);
+
+  const [pendingScreenshot, setPendingScreenshotState] = useState<PendingScreenshot | null>(
+    null,
+  );
+  const setPendingScreenshot = useCallback((shot: PendingScreenshot) => {
+    setPendingScreenshotState(shot);
+  }, []);
+  const clearPendingScreenshot = useCallback(() => {
+    setPendingScreenshotState(null);
+  }, []);
 
   const [gridFocusRequest, setGridFocusRequest] = useState<
     { taskId: string; nonce: number } | null
@@ -965,6 +994,23 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const attachImageToSession = useCallback(
+    async (taskId: string, imagePath: string) => {
+      const target = sessionsRef.current.find((p) => p.taskId === taskId);
+      if (!target?.ptyId) return;
+      const electron = getElectron();
+      if (electron) {
+        const ptyApi = isRemotePtyId(target.ptyId) ? electron.remotePty : electron.pty;
+        // Trailing space, no CR: mirrors a manual drag/paste so the user can add
+        // a prompt before submitting (see wireTerminalFileDrop).
+        await ptyApi.write(target.ptyId, formatPathForTerminalPaste(imagePath) + " ");
+      }
+      setActiveSession(target.project, taskId);
+      focusGridSession(taskId);
+    },
+    [setActiveSession, focusGridSession]
+  );
+
   const activeFor = useCallback(
     (projectId: string): OpenTerminal | null => {
       const { scopeKey, taskId } = resolveActiveTaskIdForProject(
@@ -1010,6 +1056,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       syncTask,
       startCommandFor: commandFor,
       runIn,
+      attachImageToSession,
+      setPendingScreenshot,
+      clearPendingScreenshot,
       setGridView,
       toggleGridView,
       focusGridSession,
@@ -1035,6 +1084,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setPtyId,
       syncTask,
       runIn,
+      attachImageToSession,
+      setPendingScreenshot,
+      clearPendingScreenshot,
       setGridView,
       toggleGridView,
       focusGridSession,
@@ -1057,8 +1109,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       activeTaskIdFor,
       gridView,
       gridFocusRequest,
+      pendingScreenshot,
     }),
-    [sessions, activeFor, activeTaskIdFor, gridView, gridFocusRequest]
+    [sessions, activeFor, activeTaskIdFor, gridView, gridFocusRequest, pendingScreenshot]
   );
 
   return (

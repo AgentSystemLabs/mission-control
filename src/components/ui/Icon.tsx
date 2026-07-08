@@ -49,7 +49,8 @@ export type IconName =
   | "bell"
   | "zoom-in"
   | "zoom-out"
-  | "mic";
+  | "mic"
+  | "camera";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const iconStyle: CSSProperties = { display: "block", flexShrink: 0, ...style };
@@ -332,6 +333,13 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <rect x="6" y="2" width="4" height="7" rx="2" />
           <path d="M4 7.5a4 4 0 008 0" />
           <path d="M8 11.5V14M5.5 14h5" />
+        </svg>
+      );
+    case "camera":
+      return (
+        <svg {...common}>
+          <path d="M2 5.5c0-.5.4-1 1-1h1.8l1-1.5h4.4l1 1.5H13c.6 0 1 .5 1 1V12c0 .5-.4 1-1 1H3c-.6 0-1-.5-1-1V5.5z" />
+          <circle cx="8" cy="8.5" r="2.5" />
         </svg>
       );
     default:

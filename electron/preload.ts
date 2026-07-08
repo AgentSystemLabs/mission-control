@@ -315,6 +315,13 @@ const electronAPI = {
     saveClipboard: (): Promise<{ path: string } | { error: string } | null> =>
       ipcRenderer.invoke(IPC.terminalSaveClipboardImage),
   },
+  screenshot: {
+    captureRegion: (): Promise<
+      | { path: string; previewDataUrl: string }
+      | { cancelled: true }
+      | { error: string }
+    > => ipcRenderer.invoke(IPC.screenshotCaptureRegion),
+  },
   pickImage: (): Promise<
     { sourcePath: string; extension: string } | { error: string } | null
   > => ipcRenderer.invoke(IPC.dialogPickImage),

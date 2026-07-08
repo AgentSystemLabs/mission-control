@@ -12,6 +12,7 @@ import { openExternal } from "~/lib/open-external";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
+import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import {
   CodexHooksNoticeDialog,
@@ -40,6 +41,11 @@ import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import {
+  screenshotCaptureErrorMessage,
+  screenshotFromResult,
+} from "~/lib/screenshot";
+import { playScreenshotCapture } from "~/lib/screenshot-sound";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
@@ -675,6 +681,31 @@ function ProjectPage() {
 
   const terminals = useTerminals();
   const gridViewActive = terminals.gridView;
+
+  // Native screenshot capture is macOS-only (uses `screencapture -i`) and needs
+  // the Electron bridge, so the toolbar button is hidden elsewhere.
+  const screenshotSupported = useMemo(
+    () =>
+      Boolean(getElectron()) &&
+      typeof navigator !== "undefined" &&
+      /Mac/i.test(navigator.platform),
+    [],
+  );
+  const setPendingScreenshot = terminals.setPendingScreenshot;
+  const captureScreenshot = useCallback(async () => {
+    const electron = getElectron();
+    if (!electron) return;
+    const result = await electron.screenshot.captureRegion();
+    if ("error" in result) {
+      toast.error(screenshotCaptureErrorMessage(result.error));
+      return;
+    }
+    const shot = screenshotFromResult(result);
+    if (shot) {
+      playScreenshotCapture();
+      setPendingScreenshot(shot);
+    }
+  }, [setPendingScreenshot]);
   // Review Changes in grid view docks the diff as a resizable panel beside the
   // live grid (see the split render below) instead of taking over the workspace,
   // so the sessions stay visible while you review. gridView state stays on, so
@@ -2939,6 +2970,16 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             </HotkeyTooltip>
+            {screenshotSupported && (
+              <Btn
+                variant="ghost"
+                icon="camera"
+                onClick={captureScreenshot}
+                aria-label="Capture a screenshot"
+                title="Screenshot — drag a region, then drop it on a session"
+                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+              />
+            )}
             <HotkeyTooltip
               action="session.gridView"
               label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
@@ -3129,6 +3170,8 @@ function ProjectPage() {
         </>
         )}
       </CardFrame>
+
+      {screenshotSupported && <ScreenshotThumbnail projectId={id} />}
 
       <GitDiffModal
         open={showDiffView}
