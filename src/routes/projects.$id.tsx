@@ -2937,7 +2937,7 @@ function ProjectPage() {
             {screenshotSupported && (
               <HotkeyTooltip
                 action="screenshot.capture"
-                label="Screenshot — drag a region, then drop it on a session"
+                label="Screenshot"
               >
                 <Btn
                   variant="ghost"
