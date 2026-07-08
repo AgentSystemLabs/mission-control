@@ -22,7 +22,7 @@ const DRAG_THRESHOLD_PX = 6;
 // image aspect ratio up to a cap so a wide capture doesn't hog the row.
 const THUMB_HEIGHT_PX = 68;
 const THUMB_MAX_WIDTH_PX = 200;
-const THUMB_MIN_WIDTH_PX = 40;
+const THUMB_MIN_WIDTH_PX = 96;
 
 // The session cell / terminal panel under a screen point, if any.
 function sessionHostAtPoint(x: number, y: number): HTMLElement | null {
