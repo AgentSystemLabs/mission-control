@@ -104,6 +104,22 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
     setDropTarget({ taskId, rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
   }, []);
 
+  // Tear down an in-flight drag without attaching. Chromium fires
+  // `pointercancel` (not `pointerup`) when it interrupts the gesture — window
+  // blur, the OS hijacking the pointer, a native drag starting — and without
+  // this the ghost card and "Drop to attach" overlay stay stuck on screen.
+  // Idempotent, so it's safe as a `lostpointercapture` catch-all too.
+  const abortDrag = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    if (!startRef.current && !draggingRef.current) return;
+    startRef.current = null;
+    draggingRef.current = false;
+    setDragPoint(null);
+    setDropTarget(null);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+  }, []);
+
   const onPointerUp = useCallback(
     (e: PointerEvent<HTMLDivElement>) => {
       const start = startRef.current;
@@ -245,6 +261,8 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
         onPointerDown={leaving ? undefined : onPointerDown}
         onPointerMove={leaving ? undefined : onPointerMove}
         onPointerUp={leaving ? undefined : onPointerUp}
+        onPointerCancel={leaving ? undefined : abortDrag}
+        onLostPointerCapture={leaving ? undefined : abortDrag}
         onAnimationEnd={leaving ? dismiss : undefined}
         style={{
           ...cardBaseStyle,
