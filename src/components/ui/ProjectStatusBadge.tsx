@@ -15,6 +15,8 @@ export function ProjectStatusBadge({ activity }: { activity: ProjectActivityStat
     <span
       title={label}
       aria-label={label}
+      className="mc-project-status-badge"
+      data-active={active || undefined}
       style={{
         flexShrink: 0,
         display: "inline-flex",
@@ -23,8 +25,6 @@ export function ProjectStatusBadge({ activity }: { activity: ProjectActivityStat
         height: 18,
         padding: "0 7px",
         borderRadius: 999,
-        border: `1px solid ${active ? "var(--accent-border)" : "var(--border)"}`,
-        background: active ? "var(--accent-faint)" : "var(--surface-0)",
         color: active ? "var(--accent)" : "var(--text-faint)",
         fontFamily: "var(--mono)",
         fontSize: 10,

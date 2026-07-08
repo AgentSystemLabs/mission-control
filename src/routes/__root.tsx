@@ -18,7 +18,7 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
-import { useTheme } from "~/lib/use-theme";
+import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import {
   UserTerminalProvider,
@@ -96,30 +96,39 @@ import {
   applyThemeStyle,
   readCachedThemeStyle,
 } from "~/lib/theme-style";
+import {
+  SURFACE_TINT_CACHE_KEY,
+  applySurfaceTint,
+} from "~/lib/surface-tint";
 import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
 const LAUNCH_OVERLAY_DURATION_MS = 2700;
-const MINIMAL_TOP_BAR_CONTENT_TOP_INSET = 10;
+const MINIMAL_TOP_BAR_CONTENT_TOP_INSET = 2;
 const MINIMAL_WINDOW_DRAG_LAYER_HEIGHT = 8;
 const WINDOW_DRAG_LAYER_Z_INDEX = 30;
 const useThemeLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 // Pre-hydration script: runs synchronously in <head> before first paint so
-// theme state (`data-minimal`/`data-noir` + accent CSS vars) is in place
+// theme state (`data-minimal` + `data-theme` + accent CSS vars) is in place
 // before any CSS layout. Without this, the SSR'd HTML paints with default
-// (painted+orange) theme for one frame — every accent-tinted surface flashes
-// orange before React/useSettings hydrate. Mirrors `applyThemeStyle`
-// (src/lib/theme-style.ts) and `applyAccentColor` (src/lib/accent-colors.ts);
-// keep them in sync.
+// (painted+orange, dark) theme for one frame — every accent-tinted surface
+// flashes before React/useSettings hydrate, and a flat-light user sees a dark
+// flash. Mirrors `applyThemeStyle` (src/lib/theme-style.ts), `useTheme`
+// (src/lib/use-theme.ts), `applySurfaceTint` (src/lib/surface-tint.ts) and
+// `applyAccentColor` (src/lib/accent-colors.ts); keep them in sync. Legacy
+// minimal/noir/ember styles collapse to flat here.
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
 var d=document.documentElement;
 var st=localStorage.getItem(${JSON.stringify(THEME_STYLE_CACHE_KEY)});
-if(st!=="painted"&&st!=="minimal"&&st!=="noir"&&st!=="ember"){st=localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"?"minimal":"painted";}
-if(st!=="painted"){d.setAttribute("data-minimal","true");}
-if(st==="noir"){d.setAttribute("data-noir","true");}
-if(st==="ember"){d.setAttribute("data-ember","true");}
+if(st!=="painted"&&st!=="flat"&&st!=="minimal"&&st!=="noir"&&st!=="ember"){st=localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"?"flat":"painted";}
+var flat=(st!=="painted");
+if(flat){d.setAttribute("data-minimal","true");}
+var th=localStorage.getItem(${JSON.stringify(THEME_CACHE_KEY)})==="light"?"light":"dark";
+d.setAttribute("data-theme",(flat&&th==="light")?"light":"dark");
+var tt=localStorage.getItem(${JSON.stringify(SURFACE_TINT_CACHE_KEY)});
+if(tt==="subtle"||tt==="vivid"||tt==="intense"){d.setAttribute("data-tint",tt);}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),
@@ -302,7 +311,7 @@ function Shell() {
   const cachedMinimal = readCachedThemeStyle() !== "painted";
   const effectiveMinimal = settings?.minimalTheme ?? cachedMinimal;
   // The top bar's leading inset applies in minimal mode.
-  const topBarLeadingInset = effectiveMinimal ? 130 : undefined;
+  const topBarLeadingInset = effectiveMinimal ? 88 : undefined;
   const topBarContentTopInset = effectiveMinimal
     ? MINIMAL_TOP_BAR_CONTENT_TOP_INSET
     : 0;
@@ -427,6 +436,13 @@ function Shell() {
     if (!themeStyle) return;
     applyThemeStyle(themeStyle);
   }, [themeStyle]);
+
+  const surfaceTint = settings?.surfaceTint;
+
+  useThemeLayoutEffect(() => {
+    if (!surfaceTint) return;
+    applySurfaceTint(surfaceTint);
+  }, [surfaceTint]);
 
   // Recompute + re-observe the workspace bounds whenever the workspace div is
   // (un)mounted. Focus mode early-returns above and tears down the whole #root

@@ -8,7 +8,7 @@
 // and expose a confidence flag so the caller can disambiguate instead of guessing.
 
 import { doubleMetaphone } from "double-metaphone";
-import { fuzzyScore } from "./file-fuzzy";
+import { FUZZY_SCORE_MAX, fuzzyScore } from "./file-fuzzy";
 
 export type ScoredMatch<T> = { item: T; score: number };
 export type MatchResult<T> = {
@@ -63,7 +63,7 @@ function phoneticEqual(a: string, b: string): boolean {
 }
 
 function scoreOne(query: string, name: string): number {
-  const fuzzy = Math.min(1, fuzzyScore(query, name) / 1000);
+  const fuzzy = Math.min(1, fuzzyScore(query, name) / FUZZY_SCORE_MAX);
   const lev = levSim(squash(query), squash(name));
   const phon = phoneticEqual(query, name) ? PHONETIC_SCORE : 0;
   return Math.max(fuzzy, lev, phon);

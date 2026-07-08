@@ -12,6 +12,7 @@ import { openExternal } from "~/lib/open-external";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
+import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import {
   CodexHooksNoticeDialog,
@@ -40,6 +41,12 @@ import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import {
+  screenshotCaptureErrorMessage,
+  screenshotFromResult,
+  screenshotSupported as isScreenshotSupported,
+} from "~/lib/screenshot";
+import { playScreenshotCapture } from "~/lib/screenshot-sound";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
@@ -675,6 +682,27 @@ function ProjectPage() {
 
   const terminals = useTerminals();
   const gridViewActive = terminals.gridView;
+
+  // Native screenshot capture is macOS-only (uses `screencapture -i`) and needs
+  // the Electron bridge, so the toolbar button, capture stack, and history strip
+  // are hidden elsewhere. Gate on the main process's real platform (see
+  // screenshotSupported) rather than the deprecated navigator.platform.
+  const screenshotSupported = useMemo(() => isScreenshotSupported(), []);
+  const addScreenshot = terminals.addScreenshot;
+  const captureScreenshot = useCallback(async () => {
+    const electron = getElectron();
+    if (!electron) return;
+    const result = await electron.screenshot.captureRegion();
+    if ("error" in result) {
+      toast.error(screenshotCaptureErrorMessage(result.error));
+      return;
+    }
+    const shot = screenshotFromResult(result);
+    if (shot) {
+      playScreenshotCapture();
+      addScreenshot({ ...shot, projectId: id });
+    }
+  }, [addScreenshot, id]);
   // Review Changes in grid view docks the diff as a resizable panel beside the
   // live grid (see the split render below) instead of taking over the workspace,
   // so the sessions stay visible while you review. gridView state stays on, so
@@ -1860,6 +1888,10 @@ function ProjectPage() {
   useHotkey("session.cycleNext", () => cycleSession(1), { capture: true });
   useHotkey("session.cyclePrev", () => cycleSession(-1), { capture: true });
   useHotkey("session.clone", () => duplicateActiveSession(), { capture: true });
+  useHotkey("screenshot.capture", () => void captureScreenshot(), {
+    capture: true,
+    enabled: screenshotSupported,
+  });
   useHotkey(
     "session.newRow",
     () => {
@@ -2892,15 +2924,55 @@ function ProjectPage() {
               minWidth: 0,
             }}
           >
+            {showGrid && (
+              <Btn
+                variant="ghost"
+                icon="archive"
+                onClick={() => setConfirmArchiveAll(true)}
+                aria-label="Archive all sessions in this grid"
+                title="Archive all sessions in this grid"
+                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+              />
+            )}
+            {screenshotSupported && (
+              <HotkeyTooltip
+                action="screenshot.capture"
+                label="Screenshot"
+              >
+                <Btn
+                  variant="ghost"
+                  icon="camera"
+                  onClick={captureScreenshot}
+                  aria-label="Capture a screenshot"
+                  style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+                />
+              </HotkeyTooltip>
+            )}
             {headerActions}
             <CustomScriptsButton
               scripts={customScripts}
               onRun={runScript}
               disabled={!projectPathUsable}
             />
+            <HotkeyTooltip action="file.finder" label="Find file">
+              <Btn
+                variant="ghost"
+                icon="search"
+                onClick={openFileFinderFresh}
+                disabled={!projectPathUsable}
+                aria-label="Find file in project"
+                title={
+                  projectPathBlocked
+                    ? "Project folder unavailable"
+                    : "Find file in project"
+                }
+                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+              />
+            </HotkeyTooltip>
             <div
               role="group"
               aria-label="Review changes and commit"
+              className="mc-ship-group"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -2923,21 +2995,17 @@ function ProjectPage() {
                 enabled={projectPathUsable}
               />
             </div>
-            <HotkeyTooltip action="file.finder" label="Find file">
-              <Btn
-                variant="ghost"
-                icon="search"
-                onClick={openFileFinderFresh}
-                disabled={!projectPathUsable}
-                aria-label="Find file in project"
-                title={
-                  projectPathBlocked
-                    ? "Project folder unavailable"
-                    : "Find file in project"
-                }
-                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+            {showGrid && (
+              <NewAgentButton
+                project={project}
+                onPrimary={onNewAgentPrimary}
+                onNewRow={onNewRowPrimary}
+                disabled={!projectPathReady}
+                onConfigure={() => {
+                  if (projectPathReady) setShowNewAgent(true);
+                }}
               />
-            </HotkeyTooltip>
+            )}
             <HotkeyTooltip
               action="session.gridView"
               label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
@@ -2957,27 +3025,6 @@ function ProjectPage() {
                 }}
               />
             </HotkeyTooltip>
-            {showGrid && (
-              <>
-                <Btn
-                  variant="danger"
-                  icon="archive"
-                  onClick={() => setConfirmArchiveAll(true)}
-                  title="Archive all sessions in this grid"
-                >
-                  Archive all
-                </Btn>
-                <NewAgentButton
-                  project={project}
-                  onPrimary={onNewAgentPrimary}
-                  onNewRow={onNewRowPrimary}
-                  disabled={!projectPathReady}
-                  onConfigure={() => {
-                    if (projectPathReady) setShowNewAgent(true);
-                  }}
-                />
-              </>
-            )}
           </div>
         </div>
 
@@ -3128,6 +3175,8 @@ function ProjectPage() {
         </>
         )}
       </CardFrame>
+
+      {screenshotSupported && <ScreenshotThumbnail projectId={id} />}
 
       <GitDiffModal
         open={showDiffView}
@@ -3688,8 +3737,8 @@ function ProjectPage() {
         width={460}
       >
         <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
-          Archive all {terminals.sessions.length} open session
-          {terminals.sessions.length === 1 ? "" : "s"} across every project?
+          Archive all {gridScopeSessionCount} open session
+          {gridScopeSessionCount === 1 ? "" : "s"} in &ldquo;{project.name}&rdquo;?
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           Any running sessions will be disconnected and their agents stopped. You
@@ -3716,11 +3765,11 @@ function SessionScopeToggle({
   showArchivedTab: boolean;
   onChange: (view: SessionView) => void;
 }) {
-  const segment = (selected: boolean): CSSProperties => ({
+  // Visual state (background/color/box-shadow + hover) lives in styles.css
+  // under .mc-session-scope-tab so unselected tabs get a hover treatment.
+  const segment: CSSProperties = {
     appearance: "none",
     border: 0,
-    background: selected ? "var(--surface-2)" : "transparent",
-    color: selected ? "var(--text)" : "var(--text-dim)",
     fontFamily: "var(--mono)",
     fontSize: 11,
     fontWeight: 600,
@@ -3732,10 +3781,7 @@ function SessionScopeToggle({
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    boxShadow: selected
-      ? "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 2px rgba(0,0,0,0.3)"
-      : "none",
-  });
+  };
   const countStyle: CSSProperties = {
     color: "var(--text-faint)",
     fontVariantNumeric: "tabular-nums",
@@ -3758,14 +3804,13 @@ function SessionScopeToggle({
     <div
       role="radiogroup"
       aria-label="Show sessions by type"
+      className="mc-session-scope-toggle"
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: 2,
         padding: 3,
         borderRadius: 9,
-        background: "var(--surface-0)",
-        border: "1px solid var(--border)",
       }}
     >
       {tabs.map((tab) => {
@@ -3781,7 +3826,9 @@ function SessionScopeToggle({
             role="radio"
             aria-checked={selected}
             tabIndex={selected ? 0 : -1}
-            style={segment(selected)}
+            className="mc-session-scope-tab"
+            data-selected={selected || undefined}
+            style={segment}
             onClick={() => onChange(tab.view)}
             onKeyDown={(e) => {
               if (e.key === "ArrowRight" || e.key === "ArrowDown") {

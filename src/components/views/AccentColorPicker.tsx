@@ -34,7 +34,7 @@ export function AccentColorGrid({
     >
       {ACCENT_COLORS.map((color) =>
         minimal ? (
-          <MinimalThemeCard
+          <FlatThemeCard
             key={color.id}
             color={color}
             selected={color.id === selected}
@@ -53,7 +53,7 @@ export function AccentColorGrid({
   );
 }
 
-function MinimalThemeCard({
+function FlatThemeCard({
   color,
   selected,
   onSelect,

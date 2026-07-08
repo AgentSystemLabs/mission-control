@@ -33,6 +33,7 @@ import type {
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
 import type { ThemeStyle } from "~/shared/theme-style";
+import type { SurfaceTint } from "~/shared/surface-tint";
 import type {
   MarkdownRefineRequest,
   MarkdownRefineResponse,
@@ -54,6 +55,7 @@ import type {
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
+import { HTTP_NO_CONTENT } from "~/shared/http-status";
 
 // The api bearer token is intentionally NOT part of this HTTP-derived shape.
 // Renderer code obtains it through the Electron IPC channel `settings:getToken`
@@ -62,8 +64,11 @@ import { pruneStoredSessionFinishNotifications } from "~/lib/session-notificatio
 export type AppSettings = {
   agentSystemBannerDisabled: boolean;
   accentColor: AccentColorId;
-  /** Which chrome to render: painted (pixel art), minimal, or noir (flat). */
+  /** Which chrome to render: painted (pixel art, dark-only) or flat (clean,
+   *  Ember character, supports dark/light). */
   themeStyle: ThemeStyle;
+  /** How much accent to mix into surface tokens (off / subtle / vivid). */
+  surfaceTint: SurfaceTint;
   /** Derived server-side: true when themeStyle renders clean CSS chrome. */
   minimalTheme: boolean;
   /**
@@ -251,7 +256,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
         : null) ?? `${res.status} ${res.statusText}: ${text}`;
     throw new ApiError(message, res.status, body);
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === HTTP_NO_CONTENT) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -567,6 +572,7 @@ export const api = {
         | "agentSystemBannerDisabled"
         | "accentColor"
         | "themeStyle"
+        | "surfaceTint"
         | "minimalTheme"
         | "mouseGradientDisabled"
         | "sessionFinishToastEnabled"

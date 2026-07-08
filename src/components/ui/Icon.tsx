@@ -49,9 +49,19 @@ export type IconName =
   | "bell"
   | "zoom-in"
   | "zoom-out"
-  | "mic";
+  | "mic"
+  | "camera"
+  | "cursor"
+  | "arrow-up-right"
+  | "square"
+  | "circle"
+  | "text"
+  | "highlighter"
+  | "undo"
+  | "redo";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
+  const iconStyle: CSSProperties = { display: "block", flexShrink: 0, ...style };
   const common = {
     width: size,
     height: size,
@@ -61,15 +71,17 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
     strokeWidth: 1.4,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
-    style,
+    // display: block removes the inline-SVG baseline gap so icons sit on the
+    // true vertical center of adjacent text inside flex buttons.
+    style: iconStyle,
   };
   switch (name) {
     case "plus":
       return <svg {...common}><path d="M8 3v10M3 8h10" /></svg>;
     case "pin":
-      return <TiPinOutline size={size} style={style} />;
+      return <TiPinOutline size={size} style={iconStyle} />;
     case "pin-fill":
-      return <TiPin size={size} style={style} />;
+      return <TiPin size={size} style={iconStyle} />;
     case "search":
       return (
         <svg {...common}>
@@ -162,7 +174,7 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
-          style={style}
+          style={iconStyle}
         >
           <path d="M9.67 2h4.66l.55 3.05c.43.18.83.41 1.2.69l2.91-1.04 2.33 4.04-2.36 2.01a7.7 7.7 0 010 1.5l2.36 2.01-2.33 4.04-2.91-1.04c-.37.28-.77.51-1.2.69L14.33 21H9.67l-.55-3.05a6.88 6.88 0 01-1.2-.69L5.01 18.3l-2.33-4.04 2.36-2.01a7.7 7.7 0 010-1.5L2.68 8.74 5.01 4.7l2.91 1.04c.37-.28.77-.51 1.2-.69L9.67 2z" />
           <circle cx="12" cy="12" r="3" />
@@ -224,7 +236,7 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
         </svg>
       );
     case "pencil":
-      return <Pencil size={size} strokeWidth={1.8} absoluteStrokeWidth style={style} />;
+      return <Pencil size={size} strokeWidth={1.8} absoluteStrokeWidth style={iconStyle} />;
     case "eye":
       return (
         <svg {...common}>
@@ -329,6 +341,59 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <rect x="6" y="2" width="4" height="7" rx="2" />
           <path d="M4 7.5a4 4 0 008 0" />
           <path d="M8 11.5V14M5.5 14h5" />
+        </svg>
+      );
+    case "camera":
+      return (
+        <svg {...common}>
+          <path d="M2 5.5c0-.5.4-1 1-1h1.8l1-1.5h4.4l1 1.5H13c.6 0 1 .5 1 1V12c0 .5-.4 1-1 1H3c-.6 0-1-.5-1-1V5.5z" />
+          <circle cx="8" cy="8.5" r="2.5" />
+        </svg>
+      );
+    case "cursor":
+      return (
+        <svg {...common}>
+          <path d="M3 2.5l9 4-3.8 1.3L6.9 12 3 2.5z" />
+        </svg>
+      );
+    case "arrow-up-right":
+      return (
+        <svg {...common}>
+          <path d="M4 12L12 4" />
+          <path d="M6 4h6v6" />
+        </svg>
+      );
+    case "square":
+      return <svg {...common}><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" /></svg>;
+    case "circle":
+      return <svg {...common}><circle cx="8" cy="8" r="5.5" /></svg>;
+    case "text":
+      return (
+        <svg {...common}>
+          <path d="M3.5 4V3h9v1" />
+          <path d="M8 3.5v9" />
+          <path d="M6 12.5h4" />
+        </svg>
+      );
+    case "highlighter":
+      return (
+        <svg {...common}>
+          <path d="M8.5 3.5l4 4-5 5H4l-.5-3 5-6z" />
+          <path d="M2.5 13.5h5" />
+        </svg>
+      );
+    case "undo":
+      return (
+        <svg {...common}>
+          <path d="M4 8h6.5a2.5 2.5 0 010 5H6" />
+          <path d="M6 5L3 8l3 3" />
+        </svg>
+      );
+    case "redo":
+      return (
+        <svg {...common}>
+          <path d="M12 8H5.5a2.5 2.5 0 000 5H10" />
+          <path d="M10 5l3 3-3 3" />
         </svg>
       );
     default:
