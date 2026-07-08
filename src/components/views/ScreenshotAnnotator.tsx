@@ -1458,9 +1458,14 @@ const ANNOT_CSS = `
 /* Far-right control: extend leftward so it stays inside the panel. */
 .mc-annot-close[data-tip]::after { left: auto; right: 0; }
 .mc-annot-bar {
-  display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; flex-wrap: wrap;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  flex: 1; min-width: 0; flex-wrap: wrap;
+  /* Leave room for the absolutely-positioned close button so the centered
+     toolbar stays optically centered in the header. */
+  padding-right: 40px;
 }
 .mc-annot-close {
+  position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 34px; height: 34px; padding: 0; border-radius: 9px;
   border: 1px solid transparent; background: transparent; color: var(--text-dim);
