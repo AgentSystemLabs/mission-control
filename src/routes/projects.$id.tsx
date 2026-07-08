@@ -1891,6 +1891,10 @@ function ProjectPage() {
   useHotkey("session.cycleNext", () => cycleSession(1), { capture: true });
   useHotkey("session.cyclePrev", () => cycleSession(-1), { capture: true });
   useHotkey("session.clone", () => duplicateActiveSession(), { capture: true });
+  useHotkey("screenshot.capture", () => void captureScreenshot(), {
+    capture: true,
+    enabled: screenshotSupported,
+  });
   useHotkey(
     "session.newRow",
     () => {
@@ -2971,14 +2975,18 @@ function ProjectPage() {
               />
             </HotkeyTooltip>
             {screenshotSupported && (
-              <Btn
-                variant="ghost"
-                icon="camera"
-                onClick={captureScreenshot}
-                aria-label="Capture a screenshot"
-                title="Screenshot — drag a region, then drop it on a session"
-                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
-              />
+              <HotkeyTooltip
+                action="screenshot.capture"
+                label="Screenshot — drag a region, then drop it on a session"
+              >
+                <Btn
+                  variant="ghost"
+                  icon="camera"
+                  onClick={captureScreenshot}
+                  aria-label="Capture a screenshot"
+                  style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+                />
+              </HotkeyTooltip>
             )}
             <HotkeyTooltip
               action="session.gridView"
