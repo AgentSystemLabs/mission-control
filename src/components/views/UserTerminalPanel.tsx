@@ -379,7 +379,7 @@ export function UserTerminalPanel() {
         <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
           {screenshotCount > 0 && (
             <div style={{ position: "relative", display: "inline-flex", flex: "0 0 auto" }}>
-              <Tooltip content="Screenshots — captures you can reuse in this project">
+              <Tooltip content={screenshotsVisible ? "Hide screenshots" : "Show screenshots"}>
                 <Btn
                   variant="ghost"
                   size="sm"
