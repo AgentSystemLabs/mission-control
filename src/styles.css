@@ -1064,6 +1064,21 @@ select,
     transform: translateX(calc(100% + 24px));
   }
 }
+/* History-strip exit: drop the card straight down and fade — a quicker, distinct
+   direction from the bottom-right capture stack's sideways slide. */
+.screenshot-history-card.screenshot-card-leave {
+  animation: screenshot-history-card-out 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes screenshot-history-card-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(calc(100% + 24px));
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .screenshot-card-enter {
     animation: none;
