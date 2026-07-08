@@ -12,6 +12,10 @@ import { UserTerminalPane } from "./UserTerminalPane";
 
 const MIN_HEIGHT = 160;
 const MIN_PANE_WIDTH = 200;
+// The screenshot history is a single fixed-height thumbnail strip — unlike the
+// terminals it isn't resizable, so it renders at this constant height (header +
+// the 68px thumbnail row plus padding) regardless of the terminals' size.
+const SCREENSHOT_PANEL_HEIGHT = 132;
 const PANE_WEIGHTS_STORAGE_KEY = "mc:userTerminalPaneWeights";
 
 type PaneWeights = Record<string, number>;
@@ -113,6 +117,17 @@ export function UserTerminalPanel() {
 
   const onTerminalTabClick = useCallback(
     (id: string, hidden: boolean) => {
+      // Returning from the Screenshots view: every tab reads as inactive while
+      // screenshots show, so a click here means "switch back to this terminal"
+      // — surface it and focus it, never toggle it hidden (which would collapse
+      // the pane the user was trying to get back to).
+      if (showScreenshots && panelOpen) {
+        setShowScreenshots(false);
+        if (hidden) toggleHidden(id);
+        focusTerminal(id);
+        return;
+      }
+
       // Selecting a terminal tab leaves the Screenshots view.
       setShowScreenshots(false);
       if (!panelOpen) {
@@ -129,7 +144,7 @@ export function UserTerminalPanel() {
         toggleHidden(id);
       }
     },
-    [focusTerminal, panelOpen, setPanelOpen, toggleHidden],
+    [showScreenshots, focusTerminal, panelOpen, setPanelOpen, toggleHidden],
   );
 
   // Whether the screenshots view is actually on screen right now. Keyed off the
@@ -213,15 +228,17 @@ export function UserTerminalPanel() {
       data-user-terminal-panel
       style={{
         width: "100%",
-        height: panelOpen ? height : "auto",
-        minHeight: panelOpen ? MIN_HEIGHT : 0,
+        // Terminals keep their own remembered, resizable height; the
+        // screenshots strip is pinned to a fixed height and can't be dragged.
+        height: panelOpen ? (screenshotsVisible ? SCREENSHOT_PANEL_HEIGHT : height) : "auto",
+        minHeight: panelOpen ? (screenshotsVisible ? SCREENSHOT_PANEL_HEIGHT : MIN_HEIGHT) : 0,
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
         overflow: "visible",
       }}
     >
-      {panelOpen && (
+      {panelOpen && !screenshotsVisible && (
         <div
           onMouseDown={onResizeMouseDown}
           title="Drag to resize"
