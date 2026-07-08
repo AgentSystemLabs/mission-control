@@ -99,6 +99,8 @@ type Ctx = {
   pendingScreenshots: PendingScreenshot[];
   /** Push a freshly captured screenshot onto the stack. */
   setPendingScreenshot: (shot: Omit<PendingScreenshot, "id">) => void;
+  /** Swap a thumbnail's image in place (e.g. after saving annotations). */
+  updatePendingScreenshot: (id: string, patch: Partial<Omit<PendingScreenshot, "id">>) => void;
   /** Dismiss one thumbnail by id, or the whole stack when no id is given. */
   clearPendingScreenshot: (id?: string) => void;
   /** Whether the full-width "all sessions" grid view is active. */
@@ -472,6 +474,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     const id = `shot-${screenshotSeq.current}`;
     setPendingScreenshots((prev) => [...prev, { id, ...shot }]);
   }, []);
+  const updatePendingScreenshot = useCallback(
+    (id: string, patch: Partial<Omit<PendingScreenshot, "id">>) => {
+      setPendingScreenshots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    },
+    [],
+  );
   const clearPendingScreenshot = useCallback((id?: string) => {
     setPendingScreenshots((prev) => (id ? prev.filter((s) => s.id !== id) : []));
   }, []);
@@ -1004,10 +1012,22 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       if (!target?.ptyId) return;
       const electron = getElectron();
       if (electron) {
-        const ptyApi = isRemotePtyId(target.ptyId) ? electron.remotePty : electron.pty;
-        // Trailing space, no CR: mirrors a manual drag/paste so the user can add
-        // a prompt before submitting (see wireTerminalFileDrop).
-        await ptyApi.write(target.ptyId, formatPathForTerminalPaste(imagePath) + " ");
+        const remote = isRemotePtyId(target.ptyId);
+        const ptyApi = remote ? electron.remotePty : electron.pty;
+        // Prefer a clipboard-image paste (Ctrl+V byte) so CLIs like Claude Code
+        // show a compact [Image #N] placeholder instead of the raw file path.
+        // Remote sessions can't read this machine's clipboard, so they keep the
+        // path-paste behavior.
+        const copied = remote
+          ? null
+          : await electron.terminalImages.copyToClipboard(imagePath).catch(() => null);
+        if (copied && "ok" in copied) {
+          await ptyApi.write(target.ptyId, "\x16");
+        } else {
+          // Trailing space, no CR: mirrors a manual drag/paste so the user can add
+          // a prompt before submitting (see wireTerminalFileDrop).
+          await ptyApi.write(target.ptyId, formatPathForTerminalPaste(imagePath) + " ");
+        }
       }
       setActiveSession(target.project, taskId);
       focusGridSession(taskId);
@@ -1062,6 +1082,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       runIn,
       attachImageToSession,
       setPendingScreenshot,
+      updatePendingScreenshot,
       clearPendingScreenshot,
       setGridView,
       toggleGridView,
@@ -1090,6 +1111,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       runIn,
       attachImageToSession,
       setPendingScreenshot,
+      updatePendingScreenshot,
       clearPendingScreenshot,
       setGridView,
       toggleGridView,

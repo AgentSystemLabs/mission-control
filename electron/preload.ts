@@ -314,6 +314,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.terminalSaveDroppedImage, input),
     saveClipboard: (): Promise<{ path: string } | { error: string } | null> =>
       ipcRenderer.invoke(IPC.terminalSaveClipboardImage),
+    copyToClipboard: (path: string): Promise<{ ok: true } | { error: string }> =>
+      ipcRenderer.invoke(IPC.terminalCopyImageToClipboard, path),
   },
   screenshot: {
     captureRegion: (): Promise<
@@ -321,6 +323,10 @@ const electronAPI = {
       | { cancelled: true }
       | { error: string }
     > => ipcRenderer.invoke(IPC.screenshotCaptureRegion),
+    readImage: (
+      path: string,
+    ): Promise<{ dataUrl: string } | { error: string }> =>
+      ipcRenderer.invoke(IPC.screenshotReadImage, path),
   },
   pickImage: (): Promise<
     { sourcePath: string; extension: string } | { error: string } | null

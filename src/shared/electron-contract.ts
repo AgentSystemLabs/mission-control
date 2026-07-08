@@ -317,10 +317,14 @@ export type ElectronBridge = {
   terminalImages: {
     saveDropped: (input: TerminalImageSaveInput) => Promise<TerminalImageSaveResult>;
     saveClipboard: () => Promise<TerminalImageSaveResult | null>;
+    /** Put a saved terminal image on the OS clipboard for a Ctrl+V image paste. */
+    copyToClipboard: (path: string) => Promise<{ ok: true } | { error: string }>;
   };
   screenshot: {
     /** Native macOS region capture; resolves once the user finishes or cancels the selection. */
     captureRegion: () => Promise<ScreenshotCaptureResult>;
+    /** Read a saved screenshot back as a full-resolution data URL for the annotation editor. */
+    readImage: (path: string) => Promise<{ dataUrl: string } | { error: string }>;
   };
   pickImage: () => Promise<
     { sourcePath: string; extension: string } | { error: string } | null

@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "~/components/ui/Icon";
+import { ScreenshotAnnotator } from "~/components/views/ScreenshotAnnotator";
 import { useTerminals, type PendingScreenshot } from "~/lib/terminal-store";
 import { playScreenshotDrop } from "~/lib/screenshot-sound";
 
@@ -14,6 +15,9 @@ import { playScreenshotDrop } from "~/lib/screenshot-sound";
 // few pixels, so a plain click still registers as a click (attach-to-active).
 const DRAG_THRESHOLD_PX = 6;
 const THUMB_WIDTH_PX = 168;
+// Cap how tall a single thumbnail can grow so a portrait/tall capture doesn't
+// balloon the card. Taller images are cropped (top-anchored) to this height.
+const THUMB_MAX_HEIGHT_PX = 200;
 
 const cardBaseStyle: CSSProperties = {
   display: "flex",
@@ -44,10 +48,14 @@ function sessionHostAtPoint(x: number, y: number): HTMLElement | null {
  * move independently.
  */
 function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; projectId: string }) {
-  const { clearPendingScreenshot, attachImageToSession, activeTaskIdFor } = useTerminals();
+  const { clearPendingScreenshot, updatePendingScreenshot, attachImageToSession, activeTaskIdFor } =
+    useTerminals();
 
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
+  const [editing, setEditing] = useState(false);
+  // Play the slide-out before the card is actually pulled from the store.
+  const [leaving, setLeaving] = useState(false);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
   // The session the pointer is currently over: its taskId (drop target) plus
   // screen rect (dropzone highlight). Recomputed on every move while dragging.
@@ -60,6 +68,16 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
     () => clearPendingScreenshot(shot.id),
     [clearPendingScreenshot, shot.id],
   );
+
+  // ✕ removal: slide the card out, then drop it from the store on animationend.
+  // Reduced-motion users skip straight to removal.
+  const beginLeave = useCallback(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      dismiss();
+      return;
+    }
+    setLeaving(true);
+  }, [dismiss]);
 
   const onPointerDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -109,14 +127,37 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
         return;
       }
 
-      // Plain click: attach to whatever session is currently active.
+      // Plain click: open the annotation editor.
+      setEditing(true);
+    },
+    [attachImageToSession, dismiss, shot.path],
+  );
+
+  // Attach the (possibly annotated) image to the active session, mirroring the
+  // old click-to-attach behaviour once the editor closes.
+  const attachToActive = useCallback(
+    (imagePath: string) => {
       const active = activeTaskIdFor(projectId);
-      if (!active) return;
-      void attachImageToSession(active, shot.path);
+      setEditing(false);
+      if (!active) {
+        dismiss();
+        return;
+      }
+      void attachImageToSession(active, imagePath);
       playScreenshotDrop();
       dismiss();
     },
-    [activeTaskIdFor, attachImageToSession, dismiss, projectId, shot.path],
+    [activeTaskIdFor, attachImageToSession, dismiss, projectId],
+  );
+
+  // Save (without attaching): swap this card's image for the annotated one, so
+  // the thumbnail shows the edits and a later click/drag uses the edited file.
+  const saveEdits = useCallback(
+    (imagePath: string, previewDataUrl: string) => {
+      updatePendingScreenshot(shot.id, { path: imagePath, previewDataUrl });
+      setEditing(false);
+    },
+    [shot.id, updatePendingScreenshot],
   );
 
   const dragging = dragPoint !== null;
@@ -133,7 +174,14 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
             alt={ghost ? "" : "Screenshot preview"}
             aria-hidden={ghost || undefined}
             draggable={false}
-            style={{ display: "block", width: "100%", height: "auto" }}
+            style={{
+              display: "block",
+              width: "100%",
+              height: "auto",
+              maxHeight: THUMB_MAX_HEIGHT_PX,
+              objectFit: "cover",
+              objectPosition: "top",
+            }}
           />
         </div>
         {!ghost && (
@@ -142,7 +190,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
             aria-label="Dismiss screenshot"
             title="Dismiss"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={dismiss}
+            onClick={beginLeave}
             style={{
               position: "absolute",
               top: 4,
@@ -172,29 +220,40 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
           fontFamily: "var(--mono)",
         }}
       >
-        Drag onto a session
+        Click to edit · drag to attach
       </div>
     </>
   );
 
   return (
     <>
+      {editing && (
+        <ScreenshotAnnotator
+          shot={shot}
+          onCancel={() => setEditing(false)}
+          onAttach={attachToActive}
+          onSave={saveEdits}
+        />
+      )}
       {/* Anchored card: holds the pointer capture; hidden (but kept mounted, so
           it keeps receiving move/up events) while the ghost is lifted. */}
       <div
+        className={leaving ? "screenshot-card-leave" : "screenshot-card-enter"}
         role="button"
         tabIndex={0}
-        aria-label="Drag onto a session to attach, or click to attach to the active session"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        aria-label="Click to edit the screenshot, or drag onto a session to attach"
+        onPointerDown={leaving ? undefined : onPointerDown}
+        onPointerMove={leaving ? undefined : onPointerMove}
+        onPointerUp={leaving ? undefined : onPointerUp}
+        onAnimationEnd={leaving ? dismiss : undefined}
         style={{
           ...cardBaseStyle,
           cursor: dragging ? "grabbing" : "grab",
           opacity: dragging ? 0 : 1,
           // Pointer capture still routes move/up here while dragging, so drop
           // this out of hit-testing to expose the session under the corner.
-          pointerEvents: dragging ? "none" : "auto",
+          // Also lock out interaction while the card is sliding away.
+          pointerEvents: dragging || leaving ? "none" : "auto",
         }}
       >
         {cardContent(false)}

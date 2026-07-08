@@ -1031,6 +1031,44 @@ select,
     transform: translateX(0);
   }
 }
+/* Newly captured screenshot card entering the bottom-right stack: slides in
+   from past the screen edge. `backwards` fill (not `forwards`) so the
+   animation releases its opacity/transform once done — the card hides itself
+   inline while its drag ghost is lifted. */
+.screenshot-card-enter {
+  animation: screenshot-card-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes screenshot-card-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(100% + 24px));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+/* Exit: reverse of the entry — slide the card back out past the right screen
+   edge and fade. `forwards` fill holds the off-screen end-state until the card
+   is unmounted on animationend. */
+.screenshot-card-leave {
+  animation: screenshot-card-out 0.26s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes screenshot-card-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(calc(100% + 24px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screenshot-card-enter {
+    animation: none;
+  }
+}
 @keyframes launch-overlay-fade {
   0%,
   91% {
