@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   File,
@@ -273,6 +273,7 @@ export function SessionIcon({
   strokeWidth = 1.6,
   style,
   title,
+  animate = false,
 }: {
   name: string | null | undefined;
   size?: number;
@@ -280,14 +281,35 @@ export function SessionIcon({
   strokeWidth?: number;
   style?: CSSProperties;
   title?: string;
+  /**
+   * When true, the glyph plays a continuous stroke-drawing loop (see the
+   * `.mc-session-icon-drawing` rules in styles.css). Lucide glyphs vary wildly
+   * in path length, so we normalize each sub-shape to `pathLength="1"` — that
+   * lets one CSS keyframe (dashoffset 1 → 0 → -1) draw *any* icon in lockstep.
+   */
+  animate?: boolean;
 }) {
   const Cmp = (name && ICON_MAP[name]) || ICON_MAP[DEFAULT_SESSION_ICON];
+  const ref = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    const svg = ref.current;
+    if (!svg || !animate) return;
+    // Normalize every drawable child so stroke-dasharray:1 spans the whole
+    // shape no matter its real geometry. Re-run when the glyph changes.
+    for (const el of svg.querySelectorAll(":scope > *")) {
+      el.setAttribute("pathLength", "1");
+    }
+  }, [animate, name]);
+
   return (
     <Cmp
+      ref={ref}
       size={size}
       color={color}
       strokeWidth={strokeWidth}
       style={style}
+      className={animate ? "mc-session-icon-drawing" : undefined}
       aria-hidden={title ? undefined : true}
     >
       {title ? <title>{title}</title> : null}
