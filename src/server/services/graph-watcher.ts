@@ -20,9 +20,9 @@ import { readRecallSettings } from "./recall-settings";
 
 // Trailing debounce so a burst of saves (or an editor's atomic write) collapses
 // into one incremental build.
-const DEBOUNCE_MS = 2500;
+export const GRAPH_WATCH_DEBOUNCE_MS = 2500;
 // Stop watching a project this long after its last session activity.
-const IDLE_TTL_MS = 15 * 60 * 1000;
+export const GRAPH_WATCH_IDLE_TTL_MS = 15 * 60 * 1000;
 
 // Recursive fs.watch is supported on macOS + Windows only. On Linux we skip the
 // watcher entirely and rely on the session-start auto-index (graph-auto-index.ts).
@@ -82,7 +82,7 @@ function onFsEvent(projectId: string, filename: string): void {
   entry.debounce = setTimeout(() => {
     entry.debounce = null;
     fireIncremental(projectId);
-  }, DEBOUNCE_MS);
+  }, GRAPH_WATCH_DEBOUNCE_MS);
   entry.debounce.unref?.();
 }
 
@@ -114,7 +114,7 @@ function fireIncremental(projectId: string): void {
 
 function armIdle(projectId: string, entry: WatchEntry): void {
   if (entry.idle) clearTimeout(entry.idle);
-  entry.idle = setTimeout(() => stopGraphWatch(projectId), IDLE_TTL_MS);
+  entry.idle = setTimeout(() => stopGraphWatch(projectId), GRAPH_WATCH_IDLE_TTL_MS);
   entry.idle.unref?.();
 }
 

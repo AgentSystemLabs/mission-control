@@ -31,10 +31,13 @@ vi.mock("../recall-settings", () => ({
   readRecallSettings: (...a: unknown[]) => readRecallSettings(...a),
 }));
 
-const { ensureGraphWatch, stopGraphWatch, __isWatching } = await import("../graph-watcher");
-
-const DEBOUNCE_MS = 2500;
-const IDLE_TTL_MS = 15 * 60 * 1000;
+const {
+  ensureGraphWatch,
+  stopGraphWatch,
+  __isWatching,
+  GRAPH_WATCH_DEBOUNCE_MS,
+  GRAPH_WATCH_IDLE_TTL_MS,
+} = await import("../graph-watcher");
 
 describe("graph watcher", () => {
   beforeEach(() => {
@@ -69,7 +72,7 @@ describe("graph watcher", () => {
     expect(watch).toHaveBeenCalledTimes(1);
 
     capturedListener!("change", "src/foo.ts");
-    vi.advanceTimersByTime(DEBOUNCE_MS);
+    vi.advanceTimersByTime(GRAPH_WATCH_DEBOUNCE_MS);
     expect(startGraphIndex).toHaveBeenCalledWith("p1", "incremental");
   });
 
@@ -78,7 +81,7 @@ describe("graph watcher", () => {
     capturedListener!("change", "node_modules/pkg/index.js");
     capturedListener!("change", "src/readme.md");
     capturedListener!("change", "dist/bundle.js");
-    vi.advanceTimersByTime(DEBOUNCE_MS + 500);
+    vi.advanceTimersByTime(GRAPH_WATCH_DEBOUNCE_MS + 500);
     expect(startGraphIndex).not.toHaveBeenCalled();
   });
 
@@ -87,7 +90,7 @@ describe("graph watcher", () => {
     capturedListener!("change", "src/a.ts");
     vi.advanceTimersByTime(1000);
     capturedListener!("change", "src/b.ts");
-    vi.advanceTimersByTime(DEBOUNCE_MS);
+    vi.advanceTimersByTime(GRAPH_WATCH_DEBOUNCE_MS);
     expect(startGraphIndex).toHaveBeenCalledTimes(1);
   });
 
@@ -95,14 +98,14 @@ describe("graph watcher", () => {
     ensureGraphWatch("p1");
     isGraphIndexRunning.mockReturnValue(true);
     capturedListener!("change", "src/a.ts");
-    vi.advanceTimersByTime(DEBOUNCE_MS);
+    vi.advanceTimersByTime(GRAPH_WATCH_DEBOUNCE_MS);
     expect(startGraphIndex).not.toHaveBeenCalled(); // deferred until graph:indexed
   });
 
   it.skipIf(!RECURSIVE)("re-arms the idle timer and stops the watcher when quiet", () => {
     ensureGraphWatch("p1");
     expect(__isWatching("p1")).toBe(true);
-    vi.advanceTimersByTime(IDLE_TTL_MS);
+    vi.advanceTimersByTime(GRAPH_WATCH_IDLE_TTL_MS);
     expect(__isWatching("p1")).toBe(false);
     expect(fakeWatcher.close).toHaveBeenCalled();
   });
