@@ -226,7 +226,7 @@ function ScreenshotHistoryCard({
       {/* Anchored card: holds the pointer capture; hidden (but kept mounted, so
           it keeps receiving move/up events) while the ghost is lifted. */}
       <div
-        className={leaving ? "screenshot-card-leave" : "screenshot-card-enter"}
+        className={`screenshot-history-card ${leaving ? "screenshot-card-leave" : "screenshot-card-enter"}`}
         role="button"
         tabIndex={0}
         aria-label="Click to edit the screenshot, or drag onto a session to attach"
@@ -392,11 +392,13 @@ export function ScreenshotHistoryContent({ projectId }: { projectId: string }) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          gap: 8,
           color: "var(--text-dim)",
           fontFamily: "var(--mono)",
           fontSize: 12,
         }}
       >
+        <Icon name="camera" size={14} style={{ color: "var(--text-faint)" }} />
         No screenshots yet
       </div>
     );

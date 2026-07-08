@@ -1069,6 +1069,124 @@ select,
     animation: none;
   }
 }
+
+/* ── Screenshot history: alive-on-interaction ─────────────────────────────
+   The strip is draggable content, so every card acknowledges hover (lift +
+   accent ring + a subtle zoom of the capture) to read as "grab me", and the
+   ✕ stays out of the way until you're on the card. */
+.screenshot-history-card {
+  transition:
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 160ms ease;
+  will-change: transform;
+}
+.screenshot-history-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px var(--accent);
+}
+.screenshot-history-card:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+.screenshot-history-card img {
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.screenshot-history-card:hover img {
+  transform: scale(1.06);
+}
+
+.screenshot-strip-delete {
+  opacity: 0;
+  transform: scale(0.82);
+  transition:
+    opacity 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 140ms ease;
+}
+.screenshot-history-card:hover .screenshot-strip-delete,
+.screenshot-strip-delete:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+.screenshot-strip-delete:hover {
+  background: var(--status-failed) !important;
+}
+.screenshot-strip-delete:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 1px;
+}
+
+/* Screenshot count badge: one-shot pulse + a floating "+1" fires each time a
+   fresh capture lands, so the count reads as earned rather than silently
+   ticking up. Keyed remounts in the component replay these on every bump. */
+.screenshot-count {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  min-width: 1ch;
+  text-align: center;
+}
+.screenshot-count[data-bump] {
+  animation: screenshot-count-pop 0.52s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes screenshot-count-pop {
+  0% {
+    transform: scale(1);
+    color: inherit;
+  }
+  30% {
+    transform: scale(1.45);
+    color: var(--accent);
+  }
+  100% {
+    transform: scale(1);
+    color: inherit;
+  }
+}
+.screenshot-plusone {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 3px);
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 9px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: screenshot-plusone-rise 0.74s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes screenshot-plusone-rise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 7px) scale(0.65);
+  }
+  24% {
+    opacity: 1;
+    transform: translate(-50%, -2px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -17px) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screenshot-history-card:hover,
+  .screenshot-history-card:hover img {
+    transform: none;
+  }
+  .screenshot-count[data-bump],
+  .screenshot-plusone {
+    animation: none;
+  }
+  .screenshot-plusone {
+    display: none;
+  }
+}
+
 @keyframes launch-overlay-fade {
   0%,
   91% {

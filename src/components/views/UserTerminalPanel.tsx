@@ -72,6 +72,23 @@ export function UserTerminalPanel() {
     if (showScreenshots && screenshotCount === 0) setShowScreenshots(false);
   }, [showScreenshots, screenshotCount]);
 
+  // Celebrate a fresh capture: the count number pops once and a floating "+N"
+  // rises off the badge, so a new screenshot registers rather than the tally
+  // silently ticking up. Only increments fire it — deletions just settle.
+  const [countBump, setCountBump] = useState(0);
+  const [plusOnes, setPlusOnes] = useState<{ key: number; delta: number }[]>([]);
+  const prevScreenshotCount = useRef(screenshotCount);
+  const plusOneSeq = useRef(0);
+  useEffect(() => {
+    const prev = prevScreenshotCount.current;
+    prevScreenshotCount.current = screenshotCount;
+    if (screenshotCount <= prev) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    setCountBump((b) => b + 1);
+    const key = ++plusOneSeq.current;
+    setPlusOnes((list) => [...list, { key, delta: screenshotCount - prev }]);
+  }, [screenshotCount]);
+
   const { size: height, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:userTerminalsPanelHeight",
     axis: "y",
@@ -344,19 +361,39 @@ export function UserTerminalPanel() {
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
           {screenshotCount > 0 && (
-            <Tooltip content="Screenshots — captures you can reuse in this project">
-              <Btn
-                variant="ghost"
-                size="sm"
-                icon="camera"
-                aria-label="Screenshots"
-                aria-pressed={screenshotsVisible}
-                onClick={onScreenshotsTabClick}
-                style={{ background: screenshotsVisible ? "var(--surface-2)" : undefined }}
-              >
-                {screenshotCount}
-              </Btn>
-            </Tooltip>
+            <div style={{ position: "relative", display: "inline-flex", flex: "0 0 auto" }}>
+              <Tooltip content="Screenshots — captures you can reuse in this project">
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  icon="camera"
+                  aria-label={`Screenshots (${screenshotCount})`}
+                  aria-pressed={screenshotsVisible}
+                  onClick={onScreenshotsTabClick}
+                  style={{ background: screenshotsVisible ? "var(--surface-2)" : undefined }}
+                >
+                  <span
+                    key={countBump}
+                    className="screenshot-count"
+                    data-bump={countBump ? "" : undefined}
+                  >
+                    {screenshotCount}
+                  </span>
+                </Btn>
+              </Tooltip>
+              {plusOnes.map((p) => (
+                <span
+                  key={p.key}
+                  className="screenshot-plusone"
+                  aria-hidden
+                  onAnimationEnd={() =>
+                    setPlusOnes((list) => list.filter((x) => x.key !== p.key))
+                  }
+                >
+                  +{p.delta}
+                </span>
+              ))}
+            </div>
           )}
           <HotkeyTooltip action="terminal.newTab" label="New terminal">
             <Btn
