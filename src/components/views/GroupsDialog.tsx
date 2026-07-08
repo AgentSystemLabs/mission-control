@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { FormErrorBox } from "~/components/ui/FormErrorBox";
 import { Btn } from "~/components/ui/Btn";
 import { EscTooltip } from "~/components/ui/Tooltip";
@@ -33,11 +34,20 @@ export function GroupsDialog({
   const [selectedProjectByGroup, setSelectedProjectByGroup] = useState<Record<string, string>>({});
   const [updatingProjectId, setUpdatingProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<Group | null>(null);
+  const [removing, setRemoving] = useState(false);
   const groupNameById = new Map(groups.map((group) => [group.id, group.name]));
 
   useEffect(() => {
-    if (open) setError(null);
+    if (open) {
+      setError(null);
+      setPendingRemove(null);
+    }
   }, [open]);
+
+  const pendingRemoveCount = pendingRemove
+    ? projects.filter((p) => p.groupId === pendingRemove.id).length
+    : 0;
 
   const assignProject = async (projectId: string, groupId: string | null) => {
     setError(null);
@@ -223,15 +233,7 @@ export function GroupsDialog({
                         <Icon name="settings" size={12} />
                       </button>
                       <button
-                        onClick={async () => {
-                          if (
-                            confirm(
-                              `Remove group "${g.name}"?\n\nProjects in this group will become ungrouped — they aren't deleted.`
-                            )
-                          ) {
-                            await onRemove(g.id);
-                          }
-                        }}
+                        onClick={() => setPendingRemove(g)}
                         title="Remove group"
                         aria-label={`Remove ${g.name}`}
                         style={{
@@ -378,6 +380,42 @@ export function GroupsDialog({
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        onClose={() => setPendingRemove(null)}
+        onConfirm={async () => {
+          const group = pendingRemove;
+          if (!group) return;
+          setRemoving(true);
+          setError(null);
+          try {
+            await onRemove(group.id);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Could not remove group");
+          } finally {
+            setRemoving(false);
+            setPendingRemove(null);
+          }
+        }}
+        title="Remove group?"
+        confirmLabel="Remove group"
+        cancelLabel="Keep group"
+        variant="danger"
+        icon="trash"
+        loading={removing}
+        width={420}
+      >
+        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+          Remove &ldquo;{pendingRemove?.name}&rdquo;?
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          {pendingRemoveCount === 0
+            ? "This group is empty, so nothing else changes."
+            : `Its ${pendingRemoveCount} ${
+                pendingRemoveCount === 1 ? "project" : "projects"
+              } will become ungrouped — they aren't deleted.`}
+        </div>
+      </ConfirmDialog>
     </Modal>
   );
 }
