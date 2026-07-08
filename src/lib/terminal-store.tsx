@@ -27,6 +27,7 @@ import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 import { scopeKeyForProject, type ScopedProject } from "./scoped-project";
 import { getDefaultModelForAgent } from "./default-model-store";
+import type { Shape as AnnotationShape } from "~/components/views/ScreenshotAnnotator";
 
 export type OpenTerminal = {
   taskId: string;
@@ -51,6 +52,12 @@ export type PendingScreenshot = {
   path: string;
   /** Downscaled data URL rendered as the floating thumbnail preview. */
   previewDataUrl: string;
+  /** Un-annotated original screenshot. Set once the shot is first saved from the
+   *  annotator so a re-edit draws on the original rather than the flattened PNG. */
+  originalPath?: string;
+  /** Editable annotation shapes from the last save, restored when re-editing so
+   *  previously-added annotations stay selectable instead of baked-in pixels. */
+  shapes?: AnnotationShape[];
 };
 
 type Ctx = {

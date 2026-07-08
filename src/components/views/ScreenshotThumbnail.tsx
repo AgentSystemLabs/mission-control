@@ -7,7 +7,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "~/components/ui/Icon";
-import { ScreenshotAnnotator } from "~/components/views/ScreenshotAnnotator";
+import {
+  ScreenshotAnnotator,
+  type Shape as AnnotationShape,
+} from "~/components/views/ScreenshotAnnotator";
 import { useTerminals, type PendingScreenshot } from "~/lib/terminal-store";
 import { playScreenshotDrop } from "~/lib/screenshot-sound";
 
@@ -168,9 +171,20 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
 
   // Save (without attaching): swap this card's image for the annotated one, so
   // the thumbnail shows the edits and a later click/drag uses the edited file.
+  // Also persist the original base image + vector shapes so re-editing restores
+  // the previously-added annotations as editable shapes.
   const saveEdits = useCallback(
-    (imagePath: string, previewDataUrl: string) => {
-      updatePendingScreenshot(shot.id, { path: imagePath, previewDataUrl });
+    (
+      imagePath: string,
+      previewDataUrl: string,
+      editable: { originalPath: string; shapes: AnnotationShape[] },
+    ) => {
+      updatePendingScreenshot(shot.id, {
+        path: imagePath,
+        previewDataUrl,
+        originalPath: editable.originalPath,
+        shapes: editable.shapes,
+      });
       setEditing(false);
     },
     [shot.id, updatePendingScreenshot],

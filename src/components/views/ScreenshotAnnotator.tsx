@@ -22,7 +22,9 @@ type Pt = { x: number; y: number };
 
 // Common fields are inlined on every member (rather than intersected via a
 // BaseShape) so TypeScript reliably narrows the union in if/return chains.
-type Shape =
+// Exported so the pending-screenshot store can persist the editable shapes
+// across a save/reopen (otherwise a re-edit only sees flattened pixels).
+export type Shape =
   | { id: string; color: string; width: number; type: "pen" | "highlighter"; points: Pt[] }
   | { id: string; color: string; width: number; type: "arrow" | "rect" | "ellipse"; x1: number; y1: number; x2: number; y2: number }
   | { id: string; color: string; width: number; type: "text"; x: number; y: number; text: string; fontSize: number };
@@ -248,8 +250,13 @@ export function ScreenshotAnnotator({
   /** Called with the saved annotated PNG path; attaches to the active session. */
   onAttach: (path: string) => void;
   /** Called with the saved annotated PNG path + a downscaled preview; keeps the
-   *  image as a pending thumbnail instead of attaching it. */
-  onSave: (path: string, previewDataUrl: string) => void;
+   *  image as a pending thumbnail instead of attaching it. `editable` carries the
+   *  un-flattened base image and vector shapes so a later re-edit is editable. */
+  onSave: (
+    path: string,
+    previewDataUrl: string,
+    editable: { originalPath: string; shapes: Shape[] },
+  ) => void;
 }) {
   const [status, setStatus] = useState<Status>("loading");
   const [dims, setDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -259,7 +266,17 @@ export function ScreenshotAnnotator({
   const [color, setColor] = useState<string>(COLORS[0]!);
   const [widthIdx, setWidthIdx] = useState(1);
 
-  const [shapes, setShapes] = useState<Shape[]>([]);
+  // Restore any shapes persisted from a prior save so re-editing keeps the old
+  // annotations selectable, and bump the id counter past them so new shapes
+  // can't collide with a restored id.
+  const [shapes, setShapes] = useState<Shape[]>(() => {
+    const initial = shot.shapes ?? [];
+    for (const s of initial) {
+      const n = Number(s.id.replace(/^s/u, ""));
+      if (Number.isFinite(n) && n > shapeSeq) shapeSeq = n;
+    }
+    return initial;
+  });
   const [past, setPast] = useState<Shape[][]>([]);
   const [future, setFuture] = useState<Shape[][]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -314,13 +331,16 @@ export function ScreenshotAnnotator({
   const textSize = Math.round(TEXT_SIZES[widthIdx]! * sizeScale);
 
   /* ---- load the full-resolution image ---- */
+  // Draw on the un-annotated original when re-editing, not the flattened save,
+  // so persisted shapes render once (as editable shapes) instead of twice.
+  const basePath = shot.originalPath ?? shot.path;
   useEffect(() => {
     let cancelled = false;
     const electron = getElectron();
     async function load() {
       let dataUrl = shot.previewDataUrl;
       if (electron) {
-        const res = await electron.screenshot.readImage(shot.path);
+        const res = await electron.screenshot.readImage(basePath);
         if (!cancelled && "dataUrl" in res) dataUrl = res.dataUrl;
       }
       const img = new Image();
@@ -337,7 +357,7 @@ export function ScreenshotAnnotator({
     return () => {
       cancelled = true;
     };
-  }, [shot.path, shot.previewDataUrl]);
+  }, [basePath, shot.previewDataUrl]);
 
   /* ---- redraw whenever anything visible changes ---- */
   const render = useCallback(
@@ -712,11 +732,11 @@ export function ScreenshotAnnotator({
     setBusy("save");
     try {
       const { path, previewDataUrl } = await exportPng();
-      onSave(path, previewDataUrl);
+      onSave(path, previewDataUrl, { originalPath: basePath, shapes: shapesRef.current });
     } catch {
       setBusy(null);
     }
-  }, [busy, exportPng, onSave, status]);
+  }, [basePath, busy, exportPng, onSave, status]);
 
   // Recolor the currently-selected shape when a color is picked in select mode.
   const recolorSelected = useCallback(
