@@ -1,4 +1,4 @@
-import { MAX_TCP_PORT } from "./tcp-port";
+import { isValidTcpPort } from "./tcp-port";
 
 export type PtyHookEnv = {
   apiUrl: string;
@@ -24,10 +24,6 @@ const ALLOWED_HOOK_HOSTS = new Set<string>([
   AGENT_LOCAL_HOOK_API_HOST,
 ]);
 
-function isValidPort(port: number | null | undefined): port is number {
-  return typeof port === "number" && Number.isInteger(port) && port > 0 && port <= MAX_TCP_PORT;
-}
-
 /**
  * Build the Mission Control API base URL an agent's hooks should POST to,
  * parameterized by host so the same construction serves both the Electron host
@@ -38,7 +34,7 @@ export function buildMissionControlApiUrl(
   port: number | null | undefined,
 ): string | null {
   if (!ALLOWED_HOOK_HOSTS.has(host)) return null;
-  if (!isValidPort(port)) return null;
+  if (!isValidTcpPort(port)) return null;
   return `http://${host}:${port}`;
 }
 
