@@ -132,6 +132,60 @@ function textFont(size: number): string {
 }
 
 /* ------------------------------------------------------------------ *
+ * Resize handles
+ * ------------------------------------------------------------------ */
+
+// Grab radius (on-screen px) and half-size of the drawn handle squares.
+const HANDLE_HIT = 9;
+const HANDLE_HALF = 4;
+
+// Handle anchors, box-relative in {0, 0.5, 1}; the center is excluded. Corners
+// scale both axes; edge midpoints scale a single axis.
+const HANDLE_POS: Array<{ nx: number; ny: number }> = [
+  { nx: 0, ny: 0 }, { nx: 0.5, ny: 0 }, { nx: 1, ny: 0 },
+  { nx: 0, ny: 0.5 }, { nx: 1, ny: 0.5 },
+  { nx: 0, ny: 1 }, { nx: 0.5, ny: 1 }, { nx: 1, ny: 1 },
+];
+
+// Text has no independent width (only a font size), so it exposes corner
+// handles for uniform scaling and skips the single-axis edge handles.
+function handlesFor(s: Shape, b: Box): Array<{ nx: number; ny: number; x: number; y: number }> {
+  const pos = s.type === "text" ? HANDLE_POS.filter((h) => h.nx !== 0.5 && h.ny !== 0.5) : HANDLE_POS;
+  return pos.map((h) => ({ nx: h.nx, ny: h.ny, x: b.x + h.nx * b.w, y: b.y + h.ny * b.h }));
+}
+
+function resizeCursor(nx: number, ny: number): string {
+  if (nx === 0.5) return "ns-resize";
+  if (ny === 0.5) return "ew-resize";
+  const nwse = (nx === 0 && ny === 0) || (nx === 1 && ny === 1);
+  return nwse ? "nwse-resize" : "nesw-resize";
+}
+
+// Scale a shape about the fixed anchor (ax,ay) by (sx,sy). Geometry points move;
+// stroke widths stay constant (matching most editors), while text tracks the
+// dominant scale factor so glyphs grow/shrink without stretching.
+function scaleShape(s: Shape, ax: number, ay: number, sx: number, sy: number): Shape {
+  const sp = (x: number, y: number): Pt => ({ x: ax + (x - ax) * sx, y: ay + (y - ay) * sy });
+  switch (s.type) {
+    case "pen":
+    case "highlighter":
+      return { ...s, points: s.points.map((p) => sp(p.x, p.y)) };
+    case "text": {
+      const np = sp(s.x, s.y);
+      const f = Math.max(8, s.fontSize * Math.max(Math.abs(sx), Math.abs(sy)));
+      return { ...s, x: np.x, y: np.y, fontSize: f };
+    }
+    case "arrow":
+    case "rect":
+    case "ellipse": {
+      const p1 = sp(s.x1, s.y1);
+      const p2 = sp(s.x2, s.y2);
+      return { ...s, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Canvas drawing
  * ------------------------------------------------------------------ */
 
@@ -299,9 +353,12 @@ export function ScreenshotAnnotator({
   // Per-gesture scratch, kept in a ref so pointer handlers stay identity-stable.
   const gesture = useRef<{
     startShapes: Shape[];
-    mode: "draw" | "move" | "none";
+    mode: "draw" | "move" | "resize" | "none";
     moveId: string | null;
     last: Pt;
+    // Set only for "resize": the shape + its box captured at gesture start, plus
+    // which handle is being dragged.
+    resize?: { shape: Shape; box: Box; nx: number; ny: number };
   } | null>(null);
 
   /* ---- layout: fit the stage into the viewport ---- */
@@ -375,16 +432,31 @@ export function ScreenshotAnnotator({
         const sel = list.find((s) => s.id === selectedId);
         if (sel) {
           const b = shapeBox(sel, ctx);
+          // Draw the marquee + handles in image space but sized off the display
+          // scale, so the outline stays a crisp ~1.5px hairline on screen at any
+          // zoom instead of a chunky line blown up with the Retina bitmap.
+          const px = dims.w / Math.max(1, display.w);
           ctx.save();
-          ctx.setLineDash([8, 6]);
-          ctx.lineWidth = Math.max(2, dims.w / 600);
-          ctx.strokeStyle = "rgba(120,170,255,0.95)";
+          ctx.setLineDash([4 * px, 3 * px]);
+          ctx.lineWidth = 1.5 * px;
+          ctx.strokeStyle = "rgba(130,175,255,0.95)";
           ctx.strokeRect(b.x, b.y, b.w, b.h);
+          ctx.setLineDash([]);
+          const hs = HANDLE_HALF * px;
+          for (const hnd of handlesFor(sel, b)) {
+            ctx.beginPath();
+            ctx.rect(hnd.x - hs, hnd.y - hs, hs * 2, hs * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.lineWidth = 1.25 * px;
+            ctx.strokeStyle = "rgba(70,120,220,0.95)";
+            ctx.stroke();
+          }
           ctx.restore();
         }
       }
     },
-    [dims.w, dims.h, draft, selectedId, textDraft],
+    [dims.w, dims.h, display.w, draft, selectedId, textDraft],
   );
 
   useEffect(() => {
@@ -507,6 +579,27 @@ export function ScreenshotAnnotator({
 
       if (tool === "select") {
         const ctx = canvas.getContext("2d")!;
+        // Grabbing a resize handle of the already-selected shape takes priority
+        // over hit-testing shapes underneath it.
+        if (selectedId) {
+          const sel = start.find((s) => s.id === selectedId);
+          if (sel) {
+            const b = shapeBox(sel, ctx);
+            const hr = HANDLE_HIT * (dims.w / Math.max(1, display.w));
+            for (const hnd of handlesFor(sel, b)) {
+              if (Math.abs(p.x - hnd.x) <= hr && Math.abs(p.y - hnd.y) <= hr) {
+                gesture.current = {
+                  startShapes: start,
+                  mode: "resize",
+                  moveId: selectedId,
+                  last: p,
+                  resize: { shape: sel, box: b, nx: hnd.nx, ny: hnd.ny },
+                };
+                return;
+              }
+            }
+          }
+        }
         let hit: Shape | null = null;
         for (let i = start.length - 1; i >= 0; i--) {
           if (boxHit(shapeBox(start[i]!, ctx), p)) {
@@ -534,14 +627,55 @@ export function ScreenshotAnnotator({
       setDraft(newDraft);
       gesture.current = { startShapes: start, mode: "draw", moveId: null, last: p };
     },
-    [color, commitText, status, strokeWidth, textDraft, textSize, tool, toImage],
+    [color, commitText, dims.w, display.w, selectedId, status, strokeWidth, textDraft, textSize, tool, toImage],
   );
 
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLCanvasElement>) => {
+      // Cursor affordance for the resize handles while hovering (no drag yet).
+      if (!gesture.current && tool === "select" && selectedId && canvasRef.current) {
+        const cv = canvasRef.current;
+        const hctx = cv.getContext("2d")!;
+        const sel = shapesRef.current.find((s) => s.id === selectedId);
+        const hp = toImage(e.clientX, e.clientY);
+        let cur = "default";
+        if (sel) {
+          const b = shapeBox(sel, hctx);
+          const hr = HANDLE_HIT * (dims.w / Math.max(1, display.w));
+          for (const hnd of handlesFor(sel, b)) {
+            if (Math.abs(hp.x - hnd.x) <= hr && Math.abs(hp.y - hnd.y) <= hr) {
+              cur = resizeCursor(hnd.nx, hnd.ny);
+              break;
+            }
+          }
+          if (cur === "default" && boxHit(b, hp)) cur = "move";
+        }
+        cv.style.cursor = cur;
+      }
+
       const g = gesture.current;
       if (!g || g.mode === "none") return;
       const p = toImage(e.clientX, e.clientY);
+
+      if (g.mode === "resize" && g.resize) {
+        const { shape, box, nx, ny } = g.resize;
+        const ax = box.x + (1 - nx) * box.w; // fixed opposite anchor
+        const ay = box.y + (1 - ny) * box.h;
+        const ox = box.x + nx * box.w; // grabbed handle's start position
+        const oy = box.y + ny * box.h;
+        // Clamp to a small positive minimum so a shape can't collapse or flip.
+        let sx = nx === 0.5 ? 1 : Math.max(0.05, (p.x - ax) / (ox - ax));
+        let sy = ny === 0.5 ? 1 : Math.max(0.05, (p.y - ay) / (oy - ay));
+        // Text and shift-drag scale uniformly to preserve aspect ratio.
+        if (shape.type === "text" || e.shiftKey) {
+          const k = Math.max(sx, sy);
+          if (nx !== 0.5) sx = k;
+          if (ny !== 0.5) sy = k;
+        }
+        const next = scaleShape(shape, ax, ay, sx, sy);
+        setShapes((prev) => prev.map((s) => (s.id === g.moveId ? next : s)));
+        return;
+      }
 
       if (g.mode === "move" && g.moveId) {
         const dx = p.x - g.last.x;
@@ -569,7 +703,7 @@ export function ScreenshotAnnotator({
         return { ...d, x2, y2 };
       });
     },
-    [toImage],
+    [dims.w, display.w, selectedId, toImage, tool],
   );
 
   const onPointerUp = useCallback(
@@ -583,8 +717,8 @@ export function ScreenshotAnnotator({
       }
       if (!g) return;
 
-      if (g.mode === "move") {
-        // Commit the moved state to history (shapes already reflect the move).
+      if (g.mode === "move" || g.mode === "resize") {
+        // Commit the moved/resized state to history (shapes already reflect it).
         setPast((p) => [...p, g.startShapes]);
         setFuture([]);
         return;
@@ -926,7 +1060,7 @@ export function ScreenshotAnnotator({
           {tool === "text"
             ? "Click to place text · double-click text to edit"
             : tool === "select"
-              ? "Drag to move · ⌫ to delete"
+              ? "Drag to move · handles to resize · ⌫ to delete"
               : "Drag on the image to draw"}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
