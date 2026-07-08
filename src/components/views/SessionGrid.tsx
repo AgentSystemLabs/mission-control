@@ -369,6 +369,11 @@ type GridCellProps = {
   onRequestClose: (session: OpenTerminal) => void;
   onPtyReady: (taskId: string, ptyId: string | null, scopeKey: string) => void;
   onHeaderPointerDown: (taskId: string, event: ReactPointerEvent<HTMLDivElement>) => void;
+  /** Toggle this cell's pinned flag (stable across renders); omit to hide the
+   *  control. Pinned state itself is read live inside the pane. */
+  onTogglePin?: (taskId: string) => void;
+  /** True while this session's pin toggle is in flight (disables the control). */
+  pinBusy: boolean;
 };
 
 /** One grid cell (its terminal), memoized so a per-grid state change — moving
@@ -391,6 +396,8 @@ const GridCell = memo(function GridCell({
   onRequestClose,
   onPtyReady,
   onHeaderPointerDown,
+  onTogglePin,
+  pinBusy,
 }: GridCellProps) {
   return (
     <CardFrame
@@ -454,6 +461,8 @@ const GridCell = memo(function GridCell({
               reorderEnabled ? (e) => onHeaderPointerDown(session.taskId, e) : undefined
             }
             headerGrabbing={isDragging}
+            onTogglePin={onTogglePin ? () => onTogglePin(session.taskId) : undefined}
+            pinBusy={pinBusy}
           />
         )}
       </div>
@@ -613,10 +622,23 @@ function HiddenSessionsBar({
 export function SessionGrid({
   scopeKey,
   emptyHeader,
+  filter = "active",
+  pinnedTaskIds,
+  onTogglePinned,
+  pinningTaskIds,
 }: {
   scopeKey: string;
   /** "Sessions" title row rendered above the empty state (all sessions hidden). */
   emptyHeader?: ReactNode;
+  /** Which scope the grid renders. "pinned" packs the grid down to the pinned
+   *  sessions only (a view filter — the persisted layout is left untouched). */
+  filter?: "active" | "pinned";
+  /** Live set of pinned task ids, used by the "pinned" filter. */
+  pinnedTaskIds?: ReadonlySet<string>;
+  /** Toggle a session's pinned flag from its grid cell header. */
+  onTogglePinned?: (taskId: string) => void;
+  /** Task ids with an in-flight pin toggle (disables the cell's pin control). */
+  pinningTaskIds?: ReadonlySet<string>;
 }) {
   const {
     sessions,
@@ -678,18 +700,46 @@ export function SessionGrid({
     [allScopedSessions, hiddenTaskIds],
   );
 
+  // The scope toggle's "Pinned" tab narrows the grid to pinned sessions. This is
+  // purely a *view* filter: it drives what renders (packing the grid down to the
+  // pinned cells the same way hiding a session does), while the persisted layout
+  // and hidden-id bookkeeping keep working off the full scope above. In the
+  // "active" tab the predicate is a no-op so nothing about the grid changes.
+  const isFiltered = filter === "pinned";
+  const matchesFilter = useCallback(
+    (session: OpenTerminal) => !isFiltered || (pinnedTaskIds?.has(session.taskId) ?? false),
+    [isFiltered, pinnedTaskIds],
+  );
+  // The sessions the grid actually lays out and renders under the current tab.
+  const renderSessions = useMemo(
+    () => (isFiltered ? scopedSessions.filter(matchesFilter) : scopedSessions),
+    [isFiltered, scopedSessions, matchesFilter],
+  );
+
+  // The route hands us a fresh pin-toggle fn each render; wrap it behind a ref so
+  // each GridCell gets a stable callback and the per-cell memo still holds.
+  const togglePinnedRef = useRef(onTogglePinned);
+  useEffect(() => {
+    togglePinnedRef.current = onTogglePinned;
+  }, [onTogglePinned]);
+  const handleTogglePin = useCallback((taskId: string) => {
+    togglePinnedRef.current?.(taskId);
+  }, []);
+
   // The hidden sessions, most recently hidden first (Set preserves insertion
   // order; reversed so the newest hide lands leftmost in the restore bar).
+  // Under the "pinned" filter, only pinned hidden sessions belong to the view,
+  // so the restore bar stays consistent with the packed grid above it.
   const hiddenSessions = useMemo(() => {
     if (hiddenTaskIds.size === 0) return [];
     const byId = new Map(allScopedSessions.map((s) => [s.taskId, s]));
     const out: OpenTerminal[] = [];
     for (const id of hiddenTaskIds) {
       const session = byId.get(id);
-      if (session) out.unshift(session);
+      if (session && matchesFilter(session)) out.unshift(session);
     }
     return out;
-  }, [hiddenTaskIds, allScopedSessions]);
+  }, [hiddenTaskIds, allScopedSessions, matchesFilter]);
 
   // Drop hidden ids whose session is gone (archived/closed elsewhere) so a hide
   // never lingers and the empty-state math stays honest.
@@ -1152,9 +1202,13 @@ export function SessionGrid({
   // resolved to actual sessions. Any scoped session not yet placed (the frame
   // before reconcile runs) shows in a trailing row so it never flashes missing.
   const activeLayout = dragLayout ?? layout;
+  // Resolve layout cells against the *rendered* set so the "pinned" filter packs
+  // the grid to just its cells: a cell whose session isn't in the render set is
+  // dropped and any fully-emptied row collapses — the same packing hiding a
+  // session already relies on. The persisted layout above is unaffected.
   const sessionById = useMemo(
-    () => new Map(scopedSessions.map((s) => [s.taskId, s])),
-    [scopedSessions],
+    () => new Map(renderSessions.map((s) => [s.taskId, s])),
+    [renderSessions],
   );
   const { viewRows, hasUnplaced } = useMemo(() => {
     const seen = new Set<string>();
@@ -1170,12 +1224,12 @@ export function SessionGrid({
         return { cells, fr: activeLayout.rowSizes[ri] ?? 1 };
       })
       .filter((r) => r.cells.length > 0);
-    const extras = scopedSessions.filter((s) => !seen.has(s.taskId));
+    const extras = renderSessions.filter((s) => !seen.has(s.taskId));
     if (extras.length > 0) {
       rows.push({ cells: extras.map((s) => ({ session: s, fr: 1 })), fr: 1 });
     }
     return { viewRows: rows, hasUnplaced: extras.length > 0 };
-  }, [activeLayout, sessionById, scopedSessions]);
+  }, [activeLayout, sessionById, renderSessions]);
 
   const visibleSessions = useMemo(
     () => viewRows.flatMap((r) => r.cells.map((c) => c.session)),
@@ -1389,7 +1443,12 @@ export function SessionGrid({
     positionDraggedCell();
   });
 
-  const reorderEnabled = !expandedTaskId && visibleSessions.length > 1;
+  // Reordering/resizing edit the persisted per-scope layout, but the "pinned"
+  // filter only renders a subset of that layout's cells — dragging within the
+  // packed subset would write geometry back against cells that aren't on screen.
+  // So arranging happens in the Active tab (where the full layout lives); the
+  // Pinned tab is a read-through view.
+  const reorderEnabled = !expandedTaskId && visibleSessions.length > 1 && !isFiltered;
 
   // Pixel space the row-height tracks share, once outer padding + gaps are gone.
   const totalRowFr = layout.rowSizes.reduce((a, b) => a + b, 0) || 1;
@@ -1416,7 +1475,11 @@ export function SessionGrid({
     [gridSize.width, gridPad, gridGap],
   );
   const resizeEnabled =
-    !expandedTaskId && !dragLayout && visibleSessions.length > 1 && gridSize.width > 0;
+    !expandedTaskId &&
+    !dragLayout &&
+    visibleSessions.length > 1 &&
+    gridSize.width > 0 &&
+    !isFiltered;
 
   // Left/top pixel offset of the divider after track `index` (0-based).
   const dividerOffset = useCallback(
@@ -1949,8 +2012,23 @@ export function SessionGrid({
 
   // The project route only mounts the grid once the scope has a session, so an
   // empty grid usually means a transient frame — unless the user hid every
-  // session, in which case the restore bar must stay reachable.
-  if (scopedSessions.length === 0) {
+  // session, in which case the restore bar must stay reachable. The "pinned"
+  // tab can also empty the view while the scope still has (unpinned) sessions;
+  // there we stay in the grid and explain how to fill it rather than fall back.
+  if (renderSessions.length === 0) {
+    const someHidden = hiddenSessions.length > 0;
+    const emptyTitle = someHidden
+      ? isFiltered
+        ? "All pinned sessions hidden"
+        : "All sessions hidden"
+      : isFiltered
+        ? "No pinned sessions"
+        : "No active sessions";
+    const emptySubtitle = someHidden
+      ? "Click a session in the bar below to bring it back."
+      : isFiltered
+        ? "Pin a session from its header to keep it in this view."
+        : "Start a new session to begin working on this project.";
     return (
       <>
         {/* Grid mode leaves 12px under the project header where the list view
@@ -1966,12 +2044,9 @@ export function SessionGrid({
           }}
         >
           <EmptyState
-            title={hiddenSessions.length > 0 ? "All sessions hidden" : "No active sessions"}
-            subtitle={
-              hiddenSessions.length > 0
-                ? "Click a session in the bar below to bring it back."
-                : "Start a new session to begin working on this project."
-            }
+            title={emptyTitle}
+            subtitle={emptySubtitle}
+            icon={isFiltered && !someHidden ? "pin" : undefined}
             action={
               hiddenSessions.length > 0 ? (
                 // mc-btn-new-session gives the outlined accent look the list
@@ -2045,6 +2120,8 @@ export function SessionGrid({
                   onRequestClose={requestClose}
                   onPtyReady={setPtyId}
                   onHeaderPointerDown={startPointerReorder}
+                  onTogglePin={onTogglePinned ? handleTogglePin : undefined}
+                  pinBusy={pinningTaskIds?.has(session.taskId) ?? false}
                 />
               );
             })}

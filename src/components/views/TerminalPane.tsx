@@ -194,6 +194,9 @@ function HeaderMoreMenu({
   expanded,
   onToggleExpanded,
   onHide,
+  onTogglePin,
+  pinned,
+  pinBusy,
   buttons,
   onRename,
   onClone,
@@ -214,6 +217,10 @@ function HeaderMoreMenu({
   onToggleExpanded?: () => void;
   /** Present only when the close control was also collapsed into the menu. */
   onHide?: () => void;
+  /** Present only when the pin control was collapsed into the menu (micro). */
+  onTogglePin?: () => void;
+  pinned: boolean;
+  pinBusy: boolean;
   /** Which discretionary actions the user has chosen to show (mirrors the header). */
   buttons: SessionHeaderButtonVisibility;
   onRename: () => void;
@@ -362,8 +369,17 @@ function HeaderMoreMenu({
               </DropdownMenuItem>
             )}
             {buttons.focus && (
-              <DropdownMenuItem icon="pin" onClick={() => pick(onFocusMode)}>
+              <DropdownMenuItem icon="external-link" onClick={() => pick(onFocusMode)}>
                 Focus session
+              </DropdownMenuItem>
+            )}
+            {onTogglePin && (
+              <DropdownMenuItem
+                icon={pinned ? "pin-fill" : "pin"}
+                disabled={pinBusy}
+                onClick={() => pick(onTogglePin)}
+              >
+                {pinned ? "Unpin session" : "Pin session"}
               </DropdownMenuItem>
             )}
             {onToggleExpanded && (
@@ -401,6 +417,8 @@ export function TerminalPane({
   onHeaderPointerDown,
   headerGrabbing = false,
   hideHeader = false,
+  onTogglePin,
+  pinBusy = false,
 }: {
   project: Project & { activeWorktreeId?: string | null; activeRuntimeScopeId?: string | null };
   task: Task;
@@ -415,6 +433,11 @@ export function TerminalPane({
   headerGrabbing?: boolean;
   /** Focused Session Mode renders its own window chrome instead. */
   hideHeader?: boolean;
+  /** Pin/unpin this session (session grid only). Pinned state is read live from
+   *  the task, so no separate flag is needed. Omit to hide the control. */
+  onTogglePin?: () => void;
+  /** True while a pin toggle is in flight — disables the control. */
+  pinBusy?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -1519,7 +1542,10 @@ export function TerminalPane({
             </>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+        <div
+          className="mc-pane-header-actions"
+          style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+        >
           {isSandboxTerminal && !tinyHeader && (
             <span
               title="This terminal runs inside the selected sandbox"
@@ -1550,6 +1576,9 @@ export function TerminalPane({
               expanded={expanded}
               onToggleExpanded={tinyHeader ? onToggleExpanded : undefined}
               onHide={microHeader ? onHide : undefined}
+              onTogglePin={microHeader ? onTogglePin : undefined}
+              pinned={liveTask.pinned}
+              pinBusy={pinBusy}
               buttons={sessionButtons}
               onRename={openRenameDialog}
               onClone={requestSessionClone}
@@ -1600,7 +1629,7 @@ export function TerminalPane({
                   <Btn
                     variant="ghost"
                     size="sm"
-                    icon="pin"
+                    icon="external-link"
                     onClick={requestFocusMode}
                     aria-label="Focus session in a floating window"
                     style={{ width: 34, padding: 0 }}
@@ -1608,6 +1637,25 @@ export function TerminalPane({
                 </HotkeyTooltip>
               )}
             </>
+          )}
+          {onTogglePin && !microHeader && (
+            <Tooltip content={liveTask.pinned ? "Unpin session" : "Pin session"}>
+              <Btn
+                variant="ghost"
+                size="sm"
+                icon={liveTask.pinned ? "pin-fill" : "pin"}
+                onClick={onTogglePin}
+                disabled={pinBusy}
+                aria-busy={pinBusy}
+                aria-pressed={liveTask.pinned}
+                aria-label={liveTask.pinned ? "Unpin session" : "Pin session"}
+                style={{
+                  width: 34,
+                  padding: 0,
+                  color: liveTask.pinned ? "var(--accent)" : undefined,
+                }}
+              />
+            </Tooltip>
           )}
           {onToggleExpanded && !tinyHeader && (
             <HotkeyTooltip
