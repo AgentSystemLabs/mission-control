@@ -6,6 +6,7 @@ import {
   buildAdditionsDiff,
   isBinaryPatch,
   mapStatusCode,
+  bufferLooksBinary,
 } from "../git-status";
 
 describe("parsePorcelainZ", () => {
@@ -67,6 +68,20 @@ describe("classifyDiffPatch", () => {
     const big = "x".repeat(2 * 1024 * 1024 + 10);
     const result = classifyDiffPatch(big);
     expect(result.kind).toBe("too-large");
+  });
+});
+
+describe("bufferLooksBinary", () => {
+  it("detects NUL bytes in the sniff window", () => {
+    expect(bufferLooksBinary(new Uint8Array([0x41, 0x00, 0x42]))).toBe(true);
+    expect(bufferLooksBinary(new Uint8Array([0x41, 0x42, 0x43]))).toBe(false);
+  });
+
+  it("only scans the first BUFFER_BINARY_SNIFF_BYTES", () => {
+    const buf = new Uint8Array(8 * 1024 + 1);
+    buf.fill(0x41);
+    buf[8 * 1024] = 0;
+    expect(bufferLooksBinary(buf)).toBe(false);
   });
 });
 

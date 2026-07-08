@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { getStringAppSetting, setAppSetting } from "./app-settings-store";
-import { MAX_TCP_PORT } from "../src/shared/tcp-port";
+import { isValidTcpPort } from "../src/shared/tcp-port";
 
 // Typed accessors for the legacy global sandbox settings (Electron-only). These
 // live in the main-process app_settings store (not the server /api/settings)
@@ -70,7 +70,7 @@ const BUILD_ARG_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const VOLUME_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 export function isValidPort(n: number): boolean {
-  return Number.isInteger(n) && n >= 1 && n <= MAX_TCP_PORT;
+  return isValidTcpPort(n);
 }
 
 export function isValidVolumeName(name: string): boolean {

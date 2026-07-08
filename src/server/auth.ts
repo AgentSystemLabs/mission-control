@@ -54,7 +54,8 @@ export function requireBearerTokenValueForSecret(
 }
 
 export function requireBearerToken(request: Request): { ok: true } | { ok: false; response: Response } {
-  const auth = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  // Headers.get() is case-insensitive per the Fetch spec — one lookup is enough.
+  const auth = request.headers.get("authorization") ?? "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   return requireBearerTokenValue(token);
 }

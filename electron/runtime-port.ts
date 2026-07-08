@@ -1,12 +1,8 @@
-import { MAX_TCP_PORT } from "../src/shared/tcp-port";
+import { isValidTcpPort, MAX_TCP_PORT } from "../src/shared/tcp-port";
 
-export { MAX_TCP_PORT };
+export { isValidTcpPort, MAX_TCP_PORT };
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
-
-export function isValidTcpPort(port: number | null | undefined): port is number {
-  return typeof port === "number" && Number.isInteger(port) && port > 0 && port <= MAX_TCP_PORT;
-}
 
 export function nextTcpPort(port: number | null | undefined): number | null {
   if (!isValidTcpPort(port) || port >= MAX_TCP_PORT) return null;

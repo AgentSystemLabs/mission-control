@@ -160,7 +160,7 @@
     "puppeteer": "25.3.0",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.59.3",
+    "typescript-eslint": "8.63.0",
     "vite": "8.0.13",
     "vitest": "4.1.6",
     "wait-on": "9.0.10"
@@ -218,7 +218,8 @@
       ],
       "category": "public.app-category.developer-tools",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Mission Control uses the microphone for push-to-talk voice commands. Audio is transcribed locally on your machine and never leaves your computer."
+        "NSMicrophoneUsageDescription": "Mission Control uses the microphone for push-to-talk voice commands. Audio is transcribed locally on your machine and never leaves your computer.",
+        "NSScreenCaptureUsageDescription": "Mission Control captures a screen region you select so you can attach it to an AI session as visual context."
       },
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

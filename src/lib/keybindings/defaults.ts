@@ -33,5 +33,6 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "project.runToggle": makeBinding({ mod: true, key: "." }),
   "voice.pushToTalk": makeBinding({ mod: true, shift: true, key: "v" }),
   "prompt.search": makeBinding({ mod: true, shift: true, key: "p" }),
+  "screenshot.capture": makeBinding({ mod: true, shift: true, key: "s" }),
 };
 

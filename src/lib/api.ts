@@ -55,6 +55,7 @@ import type {
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
+import { HTTP_NO_CONTENT } from "~/shared/http-status";
 
 // The api bearer token is intentionally NOT part of this HTTP-derived shape.
 // Renderer code obtains it through the Electron IPC channel `settings:getToken`
@@ -255,7 +256,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
         : null) ?? `${res.status} ${res.statusText}: ${text}`;
     throw new ApiError(message, res.status, body);
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === HTTP_NO_CONTENT) return undefined as T;
   return (await res.json()) as T;
 }
 

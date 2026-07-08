@@ -1,4 +1,5 @@
 import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
+import { MS_PER_DAY } from "~/shared/time-ms";
 import {
   MEMORY_BODY_MAX,
   MEMORY_TITLE_MAX,
@@ -421,7 +422,7 @@ export function markMemoriesUsed(ids: readonly string[]): void {
 // --- Session Brief assembly (deterministic ranker + budget + markdown) ---------
 
 const BRIEF_CHAR_BUDGET = 2400;
-const RECENCY_HALF_LIFE_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const RECENCY_HALF_LIFE_MS = 30 * MS_PER_DAY;
 
 function tokenize(text: string): Set<string> {
   return new Set(

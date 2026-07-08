@@ -1,3 +1,5 @@
+import { MS_PER_DAY } from "./time-ms";
+
 // Shared types + constants for Recall — Mission Control's project-level memory.
 // A "memory" is a small, curated, typed fact about a project that is fed to new
 // agent sessions as a Session Brief so the agent doesn't rediscover the project
@@ -52,13 +54,15 @@ export const MEMORY_TAG_MAX = 40;
 /** Cap on how many memories a single auto-distill pass may add to one project. */
 export const MEMORY_AUTO_CAPTURE_PER_SESSION_MAX = 5;
 
+const MS_PER_DAY = 86_400_000;
+
 /**
  * A memory is considered "stale" once this long has passed since it was last
  * verified, used, or created (whichever is most recent). Stale unpinned memories
  * sink in the brief ranking and are flagged for review in the panel. Pinned
  * memories are exempt from decay.
  */
-export const MEMORY_STALE_AFTER_MS = 1000 * 60 * 60 * 24 * 60; // 60 days
+export const MEMORY_STALE_AFTER_MS = 60 * MS_PER_DAY;
 
 /**
  * Relevance weight per type when assembling the Session Brief. Higher = more

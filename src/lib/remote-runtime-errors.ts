@@ -1,4 +1,11 @@
 import { ApiError } from "~/lib/api";
+import { errMsg } from "~/shared/err-msg";
+import {
+  HTTP_PAYMENT_REQUIRED,
+  HTTP_SERVICE_UNAVAILABLE,
+  HTTP_TOO_MANY_REQUESTS,
+  HTTP_UNAUTHORIZED,
+} from "~/shared/http-status";
 
 /**
  * Human-readable message for a failed hosted remote start. Only the 429
@@ -10,18 +17,18 @@ export function remoteStartErrorMessage(
   noun: "runtime" | "terminal" = "runtime",
 ): string {
   if (error instanceof ApiError) {
-    if (error.status === 401) {
+    if (error.status === HTTP_UNAUTHORIZED) {
       return "Academy entitlement is required before hosted runtime can start.";
     }
-    if (error.status === 402) {
+    if (error.status === HTTP_PAYMENT_REQUIRED) {
       return error.message || "Hosted compute limit reached. Open Academy billing to upgrade or wait for the usage window to reset.";
     }
-    if (error.status === 503) {
+    if (error.status === HTTP_SERVICE_UNAVAILABLE) {
       return error.message || "Hosted remote runtime is temporarily disabled. Try again later or contact support.";
     }
-    if (error.status === 429) {
+    if (error.status === HTTP_TOO_MANY_REQUESTS) {
       return `Too many remote ${noun} starts. Wait a minute, then retry.`;
     }
   }
-  return error instanceof Error ? error.message : String(error || "unknown error");
+  return errMsg(error ?? "unknown error");
 }
