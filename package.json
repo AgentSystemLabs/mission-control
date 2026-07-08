@@ -218,7 +218,8 @@
       ],
       "category": "public.app-category.developer-tools",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Mission Control uses the microphone for push-to-talk voice commands. Audio is transcribed locally on your machine and never leaves your computer."
+        "NSMicrophoneUsageDescription": "Mission Control uses the microphone for push-to-talk voice commands. Audio is transcribed locally on your machine and never leaves your computer.",
+        "NSScreenCaptureUsageDescription": "Mission Control captures a screen region you select so you can attach it to an AI session as visual context."
       },
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

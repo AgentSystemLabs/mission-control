@@ -159,6 +159,8 @@ export type RemoteVmDeployJobSnapshotBridge = {
 };
 
 const electronAPI = {
+  /** The host OS, straight from the main process (authoritative, unlike navigator.platform). */
+  platform: process.platform,
   settings: {
     getToken: (): Promise<string> => ipcRenderer.invoke(IPC.settingsGetToken),
     regenerateToken: (): Promise<string> =>
@@ -314,6 +316,21 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.terminalSaveDroppedImage, input),
     saveClipboard: (): Promise<{ path: string } | { error: string } | null> =>
       ipcRenderer.invoke(IPC.terminalSaveClipboardImage),
+    copyToClipboard: (path: string): Promise<{ ok: true } | { error: string }> =>
+      ipcRenderer.invoke(IPC.terminalCopyImageToClipboard, path),
+    delete: (path: string): Promise<{ ok: true } | { error: string }> =>
+      ipcRenderer.invoke(IPC.terminalDeleteImage, path),
+  },
+  screenshot: {
+    captureRegion: (): Promise<
+      | { path: string; previewDataUrl: string }
+      | { cancelled: true }
+      | { error: string }
+    > => ipcRenderer.invoke(IPC.screenshotCaptureRegion),
+    readImage: (
+      path: string,
+    ): Promise<{ dataUrl: string } | { error: string }> =>
+      ipcRenderer.invoke(IPC.screenshotReadImage, path),
   },
   pickImage: (): Promise<
     { sourcePath: string; extension: string } | { error: string } | null

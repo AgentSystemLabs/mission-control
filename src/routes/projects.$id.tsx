@@ -12,6 +12,7 @@ import { openExternal } from "~/lib/open-external";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
+import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import {
   CodexHooksNoticeDialog,
@@ -40,6 +41,12 @@ import { TextField } from "~/components/ui/TextField";
 import { useHotkey } from "~/lib/use-hotkey";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import {
+  screenshotCaptureErrorMessage,
+  screenshotFromResult,
+  screenshotSupported as isScreenshotSupported,
+} from "~/lib/screenshot";
+import { playScreenshotCapture } from "~/lib/screenshot-sound";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { newSessionId } from "~/lib/claude-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
@@ -675,6 +682,27 @@ function ProjectPage() {
 
   const terminals = useTerminals();
   const gridViewActive = terminals.gridView;
+
+  // Native screenshot capture is macOS-only (uses `screencapture -i`) and needs
+  // the Electron bridge, so the toolbar button, capture stack, and history strip
+  // are hidden elsewhere. Gate on the main process's real platform (see
+  // screenshotSupported) rather than the deprecated navigator.platform.
+  const screenshotSupported = useMemo(() => isScreenshotSupported(), []);
+  const addScreenshot = terminals.addScreenshot;
+  const captureScreenshot = useCallback(async () => {
+    const electron = getElectron();
+    if (!electron) return;
+    const result = await electron.screenshot.captureRegion();
+    if ("error" in result) {
+      toast.error(screenshotCaptureErrorMessage(result.error));
+      return;
+    }
+    const shot = screenshotFromResult(result);
+    if (shot) {
+      playScreenshotCapture();
+      addScreenshot({ ...shot, projectId: id });
+    }
+  }, [addScreenshot, id]);
   // Review Changes in grid view docks the diff as a resizable panel beside the
   // live grid (see the split render below) instead of taking over the workspace,
   // so the sessions stay visible while you review. gridView state stays on, so
@@ -1860,6 +1888,10 @@ function ProjectPage() {
   useHotkey("session.cycleNext", () => cycleSession(1), { capture: true });
   useHotkey("session.cyclePrev", () => cycleSession(-1), { capture: true });
   useHotkey("session.clone", () => duplicateActiveSession(), { capture: true });
+  useHotkey("screenshot.capture", () => void captureScreenshot(), {
+    capture: true,
+    enabled: screenshotSupported,
+  });
   useHotkey(
     "session.newRow",
     () => {
@@ -2892,12 +2924,6 @@ function ProjectPage() {
               minWidth: 0,
             }}
           >
-            {headerActions}
-            <CustomScriptsButton
-              scripts={customScripts}
-              onRun={runScript}
-              disabled={!projectPathUsable}
-            />
             {showGrid && (
               <Btn
                 variant="ghost"
@@ -2908,6 +2934,26 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             )}
+            {screenshotSupported && (
+              <HotkeyTooltip
+                action="screenshot.capture"
+                label="Screenshot — drag a region, then drop it on a session"
+              >
+                <Btn
+                  variant="ghost"
+                  icon="camera"
+                  onClick={captureScreenshot}
+                  aria-label="Capture a screenshot"
+                  style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+                />
+              </HotkeyTooltip>
+            )}
+            {headerActions}
+            <CustomScriptsButton
+              scripts={customScripts}
+              onRun={runScript}
+              disabled={!projectPathUsable}
+            />
             <HotkeyTooltip action="file.finder" label="Find file">
               <Btn
                 variant="ghost"
@@ -3129,6 +3175,8 @@ function ProjectPage() {
         </>
         )}
       </CardFrame>
+
+      {screenshotSupported && <ScreenshotThumbnail projectId={id} />}
 
       <GitDiffModal
         open={showDiffView}

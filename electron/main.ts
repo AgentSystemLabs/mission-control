@@ -1183,6 +1183,144 @@ function saveTerminalNativeImage(
   return saveTerminalImageBuffer(image.toPNG(), "png", name);
 }
 
+/**
+ * Validate a renderer-supplied image path: it must resolve inside the
+ * terminal-images dir — reading arbitrary files off disk is not allowed.
+ */
+function resolveTerminalImageFile(input: unknown): { path: string } | { error: string } {
+  if (typeof input !== "string" || input.length === 0) return { error: "invalid path" };
+  const dir = path.resolve(terminalImagesDir());
+  const resolved = path.resolve(input);
+  if (resolved !== dir && !resolved.startsWith(dir + path.sep)) {
+    return { error: "path not allowed" };
+  }
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) return { error: "not a file" };
+  if (stat.size > TERMINAL_IMAGE_MAX_BYTES) {
+    return { error: `image exceeds ${TERMINAL_IMAGE_MAX_BYTES / 1024 / 1024}MB` };
+  }
+  return { path: resolved };
+}
+
+/**
+ * Read a previously-saved screenshot/terminal image back as a full-resolution
+ * data URL, for the in-app annotation editor.
+ */
+function readTerminalImageForEdit(input: unknown): { dataUrl: string } | { error: string } {
+  try {
+    const file = resolveTerminalImageFile(input);
+    if ("error" in file) return file;
+    const buf = fs.readFileSync(file.path);
+    const image = nativeImage.createFromBuffer(buf);
+    if (image.isEmpty()) return { error: "invalid image data" };
+    return { dataUrl: `data:image/png;base64,${buf.toString("base64")}` };
+  } catch (err) {
+    log.warn("screenshot.read-failed", { error: String(err) });
+    return { error: "read failed" };
+  }
+}
+
+/**
+ * Put a previously-saved screenshot/terminal image on the OS clipboard so the
+ * renderer can follow up with a Ctrl+V to the PTY — CLIs like Claude Code then
+ * ingest it as an image paste and show an [Image #N] placeholder instead of a
+ * raw file path.
+ */
+function copyTerminalImageToClipboard(input: unknown): { ok: true } | { error: string } {
+  try {
+    const file = resolveTerminalImageFile(input);
+    if ("error" in file) return file;
+    const image = nativeImage.createFromPath(file.path);
+    if (image.isEmpty()) return { error: "invalid image data" };
+    clipboard.writeImage(image);
+    return { ok: true };
+  } catch (err) {
+    log.warn("terminal-images.clipboard-copy-failed", { error: String(err) });
+    return { error: "copy failed" };
+  }
+}
+
+/**
+ * Hard-delete a saved terminal image from disk. Path-sandboxed to the
+ * terminal-images dir via {@link resolveTerminalImageFile}. An already-missing
+ * file counts as success — the caller's intent is "make it gone".
+ */
+function deleteTerminalImageFile(input: unknown): { ok: true } | { error: string } {
+  try {
+    const file = resolveTerminalImageFile(input);
+    if ("error" in file) return file;
+    fs.unlinkSync(file.path);
+    return { ok: true };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { ok: true };
+    log.warn("terminal-images.delete-failed", { error: String(err) });
+    return { error: "delete failed" };
+  }
+}
+
+const SCREENSHOT_PREVIEW_WIDTH_PX = 320;
+
+/**
+ * Native macOS region capture via `screencapture -i`. The OS draws the crosshair
+ * and selection rectangle above every window, so the Mission Control window
+ * stays put and visible throughout — the user selects any region on screen,
+ * including over the app. Cancelling (Esc) writes no file.
+ */
+async function captureScreenshotRegion(): Promise<
+  { path: string; previewDataUrl: string } | { cancelled: true } | { error: string }
+> {
+  if (process.platform !== "darwin") return { error: "unsupported" };
+  const tmpPath = path.join(
+    os.tmpdir(),
+    `mc-screenshot-${Date.now()}-${Math.random().toString(16).slice(2, 10)}.png`,
+  );
+  try {
+    await new Promise<void>((resolve) => {
+      const child = spawn("screencapture", ["-i", "-x", tmpPath], { stdio: "ignore" });
+      child.on("error", () => resolve());
+      child.on("close", () => resolve());
+    });
+    // The user may have cmd/alt-tabbed to another app to capture it, leaving
+    // that app frontmost. Now that the interactive capture is over, pull Mission
+    // Control back to the top so they land back in the app — whether they
+    // selected a region or cancelled.
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      app.focus({ steal: true });
+      win.show();
+      win.focus();
+    }
+    if (!fs.existsSync(tmpPath)) {
+      // No file written: either the user pressed Esc, or macOS blocked capture.
+      if (systemPreferences.getMediaAccessStatus("screen") !== "granted") {
+        return { error: "screen-permission" };
+      }
+      return { cancelled: true };
+    }
+    const image = nativeImage.createFromPath(tmpPath);
+    if (image.isEmpty()) {
+      if (systemPreferences.getMediaAccessStatus("screen") !== "granted") {
+        return { error: "screen-permission" };
+      }
+      return { error: "capture failed" };
+    }
+    const saved = saveTerminalNativeImage(image, "screenshot");
+    if ("error" in saved) return { error: saved.error };
+    const preview =
+      image.getSize().width > SCREENSHOT_PREVIEW_WIDTH_PX
+        ? image.resize({ width: SCREENSHOT_PREVIEW_WIDTH_PX })
+        : image;
+    return { path: saved.path, previewDataUrl: preview.toDataURL() };
+  } catch (err) {
+    log.warn("screenshot.capture-failed", { error: String(err) });
+    return { error: "capture failed" };
+  } finally {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {}
+  }
+}
+
 function registerProjectImageProtocol() {
   protocol.handle("app", async (req) => {
     try {
@@ -1356,6 +1494,12 @@ safeHandle(IPC.terminalSaveClipboardImage, () => {
   if (image.isEmpty()) return null;
   return saveTerminalNativeImage(image, "clipboard-image");
 });
+safeHandle(IPC.terminalCopyImageToClipboard, (_evt, p: unknown) =>
+  copyTerminalImageToClipboard(p),
+);
+safeHandle(IPC.terminalDeleteImage, (_evt, p: unknown) => deleteTerminalImageFile(p));
+safeHandle(IPC.screenshotCaptureRegion, () => captureScreenshotRegion());
+safeHandle(IPC.screenshotReadImage, (_evt, p: unknown) => readTerminalImageForEdit(p));
 
 safeHandle(IPC.voiceAvailable, () => isWhisperAvailable());
 safeHandle(IPC.voicePrewarm, () => {

@@ -163,6 +163,7 @@ export function TerminalPanel({
       ref={rootRef}
       focused={focused}
       data-session-terminal-panel
+      data-task-id={active.taskId}
       style={{
         width: expanded ? "100%" : width,
         flex: expanded ? 1 : undefined,

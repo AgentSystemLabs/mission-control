@@ -1031,6 +1031,245 @@ select,
     transform: translateX(0);
   }
 }
+/* Newly captured screenshot card entering the bottom-right stack: slides in
+   from past the screen edge. `backwards` fill (not `forwards`) so the
+   animation releases its opacity/transform once done — the card hides itself
+   inline while its drag ghost is lifted. */
+.screenshot-card-enter {
+  animation: screenshot-card-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes screenshot-card-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(100% + 24px));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+/* Exit: reverse of the entry — slide the card back out past the right screen
+   edge and fade. `forwards` fill holds the off-screen end-state until the card
+   is unmounted on animationend. */
+.screenshot-card-leave {
+  animation: screenshot-card-out 0.26s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes screenshot-card-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(calc(100% + 24px));
+  }
+}
+/* History-strip exit: drop the card straight down and fade — a quicker, distinct
+   direction from the bottom-right capture stack's sideways slide. */
+.screenshot-history-card.screenshot-card-leave {
+  animation: screenshot-history-card-out 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes screenshot-history-card-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(calc(100% + 24px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screenshot-card-enter {
+    animation: none;
+  }
+}
+
+/* ── Screenshot capture stack: alive-on-interaction ───────────────────────
+   The floating pile of fresh captures gets the same treatment as the history
+   strip — hover lifts the card, rings it in the accent, and zooms the capture
+   so it reads as "grab me / act on me". The accent attach button lets you push
+   the shot straight to the active session without dragging. */
+.screenshot-stack-card {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 160ms ease;
+  will-change: transform;
+}
+.screenshot-stack-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.44),
+    inset 0 0 0 1px var(--accent);
+}
+.screenshot-stack-card:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+.screenshot-stack-img {
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.screenshot-stack-card:hover .screenshot-stack-img {
+  transform: scale(1.06);
+}
+.screenshot-stack-attach {
+  opacity: 0.9;
+  transition:
+    opacity 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 140ms ease;
+}
+.screenshot-stack-card:hover .screenshot-stack-attach {
+  opacity: 1;
+}
+.screenshot-stack-attach:hover {
+  transform: scale(1.1);
+  filter: brightness(1.12);
+}
+.screenshot-stack-attach:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 1px;
+}
+
+.screenshot-stack-dismiss {
+  opacity: 0.9;
+  transition:
+    opacity 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 140ms ease;
+}
+.screenshot-stack-card:hover .screenshot-stack-dismiss {
+  opacity: 1;
+}
+.screenshot-stack-dismiss:hover {
+  transform: scale(1.1);
+  background: var(--status-failed) !important;
+}
+.screenshot-stack-dismiss:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 1px;
+}
+
+/* ── Screenshot history: alive-on-interaction ─────────────────────────────
+   The strip is draggable content, so every card acknowledges hover (lift +
+   accent ring + a subtle zoom of the capture) to read as "grab me", and the
+   ✕ stays out of the way until you're on the card. */
+.screenshot-history-card {
+  transition:
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 160ms ease;
+  will-change: transform;
+}
+.screenshot-history-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px var(--accent);
+}
+.screenshot-history-card:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+.screenshot-history-card img {
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.screenshot-history-card:hover img {
+  transform: scale(1.06);
+}
+
+.screenshot-strip-delete {
+  opacity: 0;
+  transform: scale(0.82);
+  transition:
+    opacity 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 140ms ease;
+}
+.screenshot-history-card:hover .screenshot-strip-delete,
+.screenshot-strip-delete:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+.screenshot-strip-delete:hover {
+  background: var(--status-failed) !important;
+}
+.screenshot-strip-delete:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 1px;
+}
+
+/* Screenshot count badge: one-shot pulse + a floating "+1" fires each time a
+   fresh capture lands, so the count reads as earned rather than silently
+   ticking up. Keyed remounts in the component replay these on every bump. */
+.screenshot-count {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  min-width: 1ch;
+  text-align: center;
+}
+.screenshot-count[data-bump] {
+  animation: screenshot-count-pop 0.52s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes screenshot-count-pop {
+  0% {
+    transform: scale(1);
+    color: inherit;
+  }
+  30% {
+    transform: scale(1.45);
+    color: var(--accent);
+  }
+  100% {
+    transform: scale(1);
+    color: inherit;
+  }
+}
+.screenshot-plusone {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 3px);
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 9px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: screenshot-plusone-rise 0.74s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes screenshot-plusone-rise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 7px) scale(0.65);
+  }
+  24% {
+    opacity: 1;
+    transform: translate(-50%, -2px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -17px) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screenshot-history-card:hover,
+  .screenshot-history-card:hover img {
+    transform: none;
+  }
+  .screenshot-count[data-bump],
+  .screenshot-plusone {
+    animation: none;
+  }
+  .screenshot-plusone {
+    display: none;
+  }
+}
+
 @keyframes launch-overlay-fade {
   0%,
   91% {
