@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent,
   type PointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -32,7 +33,8 @@ const cardBaseStyle: CSSProperties = {
   borderRadius: 12,
   border: "1px solid var(--border)",
   background: "var(--surface-1)",
-  boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
+  // Base shadow lives in the .screenshot-stack-card class so :hover can lift it;
+  // the drag ghost sets its own inline shadow.
   userSelect: "none",
   boxSizing: "border-box",
 };
@@ -192,6 +194,22 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
     [shot.id, updateScreenshot],
   );
 
+  // Attach button: push this card's (possibly annotated) image straight to the
+  // currently active session — the no-drag path for the same "drop to attach"
+  // gesture. Stop the pointer/click from bubbling so it never starts a drag or
+  // opens the editor. No active session? Do nothing and keep the card around.
+  const onAttachClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      const active = activeTaskIdFor(projectId);
+      if (!active) return;
+      void attachImageToSession(active, shot.path);
+      playScreenshotDrop();
+      dismiss();
+    },
+    [activeTaskIdFor, attachImageToSession, dismiss, projectId, shot.path],
+  );
+
   const dragging = dragPoint !== null;
 
   // Shared card visuals so the anchored card and the drag ghost are identical —
@@ -202,6 +220,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
       <div style={{ position: "relative" }}>
         <div style={{ borderRadius: 8, overflow: "hidden", lineHeight: 0 }}>
           <img
+            className="screenshot-stack-img"
             src={shot.previewDataUrl}
             alt={ghost ? "" : "Screenshot preview"}
             aria-hidden={ghost || undefined}
@@ -243,6 +262,35 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
             <Icon name="x" size={12} />
           </button>
         )}
+        {!ghost && (
+          <button
+            type="button"
+            className="screenshot-stack-attach"
+            aria-label="Attach to active session"
+            title="Attach to active session"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onAttachClick}
+            style={{
+              position: "absolute",
+              bottom: 6,
+              right: 6,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              padding: 0,
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              color: "#fff",
+              background: "var(--accent)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            }}
+          >
+            <Icon name="plus" size={15} />
+          </button>
+        )}
       </div>
       <div
         style={{
@@ -270,7 +318,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
       {/* Anchored card: holds the pointer capture; hidden (but kept mounted, so
           it keeps receiving move/up events) while the ghost is lifted. */}
       <div
-        className={leaving ? "screenshot-card-leave" : "screenshot-card-enter"}
+        className={`screenshot-stack-card ${leaving ? "screenshot-card-leave" : "screenshot-card-enter"}`}
         role="button"
         tabIndex={0}
         aria-label="Click to edit the screenshot, or drag onto a session to attach"
@@ -371,7 +419,9 @@ export function ScreenshotThumbnail({ projectId }: { projectId: string }) {
       style={{
         position: "fixed",
         right: 16,
-        bottom: 16,
+        // Sit clear of the docked terminal panel's bottom toolbar so the stack
+        // doesn't cover the screenshots-history and panel-toggle controls.
+        bottom: 64,
         zIndex: 10000,
         display: "flex",
         // Newest on top, oldest at the bottom of the pile. The stack is pinned
