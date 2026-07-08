@@ -683,12 +683,10 @@ function ProjectPage() {
   const gridViewActive = terminals.gridView;
 
   // Native screenshot capture is macOS-only (uses `screencapture -i`) and needs
-  // the Electron bridge, so the toolbar button is hidden elsewhere.
+  // the Electron bridge, so the toolbar button is hidden elsewhere. Gate on the
+  // main process's real platform rather than the deprecated navigator.platform.
   const screenshotSupported = useMemo(
-    () =>
-      Boolean(getElectron()) &&
-      typeof navigator !== "undefined" &&
-      /Mac/i.test(navigator.platform),
+    () => getElectron()?.platform === "darwin",
     [],
   );
   const setPendingScreenshot = terminals.setPendingScreenshot;

@@ -159,6 +159,8 @@ export type RemoteVmDeployJobSnapshotBridge = {
 };
 
 const electronAPI = {
+  /** The host OS, straight from the main process (authoritative, unlike navigator.platform). */
+  platform: process.platform,
   settings: {
     getToken: (): Promise<string> => ipcRenderer.invoke(IPC.settingsGetToken),
     regenerateToken: (): Promise<string> =>

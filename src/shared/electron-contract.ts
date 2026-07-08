@@ -296,6 +296,8 @@ export type FocusModeStateBridge = {
 };
 
 export type ElectronBridge = {
+  /** The host OS, straight from the main process (authoritative, unlike navigator.platform). */
+  platform: NodeJS.Platform;
   settings: {
     getToken: () => Promise<string>;
     regenerateToken: () => Promise<string>;
