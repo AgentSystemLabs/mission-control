@@ -35,23 +35,30 @@
   --tint-md: 0%;
   --tint-hi: 0%;
 
-  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #000000);
-  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #0e1013);
-  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #14171b);
-  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #1a1d22);
-  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #22262c);
+  --bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #000000);
+  --surface-0: color-mix(in srgb, var(--surface-tint) var(--tint-md), #0b0d10);
+  --surface-1: color-mix(in srgb, var(--surface-tint) var(--tint-md), #14171b);
+  --surface-2: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #1a1d22);
+  --surface-3: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #22262c);
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.12);
   --text: #e8e6df;
-  --text-dim: rgba(232, 230, 223, 0.6);
-  --text-faint: rgba(232, 230, 223, 0.38);
-  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #050607);
+  --text-dim: rgba(232, 230, 223, 0.78);
+  --text-faint: rgba(232, 230, 223, 0.56);
+  --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #050607);
 
   --accent: #ff5a1f;
   --accent-dim: rgba(255, 90, 31, 0.18);
   --accent-faint: rgba(255, 90, 31, 0.1);
   --accent-border: rgba(255, 90, 31, 0.38);
   --accent-glow: rgba(255, 90, 31, 0.48);
+  /* Ground tint = a DESATURATED accent. Raising data-tint (subtle/vivid/intense)
+     warms the charcoal surfaces with the brand hue WITHOUT pushing them to
+     saturated brown; full-chroma --accent stays reserved for state/selection.
+     Kept a step below the frames' saturation on purpose: the painted deep-orange
+     pixel-frames (--mc-*-image) are the brand signal, so the ground only whispers
+     the hue rather than competing with them. */
+  --surface-tint: color-mix(in srgb, var(--accent) 38%, #74706a);
   --mc-btn-filled-image: url("/borders/button_filled_deep-orange.png");
   --mc-panel-focused-image: url("/borders/panel_focused_deep-orange.png");
   --mc-panel-image: url("/borders/square_deep-orange.png");
@@ -63,14 +70,19 @@
   --banner-link: color-mix(in srgb, var(--accent) 84%, white);
   --banner-icon-bg: var(--accent-dim);
 
-  --status-ready: oklch(0.78 0.10 220);
+  --status-ready: oklch(0.80 0.115 210);
   --status-running: oklch(0.82 0.14 75);
   --status-needs: oklch(0.7 0.19 25);
   --status-interrupted: oklch(0.72 0.18 35);
   --status-done: oklch(0.76 0.16 150);
   --status-idle: rgba(232, 230, 223, 0.3);
-  --status-warning: oklch(0.82 0.14 75);
-  --status-failed: oklch(0.7 0.19 25);
+  /* warning/failed share the running/needs hues by intent (one caution/urgent
+     color language across surfaces) — aliased, not duplicated, so a theme
+     re-bind of running/needs flows through and the two can never silently
+     diverge. They live on different surfaces than the session states, so this
+     shared vocabulary reads, not collides. */
+  --status-warning: var(--status-running);
+  --status-failed: var(--status-needs);
 
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --sans: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -120,7 +132,10 @@
   /* Status roles — the canonical session-state vocabulary — each paired with
      a low-alpha -bg tint for badges/pills. --status-* physical values live in
      the palette blocks and re-bind per theme, so these derive for free. */
-  --status-info: oklch(0.78 0.1 220);
+  /* info shares the ready teal (calm/informational). Aliasing also fixes a
+     latent bug: light mode re-binds --status-ready but not --status-info, so a
+     hard-coded dark teal would sit pale on white — the alias tracks per theme. */
+  --status-info: var(--status-ready);
   --status-ready-bg: color-mix(in srgb, var(--status-ready) 14%, transparent);
   --status-running-bg: color-mix(in srgb, var(--status-running) 14%, transparent);
   --status-needs-bg: color-mix(in srgb, var(--status-needs) 14%, transparent);
@@ -163,14 +178,14 @@
   /* Light accent fills take white ink again. */
   --mm-on-accent: #ffffff;
   /* Status hues darken for contrast on white; the dark-theme pastels wash out. */
-  --status-ready: oklch(0.55 0.1 220);
+  --status-ready: oklch(0.55 0.115 210);
   --status-running: oklch(0.6 0.13 75);
   --status-needs: oklch(0.55 0.19 25);
-  --status-failed: oklch(0.55 0.19 25);
   --status-interrupted: oklch(0.58 0.17 35);
   --status-done: oklch(0.5 0.14 150);
   --status-idle: rgba(23, 24, 28, 0.3);
-  --status-warning: oklch(0.6 0.13 75);
+  /* --status-warning / --status-failed inherit the :root aliases (→ running /
+     needs), which are re-bound just above for light mode. */
   --banner-bg: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent) 12%, var(--surface-0)),
