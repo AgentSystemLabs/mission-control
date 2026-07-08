@@ -64,6 +64,9 @@ export type ScreenshotEntry = {
   /** Editable annotation shapes from the last save, restored when re-editing so
    *  previously-added annotations stay selectable instead of baked-in pixels. */
   shapes?: AnnotationShape[];
+  /** Crop window into the original image (image px), restored when re-editing so
+   *  a cropped screenshot re-opens framed the same way. Undefined = full frame. */
+  crop?: { x: number; y: number; w: number; h: number };
 };
 
 /** @deprecated alias kept so the annotator's `shot: PendingScreenshot` prop

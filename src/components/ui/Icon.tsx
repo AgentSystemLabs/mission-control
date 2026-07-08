@@ -57,6 +57,7 @@ export type IconName =
   | "circle"
   | "text"
   | "highlighter"
+  | "crop"
   | "undo"
   | "redo";
 
@@ -373,6 +374,13 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <path d="M3.5 4V3h9v1" />
           <path d="M8 3.5v9" />
           <path d="M6 12.5h4" />
+        </svg>
+      );
+    case "crop":
+      return (
+        <svg {...common}>
+          <path d="M4.5 1.5v9a1 1 0 001 1h9" />
+          <path d="M1.5 4.5h9a1 1 0 011 1v9" />
         </svg>
       );
     case "highlighter":
