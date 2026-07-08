@@ -386,7 +386,7 @@ function IconBtn({
         borderRadius: 5,
         padding: 5,
         cursor: disabled ? "not-allowed" : "pointer",
-        color: active ? "var(--accent)" : "var(--text-dim)",
+        color: active ? "var(--accent-ink)" : "var(--text-dim)",
         display: "flex",
       }}
     >
@@ -913,7 +913,7 @@ function RecallTabBar({
                 style={{
                   fontSize: 10,
                   fontVariantNumeric: "tabular-nums",
-                  color: selected ? "var(--accent)" : "var(--text-faint)",
+                  color: selected ? "var(--accent-ink)" : "var(--text-faint)",
                 }}
               >
                 {tab.badge}

@@ -116,7 +116,7 @@ export function CodeBlock({
           style={{
             background: copied ? "var(--accent-dim)" : "transparent",
             border: "1px solid var(--border)",
-            color: copied ? "var(--accent)" : "var(--text-dim)",
+            color: copied ? "var(--accent-ink)" : "var(--text-dim)",
             padding: "4px 8px",
             borderRadius: 5,
             cursor: "pointer",

@@ -65,6 +65,12 @@
   --mc-shell-image: url("/borders/shell_deep-orange.png");
   --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
   --accent-soft-hover: color-mix(in srgb, var(--accent) 26%, transparent);
+  /* Accent used AS TEXT (labels, icons that carry meaning). On the dark
+     grounds the raw accent is readable for every palette entry, so this is a
+     plain alias; flat-light re-binds it to a black-mixed shade because raw
+     accents sit at 2-4.5:1 on white (amber/lime are unreadable). Use this —
+     not var(--accent) — whenever the accent colors text. */
+  --accent-ink: var(--accent);
   --banner-bg: linear-gradient(90deg, var(--accent-faint), var(--surface-0) 34%, var(--accent-faint));
   --banner-muted: var(--text-dim);
   --banner-link: color-mix(in srgb, var(--accent) 84%, white);
@@ -166,11 +172,17 @@
   --surface-1: color-mix(in srgb, var(--surface-tint) var(--tint-md), #fafafb);
   --surface-2: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #f2f2f4);
   --surface-3: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #e9e9ee);
-  /* The active accent color at low opacity, so the hairline tracks whatever
-     accent is selected — 15% for the base border, a touch stronger for
-     --border-strong. */
-  --border: color-mix(in srgb, var(--accent) 15%, transparent);
-  --border-strong: color-mix(in srgb, var(--accent) 30%, transparent);
+  /* Accent-hued hairlines with ANCHORED luminance: the accent contributes the
+     hue, the gray base fixes how dark the line is. The old accent-at-alpha
+     recipe made border darkness track the accent's own luminance — amber/lime
+     hairlines landed at ~1.1:1 on white (invisible) while red sat at 1.2:1.
+     These hold ~1.6-1.8:1 (border) and ~3-3.5:1 (strong) across all accents. */
+  --border: color-mix(in srgb, var(--accent) 14%, #cfcfd6);
+  --border-strong: color-mix(in srgb, var(--accent) 18%, #a6a6b0);
+  /* Form-control boundary (consumed via --input): text fields need a visible
+     edge (WCAG 1.4.11 wants ~3:1), unlike card hairlines which stay quiet by
+     design. */
+  --input: color-mix(in srgb, var(--accent) 18%, #8e8e99);
   --text: #17181c;
   /* Explicit solid grays (not black-at-alpha): 0.4-alpha faint was ~2.5:1 on
      white — the classic light-gray-on-white AA fail. These solids clear 4.5:1
@@ -178,14 +190,22 @@
   --text-dim: #4d4d54;
   --text-faint: #5d5a63;
   --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #ffffff);
-  /* Light accent fills take white ink again. */
-  --mm-on-accent: #ffffff;
-  /* Status hues darken for contrast on white; the dark-theme pastels wash out. */
-  --status-ready: oklch(0.55 0.115 210);
-  --status-running: oklch(0.6 0.13 75);
-  --status-needs: oklch(0.55 0.19 25);
-  --status-interrupted: oklch(0.58 0.17 35);
-  --status-done: oklch(0.5 0.14 150);
+  /* Ink on solid accent fills. Near-black, not white: white ink clears 4.5:1
+     on NONE of the 14 accents (lime bottoms out at 1.98:1); this near-black
+     clears it on all of them (worst case indigo 4.54:1). */
+  --mm-on-accent: #050607;
+  /* Accent as text on the near-white ground: mix toward black so every
+     palette entry reads (raw amber/lime sit at ~2:1 on white). 55% keeps the
+     hue while clearing 4.5:1 on every surface for every accent. */
+  --accent-ink: color-mix(in srgb, var(--accent) 55%, black);
+  /* Status hues darken for contrast on white; the dark-theme pastels wash
+     out. Tuned so each hue clears 4.5:1 as text on its own 14% pill tint,
+     not just on bare white. */
+  --status-ready: oklch(0.5 0.115 210);
+  --status-running: oklch(0.52 0.13 75);
+  --status-needs: oklch(0.51 0.19 25);
+  --status-interrupted: oklch(0.52 0.17 35);
+  --status-done: oklch(0.47 0.14 150);
   --status-idle: rgba(23, 24, 28, 0.3);
   /* --status-warning / --status-failed inherit the :root aliases (→ running /
      needs), which are re-bound just above for light mode. */
@@ -2162,9 +2182,11 @@ body[data-card-glow] .cursor-glow {
   --mm-elev-1: none;
   --mm-elev-2: 0 12px 32px rgba(0, 0, 0, 0.45);
   /* Ink that sits ON a solid accent fill (the primary/Ship button label + its
-     icon, which inherits this color). White for a clean, conventional filled-
-     button look on the accent. Consumed by --primary-foreground. */
-  --mm-on-accent: #ffffff;
+     icon, which inherits this color). Near-black, not white: white ink fails
+     4.5:1 on every accent in the palette (lime 1.98:1, deep-orange 3.12:1);
+     this near-black clears 4.5:1 on all 14 (worst case indigo 4.54:1).
+     Consumed by --primary-foreground. */
+  --mm-on-accent: #050607;
 }
 
 /* Hide the painted shell frame around the app and reclaim the gutter
@@ -2440,7 +2462,7 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session {
   background: transparent;
   border-color: color-mix(in srgb, var(--accent) 48%, transparent);
-  color: var(--accent);
+  color: var(--accent-ink);
   box-shadow: none;
 }
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session:hover {
@@ -2461,7 +2483,7 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row {
   background: transparent;
   border-color: color-mix(in srgb, var(--accent) 48%, transparent);
-  color: var(--accent);
+  color: var(--accent-ink);
   box-shadow: none;
 }
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config:hover,
@@ -2675,6 +2697,25 @@ body[data-card-glow] .cursor-glow {
   box-shadow: 0 4px 14px rgba(18, 22, 33, 0.14);
 }
 
+/* Light mode, accent-hued button text: the dark recipe (accent 72% + white)
+   is built to brighten labels against the near-black ground; on the white
+   fills it lands at 1.6-2.8:1 for every accent. Re-point at --accent-ink,
+   which mixes toward black in light mode instead. */
+[data-minimal="true"][data-theme="light"] .mc-btn-frame {
+  color: var(--accent-ink);
+}
+
+/* Light mode inputs: fields need a visible boundary (~3:1, via --input) —
+   the shared card hairline is a deliberate whisper on panels but leaves text
+   fields with no findable edge on the near-white ground. Scoped with
+   :not(:focus-within) so the accent focus border keeps winning. */
+[data-minimal="true"][data-theme="light"] .mc-input-frame:not(:focus-within) {
+  border-color: var(--input) !important;
+}
+[data-minimal="true"][data-theme="light"] .mc-input-frame:hover:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--accent) 26%, #75757f) !important;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -2832,4 +2873,10 @@ body[data-card-glow] .cursor-glow {
      (the old cream hairlines clashed with cool accents). */
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.2);
+  /* The base text ladder is tuned for the near-black ground; on this lifted
+     mid-charcoal ladder the faint tier drops to ~3.2-3.9:1 on surface-2/3.
+     Lift dim/faint one step so faint clears 4.5:1 on every raised surface
+     while both stay clearly below --text. */
+  --text-dim: #d6ccba;
+  --text-faint: #c9bfad;
 }

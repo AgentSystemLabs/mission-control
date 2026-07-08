@@ -278,7 +278,7 @@ export function CustomScriptsDialog({
                   fontSize: 10,
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
-                  color: "var(--accent)",
+                  color: "var(--accent-ink)",
                   border: "1px solid color-mix(in srgb, var(--accent) 45%, transparent)",
                   borderRadius: 999,
                   padding: "1px 7px",

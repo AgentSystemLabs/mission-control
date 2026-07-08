@@ -642,7 +642,7 @@ const digitStyle: CSSProperties = {
 function checkboxStyle(selected: boolean): CSSProperties {
   return {
     ...digitStyle,
-    color: selected ? "var(--accent)" : "transparent",
+    color: selected ? "var(--accent-ink)" : "transparent",
     borderColor: selected ? "var(--accent-border)" : "var(--border)",
     background: selected ? "var(--accent-faint)" : "transparent",
   };

@@ -264,7 +264,7 @@ export function TaskCard({
                   width: 30,
                   height: 30,
                   padding: 0,
-                  color: task.pinned ? "var(--accent)" : undefined,
+                  color: task.pinned ? "var(--accent-ink)" : undefined,
                 }}
               />
             )}

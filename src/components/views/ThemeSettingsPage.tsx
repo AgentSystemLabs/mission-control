@@ -546,7 +546,7 @@ function ModeOption({
         borderRadius: "var(--mm-radius-sm, 5px)",
         cursor: "pointer",
         background: selected ? "var(--accent-dim)" : "transparent",
-        color: selected ? "var(--accent)" : "var(--text-dim)",
+        color: selected ? "var(--accent-ink)" : "var(--text-dim)",
         transition: "background 0.12s ease, color 0.12s ease",
       }}
     >

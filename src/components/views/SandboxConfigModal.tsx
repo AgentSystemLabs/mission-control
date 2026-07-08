@@ -108,7 +108,7 @@ function SandboxModalTitle({
           aria-label="Save sandbox name"
           style={{
             ...iconButtonStyle,
-            color: draft.trim() ? "var(--accent)" : "var(--text-faint)",
+            color: draft.trim() ? "var(--accent-ink)" : "var(--text-faint)",
             cursor: saving || !draft.trim() ? "not-allowed" : "pointer",
           }}
         >
