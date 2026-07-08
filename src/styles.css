@@ -1070,6 +1070,55 @@ select,
   }
 }
 
+/* ── Screenshot capture stack: alive-on-interaction ───────────────────────
+   The floating pile of fresh captures gets the same treatment as the history
+   strip — hover lifts the card, rings it in the accent, and zooms the capture
+   so it reads as "grab me / act on me". The accent attach button lets you push
+   the shot straight to the active session without dragging. */
+.screenshot-stack-card {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 160ms ease;
+  will-change: transform;
+}
+.screenshot-stack-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.44),
+    inset 0 0 0 1px var(--accent);
+}
+.screenshot-stack-card:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+.screenshot-stack-img {
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.screenshot-stack-card:hover .screenshot-stack-img {
+  transform: scale(1.06);
+}
+.screenshot-stack-attach {
+  opacity: 0.9;
+  transition:
+    opacity 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 140ms ease;
+}
+.screenshot-stack-card:hover .screenshot-stack-attach {
+  opacity: 1;
+}
+.screenshot-stack-attach:hover {
+  transform: scale(1.1);
+  filter: brightness(1.12);
+}
+.screenshot-stack-attach:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 1px;
+}
+
 /* ── Screenshot history: alive-on-interaction ─────────────────────────────
    The strip is draggable content, so every card acknowledges hover (lift +
    accent ring + a subtle zoom of the capture) to read as "grab me", and the
