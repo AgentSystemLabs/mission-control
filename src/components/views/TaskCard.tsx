@@ -387,6 +387,7 @@ export function TaskCard({
             }}
             title="Archive running session?"
             confirmLabel="Archive"
+            cancelLabel="Keep running"
             variant="danger"
             icon="archive"
             width={420}
@@ -412,7 +413,7 @@ export function TaskCard({
               onDelete(task.id);
               setConfirmOpen(false);
             }}
-            title="Delete task"
+            title="Delete session?"
             confirmLabel="Delete"
             icon="trash"
             width={420}
@@ -421,7 +422,8 @@ export function TaskCard({
               Delete &ldquo;{task.title}&rdquo;?
             </div>
             <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-              This task and its worktree will be removed. This cannot be undone.
+              This session and its git worktree will be removed. This cannot be
+              undone.
             </div>
           </ConfirmDialog>
         </div>
