@@ -392,7 +392,7 @@ export function TaskCard({
             icon="archive"
             width={420}
           >
-            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6, overflowWrap: "anywhere" }}>
               &ldquo;{task.title}&rdquo; is still running.
             </div>
             <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
@@ -418,7 +418,7 @@ export function TaskCard({
             icon="trash"
             width={420}
           >
-            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6, overflowWrap: "anywhere" }}>
               Delete &ldquo;{task.title}&rdquo;?
             </div>
             <div style={{ fontSize: 12, color: "var(--text-dim)" }}>

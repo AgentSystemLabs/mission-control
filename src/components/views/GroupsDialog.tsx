@@ -200,11 +200,15 @@ export function GroupsDialog({
                         onClick={() => setEditing({ id: g.id, name: g.name })}
                         style={{
                           flex: 1,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
                           fontFamily: "var(--mono)",
                           fontSize: 12.5,
                           cursor: "pointer",
                         }}
-                        title="Click to rename"
+                        title={g.name}
                       >
                         {g.name}
                       </span>
@@ -405,7 +409,14 @@ export function GroupsDialog({
         loading={removing}
         width={420}
       >
-        <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+        <div
+          style={{
+            fontSize: 13,
+            color: "var(--text)",
+            marginBottom: 6,
+            overflowWrap: "anywhere",
+          }}
+        >
           Remove &ldquo;{pendingRemove?.name}&rdquo;?
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
