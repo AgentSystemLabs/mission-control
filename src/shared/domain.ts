@@ -1,3 +1,5 @@
+import { safeJsonParse } from "./safe-json";
+
 export const TASK_AGENTS = ["claude-code", "codex", "cursor-cli", "opencode"] as const;
 export type TaskAgent = (typeof TASK_AGENTS)[number];
 
@@ -141,22 +143,17 @@ export function isValidScriptArgName(name: string): boolean {
 }
 
 function parseCommandList(raw: string | null | undefined, max: number): LaunchCommand[] {
-  if (!raw) return [];
-  try {
-    const v = JSON.parse(raw);
-    if (!Array.isArray(v)) return [];
-    return v
-      .filter(
-        (c) =>
-          c &&
-          typeof c.id === "string" &&
-          typeof c.name === "string" &&
-          typeof c.command === "string"
-      )
-      .slice(0, max);
-  } catch {
-    return [];
-  }
+  const v = safeJsonParse(raw, [] as unknown);
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter(
+      (c) =>
+        c &&
+        typeof c.id === "string" &&
+        typeof c.name === "string" &&
+        typeof c.command === "string"
+    )
+    .slice(0, max);
 }
 
 export function parseLaunchCommands(raw: string | null | undefined): LaunchCommand[] {
