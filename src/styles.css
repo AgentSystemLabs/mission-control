@@ -1134,6 +1134,25 @@ select,
   outline-offset: 1px;
 }
 
+.screenshot-stack-dismiss {
+  opacity: 0.9;
+  transition:
+    opacity 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 140ms ease;
+}
+.screenshot-stack-card:hover .screenshot-stack-dismiss {
+  opacity: 1;
+}
+.screenshot-stack-dismiss:hover {
+  transform: scale(1.1);
+  background: var(--status-failed) !important;
+}
+.screenshot-stack-dismiss:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 1px;
+}
+
 /* ── Screenshot history: alive-on-interaction ─────────────────────────────
    The strip is draggable content, so every card acknowledges hover (lift +
    accent ring + a subtle zoom of the capture) to read as "grab me", and the

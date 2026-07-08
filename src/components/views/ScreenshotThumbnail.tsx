@@ -19,9 +19,10 @@ import { playScreenshotDrop } from "~/lib/screenshot-sound";
 // few pixels, so a plain click still registers as a click (attach-to-active).
 const DRAG_THRESHOLD_PX = 6;
 const THUMB_WIDTH_PX = 168;
-// Cap how tall a single thumbnail can grow so a portrait/tall capture doesn't
-// balloon the card. Taller images are cropped (top-anchored) to this height.
-const THUMB_MAX_HEIGHT_PX = 200;
+// Every thumbnail renders at this exact height so the stack reads as a uniform
+// pile regardless of each capture's aspect ratio. Images are cropped
+// (top-anchored, objectFit: cover) to fill the box.
+const THUMB_HEIGHT_PX = 120;
 
 const cardBaseStyle: CSSProperties = {
   display: "flex",
@@ -228,8 +229,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
             style={{
               display: "block",
               width: "100%",
-              height: "auto",
-              maxHeight: THUMB_MAX_HEIGHT_PX,
+              height: THUMB_HEIGHT_PX,
               objectFit: "cover",
               objectPosition: "top",
             }}
@@ -238,6 +238,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
         {!ghost && (
           <button
             type="button"
+            className="screenshot-stack-dismiss"
             aria-label="Dismiss screenshot"
             title="Dismiss"
             onPointerDown={(e) => e.stopPropagation()}
@@ -249,17 +250,17 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 20,
-              height: 20,
+              width: 28,
+              height: 28,
               padding: 0,
-              borderRadius: 6,
+              borderRadius: 8,
               border: "none",
               cursor: "pointer",
               color: "#fff",
-              background: "rgba(0,0,0,0.55)",
+              background: "rgba(0,0,0,0.6)",
             }}
           >
-            <Icon name="x" size={12} />
+            <Icon name="x" size={16} />
           </button>
         )}
         {!ghost && (
