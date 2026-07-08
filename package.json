@@ -152,7 +152,7 @@
     "electron": "41.6.1",
     "electron-builder": "26.15.3",
     "esbuild": "0.28.1",
-    "eslint": "10.4.0",
+    "eslint": "10.6.0",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.6.0",
