@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { getElectron } from "./electron";
+import { screenshotSupported } from "./screenshot";
 import { formatPathForTerminalPaste } from "./project-path-drag";
 import { markIntentionalSessionClose } from "./intentional-session-close";
 import { isRemotePtyId } from "./pty-id";
@@ -264,6 +265,8 @@ const SCREENSHOTS_KEY = "mc.screenshots";
 /** Restore screenshot history metadata (previews are re-loaded from disk). */
 function loadScreenshotMeta(): ScreenshotMeta[] {
   if (typeof window === "undefined") return [];
+  // Screenshots are macOS-only — don't load (or later show) history elsewhere.
+  if (!screenshotSupported()) return [];
   try {
     const raw = window.localStorage.getItem(SCREENSHOTS_KEY);
     if (!raw) return [];
@@ -287,6 +290,9 @@ function loadScreenshotMeta(): ScreenshotMeta[] {
  *  would blow the localStorage quota once a handful accumulate. */
 function saveScreenshotMeta(list: ScreenshotEntry[]): void {
   if (typeof window === "undefined") return;
+  // Never touch stored history on non-macOS platforms (nothing is captured
+  // there, and we must not clobber a Mac's persisted history if state syncs).
+  if (!screenshotSupported()) return;
   try {
     const meta: ScreenshotMeta[] = list.map(({ previewDataUrl: _preview, ...rest }) => rest);
     window.localStorage.setItem(SCREENSHOTS_KEY, JSON.stringify(meta));

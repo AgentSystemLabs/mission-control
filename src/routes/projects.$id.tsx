@@ -44,6 +44,7 @@ import { getElectron } from "~/lib/electron";
 import {
   screenshotCaptureErrorMessage,
   screenshotFromResult,
+  screenshotSupported as isScreenshotSupported,
 } from "~/lib/screenshot";
 import { playScreenshotCapture } from "~/lib/screenshot-sound";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
@@ -683,12 +684,10 @@ function ProjectPage() {
   const gridViewActive = terminals.gridView;
 
   // Native screenshot capture is macOS-only (uses `screencapture -i`) and needs
-  // the Electron bridge, so the toolbar button is hidden elsewhere. Gate on the
-  // main process's real platform rather than the deprecated navigator.platform.
-  const screenshotSupported = useMemo(
-    () => getElectron()?.platform === "darwin",
-    [],
-  );
+  // the Electron bridge, so the toolbar button, capture stack, and history strip
+  // are hidden elsewhere. Gate on the main process's real platform (see
+  // screenshotSupported) rather than the deprecated navigator.platform.
+  const screenshotSupported = useMemo(() => isScreenshotSupported(), []);
   const addScreenshot = terminals.addScreenshot;
   const captureScreenshot = useCallback(async () => {
     const electron = getElectron();
