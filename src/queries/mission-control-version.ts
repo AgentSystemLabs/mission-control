@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { academyUrl } from "~/shared/academy";
-import { isNewerSemver } from "~/shared/semver";
+import { isNewerSemver, stripVersionPrefix } from "~/shared/semver";
 
 declare const __MC_VERSION__: string;
 
@@ -23,7 +23,7 @@ async function fetchLatest(): Promise<LatestRelease> {
   if (!res.ok) throw new Error(`mc-releases ${res.status}`);
   const body = (await res.json()) as { releases?: Array<{ version?: string }> };
   const raw = body.releases?.[0]?.version ?? null;
-  const remote = raw ? raw.replace(/^v/i, "") : null;
+  const remote = raw ? stripVersionPrefix(raw) : null;
   return {
     latestVersion: remote,
     downloadUrl: DOWNLOADS_URL,
