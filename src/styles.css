@@ -161,20 +161,23 @@
    data-theme is forced to "dark" at apply time), so light only ever means
    flat-light. */
 [data-minimal="true"][data-theme="light"] {
-  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #f4f4f6);
-  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #ffffff);
-  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #fafafb);
-  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #f2f2f4);
-  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e9e9ee);
+  --bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #f4f4f6);
+  --surface-0: color-mix(in srgb, var(--surface-tint) var(--tint-md), #ffffff);
+  --surface-1: color-mix(in srgb, var(--surface-tint) var(--tint-md), #fafafb);
+  --surface-2: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #f2f2f4);
+  --surface-3: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #e9e9ee);
   /* The active accent color at low opacity, so the hairline tracks whatever
      accent is selected — 15% for the base border, a touch stronger for
      --border-strong. */
   --border: color-mix(in srgb, var(--accent) 15%, transparent);
   --border-strong: color-mix(in srgb, var(--accent) 30%, transparent);
   --text: #17181c;
-  --text-dim: rgba(23, 24, 28, 0.6);
-  --text-faint: rgba(23, 24, 28, 0.4);
-  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #ffffff);
+  /* Explicit solid grays (not black-at-alpha): 0.4-alpha faint was ~2.5:1 on
+     white — the classic light-gray-on-white AA fail. These solids clear 4.5:1
+     with margin and keep predictable contrast on every near-white surface. */
+  --text-dim: #4d4d54;
+  --text-faint: #5d5a63;
+  --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #ffffff);
   /* Light accent fills take white ink again. */
   --mm-on-accent: #ffffff;
   /* Status hues darken for contrast on white; the dark-theme pastels wash out. */
@@ -2116,11 +2119,11 @@ body[data-card-glow] .cursor-glow {
      whisper of warmth (hue 65, near-zero chroma) so it still pairs with the
      cream text + terracotta accent rather than reading cold. The page ground
      sits well below the panes; hierarchy is by elevation, near-black up. */
-  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), oklch(0.09 0.004 65));
-  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.125 0.005 65));
-  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.155 0.006 65));
-  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.2 0.007 65));
-  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.25 0.009 65));
+  --bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), oklch(0.09 0.004 65));
+  --surface-0: color-mix(in srgb, var(--surface-tint) var(--tint-md), oklch(0.125 0.005 65));
+  --surface-1: color-mix(in srgb, var(--surface-tint) var(--tint-md), oklch(0.155 0.006 65));
+  --surface-2: color-mix(in srgb, var(--surface-tint) var(--tint-hi), oklch(0.2 0.007 65));
+  --surface-3: color-mix(in srgb, var(--surface-tint) var(--tint-hi), oklch(0.25 0.009 65));
   /* On a near-black ground the surface ladder does most of the separating, so
      the hairlines run very quiet — chrome buttons are borderless-tonal below,
      and what keeps a border (cards, inputs) only needs a whisper of an edge. */
@@ -2132,7 +2135,7 @@ body[data-card-glow] .cursor-glow {
   --text-dim: #c6bca8;
   --text-faint: #a89e8c;
   /* Terminal canvas: the deepest step, just below the page ground. */
-  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), oklch(0.075 0.004 65));
+  --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), oklch(0.075 0.004 65));
 
   /* Bundled faces: clearer, warmer mono for both xterm (via --mc-terminal-font,
      read by createTerminalOptions) and every UI mono surface, plus Plus Jakarta
