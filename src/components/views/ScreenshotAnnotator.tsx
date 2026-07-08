@@ -965,14 +965,22 @@ export function ScreenshotAnnotator({
   );
 
   /* ---- crop apply / reset ---- */
-  const applyCrop = useCallback(() => {
-    if (cropDraft) {
-      const b = clampCrop(cropDraft, dims.w, dims.h);
-      const full = b.x === 0 && b.y === 0 && b.w === dims.w && b.h === dims.h;
-      setCrop(full ? null : b);
-    }
-    setTool("select");
-  }, [cropDraft, dims.w, dims.h]);
+  // Commit the pending crop frame, then move to `next`. Leaving the crop tool by
+  // any route (Enter, Apply, or picking another tool) applies the frame — only
+  // Escape discards it — so a drawn selection is never silently thrown away.
+  const commitCropAndSwitch = useCallback(
+    (next: Tool) => {
+      if (tool === "crop" && next !== "crop" && cropDraft) {
+        const b = clampCrop(cropDraft, dims.w, dims.h);
+        const full = b.x === 0 && b.y === 0 && b.w === dims.w && b.h === dims.h;
+        setCrop(full ? null : b);
+      }
+      setTool(next);
+    },
+    [tool, cropDraft, dims.w, dims.h],
+  );
+
+  const applyCrop = useCallback(() => commitCropAndSwitch("select"), [commitCropAndSwitch]);
 
   const resetCrop = useCallback(() => {
     setCrop(null);
@@ -1059,13 +1067,13 @@ export function ScreenshotAnnotator({
       if (hit && !mod) {
         e.preventDefault();
         e.stopPropagation();
-        setTool(hit.tool);
+        commitCropAndSwitch(hit.tool); // switching tools applies a pending crop
       }
     };
     // Capture phase so app-global hotkeys don't also fire underneath.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [applyCrop, deleteSelected, onCancel, redo, selectedId, textDraft, tool, undo]);
+  }, [applyCrop, commitCropAndSwitch, deleteSelected, onCancel, redo, selectedId, textDraft, tool, undo]);
 
   /* ---- export ---- */
   // Flattens the screenshot + annotations to a PNG on disk and returns its
@@ -1191,7 +1199,7 @@ export function ScreenshotAnnotator({
                   title={`${t.label} · ${t.key}`}
                   aria-label={t.label}
                   aria-pressed={tool === t.tool}
-                  onClick={() => setTool(t.tool)}
+                  onClick={() => commitCropAndSwitch(t.tool)}
                 >
                   <Icon name={t.icon} size={16} />
                 </button>
@@ -1328,7 +1336,7 @@ export function ScreenshotAnnotator({
           {tool === "crop" ? (
             <>
               <div className="mc-annot-footer-hint">
-                Drag to frame · handles to adjust · ⏎ apply
+                Drag to frame · ⏎ or pick a tool to apply · Esc to cancel
               </div>
               <div className="mc-annot-actions">
                 <button
