@@ -58,6 +58,9 @@ const COLORS = [
   "#f5f7fa", // chalk
 ];
 
+// Human names for each swatch, shown in the hover tooltip.
+const COLOR_LABELS = ["Red", "Amber", "Yellow", "Green", "Blue", "Ink", "Chalk"];
+
 // Stroke widths in image (device) pixels. Screenshots are Retina, so these are
 // tuned to feel like ~thin/medium/thick marker tips on screen.
 const WIDTHS = [
@@ -1196,7 +1199,7 @@ export function ScreenshotAnnotator({
                   key={t.tool}
                   type="button"
                   className={`mc-annot-tool${tool === t.tool ? " is-active" : ""}`}
-                  title={`${t.label} · ${t.key}`}
+                  data-tip={`${t.label} · ${t.key}`}
                   aria-label={t.label}
                   aria-pressed={tool === t.tool}
                   onClick={() => commitCropAndSwitch(t.tool)}
@@ -1209,13 +1212,13 @@ export function ScreenshotAnnotator({
             <span className="mc-annot-div" />
 
             <div className="mc-annot-group">
-              {COLORS.map((c) => (
+              {COLORS.map((c, i) => (
                 <button
                   key={c}
                   type="button"
                   className={`mc-annot-swatch${color === c ? " is-active" : ""}`}
-                  title={c}
-                  aria-label={`Color ${c}`}
+                  data-tip={COLOR_LABELS[i] ?? c}
+                  aria-label={COLOR_LABELS[i] ?? `Color ${c}`}
                   aria-pressed={color === c}
                   onClick={() => {
                     setColor(c);
@@ -1224,7 +1227,7 @@ export function ScreenshotAnnotator({
                   style={{ background: c }}
                 />
               ))}
-              <label className="mc-annot-swatch mc-annot-custom" title="Custom color">
+              <label className="mc-annot-swatch mc-annot-custom" data-tip="Custom color">
                 <input
                   type="color"
                   value={color}
@@ -1244,7 +1247,7 @@ export function ScreenshotAnnotator({
                   key={w.label}
                   type="button"
                   className={`mc-annot-width${widthIdx === i ? " is-active" : ""}`}
-                  title={w.label}
+                  data-tip={w.label}
                   aria-label={w.label}
                   aria-pressed={widthIdx === i}
                   onClick={() => setWidthIdx(i)}
@@ -1260,7 +1263,7 @@ export function ScreenshotAnnotator({
               <button
                 type="button"
                 className="mc-annot-tool"
-                title="Undo · ⌘Z"
+                data-tip="Undo · ⌘Z"
                 aria-label="Undo"
                 disabled={!canUndo}
                 onClick={undo}
@@ -1270,7 +1273,7 @@ export function ScreenshotAnnotator({
               <button
                 type="button"
                 className="mc-annot-tool"
-                title="Redo · ⇧⌘Z"
+                data-tip="Redo · ⇧⌘Z"
                 aria-label="Redo"
                 disabled={!canRedo}
                 onClick={redo}
@@ -1280,7 +1283,7 @@ export function ScreenshotAnnotator({
               <button
                 type="button"
                 className="mc-annot-tool"
-                title="Clear all"
+                data-tip="Clear all"
                 aria-label="Clear all"
                 disabled={shapes.length === 0}
                 onClick={clearAll}
@@ -1293,7 +1296,7 @@ export function ScreenshotAnnotator({
           <button
             type="button"
             className="mc-annot-close"
-            title="Close · Esc"
+            data-tip="Close · Esc"
             aria-label="Close editor"
             onClick={onCancel}
           >
@@ -1435,7 +1438,25 @@ const ANNOT_CSS = `
   display: flex; align-items: center; gap: 8px;
   padding: 9px 10px; border-bottom: 1px solid var(--border);
   background: var(--surface-2);
+  position: relative; z-index: 2; /* lift tooltips above the canvas matte below */
 }
+/* Hover tooltips: instant, styled, and clipped inside the panel. Anchored to the
+   button's left edge so they extend into open space and never clip a corner. */
+.mc-annot-header [data-tip] { position: relative; }
+.mc-annot-header [data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; top: calc(100% + 7px); left: 0;
+  padding: 4px 8px; border-radius: 7px; white-space: nowrap;
+  background: var(--surface-3); color: var(--text); border: 1px solid var(--border);
+  font-size: 11px; font-weight: 500; font-family: var(--mono); letter-spacing: 0.01em;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.45);
+  opacity: 0; transform: translateY(-3px); pointer-events: none;
+  transition: opacity 110ms ease, transform 110ms ease;
+  z-index: 10;
+}
+.mc-annot-header [data-tip]:hover::after { opacity: 1; transform: translateY(0); transition-delay: 160ms; }
+/* Far-right control: extend leftward so it stays inside the panel. */
+.mc-annot-close[data-tip]::after { left: auto; right: 0; }
 .mc-annot-bar {
   display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; flex-wrap: wrap;
 }
@@ -1476,7 +1497,7 @@ const ANNOT_CSS = `
   background: conic-gradient(from 0deg, #f5333f, #ffd23f, #39d353, #3b9dff, #a05bff, #f5333f); }
 .mc-annot-custom input { position: absolute; inset: -6px; opacity: 0; cursor: pointer; }
 .mc-annot-stage {
-  flex: 1; min-height: 0; position: relative;
+  flex: 1; min-height: 0; position: relative; z-index: 1;
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-0);
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
@@ -1521,5 +1542,7 @@ const ANNOT_CSS = `
 .mc-annot-textarea::placeholder { color: rgba(200,215,240,0.45); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) {
   .mc-annot-root, .mc-annot-panel, .mc-annot-canvas-frame { animation: none; }
+  .mc-annot-header [data-tip]::after,
+  .mc-annot-header [data-tip]:hover::after { transform: none; transition: opacity 110ms ease; }
 }
 `;
