@@ -117,6 +117,11 @@ export function isBinaryPatch(patch: string): boolean {
   return /^Binary files .* and .* differ$/m.test(patch) || /^GIT binary patch$/m.test(patch);
 }
 
+/** Count newline characters — used consistently for line-cap checks and metadata. */
+function patchLineCount(patch: string): number {
+  return (patch.match(/\n/g) || []).length;
+}
+
 /**
  * Classify a `git diff` patch body into the GitDiff union: empty, binary,
  * too-large (over the byte or line cap), or renderable text.
@@ -126,13 +131,12 @@ export function classifyDiffPatch(patch: string): GitDiff {
   if (isBinaryPatch(patch)) return { kind: "binary" };
 
   const bytes = Buffer.byteLength(patch, "utf8");
+  const lines = patchLineCount(patch);
   if (bytes > DIFF_MAX_BYTES) {
-    const lines = patch.split("\n").length;
     return { kind: "too-large", lines, bytes };
   }
-  const newlineCount = (patch.match(/\n/g) || []).length;
-  if (newlineCount > DIFF_MAX_LINES) {
-    return { kind: "too-large", lines: newlineCount, bytes };
+  if (lines > DIFF_MAX_LINES) {
+    return { kind: "too-large", lines, bytes };
   }
   return { kind: "text", patch, truncated: false };
 }
