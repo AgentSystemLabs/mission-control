@@ -2924,12 +2924,6 @@ function ProjectPage() {
               minWidth: 0,
             }}
           >
-            {headerActions}
-            <CustomScriptsButton
-              scripts={customScripts}
-              onRun={runScript}
-              disabled={!projectPathUsable}
-            />
             {showGrid && (
               <Btn
                 variant="ghost"
@@ -2940,6 +2934,26 @@ function ProjectPage() {
                 style={{ width: 52, minWidth: 52, paddingInline: 0 }}
               />
             )}
+            {screenshotSupported && (
+              <HotkeyTooltip
+                action="screenshot.capture"
+                label="Screenshot — drag a region, then drop it on a session"
+              >
+                <Btn
+                  variant="ghost"
+                  icon="camera"
+                  onClick={captureScreenshot}
+                  aria-label="Capture a screenshot"
+                  style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+                />
+              </HotkeyTooltip>
+            )}
+            {headerActions}
+            <CustomScriptsButton
+              scripts={customScripts}
+              onRun={runScript}
+              disabled={!projectPathUsable}
+            />
             <HotkeyTooltip action="file.finder" label="Find file">
               <Btn
                 variant="ghost"
@@ -2991,20 +3005,6 @@ function ProjectPage() {
                   if (projectPathReady) setShowNewAgent(true);
                 }}
               />
-            )}
-            {screenshotSupported && (
-              <HotkeyTooltip
-                action="screenshot.capture"
-                label="Screenshot — drag a region, then drop it on a session"
-              >
-                <Btn
-                  variant="ghost"
-                  icon="camera"
-                  onClick={captureScreenshot}
-                  aria-label="Capture a screenshot"
-                  style={{ width: 52, minWidth: 52, paddingInline: 0 }}
-                />
-              </HotkeyTooltip>
             )}
             <HotkeyTooltip
               action="session.gridView"
