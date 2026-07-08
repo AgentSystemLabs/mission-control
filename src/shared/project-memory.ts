@@ -54,8 +54,6 @@ export const MEMORY_TAG_MAX = 40;
 /** Cap on how many memories a single auto-distill pass may add to one project. */
 export const MEMORY_AUTO_CAPTURE_PER_SESSION_MAX = 5;
 
-const MS_PER_DAY = 86_400_000;
-
 /**
  * A memory is considered "stale" once this long has passed since it was last
  * verified, used, or created (whichever is most recent). Stale unpinned memories
