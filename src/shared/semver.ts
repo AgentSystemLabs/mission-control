@@ -1,6 +1,15 @@
+/** Strip a leading `v`/`V` prefix from a version string (e.g. release tags). */
+export function stripVersionPrefix(version: string): string {
+  return version.trim().replace(/^v/i, "");
+}
+
+/** Core numeric segment before any `-` prerelease or `+` build suffix. */
+export function versionCore(version: string): string {
+  return stripVersionPrefix(version).split(/[-+]/)[0];
+}
+
 function parse(v: string): [number, number, number] | null {
-  const stripped = v.trim().replace(/^v/i, "").split(/[-+]/)[0];
-  const parts = stripped.split(".");
+  const parts = versionCore(v).split(".");
   if (parts.length !== 3) return null;
   const nums = parts.map((p) => Number(p));
   if (nums.some((n) => !Number.isFinite(n) || n < 0)) return null;

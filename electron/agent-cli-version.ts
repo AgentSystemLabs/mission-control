@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentCliVersionRequirement } from "./agent-cli-version-requirements";
 import { resolveAgentCliUpdateCommands } from "./agent-cli-version-requirements";
+import { versionCore } from "../src/shared/semver";
 import { buildCmdScriptCommand, isWindowsCommandScript } from "./windows-cmd";
 
 export type AgentVersionCheck =
@@ -55,8 +56,7 @@ export function extractCliVersion(text: string): string | null {
 }
 
 function comparableVersionParts(version: string): number[] {
-  const core = version.replace(/^v/i, "").split(/[-+]/)[0] ?? "";
-  return core.split(".").map((part) => Number(part));
+  return versionCore(version).split(".").map((part) => Number(part));
 }
 
 export function compareCliVersions(
