@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
 import { FILE_READ_MAX_BYTES, FILE_READ_MAX_LINES } from "../src/shared/file-read-limits";
+import { bufferLooksBinary } from "../src/shared/git-status";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 
@@ -236,14 +237,6 @@ function listFiles(projectRoot: string): string[] {
   return out;
 }
 
-function isProbablyBinary(buf: Buffer): boolean {
-  const len = Math.min(buf.length, 8192);
-  for (let i = 0; i < len; i++) {
-    if (buf[i] === 0) return true;
-  }
-  return false;
-}
-
 export function imageMimeForRelPath(relPath: string): (typeof IMAGE_MIME_BY_EXT)[keyof typeof IMAGE_MIME_BY_EXT] | null {
   const ext = path.extname(relPath).toLowerCase();
   return IMAGE_MIME_BY_EXT[ext as keyof typeof IMAGE_MIME_BY_EXT] ?? null;
@@ -285,7 +278,7 @@ export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow |
             mtimeMs: stat.mtimeMs,
           };
         }
-        if (isProbablyBinary(buf)) {
+        if (bufferLooksBinary(buf)) {
           return { ok: false as const, error: "binary" as const };
         }
         const content = buf.toString("utf8");

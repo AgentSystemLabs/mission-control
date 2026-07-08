@@ -45,6 +45,18 @@ export type GitDiff =
 export const DIFF_MAX_BYTES = 2 * 1024 * 1024;
 export const DIFF_MAX_LINES = 50_000;
 
+/** Bytes to scan when sniffing raw file content for NUL (binary) markers. */
+export const BUFFER_BINARY_SNIFF_BYTES = 8 * 1024;
+
+/** Cheap binary sniff: any NUL in the first {@link BUFFER_BINARY_SNIFF_BYTES}. */
+export function bufferLooksBinary(buf: Uint8Array): boolean {
+  const len = Math.min(buf.length, BUFFER_BINARY_SNIFF_BYTES);
+  for (let i = 0; i < len; i++) {
+    if (buf[i] === 0) return true;
+  }
+  return false;
+}
+
 /** Map a porcelain v1 status code to one of our enum values. */
 export function mapStatusCode(code: string): GitFileStatus {
   if (code === "?") return "untracked";

@@ -17,6 +17,7 @@ import {
   parsePorcelainZ,
   classifyDiffPatch,
   buildAdditionsDiff,
+  bufferLooksBinary,
   changedFileCount,
 } from "~/shared/git-status";
 
@@ -243,11 +244,7 @@ function readUntrackedAsDiff(cwd: string, file: string): GitDiff {
       return { kind: "too-large", lines: 0, bytes: stat.size };
     }
     const buf = fs.readFileSync(abs);
-    // Cheap binary sniff: any NUL in the first 8KB.
-    const sniff = buf.subarray(0, Math.min(buf.length, 8192));
-    for (let i = 0; i < sniff.length; i++) {
-      if (sniff[i] === 0) return { kind: "binary" };
-    }
+    if (bufferLooksBinary(buf)) return { kind: "binary" };
     const text = buf.toString("utf8");
     const lineCount = text.split("\n").length;
     if (lineCount > DIFF_MAX_LINES) {
