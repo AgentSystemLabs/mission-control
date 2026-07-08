@@ -43,6 +43,10 @@ import {
 } from "./api-token-store";
 import { configureIpcAllowedOrigins, safeHandle } from "./ipc-safe-handle";
 import { extractRemoteVmDeployError } from "../src/shared/remote-vm-deploy-error";
+import {
+  MAX_PROJECT_IMAGE_BYTES,
+  PROJECT_IMAGE_EXTENSION_SET,
+} from "../src/shared/project-image-limits";
 import { shortId } from "../src/shared/short-id";
 import { errMsg } from "../src/shared/err-msg";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
@@ -1075,8 +1079,6 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-const ALLOWED_IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const TERMINAL_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 const TERMINAL_IMAGE_MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 const TERMINAL_IMAGE_MAX_FILES = 100;
@@ -1191,7 +1193,7 @@ function registerProjectImageProtocol() {
       const filename = path.basename(decodeURIComponent(url.pathname));
       if (!filename || filename.includes("\0")) return new Response("not found", { status: 404 });
       const ext = path.extname(filename).slice(1).toLowerCase();
-      if (!ALLOWED_IMAGE_EXT.has(ext)) return new Response("not found", { status: 404 });
+      if (!PROJECT_IMAGE_EXTENSION_SET.has(ext)) return new Response("not found", { status: 404 });
       const dirReal = path.resolve(projectImagesDir());
       const abs = path.resolve(dirReal, filename);
       if (abs !== dirReal && !abs.startsWith(dirReal + path.sep)) {
@@ -1244,12 +1246,12 @@ safeHandle(IPC.dialogPickImage, async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile"],
-    filters: [{ name: "Images", extensions: [...ALLOWED_IMAGE_EXT] }],
+    filters: [{ name: "Images", extensions: [...PROJECT_IMAGE_EXTENSION_SET] }],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   const sourcePath = result.filePaths[0]!;
   const ext = path.extname(sourcePath).slice(1).toLowerCase();
-  if (!ALLOWED_IMAGE_EXT.has(ext)) {
+  if (!PROJECT_IMAGE_EXTENSION_SET.has(ext)) {
     return { error: `Unsupported file type: .${ext}` };
   }
   ALLOWED_PICKED_PATHS.add(sourcePath);
@@ -1267,10 +1269,12 @@ safeHandle(
     if (!ALLOWED_PICKED_PATHS.has(sourcePath)) {
       return { error: "source not issued by image picker" };
     }
-    if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: `unsupported extension: ${ext}` };
+    if (!PROJECT_IMAGE_EXTENSION_SET.has(ext)) return { error: `unsupported extension: ${ext}` };
     if (!fs.existsSync(sourcePath)) return { error: "source file not found" };
     const stat = fs.statSync(sourcePath);
-    if (stat.size > MAX_IMAGE_BYTES) return { error: `image exceeds ${MAX_IMAGE_BYTES / 1024 / 1024}MB` };
+    if (stat.size > MAX_PROJECT_IMAGE_BYTES) {
+      return { error: `image exceeds ${MAX_PROJECT_IMAGE_BYTES / 1024 / 1024}MB` };
+    }
 
     const dir = projectImagesDir();
     fs.mkdirSync(dir, { recursive: true });
