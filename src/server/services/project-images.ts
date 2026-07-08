@@ -5,8 +5,10 @@ import { findProjectById } from "../repositories/projects.repo";
 import { updateProject } from "./projects";
 import type { Project } from "~/db/schema";
 
-export const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"] as const;
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export {
+  MAX_PROJECT_IMAGE_BYTES as MAX_IMAGE_BYTES,
+  PROJECT_IMAGE_EXTENSIONS as ALLOWED_IMAGE_EXTENSIONS,
+} from "~/shared/project-image-limits";
 
 export function projectImagesDir(): string {
   return path.join(resolveUserDataDir(), "project-images");
