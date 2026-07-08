@@ -1069,6 +1069,91 @@ select,
     transform: translateX(0);
   }
 }
+/* ── Dialog entrance ──────────────────────────────────────────────────────
+   The backdrop only fades while the panel itself rises and settles, so
+   opening a dialog reads as the panel arriving — not the screen blinking. */
+.mc-modal-backdrop-in {
+  animation: mc-modal-backdrop-in 0.15s ease-out;
+}
+.mc-modal-panel-in {
+  animation: mc-modal-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes mc-modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes mc-modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* ── Theme picker: selection + swatch feedback ────────────────────────────
+   The check badge mounts at the exact moment a choice lands — a small pop
+   acknowledges the pick. Swatch cards lift on hover and their accent bar
+   brightens, previewing the color's energy before you commit. */
+.mc-check-pop {
+  animation: mc-check-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes mc-check-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.mc-swatch-card {
+  transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.mc-swatch-card:hover {
+  transform: translateY(-1px);
+}
+.mc-swatch-card:active {
+  transform: translateY(0);
+}
+.mc-swatch-bar {
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+.mc-swatch-card:hover .mc-swatch-bar {
+  opacity: 0.85;
+}
+/* Mode toggles (dark/light, surface tint): acknowledge the press. */
+.mc-mode-option {
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    transform 100ms ease;
+}
+.mc-mode-option:active {
+  transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-modal-backdrop-in,
+  .mc-modal-panel-in,
+  .mc-check-pop {
+    animation: none;
+  }
+  .mc-swatch-card:hover,
+  .mc-swatch-card:active,
+  .mc-mode-option:active {
+    transform: none;
+  }
+}
 /* Newly captured screenshot card entering the bottom-right stack: slides in
    from past the screen edge. `backwards` fill (not `forwards`) so the
    animation releases its opacity/transform once done — the card hides itself
