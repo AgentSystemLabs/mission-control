@@ -138,7 +138,10 @@ describe("recall auto-distill on session:finished", () => {
 
   it("feeds the session transcript to the distiller when one was reported", async () => {
     const { task } = makeProjectWithSession();
-    const transcriptFile = path.join(tmpRoot, `transcript-${task.id}.jsonl`);
+    // Paths must live under ~/.claude/projects/ (setTranscriptPath containment).
+    const claudeProjects = path.join(os.homedir(), ".claude", "projects");
+    fs.mkdirSync(claudeProjects, { recursive: true });
+    const transcriptFile = path.join(claudeProjects, `mc-autodistill-${task.id}.jsonl`);
     fs.writeFileSync(
       transcriptFile,
       [
@@ -155,24 +158,32 @@ describe("recall auto-distill on session:finished", () => {
       ].join("\n") + "\n",
       "utf8",
     );
-    setTranscriptPath(task.id, transcriptFile);
-    distillSession.mockResolvedValue([
-      { type: "architecture", title: "Rate limiting is token-bucket middleware", body: "" },
-    ]);
+    try {
+      setTranscriptPath(task.id, transcriptFile);
+      distillSession.mockResolvedValue([
+        { type: "architecture", title: "Rate limiting is token-bucket middleware", body: "" },
+      ]);
 
-    const learned = waitForLearned();
-    updateStatus(task.id, { status: "finished" });
-    await learned;
+      const learned = waitForLearned();
+      updateStatus(task.id, { status: "finished" });
+      await learned;
 
-    expect(distillSession).toHaveBeenCalledTimes(1);
-    const arg = distillSession.mock.calls[0][0] as { transcript: string | null };
-    expect(arg.transcript).toContain("ASSISTANT: I'll add a token-bucket limiter");
-    expect(arg.transcript).toContain("TOOL(Edit): src/mw/rate-limit.ts");
+      expect(distillSession).toHaveBeenCalledTimes(1);
+      const arg = distillSession.mock.calls[0][0] as { transcript: string | null };
+      expect(arg.transcript).toContain("ASSISTANT: I'll add a token-bucket limiter");
+      expect(arg.transcript).toContain("TOOL(Edit): src/mw/rate-limit.ts");
+    } finally {
+      fs.rmSync(transcriptFile, { force: true });
+    }
   });
 
   it("falls back to prompts-only when the transcript path is unreadable", async () => {
     const { task } = makeProjectWithSession();
-    setTranscriptPath(task.id, path.join(tmpRoot, "does-not-exist.jsonl"));
+    // Allowed location, but the file itself does not exist.
+    setTranscriptPath(
+      task.id,
+      path.join(os.homedir(), ".claude", "projects", "mc-autodistill-missing.jsonl"),
+    );
     distillSession.mockResolvedValue([{ type: "stack", title: "Electron app", body: "" }]);
 
     const learned = waitForLearned();
