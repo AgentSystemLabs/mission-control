@@ -2376,22 +2376,29 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] [data-session-grid] .mc-card-frame {
   border-radius: 0 !important;
 }
-/* The flush cell seams need to read stronger than the base hairline, so grid
-   pane dividers push 15% off each theme's own primary border color. Both
-   derive from var(--border) (preserving its accent tint), but the direction
-   flips per mode: on the light paper ground "stronger" means darker, while on
-   the dark ground darkening would sink the faint light-on-dark hairline into
-   the surface — so dark brightens instead. Skip the focused cell so it keeps
-   its accent border (see the :focus-within rule below). */
+/* The flush cell seams read as liquid-glass edges: a translucent white
+   border (light catching the rim of a glass pane) plus a 1px specular
+   highlight along the inside top edge. On the dark ground the recipe's
+   rgba(255,255,255,.25) reads directly; on the light paper ground pure
+   white would vanish, so the seam frosts the theme border with the same
+   35% white instead — lighter and glassier than the hairline, still
+   legible. Skip the focused cell so it keeps its accent border (see the
+   :focus-within rule below). */
 [data-minimal="true"][data-theme="light"]
   [data-session-grid]
   .mc-card-frame:not(:focus-within) {
-  border-color: color-mix(in srgb, var(--border), black 15%) !important;
+  border-color: color-mix(in srgb, white 35%, var(--border)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 1px 2px rgba(18, 22, 33, 0.05) !important;
 }
 [data-minimal="true"][data-theme="dark"]
   [data-session-grid]
   .mc-card-frame:not(:focus-within) {
-  border-color: color-mix(in srgb, var(--border), white 15%) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(0, 0, 0, 0.05) !important;
 }
 [data-minimal="true"] .mc-card-frame[data-solid="true"] {
   background: var(--surface-1) !important;
@@ -2904,8 +2911,28 @@ body[data-card-glow] .cursor-glow {
 }
 [data-minimal="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
   /* ~18% accent over the header surface reproduces the sampled warm active
-     header (~#4d3e34) — the focused pane's title bar warms noticeably. */
+     header (~#4d3e34) — the focused pane's title bar warms noticeably. The
+     divider under the header goes transparent (not width 0, which would
+     shift the content 1px) — the warm fill alone separates it, and the line
+     would otherwise cut across the cell's accent ring. */
   background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)) !important;
+  border-bottom-color: transparent !important;
+}
+/* Toolbar buttons on the focused header: the neutral surface-2 ghost hover
+   reads as a gray smudge on the warm accent fill, so hover (and the pressed
+   pin) lift within the same accent ramp instead — a step warmer than the
+   18% header ground. */
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame:focus-within
+  [data-session-header]
+  .mc-btn-ghost:hover,
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame:focus-within
+  [data-session-header]
+  .mc-btn-ghost[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 32%, var(--surface-1));
 }
 
 /* Light mode: soften the drop shadows — the near-opaque blacks tuned for the
