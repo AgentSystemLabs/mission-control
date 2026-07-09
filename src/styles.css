@@ -2458,6 +2458,29 @@ body[data-card-glow] .cursor-glow {
   outline-offset: 1px;
 }
 
+/* Bottom terminal dock open/close: the body slides up on expand and down on
+   collapse. The grid `0fr -> 1fr` trick animates the wrapper between zero and
+   its natural (terminal/screenshot) height without needing a measured pixel
+   target, and the overflow-hidden inner clips the content as it reveals. */
+.mc-userterm-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  transition: grid-template-rows 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mc-userterm-body[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.mc-userterm-body > .mc-userterm-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-userterm-body {
+    transition: none;
+  }
+}
+
 /* Grid cell header controls rest at half strength so a wall of terminal panes
    reads calm; the active session (the pane you're focused in) sits a little
    brighter, and any control lights fully when you reach for it. Pressed-state
