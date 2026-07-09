@@ -2300,8 +2300,8 @@ body[data-card-glow] .cursor-glow {
      firmer ground here than the tinted levels — a deeper base lightness and a
      higher alpha so the panes read distinctly dark rather than washing back to
      the page ground. The tint blocks below override these. */
-  --mc-card-top: color-mix(in srgb, var(--accent) 3%, oklch(0.055 0.004 65 / 0.62));
-  --mc-card-bottom: color-mix(in srgb, var(--accent) 2%, oklch(0.03 0.004 65 / 0.62));
+  --mc-card-top: color-mix(in srgb, var(--accent) 3%, oklch(0.055 0.004 65 / 0.74));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 2%, oklch(0.03 0.004 65 / 0.74));
   /* Alpha of the lighter accent glow that tops the card gradient. Raised by
      the tint blocks so the theme colour reads more as the tint climbs. */
   --mc-card-glow: 0.04;
@@ -2455,6 +2455,11 @@ body[data-card-glow] .cursor-glow {
   border-bottom: none !important;
   border-radius: 0 !important;
   background: var(--surface-0) !important;
+}
+/* Flat-light lacks the tonal contrast that lets dark chrome separate the header
+   from the grid by surface alone, so restore the hairline underline there. */
+[data-minimal="true"][data-theme="light"] .mc-project-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent) !important;
 }
 /* Buttons: single 28/32/40 grid, squared considered surfaces */
 [data-minimal="true"] .mc-btn-primary,
@@ -2982,6 +2987,24 @@ body[data-card-glow] .cursor-glow {
      the inline drag/expand/nav z-indices still win when they're set. */
   z-index: 3;
 }
+/* The active pane's body sits a hair darker than the resting cells so the
+   focused session reads as the deeper, foregrounded surface. A thin translucent
+   black scrim is layered ON TOP of the shared card gradient (dark mode only —
+   light opts out of the glass), deepening the ground without disturbing the
+   accent wash or the per-tint card recipe. */
+[data-minimal="true"][data-theme="dark"]
+  [data-session-grid]
+  .mc-card-frame:focus-within
+  [data-terminal-body] {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.16)),
+    linear-gradient(
+      180deg,
+      oklch(from var(--accent) 0.62 calc(c * 0.4) h / var(--mc-card-glow)),
+      transparent 55%
+    ),
+    linear-gradient(180deg, var(--mc-card-top), var(--mc-card-bottom)) !important;
+}
 [data-minimal="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
   /* ~18% accent over the header surface reproduces the sampled warm active
      header (~#4d3e34) — the focused pane's title bar warms noticeably. The
@@ -3189,13 +3212,13 @@ body[data-card-glow] .cursor-glow {
    the same charcoal + accent recipe the --surface ladder uses at each level so
    the cards stay the same material as the surrounding chrome. */
 [data-minimal="true"][data-theme="dark"][data-tint="subtle"] {
-  --mc-card-top: color-mix(in srgb, var(--accent) 4%, oklch(0.11 0.005 65 / 0.4));
-  --mc-card-bottom: color-mix(in srgb, var(--accent) 3%, oklch(0.085 0.004 65 / 0.4));
+  --mc-card-top: color-mix(in srgb, var(--accent) 4%, oklch(0.11 0.005 65 / 0.55));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 3%, oklch(0.085 0.004 65 / 0.55));
   --mc-card-glow: 0.06;
 }
 [data-minimal="true"][data-theme="dark"][data-tint="vivid"] {
-  --mc-card-top: color-mix(in srgb, var(--accent) 5%, oklch(0.145 0.006 65 / 0.4));
-  --mc-card-bottom: color-mix(in srgb, var(--accent) 4%, oklch(0.115 0.005 65 / 0.4));
+  --mc-card-top: color-mix(in srgb, var(--accent) 5%, oklch(0.145 0.006 65 / 0.55));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 4%, oklch(0.115 0.005 65 / 0.55));
   --mc-card-glow: 0.08;
 }
 
@@ -3234,7 +3257,7 @@ body[data-card-glow] .cursor-glow {
   /* Card ground matches the Intense charcoal ladder (surface-0 is accent 8%
      over #2b2b2b) so the session bodies read as the same lifted material as
      the chrome — a touch lighter at the top for the lit edge. */
-  --mc-card-top: color-mix(in srgb, var(--accent) 6%, #29292966);
-  --mc-card-bottom: color-mix(in srgb, var(--accent) 5%, #1f1f1f66);
+  --mc-card-top: color-mix(in srgb, var(--accent) 6%, #2929298c);
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 5%, #1f1f1f8c);
   --mc-card-glow: 0.11;
 }
