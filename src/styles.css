@@ -2395,6 +2395,26 @@ body[data-card-glow] .cursor-glow {
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 1px 2px rgba(0, 0, 0, 0.05) !important;
 }
+/* Pinned session panes: a faint accent wash + slightly warmer border so a
+   pinned cell reads as held/kept without competing with the focused cell's
+   full accent ring. Skips :focus-within so the active cell keeps its own
+   treatment (see the :focus-within rule below). Placed after the seam rules
+   above so it wins the specificity tie on border-color. */
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame[data-pinned="true"]:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border)) !important;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-0)) !important;
+}
+/* Tint the (always-visible) header bar of a pinned pane too — the frame
+   background alone sits behind the header/terminal and barely reads. Skips the
+   focused cell, which gets its own warmer header (see :focus-within rule). */
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame[data-pinned="true"]:not(:focus-within)
+  [data-session-header] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-0)) !important;
+}
 [data-minimal="true"] .mc-card-frame[data-solid="true"] {
   background: var(--surface-1) !important;
   background-blend-mode: normal !important;
