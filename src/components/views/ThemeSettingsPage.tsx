@@ -26,6 +26,7 @@ import {
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
+import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
@@ -75,6 +76,9 @@ export function ThemeSettingsPage() {
     defaultModel: settings?.defaultModel ?? null,
     annotationAgent: settings?.annotationAgent ?? "claude-code",
     annotationModel: settings?.annotationModel ?? null,
+    shipAgent: settings?.shipAgent ?? "claude-code",
+    shipModel: settings?.shipModel ?? null,
+    shipPrompt: settings?.shipPrompt ?? DEFAULT_SHIP_PROMPT,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,
@@ -92,10 +96,7 @@ export function ThemeSettingsPage() {
     recallProactiveRecallEnabled: settings?.recallProactiveRecallEnabled ?? true,
     recallLearnedToastEnabled: settings?.recallLearnedToastEnabled ?? true,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
-    worktreesEnabled:
-      queryClient.getQueryData<AppSettings>(queryKeys.settings)?.worktreesEnabled ??
-      settings?.worktreesEnabled ??
-      false,
+    worktreesEnabled: true,
     ...patch,
   });
 
