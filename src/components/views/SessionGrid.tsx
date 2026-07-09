@@ -374,6 +374,9 @@ type GridCellProps = {
   onTogglePin?: (taskId: string) => void;
   /** True while this session's pin toggle is in flight (disables the control). */
   pinBusy: boolean;
+  /** True when this session is pinned — tints the cell frame so pinned panes
+   *  stand out from the rest of the grid. */
+  isPinned: boolean;
 };
 
 /** One grid cell (its terminal), memoized so a per-grid state change — moving
@@ -398,11 +401,13 @@ const GridCell = memo(function GridCell({
   onHeaderPointerDown,
   onTogglePin,
   pinBusy,
+  isPinned,
 }: GridCellProps) {
   return (
     <CardFrame
       data-grid-cell
       data-task-id={session.taskId}
+      data-pinned={isPinned ? "true" : undefined}
       aria-current={isNavSelected ? "true" : undefined}
       style={{
         display: "flex",
@@ -2122,6 +2127,7 @@ export function SessionGrid({
                   onHeaderPointerDown={startPointerReorder}
                   onTogglePin={onTogglePinned ? handleTogglePin : undefined}
                   pinBusy={pinningTaskIds?.has(session.taskId) ?? false}
+                  isPinned={pinnedTaskIds?.has(session.taskId) ?? false}
                 />
               );
             })}
