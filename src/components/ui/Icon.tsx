@@ -7,6 +7,8 @@ export type IconName =
   | "pin"
   | "pin-fill"
   | "search"
+  | "file-search"
+  | "message-search"
   | "grid"
   | "list"
   | "row-plus"
@@ -88,6 +90,25 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
         <svg {...common}>
           <circle cx="7" cy="7" r="4.5" />
           <path d="M13.5 13.5l-3-3" />
+        </svg>
+      );
+    case "file-search":
+      // Document with folded corner + magnifier — distinct from plain search.
+      return (
+        <svg {...common}>
+          <path d="M3.5 2.5h5l3 3V13c0 .5-.5 1-1 1h-7c-.5 0-1-.5-1-1V3.5c0-.5.5-1 1-1z" />
+          <path d="M8.5 2.5V6h3" />
+          <circle cx="10.5" cy="10.5" r="2.4" />
+          <path d="M12.3 12.3L14 14" />
+        </svg>
+      );
+    case "message-search":
+      // Chat bubble + magnifier — prompt/session history search.
+      return (
+        <svg {...common}>
+          <path d="M2.5 3.5h8c.8 0 1.5.7 1.5 1.5v4c0 .8-.7 1.5-1.5 1.5H6.5L4 13v-2.5H2.5C1.7 10.5 1 9.8 1 9V5c0-.8.7-1.5 1.5-1.5z" />
+          <circle cx="11.2" cy="11.2" r="2.3" />
+          <path d="M12.9 12.9L14.5 14.5" />
         </svg>
       );
     case "grid":

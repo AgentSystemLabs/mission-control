@@ -31,7 +31,11 @@ import { ProjectBar } from "~/components/views/ProjectBar";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
-import { HeaderActionsProvider, HeaderActionsSlot } from "~/components/ui/HeaderActionsSlot";
+import {
+  HeaderActionsProvider,
+  HeaderActionsSlot,
+  HeaderBeforeSearchSlot,
+} from "~/components/ui/HeaderActionsSlot";
 import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } from "~/queries";
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
 import { ScopeDropdown } from "~/components/views/ScopeDropdown";
@@ -87,9 +91,6 @@ import {
   setDocumentLaunchIntroActive,
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
-import {
-  writeCachedWorktreesEnabled,
-} from "~/lib/worktrees-preference";
 import {
   MINIMAL_CACHE_KEY,
   THEME_STYLE_CACHE_KEY,
@@ -428,11 +429,6 @@ function Shell() {
   }, [launchOverlayEnabled]);
 
   useThemeLayoutEffect(() => {
-    if (typeof settings?.worktreesEnabled !== "boolean") return;
-    writeCachedWorktreesEnabled(settings.worktreesEnabled);
-  }, [settings?.worktreesEnabled]);
-
-  useThemeLayoutEffect(() => {
     if (!themeStyle) return;
     applyThemeStyle(themeStyle);
   }, [themeStyle]);
@@ -638,6 +634,7 @@ function Shell() {
             <>
               <ClaudeUsageLimitsIndicator />
               <UpdateAvailableButton />
+              <HeaderBeforeSearchSlot />
               <PromptSearchButton />
               <VoicePushToTalkButton />
               <SessionNotificationsButton

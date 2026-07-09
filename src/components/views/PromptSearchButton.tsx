@@ -7,7 +7,12 @@ export function PromptSearchButton() {
   const { open } = usePromptSearchPalette();
   return (
     <HotkeyTooltip action="prompt.search" label="Search prompt history">
-      <Btn variant="ghost" icon="search" onClick={open} aria-label="Search prompt history" />
+      <Btn
+        variant="ghost"
+        icon="message-search"
+        onClick={open}
+        aria-label="Search prompt history"
+      />
     </HotkeyTooltip>
   );
 }
