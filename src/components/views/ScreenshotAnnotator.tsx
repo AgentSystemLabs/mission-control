@@ -1584,7 +1584,9 @@ const ANNOT_CSS = `
   .mc-annot-width { width: 24px; height: 28px; border-radius: 8px; }
   .mc-annot-swatch { width: 18px; height: 18px; }
   .mc-annot-close { width: 28px; height: 28px; }
-  .mc-annot-footer { padding: 9px 10px; gap: 10px; }
+  /* The hint is dropped below, leaving the actions as the footer's only child —
+     space-between would park them at the left, so pin them right instead. */
+  .mc-annot-footer { padding: 9px 10px; gap: 10px; justify-content: flex-end; }
   .mc-annot-footer-hint { display: none; }
 }
 /* Down to the minimum focus-window width (320px): one centered group per row.
@@ -1602,5 +1604,8 @@ const ANNOT_CSS = `
   .mc-annot-header .mc-annot-close {
     position: static; top: auto; transform: none; align-self: flex-start; flex: none;
   }
+  /* Keep all three footer actions on one line down to the 320px minimum. */
+  .mc-annot-btn { padding: 0 12px; white-space: nowrap; }
+  .mc-annot-actions { gap: 6px; }
 }
 `;
