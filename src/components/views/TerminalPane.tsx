@@ -523,6 +523,7 @@ export function TerminalPane({
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
   const sessionIcon = isSessionIcon(liveTask.icon) ? liveTask.icon : DEFAULT_SESSION_ICON;
+  const sessionRunning = liveTask.status === "running";
   const tasksKey = queryKeys.tasks(
     project.id,
     project.activeWorktreeId ?? null,
@@ -1497,20 +1498,23 @@ export function TerminalPane({
         {!microHeader && (
           <div
             title={tinyHeader ? liveTask.title : undefined}
+            className={sessionRunning ? "mc-session-icon-running" : undefined}
             style={{
-              width: 24,
-              height: 24,
-              borderRadius: 7,
+              width: 30,
+              height: "auto",
               flexShrink: 0,
-              background: "linear-gradient(180deg, var(--surface-2), var(--surface-1))",
-              border: "1px solid var(--border)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               color: "var(--text-dim)",
             }}
           >
-            <SessionIcon name={sessionIcon} size={13} strokeWidth={1.6} />
+            <SessionIcon
+              name={sessionIcon}
+              size={24}
+              strokeWidth={1.6}
+              animate={sessionRunning}
+            />
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>

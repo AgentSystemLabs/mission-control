@@ -100,7 +100,7 @@ export function TopBar({
                 boxShadow: "0 0 6px var(--accent)",
               }}
             />
-            <span style={{ color: "var(--accent)" }}>Control</span>
+            <span style={{ color: "var(--accent-ink)" }}>Control</span>
           </span>
         </button>
         {leading && (

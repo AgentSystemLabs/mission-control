@@ -833,7 +833,7 @@ function InstallBadge({ installed }: { installed: boolean | null }) {
           gap: 4,
           fontFamily: "var(--mono)",
           fontSize: 10.5,
-          color: "var(--accent)",
+          color: "var(--accent-ink)",
           padding: "2px 8px",
           borderRadius: 999,
           border: "1px solid color-mix(in srgb, var(--accent) 50%, transparent)",

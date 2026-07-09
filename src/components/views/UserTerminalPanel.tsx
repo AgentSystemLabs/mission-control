@@ -274,7 +274,7 @@ export function UserTerminalPanel() {
             minWidth: 0,
           }}
         >
-          <Icon name="terminal" size={13} style={{ color: "var(--accent)" }} />
+          <Icon name="terminal" size={13} style={{ color: "var(--accent-ink)" }} />
           <span
             style={{
               fontFamily: "var(--mono)",

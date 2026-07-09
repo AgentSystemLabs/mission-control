@@ -43,7 +43,7 @@ export function Section({
             }}
           />
         )}
-        {icon && <Icon name={icon} size={12} style={{ color: "var(--accent)" }} />}
+        {icon && <Icon name={icon} size={12} style={{ color: "var(--accent-ink)" }} />}
         <span
           style={{
             fontFamily: "var(--mono)",

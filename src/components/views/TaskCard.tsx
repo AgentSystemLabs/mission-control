@@ -264,7 +264,7 @@ export function TaskCard({
                   width: 30,
                   height: 30,
                   padding: 0,
-                  color: task.pinned ? "var(--accent)" : undefined,
+                  color: task.pinned ? "var(--accent-ink)" : undefined,
                 }}
               />
             )}
@@ -387,11 +387,12 @@ export function TaskCard({
             }}
             title="Archive running session?"
             confirmLabel="Archive"
+            cancelLabel="Keep running"
             variant="danger"
             icon="archive"
             width={420}
           >
-            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6, overflowWrap: "anywhere" }}>
               &ldquo;{task.title}&rdquo; is still running.
             </div>
             <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
@@ -412,16 +413,17 @@ export function TaskCard({
               onDelete(task.id);
               setConfirmOpen(false);
             }}
-            title="Delete task"
+            title="Delete session?"
             confirmLabel="Delete"
             icon="trash"
             width={420}
           >
-            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6 }}>
+            <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 6, overflowWrap: "anywhere" }}>
               Delete &ldquo;{task.title}&rdquo;?
             </div>
             <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-              This task and its worktree will be removed. This cannot be undone.
+              This session and its git worktree will be removed. This cannot be
+              undone.
             </div>
           </ConfirmDialog>
         </div>

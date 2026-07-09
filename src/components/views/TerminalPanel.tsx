@@ -212,6 +212,7 @@ export function TerminalPanel({
         onConfirm={confirmArchiveActive}
         title="Archive running session?"
         confirmLabel="Archive"
+        cancelLabel="Keep running"
         variant="danger"
         icon="archive"
         loading={archiving}

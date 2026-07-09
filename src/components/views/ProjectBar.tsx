@@ -520,7 +520,7 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
                     borderRadius: HOTKEY_BADGE_RADIUS,
                     background: "var(--surface-3, var(--surface-2))",
                     border: "1px solid var(--border)",
-                    color: "var(--accent)",
+                    color: "var(--accent-ink)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",

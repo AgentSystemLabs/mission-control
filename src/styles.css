@@ -35,42 +35,60 @@
   --tint-md: 0%;
   --tint-hi: 0%;
 
-  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #000000);
-  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #0e1013);
-  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #14171b);
-  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #1a1d22);
-  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #22262c);
+  --bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #000000);
+  --surface-0: color-mix(in srgb, var(--surface-tint) var(--tint-md), #0b0d10);
+  --surface-1: color-mix(in srgb, var(--surface-tint) var(--tint-md), #14171b);
+  --surface-2: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #1a1d22);
+  --surface-3: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #22262c);
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.12);
   --text: #e8e6df;
-  --text-dim: rgba(232, 230, 223, 0.6);
-  --text-faint: rgba(232, 230, 223, 0.38);
-  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #050607);
+  --text-dim: rgba(232, 230, 223, 0.78);
+  --text-faint: rgba(232, 230, 223, 0.56);
+  --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #050607);
 
   --accent: #ff5a1f;
   --accent-dim: rgba(255, 90, 31, 0.18);
   --accent-faint: rgba(255, 90, 31, 0.1);
   --accent-border: rgba(255, 90, 31, 0.38);
   --accent-glow: rgba(255, 90, 31, 0.48);
+  /* Ground tint = a DESATURATED accent. Raising data-tint (subtle/vivid/intense)
+     warms the charcoal surfaces with the brand hue WITHOUT pushing them to
+     saturated brown; full-chroma --accent stays reserved for state/selection.
+     Kept a step below the frames' saturation on purpose: the painted deep-orange
+     pixel-frames (--mc-*-image) are the brand signal, so the ground only whispers
+     the hue rather than competing with them. */
+  --surface-tint: color-mix(in srgb, var(--accent) 38%, #74706a);
   --mc-btn-filled-image: url("/borders/button_filled_deep-orange.png");
   --mc-panel-focused-image: url("/borders/panel_focused_deep-orange.png");
   --mc-panel-image: url("/borders/square_deep-orange.png");
   --mc-shell-image: url("/borders/shell_deep-orange.png");
   --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
   --accent-soft-hover: color-mix(in srgb, var(--accent) 26%, transparent);
+  /* Accent used AS TEXT (labels, icons that carry meaning). On the dark
+     grounds the raw accent is readable for every palette entry, so this is a
+     plain alias; flat-light re-binds it to a black-mixed shade because raw
+     accents sit at 2-4.5:1 on white (amber/lime are unreadable). Use this —
+     not var(--accent) — whenever the accent colors text. */
+  --accent-ink: var(--accent);
   --banner-bg: linear-gradient(90deg, var(--accent-faint), var(--surface-0) 34%, var(--accent-faint));
   --banner-muted: var(--text-dim);
   --banner-link: color-mix(in srgb, var(--accent) 84%, white);
   --banner-icon-bg: var(--accent-dim);
 
-  --status-ready: oklch(0.78 0.10 220);
+  --status-ready: oklch(0.80 0.115 210);
   --status-running: oklch(0.82 0.14 75);
   --status-needs: oklch(0.7 0.19 25);
   --status-interrupted: oklch(0.72 0.18 35);
   --status-done: oklch(0.76 0.16 150);
   --status-idle: rgba(232, 230, 223, 0.3);
-  --status-warning: oklch(0.82 0.14 75);
-  --status-failed: oklch(0.7 0.19 25);
+  /* warning/failed share the running/needs hues by intent (one caution/urgent
+     color language across surfaces) — aliased, not duplicated, so a theme
+     re-bind of running/needs flows through and the two can never silently
+     diverge. They live on different surfaces than the session states, so this
+     shared vocabulary reads, not collides. */
+  --status-warning: var(--status-running);
+  --status-failed: var(--status-needs);
 
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --sans: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -120,7 +138,10 @@
   /* Status roles — the canonical session-state vocabulary — each paired with
      a low-alpha -bg tint for badges/pills. --status-* physical values live in
      the palette blocks and re-bind per theme, so these derive for free. */
-  --status-info: oklch(0.78 0.1 220);
+  /* info shares the ready teal (calm/informational). Aliasing also fixes a
+     latent bug: light mode re-binds --status-ready but not --status-info, so a
+     hard-coded dark teal would sit pale on white — the alias tracks per theme. */
+  --status-info: var(--status-ready);
   --status-ready-bg: color-mix(in srgb, var(--status-ready) 14%, transparent);
   --status-running-bg: color-mix(in srgb, var(--status-running) 14%, transparent);
   --status-needs-bg: color-mix(in srgb, var(--status-needs) 14%, transparent);
@@ -146,31 +167,48 @@
    data-theme is forced to "dark" at apply time), so light only ever means
    flat-light. */
 [data-minimal="true"][data-theme="light"] {
-  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), #f4f4f6);
-  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), #ffffff);
-  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), #fafafb);
-  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), #f2f2f4);
-  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), #e9e9ee);
-  /* The active accent color at low opacity, so the hairline tracks whatever
-     accent is selected — 15% for the base border, a touch stronger for
-     --border-strong. */
-  --border: color-mix(in srgb, var(--accent) 15%, transparent);
-  --border-strong: color-mix(in srgb, var(--accent) 30%, transparent);
+  --bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #f4f4f6);
+  --surface-0: color-mix(in srgb, var(--surface-tint) var(--tint-md), #ffffff);
+  --surface-1: color-mix(in srgb, var(--surface-tint) var(--tint-md), #fafafb);
+  --surface-2: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #f2f2f4);
+  --surface-3: color-mix(in srgb, var(--surface-tint) var(--tint-hi), #e9e9ee);
+  /* Accent-hued hairlines with ANCHORED luminance: the accent contributes the
+     hue, the gray base fixes how dark the line is. The old accent-at-alpha
+     recipe made border darkness track the accent's own luminance — amber/lime
+     hairlines landed at ~1.1:1 on white (invisible) while red sat at 1.2:1.
+     These hold ~1.6-1.8:1 (border) and ~3-3.5:1 (strong) across all accents. */
+  --border: color-mix(in srgb, var(--accent) 14%, #cfcfd6);
+  --border-strong: color-mix(in srgb, var(--accent) 18%, #a6a6b0);
+  /* Form-control boundary (consumed via --input): text fields need a visible
+     edge (WCAG 1.4.11 wants ~3:1), unlike card hairlines which stay quiet by
+     design. */
+  --input: color-mix(in srgb, var(--accent) 18%, #8e8e99);
   --text: #17181c;
-  --text-dim: rgba(23, 24, 28, 0.6);
-  --text-faint: rgba(23, 24, 28, 0.4);
-  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), #ffffff);
-  /* Light accent fills take white ink again. */
-  --mm-on-accent: #ffffff;
-  /* Status hues darken for contrast on white; the dark-theme pastels wash out. */
-  --status-ready: oklch(0.55 0.1 220);
-  --status-running: oklch(0.6 0.13 75);
-  --status-needs: oklch(0.55 0.19 25);
-  --status-failed: oklch(0.55 0.19 25);
-  --status-interrupted: oklch(0.58 0.17 35);
-  --status-done: oklch(0.5 0.14 150);
+  /* Explicit solid grays (not black-at-alpha): 0.4-alpha faint was ~2.5:1 on
+     white — the classic light-gray-on-white AA fail. These solids clear 4.5:1
+     with margin and keep predictable contrast on every near-white surface. */
+  --text-dim: #4d4d54;
+  --text-faint: #5d5a63;
+  --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), #ffffff);
+  /* Ink on solid accent fills. Near-black, not white: white ink clears 4.5:1
+     on NONE of the 14 accents (lime bottoms out at 1.98:1); this near-black
+     clears it on all of them (worst case indigo 4.54:1). */
+  --mm-on-accent: #050607;
+  /* Accent as text on the near-white ground: mix toward black so every
+     palette entry reads (raw amber/lime sit at ~2:1 on white). 55% keeps the
+     hue while clearing 4.5:1 on every surface for every accent. */
+  --accent-ink: color-mix(in srgb, var(--accent) 55%, black);
+  /* Status hues darken for contrast on white; the dark-theme pastels wash
+     out. Tuned so each hue clears 4.5:1 as text on its own 14% pill tint,
+     not just on bare white. */
+  --status-ready: oklch(0.5 0.115 210);
+  --status-running: oklch(0.52 0.13 75);
+  --status-needs: oklch(0.51 0.19 25);
+  --status-interrupted: oklch(0.52 0.17 35);
+  --status-done: oklch(0.47 0.14 150);
   --status-idle: rgba(23, 24, 28, 0.3);
-  --status-warning: oklch(0.6 0.13 75);
+  /* --status-warning / --status-failed inherit the :root aliases (→ running /
+     needs), which are re-bound just above for light mode. */
   --banner-bg: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent) 12%, var(--surface-0)),
@@ -1011,6 +1049,56 @@ select,
     transform: translateX(115%) skewX(-18deg);
   }
 }
+/* ── Session icon "running" stroke-draw ───────────────────────────────────
+   While a session's status is "running", its header glyph is continuously
+   re-drawn: each sub-path is normalized to pathLength=1 (in SessionIcon) so a
+   single keyframe sweeps stroke-dashoffset 1 → 0 → -1 — the dash slides in to
+   ink the shape, holds, then slides out. Multi-path glyphs stagger by
+   nth-child so strokes cascade instead of firing in unison. The accent tint
+   marks the icon as the live one. */
+.mc-session-icon-running {
+  color: var(--accent);
+}
+.mc-session-icon-drawing > * {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: mc-session-icon-draw 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+.mc-session-icon-drawing > *:nth-child(2) {
+  animation-delay: 0.09s;
+}
+.mc-session-icon-drawing > *:nth-child(3) {
+  animation-delay: 0.18s;
+}
+.mc-session-icon-drawing > *:nth-child(4) {
+  animation-delay: 0.27s;
+}
+.mc-session-icon-drawing > *:nth-child(5) {
+  animation-delay: 0.36s;
+}
+.mc-session-icon-drawing > *:nth-child(n + 6) {
+  animation-delay: 0.45s;
+}
+@keyframes mc-session-icon-draw {
+  0% {
+    stroke-dashoffset: 1;
+  }
+  45% {
+    stroke-dashoffset: 0;
+  }
+  62% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-session-icon-drawing > * {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -1029,6 +1117,91 @@ select,
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+/* ── Dialog entrance ──────────────────────────────────────────────────────
+   The backdrop only fades while the panel itself rises and settles, so
+   opening a dialog reads as the panel arriving — not the screen blinking. */
+.mc-modal-backdrop-in {
+  animation: mc-modal-backdrop-in 0.15s ease-out;
+}
+.mc-modal-panel-in {
+  animation: mc-modal-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes mc-modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes mc-modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* ── Theme picker: selection + swatch feedback ────────────────────────────
+   The check badge mounts at the exact moment a choice lands — a small pop
+   acknowledges the pick. Swatch cards lift on hover and their accent bar
+   brightens, previewing the color's energy before you commit. */
+.mc-check-pop {
+  animation: mc-check-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes mc-check-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.mc-swatch-card {
+  transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.mc-swatch-card:hover {
+  transform: translateY(-1px);
+}
+.mc-swatch-card:active {
+  transform: translateY(0);
+}
+.mc-swatch-bar {
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+.mc-swatch-card:hover .mc-swatch-bar {
+  opacity: 0.85;
+}
+/* Mode toggles (dark/light, surface tint): acknowledge the press. */
+.mc-mode-option {
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    transform 100ms ease;
+}
+.mc-mode-option:active {
+  transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-modal-backdrop-in,
+  .mc-modal-panel-in,
+  .mc-check-pop {
+    animation: none;
+  }
+  .mc-swatch-card:hover,
+  .mc-swatch-card:active,
+  .mc-mode-option:active {
+    transform: none;
   }
 }
 /* Newly captured screenshot card entering the bottom-right stack: slides in
@@ -2125,11 +2298,11 @@ body[data-card-glow] .cursor-glow {
      whisper of warmth (hue 65, near-zero chroma) so it still pairs with the
      cream text + terracotta accent rather than reading cold. The page ground
      sits well below the panes; hierarchy is by elevation, near-black up. */
-  --bg: color-mix(in srgb, var(--accent) var(--tint-lo), oklch(0.09 0.004 65));
-  --surface-0: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.125 0.005 65));
-  --surface-1: color-mix(in srgb, var(--accent) var(--tint-md), oklch(0.155 0.006 65));
-  --surface-2: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.2 0.007 65));
-  --surface-3: color-mix(in srgb, var(--accent) var(--tint-hi), oklch(0.25 0.009 65));
+  --bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), oklch(0.09 0.004 65));
+  --surface-0: color-mix(in srgb, var(--surface-tint) var(--tint-md), oklch(0.125 0.005 65));
+  --surface-1: color-mix(in srgb, var(--surface-tint) var(--tint-md), oklch(0.155 0.006 65));
+  --surface-2: color-mix(in srgb, var(--surface-tint) var(--tint-hi), oklch(0.2 0.007 65));
+  --surface-3: color-mix(in srgb, var(--surface-tint) var(--tint-hi), oklch(0.25 0.009 65));
   /* On a near-black ground the surface ladder does most of the separating, so
      the hairlines run very quiet — chrome buttons are borderless-tonal below,
      and what keeps a border (cards, inputs) only needs a whisper of an edge. */
@@ -2141,7 +2314,7 @@ body[data-card-glow] .cursor-glow {
   --text-dim: #c6bca8;
   --text-faint: #a89e8c;
   /* Terminal canvas: the deepest step, just below the page ground. */
-  --terminal-bg: color-mix(in srgb, var(--accent) var(--tint-lo), oklch(0.075 0.004 65));
+  --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), oklch(0.075 0.004 65));
 
   /* Bundled faces: clearer, warmer mono for both xterm (via --mc-terminal-font,
      read by createTerminalOptions) and every UI mono surface, plus Plus Jakarta
@@ -2168,9 +2341,11 @@ body[data-card-glow] .cursor-glow {
   --mm-elev-1: none;
   --mm-elev-2: 0 12px 32px rgba(0, 0, 0, 0.45);
   /* Ink that sits ON a solid accent fill (the primary/Ship button label + its
-     icon, which inherits this color). White for a clean, conventional filled-
-     button look on the accent. Consumed by --primary-foreground. */
-  --mm-on-accent: #ffffff;
+     icon, which inherits this color). Near-black, not white: white ink fails
+     4.5:1 on every accent in the palette (lime 1.98:1, deep-orange 3.12:1);
+     this near-black clears 4.5:1 on all 14 (worst case indigo 4.54:1).
+     Consumed by --primary-foreground. */
+  --mm-on-accent: #050607;
 }
 
 /* Hide the painted shell frame around the app and reclaim the gutter
@@ -2446,7 +2621,7 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session {
   background: transparent;
   border-color: color-mix(in srgb, var(--accent) 48%, transparent);
-  color: var(--accent);
+  color: var(--accent-ink);
   box-shadow: none;
 }
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session:hover {
@@ -2467,7 +2642,7 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row {
   background: transparent;
   border-color: color-mix(in srgb, var(--accent) 48%, transparent);
-  color: var(--accent);
+  color: var(--accent-ink);
   box-shadow: none;
 }
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config:hover,
@@ -2522,9 +2697,14 @@ body[data-card-glow] .cursor-glow {
     var(--mm-ring) !important;
 }
 
-/* No decorative cursor glow or dot grid in minimal */
+/* Flat keeps the cursor glow but quieter than painted; no dot grid. */
 [data-minimal="true"] .cursor-glow {
-  display: none !important;
+  --cursor-glow-color: color-mix(in srgb, var(--accent) 9%, transparent);
+  --cursor-glow-filter: brightness(1.06) saturate(1.08);
+}
+[data-minimal="true"][data-theme="light"] .cursor-glow {
+  --cursor-glow-color: color-mix(in srgb, var(--accent) 6%, transparent);
+  --cursor-glow-filter: brightness(1.02) saturate(1.04);
 }
 [data-minimal="true"] .dot-grid-bg {
   background-image: none;
@@ -2679,6 +2859,25 @@ body[data-card-glow] .cursor-glow {
 [data-theme="light"] .mc-tooltip,
 [data-theme="light"] [data-sonner-toast].mc-toast-custom-shell [data-content] {
   box-shadow: 0 4px 14px rgba(18, 22, 33, 0.14);
+}
+
+/* Light mode, accent-hued button text: the dark recipe (accent 72% + white)
+   is built to brighten labels against the near-black ground; on the white
+   fills it lands at 1.6-2.8:1 for every accent. Re-point at --accent-ink,
+   which mixes toward black in light mode instead. */
+[data-minimal="true"][data-theme="light"] .mc-btn-frame {
+  color: var(--accent-ink);
+}
+
+/* Light mode inputs: fields need a visible boundary (~3:1, via --input) —
+   the shared card hairline is a deliberate whisper on panels but leaves text
+   fields with no findable edge on the near-white ground. Scoped with
+   :not(:focus-within) so the accent focus border keeps winning. */
+[data-minimal="true"][data-theme="light"] .mc-input-frame:not(:focus-within) {
+  border-color: var(--input) !important;
+}
+[data-minimal="true"][data-theme="light"] .mc-input-frame:hover:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--accent) 26%, #75757f) !important;
 }
 
 .sr-only {
@@ -2838,4 +3037,10 @@ body[data-card-glow] .cursor-glow {
      (the old cream hairlines clashed with cool accents). */
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.2);
+  /* The base text ladder is tuned for the near-black ground; on this lifted
+     mid-charcoal ladder the faint tier drops to ~3.2-3.9:1 on surface-2/3.
+     Lift dim/faint one step so faint clears 4.5:1 on every raised surface
+     while both stay clearly below --text. */
+  --text-dim: #d6ccba;
+  --text-faint: #c9bfad;
 }

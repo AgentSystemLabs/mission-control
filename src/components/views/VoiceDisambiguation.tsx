@@ -97,7 +97,7 @@ export function VoiceDisambiguation({
               borderRadius: 6,
               background: "var(--accent-dim)",
               border: "1px solid var(--accent-border)",
-              color: "var(--accent)",
+              color: "var(--accent-ink)",
               fontSize: 11,
               fontWeight: 700,
               flexShrink: 0,

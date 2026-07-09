@@ -2232,6 +2232,7 @@ export function SessionGrid({
         onConfirm={confirmArchive}
         title="Archive running session?"
         confirmLabel="Archive"
+        cancelLabel="Keep running"
         variant="danger"
         icon="archive"
         loading={archiving}
