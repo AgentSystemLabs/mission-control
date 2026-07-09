@@ -3028,11 +3028,15 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
   /* ~18% accent over the header surface reproduces the sampled warm active
      header (~#4d3e34) — the focused pane's title bar warms noticeably. The
-     divider under the header goes transparent (not width 0, which would
-     shift the content 1px) — the warm fill alone separates it, and the line
-     would otherwise cut across the cell's accent ring. */
+     divider under the header stays, re-tinted into the same accent ramp so
+     it separates header from body without cutting a gray line across the
+     cell's accent ring. */
   background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)) !important;
-  border-bottom-color: transparent !important;
+  border-bottom-color: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--accent) 38%, var(--border)) 65%,
+    transparent
+  ) !important;
 }
 /* Toolbar buttons on the focused header: the neutral surface-2 ghost hover
    reads as a gray smudge on the warm accent fill, so hover (and the pressed
