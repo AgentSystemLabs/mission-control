@@ -2331,6 +2331,39 @@ body[data-card-glow] .cursor-glow {
   flex-shrink: 0;
 }
 
+/* Provider usage popover: fade-only entrance (no transform — a translate
+   animation composites the popover on a GPU layer at fractional offsets
+   over the WebGL terminals, which resamples every glyph blurry);
+   bars ease between refreshes. */
+.mc-usage-pop {
+  animation: mc-usage-pop-in 0.15s ease-out;
+}
+@keyframes mc-usage-pop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.mc-usage-fill {
+  transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mc-usage-ring-arc {
+  transition: stroke-dashoffset 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-usage-pop {
+    animation: none;
+  }
+  .mc-usage-fill {
+    transition: none;
+  }
+  .mc-usage-ring-arc {
+    transition: none;
+  }
+}
+
 /* Tooltip */
 .mc-tooltip-trigger {
   display: contents;

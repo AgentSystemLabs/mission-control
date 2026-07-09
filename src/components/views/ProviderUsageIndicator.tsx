@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ProviderUsageSnapshot,
   ProviderUsageWindow,
@@ -10,13 +10,22 @@ import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useProviderUsage, useSettings } from "~/queries";
 
 /**
- * Compact multi-provider usage control (CodexBar fork).
+ * Compact multi-provider usage control.
  *
- * Collapsed: one quiet chip — a small utilization ring plus the single worst
- * window across enabled providers (`codex 91%`). Expanded: a CardFrame popover
- * with per-provider windows (bar + % + reset), auth help for unauthenticated
- * providers, refresh, and a shortcut to Settings → Usage. Renders nothing when
- * the feature is off so the chrome stays uncluttered.
+ * Collapsed: one quiet chip — one status dot per reporting provider (colored
+ * by that provider's own worst window band; hollow on error/unavailable).
+ * While every provider is comfortable the dots are the whole chip; text
+ * appears only when it can name a provider that needs attention (`codex 91%`
+ * past the warning band, `codex rate-limited` when blocked). Dot order
+ * matches settings order, which is also the popover row order — dots map 1:1
+ * to rows. When exactly one healthy metered provider is reporting, the dots
+ * give way to a radial gauge with the percent inside — a lone number has an
+ * unambiguous owner. Expanded: a CardFrame popover of flat hairline-separated sections —
+ * each led by the same status dot as the chip — with per-window bars
+ * (bar + % + reset), a one-line inline reason for erroring providers, refresh,
+ * and a shortcut to Settings → Usage. Signed-out providers are omitted
+ * everywhere (signing in is a Settings → Usage task, not live status).
+ * Renders nothing when the feature is off so the chrome stays uncluttered.
  */
 export function ProviderUsageIndicator() {
   const { data: settings } = useSettings();
@@ -28,11 +37,34 @@ export function ProviderUsageIndicator() {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
+
+  // Fixed positioning at whole-pixel coordinates. The popover overlaps the
+  // WebGL terminal canvases, so Chromium composites it on its own GPU layer;
+  // anchoring it with `absolute` inherited the trigger's fractional geometry
+  // (half-pixel bar centering + text-width chip edges), and a composited
+  // layer at a fractional offset is bilinearly resampled — every glyph in
+  // the popover rendered blurry. Rounding the measured anchor fixes it.
+  const placePopover = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPopoverPos({
+      top: Math.round(rect.bottom + 8),
+      right: Math.round(window.innerWidth - rect.right),
+    });
+  }, []);
 
   const providers = useMemo(() => {
     if (!data?.providers) return [];
     return data.providers.map((p) => filterProviderWindows(p, showSession, showWeekly));
   }, [data, showSession, showWeekly]);
+
+  // Move focus into the dialog on open so keyboard/SR users land inside it;
+  // Escape (below) hands focus back to the trigger.
+  useEffect(() => {
+    if (open) dialogRef.current?.focus();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -47,18 +79,55 @@ export function ProviderUsageIndicator() {
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", placePopover);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", placePopover);
     };
-  }, [open]);
+  }, [open, placePopover]);
 
   if (!enabled || providerIds.length === 0) return null;
 
+  const rateLimited = providers.find((p) => p.status === "rate_limited");
   const worst = pickWorstWindow(providers);
-  const collapsedLabel = worst
-    ? `${worst.providerName.toLowerCase()} ${worst.pct}%`
-    : collapsedFallbackLabel(providers, isLoading);
+  // Healthy rest state is dots-only (label: null) — a bare number without an
+  // owner is noise. Text appears only when it can name a provider that needs
+  // attention, tinted with the same band color as that provider's dot.
+  const collapsed: { label: string; color: string } | null = rateLimited
+    ? {
+        // Failed-red to match the dot — rate-limited means blocked, and one
+        // state must not speak two colors at once.
+        label: `${rateLimited.displayName.toLowerCase()} rate-limited`,
+        color: "var(--status-failed)",
+      }
+    : worst && worst.pct >= WARN_PCT
+      ? {
+          label: `${worst.providerName.toLowerCase()} ${worst.pct}%`,
+          color: usageColor(worst.pct),
+        }
+      : collapsedFallback(providers, isLoading);
+
+  // Signed-out providers are a Settings → Usage task, not live status — both
+  // the chip dots and the popover cover only providers with something to
+  // report (data, rate-limit, error).
+  const visibleProviders = providers.filter((p) => p.status !== "unauthenticated");
+
+  // One dot per reporting provider; hollow placeholders for configured ids
+  // until the first snapshot arrives so the chip has a stable shape from
+  // first paint.
+  const dots: DotState[] =
+    providers.length > 0
+      ? visibleProviders.map((p) => ({ key: p.id, ...providerDotState(p) }))
+      : providerIds.map((id) => ({ key: id, filled: false, color: "var(--text-dim)" }));
+
+  // A single healthy metered provider gets a radial gauge with the percent
+  // inside instead of a lone dot — one provider means the number has an
+  // unambiguous owner, so the chip can carry it at rest. The gauge already
+  // speaks the warning through arc length + band color, so the collapsed
+  // text label is redundant and suppressed.
+  const solo = providers.length > 0 && visibleProviders.length === 1 ? visibleProviders[0] : null;
+  const soloPct = solo && solo.status === "ok" ? worstMeteredPct(solo) : null;
 
   return (
     <div
@@ -73,11 +142,14 @@ export function ProviderUsageIndicator() {
         ref={triggerRef}
         type="button"
         className="mc-btn mc-btn-ghost mc-btn-md"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) placePopover();
+          setOpen((v) => !v);
+        }}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label="Provider usage limits"
-        title={buildTooltip(providers)}
+        aria-label={ariaSummary(visibleProviders)}
+        title={buildTooltip(visibleProviders)}
         style={{ paddingInline: 8 }}
       >
         <span
@@ -90,29 +162,34 @@ export function ProviderUsageIndicator() {
             fontSize: 11,
           }}
         >
-          <UsageRing pct={worst?.pct ?? null} dim={!worst} />
-          <span
-            style={{
-              fontVariantNumeric: "tabular-nums",
-              whiteSpace: "nowrap",
-              color: worst ? "var(--text)" : "var(--text-dim)",
-            }}
-          >
-            {collapsedLabel}
-          </span>
+          {soloPct !== null ? <UsageRing pct={soloPct} /> : <ProviderDots dots={dots} />}
+          {soloPct === null && collapsed && (
+            <span
+              style={{
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+                color: collapsed.color,
+              }}
+            >
+              {collapsed.label}
+            </span>
+          )}
         </span>
       </button>
 
-      {open && (
+      {open && popoverPos && (
         <CardFrame
+          ref={dialogRef}
           role="dialog"
           aria-label="Provider usage details"
+          tabIndex={-1}
           solid
+          className="mc-usage-pop"
           style={{
-            position: "absolute",
-            top: "calc(100% + 8px)",
-            right: 0,
-            width: 340,
+            position: "fixed",
+            top: popoverPos.top,
+            right: popoverPos.right,
+            width: 352,
             maxWidth: "calc(100vw - 32px)",
             padding: 10,
             display: "flex",
@@ -144,16 +221,6 @@ export function ProviderUsageIndicator() {
               Provider usage
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span
-                style={{
-                  color: "var(--text-faint)",
-                  fontFamily: "var(--mono)",
-                  fontSize: 10,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {providers.length}
-              </span>
               <Btn
                 type="button"
                 variant="ghost"
@@ -187,13 +254,12 @@ export function ProviderUsageIndicator() {
             style={{
               maxHeight: 360,
               overflowY: "auto",
+              overflowX: "hidden",
               display: "flex",
               flexDirection: "column",
-              gap: 6,
-              paddingRight: 2,
             }}
           >
-            {providers.length === 0 && (
+            {visibleProviders.length === 0 && (
               <div
                 style={{
                   padding: "16px 8px",
@@ -202,27 +268,42 @@ export function ProviderUsageIndicator() {
                   textAlign: "center",
                 }}
               >
-                {isLoading ? "Checking provider limits…" : "No providers enabled."}
+                {isLoading && providers.length === 0
+                  ? "Checking provider limits…"
+                  : providers.length > 0
+                    ? "All providers signed out — connect them in usage settings."
+                    : "No providers enabled — add them in usage settings."}
               </div>
             )}
-            {providers.map((p) => (
-              <ProviderRow key={p.id} snapshot={p} />
+            {visibleProviders.map((p, i) => (
+              <Fragment key={p.id}>
+                {i > 0 && (
+                  <div
+                    aria-hidden
+                    style={{
+                      height: 1,
+                      flexShrink: 0,
+                      margin: "0 6px",
+                      background: "var(--border)",
+                    }}
+                  />
+                )}
+                <ProviderSection snapshot={p} />
+              </Fragment>
             ))}
           </div>
 
           {data && (
             <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
                 color: "var(--text-faint)",
                 fontFamily: "var(--mono)",
                 fontSize: 10,
                 padding: "2px 2px 0",
               }}
+              title="Auto-refreshes every 45 seconds"
             >
-              <span>{isFetching ? "refreshing…" : `updated ${timeFmt.format(new Date(data.fetchedAt))}`}</span>
-              <span>auto-refresh 45s</span>
+              {isFetching ? "refreshing…" : `updated ${timeFmt.format(new Date(data.fetchedAt))}`}
             </div>
           )}
         </CardFrame>
@@ -231,43 +312,183 @@ export function ProviderUsageIndicator() {
   );
 }
 
-/** Small donut showing the worst utilization; empty track when no data. */
-function UsageRing({ pct, dim }: { pct: number | null; dim: boolean }) {
-  const size = 14;
-  const stroke = 2.5;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const clamped = pct === null ? 0 : Math.max(0, Math.min(100, pct));
+const MAX_DOTS = 5;
+
+type DotState = { key: string; filled: boolean; color: string };
+
+/**
+ * One status dot per enabled provider, in settings order (same order as the
+ * popover rows). Filled = reporting usage, colored by that provider's worst
+ * window band; hollow = not reporting (signed out, unavailable, or error).
+ */
+function ProviderDots({ dots }: { dots: DotState[] }) {
+  const visible = dots.slice(0, MAX_DOTS);
+  const overflow = dots.length - visible.length;
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
+    <span
       aria-hidden
-      style={{ flexShrink: 0, transform: "rotate(-90deg)", opacity: dim ? 0.5 : 1 }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
     >
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke="var(--border-strong)"
-        strokeWidth={stroke}
-      />
-      {pct !== null && (
+      {visible.map((d) => (
+        <StatusDot key={d.key} filled={d.filled} color={d.color} />
+      ))}
+      {overflow > 0 && (
+        <span style={{ color: "var(--text-faint)", fontSize: 10 }}>+{overflow}</span>
+      )}
+    </span>
+  );
+}
+
+const RING_SIZE = 18;
+const RING_STROKE = 2;
+
+/**
+ * Single-provider chip face: a radial gauge — track ring, band-colored arc
+ * for the worst window, percent number centered inside. Only rendered for a
+ * healthy metered provider; every other state falls back to dot + label.
+ */
+function UsageRing({ pct }: { pct: number }) {
+  const r = (RING_SIZE - RING_STROKE) / 2;
+  const c = 2 * Math.PI * r;
+  const center = RING_SIZE / 2;
+  return (
+    <span
+      aria-hidden
+      style={{
+        position: "relative",
+        width: RING_SIZE,
+        height: RING_SIZE,
+        flexShrink: 0,
+        display: "inline-flex",
+      }}
+    >
+      <svg
+        width={RING_SIZE}
+        height={RING_SIZE}
+        viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+        style={{ transform: "rotate(-90deg)" }}
+      >
         <circle
-          cx={size / 2}
-          cy={size / 2}
+          cx={center}
+          cy={center}
           r={r}
           fill="none"
-          stroke={usageColor(clamped)}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={`${(clamped / 100) * c} ${c}`}
+          stroke="color-mix(in srgb, var(--text) 14%, transparent)"
+          strokeWidth={RING_STROKE}
         />
-      )}
-    </svg>
+        <circle
+          className="mc-usage-ring-arc"
+          cx={center}
+          cy={center}
+          r={r}
+          fill="none"
+          stroke={usageColor(pct)}
+          strokeWidth={RING_STROKE}
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - pct / 100)}
+        />
+      </svg>
+      <span
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "var(--mono)",
+          // Three digits (100) need a hair less type to clear the arc.
+          fontSize: pct >= 100 ? 6.5 : 8,
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          fontVariantNumeric: "tabular-nums",
+          // Full text color — at this size a dimmed number is decoration.
+          color: "var(--text)",
+          lineHeight: 1,
+        }}
+      >
+        {pct}
+      </span>
+    </span>
   );
+}
+
+/**
+ * The status-dot glyph — identical rendering in the chip and popover rows.
+ * 7px: the smallest size at which the hollow (not-reporting) ring survives a
+ * glance; at 6px the 1.5px inset stroke reads as a filled dot.
+ */
+function StatusDot({ filled, color }: { filled: boolean; color: string }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        flexShrink: 0,
+        background: filled ? color : "transparent",
+        boxShadow: filled ? "none" : `inset 0 0 0 1.5px ${color}`,
+      }}
+    />
+  );
+}
+
+/** Dot presentation for a provider's own state (independent of the others). */
+function providerDotState(p: ProviderUsageSnapshot): { filled: boolean; color: string } {
+  switch (p.status) {
+    case "ok": {
+      const pct = worstMeteredPct(p);
+      // Meterless (balance-only) provider: connected and healthy — same
+      // green as a low-utilization metered provider, not a neutral that
+      // reads as "off".
+      if (pct === null) return { filled: true, color: "var(--status-done)" };
+      return { filled: true, color: usageColor(pct) };
+    }
+    case "rate_limited":
+      return { filled: true, color: "var(--status-failed)" };
+    case "error":
+      return { filled: false, color: "var(--status-failed)" };
+    case "unauthenticated":
+    case "unavailable":
+    default:
+      return { filled: false, color: "var(--text-dim)" };
+  }
+}
+
+/** Worst metered window within one provider, 0–100, or null when meterless. */
+function worstMeteredPct(p: ProviderUsageSnapshot): number | null {
+  let worst: number | null = null;
+  for (const w of p.windows) {
+    if (w.utilization === null) continue;
+    const pct = Math.max(0, Math.min(100, Math.round(w.utilization)));
+    if (worst === null || pct > worst) worst = pct;
+  }
+  return worst;
+}
+
+/** Screen-reader summary of every provider, mirroring the dots + label. */
+function ariaSummary(providers: ProviderUsageSnapshot[]): string {
+  if (providers.length === 0) return "Provider usage limits";
+  const parts = providers.map((p) => {
+    switch (p.status) {
+      case "ok": {
+        const pct = worstMeteredPct(p);
+        return pct === null ? `${p.displayName} ok` : `${p.displayName} ${pct}%`;
+      }
+      case "unauthenticated":
+        return `${p.displayName} signed out`;
+      case "rate_limited":
+        return `${p.displayName} rate-limited`;
+      case "error":
+        return `${p.displayName} error`;
+      case "unavailable":
+        return `${p.displayName} unavailable`;
+      default:
+        return `${p.displayName} ${p.status}`;
+    }
+  });
+  return `Provider usage: ${parts.join(", ")}`;
 }
 
 function filterProviderWindows(
@@ -286,15 +507,21 @@ function filterProviderWindows(
   };
 }
 
-/** Quiet one-word state when no provider has a renderable window yet. */
-function collapsedFallbackLabel(
+/**
+ * Text for the rest states that can't speak through the dots alone: nothing
+ * fetched yet, or every provider signed out. Healthy data → null (dots only).
+ * Rate-limited/warning providers are handled before this.
+ */
+function collapsedFallback(
   providers: ProviderUsageSnapshot[],
   isLoading: boolean,
-): string {
-  if (isLoading || providers.length === 0) return "usage";
-  if (providers.some((p) => p.status === "rate_limited")) return "rate-limited";
-  if (providers.every((p) => p.status === "unauthenticated")) return "sign in";
-  return "usage";
+): { label: string; color: string } | null {
+  if (isLoading && providers.length === 0)
+    return { label: "usage", color: "var(--text-dim)" };
+  if (providers.length === 0) return { label: "usage", color: "var(--text-dim)" };
+  if (providers.every((p) => p.status === "unauthenticated"))
+    return { label: "sign in", color: "var(--text-dim)" };
+  return null;
 }
 
 /** The most-consumed window across all providers with usable data. */
@@ -304,71 +531,60 @@ function pickWorstWindow(
   let best: { providerName: string; pct: number } | null = null;
   for (const p of providers) {
     if (p.status !== "ok") continue;
-    for (const w of p.windows) {
-      if (w.utilization === null) continue; // meterless (balance) windows
-      const pct = Math.max(0, Math.min(100, Math.round(w.utilization)));
-      if (!best || pct > best.pct) best = { providerName: p.displayName, pct };
-    }
+    const pct = worstMeteredPct(p);
+    if (pct === null) continue; // meterless (balance) windows only
+    if (!best || pct > best.pct) best = { providerName: p.displayName, pct };
   }
   return best;
 }
 
-function ProviderRow({ snapshot }: { snapshot: ProviderUsageSnapshot }) {
+/**
+ * One flat provider section: the provider's chip dot + name + status tag on
+ * the lead line, window rows aligned beneath the name. Providers that aren't
+ * reporting (signed out, error, unavailable) stay a single quiet line — the
+ * reason rides inline, truncated, with the full text in the row's tooltip —
+ * so providers with real data own the panel's vertical space.
+ */
+function ProviderSection({ snapshot }: { snapshot: ProviderUsageSnapshot }) {
+  const dot = providerDotState(snapshot);
+  const reporting = snapshot.status === "ok" || snapshot.status === "rate_limited";
+  const hint = reporting ? "" : (snapshot.error ?? "");
   return (
     <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 5,
-        padding: "8px 8px",
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-        background: "rgba(255,255,255,0.03)",
-      }}
+      style={{ display: "flex", flexDirection: "column", gap: 5, padding: "7px 6px" }}
+      title={hint || undefined}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 8,
-        }}
-      >
-        <span style={{ color: "var(--text)", fontSize: 12, fontWeight: 600 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <StatusDot filled={dot.filled} color={dot.color} />
+        <span
+          style={{
+            color: reporting ? "var(--text)" : "var(--text-dim)",
+            fontSize: 12,
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
           {snapshot.displayName}
+        </span>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            color: "var(--text-faint)",
+            fontSize: 11,
+            textAlign: "right",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {hint}
         </span>
         <StatusTag snapshot={snapshot} />
       </div>
       {snapshot.windows.map((w) => (
         <WindowRow key={w.id} window={w} />
       ))}
-      {snapshot.status === "unauthenticated" && (
-        <div
-          style={{
-            color: "var(--text-faint)",
-            fontSize: 11,
-            lineHeight: 1.4,
-          }}
-          title={snapshot.error}
-        >
-          {authHelp(snapshot)}
-        </div>
-      )}
-      {snapshot.status === "error" && snapshot.error && (
-        <div
-          style={{
-            color: "var(--text-faint)",
-            fontSize: 11,
-            lineHeight: 1.4,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-          title={snapshot.error}
-        >
-          {snapshot.error}
-        </div>
-      )}
     </div>
   );
 }
@@ -398,7 +614,7 @@ function statusPresentation(s: ProviderUsageSnapshot): { label: string | null; c
     case "unauthenticated":
       return { label: "sign in", color: "var(--text-faint)" };
     case "rate_limited":
-      return { label: "rate-limited", color: "var(--status-warning)" };
+      return { label: "rate-limited", color: "var(--status-failed)" };
     case "unavailable":
       return { label: "unavailable", color: "var(--text-faint)" };
     case "error":
@@ -406,13 +622,6 @@ function statusPresentation(s: ProviderUsageSnapshot): { label: string | null; c
     default:
       return { label: s.status, color: "var(--text-faint)" };
   }
-}
-
-/** Human hint for how to authenticate, derived from the adapter's reason string. */
-function authHelp(s: ProviderUsageSnapshot): string {
-  const reason = s.error?.trim();
-  if (reason) return `No credentials — ${reason}`;
-  return "No credentials found for this provider.";
 }
 
 function WindowRow({ window }: { window: ProviderUsageWindow }) {
@@ -425,6 +634,8 @@ function WindowRow({ window }: { window: ProviderUsageWindow }) {
           display: "flex",
           alignItems: "center",
           gap: 8,
+          // Align window labels under the provider name (dot 6px + gap 8px).
+          paddingLeft: 14,
           fontFamily: "var(--mono)",
           fontSize: 11,
         }}
@@ -476,6 +687,7 @@ function WindowRow({ window }: { window: ProviderUsageWindow }) {
         display: "flex",
         alignItems: "center",
         gap: 8,
+        paddingLeft: 14,
         fontFamily: "var(--mono)",
         fontSize: 11,
       }}
@@ -498,20 +710,23 @@ function WindowRow({ window }: { window: ProviderUsageWindow }) {
         style={{
           position: "relative",
           flex: 1,
-          height: 5,
-          borderRadius: 3,
-          background: "var(--surface-2)",
+          height: 4,
+          borderRadius: 999,
+          // Text-mix track instead of a surface token: the popover surface is
+          // itself near --surface-2, which made the empty track invisible.
+          background: "color-mix(in srgb, var(--text) 9%, transparent)",
           overflow: "hidden",
         }}
       >
         <span
+          className="mc-usage-fill"
           style={{
             position: "absolute",
             insetBlock: 0,
             insetInlineStart: 0,
             width: `${pct}%`,
             background: usageColor(pct),
-            borderRadius: 3,
+            borderRadius: 999,
           }}
         />
       </span>
@@ -529,21 +744,34 @@ function WindowRow({ window }: { window: ProviderUsageWindow }) {
       <span
         style={{
           color: "var(--text-faint)",
-          width: 64,
+          // Wide enough for "↻ Fri 01:50" at 11px mono — narrower clips.
+          width: 78,
           flexShrink: 0,
           textAlign: "right",
           whiteSpace: "nowrap",
         }}
       >
-        {reset ? `↻ ${reset}` : ""}
+        {reset ? (
+          <>
+            {/* Glyph is visual shorthand for "resets" — keep it out of SR output. */}
+            <span aria-hidden>{"↻ "}</span>
+            {reset}
+          </>
+        ) : (
+          ""
+        )}
       </span>
     </div>
   );
 }
 
+/** Utilization at which a provider is worth naming in the collapsed chip. */
+const WARN_PCT = 70;
+const HOT_PCT = 90;
+
 function usageColor(pct: number): string {
-  if (pct >= 90) return "var(--status-failed)";
-  if (pct >= 70) return "var(--status-warning)";
+  if (pct >= HOT_PCT) return "var(--status-failed)";
+  if (pct >= WARN_PCT) return "var(--status-warning)";
   return "var(--status-done)";
 }
 
