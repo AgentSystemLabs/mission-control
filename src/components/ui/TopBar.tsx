@@ -52,18 +52,24 @@ export function TopBar({
           minWidth: 0,
         }}
       >
+        {/* App identity recedes to a logo-only home button so the project
+         * cockpit (picker → scope → run → branch/ship) is the bar's centre of
+         * gravity. The wordmark still shows on the home/launch screen. */}
         <button
           type="button"
           onClick={onHome}
           aria-label="Mission Control home"
+          title="Mission Control — home"
+          className="mc-topbar-home"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 10,
-            background: "transparent",
+            flexShrink: 0,
+            height: 34,
             border: "none",
-            padding: 0,
-            margin: 0,
+            padding: "0 8px 0 6px",
+            borderRadius: 8,
             cursor: "pointer",
             color: "inherit",
             pointerEvents: "auto",
@@ -72,7 +78,7 @@ export function TopBar({
         >
           <img
             src="/images/robot.png"
-            alt="AgentSystem.dev"
+            alt="Mission Control"
             width={22}
             height={22}
             style={{ borderRadius: 5, display: "block" }}
@@ -163,17 +169,6 @@ export function TopBar({
               </span>
             ))}
           </>
-        )}
-        {centerActions && (
-          <span
-            aria-hidden
-            style={{
-              width: 1,
-              height: 18,
-              background: "var(--border)",
-              margin: "0 4px",
-            }}
-          />
         )}
         {centerActions && (
           <span

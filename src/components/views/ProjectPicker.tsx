@@ -209,7 +209,16 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
         >
           {current && <ProjectIcon project={current} size={14} />}
           <span>{label}</span>
-          <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
+          <Icon
+            name="chevron-down"
+            size={11}
+            style={{
+              color: "var(--text-faint)",
+              flexShrink: 0,
+              transform: open ? "rotate(180deg)" : undefined,
+              transition: "transform 120ms ease",
+            }}
+          />
         </Btn>
       </HotkeyTooltip>
       {open && (

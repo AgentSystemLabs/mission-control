@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
+import { Icon } from "~/components/ui/Icon";
 import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { Tooltip } from "~/components/ui/Tooltip";
 import { Z_INDEX } from "~/lib/z-index";
@@ -119,7 +120,6 @@ export function CustomScriptsButton({
         <Btn
           variant="gray-frame"
           size="md"
-          icon="chevron-down"
           className="mc-btn-attached-left"
           onClick={() => setOpen((v) => !v)}
           disabled={disabled}
@@ -128,7 +128,17 @@ export function CustomScriptsButton({
           aria-label="More scripts"
           title="More scripts"
           style={{ minWidth: 36, paddingInline: 0 }}
-        />
+        >
+          <Icon
+            name="chevron-down"
+            size={13}
+            style={{
+              flexShrink: 0,
+              transform: open ? "rotate(180deg)" : undefined,
+              transition: "transform 120ms ease",
+            }}
+          />
+        </Btn>
       )}
       {open &&
         menuRect &&

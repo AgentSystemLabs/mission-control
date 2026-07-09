@@ -66,6 +66,10 @@ export type IconName =
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const iconStyle: CSSProperties = { display: "block", flexShrink: 0, ...style };
   const common = {
+    // Stable per-name class so any icon can be targeted from CSS (e.g. for
+    // hover-driven micro-animations on header buttons) without threading a
+    // className prop through every call site. See .mc-icon-* in styles.css.
+    className: `mc-icon mc-icon-${name}`,
     width: size,
     height: size,
     viewBox: "0 0 16 16",

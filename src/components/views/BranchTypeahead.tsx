@@ -95,6 +95,10 @@ export function BranchTypeahead({
   selected = false,
   /** Drop the right frame edge so this can fuse with a trailing sync control. */
   attachedTrailing = false,
+  /** When provided, the dropdown gains a "New worktree" action in its footer. */
+  onCreateWorktree,
+  createWorktreeDisabled = false,
+  createWorktreeTitle,
 }: {
   projectId: string;
   worktreeId?: string | null;
@@ -103,6 +107,9 @@ export function BranchTypeahead({
   worktreePath?: string;
   selected?: boolean;
   attachedTrailing?: boolean;
+  onCreateWorktree?: () => void;
+  createWorktreeDisabled?: boolean;
+  createWorktreeTitle?: string;
 }) {
   const branchLabel = branch?.trim() || "…";
   const queryClient = useQueryClient();
@@ -376,6 +383,7 @@ export function BranchTypeahead({
                     key={`${item.local ? "local" : "remote"}:${item.name}:${item.remoteRef ?? ""}`}
                     type="button"
                     role="option"
+                    className="mc-branch-menu-item"
                     aria-selected={item.name === branchLabel}
                     disabled={checkout.isPending}
                     onMouseDown={(event) => event.preventDefault()}
@@ -388,7 +396,7 @@ export function BranchTypeahead({
                       minHeight: 32,
                       border: 0,
                       borderRadius: 6,
-                      background: item.name === branchLabel ? "var(--accent-dim)" : "transparent",
+                      background: item.name === branchLabel ? "var(--accent-dim)" : undefined,
                       color: item.name === branchLabel ? "var(--accent)" : "var(--text)",
                       cursor: checkout.isPending ? "default" : "pointer",
                       padding: "7px 9px",
@@ -421,6 +429,7 @@ export function BranchTypeahead({
                 <button
                   type="button"
                   role="option"
+                  className="mc-branch-menu-item"
                   aria-selected={false}
                   disabled={checkout.isPending}
                   onMouseDown={(event) => event.preventDefault()}
@@ -433,7 +442,6 @@ export function BranchTypeahead({
                     minHeight: 32,
                     border: 0,
                     borderRadius: 6,
-                    background: "transparent",
                     color: "var(--accent)",
                     cursor: checkout.isPending ? "default" : "pointer",
                     padding: "7px 9px",
@@ -463,6 +471,40 @@ export function BranchTypeahead({
                   </div>
                 )}
             </div>
+            {onCreateWorktree && (
+              <div style={{ borderTop: "1px solid var(--border)", padding: 6 }}>
+                <button
+                  type="button"
+                  className="mc-branch-menu-item"
+                  disabled={createWorktreeDisabled}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    closeTypeahead();
+                    onCreateWorktree();
+                  }}
+                  title={createWorktreeTitle}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minHeight: 32,
+                    border: 0,
+                    borderRadius: 6,
+                    color: createWorktreeDisabled ? "var(--text-faint)" : "var(--text-dim)",
+                    cursor: createWorktreeDisabled ? "default" : "pointer",
+                    padding: "7px 9px",
+                    textAlign: "left",
+                    fontFamily: "var(--mono)",
+                    fontSize: 11.5,
+                    opacity: createWorktreeDisabled ? 0.6 : 1,
+                  }}
+                >
+                  <Icon name="git-branch" size={12} />
+                  New worktree
+                </button>
+              </div>
+            )}
           </CardFrame>,
           document.body,
         )

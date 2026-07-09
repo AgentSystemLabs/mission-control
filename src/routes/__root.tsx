@@ -618,7 +618,12 @@ function Shell() {
           onHome={goHome}
           centerActions={
             <>
-              {/* Sandbox switcher sits to the right of the selected project. */}
+              {/* Project cockpit, one grouped band: context (which project /
+               * which scope) then the project actions (run, branch/changes/
+               * ship, worktree, grid) portalled in by the project route. The
+               * sandbox switcher sits with the project as context; the single
+               * context→actions divider is the project route's leading action
+               * so it only appears when there are actions to separate. */}
               <ScopeDropdown />
               <HeaderActionsSlot />
             </>

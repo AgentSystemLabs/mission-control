@@ -1009,7 +1009,16 @@ export function ScopeDropdown() {
             style={{ width: 8, height: 8, borderRadius: "50%", background: activeColor, flexShrink: 0 }}
           />
           <span>{label}</span>
-          <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
+          <Icon
+            name="chevron-down"
+            size={11}
+            style={{
+              color: "var(--text-faint)",
+              flexShrink: 0,
+              transform: open ? "rotate(180deg)" : undefined,
+              transition: "transform 120ms ease",
+            }}
+          />
         </Btn>
 
         {showConfig && (
