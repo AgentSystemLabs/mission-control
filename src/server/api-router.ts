@@ -25,6 +25,7 @@ import * as projectMemoryController from "./controllers/project-memory.controlle
 import * as codeGraphController from "./controllers/code-graph.controller";
 import * as usageController from "./controllers/usage.controller";
 import * as claudeUsageLimitsController from "./controllers/claude-usage-limits.controller";
+import * as providerUsageController from "./controllers/provider-usage.controller";
 import * as eventsController from "./controllers/events.controller";
 import * as gitController from "./controllers/git.controller";
 import * as commitCliController from "./controllers/commit-cli.controller";
@@ -449,6 +450,9 @@ async function dispatch(
   if (pathname === "/api/usage" && method === "GET") return usageController.read(url);
   if (pathname === "/api/claude-usage-limits" && method === "GET") {
     return claudeUsageLimitsController.read();
+  }
+  if (pathname === "/api/provider-usage" && method === "GET") {
+    return providerUsageController.read(url);
   }
   if (pathname === "/api/events/ticket" && method === "POST") {
     return eventsController.issueTicket();

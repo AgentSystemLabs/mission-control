@@ -18,6 +18,9 @@ import { SHARED_LIMITS_FILE } from "~/shared/statusline-tap";
 // headers it already receives on its own API traffic.
 const USAGE_API_URL = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA_HEADER = "oauth-2025-04-20";
+// CodexBar always identifies as the Claude Code client (detected version,
+// fallback claude-code/2.1.0); the endpoint may gate or shape responses on it.
+const USAGE_USER_AGENT = "claude-code/2.1.0";
 const REQUEST_TIMEOUT_MS = 5_000;
 
 // How long a statusline-tap snapshot counts as fresh. While any Claude session
@@ -53,13 +56,15 @@ let tokenReader: () => string | null = readClaudeOAuthToken;
 const EMPTY_WINDOWS = { session: null, weekly: null, weeklyOpus: null };
 
 /**
- * Read the Claude OAuth access token: macOS Keychain first (service
- * "Claude Code-credentials"), then ~/.claude/.credentials.json. Returns null
- * when the user isn't logged into Claude Code. Faithful to the reader in
- * electron/sandbox-manager.ts:831-876 — both read the same item.
+ * Read the Claude OAuth access token: ~/.claude/.credentials.json first, then
+ * the macOS Keychain (service "Claude Code-credentials"). CodexBar tries the
+ * file before the keychain; both hold the same credential. Returns null when
+ * the user isn't logged into Claude Code. Deliberate deviation from CodexBar:
+ * no token refresh here — the statusline tap is the primary source and Claude
+ * Code keeps the file fresh.
  */
 export function readClaudeOAuthToken(): string | null {
-  const raw = readKeychainSecret(KEYCHAIN_SERVICE) ?? readCredentialsFile();
+  const raw = readCredentialsFile() ?? readKeychainSecret(KEYCHAIN_SERVICE);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: unknown } };
@@ -209,6 +214,8 @@ async function fetchFromApi(): Promise<FetchResult> {
       headers: {
         Authorization: `Bearer ${token}`,
         "anthropic-beta": OAUTH_BETA_HEADER,
+        Accept: "application/json",
+        "User-Agent": USAGE_USER_AGENT,
       },
       signal: controller.signal,
     });
@@ -246,7 +253,9 @@ async function fetchFromApi(): Promise<FetchResult> {
     };
   }
   consecutiveRateLimits = 0;
-  if (res.status === 401 || res.status === 403) {
+  // 401 = logged out. 403 is a scope/permission problem (e.g. token missing
+  // `user:profile`) — CodexBar surfaces it as a server error, not logged-out.
+  if (res.status === 401) {
     return {
       value: snapshot("unauthenticated", EMPTY_WINDOWS, `auth failed (${res.status})`),
       ttlMs: TRANSIENT_TTL_MS,
@@ -272,11 +281,13 @@ async function fetchFromApi(): Promise<FetchResult> {
     return { value: snapshot("error", EMPTY_WINDOWS, "invalid JSON response"), ttlMs: TRANSIENT_TTL_MS };
   }
   const b = body as Record<string, unknown>;
+  // Model-scoped weekly window: CodexBar prefers seven_day_sonnet over
+  // seven_day_opus (newer sonnet-scoped plans reuse the same slot).
   return {
     value: snapshot("ok", {
       session: parseWindow(b?.five_hour),
       weekly: parseWindow(b?.seven_day),
-      weeklyOpus: parseWindow(b?.seven_day_opus),
+      weeklyOpus: parseWindow(b?.seven_day_sonnet) ?? parseWindow(b?.seven_day_opus),
     }),
     ttlMs: SUCCESS_TTL_MS,
   };

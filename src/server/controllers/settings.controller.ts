@@ -46,6 +46,11 @@ import {
   type SurfaceTint,
 } from "~/shared/surface-tint";
 import {
+  DEFAULT_PROVIDER_USAGE_IDS,
+  normalizeProviderUsageIds,
+  type ProviderUsageId,
+} from "~/shared/provider-usage";
+import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
   TERMINAL_ZOOM_MAX,
   TERMINAL_ZOOM_MIN,
@@ -85,6 +90,8 @@ const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
 const CLAUDE_USAGE_LIMITS_ENABLED_KEY = "claude_usage_limits_enabled";
 const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
 const CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY = "claude_usage_limits_show_weekly";
+const PROVIDER_USAGE_ENABLED_KEY = "provider_usage_enabled";
+const PROVIDER_USAGE_IDS_KEY = "provider_usage_ids";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
   try {
@@ -161,6 +168,8 @@ const updateSettingsBody = z
     claudeUsageLimitsEnabled: z.boolean(),
     claudeUsageLimitsShowSession: z.boolean(),
     claudeUsageLimitsShowWeekly: z.boolean(),
+    providerUsageEnabled: z.boolean(),
+    providerUsageIds: z.array(z.string()).transform((value) => normalizeProviderUsageIds(value)),
     recallEnabled: z.boolean(),
     recallAutoCaptureEnabled: z.boolean(),
     recallEngineEnabled: z.boolean(),
@@ -323,13 +332,37 @@ function settingsPayload() {
     shipModel: getShipModelSetting(),
     shipPrompt: getShipPromptSetting(),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
-    // Off by default: this is the only feature that reaches out to Anthropic
-    // (using the user's Claude login), so it's strictly opt-in.
+    // Off by default: usage reaches out to provider APIs using local logins.
     claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
     claudeUsageLimitsShowSession: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY, true),
     claudeUsageLimitsShowWeekly: getBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, true),
+    // Multi-provider (CodexBar fork). If unset, fall back to legacy Claude-only toggle
+    // so existing users who already enabled Claude usage keep their indicator.
+    providerUsageEnabled: getProviderUsageEnabledSetting(),
+    providerUsageIds: getProviderUsageIdsSetting(),
     ...recallSettingsPayload(),
   };
+}
+
+function getProviderUsageEnabledSetting(): boolean {
+  const raw = getSetting(PROVIDER_USAGE_ENABLED_KEY);
+  if (raw !== null) return raw === "true" || raw === "1";
+  // Legacy: Claude-only toggle stood in for the master switch.
+  return getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false);
+}
+
+function getProviderUsageIdsSetting(): ProviderUsageId[] {
+  const raw = getSetting(PROVIDER_USAGE_IDS_KEY);
+  if (raw === null) {
+    // If only Claude was enabled historically, keep Claude as the sole provider.
+    if (getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false)) return ["claude"];
+    return [...DEFAULT_PROVIDER_USAGE_IDS];
+  }
+  try {
+    return normalizeProviderUsageIds(JSON.parse(raw));
+  } catch {
+    return [...DEFAULT_PROVIDER_USAGE_IDS];
+  }
 }
 
 function recallSettingsPayload() {
@@ -501,6 +534,19 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.claudeUsageLimitsShowWeekly !== undefined) {
     setBooleanSetting(CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY, body.claudeUsageLimitsShowWeekly);
+  }
+  if (body.providerUsageEnabled !== undefined) {
+    setBooleanSetting(PROVIDER_USAGE_ENABLED_KEY, body.providerUsageEnabled);
+    // Keep Claude legacy flag aligned when Claude is among enabled providers.
+    const ids =
+      body.providerUsageIds ??
+      getProviderUsageIdsSetting();
+    if (ids.includes("claude")) {
+      setBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, body.providerUsageEnabled);
+    }
+  }
+  if (body.providerUsageIds !== undefined) {
+    setSetting(PROVIDER_USAGE_IDS_KEY, JSON.stringify(body.providerUsageIds));
   }
   writeRecallSettings({
     enabled: body.recallEnabled,

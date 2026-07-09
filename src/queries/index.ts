@@ -45,6 +45,7 @@ export const queryKeys = {
     ] as const,
   usage: (days: number) => ["usage", days] as const,
   claudeUsageLimits: ["claude-usage-limits"] as const,
+  providerUsage: (idsKey: string) => ["provider-usage", idsKey] as const,
   promptSearch: (query: string) => ["prompt-search", query] as const,
   projectMemory: (projectId: string) => ["projects", projectId, "memory"] as const,
   archivedMemory: (projectId: string) => ["projects", projectId, "memory", "archived"] as const,
@@ -234,6 +235,23 @@ export const claudeUsageLimitsQueryOptions = (enabled: boolean) =>
     refetchInterval: enabled ? CLAUDE_USAGE_LIMITS_REFETCH_MS : false,
   });
 
+const PROVIDER_USAGE_STALE_MS = 20_000;
+const PROVIDER_USAGE_REFETCH_MS = 45_000;
+
+export const providerUsageQueryOptions = (
+  enabled: boolean,
+  providerIds: readonly string[],
+) => {
+  const idsKey = providerIds.join(",");
+  return queryOptions({
+    queryKey: queryKeys.providerUsage(idsKey),
+    queryFn: async () => api.getProviderUsage(providerIds),
+    enabled: enabled && providerIds.length > 0,
+    staleTime: PROVIDER_USAGE_STALE_MS,
+    refetchInterval: enabled ? PROVIDER_USAGE_REFETCH_MS : false,
+  });
+};
+
 const PROMPT_SEARCH_STALE_MS = 5_000;
 
 // `enabled` is caller-controlled so the query only runs while the palette is
@@ -274,5 +292,7 @@ export const useUsage = (days: number = DEFAULT_USAGE_DAYS) =>
   useQuery(usageQueryOptions(days));
 export const useClaudeUsageLimits = (enabled: boolean) =>
   useQuery(claudeUsageLimitsQueryOptions(enabled));
+export const useProviderUsage = (enabled: boolean, providerIds: readonly string[]) =>
+  useQuery(providerUsageQueryOptions(enabled, providerIds));
 export const usePromptSearch = (query: string, enabled: boolean) =>
   useQuery(promptSearchQueryOptions(query, enabled));

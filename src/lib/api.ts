@@ -19,6 +19,7 @@ import type { Binding, BindingMap, HotkeyAction } from "~/lib/keybindings/types"
 import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { ClaudeUsageLimits } from "~/shared/claude-usage-limits";
+import type { ProviderUsageId, ProviderUsageResponse } from "~/shared/provider-usage";
 import type { PendingQuestion } from "~/shared/agent-questions";
 import type { PromptSearchResponse } from "~/shared/prompts";
 import type { WorktreeInfo } from "~/shared/worktrees";
@@ -135,10 +136,17 @@ export type AppSettings = {
    * Show Claude Code's live session (5h) + weekly usage limits in the top bar.
    * Off by default — enabling it makes the app fetch usage from Anthropic using
    * the user's Claude login. The two `show*` flags toggle each window.
+   * Kept for backward compatibility; multi-provider uses `providerUsage*`.
    */
   claudeUsageLimitsEnabled: boolean;
   claudeUsageLimitsShowSession: boolean;
   claudeUsageLimitsShowWeekly: boolean;
+  /**
+   * Multi-provider usage (CodexBar fork): master toggle + which providers appear
+   * in the compact top-bar control. Off by default so the chrome stays quiet.
+   */
+  providerUsageEnabled: boolean;
+  providerUsageIds: ProviderUsageId[];
   /**
    * Recall (project memory) controls. `recallEnabled` is the experimental
    * master switch — it ships off by default (opt in from Settings). When off
@@ -611,6 +619,8 @@ export const api = {
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"
         | "claudeUsageLimitsShowWeekly"
+        | "providerUsageEnabled"
+        | "providerUsageIds"
         | "recallEnabled"
         | "recallAutoCaptureEnabled"
         | "recallEngineEnabled"
@@ -718,6 +728,13 @@ export const api = {
     req<UsageSummary>(`/api/usage?days=${days}`),
   getClaudeUsageLimits: () =>
     req<ClaudeUsageLimits>("/api/claude-usage-limits"),
+  getProviderUsage: (providerIds?: readonly string[]) => {
+    const q =
+      providerIds && providerIds.length > 0
+        ? `?providers=${encodeURIComponent(providerIds.join(","))}`
+        : "";
+    return req<ProviderUsageResponse>(`/api/provider-usage${q}`);
+  },
   searchPrompts: (query: string, limit?: number) =>
     req<PromptSearchResponse>(
       `/api/prompts?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ""}`,

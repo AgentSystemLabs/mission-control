@@ -85,6 +85,8 @@ export function ThemeSettingsPage() {
     claudeUsageLimitsEnabled: settings?.claudeUsageLimitsEnabled ?? false,
     claudeUsageLimitsShowSession: settings?.claudeUsageLimitsShowSession ?? true,
     claudeUsageLimitsShowWeekly: settings?.claudeUsageLimitsShowWeekly ?? true,
+    providerUsageEnabled: settings?.providerUsageEnabled ?? false,
+    providerUsageIds: settings?.providerUsageIds ?? ["claude", "codex", "cursor"],
     recallEnabled: settings?.recallEnabled ?? false,
     recallAutoCaptureEnabled: settings?.recallAutoCaptureEnabled ?? true,
     recallEngineEnabled: settings?.recallEngineEnabled ?? true,
