@@ -2366,6 +2366,11 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] [data-session-grid] .mc-card-frame {
   border-radius: 0 !important;
 }
+/* Normal view's right-side session terminal panel butts against the project
+   view edge, so square its corners on the flat theme to match the grid. */
+[data-minimal="true"] .mc-card-frame[data-session-terminal-panel] {
+  border-radius: 0 !important;
+}
 /* The flush cell seams read as liquid-glass edges: a translucent white
    border (light catching the rim of a glass pane) plus a 1px specular
    highlight along the inside top edge. On the dark ground the recipe's
