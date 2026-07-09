@@ -21,6 +21,7 @@ import * as nodeNet from "node:net";
 import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
+import { setAppThemeFromBackground } from "./app-theme";
 import {
   isWhisperAvailable,
   prewarmWhisper,
@@ -203,10 +204,14 @@ function windowBackgroundFile(): string {
 function readPersistedWindowBackground(): string {
   try {
     const raw = fs.readFileSync(windowBackgroundFile(), "utf8").trim();
-    if (WINDOW_BACKGROUND_HEX_RE.test(raw)) return raw;
+    if (WINDOW_BACKGROUND_HEX_RE.test(raw)) {
+      setAppThemeFromBackground(raw);
+      return raw;
+    }
   } catch {
     /* first launch or unreadable — fall back to dark */
   }
+  setAppThemeFromBackground(WINDOW_BACKGROUND_DEFAULT);
   return WINDOW_BACKGROUND_DEFAULT;
 }
 
@@ -1546,6 +1551,9 @@ safeHandle(IPC.appSetBackgroundColor, (event, color: string) => {
   const target = BrowserWindow.fromWebContents(event.sender) ?? win;
   if (target && !target.isDestroyed()) target.setBackgroundColor(color);
   persistWindowBackground(color);
+  // Keep main's app-theme snapshot current — pty spawns read it so agent
+  // theme hints (COLORFGBG / MC_THEME) can't be poisoned by a stale window.
+  setAppThemeFromBackground(color);
   return { ok: true as const };
 });
 

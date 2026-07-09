@@ -1193,7 +1193,7 @@ export function ScreenshotAnnotator({
         {/* Header: the working toolbar, attached as real app chrome. */}
         <div className="mc-annot-header">
           <div className="mc-annot-bar">
-            <div className="mc-annot-group">
+            <div className="mc-annot-group mc-annot-group--tools">
               {TOOLS.map((t) => (
                 <button
                   key={t.tool}
@@ -1211,7 +1211,7 @@ export function ScreenshotAnnotator({
 
             <span className="mc-annot-div" />
 
-            <div className="mc-annot-group">
+            <div className="mc-annot-group mc-annot-group--colors">
               {COLORS.map((c, i) => (
                 <button
                   key={c}
@@ -1241,7 +1241,7 @@ export function ScreenshotAnnotator({
 
             <span className="mc-annot-div" />
 
-            <div className="mc-annot-group">
+            <div className="mc-annot-group mc-annot-group--widths">
               {WIDTHS.map((w, i) => (
                 <button
                   key={w.label}
@@ -1259,7 +1259,7 @@ export function ScreenshotAnnotator({
 
             <span className="mc-annot-div" />
 
-            <div className="mc-annot-group">
+            <div className="mc-annot-group mc-annot-group--history">
               <button
                 type="button"
                 className="mc-annot-tool"
@@ -1464,7 +1464,11 @@ const ANNOT_CSS = `
      toolbar stays optically centered in the header. */
   padding-right: 40px;
 }
-.mc-annot-close {
+/* Header-qualified so this outranks the [data-tip] hover-tooltip rule above —
+   a bare .mc-annot-close loses the specificity tie and its position: absolute
+   would be silently replaced by the tooltip anchor's position: relative,
+   dropping the button into the flex flow. */
+.mc-annot-header .mc-annot-close {
   position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 34px; height: 34px; padding: 0; border-radius: 9px;
@@ -1549,5 +1553,59 @@ const ANNOT_CSS = `
   .mc-annot-root, .mc-annot-panel, .mc-annot-canvas-frame { animation: none; }
   .mc-annot-header [data-tip]::after,
   .mc-annot-header [data-tip]:hover::after { transform: none; transition: opacity 110ms ease; }
+}
+/* Narrow windows (the focus-mode floating card most of all): the single-row
+   toolbar needs ~835px, and free flex wrapping breaks it into ragged rows with
+   dividers stretched across them. Below that, lay the four groups out as a
+   deliberate 2×2 grid instead — tools + history on top, colors + widths
+   below — and pin the close button to the first row. */
+@media (max-width: 940px) {
+  .mc-annot-header { padding: 8px 10px; }
+  .mc-annot-bar {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: center;
+    align-items: center;
+    justify-items: start;
+    row-gap: 5px; column-gap: 14px;
+  }
+  .mc-annot-div { display: none; }
+  .mc-annot-group--tools { order: 1; }
+  .mc-annot-group--history { order: 2; }
+  .mc-annot-group--colors { order: 3; }
+  .mc-annot-group--widths { order: 4; }
+  /* Align with the first toolbar row instead of floating between rows. */
+  .mc-annot-header .mc-annot-close { top: 8px; transform: none; }
+}
+/* Tighter still: shrink the controls so both grid columns keep fitting. */
+@media (max-width: 520px) {
+  .mc-annot-bar { column-gap: 8px; }
+  .mc-annot-tool { width: 28px; height: 28px; border-radius: 8px; }
+  .mc-annot-width { width: 24px; height: 28px; border-radius: 8px; }
+  .mc-annot-swatch { width: 18px; height: 18px; }
+  .mc-annot-close { width: 28px; height: 28px; }
+  /* The hint is dropped below, leaving the actions as the footer's only child —
+     space-between would park them at the left, so pin them right instead. */
+  .mc-annot-footer { padding: 9px 10px; gap: 10px; justify-content: flex-end; }
+  .mc-annot-footer-hint { display: none; }
+}
+/* Down to the minimum focus-window width (320px): one centered group per row.
+   The close button joins the header flow (top-right, beside the first row) and
+   the bar reclaims its clearance, so the 8-tool row fits even at 320 with the
+   tool buttons slightly narrowed. */
+@media (max-width: 440px) {
+  .mc-annot-bar {
+    grid-template-columns: auto;
+    row-gap: 4px;
+    justify-items: center;
+    padding-right: 0;
+  }
+  .mc-annot-tool { width: 26px; }
+  .mc-annot-header .mc-annot-close {
+    position: static; top: auto; transform: none; align-self: flex-start; flex: none;
+  }
+  /* Keep all three footer actions on one line down to the 320px minimum. */
+  .mc-annot-btn { padding: 0 12px; white-space: nowrap; }
+  .mc-annot-actions { gap: 6px; }
 }
 `;

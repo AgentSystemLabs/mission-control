@@ -222,16 +222,24 @@ export function UserTerminalPanel() {
 
   if (!active) return null;
 
+  // The collapsible body is always mounted so the panel can slide open AND
+  // closed; `panelOpen` just drives the grid-rows transition (see the
+  // `.mc-userterm-body` CSS). The inner content keeps its concrete height so
+  // the terminals' flex layout still has something to fill — screenshots pin to
+  // a fixed strip height, terminals use their remembered, resizable height.
+  const bodyIsScreenshots = showScreenshots && !!project;
+  const bodyHeight = bodyIsScreenshots ? SCREENSHOT_PANEL_HEIGHT : height;
+
   return (
     <CardFrame
       frame="slanted"
       data-user-terminal-panel
       style={{
         width: "100%",
-        // Terminals keep their own remembered, resizable height; the
-        // screenshots strip is pinned to a fixed height and can't be dragged.
-        height: panelOpen ? (screenshotsVisible ? SCREENSHOT_PANEL_HEIGHT : height) : "auto",
-        minHeight: panelOpen ? (screenshotsVisible ? SCREENSHOT_PANEL_HEIGHT : MIN_HEIGHT) : 0,
+        // Height is driven by the header plus the animated body wrapper rather
+        // than pinned here, so opening/closing eases instead of snapping.
+        height: "auto",
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
@@ -440,23 +448,34 @@ export function UserTerminalPanel() {
           </HotkeyTooltip>
         </div>
       </div>
-      {panelOpen && showScreenshots && project ? (
-        <ScreenshotHistoryContent projectId={project.id} />
-      ) : panelOpen ? (
-      <div
-        ref={paneRowRef}
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "row",
-          overflow: "hidden",
-          // gap removed when we have splitters between panes — the splitter
-          // provides its own visual spacing/hit area.
-          gap: visibleSessions.length > 1 ? 0 : 8,
-          padding: 8,
-        }}
-      >
-        {visibleSessions.length === 0 ? (
+      <div className="mc-userterm-body" data-open={panelOpen ? "true" : undefined}>
+        <div className="mc-userterm-body-inner">
+          <div
+            style={{
+              height: bodyHeight,
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+              overflow: "hidden",
+            }}
+          >
+            {bodyIsScreenshots && project ? (
+              <ScreenshotHistoryContent projectId={project.id} />
+            ) : (
+            <div
+              ref={paneRowRef}
+              style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: "row",
+                overflow: "hidden",
+                // gap removed when we have splitters between panes — the splitter
+                // provides its own visual spacing/hit area.
+                gap: visibleSessions.length > 1 ? 0 : 8,
+                padding: 8,
+              }}
+            >
+              {visibleSessions.length === 0 ? (
           <div
             style={{
               flex: 1,
@@ -541,8 +560,11 @@ export function UserTerminalPanel() {
             );
           })
         )}
+            </div>
+            )}
+          </div>
+        </div>
       </div>
-      ) : null}
     </CardFrame>
   );
 }

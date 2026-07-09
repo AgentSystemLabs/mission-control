@@ -576,6 +576,45 @@ select,
   outline-offset: 3px;
 }
 
+/* Logo + wordmark home button in the top bar: CSS-driven hover + focus so it
+   feeds back like the rest of the chrome (no JS hover state, no re-render). */
+.mc-topbar-home {
+  background: transparent;
+  transition: background 150ms ease;
+}
+.mc-topbar-home:hover {
+  background: var(--surface-2);
+}
+.mc-topbar-home:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-topbar-home {
+    transition: none;
+  }
+}
+
+/* Branch-typeahead dropdown rows: raw <button>s that previously had no hover
+   feedback and only the UA focus ring. Give them the branded hover + focus so
+   every row (including "New worktree") reads as interactive and consistent. */
+.mc-branch-menu-item {
+  background: transparent;
+  transition: background 120ms ease;
+}
+.mc-branch-menu-item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.mc-branch-menu-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-branch-menu-item {
+    transition: none;
+  }
+}
+
 .mc-btn-primary:focus-visible,
 .mc-btn-frame:focus-visible,
 .mc-btn-ghost:focus-visible,
@@ -1099,6 +1138,197 @@ select,
     stroke-dashoffset: 0;
   }
 }
+
+/* Grid/list view toggle: morph the four cells between the grid and list layouts
+   so a click reads as the view physically changing. The geometry attributes are
+   CSS-animatable in Chromium (Electron), so a plain transition tweens the swap. */
+.mc-viewtoggle-icon rect {
+  transition:
+    x 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    y 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    width 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    height 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    rx 0.34s cubic-bezier(0.34, 1.32, 0.5, 1);
+}
+/* Stagger the right column slightly so the rows sweep out after the bullets
+   settle — a small cue that reinforces the "reflowing" feel. */
+.mc-viewtoggle-icon rect:nth-of-type(2) {
+  transition-delay: 0.04s;
+}
+.mc-viewtoggle-icon rect:nth-of-type(4) {
+  transition-delay: 0.06s;
+}
+.mc-viewtoggle-icon {
+  transform-origin: center;
+  transition: transform 0.18s ease;
+}
+.mc-btn:hover .mc-viewtoggle-icon {
+  transform: scale(1.06);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-viewtoggle-icon rect,
+  .mc-btn:hover .mc-viewtoggle-icon {
+    transition: none;
+  }
+}
+
+/* Header icon micro-animations: each top-bar button's glyph springs to life on
+   hover, so the control set reads as responsive rather than static. Each glyph
+   moves in the direction of its meaning: Run darts right, the branch node
+   pulses, the Changes page peeks up, and the Ship arrow lifts off. */
+.mc-icon-play,
+.mc-icon-file,
+.mc-icon-upload {
+  /* Whole <svg> is an HTML replaced element, so its own box drives the
+     transform-origin — no transform-box needed. */
+  transition: transform 0.28s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+
+/* Run ▶ — darts to the right, the "go" cue. */
+.mc-btn:hover .mc-icon-play {
+  transform: translateX(2px) scale(1.06);
+}
+
+/* Branch — the branch-off node (third circle) pulses to signal divergence.
+   Transforming an SVG child needs fill-box so the origin resolves inside the
+   viewBox rather than the element's border box. */
+.mc-icon-git-branch circle:nth-of-type(3) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mc-btn:hover .mc-icon-git-branch circle:nth-of-type(3) {
+  animation: mc-branch-pulse 0.9s ease-in-out infinite;
+}
+@keyframes mc-branch-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.5);
+  }
+}
+
+/* Changes — the page peeks up and tilts, like lifting a corner to look. */
+.mc-icon-file {
+  transform-origin: bottom left;
+}
+.mc-btn:hover .mc-icon-file {
+  transform: translateY(-1.5px) rotate(-5deg);
+}
+
+/* Ship ⬆ — the arrow lifts off. */
+.mc-btn:hover .mc-icon-upload {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-icon-play,
+  .mc-icon-git-branch circle:nth-of-type(3),
+  .mc-icon-file,
+  .mc-icon-upload {
+    transition: none;
+  }
+  .mc-btn:hover .mc-icon-play,
+  .mc-btn:hover .mc-icon-file,
+  .mc-btn:hover .mc-icon-upload {
+    transform: none;
+  }
+  .mc-btn:hover .mc-icon-git-branch circle:nth-of-type(3) {
+    animation: none;
+  }
+}
+
+/* Right-zone header controls — same meaning-driven hover language as the cockpit
+   icons above: each glyph animates toward what its button does. Screenshot,
+   Find file, New session (+ new row), and session settings all get a cue. */
+.mc-icon-camera,
+.mc-icon-file-search,
+.mc-icon-plus,
+.mc-icon-row-plus,
+.mc-icon-settings {
+  /* Whole <svg> is a replaced element, so its own box is the transform-origin. */
+  transform-origin: center;
+  transition: transform 0.3s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+
+/* Screenshot 📷 — the body lifts and the lens fires a shutter blink. Transforming
+   an SVG child needs fill-box so the origin resolves inside the viewBox. */
+.mc-icon-camera circle,
+.mc-icon-file-search circle {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mc-btn:hover .mc-icon-camera {
+  transform: translateY(-1px);
+}
+.mc-btn:hover .mc-icon-camera circle {
+  animation: mc-shutter 0.7s ease-in-out infinite;
+}
+@keyframes mc-shutter {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(0.6);
+  }
+}
+
+/* Find file 🔍 — the document lifts and the magnifier lens pulses as it focuses. */
+.mc-btn:hover .mc-icon-file-search {
+  transform: translateY(-1px);
+}
+.mc-btn:hover .mc-icon-file-search circle {
+  animation: mc-search-focus 0.85s ease-in-out infinite;
+}
+@keyframes mc-search-focus {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+/* New session ✚ — the plus spins a quarter-turn and swells, reading as "spawn". */
+.mc-btn:hover .mc-icon-plus {
+  transform: rotate(90deg) scale(1.12);
+}
+
+/* New row — the icon drops down a touch, like a fresh row sliding in below. */
+.mc-btn:hover .mc-icon-row-plus {
+  transform: translateY(1.5px) scale(1.06);
+}
+
+/* Session settings ⚙ — the gear notches over, the universal "configure" cue. */
+.mc-btn:hover .mc-icon-settings {
+  transform: rotate(72deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-icon-camera,
+  .mc-icon-camera circle,
+  .mc-icon-file-search,
+  .mc-icon-file-search circle,
+  .mc-icon-plus,
+  .mc-icon-row-plus,
+  .mc-icon-settings {
+    transition: none;
+  }
+  .mc-btn:hover .mc-icon-camera,
+  .mc-btn:hover .mc-icon-file-search,
+  .mc-btn:hover .mc-icon-plus,
+  .mc-btn:hover .mc-icon-row-plus,
+  .mc-btn:hover .mc-icon-settings {
+    transform: none;
+  }
+  .mc-btn:hover .mc-icon-camera circle,
+  .mc-btn:hover .mc-icon-file-search circle {
+    animation: none;
+  }
+}
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -1331,19 +1561,26 @@ select,
    accent ring + a subtle zoom of the capture) to read as "grab me", and the
    ✕ stays out of the way until you're on the card. */
 .screenshot-history-card {
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
   transition:
     transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms ease,
     box-shadow 160ms ease;
   will-change: transform;
 }
 .screenshot-history-card:hover {
   transform: translateY(-3px);
+  border-color: var(--accent);
   box-shadow:
     0 8px 20px rgba(0, 0, 0, 0.34),
-    inset 0 0 0 1px var(--accent);
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
 }
 .screenshot-history-card:focus-visible {
   outline: none;
+  border-color: var(--accent);
   box-shadow:
     0 0 0 2px var(--bg),
     0 0 0 4px var(--accent);
@@ -2221,6 +2458,29 @@ body[data-card-glow] .cursor-glow {
   outline-offset: 1px;
 }
 
+/* Bottom terminal dock open/close: the body slides up on expand and down on
+   collapse. The grid `0fr -> 1fr` trick animates the wrapper between zero and
+   its natural (terminal/screenshot) height without needing a measured pixel
+   target, and the overflow-hidden inner clips the content as it reveals. */
+.mc-userterm-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  transition: grid-template-rows 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mc-userterm-body[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.mc-userterm-body > .mc-userterm-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-userterm-body {
+    transition: none;
+  }
+}
+
 /* Grid cell header controls rest at half strength so a wall of terminal panes
    reads calm; the active session (the pane you're focused in) sits a little
    brighter, and any control lights fully when you reach for it. Pressed-state
@@ -2289,6 +2549,23 @@ body[data-card-glow] .cursor-glow {
   /* Terminal canvas: the deepest step, just below the page ground. */
   --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), oklch(0.075 0.004 65));
 
+  /* Session-card ground (dark only; light overrides the whole terminal body
+     with a solid ground). The card body is an accent-over-charcoal fill built
+     from the SAME recipe as the --surface ladder, so it reads as the same
+     material as the rest of the flat chrome — just a hair lighter at the top
+     for a lit edge. These are the OFF-tint baseline (near-black ground); the
+     data-tint blocks near the bottom raise the accent dose and lift the base
+     toward charcoal so Subtle/Vivid/Intense match their surface ladders. */
+  /* Tint OFF: no accent wash in the ground, so the session panes get a darker,
+     firmer ground here than the tinted levels — a deeper base lightness and a
+     higher alpha so the panes read distinctly dark rather than washing back to
+     the page ground. The tint blocks below override these. */
+  --mc-card-top: color-mix(in srgb, var(--accent) 3%, oklch(0.055 0.004 65 / 0.74));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 2%, oklch(0.03 0.004 65 / 0.74));
+  /* Alpha of the lighter accent glow that tops the card gradient. Raised by
+     the tint blocks so the theme colour reads more as the tint climbs. */
+  --mc-card-glow: 0.04;
+
   /* Bundled faces: clearer, warmer mono for both xterm (via --mc-terminal-font,
      read by createTerminalOptions) and every UI mono surface, plus Plus Jakarta
      Sans for UI sans. */
@@ -2349,22 +2626,54 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] [data-session-grid] .mc-card-frame {
   border-radius: 0 !important;
 }
-/* The flush cell seams need to read stronger than the base hairline, so grid
-   pane dividers push 15% off each theme's own primary border color. Both
-   derive from var(--border) (preserving its accent tint), but the direction
-   flips per mode: on the light paper ground "stronger" means darker, while on
-   the dark ground darkening would sink the faint light-on-dark hairline into
-   the surface — so dark brightens instead. Skip the focused cell so it keeps
-   its accent border (see the :focus-within rule below). */
+/* Normal view's right-side session terminal panel butts against the project
+   view edge, so square its corners on the flat theme to match the grid. */
+[data-minimal="true"] .mc-card-frame[data-session-terminal-panel] {
+  border-radius: 0 !important;
+}
+/* The flush cell seams read as liquid-glass edges: a translucent white
+   border (light catching the rim of a glass pane) plus a 1px specular
+   highlight along the inside top edge. On the dark ground the recipe's
+   rgba(255,255,255,.25) reads directly; on the light paper ground pure
+   white would vanish, so the seam frosts the theme border with the same
+   35% white instead — lighter and glassier than the hairline, still
+   legible. Skip the focused cell so it keeps its accent border (see the
+   :focus-within rule below). */
 [data-minimal="true"][data-theme="light"]
   [data-session-grid]
   .mc-card-frame:not(:focus-within) {
-  border-color: color-mix(in srgb, var(--border), black 15%) !important;
+  border-color: color-mix(in srgb, white 35%, var(--border)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 1px 2px rgba(18, 22, 33, 0.05) !important;
 }
 [data-minimal="true"][data-theme="dark"]
   [data-session-grid]
   .mc-card-frame:not(:focus-within) {
-  border-color: color-mix(in srgb, var(--border), white 15%) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+/* Pinned session panes: a faint accent wash + slightly warmer border so a
+   pinned cell reads as held/kept without competing with the focused cell's
+   full accent ring. Skips :focus-within so the active cell keeps its own
+   treatment (see the :focus-within rule below). Placed after the seam rules
+   above so it wins the specificity tie on border-color. */
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame[data-pinned="true"]:not(:focus-within) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border)) !important;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-0)) !important;
+}
+/* Tint the (always-visible) header bar of a pinned pane too — the frame
+   background alone sits behind the header/terminal and barely reads. Skips the
+   focused cell, which gets its own warmer header (see :focus-within rule). */
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame[data-pinned="true"]:not(:focus-within)
+  [data-session-header] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-0)) !important;
 }
 [data-minimal="true"] .mc-card-frame[data-solid="true"] {
   background: var(--surface-1) !important;
@@ -2423,9 +2732,14 @@ body[data-card-glow] .cursor-glow {
   background: var(--surface-0) !important;
 }
 [data-minimal="true"] .mc-project-header {
-  border-bottom: 1px solid var(--border) !important;
+  border-bottom: none !important;
   border-radius: 0 !important;
   background: var(--surface-0) !important;
+}
+/* Flat-light lacks the tonal contrast that lets dark chrome separate the header
+   from the grid by surface alone, so restore the hairline underline there. */
+[data-minimal="true"][data-theme="light"] .mc-project-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent) !important;
 }
 /* Buttons: single 28/32/40 grid, squared considered surfaces */
 [data-minimal="true"] .mc-btn-primary,
@@ -2670,7 +2984,7 @@ body[data-card-glow] .cursor-glow {
     var(--mm-ring) !important;
 }
 
-/* Flat keeps the cursor glow but quieter than painted; no dot grid. */
+/* Flat keeps the cursor glow but quieter than painted. */
 [data-minimal="true"] .cursor-glow {
   --cursor-glow-color: color-mix(in srgb, var(--accent) 9%, transparent);
   --cursor-glow-filter: brightness(1.06) saturate(1.08);
@@ -2679,8 +2993,188 @@ body[data-card-glow] .cursor-glow {
   --cursor-glow-color: color-mix(in srgb, var(--accent) 6%, transparent);
   --cursor-glow-filter: brightness(1.02) saturate(1.04);
 }
+/* Flat pattern ground — a blueprint texture (fine grid with a dot at each
+   intersection) layered over the theme's own --bg. Every mark derives from
+   var(--accent) via color-mix, so each flat accent color paints its own
+   pattern; the surface tint keeps flowing through --bg underneath. Dark and
+   light differ only in mark strength: accent glow reads easily on the
+   near-black ground but needs more ink on the light paper. */
 [data-minimal="true"] .dot-grid-bg {
-  background-image: none;
+  background-image:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--accent) 20%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      color-mix(in srgb, var(--accent) 7%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 7%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  background-position: 0 0;
+}
+[data-minimal="true"][data-theme="light"] .dot-grid-bg {
+  background-image:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--accent) 30%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      color-mix(in srgb, var(--accent) 11%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 11%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  background-position: 0 0;
+}
+
+/* Project page wrapper: dissolve its opaque card surface (the dashboard frame
+   already does this) so the pattern ground runs behind the session grid. */
+[data-minimal="true"] .mc-project-frame {
+  background: transparent !important;
+  /* border: none (not just transparent) — a transparent 1px border still
+     occupies layout, which showed as a top/side gap in flat. */
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* App chrome runs flush in flat: the header, the project rail and the
+   terminals footer drop their card border + rounding and sit square on the
+   ground — tone separation (surface vs ground) does the dividing. */
+/* The top bar lost its ground when the project frame dissolved (its own
+   inline background is transparent), so it gets the same glass treatment as
+   the session cells: a translucent surface wash + backdrop blur, with a
+   faint specular line along its bottom edge instead of the old hairline. */
+[data-minimal="true"] .mc-topbar {
+  border-bottom: none !important;
+  background: color-mix(in srgb, var(--surface-0) 55%, transparent) !important;
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+}
+[data-minimal="true"][data-theme="light"] .mc-topbar {
+  box-shadow: inset 0 -1px 0 rgba(18, 22, 33, 0.08);
+}
+[data-minimal="true"] .mc-project-rail,
+[data-minimal="true"] [data-user-terminal-panel] {
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* Session cells: pure glass — NO fill of their own. The backdrop blur +
+   saturation boost is the only treatment: it frosts the blueprint pattern
+   behind the cell so the session area still reads as a pane (frosted vs
+   sharp), but the ground shows through at full strength. The translucent
+   white seam borders + inset specular highlight above complete the glass
+   edge. */
+[data-minimal="true"] [data-session-grid] .mc-card-frame {
+  background: transparent !important;
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+}
+
+/* Terminal glass: without this the terminal region stays a solid slab —
+   three layers each repaint an opaque --terminal-bg (the pane body div, the
+   .xterm-viewport/.xterm-screen overrides above, and xterm's own canvas
+   clear color). In flat, the canvas clears to transparent (createTerminalTheme
+   + allowTransparency) and the xterm CSS layers clear too; the pane body
+   becomes the ONE translucent painter, so the ground tone stacks once instead
+   of compounding back to opaque. !important beats the pane body's inline
+   var(--terminal-bg). */
+/* Session header: a lifted tonal band over the glass so it reads as the
+   pane's title bar (its own inline background is transparent). It sits a full
+   surface step LIGHTER than the terminal body's charcoal gradient — at
+   surface-0 the header lands on the same darkness as the pane ground and
+   becomes indistinguishable from the CLI's own status line at the flush seam
+   below, so adjacent cells blur together. Translucent (~60% surface share)
+   so the glass/pattern ground still ghosts through, but on surface-1 — a
+   step lighter than the body — so the band still registers; one step under
+   the focused header's accent-over-surface-1 fill. A thin constant white
+   veil is layered on top because the surface step alone only works at the
+   Intense tint (the lower tints keep surface-1 near-black, where 60% of it
+   composites back to the body's darkness) — an alpha lift stays visible
+   relative to the ground at EVERY tint level. The focused cell's
+   accent-tinted header rule is more specific and keeps winning. */
+[data-minimal="true"] [data-session-header] {
+  background:
+    linear-gradient(
+      oklch(1 0 0 / var(--mc-header-lift, 0.06)),
+      oklch(1 0 0 / var(--mc-header-lift, 0.06))
+    ),
+    color-mix(in srgb, var(--surface-1) 60%, transparent) !important;
+}
+/* Light mode steps to surface-2: light's surface-1 (#fafafb-ish) is
+   indistinguishable from the near-white terminal ground, so the band needs
+   the deeper gray to register at all. */
+[data-minimal="true"][data-theme="light"] [data-session-header] {
+  background: color-mix(in srgb, var(--surface-2) 75%, transparent) !important;
+}
+
+/* .xterm-scrollable-element is xterm 6's scroll wrapper: core re-applies the
+   theme background to it as an INLINE style on every colors change, so it
+   needs the !important stylesheet override (which beats inline) — it was the
+   last opaque layer hiding the glass. */
+[data-minimal="true"] .xterm-viewport,
+[data-minimal="true"] .xterm-scrollable-element,
+[data-minimal="true"] .xterm .xterm-screen {
+  background-color: transparent !important;
+}
+/* The pane body carries an accent WASH in flat — a shade of the CURRENT
+   accent, lit a bit lighter at the top-left and fading to a deeper accent
+   tone toward the bottom, laid over the otherwise see-through session so each
+   card gains its own accent-tinted contrast against the pattern ground.
+   Derived from var(--accent) with relative color syntax: the accent keeps its
+   exact hue and most of its chroma (so a teal theme washes teal, a violet
+   theme violet), and only its lightness moves — a lighter head (L 0.5) easing
+   into a darker tail (L 0.3) so the pane still reads dark. Alpha stays modest
+   so the pattern ground (frosted by the cell's backdrop blur) still ghosts
+   through. Whatever dark regions remain inside a session are cells the CLI
+   itself paints over the PTY (e.g. Claude Code's input-line bands), which
+   no app CSS can make transparent. */
+[data-minimal="true"] [data-terminal-body] {
+  /* A translucent accent-over-charcoal fill matching the --surface ladder,
+     with a gentle top-to-bottom gradient (a hair lighter at the top for a lit
+     edge). Both stops keep an alpha (~0.4) so the blueprint pattern ground
+     still ghosts through the glass — the pane body is the single translucent
+     painter (xterm canvas + CSS layers are cleared above), so this alpha
+     doesn't compound. --mc-card-top / --mc-card-bottom are raised by the
+     surface-tint blocks below, so the card ground tracks the tint (Off →
+     Subtle → Vivid → Intense) and lands on the same charcoal + accent mix as
+     the surrounding chrome.
+
+     On TOP of that charcoal gradient sits a soft accent glow — a bit lighter
+     than the accent (L 0.62) with its chroma pulled back so it reads as tinted
+     light, not a loud wash — concentrated at the top and fading out by 60%.
+     It's mixed in OKLCH so the hue survives (sRGB toward dark greys out the
+     colour); its alpha is --mc-card-glow, which the tint blocks raise so the
+     life shows more as you go up the tint ladder. */
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--accent) 0.62 calc(c * 0.4) h / var(--mc-card-glow)),
+      transparent 55%
+    ),
+    linear-gradient(180deg, var(--mc-card-top), var(--mc-card-bottom)) !important;
+}
+/* Light mode opts out of the glass entirely: the transparent canvas costs
+   glyph antialiasing (see terminalNeedsTransparency) and near-black ink over
+   the pattern washed out to unreadable, so light keeps a plain solid terminal
+   ground — solid, not ~88%, because the (opaque) canvas only covers whole
+   cells and a translucent ground would show as a mismatched strip in the
+   leftover gutter around it. The glass look is a dark-mode treatment. */
+[data-minimal="true"][data-theme="light"] [data-terminal-body] {
+  background: var(--terminal-bg) !important;
 }
 
 /* =====================================================================
@@ -2795,10 +3289,52 @@ body[data-card-glow] .cursor-glow {
      the inline drag/expand/nav z-indices still win when they're set. */
   z-index: 3;
 }
+/* The active pane's body sits a hair darker than the resting cells so the
+   focused session reads as the deeper, foregrounded surface. A thin translucent
+   black scrim is layered ON TOP of the shared card gradient (dark mode only —
+   light opts out of the glass), deepening the ground without disturbing the
+   accent wash or the per-tint card recipe. */
+[data-minimal="true"][data-theme="dark"]
+  [data-session-grid]
+  .mc-card-frame:focus-within
+  [data-terminal-body] {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.16)),
+    linear-gradient(
+      180deg,
+      oklch(from var(--accent) 0.62 calc(c * 0.4) h / var(--mc-card-glow)),
+      transparent 55%
+    ),
+    linear-gradient(180deg, var(--mc-card-top), var(--mc-card-bottom)) !important;
+}
 [data-minimal="true"] [data-session-grid] .mc-card-frame:focus-within [data-session-header] {
   /* ~18% accent over the header surface reproduces the sampled warm active
-     header (~#4d3e34) — the focused pane's title bar warms noticeably. */
+     header (~#4d3e34) — the focused pane's title bar warms noticeably. The
+     divider under the header stays, re-tinted into the same accent ramp so
+     it separates header from body without cutting a gray line across the
+     cell's accent ring. */
   background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)) !important;
+  border-bottom-color: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--accent) 38%, var(--border)) 65%,
+    transparent
+  ) !important;
+}
+/* Toolbar buttons on the focused header: the neutral surface-2 ghost hover
+   reads as a gray smudge on the warm accent fill, so hover (and the pressed
+   pin) lift within the same accent ramp instead — a step warmer than the
+   18% header ground. */
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame:focus-within
+  [data-session-header]
+  .mc-btn-ghost:hover,
+[data-minimal="true"]
+  [data-session-grid]
+  .mc-card-frame:focus-within
+  [data-session-header]
+  .mc-btn-ghost[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 32%, var(--surface-1));
 }
 
 /* Light mode: soften the drop shadows — the near-opaque blacks tuned for the
@@ -2978,6 +3514,20 @@ body[data-card-glow] .cursor-glow {
   --tint-hi: 19%;
 }
 
+/* Session-card ground steps up with the tint level (flat-dark only), tracking
+   the same charcoal + accent recipe the --surface ladder uses at each level so
+   the cards stay the same material as the surrounding chrome. */
+[data-minimal="true"][data-theme="dark"][data-tint="subtle"] {
+  --mc-card-top: color-mix(in srgb, var(--accent) 4%, oklch(0.11 0.005 65 / 0.55));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 3%, oklch(0.085 0.004 65 / 0.55));
+  --mc-card-glow: 0.06;
+}
+[data-minimal="true"][data-theme="dark"][data-tint="vivid"] {
+  --mc-card-top: color-mix(in srgb, var(--accent) 5%, oklch(0.145 0.006 65 / 0.55));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 4%, oklch(0.115 0.005 65 / 0.55));
+  --mc-card-glow: 0.08;
+}
+
 /* Flat + Intense (DARK only) lifts the near-black base to Ember's mid-charcoal
    ladder — but the cast comes from the ACCENT mixed over a neutral charcoal,
    not from a baked-in warm hex ladder. A terracotta accent reproduces the old
@@ -2987,9 +3537,18 @@ body[data-card-glow] .cursor-glow {
    separates from the chrome. Scoped to data-theme="dark" so flat-light keeps
    its paper ground (it falls back to the generic intense wash above).
    Specificity (0,3,0) beats both the [data-minimal] palette and the light
-   block. */
+   block.
+   NOTE: --bg is deliberately NOT re-bound here. The sessions are transparent
+   glass over the page ground, so lifting --bg to mid-charcoal made Intense
+   visibly repaint every session body; instead --bg inherits the flat base
+   recipe (near-black + the generic intense --tint-lo wash), keeping the
+   glass dark while the CHROME surfaces still take the full Intense lift. */
 [data-minimal="true"][data-theme="dark"][data-tint="intense"] {
-  --bg: color-mix(in srgb, var(--accent) 6%, #1b1b1b);
+  /* Intense already lifts the whole surface ladder to mid-charcoal, so the
+     session header's surface-1 band separates from the pane body on its own —
+     the full white veil (0.06, needed at the darker tints) over-brightens it
+     here. Keep just a whisper. */
+  --mc-header-lift: 0.02;
   --surface-0: color-mix(in srgb, var(--accent) 8%, #2b2b2b);
   --surface-1: color-mix(in srgb, var(--accent) 8%, #323232);
   --surface-2: color-mix(in srgb, var(--accent) 9%, #3b3b3b);
@@ -3006,4 +3565,10 @@ body[data-card-glow] .cursor-glow {
      while both stay clearly below --text. */
   --text-dim: #d6ccba;
   --text-faint: #c9bfad;
+  /* Card ground matches the Intense charcoal ladder (surface-0 is accent 8%
+     over #2b2b2b) so the session bodies read as the same lifted material as
+     the chrome — a touch lighter at the top for the lit edge. */
+  --mc-card-top: color-mix(in srgb, var(--accent) 6%, #2929298c);
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 5%, #1f1f1f8c);
+  --mc-card-glow: 0.11;
 }
