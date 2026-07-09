@@ -75,6 +75,8 @@ describe("settings API", () => {
       claudeUsageLimitsEnabled: false,
       claudeUsageLimitsShowSession: true,
       claudeUsageLimitsShowWeekly: true,
+      providerUsageEnabled: false,
+      providerUsageIds: ["claude", "codex", "cursor"],
     });
   });
 
@@ -98,6 +100,29 @@ describe("settings API", () => {
       claudeUsageLimitsEnabled: true,
       claudeUsageLimitsShowSession: true,
       claudeUsageLimitsShowWeekly: false,
+    });
+  });
+
+  it("persists multi-provider usage toggles", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          providerUsageEnabled: true,
+          providerUsageIds: ["claude", "codex"],
+        }),
+      }),
+    );
+    expect(update?.status).toBe(200);
+
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+    expect(await jsonBody(read!)).toMatchObject({
+      providerUsageEnabled: true,
+      providerUsageIds: ["claude", "codex"],
+      claudeUsageLimitsEnabled: true,
     });
   });
 

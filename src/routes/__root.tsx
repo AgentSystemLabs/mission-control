@@ -40,7 +40,7 @@ import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } fr
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
 import { ScopeDropdown } from "~/components/views/ScopeDropdown";
 import { UpdateAvailableButton } from "~/components/ui/UpdateAvailableButton";
-import { ClaudeUsageLimitsIndicator } from "~/components/views/ClaudeUsageLimitsIndicator";
+import { ProviderUsageIndicator } from "~/components/views/ProviderUsageIndicator";
 import {
   ACCENT_CACHE_KEY,
   ACCENT_COLORS,
@@ -637,7 +637,7 @@ function Shell() {
           dragRegion
           right={
             <>
-              <ClaudeUsageLimitsIndicator />
+              <ProviderUsageIndicator />
               <UpdateAvailableButton />
               <HeaderBeforeSearchSlot />
               <PromptSearchButton />
