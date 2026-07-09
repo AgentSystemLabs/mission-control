@@ -33,7 +33,7 @@ import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
-import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, StaticHotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
@@ -523,6 +523,13 @@ function ProjectPage() {
     wasSandboxProvisioningRef.current = sandboxProvisioning;
   }, [sandboxProvisioning, tasksQuery]);
   const hasArchivedTasks = tasks.some((t) => t.archived);
+  // Live pinned-session ids for the grid's "Pinned" filter — derived from the
+  // task query (not the store's open-time snapshot) so a pin toggle reflects
+  // immediately. Memoized so SessionGrid's filter doesn't churn every render.
+  const pinnedTaskIds = useMemo(
+    () => new Set(tasks.filter((t) => !t.archived && t.pinned).map((t) => t.id)),
+    [tasks],
+  );
   const groups = groupsQuery.data ?? [];
   useApiToken();
   const {
@@ -720,8 +727,11 @@ function ProjectPage() {
   // The grid only takes over the workspace once the scope has a session to show.
   // With none, we fall back to the normal sessions view so an empty grid matches
   // the single-panel empty state exactly (header, scope toggle, and all) instead
-  // of a bare centered message.
-  const showGrid = gridViewActive && gridScopeSessionCount > 0;
+  // of a bare centered message. Archived is a list-only management view (no live
+  // terminals to grid), so selecting it drops back to the list; the grid filters
+  // only between Active and Pinned (SessionGrid handles the empty-Pinned state).
+  const showGrid =
+    gridViewActive && sessionView !== "archived" && gridScopeSessionCount > 0;
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -2568,6 +2578,20 @@ function ProjectPage() {
     </HeaderActions>
   );
 
+  // The Active / Pinned / Archived scope tabs. Extracted so the grid can show
+  // the same control inline (the grid filters Active↔Pinned) without duplicating
+  // the whole "Sessions" title row and its New session button.
+  const scopeToggle = (
+    <SessionScopeToggle
+      view={sessionView}
+      activeCount={activeTasks.length}
+      pinnedCount={pinnedTasks.length}
+      archivedCount={archivedTasks.length}
+      showArchivedTab={hasArchivedTasks || showArchived}
+      onChange={setSessionView}
+    />
+  );
+
   // "Sessions" title row (scope tabs + New session). Shared between the list
   // view and the grid's all-hidden empty state so both read identically.
   const sessionsHeader = (
@@ -2593,14 +2617,7 @@ function ProjectPage() {
         >
           Sessions
         </div>
-        <SessionScopeToggle
-          view={sessionView}
-          activeCount={activeTasks.length}
-          pinnedCount={pinnedTasks.length}
-          archivedCount={archivedTasks.length}
-          showArchivedTab={hasArchivedTasks || showArchived}
-          onChange={setSessionView}
-        />
+        {scopeToggle}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {showArchived ? (
@@ -2885,6 +2902,21 @@ function ProjectPage() {
                 >
                   Custom scripts
                 </DropdownMenuItem>
+                {showGrid && gridScopeSessionCount > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      icon="archive"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        setConfirmArchiveAll(true);
+                      }}
+                      title="Archive all open sessions in this grid"
+                    >
+                      Archive all sessions
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <HotkeyTooltip action="project.edit">
                   <DropdownMenuItem
@@ -2918,20 +2950,24 @@ function ProjectPage() {
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "flex-end",
-              gap: 8,
+              gap: 6,
               flexWrap: "wrap",
               marginLeft: "auto",
               minWidth: 0,
             }}
           >
             {showGrid && (
-              <Btn
-                variant="ghost"
-                icon="archive"
-                onClick={() => setConfirmArchiveAll(true)}
-                aria-label="Archive all sessions in this grid"
-                title="Archive all sessions in this grid"
-                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+              // Compact scope switcher (Active / Pinned / Archived) — icon-only so
+              // it rides in the header beside the other controls instead of a
+              // full-width tab row. Archived drops back to the list view.
+              <SessionScopeToggle
+                view={sessionView}
+                activeCount={activeTasks.length}
+                pinnedCount={pinnedTasks.length}
+                archivedCount={archivedTasks.length}
+                showArchivedTab={hasArchivedTasks || showArchived}
+                onChange={setSessionView}
+                iconOnly
               />
             )}
             {screenshotSupported && (
@@ -2944,7 +2980,7 @@ function ProjectPage() {
                   icon="camera"
                   onClick={captureScreenshot}
                   aria-label="Capture a screenshot"
-                  style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+                  style={{ width: 40, minWidth: 40, paddingInline: 0 }}
                 />
               </HotkeyTooltip>
             )}
@@ -2966,7 +3002,7 @@ function ProjectPage() {
                     ? "Project folder unavailable"
                     : "Find file in project"
                 }
-                style={{ width: 52, minWidth: 52, paddingInline: 0 }}
+                style={{ width: 40, minWidth: 40, paddingInline: 0 }}
               />
             </HotkeyTooltip>
             <div
@@ -3017,8 +3053,8 @@ function ProjectPage() {
                 aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
                 aria-pressed={terminals.gridView}
                 style={{
-                  width: 52,
-                  minWidth: 52,
+                  width: 40,
+                  minWidth: 40,
                   paddingInline: 0,
                   background: terminals.gridView ? "var(--surface-2)" : undefined,
                   color: terminals.gridView ? "var(--text)" : undefined,
@@ -3029,7 +3065,14 @@ function ProjectPage() {
         </div>
 
         {showGrid ? (
-          <SessionGrid scopeKey={selectedScopeKey} emptyHeader={sessionsHeader} />
+          <SessionGrid
+            scopeKey={selectedScopeKey}
+            emptyHeader={sessionsHeader}
+            filter={showPinned ? "pinned" : "active"}
+            pinnedTaskIds={pinnedTaskIds}
+            onTogglePinned={toggleSessionPinned}
+            pinningTaskIds={pinningTaskIds}
+          />
         ) : (
         <>
         {cleanupStatus && (
@@ -3757,6 +3800,7 @@ function SessionScopeToggle({
   archivedCount,
   showArchivedTab,
   onChange,
+  iconOnly = false,
 }: {
   view: SessionView;
   activeCount: number;
@@ -3764,24 +3808,41 @@ function SessionScopeToggle({
   archivedCount: number;
   showArchivedTab: boolean;
   onChange: (view: SessionView) => void;
+  /** Compact icon-only segments (tooltip carries the label + count) for the grid
+   *  header, so the switcher sits beside the other header controls instead of
+   *  taking a full row. */
+  iconOnly?: boolean;
 }) {
   // Visual state (background/color/box-shadow + hover) lives in styles.css
   // under .mc-session-scope-tab so unselected tabs get a hover treatment.
-  const segment: CSSProperties = {
-    appearance: "none",
-    border: 0,
-    fontFamily: "var(--mono)",
-    fontSize: 11,
-    fontWeight: 600,
-    letterSpacing: "0.04em",
-    textTransform: "uppercase",
-    padding: "5px 12px",
-    borderRadius: 7,
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-  };
+  const segment: CSSProperties = iconOnly
+    ? {
+        appearance: "none",
+        border: 0,
+        borderRadius: 7,
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 34,
+        height: 30,
+        padding: 0,
+      }
+    : {
+        appearance: "none",
+        border: 0,
+        fontFamily: "var(--mono)",
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+        padding: "5px 12px",
+        borderRadius: 7,
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+      };
   const countStyle: CSSProperties = {
     color: "var(--text-faint)",
     fontVariantNumeric: "tabular-nums",
@@ -3816,7 +3877,7 @@ function SessionScopeToggle({
       {tabs.map((tab) => {
         const selected = view === tab.view;
         const tabIndex = tabs.findIndex((entry) => entry.view === tab.view);
-        return (
+        const button = (
           <button
             key={tab.view}
             ref={(node) => {
@@ -3825,6 +3886,7 @@ function SessionScopeToggle({
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-label={iconOnly ? `${tab.label} sessions, ${tab.count}` : undefined}
             tabIndex={selected ? 0 : -1}
             className="mc-session-scope-tab"
             data-selected={selected || undefined}
@@ -3846,10 +3908,17 @@ function SessionScopeToggle({
               }
             }}
           >
-            <Icon name={tab.icon} size={13} />
-            {tab.label}
-            <span style={countStyle}>{tab.count}</span>
+            <Icon name={tab.icon} size={iconOnly ? 15 : 13} />
+            {!iconOnly && tab.label}
+            {!iconOnly && <span style={countStyle}>{tab.count}</span>}
           </button>
+        );
+        return iconOnly ? (
+          <Tooltip key={tab.view} content={`${tab.label} · ${tab.count}`}>
+            {button}
+          </Tooltip>
+        ) : (
+          button
         );
       })}
     </div>
