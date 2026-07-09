@@ -2316,6 +2316,19 @@ body[data-card-glow] .cursor-glow {
   /* Terminal canvas: the deepest step, just below the page ground. */
   --terminal-bg: color-mix(in srgb, var(--surface-tint) var(--tint-lo), oklch(0.075 0.004 65));
 
+  /* Session-card ground (dark only; light overrides the whole terminal body
+     with a solid ground). The card body is an accent-over-charcoal fill built
+     from the SAME recipe as the --surface ladder, so it reads as the same
+     material as the rest of the flat chrome — just a hair lighter at the top
+     for a lit edge. These are the OFF-tint baseline (near-black ground); the
+     data-tint blocks near the bottom raise the accent dose and lift the base
+     toward charcoal so Subtle/Vivid/Intense match their surface ladders. */
+  --mc-card-top: color-mix(in srgb, var(--accent) 3%, oklch(0.09 0.004 65 / 0.4));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 2%, oklch(0.065 0.004 65 / 0.4));
+  /* Alpha of the lighter accent glow that tops the card gradient. Raised by
+     the tint blocks so the theme colour reads more as the tint climbs. */
+  --mc-card-glow: 0.04;
+
   /* Bundled faces: clearer, warmer mono for both xterm (via --mc-terminal-font,
      read by createTerminalOptions) and every UI mono surface, plus Plus Jakarta
      Sans for UI sans. */
@@ -2770,8 +2783,19 @@ body[data-card-glow] .cursor-glow {
 /* App chrome runs flush in flat: the header, the project rail and the
    terminals footer drop their card border + rounding and sit square on the
    ground — tone separation (surface vs ground) does the dividing. */
+/* The top bar lost its ground when the project frame dissolved (its own
+   inline background is transparent), so it gets the same glass treatment as
+   the session cells: a translucent surface wash + backdrop blur, with a
+   faint specular line along its bottom edge instead of the old hairline. */
 [data-minimal="true"] .mc-topbar {
   border-bottom: none !important;
+  background: color-mix(in srgb, var(--surface-0) 55%, transparent) !important;
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+}
+[data-minimal="true"][data-theme="light"] .mc-topbar {
+  box-shadow: inset 0 -1px 0 rgba(18, 22, 33, 0.08);
 }
 [data-minimal="true"] .mc-project-rail,
 [data-minimal="true"] [data-user-terminal-panel] {
@@ -2779,12 +2803,87 @@ body[data-card-glow] .cursor-glow {
   border-radius: 0 !important;
 }
 
-/* Session cells: pull the surface back toward transparent so the pattern
-   ground shows through the cell chrome. The xterm canvas itself stays opaque
-   (deliberate — its clear color must be a concrete value and readability wins),
-   so the see-through reads in headers, banners and empty regions. */
+/* Session cells: pure glass — NO fill of their own. The backdrop blur +
+   saturation boost is the only treatment: it frosts the blueprint pattern
+   behind the cell so the session area still reads as a pane (frosted vs
+   sharp), but the ground shows through at full strength. The translucent
+   white seam borders + inset specular highlight above complete the glass
+   edge. */
 [data-minimal="true"] [data-session-grid] .mc-card-frame {
-  background: color-mix(in srgb, var(--surface-0) 65%, transparent) !important;
+  background: transparent !important;
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+}
+
+/* Terminal glass: without this the terminal region stays a solid slab —
+   three layers each repaint an opaque --terminal-bg (the pane body div, the
+   .xterm-viewport/.xterm-screen overrides above, and xterm's own canvas
+   clear color). In flat, the canvas clears to transparent (createTerminalTheme
+   + allowTransparency) and the xterm CSS layers clear too; the pane body
+   becomes the ONE translucent painter, so the ground tone stacks once instead
+   of compounding back to opaque. !important beats the pane body's inline
+   var(--terminal-bg). */
+/* Session header: a soft tonal band over the glass so it still reads as the
+   pane's title bar (its own inline background is transparent). The focused
+   cell's accent-tinted header rule is more specific and keeps winning. */
+[data-minimal="true"] [data-session-header] {
+  background: color-mix(in srgb, var(--surface-0) 45%, transparent) !important;
+}
+
+/* .xterm-scrollable-element is xterm 6's scroll wrapper: core re-applies the
+   theme background to it as an INLINE style on every colors change, so it
+   needs the !important stylesheet override (which beats inline) — it was the
+   last opaque layer hiding the glass. */
+[data-minimal="true"] .xterm-viewport,
+[data-minimal="true"] .xterm-scrollable-element,
+[data-minimal="true"] .xterm .xterm-screen {
+  background-color: transparent !important;
+}
+/* The pane body carries an accent WASH in flat — a shade of the CURRENT
+   accent, lit a bit lighter at the top-left and fading to a deeper accent
+   tone toward the bottom, laid over the otherwise see-through session so each
+   card gains its own accent-tinted contrast against the pattern ground.
+   Derived from var(--accent) with relative color syntax: the accent keeps its
+   exact hue and most of its chroma (so a teal theme washes teal, a violet
+   theme violet), and only its lightness moves — a lighter head (L 0.5) easing
+   into a darker tail (L 0.3) so the pane still reads dark. Alpha stays modest
+   so the pattern ground (frosted by the cell's backdrop blur) still ghosts
+   through. Whatever dark regions remain inside a session are cells the CLI
+   itself paints over the PTY (e.g. Claude Code's input-line bands), which
+   no app CSS can make transparent. */
+[data-minimal="true"] [data-terminal-body] {
+  /* A translucent accent-over-charcoal fill matching the --surface ladder,
+     with a gentle top-to-bottom gradient (a hair lighter at the top for a lit
+     edge). Both stops keep an alpha (~0.4) so the blueprint pattern ground
+     still ghosts through the glass — the pane body is the single translucent
+     painter (xterm canvas + CSS layers are cleared above), so this alpha
+     doesn't compound. --mc-card-top / --mc-card-bottom are raised by the
+     surface-tint blocks below, so the card ground tracks the tint (Off →
+     Subtle → Vivid → Intense) and lands on the same charcoal + accent mix as
+     the surrounding chrome.
+
+     On TOP of that charcoal gradient sits a soft accent glow — a bit lighter
+     than the accent (L 0.62) with its chroma pulled back so it reads as tinted
+     light, not a loud wash — concentrated at the top and fading out by 60%.
+     It's mixed in OKLCH so the hue survives (sRGB toward dark greys out the
+     colour); its alpha is --mc-card-glow, which the tint blocks raise so the
+     life shows more as you go up the tint ladder. */
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--accent) 0.62 calc(c * 0.4) h / var(--mc-card-glow)),
+      transparent 55%
+    ),
+    linear-gradient(180deg, var(--mc-card-top), var(--mc-card-bottom)) !important;
+}
+/* Light mode opts out of the glass entirely: the transparent canvas costs
+   glyph antialiasing (see terminalNeedsTransparency) and near-black ink over
+   the pattern washed out to unreadable, so light keeps a plain solid terminal
+   ground — solid, not ~88%, because the (opaque) canvas only covers whole
+   cells and a translucent ground would show as a mismatched strip in the
+   leftover gutter around it. The glass look is a dark-mode treatment. */
+[data-minimal="true"][data-theme="light"] [data-terminal-body] {
+  background: var(--terminal-bg) !important;
 }
 
 /* =====================================================================
@@ -3112,6 +3211,20 @@ body[data-card-glow] .cursor-glow {
   --tint-hi: 19%;
 }
 
+/* Session-card ground steps up with the tint level (flat-dark only), tracking
+   the same charcoal + accent recipe the --surface ladder uses at each level so
+   the cards stay the same material as the surrounding chrome. */
+[data-minimal="true"][data-theme="dark"][data-tint="subtle"] {
+  --mc-card-top: color-mix(in srgb, var(--accent) 4%, oklch(0.11 0.005 65 / 0.4));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 3%, oklch(0.085 0.004 65 / 0.4));
+  --mc-card-glow: 0.06;
+}
+[data-minimal="true"][data-theme="dark"][data-tint="vivid"] {
+  --mc-card-top: color-mix(in srgb, var(--accent) 5%, oklch(0.145 0.006 65 / 0.4));
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 4%, oklch(0.115 0.005 65 / 0.4));
+  --mc-card-glow: 0.08;
+}
+
 /* Flat + Intense (DARK only) lifts the near-black base to Ember's mid-charcoal
    ladder — but the cast comes from the ACCENT mixed over a neutral charcoal,
    not from a baked-in warm hex ladder. A terracotta accent reproduces the old
@@ -3121,9 +3234,13 @@ body[data-card-glow] .cursor-glow {
    separates from the chrome. Scoped to data-theme="dark" so flat-light keeps
    its paper ground (it falls back to the generic intense wash above).
    Specificity (0,3,0) beats both the [data-minimal] palette and the light
-   block. */
+   block.
+   NOTE: --bg is deliberately NOT re-bound here. The sessions are transparent
+   glass over the page ground, so lifting --bg to mid-charcoal made Intense
+   visibly repaint every session body; instead --bg inherits the flat base
+   recipe (near-black + the generic intense --tint-lo wash), keeping the
+   glass dark while the CHROME surfaces still take the full Intense lift. */
 [data-minimal="true"][data-theme="dark"][data-tint="intense"] {
-  --bg: color-mix(in srgb, var(--accent) 6%, #1b1b1b);
   --surface-0: color-mix(in srgb, var(--accent) 8%, #2b2b2b);
   --surface-1: color-mix(in srgb, var(--accent) 8%, #323232);
   --surface-2: color-mix(in srgb, var(--accent) 9%, #3b3b3b);
@@ -3140,4 +3257,10 @@ body[data-card-glow] .cursor-glow {
      while both stay clearly below --text. */
   --text-dim: #d6ccba;
   --text-faint: #c9bfad;
+  /* Card ground matches the Intense charcoal ladder (surface-0 is accent 8%
+     over #2b2b2b) so the session bodies read as the same lifted material as
+     the chrome — a touch lighter at the top for the lit edge. */
+  --mc-card-top: color-mix(in srgb, var(--accent) 6%, #29292966);
+  --mc-card-bottom: color-mix(in srgb, var(--accent) 5%, #1f1f1f66);
+  --mc-card-glow: 0.11;
 }
