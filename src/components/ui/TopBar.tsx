@@ -63,15 +63,11 @@ export function TopBar({
           style={{
             display: "inline-flex",
             alignItems: "center",
-            justifyContent: "center",
-            // Fixed square (comfortable hit area) with the logo centered.
-            // No padding + negative-margin trick — negative margins shift a
-            // flex item off-centre, which is what threw the logo off.
-            width: 34,
-            height: 34,
+            gap: 10,
             flexShrink: 0,
+            height: 34,
             border: "none",
-            padding: 0,
+            padding: "0 8px 0 6px",
             borderRadius: 8,
             cursor: "pointer",
             color: "inherit",
@@ -86,6 +82,32 @@ export function TopBar({
             height={22}
             style={{ borderRadius: 5, display: "block" }}
           />
+          <span
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: 13,
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "var(--text)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span>Mission</span>
+            <span
+              aria-hidden
+              style={{
+                width: 4,
+                height: 4,
+                borderRadius: "50%",
+                background: "var(--accent)",
+                boxShadow: "0 0 6px var(--accent)",
+              }}
+            />
+            <span style={{ color: "var(--accent-ink)" }}>Control</span>
+          </span>
         </button>
         {leading && (
           <>

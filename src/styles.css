@@ -576,7 +576,7 @@ select,
   outline-offset: 3px;
 }
 
-/* Logo-only home button in the top bar: CSS-driven hover + focus so it
+/* Logo + wordmark home button in the top bar: CSS-driven hover + focus so it
    feeds back like the rest of the chrome (no JS hover state, no re-render). */
 .mc-topbar-home {
   background: transparent;
