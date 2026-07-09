@@ -13,14 +13,28 @@ const API_TOKEN_KEY = "api_token";
 
 let _db: Database.Database | null = null;
 
+// The DB stores the API bearer token + sandbox pairing tokens in cleartext;
+// created with default perms it is world-readable. Lock it (and the WAL/SHM
+// sidecars) to owner-only. Best-effort — a no-op on non-POSIX filesystems.
+function restrictDbFilePermissions(dbPath: string): void {
+  for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      if (fs.existsSync(p)) fs.chmodSync(p, 0o600);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
 function openDb(userDataDir: string): Database.Database {
   if (_db) return _db;
-  fs.mkdirSync(userDataDir, { recursive: true });
+  fs.mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
   const dbPath = path.join(userDataDir, "missioncontrol.db");
   const db = new Database(dbPath, {
     nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
   });
   db.pragma("journal_mode = WAL");
+  restrictDbFilePermissions(dbPath);
   // The server's ensureSchema() owns the canonical table layout; this CREATE
   // IF NOT EXISTS matches the server definition so a first IPC call before the
   // server has bootstrapped still finds the row to read from.
