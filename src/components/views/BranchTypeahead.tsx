@@ -95,6 +95,10 @@ export function BranchTypeahead({
   selected = false,
   /** Drop the right frame edge so this can fuse with a trailing sync control. */
   attachedTrailing = false,
+  /** When provided, the dropdown gains a "New worktree" action in its footer. */
+  onCreateWorktree,
+  createWorktreeDisabled = false,
+  createWorktreeTitle,
 }: {
   projectId: string;
   worktreeId?: string | null;
@@ -103,6 +107,9 @@ export function BranchTypeahead({
   worktreePath?: string;
   selected?: boolean;
   attachedTrailing?: boolean;
+  onCreateWorktree?: () => void;
+  createWorktreeDisabled?: boolean;
+  createWorktreeTitle?: string;
 }) {
   const branchLabel = branch?.trim() || "…";
   const queryClient = useQueryClient();
@@ -463,6 +470,40 @@ export function BranchTypeahead({
                   </div>
                 )}
             </div>
+            {onCreateWorktree && (
+              <div style={{ borderTop: "1px solid var(--border)", padding: 6 }}>
+                <button
+                  type="button"
+                  disabled={createWorktreeDisabled}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    closeTypeahead();
+                    onCreateWorktree();
+                  }}
+                  title={createWorktreeTitle}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minHeight: 32,
+                    border: 0,
+                    borderRadius: 6,
+                    background: "transparent",
+                    color: createWorktreeDisabled ? "var(--text-faint)" : "var(--text-dim)",
+                    cursor: createWorktreeDisabled ? "default" : "pointer",
+                    padding: "7px 9px",
+                    textAlign: "left",
+                    fontFamily: "var(--mono)",
+                    fontSize: 11.5,
+                    opacity: createWorktreeDisabled ? 0.6 : 1,
+                  }}
+                >
+                  <Icon name="git-branch" size={12} />
+                  New worktree
+                </button>
+              </div>
+            )}
           </CardFrame>,
           document.body,
         )

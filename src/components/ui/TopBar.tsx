@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Icon } from "./Icon";
 
 export type Crumb = { label: string; onClick?: () => void; node?: ReactNode };
@@ -22,6 +22,7 @@ export function TopBar({
   contentTopInset?: number;
   dragRegion?: boolean;
 }) {
+  const [homeHover, setHomeHover] = useState(false);
   return (
     <div
       style={{
@@ -51,57 +52,41 @@ export function TopBar({
           minWidth: 0,
         }}
       >
+        {/* App identity recedes to a logo-only home button so the project
+         * cockpit (picker → scope → run → branch/ship) is the bar's centre of
+         * gravity. The wordmark still shows on the home/launch screen. */}
         <button
           type="button"
           onClick={onHome}
+          onMouseEnter={() => setHomeHover(true)}
+          onMouseLeave={() => setHomeHover(false)}
           aria-label="Mission Control home"
+          title="Mission Control — home"
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 10,
-            background: "transparent",
+            justifyContent: "center",
+            background: homeHover ? "var(--surface-2)" : "transparent",
             border: "none",
-            padding: 0,
-            margin: 0,
+            // Expand the hit area to a comfortable target without nudging the
+            // sibling controls: the negative margin pulls them back into place.
+            padding: 6,
+            margin: -6,
+            borderRadius: 8,
             cursor: "pointer",
             color: "inherit",
+            transition: "background 150ms ease",
             pointerEvents: "auto",
             ["WebkitAppRegion" as any]: "no-drag",
           }}
         >
           <img
             src="/images/robot.png"
-            alt="AgentSystem.dev"
+            alt="Mission Control"
             width={22}
             height={22}
             style={{ borderRadius: 5, display: "block" }}
           />
-          <span
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 13,
-              fontWeight: 700,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              color: "var(--text)",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <span>Mission</span>
-            <span
-              aria-hidden
-              style={{
-                width: 4,
-                height: 4,
-                borderRadius: "50%",
-                background: "var(--accent)",
-                boxShadow: "0 0 6px var(--accent)",
-              }}
-            />
-            <span style={{ color: "var(--accent-ink)" }}>Control</span>
-          </span>
         </button>
         {leading && (
           <>
@@ -162,17 +147,6 @@ export function TopBar({
               </span>
             ))}
           </>
-        )}
-        {centerActions && (
-          <span
-            aria-hidden
-            style={{
-              width: 1,
-              height: 18,
-              background: "var(--border)",
-              margin: "0 4px",
-            }}
-          />
         )}
         {centerActions && (
           <span

@@ -2549,6 +2549,18 @@ function ProjectPage() {
 
   const headerActions = (
     <HeaderActions>
+      {/* Single context→actions divider: the one boundary between "which
+       * project / scope" and the actions performed on it. */}
+      <span
+        aria-hidden
+        style={{
+          width: 1,
+          height: 18,
+          background: "var(--border)",
+          margin: "0 4px",
+          flexShrink: 0,
+        }}
+      />
       <RunStatusPill
         running={hasRunningLaunch}
         launching={launching}
@@ -2563,92 +2575,54 @@ function ProjectPage() {
         onStop={stopLaunch}
       />
       {worktreesEnabled && (
+        // "New worktree" now lives inside the branch dropdown (below), so the
+        // standalone create-worktree button is gone — one fewer control, and no
+        // second accent competing with Ship.
         <>
+          {/* Separate Run (launch the app) from the git group (branch / changes
+           * / ship) — two different concerns. */}
           <span
             aria-hidden
             style={{
               width: 1,
-              height: 24,
+              height: 18,
               background: "var(--border)",
-              margin: "0 2px 0 4px",
+              margin: "0 4px",
               flexShrink: 0,
             }}
           />
           <WorktreeToggleGroup
-            worktrees={worktrees}
-            selectedId={selectedWorktree?.id ?? MAIN_WORKTREE_ID}
-            runningKeys={launchRunningWorktreeIds}
-            projectId={project.id}
-            onSelect={selectWorktree}
-            onDeleteSelected={() => setConfirmDeleteWorktree(true)}
-            mainBranchLabel={gitStatus?.branch}
-            mainBranchUnavailable={gitUnavailable}
-            mainBranchUnavailableTitle={gitUnavailableMessage ?? undefined}
-            branchSwitchDisabled={projectPathBlocked}
-            changedCount={gitStatus?.changedCount}
-            onToggleDiffView={onToggleDiffView}
-            shipDisabled={projectPathBlocked}
-            shipEnabled={projectPathUsable}
-            onShip={startShipSession}
+          worktrees={worktrees}
+          selectedId={selectedWorktree?.id ?? MAIN_WORKTREE_ID}
+          runningKeys={launchRunningWorktreeIds}
+          projectId={project.id}
+          onSelect={selectWorktree}
+          onDeleteSelected={() => setConfirmDeleteWorktree(true)}
+          mainBranchLabel={gitStatus?.branch}
+          mainBranchUnavailable={gitUnavailable}
+          mainBranchUnavailableTitle={gitUnavailableMessage ?? undefined}
+          branchSwitchDisabled={projectPathBlocked}
+          changedCount={gitStatus?.changedCount}
+          onToggleDiffView={onToggleDiffView}
+          shipDisabled={projectPathBlocked}
+          shipEnabled={projectPathUsable}
+          onShip={startShipSession}
+          onCreateWorktree={() => void createProjectWorktree()}
+          createWorktreeDisabled={creatingWorktree || projectPathBlocked || gitUnavailable}
+          createWorktreeTitle={
+            projectPathBlocked
+              ? "Project folder unavailable"
+              : gitUnavailableMessage || "Create a new worktree"
+          }
             maxWidth="min(520px, 42vw)"
           />
-          <span
-            aria-hidden
-            style={{
-              width: 1,
-              height: 24,
-              background: "var(--border)",
-              margin: "0 2px 0 4px",
-              flexShrink: 0,
-            }}
-          />
-          <span
-            style={{
-              position: "relative",
-              display: "inline-flex",
-            }}
-          >
-            <Btn
-              variant="ghost"
-              icon="git-branch"
-              onClick={() => void createProjectWorktree()}
-              disabled={creatingWorktree || projectPathBlocked || gitUnavailable}
-              aria-label="Create worktree"
-              title={
-                projectPathBlocked
-                  ? "Project folder unavailable"
-                  : gitUnavailableMessage || "Create worktree"
-              }
-            />
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: -3,
-                right: -3,
-                zIndex: 2,
-                width: 14,
-                height: 14,
-                borderRadius: "50%",
-                border: "1px solid color-mix(in srgb, var(--surface-0) 88%, white)",
-                background: "var(--accent)",
-                color: "#fff",
-                boxShadow: "0 0 7px var(--accent-glow)",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: creatingWorktree ? 0.58 : 1,
-                pointerEvents: "none",
-              }}
-            >
-              <Icon name="plus" size={9} />
-            </span>
-          </span>
         </>
       )}
     </HeaderActions>
   );
 
+  // Grid-view toggle sits in the top bar beside prompt history (the
+  // before-search slot), a session view mode kept out of the run/git actions.
   const headerBeforeSearch = (
     <HeaderBeforeSearch>
       <HotkeyTooltip
@@ -4072,6 +4046,9 @@ function WorktreeToggleGroup({
   shipDisabled = false,
   shipEnabled = true,
   onShip,
+  onCreateWorktree,
+  createWorktreeDisabled = false,
+  createWorktreeTitle,
   maxWidth = 420,
 }: {
   worktrees: WorktreeInfo[];
@@ -4090,6 +4067,9 @@ function WorktreeToggleGroup({
   shipDisabled?: boolean;
   shipEnabled?: boolean;
   onShip: () => void;
+  onCreateWorktree?: () => void;
+  createWorktreeDisabled?: boolean;
+  createWorktreeTitle?: string;
   maxWidth?: number | string;
 }) {
   const items = worktrees.length > 0 ? worktrees : [];
@@ -4121,19 +4101,18 @@ function WorktreeToggleGroup({
         );
         const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
         const label = worktree.isMain ? "main" : worktree.name;
-        const shipControls = (fuseWithBranch: boolean) => (
+        // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read
+        // as two distinct controls with hierarchy, not one welded segment.
+        const shipControls = () => (
           <>
             <ProjectGitStatusButton
               changedCount={changedCount}
               onClick={onToggleDiffView}
               disabled={shipDisabled}
-              attachedLeading={fuseWithBranch}
-              attachedTrailing
             />
             <CommitPushButton
               size="md"
               variant={changedCount === 0 ? "gray-frame" : "primary"}
-              splitTrailing
               enabled={shipEnabled}
               onShip={onShip}
             />
@@ -4155,11 +4134,10 @@ function WorktreeToggleGroup({
               <div
                 role="group"
                 aria-label="Branch, review changes, and ship"
-                className="mc-ship-group"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 0,
+                  gap: 8,
                   minWidth: 0,
                 }}
               >
@@ -4169,7 +4147,6 @@ function WorktreeToggleGroup({
                     icon="git-branch"
                     disabled
                     title={mainBranchUnavailableTitle ?? "Git unavailable"}
-                    className="mc-btn-attached-right"
                     style={{
                       fontFamily: "var(--mono)",
                       maxWidth: "min(36ch, 42vw)",
@@ -4194,11 +4171,12 @@ function WorktreeToggleGroup({
                     branch={mainBranchLabel}
                     disabled={branchSwitchDisabled}
                     worktreePath={worktree.path}
-                    selected
-                    attachedTrailing
+                    onCreateWorktree={onCreateWorktree}
+                    createWorktreeDisabled={createWorktreeDisabled}
+                    createWorktreeTitle={createWorktreeTitle}
                   />
                 )}
-                {shipControls(true)}
+                {shipControls()}
               </div>
             </div>
           ) : (
@@ -4304,15 +4282,14 @@ function WorktreeToggleGroup({
               <div
                 role="group"
                 aria-label="Review changes and ship"
-                className="mc-ship-group"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 0,
+                  gap: 8,
                   minWidth: 0,
                 }}
               >
-                {shipControls(false)}
+                {shipControls()}
               </div>
             )}
           </div>
@@ -4327,14 +4304,10 @@ function ProjectGitStatusButton({
   changedCount,
   onClick,
   disabled = false,
-  attachedLeading = false,
-  attachedTrailing = true,
 }: {
   changedCount: number | undefined;
   onClick: () => void;
   disabled?: boolean;
-  attachedLeading?: boolean;
-  attachedTrailing?: boolean;
 }) {
   const changedLabel =
     disabled
@@ -4348,22 +4321,15 @@ function ProjectGitStatusButton({
       : changedCount === undefined
       ? "Open Review Changes"
       : `Toggle Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"}`;
-  const className = [
-    attachedLeading ? "mc-btn-attached-left" : null,
-    attachedTrailing ? "mc-btn-attached-right" : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
 
   return (
     <HotkeyTooltip action="git.diff" label={title}>
       <Btn
         variant="ghost"
-        icon="git-branch"
+        icon="file"
         onClick={onClick}
         disabled={disabled}
         aria-label={title}
-        className={className || undefined}
         style={{ fontFamily: "var(--mono)", minWidth: 0 }}
       >
         <span
