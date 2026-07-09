@@ -47,6 +47,7 @@ import {
   fitTerminalSurface,
   getCurrentTerminalFont,
   getTerminalColorScheme,
+  terminalNeedsTransparency,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
 import {
@@ -868,6 +869,11 @@ export function TerminalPane({
         }, SANDBOX_SPAWN_ACK_MS);
       };
       const stopWatchingColorScheme = watchTerminalColorScheme((colorScheme) => {
+        // Transparency only where the canvas actually clears transparent
+        // (flat dark) — it costs glyph antialiasing everywhere else, visibly
+        // thinning dark ink on the light theme's paper. Set BEFORE the theme
+        // so xterm computes the new background alpha under the right rule.
+        term.options.allowTransparency = terminalNeedsTransparency(colorScheme);
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
         // A theme with a bundled face (ember → JetBrains Mono) swaps the
         // terminal font live; the glyph box changes, so refit to reflow.
@@ -1693,9 +1699,12 @@ export function TerminalPane({
       </div>
       )}
       <div
+        data-terminal-body
         style={{
           flex: 1,
           position: "relative",
+          // The flat theme repaints this translucent (glass panes over the
+          // pattern ground) — see the [data-terminal-body] rule in styles.css.
           background: "var(--terminal-bg)",
         }}
       >

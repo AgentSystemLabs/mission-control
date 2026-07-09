@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { getAppTheme } from "./app-theme";
 import { installAgentHooks } from "./agent-hooks";
 import { installAgentMemoryBrief } from "./agent-memory-brief";
 import { ensureStatuslineTap } from "../src/shared/statusline-tap";
@@ -506,11 +507,17 @@ export function registerPtyHandlers(
         if (plan.agent === "claude-code") ensureStatuslineTap(plan.cwd);
       }
 
+      // Theme hint for the agent: prefer main's authoritative app theme over
+      // the renderer-supplied value — the renderer reads its OWN window's
+      // data-theme, and a spawn initiated from a stale window (focus window,
+      // floating pane) used to bake the old theme into the new session's env.
+      const appTheme =
+        getAppTheme() ?? (opts.missionControlTheme === "light" ? "light" : "dark");
       env.MC_TASK_ID = opts.taskId;
       if (mcEnv) {
         env.MC_API_URL = mcEnv.apiUrl;
         env.MC_API_TOKEN = mcEnv.token;
-        env.MC_THEME = opts.missionControlTheme === "light" ? "light" : "dark";
+        env.MC_THEME = appTheme;
       }
       // Mirror Mission Control's light/dark to the agent's own UI. COLORFGBG is
       // the terminal-background hint Claude Code (and other COLORFGBG-aware TUIs)
@@ -520,7 +527,7 @@ export function registerPtyHandlers(
       // light/dark in the agent's config wins. Overrides any COLORFGBG inherited
       // from the launching shell so the session matches the app, not the host.
       if (plan.mode === "agent") {
-        env.COLORFGBG = opts.missionControlTheme === "light" ? "0;15" : "15;0";
+        env.COLORFGBG = appTheme === "light" ? "0;15" : "15;0";
       }
       applyAgentPtyEnv(env, opts.agent);
 
