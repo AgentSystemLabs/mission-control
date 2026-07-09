@@ -283,6 +283,23 @@ export async function deleteProjectFile(
   if (abs === cwd) {
     throw new GitError("refusing to delete project root");
   }
+  // The lexical check above collapses `..`, but a *symlinked intermediate
+  // directory* inside the repo (e.g. `link -> /etc`, then delete `link/passwd`)
+  // resolves lexically inside root while `fs.rm` follows it out of the project.
+  // Realpath the parent directory and re-check containment so the delete target
+  // physically lives under the project root.
+  try {
+    const realRoot = fs.realpathSync(cwd);
+    const realParent = fs.realpathSync(path.dirname(abs));
+    const realRootWithSep = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+    if (realParent !== realRoot && !realParent.startsWith(realRootWithSep)) {
+      throw new GitError("path escapes project root");
+    }
+  } catch (e: any) {
+    if (e instanceof GitError) throw e;
+    if (e?.code === "ENOENT") return; // parent already gone → nothing to delete
+    throw new GitError("could not resolve file path", e?.message || String(e));
+  }
   try {
     await fs.promises.rm(abs, { force: false });
   } catch (e: any) {
