@@ -2719,7 +2719,12 @@ function ProjectPage() {
               <Icon
                 name="chevron-down"
                 size={14}
-                style={{ color: "var(--text-dim)", flexShrink: 0 }}
+                style={{
+                  color: "var(--text-dim)",
+                  flexShrink: 0,
+                  transform: overflowOpen ? "rotate(180deg)" : undefined,
+                  transition: "transform 120ms ease",
+                }}
               />
             </div>
             {overflowOpen &&
@@ -3923,7 +3928,16 @@ function SessionScopeToggle({
         onClick={() => setOpen((v) => !v)}
         style={{ paddingInline: 8 }}
       >
-        <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
+        <Icon
+          name="chevron-down"
+          size={11}
+          style={{
+            color: "var(--text-faint)",
+            flexShrink: 0,
+            transform: open ? "rotate(180deg)" : undefined,
+            transition: "transform 120ms ease",
+          }}
+        />
       </Btn>
       {open &&
         menuRect &&
