@@ -5,7 +5,6 @@ import type {
 } from "~/shared/provider-usage";
 import { DEFAULT_PROVIDER_USAGE_IDS } from "~/shared/provider-usage";
 import { Btn } from "~/components/ui/Btn";
-import { CardFrame } from "~/components/ui/CardFrame";
 import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useProviderUsage, useSettings } from "~/queries";
 
@@ -37,7 +36,7 @@ export function ProviderUsageIndicator() {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const dialogRef = useRef<HTMLElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
 
   // Fixed positioning at whole-pixel coordinates. The popover overlaps the
@@ -178,47 +177,61 @@ export function ProviderUsageIndicator() {
       </button>
 
       {open && popoverPos && (
-        <CardFrame
+        <div
           ref={dialogRef}
           role="dialog"
           aria-label="Provider usage details"
           tabIndex={-1}
-          solid
-          className="mc-usage-pop"
+          className="mc-usage-pop mc-usage-glass"
           style={{
             position: "fixed",
             top: popoverPos.top,
             right: popoverPos.right,
             width: 352,
             maxWidth: "calc(100vw - 32px)",
-            padding: 10,
+            padding: 12,
             display: "flex",
             flexDirection: "column",
             gap: 8,
-            boxShadow: "0 16px 36px rgba(0,0,0,0.46)",
             zIndex: 200,
           }}
         >
           <div
             style={{
               display: "flex",
-              alignItems: "center",
+              alignItems: "flex-start",
               justifyContent: "space-between",
               gap: 8,
               padding: "2px 2px 4px",
             }}
           >
-            <div
-              style={{
-                color: "var(--text)",
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-              }}
-            >
-              Provider usage
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+              <div
+                style={{
+                  color: "var(--text)",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Provider usage
+              </div>
+              {data && (
+                <div
+                  style={{
+                    color: "var(--text-faint)",
+                    fontFamily: "var(--mono)",
+                    fontSize: 10,
+                  }}
+                  title="Auto-refreshes every 45 seconds"
+                >
+                  {isFetching
+                    ? "refreshing…"
+                    : `updated ${timeFmt.format(new Date(data.fetchedAt))}`}
+                </div>
+              )}
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Btn
@@ -292,21 +305,7 @@ export function ProviderUsageIndicator() {
               </Fragment>
             ))}
           </div>
-
-          {data && (
-            <div
-              style={{
-                color: "var(--text-faint)",
-                fontFamily: "var(--mono)",
-                fontSize: 10,
-                padding: "2px 2px 0",
-              }}
-              title="Auto-refreshes every 45 seconds"
-            >
-              {isFetching ? "refreshing…" : `updated ${timeFmt.format(new Date(data.fetchedAt))}`}
-            </div>
-          )}
-        </CardFrame>
+        </div>
       )}
     </div>
   );
