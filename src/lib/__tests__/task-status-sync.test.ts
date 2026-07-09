@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { agentHasLifecycleHooks, agentUsesTerminalPromptFallback, terminalInputStartsTurn } from "../task-status-sync";
+import {
+  agentHasLifecycleHooks,
+  agentUsesTerminalPromptFallback,
+  shouldResetTerminalRunningFallback,
+  terminalInputStartsTurn,
+} from "../task-status-sync";
 
 describe("terminal status sync", () => {
   it("lets Claude Code report running through lifecycle hooks", () => {
@@ -20,5 +25,14 @@ describe("terminal status sync", () => {
     expect(terminalInputStartsTurn("cursor-cli", "hello")).toBe(false);
     expect(terminalInputStartsTurn("cursor-cli", "implement this\r")).toBe(true);
     expect(terminalInputStartsTurn("codex", "\r")).toBe(true);
+  });
+
+  it("re-arms the Enter→running fallback after a turn leaves running", () => {
+    expect(shouldResetTerminalRunningFallback("running")).toBe(false);
+    // stop/afterAgentResponse flipped the card to finished → clear the latch
+    // so the next Enter in the same session can post running again.
+    expect(shouldResetTerminalRunningFallback("finished")).toBe(true);
+    expect(shouldResetTerminalRunningFallback("needs-input")).toBe(true);
+    expect(shouldResetTerminalRunningFallback("ready")).toBe(true);
   });
 });
