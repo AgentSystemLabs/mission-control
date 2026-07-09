@@ -5,6 +5,11 @@ import { HTTP_OK, HTTP_UNAUTHORIZED } from "~/shared/http-status";
 
 const SSE_TICKET_TTL_MS = 30_000;
 const SSE_TICKET_BYTES = 32;
+// Hard ceiling on outstanding (unconsumed, unexpired) tickets. Each is single
+// use and lives at most SSE_TICKET_TTL_MS, so legitimate use never approaches
+// this; the cap only bounds memory against a token holder looping the
+// (bearer-gated) issue endpoint to grow the Map unboundedly.
+const SSE_TICKET_MAX_OUTSTANDING = 1_000;
 const sseTickets = new Map<string, { expiresAt: number }>();
 
 function pruneExpiredTickets(now = Date.now()): void {
@@ -15,6 +20,14 @@ function pruneExpiredTickets(now = Date.now()): void {
 
 export function issueTicket(): Response {
   pruneExpiredTickets();
+  // If still at the ceiling after pruning expired entries, evict the
+  // oldest-issued tickets (Map preserves insertion order) to make room. Bounds
+  // memory regardless of issue rate.
+  while (sseTickets.size >= SSE_TICKET_MAX_OUTSTANDING) {
+    const oldest = sseTickets.keys().next().value;
+    if (oldest === undefined) break;
+    sseTickets.delete(oldest);
+  }
   const ticket = randomBytes(SSE_TICKET_BYTES).toString("hex");
   const expiresAt = Date.now() + SSE_TICKET_TTL_MS;
   sseTickets.set(ticket, { expiresAt });
