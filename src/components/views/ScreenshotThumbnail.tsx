@@ -24,6 +24,10 @@ const THUMB_WIDTH_PX = 168;
 // pile regardless of each capture's aspect ratio. Images are cropped
 // (top-anchored, objectFit: cover) to fill the box.
 const THUMB_HEIGHT_PX = 120;
+// Compact cards for the focus-mode floating window, where the full-size stack
+// would cover most of the (small) terminal.
+const COMPACT_THUMB_WIDTH_PX = 116;
+const COMPACT_THUMB_HEIGHT_PX = 82;
 
 const cardBaseStyle: CSSProperties = {
   display: "flex",
@@ -31,7 +35,6 @@ const cardBaseStyle: CSSProperties = {
   alignItems: "stretch",
   gap: 6,
   padding: 8,
-  width: THUMB_WIDTH_PX + 16,
   borderRadius: 12,
   border: "1px solid var(--border)",
   background: "var(--surface-1)",
@@ -54,9 +57,21 @@ function sessionHostAtPoint(x: number, y: number): HTMLElement | null {
  * Dismiss with the ✕. Each card owns its own drag state so cards in the stack
  * move independently.
  */
-function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; projectId: string }) {
+function ScreenshotStackCard({
+  shot,
+  projectId,
+  compact = false,
+}: {
+  shot: PendingScreenshot;
+  projectId: string;
+  compact?: boolean;
+}) {
   const { dismissPendingScreenshot, updateScreenshot, attachImageToSession, activeTaskIdFor } =
     useTerminals();
+
+  const thumbWidth = compact ? COMPACT_THUMB_WIDTH_PX : THUMB_WIDTH_PX;
+  const thumbHeight = compact ? COMPACT_THUMB_HEIGHT_PX : THUMB_HEIGHT_PX;
+  const cardStyle: CSSProperties = { ...cardBaseStyle, width: thumbWidth + 16 };
 
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
@@ -231,7 +246,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
             style={{
               display: "block",
               width: "100%",
-              height: THUMB_HEIGHT_PX,
+              height: thumbHeight,
               objectFit: "cover",
               objectPosition: "top",
             }}
@@ -252,8 +267,8 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 28,
-              height: 28,
+              width: compact ? 22 : 28,
+              height: compact ? 22 : 28,
               padding: 0,
               borderRadius: 8,
               border: "none",
@@ -262,7 +277,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
               background: "rgba(0,0,0,0.6)",
             }}
           >
-            <Icon name="x" size={16} />
+            <Icon name="x" size={compact ? 13 : 16} />
           </button>
         )}
         {!ghost && (
@@ -280,8 +295,8 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 26,
-              height: 26,
+              width: compact ? 22 : 26,
+              height: compact ? 22 : 26,
               padding: 0,
               borderRadius: 8,
               border: "none",
@@ -291,20 +306,24 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
               boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
             }}
           >
-            <Icon name="plus" size={15} />
+            <Icon name="plus" size={compact ? 13 : 15} />
           </button>
         )}
       </div>
-      <div
-        style={{
-          fontSize: 11,
-          color: "var(--text-dim)",
-          textAlign: "center",
-          fontFamily: "var(--mono)",
-        }}
-      >
-        Click to edit · drag to attach
-      </div>
+      {/* The caption doesn't fit the compact card; its aria-label carries the
+          same instructions there. */}
+      {!compact && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--text-dim)",
+            textAlign: "center",
+            fontFamily: "var(--mono)",
+          }}
+        >
+          Click to edit · drag to attach
+        </div>
+      )}
     </>
   );
 
@@ -332,7 +351,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
         onLostPointerCapture={leaving ? undefined : abortDrag}
         onAnimationEnd={leaving ? dismiss : undefined}
         style={{
-          ...cardBaseStyle,
+          ...cardStyle,
           cursor: dragging ? "grabbing" : "grab",
           opacity: dragging ? 0 : 1,
           // Pointer capture still routes move/up here while dragging, so drop
@@ -387,7 +406,7 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
         <div
           aria-hidden
           style={{
-            ...cardBaseStyle,
+            ...cardStyle,
             position: "fixed",
             left: dragPoint.x,
             top: dragPoint.y,
@@ -405,17 +424,54 @@ function ScreenshotStackCard({ shot, projectId }: { shot: PendingScreenshot; pro
 }
 
 /**
- * Floating stack of freshly captured screenshots, pinned bottom-right. Each new
- * capture piles on top; the oldest sits at the bottom of the stack. Attaching or
- * dismissing a card only removes it from this stack — the screenshot lives on in
- * the on-demand history strip. Rendered globally via a portal so it floats above
- * the grid and drops can hit-test the whole document.
+ * Floating stack of freshly captured screenshots. Each new capture piles on
+ * top; attaching or dismissing a card only removes it from this stack — the
+ * screenshot lives on in the on-demand history strip.
+ *
+ * The default "floating" variant pins bottom-right, rendered globally via a
+ * portal so it floats above the grid and drops can hit-test the whole document.
+ * The "focus" variant is for the focus-mode floating window: compact cards
+ * anchored top-right *inside* the (relatively positioned) terminal wrapper, so
+ * they overlay old scrollback instead of the prompt and latest output at the
+ * bottom, and always sit below the header/session bar whatever their height.
  */
-export function ScreenshotThumbnail({ projectId }: { projectId: string }) {
+export function ScreenshotThumbnail({
+  projectId,
+  variant = "floating",
+}: {
+  projectId: string;
+  variant?: "floating" | "focus";
+}) {
   const { pendingScreenshots } = useTerminals();
   const shots = pendingScreenshots.filter((s) => s.projectId === projectId);
 
   if (shots.length === 0) return null;
+
+  if (variant === "focus") {
+    return (
+      <div
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 8,
+          zIndex: 100,
+          display: "flex",
+          // Top-pinned: newest first, so the freshest capture hugs the corner
+          // and older ones trail downward.
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 6,
+          // Let clicks fall through the gaps between cards; each card
+          // re-enables pointer events for itself.
+          pointerEvents: "none",
+        }}
+      >
+        {[...shots].reverse().map((shot) => (
+          <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId} compact />
+        ))}
+      </div>
+    );
+  }
 
   return createPortal(
     <div
