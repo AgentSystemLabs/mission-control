@@ -393,6 +393,28 @@ export async function fetchRemote(
 export type PullMode = "ff-only" | "rebase" | "merge";
 
 /**
+ * Rebase/merge pulls create a commit, which git refuses to do when no
+ * committer identity is configured ("empty ident name … not allowed") — common
+ * on fresh machines, sandboxes, and CI runners. Inject a throwaway identity for
+ * *only* the fields git can't already resolve, so a configured user.name/email
+ * is always preferred and left untouched.
+ */
+async function fallbackIdentityArgs(cwd: string): Promise<string[]> {
+  const [name, email] = await Promise.all([
+    runGit(cwd, ["config", "user.name"]),
+    runGit(cwd, ["config", "user.email"]),
+  ]);
+  const args: string[] = [];
+  if (!(name.code === 0 && name.stdout.trim())) {
+    args.push("-c", "user.name=Mission Control");
+  }
+  if (!(email.code === 0 && email.stdout.trim())) {
+    args.push("-c", "user.email=mission-control@localhost");
+  }
+  return args;
+}
+
+/**
  * Pull the current branch from its upstream (or origin/<branch>).
  * Default is fast-forward only; rebase/merge are explicit so a header click
  * never invents a merge commit unless the user asked for it.
@@ -412,14 +434,19 @@ export async function pull(
   const modeArgs =
     mode === "rebase" ? ["--rebase"] : mode === "merge" ? ["--no-rebase"] : ["--ff-only"];
 
-  let result = await runGit(cwd, ["pull", ...modeArgs], { timeoutMs: PUSH_TIMEOUT_MS });
+  // ff-only never commits; rebase/merge can, so give git a fallback identity.
+  const identityArgs = mode === "ff-only" ? [] : await fallbackIdentityArgs(cwd);
+
+  let result = await runGit(cwd, [...identityArgs, "pull", ...modeArgs], {
+    timeoutMs: PUSH_TIMEOUT_MS,
+  });
   if (result.code !== 0) {
     const noUpstream =
       /no tracking information|There is no tracking information|no upstream/i.test(
         result.stderr || "",
       ) || /set the upstream/i.test(result.stderr || "");
     if (noUpstream) {
-      result = await runGit(cwd, ["pull", ...modeArgs, "origin", branch], {
+      result = await runGit(cwd, [...identityArgs, "pull", ...modeArgs, "origin", branch], {
         timeoutMs: PUSH_TIMEOUT_MS,
       });
     }
