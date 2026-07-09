@@ -5,11 +5,13 @@ import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   CommitResult,
   CreatePullRequestResult,
+  FetchResult,
   GitBranch,
   GitBranchesResult,
   GitCheckoutResult,
   GitDiff,
   GitStatus,
+  PullResult,
   PushResult,
 } from "~/server/services/git";
 export type { GitBranch, GitBranchesResult, GitCheckoutResult };
@@ -84,7 +86,7 @@ export type AppSettings = {
   launchOverlayEnabled: boolean;
   automaticUpdateDownloadsEnabled: boolean;
   automaticUpdateInstallOnQuitEnabled: boolean;
-  /** Beta: git worktrees per project (off by default). */
+  /** Git worktrees per project (always on). */
   worktreesEnabled: boolean;
   /** Experimental: push-to-talk voice control (off by default). */
   voiceControlEnabled: boolean;
@@ -120,6 +122,13 @@ export type AppSettings = {
    */
   annotationAgent: AiRuntimeHarness;
   annotationModel: AiModelId | null;
+  /**
+   * Harness/model/prompt for the Ship button, which opens an AI session to push
+   * and sync with remote (pull/rebase/conflict fix when needed).
+   */
+  shipAgent: AiRuntimeHarness;
+  shipModel: AiModelId | null;
+  shipPrompt: string;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
   /**
@@ -595,6 +604,9 @@ export const api = {
         | "defaultModel"
         | "annotationAgent"
         | "annotationModel"
+        | "shipAgent"
+        | "shipModel"
+        | "shipPrompt"
         | "voiceCommandAliases"
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"
@@ -682,6 +694,20 @@ export const api = {
     req<PushResult>(`/api/projects/${projectId}/git/push`, {
       method: "POST",
       body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    }),
+  gitFetch: (projectId: string, worktreeId?: string | null) =>
+    req<FetchResult>(`/api/projects/${projectId}/git/fetch`, {
+      method: "POST",
+      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    }),
+  gitPull: (
+    projectId: string,
+    worktreeId?: string | null,
+    mode: "ff-only" | "rebase" | "merge" = "ff-only",
+  ) =>
+    req<PullResult>(`/api/projects/${projectId}/git/pull`, {
+      method: "POST",
+      body: JSON.stringify({ worktreeId: worktreeId ?? null, mode }),
     }),
   gitCreatePullRequest: (projectId: string, worktreeId?: string | null) =>
     req<CreatePullRequestResult>(`/api/projects/${projectId}/git/create-pr`, {

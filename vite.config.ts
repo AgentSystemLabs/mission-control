@@ -23,6 +23,10 @@ export default defineConfig({
     alias: {
       "~": path.resolve(__dirname, "./src"),
     },
+    // Language packages and @uiw/react-codemirror can otherwise pull distinct
+    // @codemirror/state copies; instanceof checks then reject valid extensions
+    // ("Unrecognized extension value… multiple instances of @codemirror/state").
+    dedupe: ["@codemirror/state", "@codemirror/view", "@codemirror/language"],
   },
   plugins: [
     tailwindcss(),

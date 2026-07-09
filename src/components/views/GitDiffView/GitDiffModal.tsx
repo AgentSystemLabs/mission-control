@@ -19,6 +19,7 @@ export function GitDiffModal({
   projectPath,
   enabled = true,
   onClose,
+  onShip,
 }: {
   open: boolean;
   projectId: string;
@@ -26,6 +27,7 @@ export function GitDiffModal({
   projectPath: string;
   enabled?: boolean;
   onClose: () => void;
+  onShip: () => void;
 }) {
   return (
     <Modal
@@ -76,6 +78,7 @@ export function GitDiffModal({
         enabled={enabled}
         onBack={onClose}
         showHeader={false}
+        onShip={onShip}
       />
     </Modal>
   );

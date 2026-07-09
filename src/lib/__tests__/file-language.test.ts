@@ -40,6 +40,8 @@ describe("languageForFilename", () => {
       "config.yml",
       "Cargo.toml",
       "data.xml",
+      "icon.svg",
+      "assets/logo.SVG",
       "main.rs",
       "main.go",
       "Main.java",

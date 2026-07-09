@@ -3,10 +3,12 @@ import {
   checkoutGitBranch,
   commit as gitCommit,
   createPullRequest as gitCreatePullRequest,
+  fetchRemote as gitFetch,
   getGitDiff,
   getGitStatus,
   gitErrorPayload,
   listGitBranches,
+  pull as gitPull,
   push as gitPush,
   stageFiles,
   unstageFiles,
@@ -132,6 +134,35 @@ export async function push(rawId: string, request: Request): Promise<Response> {
   if (!body.ok) return body.response;
   try {
     return json(await gitPush(parsed.data, body.data.worktreeId ?? null));
+  } catch (e) {
+    return handleDomainError(e) ?? asGitErrorResponse(e);
+  }
+}
+
+export async function fetch(rawId: string, request: Request): Promise<Response> {
+  const parsed = idParam.safeParse(rawId);
+  if (!parsed.success) return notFound();
+  const body = await parseJsonBody(request, z.object({ worktreeId: z.string().nullable().optional() }));
+  if (!body.ok) return body.response;
+  try {
+    return json(await gitFetch(parsed.data, body.data.worktreeId ?? null));
+  } catch (e) {
+    return handleDomainError(e) ?? asGitErrorResponse(e);
+  }
+}
+
+const pullBody = z.object({
+  worktreeId: z.string().nullable().optional(),
+  mode: z.enum(["ff-only", "rebase", "merge"]).optional(),
+});
+
+export async function pull(rawId: string, request: Request): Promise<Response> {
+  const parsed = idParam.safeParse(rawId);
+  if (!parsed.success) return notFound();
+  const body = await parseJsonBody(request, pullBody);
+  if (!body.ok) return body.response;
+  try {
+    return json(await gitPull(parsed.data, body.data.worktreeId ?? null, body.data.mode ?? "ff-only"));
   } catch (e) {
     return handleDomainError(e) ?? asGitErrorResponse(e);
   }

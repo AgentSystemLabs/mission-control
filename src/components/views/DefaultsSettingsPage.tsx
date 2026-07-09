@@ -25,8 +25,9 @@ import {
   type AiRuntimeHarness,
   type AiRuntimeModelsResponse,
 } from "~/shared/ai-runtime-defaults";
+import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 
-type DefaultsFeatureId = "commit" | "voice" | "markdown";
+type DefaultsFeatureId = "commit" | "voice" | "markdown" | "ship";
 
 const DEFAULTS_FEATURES: Array<{
   id: DefaultsFeatureId;
@@ -36,7 +37,7 @@ const DEFAULTS_FEATURES: Array<{
   {
     id: "commit",
     label: "Commit Messages",
-    description: "CLI used when Ship drafts a commit message.",
+    description: "CLI used when drafting a commit message from a staged diff.",
   },
   {
     id: "voice",
@@ -48,6 +49,11 @@ const DEFAULTS_FEATURES: Array<{
     label: "Markdown Refine",
     description: "Harness and model for annotation rewrites.",
   },
+  {
+    id: "ship",
+    label: "Ship",
+    description: "Harness, model, and prompt for the Ship button.",
+  },
 ];
 
 export function DefaultsSettingsPage() {
@@ -58,6 +64,9 @@ export function DefaultsSettingsPage() {
   const currentModel = settings?.defaultModel ?? null;
   const currentAnnotationAgent = settings?.annotationAgent ?? "claude-code";
   const currentAnnotationModel = settings?.annotationModel ?? null;
+  const currentShipAgent = settings?.shipAgent ?? "claude-code";
+  const currentShipModel = settings?.shipModel ?? null;
+  const currentShipPrompt = settings?.shipPrompt ?? DEFAULT_SHIP_PROMPT;
 
   const [detection, setDetection] = useState<CommitCliDetection | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
@@ -66,6 +75,12 @@ export function DefaultsSettingsPage() {
   const [activeFeature, setActiveFeature] = useState<DefaultsFeatureId>("commit");
   const [runtimeUpdating, setRuntimeUpdating] = useState(false);
   const runtimeUpdateInFlightRef = useRef(false);
+  const [shipPromptDraft, setShipPromptDraft] = useState(currentShipPrompt);
+  const [shipPromptSaving, setShipPromptSaving] = useState(false);
+
+  useEffect(() => {
+    setShipPromptDraft(currentShipPrompt);
+  }, [currentShipPrompt]);
 
   const runDetect = async () => {
     setDetecting(true);
@@ -112,7 +127,13 @@ export function DefaultsSettingsPage() {
     patch: Partial<
       Pick<
         AppSettings,
-        "defaultAgent" | "defaultModel" | "annotationAgent" | "annotationModel"
+        | "defaultAgent"
+        | "defaultModel"
+        | "annotationAgent"
+        | "annotationModel"
+        | "shipAgent"
+        | "shipModel"
+        | "shipPrompt"
       >
     >,
   ) => {
@@ -179,11 +200,10 @@ export function DefaultsSettingsPage() {
                 title="Commit Messages"
                 description={
                   <>
-                    When you press <strong>Ship</strong>, Mission Control spawns
-                    this CLI in print mode to draft a commit message from the
-                    staged diff. The first time you ship, we auto-detect which
-                    of these tools are on your PATH and pick the first available
-                    one.
+                    Mission Control can spawn this CLI in print mode to draft a
+                    commit message from a staged diff. The first time it runs, we
+                    auto-detect which of these tools are on your PATH and pick
+                    the first available one.
                   </>
                 }
               >
@@ -226,7 +246,7 @@ export function DefaultsSettingsPage() {
                           onClick={() => void selectCli(null)}
                           disabled={cliUpdating}
                         >
-                          Clear (auto-detect next ship)
+                          Clear (auto-detect next time)
                         </Btn>
                       )}
                       {detectError && (
@@ -259,8 +279,8 @@ export function DefaultsSettingsPage() {
                         }}
                       >
                         None of the supported CLIs were found on your PATH.
-                        Install one of them, or use the manual-message bypass
-                        that appears when Ship fails.
+                        Install one of them before drafting commit messages
+                        from a staged diff.
                       </div>
                     )}
                   </div>
@@ -325,6 +345,97 @@ export function DefaultsSettingsPage() {
                 />
               </FeaturePanel>
             )}
+            {activeFeature === "ship" && (
+              <FeaturePanel
+                featureId="ship"
+                title="Ship"
+                description={
+                  <>
+                    When you press <strong>Ship</strong>, Mission Control opens
+                    an AI session with this harness and injects the prompt below
+                    so the agent can push and sync with remote.
+                  </>
+                }
+              >
+                <RuntimeDefaultControl
+                  agent={currentShipAgent}
+                  model={currentShipModel}
+                  disabled={runtimeUpdating}
+                  onAgentSelect={(agent) =>
+                    void updateRuntimeDefaults({
+                      shipAgent: agent,
+                      shipModel: modelForSelectedHarness(agent, currentShipModel),
+                    })
+                  }
+                  onModelSelect={(model) =>
+                    void updateRuntimeDefaults({ shipModel: model })
+                  }
+                />
+                <Field label="Ship prompt">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <textarea
+                      value={shipPromptDraft}
+                      onChange={(e) => setShipPromptDraft(e.target.value)}
+                      rows={4}
+                      disabled={shipPromptSaving || runtimeUpdating}
+                      style={{
+                        width: "100%",
+                        resize: "vertical",
+                        minHeight: 88,
+                        padding: "10px 12px",
+                        borderRadius: 7,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface-0)",
+                        color: "var(--text)",
+                        fontFamily: "var(--mono)",
+                        fontSize: 12,
+                        lineHeight: 1.45,
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Btn
+                        variant="primary"
+                        size="sm"
+                        disabled={
+                          shipPromptSaving ||
+                          runtimeUpdating ||
+                          shipPromptDraft.trim() === currentShipPrompt
+                        }
+                        onClick={() => {
+                          const next = shipPromptDraft.trim() || DEFAULT_SHIP_PROMPT;
+                          setShipPromptSaving(true);
+                          void updateRuntimeDefaults({ shipPrompt: next }).finally(() => {
+                            setShipPromptSaving(false);
+                          });
+                        }}
+                      >
+                        {shipPromptSaving ? "Saving…" : "Save prompt"}
+                      </Btn>
+                      <Btn
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          shipPromptSaving ||
+                          runtimeUpdating ||
+                          shipPromptDraft === DEFAULT_SHIP_PROMPT
+                        }
+                        onClick={() => {
+                          setShipPromptDraft(DEFAULT_SHIP_PROMPT);
+                          setShipPromptSaving(true);
+                          void updateRuntimeDefaults({
+                            shipPrompt: DEFAULT_SHIP_PROMPT,
+                          }).finally(() => {
+                            setShipPromptSaving(false);
+                          });
+                        }}
+                      >
+                        Reset to default
+                      </Btn>
+                    </div>
+                  </div>
+                </Field>
+              </FeaturePanel>
+            )}
           </div>
         </div>
       </SettingsSection>
@@ -341,13 +452,14 @@ export function modelForSelectedHarness(
 
 function isStaleSettingsSchemaError(
   error: unknown,
-  patch: Partial<Pick<AppSettings, "defaultAgent" | "annotationAgent">>,
+  patch: Partial<Pick<AppSettings, "defaultAgent" | "annotationAgent" | "shipAgent">>,
 ): boolean {
   if (!(error instanceof ApiError) || error.status !== 400) return false;
   const message = error.message;
   return (
     ("defaultAgent" in patch && message.includes('Unrecognized key: "defaultAgent"')) ||
-    ("annotationAgent" in patch && message.includes('Unrecognized key: "annotationAgent"'))
+    ("annotationAgent" in patch && message.includes('Unrecognized key: "annotationAgent"')) ||
+    ("shipAgent" in patch && message.includes('Unrecognized key: "shipAgent"'))
   );
 }
 

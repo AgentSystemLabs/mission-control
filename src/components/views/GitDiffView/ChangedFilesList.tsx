@@ -68,9 +68,8 @@ export function ChangedFilesList({
   onUnstageAll: _onUnstageAll,
   onDeleteFile,
   busyPaths,
-  projectId,
-  worktreeId,
   enabled = true,
+  onShip,
 }: {
   staged: GitChangedFile[];
   unstaged: GitChangedFile[];
@@ -82,16 +81,14 @@ export function ChangedFilesList({
   onUnstageAll: () => void;
   onDeleteFile: (path: string) => void;
   busyPaths: Set<string>;
-  projectId: string;
-  worktreeId?: string | null;
   enabled?: boolean;
+  onShip: () => void;
 }) {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const settingsLoaded = settings !== undefined;
   const storedViewMode = settings?.gitDiffChangedFilesView ?? null;
   const storedWidth = settings?.gitDiffChangedFilesWidth ?? null;
-  const [shipError, setShipError] = useState<string | null>(null);
   const [menu, setMenu] = useState<FileContextMenu | null>(null);
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
   const initialCachedViewRef = useRef<FileListView | null>(null);
@@ -205,25 +202,6 @@ export function ChangedFilesList({
         position: "relative",
       }}
     >
-      {shipError && (
-        <div
-          style={{
-            padding: "6px 10px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--surface-1)",
-            color: "var(--status-failed)",
-            fontFamily: "var(--mono)",
-            fontSize: 11,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            flexShrink: 0,
-          }}
-          title={shipError}
-        >
-          {shipError}
-        </div>
-      )}
       <FilesToolbar
         total={staged.length + unstaged.length}
         viewMode={viewMode}
@@ -236,16 +214,11 @@ export function ChangedFilesList({
           tone="staged"
           extra={
             <CommitPushButton
-              projectId={projectId}
-              worktreeId={worktreeId}
-              label="Ship Accepted"
-              title="commit & push"
-              autoStage={false}
-              showAheadBadge={false}
+              label="Ship"
+              title="Open an AI session to push and sync with remote"
               variant="primary"
               enabled={enabled}
-              onError={(m) => setShipError(m)}
-              onNotice={() => setShipError(null)}
+              onShip={onShip}
             />
           }
         >

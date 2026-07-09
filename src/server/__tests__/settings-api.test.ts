@@ -315,6 +315,16 @@ describe("settings API", () => {
     });
   });
 
+  it("defaults Ship to Claude Code with the sync prompt until customized", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({
+      shipAgent: "claude-code",
+      shipModel: null,
+      shipPrompt:
+        "commit my changes, then push my latest branch changes to remote, and if upstream changes exist, pull them, fix conflict, and push when resolved.",
+    });
+  });
+
   it("persists the annotation harness and model independently of the voice default", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
@@ -350,6 +360,46 @@ describe("settings API", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ annotationModel: "$(whoami)" }),
+      }),
+    );
+    expect(update?.status).toBe(400);
+  });
+
+  it("persists the Ship harness, model, and prompt independently of voice defaults", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          shipAgent: "codex",
+          shipModel: "gpt-5.3-codex",
+          shipPrompt: "  push and reconcile with origin  ",
+        }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      shipAgent: "codex",
+      shipModel: "gpt-5.3-codex",
+      shipPrompt: "push and reconcile with origin",
+      defaultAgent: "claude-code",
+      defaultModel: null,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      shipAgent: "codex",
+      shipModel: "gpt-5.3-codex",
+      shipPrompt: "push and reconcile with origin",
+    });
+  });
+
+  it("rejects an unsafe ship model value", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ shipModel: "gpt-4; rm -rf /" }),
       }),
     );
     expect(update?.status).toBe(400);
@@ -522,14 +572,14 @@ describe("settings API", () => {
     });
   });
 
-  it("keeps worktrees disabled by default", async () => {
+  it("keeps worktrees enabled (always on)", async () => {
     const response = await handleApiRequest(
       authedRequest("http://localhost/api/settings"),
     );
 
     expect(response?.status).toBe(200);
     expect(await jsonBody(response!)).toMatchObject({
-      worktreesEnabled: false,
+      worktreesEnabled: true,
     });
   });
 
@@ -547,12 +597,12 @@ describe("settings API", () => {
     });
   });
 
-  it("persists the worktrees preference", async () => {
+  it("ignores attempts to disable worktrees", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ worktreesEnabled: true }),
+        body: JSON.stringify({ worktreesEnabled: false }),
       }),
     );
     const read = await handleApiRequest(

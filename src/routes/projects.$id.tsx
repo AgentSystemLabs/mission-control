@@ -33,7 +33,7 @@ import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
 import { CursorGlow } from "~/components/ui/CursorGlow";
-import { HotkeyTooltip, StaticHotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip, StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
@@ -82,6 +82,13 @@ import {
 } from "~/lib/agent-question-store";
 import { setPendingInitialInput, takePendingInitialInput } from "~/lib/voice-session-prompts";
 import {
+  clearPendingSessionModel,
+  peekPendingSessionModel,
+  setPendingSessionModel,
+} from "~/lib/session-model-overrides";
+import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
+import type { AiModelId } from "~/shared/ai-runtime-defaults";
+import {
   VOICE_NEW_AGENT_EVENT,
   VOICE_OPEN_BROWSER_EVENT,
   VOICE_OPEN_DIFF_EVENT,
@@ -95,7 +102,11 @@ import {
 import { MEMORY_TITLE_MAX } from "~/shared/project-memory";
 import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
-import { groupTasksByStatusForDisplay } from "~/lib/task-display-order";
+import {
+  groupActiveListTasksForDisplay,
+  groupArchivedTasksForDisplay,
+  groupTasksByStatusForDisplay,
+} from "~/lib/task-display-order";
 import {
   DEFAULT_BRANCH,
   type TaskAgent,
@@ -130,7 +141,7 @@ import {
   CreatePullRequestMenuItem,
   useCreatePullRequestAction,
 } from "~/components/views/CreatePullRequestButton";
-import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
+import { HeaderActions, HeaderBeforeSearch } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
 import { InstallShipSkillMenuItem } from "~/components/views/InstallShipSkillMenuItem";
@@ -726,10 +737,10 @@ function ProjectPage() {
   );
   // The grid only takes over the workspace once the scope has a session to show.
   // With none, we fall back to the normal sessions view so an empty grid matches
-  // the single-panel empty state exactly (header, scope toggle, and all) instead
-  // of a bare centered message. Archived is a list-only management view (no live
-  // terminals to grid), so selecting it drops back to the list; the grid filters
-  // only between Active and Pinned (SessionGrid handles the empty-Pinned state).
+  // the single-panel empty state exactly (header and all) instead of a bare
+  // centered message. Archived is a list-only management view (no live terminals
+  // to grid), so selecting it drops back to the list; the grid filters only
+  // between Active and Pinned (SessionGrid handles the empty-Pinned state).
   const showGrid =
     gridViewActive && sessionView !== "archived" && gridScopeSessionCount > 0;
   const syncTask = terminals.syncTask;
@@ -769,6 +780,9 @@ function ProjectPage() {
         terminals.setActiveSession(terminalProject, focused);
       }
       terminals.setGridView(false);
+      // List view no longer has the Active/Pinned/Archived scope toggle — pinned
+      // is grid-only, so drop back to the active list when leaving the grid.
+      setSessionView((prev) => (prev === "pinned" ? "active" : prev));
     } else {
       enterGridView();
     }
@@ -1368,7 +1382,7 @@ function ProjectPage() {
   const createSession = useCallback(
     async (
       payload: SessionCreatePayload,
-      opts?: { initialInput?: string; focusOnCreate?: boolean },
+      opts?: { initialInput?: string; focusOnCreate?: boolean; model?: AiModelId | null },
     ) => {
       if (!project || !terminalProject) return;
       const selectedAvailability = availabilityFor(cliAvailability, payload.agent);
@@ -1473,6 +1487,9 @@ function ProjectPage() {
         // initialInput — the main process writes it after the agent TUI is ready.
         setPendingInitialInput(optimisticTask.id, opts.initialInput);
       }
+      if (opts?.model) {
+        setPendingSessionModel(optimisticTask.id, opts.model);
+      }
       terminals.toggle(terminalProject, optimisticTask, { awaitCreate: !isLocal });
       // Clone/new-session focus: put the caret in the just-added grid cell so the
       // user can type immediately. focusGridSession retries until the pane mounts
@@ -1508,6 +1525,11 @@ function ProjectPage() {
           if (clientTaskId && created.task.id === clientTaskId) {
             terminals.openSession(terminalProject, created.task);
           } else {
+            const pendingModel = peekPendingSessionModel(optimisticTask.id);
+            if (pendingModel) {
+              clearPendingSessionModel(optimisticTask.id);
+              setPendingSessionModel(created.task.id, pendingModel);
+            }
             terminals.adoptTaskId(optimisticTask.id, created.task);
           }
           void Promise.all([invalidateProject(), invalidateTasks(), invalidateProjects()]);
@@ -1519,8 +1541,9 @@ function ProjectPage() {
             setShowCodexHooksNotice(true);
           }
         } catch (e: unknown) {
-          // The session never spawned — discard any voice prompt staged for it.
+          // The session never spawned — discard any voice prompt / model staged for it.
           takePendingInitialInput(optimisticTask.id);
+          clearPendingSessionModel(optimisticTask.id);
           removeOptimisticTask(
             queryClient,
             project.id,
@@ -1695,6 +1718,40 @@ function ProjectPage() {
       terminals,
     ],
   );
+
+  // Ship: open an AI session that pushes/syncs with remote using Settings → Defaults → Ship.
+  const startShipSession = useCallback(() => {
+    if (!project || !projectPathReady) return;
+    if (activeRuntimeScopeId !== LOCAL_SCOPE_ID) {
+      toast.error("Ship isn't supported in sandbox sessions yet.");
+      return;
+    }
+    const payload = defaultSessionPayload(project);
+    const anchor = anchorSessionId();
+    if (anchor) terminals.requestCloneInsertAfter(anchor);
+    void createSession(
+      {
+        ...payload,
+        agent: settings?.shipAgent ?? "claude-code",
+        bareSession: false,
+      },
+      {
+        initialInput: settings?.shipPrompt ?? DEFAULT_SHIP_PROMPT,
+        focusOnCreate: true,
+        model: settings?.shipModel ?? null,
+      },
+    );
+  }, [
+    project,
+    projectPathReady,
+    activeRuntimeScopeId,
+    createSession,
+    settings?.shipAgent,
+    settings?.shipModel,
+    settings?.shipPrompt,
+    anchorSessionId,
+    terminals,
+  ]);
 
   // Command bus: VoiceController (mounted at root) dispatches these for the
   // active project route to perform. Mirrors the project.runToggle hotkey.
@@ -2113,7 +2170,17 @@ function ProjectPage() {
   const pinnedTasks = activeTasks.filter((t) => t.pinned);
   const archivedTasks = tasks.filter((t) => t.archived);
   const visibleTasks = showArchived ? archivedTasks : showPinned ? pinnedTasks : activeTasks;
-  const tasksByStatus = groupTasksByStatusForDisplay(visibleTasks);
+  // Active list peels pinned into a top "Pinned" section; Pinned tab keeps
+  // normal status grouping (already all-pinned). Archived folds ready into the
+  // Archived column so a Ready section never appears there.
+  const activeListGroups =
+    !showArchived && !showPinned ? groupActiveListTasksForDisplay(visibleTasks) : null;
+  const tasksByStatus = activeListGroups
+    ? activeListGroups.byStatus
+    : showArchived
+      ? groupArchivedTasksForDisplay(visibleTasks)
+      : groupTasksByStatusForDisplay(visibleTasks);
+  const pinnedListTasks = activeListGroups?.pinned ?? [];
 
   const activeId = terminals.activeTaskIdFor(selectedScopeKey);
   const pathIssueIsWorktree = projectPathIssue?.scope === "worktree";
@@ -2128,14 +2195,13 @@ function ProjectPage() {
     });
   };
 
-  const toggleTerminal = (taskId: string) => {
+  // Card click opens/focuses a session. Re-clicking the active card must not
+  // hide the panel — only the session panel close button (or terminal.close
+  // hotkey) deselects.
+  const selectTerminal = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    const active = terminals.activeFor(selectedScopeKey);
-    if (active?.taskId === taskId) {
-      lastHiddenSessionRef.current = { projectId: selectedScopeKey, taskId };
-    }
-    if (terminalProject) terminals.toggle(terminalProject, task);
+    if (!task || !terminalProject) return;
+    terminals.openSession(terminalProject, task);
   };
 
   const toggleSessionPinned = async (taskId: string) => {
@@ -2519,7 +2585,12 @@ function ProjectPage() {
             mainBranchUnavailable={gitUnavailable}
             mainBranchUnavailableTitle={gitUnavailableMessage ?? undefined}
             branchSwitchDisabled={projectPathBlocked}
-            maxWidth="min(420px, 34vw)"
+            changedCount={gitStatus?.changedCount}
+            onToggleDiffView={onToggleDiffView}
+            shipDisabled={projectPathBlocked}
+            shipEnabled={projectPathUsable}
+            onShip={startShipSession}
+            maxWidth="min(520px, 42vw)"
           />
           <span
             aria-hidden
@@ -2578,71 +2649,25 @@ function ProjectPage() {
     </HeaderActions>
   );
 
-  // The Active / Pinned / Archived scope tabs. Extracted so the grid can show
-  // the same control inline (the grid filters Active↔Pinned) without duplicating
-  // the whole "Sessions" title row and its New session button.
-  const scopeToggle = (
-    <SessionScopeToggle
-      view={sessionView}
-      activeCount={activeTasks.length}
-      pinnedCount={pinnedTasks.length}
-      archivedCount={archivedTasks.length}
-      showArchivedTab={hasArchivedTasks || showArchived}
-      onChange={setSessionView}
-    />
-  );
-
-  // "Sessions" title row (scope tabs + New session). Shared between the list
-  // view and the grid's all-hidden empty state so both read identically.
-  const sessionsHeader = (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        marginBottom: 34,
-        paddingInline: 12,
-        boxSizing: "border-box",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div
+  const headerBeforeSearch = (
+    <HeaderBeforeSearch>
+      <HotkeyTooltip
+        action="session.gridView"
+        label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+      >
+        <Btn
+          variant="ghost"
+          icon={terminals.gridView ? "list" : "grid"}
+          onClick={toggleGridViewShowingAll}
+          aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+          aria-pressed={terminals.gridView}
           style={{
-            fontSize: 22,
-            fontWeight: 700,
-            color: "var(--text)",
-            letterSpacing: "-0.01em",
+            background: terminals.gridView ? "var(--surface-2)" : undefined,
+            color: terminals.gridView ? "var(--text)" : undefined,
           }}
-        >
-          Sessions
-        </div>
-        {scopeToggle}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {showArchived ? (
-          archivedTasks.length > 0 ? (
-            <Btn
-              variant="danger"
-              icon="trash"
-              onClick={() => setConfirmDeleteArchived(true)}
-              title="Permanently delete all archived sessions"
-            >
-              Delete all archived
-            </Btn>
-          ) : null
-        ) : (
-          <NewAgentButton
-            project={project}
-            onPrimary={onNewAgentPrimary}
-            disabled={!projectPathReady}
-            onConfigure={() => {
-              if (projectPathReady) setShowNewAgent(true);
-            }}
-          />
-        )}
-      </div>
-    </div>
+        />
+      </HotkeyTooltip>
+    </HeaderBeforeSearch>
   );
 
   return (
@@ -2688,7 +2713,7 @@ function ProjectPage() {
             zIndex: 2,
           }}
         >
-          <div ref={overflowRef} style={{ position: "relative", minWidth: 0, flex: "0 1 auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <div ref={overflowRef} style={{ position: "relative", flex: "0 0 auto", display: "inline-flex", alignItems: "center" }}>
             <div
               role="button"
               tabIndex={0}
@@ -2701,36 +2726,21 @@ function ProjectPage() {
               }}
               aria-haspopup="menu"
               aria-expanded={overflowOpen}
-              aria-label="Project actions"
+              aria-label={`${project.name} project actions`}
+              title={project.name}
               className="mc-project-header-trigger"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 12,
-                padding: "6px 10px 6px 6px",
+                gap: 6,
+                padding: "6px 8px 6px 6px",
                 color: "var(--text)",
-                maxWidth: "100%",
-                minWidth: 0,
                 cursor: "pointer",
                 borderRadius: 10,
+                flexShrink: 0,
               }}
             >
               <ProjectIcon project={project} size={32} />
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  letterSpacing: "-0.015em",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  minWidth: 0,
-                }}
-                title={project.name}
-              >
-                {project.name}
-              </h1>
               <Icon
                 name="chevron-down"
                 size={14}
@@ -2793,7 +2803,7 @@ function ProjectPage() {
                 </DropdownMenuItem>
                 <HotkeyTooltip action="file.finder">
                   <DropdownMenuItem
-                    icon="search"
+                    icon="file-search"
                     onClick={() => {
                       setOverflowOpen(false);
                       openFileFinderFresh();
@@ -2946,6 +2956,21 @@ function ProjectPage() {
               document.body,
             )}
           </div>
+          <CustomScriptsButton
+            scripts={customScripts}
+            onRun={runScript}
+            disabled={!projectPathUsable}
+          />
+          {showGrid && (
+            <SessionScopeToggle
+              view={sessionView}
+              activeCount={activeTasks.length}
+              pinnedCount={pinnedTasks.length}
+              archivedCount={archivedTasks.length}
+              showArchivedTab={hasArchivedTasks || showArchived}
+              onChange={setSessionView}
+            />
+          )}
           <div
             style={{
               display: "inline-flex",
@@ -2957,20 +2982,6 @@ function ProjectPage() {
               minWidth: 0,
             }}
           >
-            {showGrid && (
-              // Compact scope switcher (Active / Pinned / Archived) — icon-only so
-              // it rides in the header beside the other controls instead of a
-              // full-width tab row. Archived drops back to the list view.
-              <SessionScopeToggle
-                view={sessionView}
-                activeCount={activeTasks.length}
-                pinnedCount={pinnedTasks.length}
-                archivedCount={archivedTasks.length}
-                showArchivedTab={hasArchivedTasks || showArchived}
-                onChange={setSessionView}
-                iconOnly
-              />
-            )}
             {screenshotSupported && (
               <HotkeyTooltip
                 action="screenshot.capture"
@@ -2986,15 +2997,11 @@ function ProjectPage() {
               </HotkeyTooltip>
             )}
             {headerActions}
-            <CustomScriptsButton
-              scripts={customScripts}
-              onRun={runScript}
-              disabled={!projectPathUsable}
-            />
+            {headerBeforeSearch}
             <HotkeyTooltip action="file.finder" label="Find file">
               <Btn
                 variant="ghost"
-                icon="search"
+                icon="file-search"
                 onClick={openFileFinderFresh}
                 disabled={!projectPathUsable}
                 aria-label="Find file in project"
@@ -3006,69 +3013,60 @@ function ProjectPage() {
                 style={{ width: 40, minWidth: 40, paddingInline: 0 }}
               />
             </HotkeyTooltip>
-            <div
-              role="group"
-              aria-label="Review changes and commit"
-              className="mc-ship-group"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 0,
-                maxWidth: 480,
-                minWidth: 0,
-              }}
-            >
-              <ProjectGitStatusButton
-                changedCount={gitStatus?.changedCount}
-                onClick={onToggleDiffView}
-                disabled={projectPathBlocked}
-              />
-              <CommitPushButton
-                projectId={id}
-                worktreeId={selectedWorktreeId}
-                size="md"
-                variant={gitStatus?.changedCount === 0 ? "gray-frame" : "primary"}
-                splitTrailing
-                enabled={projectPathUsable}
-              />
-            </div>
-            {showGrid && (
+            {!worktreesEnabled && (
+              <div
+                role="group"
+                aria-label="Review changes and ship"
+                className="mc-ship-group"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0,
+                  maxWidth: 480,
+                  minWidth: 0,
+                }}
+              >
+                <ProjectGitStatusButton
+                  changedCount={gitStatus?.changedCount}
+                  onClick={onToggleDiffView}
+                  disabled={projectPathBlocked}
+                />
+                <CommitPushButton
+                  size="md"
+                  variant={gitStatus?.changedCount === 0 ? "gray-frame" : "primary"}
+                  splitTrailing
+                  enabled={projectPathUsable}
+                  onShip={startShipSession}
+                />
+              </div>
+            )}
+            {!showArchived && (
               <NewAgentButton
                 project={project}
                 onPrimary={onNewAgentPrimary}
-                onNewRow={onNewRowPrimary}
+                onNewRow={showGrid ? onNewRowPrimary : undefined}
                 disabled={!projectPathReady}
                 onConfigure={() => {
                   if (projectPathReady) setShowNewAgent(true);
                 }}
               />
             )}
-            <HotkeyTooltip
-              action="session.gridView"
-              label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
-            >
+            {showArchived && archivedTasks.length > 0 && (
               <Btn
-                variant="ghost"
-                icon={terminals.gridView ? "list" : "grid"}
-                onClick={toggleGridViewShowingAll}
-                aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
-                aria-pressed={terminals.gridView}
-                style={{
-                  width: 40,
-                  minWidth: 40,
-                  paddingInline: 0,
-                  background: terminals.gridView ? "var(--surface-2)" : undefined,
-                  color: terminals.gridView ? "var(--text)" : undefined,
-                }}
-              />
-            </HotkeyTooltip>
+                variant="danger"
+                icon="trash"
+                onClick={() => setConfirmDeleteArchived(true)}
+                title="Permanently delete all archived sessions"
+              >
+                Delete all
+              </Btn>
+            )}
           </div>
         </div>
 
         {showGrid ? (
           <SessionGrid
             scopeKey={selectedScopeKey}
-            emptyHeader={sessionsHeader}
             filter={showPinned ? "pinned" : "active"}
             pinnedTaskIds={pinnedTaskIds}
             onTogglePinned={toggleSessionPinned}
@@ -3095,8 +3093,6 @@ function ProjectPage() {
             {cleanupStatus}
           </div>
         )}
-
-        {tasks.length > 0 && sessionsHeader}
 
         <div
           style={{
@@ -3138,7 +3134,7 @@ function ProjectPage() {
               icon="archive"
               action={
                 <Btn variant="primary" icon="list" onClick={() => setSessionView("active")}>
-                  Back to active
+                  View active
                 </Btn>
               }
             />
@@ -3169,51 +3165,110 @@ function ProjectPage() {
                   />
                   {hasArchivedTasks && (
                     <Btn variant="ghost" icon="archive" onClick={() => setSessionView("archived")}>
-                      View archived ({archivedTasks.length})
+                      View archived
                     </Btn>
                   )}
                 </div>
               }
             />
           ) : (
-            STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status) => (
-              <TaskColumn
-                key={status}
-                title={STATUS_META[status].label}
-                color={STATUS_META[status].color}
-                tasks={tasksByStatus[status]}
-                activeId={activeId}
-                onToggle={toggleTerminal}
-                onArchive={showArchived ? undefined : archiveSession}
-                onRestore={showArchived ? restoreSession : undefined}
-                onDelete={showArchived ? deleteTask : undefined}
-                onTogglePinned={showArchived ? undefined : toggleSessionPinned}
-                pinningTaskIds={showArchived ? undefined : pinningTaskIds}
-                headerAction={
-                  !showArchived && status === "finished" && tasksByStatus.finished.length > 0 ? (
-                    <Btn
-                      variant="ghost"
-                      icon="archive"
-                      onClick={() => archiveTasks(tasksByStatus.finished)}
-                      title="Archive all finished sessions"
-                    >
-                      Archive all
-                    </Btn>
-                  ) : !showArchived &&
-                    status === "disconnected" &&
-                    tasksByStatus.disconnected.length > 0 ? (
-                    <Btn
-                      variant="ghost"
-                      icon="archive"
-                      onClick={() => archiveTasks(tasksByStatus.disconnected)}
-                      title="Archive all disconnected sessions"
-                    >
-                      Archive all
-                    </Btn>
-                  ) : undefined
-                }
-              />
-            ))
+            <>
+              {pinnedListTasks.length > 0 && (
+                <TaskColumn
+                  key="pinned"
+                  title="Pinned"
+                  color="var(--accent)"
+                  tasks={pinnedListTasks}
+                  activeId={activeId}
+                  onToggle={selectTerminal}
+                  onArchive={archiveSession}
+                  onTogglePinned={toggleSessionPinned}
+                  pinningTaskIds={pinningTaskIds}
+                />
+              )}
+              {STATUS_DISPLAY_ORDER.filter((s) => tasksByStatus[s].length > 0).map((status) => {
+                const isArchivedTitleRow = showArchived && status === "finished";
+                const firstArchivedStatus = showArchived
+                  ? STATUS_DISPLAY_ORDER.find((s) => tasksByStatus[s].length > 0)
+                  : undefined;
+                // Prefer the "Archived" (finished) row; otherwise put the exit
+                // control on the first visible archived status column.
+                const showViewActive =
+                  showArchived &&
+                  (isArchivedTitleRow ||
+                    (tasksByStatus.finished.length === 0 && status === firstArchivedStatus));
+                return (
+                <TaskColumn
+                  key={status}
+                  title={
+                    isArchivedTitleRow
+                      ? "Archived"
+                      : STATUS_META[status].label
+                  }
+                  color={STATUS_META[status].color}
+                  tasks={tasksByStatus[status]}
+                  activeId={activeId}
+                  onToggle={selectTerminal}
+                  onArchive={showArchived ? undefined : archiveSession}
+                  onRestore={showArchived ? restoreSession : undefined}
+                  onDelete={showArchived ? deleteTask : undefined}
+                  onTogglePinned={showArchived ? undefined : toggleSessionPinned}
+                  pinningTaskIds={showArchived ? undefined : pinningTaskIds}
+                  headerAction={
+                    showViewActive ? (
+                      <Btn
+                        variant="ghost"
+                        icon="list"
+                        onClick={() => setSessionView("active")}
+                        title="Back to active sessions"
+                      >
+                        View active
+                      </Btn>
+                    ) : !showArchived && status === "finished" && tasksByStatus.finished.length > 0 ? (
+                      <Btn
+                        variant="ghost"
+                        icon="archive"
+                        onClick={() => archiveTasks(tasksByStatus.finished)}
+                        title="Archive all finished sessions"
+                      >
+                        Archive all
+                      </Btn>
+                    ) : !showArchived &&
+                      status === "disconnected" &&
+                      tasksByStatus.disconnected.length > 0 ? (
+                      <Btn
+                        variant="ghost"
+                        icon="archive"
+                        onClick={() => archiveTasks(tasksByStatus.disconnected)}
+                        title="Archive all disconnected sessions"
+                      >
+                        Archive all
+                      </Btn>
+                    ) : undefined
+                  }
+                />
+                );
+              })}
+              {!showArchived && hasArchivedTasks && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    paddingTop: 4,
+                    paddingBottom: 12,
+                  }}
+                >
+                  <Btn
+                    variant="ghost"
+                    icon="archive"
+                    onClick={() => setSessionView("archived")}
+                    title={`View ${archivedTasks.length} archived session${archivedTasks.length === 1 ? "" : "s"}`}
+                  >
+                    View archived
+                  </Btn>
+                </div>
+              )}
+            </>
           )}
         </div>
         </>
@@ -3229,6 +3284,7 @@ function ProjectPage() {
         projectPath={selectedWorktreePath || project.path}
         enabled={projectPathReady}
         onClose={closeDiffView}
+        onShip={startShipSession}
       />
 
       <CodexHooksNoticeDialog
@@ -3801,7 +3857,6 @@ function SessionScopeToggle({
   archivedCount,
   showArchivedTab,
   onChange,
-  iconOnly = false,
 }: {
   view: SessionView;
   activeCount: number;
@@ -3809,119 +3864,143 @@ function SessionScopeToggle({
   archivedCount: number;
   showArchivedTab: boolean;
   onChange: (view: SessionView) => void;
-  /** Compact icon-only segments (tooltip carries the label + count) for the grid
-   *  header, so the switcher sits beside the other header controls instead of
-   *  taking a full row. */
-  iconOnly?: boolean;
 }) {
-  // Visual state (background/color/box-shadow + hover) lives in styles.css
-  // under .mc-session-scope-tab so unselected tabs get a hover treatment.
-  const segment: CSSProperties = iconOnly
-    ? {
-        appearance: "none",
-        border: 0,
-        borderRadius: 7,
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 34,
-        height: 30,
-        padding: 0,
-      }
-    : {
-        appearance: "none",
-        border: 0,
-        fontFamily: "var(--mono)",
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: "0.04em",
-        textTransform: "uppercase",
-        padding: "5px 12px",
-        borderRadius: 7,
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-      };
-  const countStyle: CSSProperties = {
-    color: "var(--text-faint)",
-    fontVariantNumeric: "tabular-nums",
-  };
-  const tabs: Array<{ view: SessionView; label: string; count: number; icon: "terminal" | "pin-fill" | "archive" }> = [
+  const [open, setOpen] = useState(false);
+  const [menuRect, setMenuRect] = useState<{ top: number; left: number } | null>(null);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLElement>(null);
+
+  const tabs: Array<{
+    view: SessionView;
+    label: string;
+    count: number;
+    icon: "terminal" | "pin-fill" | "archive";
+  }> = [
     { view: "active", label: "Active", count: activeCount, icon: "terminal" },
     { view: "pinned", label: "Pinned", count: pinnedCount, icon: "pin-fill" },
   ];
   if (showArchivedTab) {
     tabs.push({ view: "archived", label: "Archived", count: archivedCount, icon: "archive" });
   }
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const selectTabAt = (index: number) => {
-    const tab = tabs[index];
-    if (!tab) return;
-    onChange(tab.view);
-    requestAnimationFrame(() => tabRefs.current[index]?.focus());
+  const current = tabs.find((tab) => tab.view === view) ?? tabs[0]!;
+
+  const updateMenuRect = useCallback(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    setMenuRect({ top: rect.bottom + 6, left: rect.left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuRect(null);
+      return;
+    }
+    updateMenuRect();
+    window.addEventListener("resize", updateMenuRect);
+    window.addEventListener("scroll", updateMenuRect, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuRect);
+      window.removeEventListener("scroll", updateMenuRect, true);
+    };
+  }, [open, updateMenuRect]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (anchorRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // If archived empties while that view is selected, the parent flips back to
+  // active — close the menu so it doesn't linger over a removed option.
+  useEffect(() => {
+    if (!showArchivedTab && view !== "archived") setOpen(false);
+  }, [showArchivedTab, view]);
+
+  const select = (next: SessionView) => {
+    setOpen(false);
+    onChange(next);
   };
+
   return (
-    <div
-      role="radiogroup"
-      aria-label="Show sessions by type"
-      className="mc-session-scope-toggle"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 2,
-        padding: 3,
-        borderRadius: 9,
-      }}
-    >
-      {tabs.map((tab) => {
-        const selected = view === tab.view;
-        const tabIndex = tabs.findIndex((entry) => entry.view === tab.view);
-        const button = (
-          <button
-            key={tab.view}
-            ref={(node) => {
-              tabRefs.current[tabIndex] = node;
-            }}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            aria-label={iconOnly ? `${tab.label} sessions, ${tab.count}` : undefined}
-            tabIndex={selected ? 0 : -1}
-            className="mc-session-scope-tab"
-            data-selected={selected || undefined}
-            style={segment}
-            onClick={() => onChange(tab.view)}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                e.preventDefault();
-                selectTabAt((tabIndex + 1) % tabs.length);
-              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                e.preventDefault();
-                selectTabAt((tabIndex - 1 + tabs.length) % tabs.length);
-              } else if (e.key === "Home") {
-                e.preventDefault();
-                selectTabAt(0);
-              } else if (e.key === "End") {
-                e.preventDefault();
-                selectTabAt(tabs.length - 1);
-              }
+    <div ref={anchorRef} style={{ position: "relative", display: "inline-flex" }}>
+      <Btn
+        type="button"
+        variant="ghost"
+        icon={current.icon}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Show ${current.label.toLowerCase()} sessions, ${current.count}. Change session filter`}
+        title={`${current.label} · ${current.count}`}
+        onClick={() => setOpen((v) => !v)}
+        style={{ paddingInline: 8 }}
+      >
+        <Icon name="chevron-down" size={11} style={{ color: "var(--text-faint)" }} />
+      </Btn>
+      {open &&
+        menuRect &&
+        createPortal(
+          <CardFrame
+            ref={menuRef}
+            role="menu"
+            aria-label="Show sessions by type"
+            solid
+            className="mc-project-actions-menu"
+            style={{
+              position: "fixed",
+              top: menuRect.top,
+              left: menuRect.left,
+              minWidth: 180,
+              boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
+              zIndex: Z_INDEX.popover,
             }}
           >
-            <Icon name={tab.icon} size={iconOnly ? 15 : 13} />
-            {!iconOnly && tab.label}
-            {!iconOnly && <span style={countStyle}>{tab.count}</span>}
-          </button>
-        );
-        return iconOnly ? (
-          <Tooltip key={tab.view} content={`${tab.label} · ${tab.count}`}>
-            {button}
-          </Tooltip>
-        ) : (
-          button
-        );
-      })}
+            {tabs.map((tab) => {
+              const selected = view === tab.view;
+              return (
+                <DropdownMenuItem
+                  key={tab.view}
+                  icon={tab.icon}
+                  aria-current={selected ? "true" : undefined}
+                  onClick={() => select(tab.view)}
+                  style={
+                    selected
+                      ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)" }
+                      : undefined
+                  }
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, width: "100%" }}>
+                    <span style={{ flex: 1 }}>{tab.label}</span>
+                    <span
+                      style={{
+                        fontFamily: "var(--mono)",
+                        fontSize: 11,
+                        color: "var(--text-dim)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {tab.count}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+          </CardFrame>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -3989,6 +4068,11 @@ function WorktreeToggleGroup({
   mainBranchUnavailable = false,
   mainBranchUnavailableTitle,
   branchSwitchDisabled = false,
+  changedCount,
+  onToggleDiffView,
+  shipDisabled = false,
+  shipEnabled = true,
+  onShip,
   maxWidth = 420,
 }: {
   worktrees: WorktreeInfo[];
@@ -4002,6 +4086,11 @@ function WorktreeToggleGroup({
   mainBranchUnavailable?: boolean;
   mainBranchUnavailableTitle?: string;
   branchSwitchDisabled?: boolean;
+  changedCount?: number;
+  onToggleDiffView: () => void;
+  shipDisabled?: boolean;
+  shipEnabled?: boolean;
+  onShip: () => void;
   maxWidth?: number | string;
 }) {
   const items = worktrees.length > 0 ? worktrees : [];
@@ -4033,6 +4122,24 @@ function WorktreeToggleGroup({
         );
         const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
         const label = worktree.isMain ? "main" : worktree.name;
+        const shipControls = (fuseWithBranch: boolean) => (
+          <>
+            <ProjectGitStatusButton
+              changedCount={changedCount}
+              onClick={onToggleDiffView}
+              disabled={shipDisabled}
+              attachedLeading={fuseWithBranch}
+              attachedTrailing
+            />
+            <CommitPushButton
+              size="md"
+              variant={changedCount === 0 ? "gray-frame" : "primary"}
+              splitTrailing
+              enabled={shipEnabled}
+              onShip={onShip}
+            />
+          </>
+        );
         return (
           worktree.isMain && selected ? (
             <div
@@ -4046,39 +4153,54 @@ function WorktreeToggleGroup({
               }}
             >
               <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
-              {mainBranchUnavailable ? (
-                <Btn
-                  variant="ghost"
-                  icon="git-branch"
-                  disabled
-                  title={mainBranchUnavailableTitle ?? "Git unavailable"}
-                  style={{
-                    fontFamily: "var(--mono)",
-                    maxWidth: "min(36ch, 42vw)",
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  <span
+              <div
+                role="group"
+                aria-label="Branch, review changes, and ship"
+                className="mc-ship-group"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0,
+                  minWidth: 0,
+                }}
+              >
+                {mainBranchUnavailable ? (
+                  <Btn
+                    variant="ghost"
+                    icon="git-branch"
+                    disabled
+                    title={mainBranchUnavailableTitle ?? "Git unavailable"}
+                    className="mc-btn-attached-right"
                     style={{
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      fontFamily: "var(--mono)",
+                      maxWidth: "min(36ch, 42vw)",
+                      color: "var(--text-dim)",
                     }}
                   >
-                    No Git repo
-                  </span>
-                </Btn>
-              ) : (
-                <BranchTypeahead
-                  projectId={projectId}
-                  worktreeId={null}
-                  branch={mainBranchLabel}
-                  disabled={branchSwitchDisabled}
-                  worktreePath={worktree.path}
-                  selected
-                />
-              )}
+                    <span
+                      style={{
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      No Git repo
+                    </span>
+                  </Btn>
+                ) : (
+                  <BranchTypeahead
+                    projectId={projectId}
+                    worktreeId={null}
+                    branch={mainBranchLabel}
+                    disabled={branchSwitchDisabled}
+                    worktreePath={worktree.path}
+                    selected
+                    attachedTrailing
+                  />
+                )}
+                {shipControls(true)}
+              </div>
             </div>
           ) : (
           <div
@@ -4088,17 +4210,27 @@ function WorktreeToggleGroup({
               position: "relative",
               display: "inline-flex",
               alignItems: "center",
+              gap: selected ? 2 : 0,
               height: 28,
-              borderRadius: 999,
-              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-              background: selected ? "var(--accent-faint)" : "var(--surface-0)",
-              color: selected ? "var(--accent)" : "var(--text-dim)",
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              whiteSpace: "nowrap",
               flexShrink: 0,
             }}
           >
+            <div
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "center",
+                height: 28,
+                borderRadius: 999,
+                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                background: selected ? "var(--accent-faint)" : "var(--surface-0)",
+                color: selected ? "var(--accent)" : "var(--text-dim)",
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
             <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
             <button
               type="button"
@@ -4168,6 +4300,22 @@ function WorktreeToggleGroup({
                 <Icon name="trash" size={10} />
               </button>
             )}
+            </div>
+            {selected && !worktree.isMain && !optimistic && (
+              <div
+                role="group"
+                aria-label="Review changes and ship"
+                className="mc-ship-group"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0,
+                  minWidth: 0,
+                }}
+              >
+                {shipControls(false)}
+              </div>
+            )}
           </div>
           )
         );
@@ -4180,10 +4328,14 @@ function ProjectGitStatusButton({
   changedCount,
   onClick,
   disabled = false,
+  attachedLeading = false,
+  attachedTrailing = true,
 }: {
   changedCount: number | undefined;
   onClick: () => void;
   disabled?: boolean;
+  attachedLeading?: boolean;
+  attachedTrailing?: boolean;
 }) {
   const changedLabel =
     disabled
@@ -4197,6 +4349,12 @@ function ProjectGitStatusButton({
       : changedCount === undefined
       ? "Open Review Changes"
       : `Toggle Review Changes · ${changedCount} changed file${changedCount === 1 ? "" : "s"}`;
+  const className = [
+    attachedLeading ? "mc-btn-attached-left" : null,
+    attachedTrailing ? "mc-btn-attached-right" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <HotkeyTooltip action="git.diff" label={title}>
@@ -4206,7 +4364,7 @@ function ProjectGitStatusButton({
         onClick={onClick}
         disabled={disabled}
         aria-label={title}
-        className="mc-btn-attached-right"
+        className={className || undefined}
         style={{ fontFamily: "var(--mono)", minWidth: 0 }}
       >
         <span

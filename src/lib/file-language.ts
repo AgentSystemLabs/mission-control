@@ -31,7 +31,7 @@ import { diff } from "@codemirror/legacy-modes/mode/diff";
 import { clojure } from "@codemirror/legacy-modes/mode/clojure";
 import { haskell } from "@codemirror/legacy-modes/mode/haskell";
 import { groovy } from "@codemirror/legacy-modes/mode/groovy";
-import type { Extension } from "@uiw/react-codemirror";
+import type { Extension } from "@codemirror/state";
 
 const envLanguage = StreamLanguage.define({
   name: "dotenv",
@@ -183,8 +183,15 @@ function basenameLanguage(base: string): Extension | null {
 }
 
 export function languageForFilename(name: string): Extension[] {
-  const lang = resolveLanguage(name);
-  return lang ? [lang] : [];
+  try {
+    const lang = resolveLanguage(name);
+    return lang ? [lang] : [];
+  } catch (err) {
+    // Unsupported / broken language packs must not take down the file editor —
+    // open as plain text instead (common when CodeMirror packages duplicate).
+    console.warn(`[file-language] falling back to plain text for ${name}:`, err);
+    return [];
+  }
 }
 
 function resolveLanguage(name: string): Extension | null {

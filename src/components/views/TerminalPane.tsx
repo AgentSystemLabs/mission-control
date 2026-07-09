@@ -69,7 +69,11 @@ import {
   shouldInjectInitialInput,
 } from "~/lib/agent-command";
 import { getDefaultModelForAgent } from "~/lib/default-model-store";
-import { terminalInputStartsTurn, agentUsesTerminalPromptFallback } from "~/lib/task-status-sync";
+import {
+  terminalInputStartsTurn,
+  agentUsesTerminalPromptFallback,
+  shouldResetTerminalRunningFallback,
+} from "~/lib/task-status-sync";
 import { accumulateTerminalPrompt } from "~/lib/terminal-prompt-capture";
 import { prefetchTerminalModules } from "~/lib/prefetch-terminal-modules";
 import { createTerminalGpuLease } from "~/lib/terminal-webgl";
@@ -456,6 +460,10 @@ export function TerminalPane({
   const [titleDraft, setTitleDraft] = useState(task.title);
   const [savingTitle, setSavingTitle] = useState(false);
   const savingTitleRef = useRef(false);
+  // The PTY onData handler is wired once per surface build and must read the
+  // latest task status without rebuilding the terminal. Used to re-arm the
+  // Cursor/Codex Enter→running fallback after a turn finishes.
+  const liveTaskStatusRef = useRef(task.status);
   // When a sandbox project's repo isn't cloned into the container yet, offer to
   // clone it (remote detected from the host project) instead of opening empty.
   const [cloneOffer, setCloneOffer] = useState<{ remote: string; slug: string } | null>(null);
@@ -521,6 +529,7 @@ export function TerminalPane({
     activeRuntimeScopeId,
   );
   const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
+  liveTaskStatusRef.current = liveTask.status;
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
   const sessionIcon = isSessionIcon(liveTask.icon) ? liveTask.icon : DEFAULT_SESSION_ICON;
@@ -1121,6 +1130,13 @@ export function TerminalPane({
             submittedPrompt = captured.submitted;
           }
 
+          // Cursor CLI still does not fire beforeSubmitPrompt, so Enter is the
+          // per-turn running signal. Re-arm after the task leaves "running"
+          // (stop → finished, needs-input, etc.) so a second prompt in the same
+          // session updates the card again.
+          if (shouldResetTerminalRunningFallback(liveTaskStatusRef.current)) {
+            fallbackRunningPosted = false;
+          }
           if (!fallbackRunningPosted && terminalInputStartsTurn(task.agent, data)) {
             fallbackRunningPosted = true;
             void (async () => {

@@ -16,6 +16,7 @@ import {
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SURFACE_TINT } from "~/shared/surface-tint";
+import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 
 export function TerminalSettingsPage() {
   const queryClient = useQueryClient();
@@ -41,7 +42,7 @@ export function TerminalSettingsPage() {
     automaticUpdateDownloadsEnabled: settings?.automaticUpdateDownloadsEnabled ?? false,
     automaticUpdateInstallOnQuitEnabled:
       settings?.automaticUpdateInstallOnQuitEnabled ?? false,
-    worktreesEnabled: settings?.worktreesEnabled ?? false,
+    worktreesEnabled: true,
     gitDiffChangedFilesView: settings?.gitDiffChangedFilesView ?? null,
     gitDiffChangedFilesWidth: settings?.gitDiffChangedFilesWidth ?? null,
     projectsDashboardView: settings?.projectsDashboardView ?? null,
@@ -54,6 +55,9 @@ export function TerminalSettingsPage() {
     defaultModel: settings?.defaultModel ?? null,
     annotationAgent: settings?.annotationAgent ?? "claude-code",
     annotationModel: settings?.annotationModel ?? null,
+    shipAgent: settings?.shipAgent ?? "claude-code",
+    shipModel: settings?.shipModel ?? null,
+    shipPrompt: settings?.shipPrompt ?? DEFAULT_SHIP_PROMPT,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,

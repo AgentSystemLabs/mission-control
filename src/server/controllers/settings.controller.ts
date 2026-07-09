@@ -61,6 +61,7 @@ import {
   type SessionHeaderButtonVisibility,
 } from "~/shared/session-header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
+import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -68,6 +69,9 @@ const DEFAULT_AGENT_SETTING_KEY = "default_agent";
 const DEFAULT_MODEL_SETTING_KEY = "default_model";
 const ANNOTATION_AGENT_SETTING_KEY = "annotation_agent";
 const ANNOTATION_MODEL_SETTING_KEY = "annotation_model";
+const SHIP_AGENT_SETTING_KEY = "ship_agent";
+const SHIP_MODEL_SETTING_KEY = "ship_model";
+const SHIP_PROMPT_SETTING_KEY = "ship_prompt";
 const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
@@ -150,6 +154,9 @@ const updateSettingsBody = z
     defaultModel: aiModelBody,
     annotationAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     annotationModel: aiModelBody,
+    shipAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    shipModel: aiModelBody,
+    shipPrompt: z.string().transform((value) => normalizeShipPrompt(value)),
     voiceCommandAliases: voiceCommandAliasesBody,
     claudeUsageLimitsEnabled: z.boolean(),
     claudeUsageLimitsShowSession: z.boolean(),
@@ -209,6 +216,21 @@ function getAnnotationAgentSetting(): AiRuntimeHarness {
 function getAnnotationModelSetting(): AiModelId | null {
   const value = getSetting(ANNOTATION_MODEL_SETTING_KEY);
   return normalizeAiModelId(value);
+}
+
+function getShipAgentSetting(): AiRuntimeHarness {
+  const value = getSetting(SHIP_AGENT_SETTING_KEY);
+  return isAiRuntimeHarness(value) ? value : "claude-code";
+}
+
+function getShipModelSetting(): AiModelId | null {
+  const value = getSetting(SHIP_MODEL_SETTING_KEY);
+  return normalizeAiModelId(value);
+}
+
+function getShipPromptSetting(): string {
+  const value = getSetting(SHIP_PROMPT_SETTING_KEY);
+  return value === null ? DEFAULT_SHIP_PROMPT : normalizeShipPrompt(value);
 }
 
 function getGitDiffChangedFilesViewSetting() {
@@ -282,7 +304,8 @@ function settingsPayload() {
       "automatic_update_install_on_quit_enabled",
       false,
     ),
-    worktreesEnabled: getBooleanSetting("worktrees_enabled", false),
+    // Always on — worktrees graduated from experimental; ignore any stored preference.
+    worktreesEnabled: true,
     voiceControlEnabled: getBooleanSetting("voice_control_enabled", false),
     questionOverlayEnabled: getBooleanSetting("question_overlay_enabled", true),
     gitDiffChangedFilesView: getGitDiffChangedFilesViewSetting(),
@@ -296,6 +319,9 @@ function settingsPayload() {
     defaultModel: getDefaultModelSetting(),
     annotationAgent: getAnnotationAgentSetting(),
     annotationModel: getAnnotationModelSetting(),
+    shipAgent: getShipAgentSetting(),
+    shipModel: getShipModelSetting(),
+    shipPrompt: getShipPromptSetting(),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
     // Off by default: this is the only feature that reaches out to Anthropic
     // (using the user's Claude login), so it's strictly opt-in.
@@ -380,9 +406,7 @@ export async function update(request: Request): Promise<Response> {
       body.automaticUpdateInstallOnQuitEnabled,
     );
   }
-  if (body.worktreesEnabled !== undefined) {
-    setBooleanSetting("worktrees_enabled", body.worktreesEnabled);
-  }
+  // worktreesEnabled is always on; ignore writes so old clients can't turn it off.
   if (body.voiceControlEnabled !== undefined) {
     setBooleanSetting("voice_control_enabled", body.voiceControlEnabled);
   }
@@ -452,6 +476,19 @@ export async function update(request: Request): Promise<Response> {
     } else {
       setSetting(ANNOTATION_MODEL_SETTING_KEY, body.annotationModel);
     }
+  }
+  if (body.shipAgent !== undefined) {
+    setSetting(SHIP_AGENT_SETTING_KEY, body.shipAgent);
+  }
+  if (body.shipModel !== undefined) {
+    if (body.shipModel === null) {
+      deleteSetting(SHIP_MODEL_SETTING_KEY);
+    } else {
+      setSetting(SHIP_MODEL_SETTING_KEY, body.shipModel);
+    }
+  }
+  if (body.shipPrompt !== undefined) {
+    setSetting(SHIP_PROMPT_SETTING_KEY, body.shipPrompt);
   }
   if (body.voiceCommandAliases !== undefined) {
     setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));

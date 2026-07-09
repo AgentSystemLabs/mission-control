@@ -2221,33 +2221,6 @@ body[data-card-glow] .cursor-glow {
   outline-offset: 1px;
 }
 
-/* Sessions view segmented control (Active / Pinned / Archived). Same split:
-   layout inline in SessionScopeToggle, visual state + hover here. */
-.mc-session-scope-toggle {
-  background: var(--surface-0);
-  border: 1px solid var(--border);
-}
-.mc-session-scope-tab {
-  background: transparent;
-  color: var(--text-dim);
-  transition: background 120ms ease, color 120ms ease;
-}
-.mc-session-scope-tab:hover {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-  color: var(--text);
-}
-.mc-session-scope-tab[data-selected] {
-  background: var(--surface-2);
-  color: var(--text);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 1px 2px rgba(0, 0, 0, 0.3);
-}
-.mc-session-scope-tab:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
-  outline-offset: -2px;
-}
-
 /* Grid cell header controls rest at half strength so a wall of terminal panes
    reads calm; the active session (the pane you're focused in) sits a little
    brighter, and any control lights fully when you reach for it. Pressed-state
@@ -2599,11 +2572,11 @@ body[data-card-glow] .cursor-glow {
   display: none !important;
 }
 
-/* Review-changes + Ship segmented pair. The painted themes fuse these two into
-   one control via adjacent pixel frames (attached-left/right drop the touching
-   edge). The flat theme hides those ::before frames, so the borderless ghost
-   count and the Ship button read as two loose items. Restore the grouping with
-   a single hairline frame around the pair plus one divider between the cells. */
+/* Segmented pairs (Review-changes + Ship, branch + sync). Painted themes fuse
+   the cells via adjacent pixel frames (attached-left/right drop the touching
+   edge). The flat theme hides those ::before frames, so the cells read as two
+   loose items. Restore the grouping with a single hairline frame around the
+   pair plus one divider on the trailing attached-left cell. */
 [data-minimal="true"] .mc-ship-group {
   border: 1px solid var(--border-strong);
   border-radius: var(--mm-radius);
@@ -2613,10 +2586,10 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-ship-group .mc-btn {
   border-radius: 0;
 }
-/* Ship is the group's direct child (the count sits inside a display:contents
-   tooltip span). Give it the divider; drop the rest of its frame so the fill
-   tiles edge-to-edge within the shared border. */
-[data-minimal="true"] .mc-ship-group > .mc-btn {
+/* Trailing cell may be nested (tooltip / menu anchor wrappers). Prefer the
+   attached-left marker over direct-child so branch+sync and Ship both get the
+   divider; drop the rest of its frame so the fill tiles edge-to-edge. */
+[data-minimal="true"] .mc-ship-group .mc-btn.mc-btn-attached-left {
   border-top: 0;
   border-right: 0;
   border-bottom: 0;
@@ -2931,16 +2904,6 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-terminal-tab[data-active] {
   border-color: transparent;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-/* Sessions segmented control: the surface-1 tray separates it from the band
-   without a hairline. */
-[data-minimal="true"] .mc-session-scope-toggle {
-  border-color: transparent;
-  background: var(--surface-1);
-}
-[data-minimal="true"] .mc-session-scope-tab[data-selected] {
-  background: var(--surface-3);
 }
 
 /* Chips join the borderless-tonal grammar: fill carries them, hover lifts. */

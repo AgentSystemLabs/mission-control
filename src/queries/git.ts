@@ -127,6 +127,25 @@ export function useGitPush(projectId: string, worktreeId?: string | null) {
   });
 }
 
+export function useGitFetch(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
+  return useMutation({
+    mutationKey: [...gitKeys.all(projectId, worktreeId), "fetch"] as const,
+    mutationFn: () => api.gitFetch(projectId, worktreeId),
+    onSettled: invalidate,
+  });
+}
+
+export function useGitPull(projectId: string, worktreeId?: string | null) {
+  const invalidate = useInvalidateGit(projectId, worktreeId);
+  return useMutation({
+    mutationKey: [...gitKeys.all(projectId, worktreeId), "pull"] as const,
+    mutationFn: (mode: "ff-only" | "rebase" | "merge" = "ff-only") =>
+      api.gitPull(projectId, worktreeId, mode),
+    onSettled: invalidate,
+  });
+}
+
 export function useGitCreatePullRequest(projectId: string, worktreeId?: string | null) {
   return useMutation({
     mutationKey: [...gitKeys.all(projectId, worktreeId), "create-pr"] as const,

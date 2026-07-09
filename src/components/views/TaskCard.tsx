@@ -55,10 +55,15 @@ export function TaskCard({
   const sentinel = isSentinelTitle(task.title);
   const sessionIcon = isSessionIcon(task.icon) ? task.icon : DEFAULT_SESSION_ICON;
   const updated = formatRelativeTime(task.updatedAt);
-  const toggleTask = () => onToggle(task.id);
+  // Opens/focuses the session panel. Re-clicking a selected card does not
+  // close it — only the panel's hide control does.
+  const selectTask = () => onToggle(task.id);
 
-  // Subtitle: prefer the live preview line, otherwise a status hint.
-  const subtitle = task.preview?.trim() || statusMeta.label;
+  // Subtitle: prefer the live preview line, otherwise a status hint. On the
+  // archived tab the column is "Archived", so mirror that on the card instead
+  // of the underlying finished/disconnected status label.
+  const subtitle =
+    task.preview?.trim() || (archived ? "Archived" : statusMeta.label);
 
   return (
     <CardFrame
@@ -77,8 +82,8 @@ export function TaskCard({
       <ShimmerBar active={isRunning} color={meta?.color} />
       <button
         type="button"
-        onClick={toggleTask}
-        aria-label={`${selected ? "Close" : "Open"} terminal for ${task.title}`}
+        onClick={selectTask}
+        aria-label={`Open terminal for ${task.title}`}
         aria-pressed={selected}
         style={{
           position: "absolute",
@@ -365,7 +370,7 @@ export function TaskCard({
                 icon="terminal"
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleTask();
+                  selectTask();
                 }}
               >
                 Reply

@@ -75,9 +75,10 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
     endpointSlug: "cursor",
     style: "cursor",
     events: [
-      // beforeSubmitPrompt works in the IDE but not in cursor-agent CLI yet.
+      // Installed for when CLI gains support; as of mid-2026 cursor-agent still
+      // does not fire beforeSubmitPrompt (stop/sessionStart do). TerminalPane
+      // uses an Enter→running fallback for Cursor sessions in the meantime.
       { event: "beforeSubmitPrompt" },
-      // sessionStart/stop are supported in cursor-agent CLI (Apr 2026+).
       { event: "sessionStart" },
       { event: "stop" },
       // Kept for IDE parity; still absent from cursor-agent CLI today.
