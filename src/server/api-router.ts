@@ -285,6 +285,8 @@ async function dispatch(
     if (action === "unstage" && method === "POST") return gitController.unstage(id, request);
     if (action === "commit" && method === "POST") return gitController.commit(id, request);
     if (action === "push" && method === "POST") return gitController.push(id, request);
+    if (action === "fetch" && method === "POST") return gitController.fetch(id, request);
+    if (action === "pull" && method === "POST") return gitController.pull(id, request);
     if (action === "create-pr" && method === "POST") return gitController.createPr(id, request);
     if (action === "checkout" && method === "POST") return gitController.checkout(id, request);
   }

@@ -5,11 +5,13 @@ import { DEV_SERVER_ORIGIN } from "~/shared/dev-server";
 import type {
   CommitResult,
   CreatePullRequestResult,
+  FetchResult,
   GitBranch,
   GitBranchesResult,
   GitCheckoutResult,
   GitDiff,
   GitStatus,
+  PullResult,
   PushResult,
 } from "~/server/services/git";
 export type { GitBranch, GitBranchesResult, GitCheckoutResult };
@@ -681,6 +683,20 @@ export const api = {
     req<PushResult>(`/api/projects/${projectId}/git/push`, {
       method: "POST",
       body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    }),
+  gitFetch: (projectId: string, worktreeId?: string | null) =>
+    req<FetchResult>(`/api/projects/${projectId}/git/fetch`, {
+      method: "POST",
+      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    }),
+  gitPull: (
+    projectId: string,
+    worktreeId?: string | null,
+    mode: "ff-only" | "rebase" | "merge" = "ff-only",
+  ) =>
+    req<PullResult>(`/api/projects/${projectId}/git/pull`, {
+      method: "POST",
+      body: JSON.stringify({ worktreeId: worktreeId ?? null, mode }),
     }),
   gitCreatePullRequest: (projectId: string, worktreeId?: string | null) =>
     req<CreatePullRequestResult>(`/api/projects/${projectId}/git/create-pr`, {

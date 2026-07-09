@@ -241,16 +241,15 @@ export function CommitPushButton({
   }, [onCommitAndPush]);
 
   const busy = projectShipping;
-  const tooltip = enabled
-    ? title ?? "commit & push"
-    : "Ship unavailable until the project folder is valid";
+  const tooltip = !enabled
+    ? "Ship unavailable until the project folder is valid"
+    : busy
+      ? shipPhase === "pushing"
+        ? "Pushing…"
+        : "Committing…"
+      : title ?? "commit & push";
 
-  const labelBusy = (
-    <>
-      <Spinner size={11} />
-      {shipPhase === "pushing" ? "Pushing…" : "Committing…"}
-    </>
-  );
+  const labelBusy = <Spinner size={11} />;
   const labelIdle = (
     <>
       {label}

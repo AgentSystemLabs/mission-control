@@ -357,6 +357,15 @@ export type PushResult =
   | { kind: "pushed"; setUpstream: boolean; output: string }
   | { kind: "nothing-to-push" };
 
+export type FetchResult = {
+  kind: "fetched";
+  output: string;
+};
+
+export type PullResult =
+  | { kind: "pulled"; output: string }
+  | { kind: "already-up-to-date"; output: string };
+
 export type CreatePullRequestResult =
   | { kind: "created"; url: string }
   | { kind: "exists"; url: string }
@@ -366,6 +375,85 @@ export type CreatePullRequestResult =
       branch: string;
       baseBranch: string;
     };
+
+/** Update remote-tracking refs without merging into the working tree. */
+export async function fetchRemote(
+  projectId: string,
+  worktreeId?: string | null,
+): Promise<FetchResult> {
+  const cwd = projectCwd(projectId, worktreeId);
+  await assertGitRepository(cwd);
+  // No remote arg — git uses the current branch upstream / origin by default.
+  const result = await runGit(cwd, ["fetch", "--prune"], {
+    timeoutMs: PUSH_TIMEOUT_MS,
+  });
+  if (result.code !== 0) {
+    throw new GitError("git fetch failed", result.stderr.trim() || `exit ${result.code}`);
+  }
+  return { kind: "fetched", output: combineStreams(result) };
+}
+
+export type PullMode = "ff-only" | "rebase" | "merge";
+
+/**
+ * Pull the current branch from its upstream (or origin/<branch>).
+ * Default is fast-forward only; rebase/merge are explicit so a header click
+ * never invents a merge commit unless the user asked for it.
+ */
+export async function pull(
+  projectId: string,
+  worktreeId?: string | null,
+  mode: PullMode = "ff-only",
+): Promise<PullResult> {
+  const cwd = projectCwd(projectId, worktreeId);
+  await assertGitRepository(cwd);
+  const branch = await currentBranchName(cwd);
+  if (!branch || branch === "HEAD") {
+    throw new GitError("cannot pull: detached HEAD");
+  }
+
+  const modeArgs =
+    mode === "rebase" ? ["--rebase"] : mode === "merge" ? ["--no-rebase"] : ["--ff-only"];
+
+  let result = await runGit(cwd, ["pull", ...modeArgs], { timeoutMs: PUSH_TIMEOUT_MS });
+  if (result.code !== 0) {
+    const noUpstream =
+      /no tracking information|There is no tracking information|no upstream/i.test(
+        result.stderr || "",
+      ) || /set the upstream/i.test(result.stderr || "");
+    if (noUpstream) {
+      result = await runGit(cwd, ["pull", ...modeArgs, "origin", branch], {
+        timeoutMs: PUSH_TIMEOUT_MS,
+      });
+    }
+  }
+  if (result.code !== 0) {
+    const stderr = result.stderr.trim() || `exit ${result.code}`;
+    const diverged =
+      /Not possible to fast-forward|diverging branches|diverged|need to specify how to reconcile/i.test(
+        stderr,
+      );
+    const conflict = /conflict|CONFLICT|could not apply|fix conflicts/i.test(stderr);
+    if (mode === "ff-only" && diverged) {
+      throw new GitError(
+        "Branch has diverged from remote — use Pull with rebase or Pull with merge.",
+        stderr,
+      );
+    }
+    if (conflict) {
+      throw new GitError(
+        "Pull hit conflicts — resolve them in a terminal, then continue the rebase/merge.",
+        stderr,
+      );
+    }
+    throw new GitError("git pull failed", stderr);
+  }
+  const output = combineStreams(result);
+  if (/Already up.to.date/i.test(output) || !output.trim()) {
+    return { kind: "already-up-to-date", output: output || "Already up to date." };
+  }
+  return { kind: "pulled", output };
+}
 
 export async function push(projectId: string, worktreeId?: string | null): Promise<PushResult> {
   const cwd = projectCwd(projectId, worktreeId);

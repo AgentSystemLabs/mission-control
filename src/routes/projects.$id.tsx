@@ -25,6 +25,7 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
+import { GitSyncMenu } from "~/components/views/GitSyncMenu";
 import { SessionGrid } from "~/components/views/SessionGrid";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { enterFocusSession } from "~/lib/focus-session";
@@ -2477,6 +2478,12 @@ function ProjectPage() {
             mainBranchUnavailable={gitUnavailable}
             mainBranchUnavailableTitle={gitUnavailableMessage ?? undefined}
             branchSwitchDisabled={projectPathBlocked}
+            syncDisabled={projectPathBlocked || gitUnavailable}
+            syncDisabledReason={
+              projectPathBlocked
+                ? "Project folder unavailable"
+                : gitUnavailableMessage || "Git unavailable"
+            }
             maxWidth="min(420px, 34vw)"
           />
           <span
@@ -3871,6 +3878,8 @@ function WorktreeToggleGroup({
   mainBranchUnavailable = false,
   mainBranchUnavailableTitle,
   branchSwitchDisabled = false,
+  syncDisabled = false,
+  syncDisabledReason,
   maxWidth = 420,
 }: {
   worktrees: WorktreeInfo[];
@@ -3884,6 +3893,8 @@ function WorktreeToggleGroup({
   mainBranchUnavailable?: boolean;
   mainBranchUnavailableTitle?: string;
   branchSwitchDisabled?: boolean;
+  syncDisabled?: boolean;
+  syncDisabledReason?: string;
   maxWidth?: number | string;
 }) {
   const items = worktrees.length > 0 ? worktrees : [];
@@ -3915,6 +3926,7 @@ function WorktreeToggleGroup({
         );
         const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
         const label = worktree.isMain ? "main" : worktree.name;
+        const syncWorktreeId = worktree.isMain ? null : worktree.id;
         return (
           worktree.isMain && selected ? (
             <div
@@ -3928,39 +3940,64 @@ function WorktreeToggleGroup({
               }}
             >
               <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
-              {mainBranchUnavailable ? (
-                <Btn
-                  variant="ghost"
-                  icon="git-branch"
-                  disabled
-                  title={mainBranchUnavailableTitle ?? "Git unavailable"}
-                  style={{
-                    fontFamily: "var(--mono)",
-                    maxWidth: "min(36ch, 42vw)",
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  <span
+              <div
+                role="group"
+                aria-label="Branch and sync"
+                className="mc-ship-group"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0,
+                  minWidth: 0,
+                }}
+              >
+                {mainBranchUnavailable ? (
+                  <Btn
+                    variant="ghost"
+                    icon="git-branch"
+                    disabled
+                    title={mainBranchUnavailableTitle ?? "Git unavailable"}
+                    className="mc-btn-attached-right"
                     style={{
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      fontFamily: "var(--mono)",
+                      maxWidth: "min(36ch, 42vw)",
+                      color: "var(--text-dim)",
                     }}
                   >
-                    No Git repo
-                  </span>
-                </Btn>
-              ) : (
-                <BranchTypeahead
+                    <span
+                      style={{
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      No Git repo
+                    </span>
+                  </Btn>
+                ) : (
+                  <BranchTypeahead
+                    projectId={projectId}
+                    worktreeId={null}
+                    branch={mainBranchLabel}
+                    disabled={branchSwitchDisabled}
+                    worktreePath={worktree.path}
+                    selected
+                    attachedTrailing
+                  />
+                )}
+                <GitSyncMenu
                   projectId={projectId}
-                  worktreeId={null}
-                  branch={mainBranchLabel}
-                  disabled={branchSwitchDisabled}
-                  worktreePath={worktree.path}
-                  selected
+                  worktreeId={syncWorktreeId}
+                  disabled={syncDisabled || mainBranchUnavailable}
+                  disabledReason={
+                    mainBranchUnavailable
+                      ? mainBranchUnavailableTitle || "Git unavailable"
+                      : syncDisabledReason
+                  }
+                  attachedLeading
                 />
-              )}
+              </div>
             </div>
           ) : (
           <div
@@ -3970,17 +4007,27 @@ function WorktreeToggleGroup({
               position: "relative",
               display: "inline-flex",
               alignItems: "center",
+              gap: selected ? 2 : 0,
               height: 28,
-              borderRadius: 999,
-              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-              background: selected ? "var(--accent-faint)" : "var(--surface-0)",
-              color: selected ? "var(--accent)" : "var(--text-dim)",
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              whiteSpace: "nowrap",
               flexShrink: 0,
             }}
           >
+            <div
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "center",
+                height: 28,
+                borderRadius: 999,
+                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                background: selected ? "var(--accent-faint)" : "var(--surface-0)",
+                color: selected ? "var(--accent)" : "var(--text-dim)",
+                fontFamily: "var(--mono)",
+                fontSize: 11,
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
             <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
             <button
               type="button"
@@ -4049,6 +4096,15 @@ function WorktreeToggleGroup({
               >
                 <Icon name="trash" size={10} />
               </button>
+            )}
+            </div>
+            {selected && !worktree.isMain && !optimistic && (
+              <GitSyncMenu
+                projectId={projectId}
+                worktreeId={syncWorktreeId}
+                disabled={syncDisabled}
+                disabledReason={syncDisabledReason}
+              />
             )}
           </div>
           )

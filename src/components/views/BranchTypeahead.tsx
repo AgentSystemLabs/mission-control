@@ -93,6 +93,8 @@ export function BranchTypeahead({
   disabled = false,
   worktreePath,
   selected = false,
+  /** Drop the right frame edge so this can fuse with a trailing sync control. */
+  attachedTrailing = false,
 }: {
   projectId: string;
   worktreeId?: string | null;
@@ -100,6 +102,7 @@ export function BranchTypeahead({
   disabled?: boolean;
   worktreePath?: string;
   selected?: boolean;
+  attachedTrailing?: boolean;
 }) {
   const branchLabel = branch?.trim() || "…";
   const queryClient = useQueryClient();
@@ -483,6 +486,7 @@ export function BranchTypeahead({
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls="branch-typeahead-options"
+          className={attachedTrailing ? "mc-btn-attached-right" : undefined}
           title={
             worktreePath
               ? `${worktreePath}${branch ? ` · branch ${branch}` : ""}`

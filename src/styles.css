@@ -2137,11 +2137,11 @@ body[data-card-glow] .cursor-glow {
   display: none !important;
 }
 
-/* Review-changes + Ship segmented pair. The painted themes fuse these two into
-   one control via adjacent pixel frames (attached-left/right drop the touching
-   edge). The flat theme hides those ::before frames, so the borderless ghost
-   count and the Ship button read as two loose items. Restore the grouping with
-   a single hairline frame around the pair plus one divider between the cells. */
+/* Segmented pairs (Review-changes + Ship, branch + sync). Painted themes fuse
+   the cells via adjacent pixel frames (attached-left/right drop the touching
+   edge). The flat theme hides those ::before frames, so the cells read as two
+   loose items. Restore the grouping with a single hairline frame around the
+   pair plus one divider on the trailing attached-left cell. */
 [data-minimal="true"] .mc-ship-group {
   border: 1px solid var(--border-strong);
   border-radius: var(--mm-radius);
@@ -2151,10 +2151,10 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-ship-group .mc-btn {
   border-radius: 0;
 }
-/* Ship is the group's direct child (the count sits inside a display:contents
-   tooltip span). Give it the divider; drop the rest of its frame so the fill
-   tiles edge-to-edge within the shared border. */
-[data-minimal="true"] .mc-ship-group > .mc-btn {
+/* Trailing cell may be nested (tooltip / menu anchor wrappers). Prefer the
+   attached-left marker over direct-child so branch+sync and Ship both get the
+   divider; drop the rest of its frame so the fill tiles edge-to-edge. */
+[data-minimal="true"] .mc-ship-group .mc-btn.mc-btn-attached-left {
   border-top: 0;
   border-right: 0;
   border-bottom: 0;

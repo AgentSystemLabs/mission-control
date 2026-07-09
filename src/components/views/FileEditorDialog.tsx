@@ -1,5 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import CodeMirror, { EditorView, type ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import type { Extension } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { Modal } from "~/components/ui/Modal";
 import { Btn } from "~/components/ui/Btn";
@@ -321,10 +331,6 @@ export function FileEditorDialog({
 
   if (!open) return null;
 
-  const extensions = [
-    EditorView.lineWrapping,
-    ...(relPath ? languageForFilename(relPath) : []),
-  ];
   const showMarkdownPreview = loaded?.kind === "text" && markdownFile && editorMode === "preview";
   const showHtmlPreview = loaded?.kind === "text" && htmlFile && editorMode === "preview";
   const showingRenderedPreview = showMarkdownPreview || showHtmlPreview;
@@ -539,19 +545,11 @@ export function FileEditorDialog({
               dirty={dirty}
             />
           ) : (
-            <CodeMirror
-              ref={cmRef}
+            <SafeCodeMirror
+              cmRef={cmRef}
+              fileName={relPath ?? fileName}
               value={content}
-              theme={oneDark}
-              extensions={extensions}
-              onChange={(v) => setContent(v)}
-              basicSetup={{
-                lineNumbers: true,
-                highlightActiveLine: true,
-                highlightActiveLineGutter: true,
-                foldGutter: true,
-              }}
-              style={{ fontSize: 13, height: "100%" }}
+              onChange={setContent}
             />
           )}
         </div>
@@ -590,6 +588,67 @@ export function FileEditorDialog({
         </div>
       </ConfirmDialog>
     </>
+  );
+}
+
+/** Keeps CodeMirror language/extension failures inside the file dialog instead
+ *  of bubbling to the app error boundary. Retries once as plain text. */
+class CodeMirrorErrorBoundary extends Component<
+  { children: ReactNode; onError: () => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.warn("[file-editor] CodeMirror failed; retrying as plain text:", error, info.componentStack);
+    this.props.onError();
+  }
+
+  render(): ReactNode {
+    if (this.state.failed) return null;
+    return this.props.children;
+  }
+}
+
+function SafeCodeMirror({
+  cmRef,
+  fileName,
+  value,
+  onChange,
+}: {
+  cmRef: RefObject<ReactCodeMirrorRef | null>;
+  fileName: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [plainTextOnly, setPlainTextOnly] = useState(false);
+  const languageExtensions = plainTextOnly ? [] : languageForFilename(fileName);
+  const extensions: Extension[] = [EditorView.lineWrapping, ...languageExtensions];
+
+  return (
+    <CodeMirrorErrorBoundary
+      key={plainTextOnly ? "plain" : "lang"}
+      onError={() => setPlainTextOnly(true)}
+    >
+      <CodeMirror
+        ref={cmRef}
+        value={value}
+        theme={oneDark}
+        extensions={extensions}
+        onChange={onChange}
+        basicSetup={{
+          lineNumbers: true,
+          highlightActiveLine: true,
+          highlightActiveLineGutter: true,
+          foldGutter: true,
+        }}
+        style={{ fontSize: 13, height: "100%" }}
+      />
+    </CodeMirrorErrorBoundary>
   );
 }
 
