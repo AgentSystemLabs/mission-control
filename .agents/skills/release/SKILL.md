@@ -1,11 +1,13 @@
 ---
 name: release
-description: Cut a Mission Control desktop release — bump package.json (must match the git tag), commit, create an annotated v-tag, push to trigger release.yml CI, and verify academy artifacts align with bundle version. Use when the user says "cut a release", "release mission control", "tag a release", "bump version", "publish a new version", or "/release". Accepts bump type major|minor|patch (default patch for hotfixes). Read references/mission-control-release.md for the full CI pipeline, version alignment rules, and post-release checks.
+description: Cut a Mission Control desktop release — bump package.json (must match the git tag), commit, create an annotated v-tag, push to trigger release.yml CI. Prefer letting auto-tag-release.yml patch-bump on merges to main; use this skill for major/minor, hotfixes, or when automation was skipped with [skip release]. Read references/mission-control-release.md for the full CI pipeline, academy approval gate, and version alignment rules.
 ---
 
 # Mission Control release
 
-Phased workflow for this Electron desktop app. **Read [`references/mission-control-release.md`](references/mission-control-release.md)** for CI jobs, academy publishing, and the v0.47.1 version-mismatch incident.
+Phased workflow for this Electron desktop app. **Read [`references/mission-control-release.md`](references/mission-control-release.md)** for CI jobs, academy publishing, auto-tag automation, and the v0.47.1 version-mismatch incident.
+
+**Default path:** merges to `main` are automatically patch-bumped and tagged by `.github/workflows/auto-tag-release.yml` after Hosted CI is green. Prefer that unless the user asked for a major/minor bump or a manual hotfix.
 
 **Bump type from args:** `major` | `minor` | `patch`. Default **`patch`** for this repo (desktop app ships frequently).
 
@@ -18,8 +20,9 @@ Phased workflow for this Electron desktop app. **Read [`references/mission-contr
 1. **Bump `package.json` before creating the git tag.** The tag version (without `v`) and `package.json` `version` must be identical on the commit you tag.
 2. **Use `pnpm version X.Y.Z --no-git-tag-version`** — never `git tag` first and bump later.
 3. **Never reuse or force-move a remote tag.** If a bad tag shipped, bump to the next patch and release again.
-4. **Pushing the tag triggers `release.yml`** — CI builds electron-builder artifacts and publishes to agentsystem.dev. There is no separate manual upload step on the happy path.
-5. **Verify after CI:** academy `latestVersion`, artifact filenames, and `CFBundleShortVersionString` must all match.
+4. **Pushing the tag triggers `release.yml`** — CI builds signed installers, uploads academy **draft** assets, and attaches installers to the **GitHub Release**. It does **not** finalize / promote the Electron updater.
+5. **In-app Update / electron-updater only advance after approval on agentsystem.dev.** GitHub Releases are for manual download only.
+6. **Verify after CI + after academy approval:** GitHub assets exist immediately; academy `latestVersion` only matches after you approve.
 
 ### Version alignment check (run before tagging)
 
@@ -46,6 +49,7 @@ node -p "require('./package.json').version"
 - Dirty tree → STOP.
 - Not on `main` → confirm with user.
 - Manifest: `package.json` only (not `publish/package.json`).
+- If the next merge would auto-tag and the user only wanted a delay → suggest `[skip release]` on the merge commit instead.
 
 ---
 
@@ -111,7 +115,7 @@ git push --follow-tags
 
 When the user explicitly requests push in the same turn, push immediately after local tag creation.
 
-Monitor: GitHub Actions → `Release` workflow for the new tag. Wait for `finalize` to succeed, then run post-release checks from [`references/mission-control-release.md`](references/mission-control-release.md).
+Monitor: GitHub Actions → `Release` workflow for the new tag. Wait for `publish-github` to succeed (GitHub Release assets). Remind the user that **existing users are not prompted until they approve the release on agentsystem.dev**.
 
 ---
 
@@ -122,4 +126,4 @@ Monitor: GitHub Actions → `Release` workflow for the new tag. Wait for `finali
 - **NEVER force-push or delete a published tag** without explicit user request and understanding of academy/CI impact.
 - **NEVER use lightweight tags** — always `git tag -a`.
 - **NEVER release from a dirty working tree.**
-- **NEVER skip post-release verification** — confirm API version, artifact names, and bundle version match.
+- **NEVER tell the user the updater is live just because GitHub Release assets exist** — academy approval is the updater gate.

@@ -99,10 +99,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm scan:secrets
 
-  # Unsigned Linux AppImage for PR / main smoke downloads. Signed multi-platform
-  # installers ship via release.yml → academy + GitHub Releases.
+  # Unsigned Linux AppImage for PR smoke downloads only. Merges to main are
+  # auto-tagged and built by release.yml (signed mac/win/linux → GitHub Release).
   package-linux:
     name: Package Linux (unsigned)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

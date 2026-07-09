@@ -1,0 +1,125 @@
+name: Auto tag release
+
+# After a green Hosted CI run on main, patch-bump package.json, commit, and
+# push an annotated v* tag. Because pushes that use GITHUB_TOKEN do not trigger
+# other workflows, this job then starts release.yml via workflow_dispatch.
+# Academy finalize / approval remains the gate for the Electron updater.
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: auto-tag-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  bump-and-tag:
+    name: Patch bump + tag
+    if: >-
+      github.event.head_commit != null &&
+      !startsWith(github.event.head_commit.message, 'chore(release): v') &&
+      !contains(github.event.head_commit.message, '[skip release]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - name: Wait for Hosted CI on this push
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: node scripts/wait-for-hosted-ci.mjs
+
+      - name: Patch bump, commit, tag, push, dispatch release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          WAITED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stay current if another commit landed while we waited for CI.
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
+          # Skip if HEAD itself is already a release commit (race / re-run).
+          head_msg="$(git log -1 --pretty=%s)"
+          if [[ "$head_msg" == chore\(release\):\ v* ]] || [[ "$head_msg" == *"[skip release]"* ]]; then
+            echo "HEAD already a release/skip commit ($head_msg); nothing to do."
+            exit 0
+          fi
+
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "$head_sha" != "$WAITED_SHA" ]]; then
+            echo "main moved to $head_sha while waiting (was $WAITED_SHA); re-checking Hosted CI."
+            RELEASE_SHA="$head_sha" node scripts/wait-for-hosted-ci.mjs
+          fi
+
+          prev_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          old_version="$(node -p "require('./package.json').version")"
+
+          # npm version only edits package.json (no install needed).
+          npm version patch --no-git-tag-version
+          new_version="$(node -p "require('./package.json').version")"
+          tag="v${new_version}"
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists locally — aborting" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag $tag already exists on origin — aborting" >&2
+            exit 1
+          fi
+
+          notes_file="$(mktemp)"
+          {
+            echo "## ${tag}"
+            echo
+            if [[ -n "$prev_tag" ]]; then
+              echo "Changes since ${prev_tag}:"
+              echo
+              git log --pretty=format:'- %s (%h)' "${prev_tag}..HEAD"
+              echo
+            else
+              echo "Initial automated release from ${old_version}."
+            fi
+          } > "$notes_file"
+
+          git add package.json
+          git commit -m "chore(release): ${tag}"
+          git tag -a "$tag" -F "$notes_file"
+
+          # Push commit + tag. GITHUB_TOKEN pushes do not re-trigger workflows,
+          # so release.yml is started explicitly via workflow_dispatch below.
+          git push origin HEAD:main
+          git push origin "$tag"
+
+          gh workflow run release.yml \
+            --ref main \
+            -f "tag=${tag}"
+
+          echo "Created and pushed ${tag} (package.json ${old_version} → ${new_version}); dispatched Release workflow."

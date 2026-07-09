@@ -70,9 +70,9 @@ mission-control/
 
 ## Download
 
-- **Stable builds:** [agentsystem.dev](https://agentsystem.dev) (signed macOS / Windows / Linux installers from the release pipeline)
-- **GitHub Releases:** [AgentSystemLabs/mission-control/releases](https://github.com/AgentSystemLabs/mission-control/releases) — same versioned installers attached when a `v*` tag ships
-- **CI Artifacts:** every PR and `main` push builds an unsigned Linux AppImage (`MissionControl-linux-x64`) — open the workflow run → **Artifacts**
+- **GitHub Releases:** [AgentSystemLabs/mission-control/releases](https://github.com/AgentSystemLabs/mission-control/releases) — signed macOS / Windows / Linux installers attached automatically when a `v*` tag ships (manual install / dogfooding)
+- **Stable + in-app updates:** [agentsystem.dev](https://agentsystem.dev) — same installers after a release is **approved** there; the Electron updater and in-app Update UI only advance on approval
+- **PR CI Artifacts:** pull requests build an unsigned Linux AppImage (`MissionControl-linux-x64`) — open the workflow run → **Artifacts**
 
 After download: macOS open the `.dmg` and drag the app to Applications; Windows run the Setup `.exe`; Linux make the `.AppImage` executable (`chmod +x`) and run it (FUSE 2 may be required on some distros).
 
