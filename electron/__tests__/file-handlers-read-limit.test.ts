@@ -11,6 +11,14 @@ vi.mock("electron", () => ({
 }));
 vi.mock("electron-log/main", () => ({ default: { warn: vi.fn() } }));
 
+// files:read now requires the caller-supplied root to be a registered project
+// (see isRegisteredProjectRoot). Stub the DB-backed allow-list so these
+// line-limit tests stay focused on the size gate, not project registration.
+const loadProjectRoots = vi.fn<() => string[]>(() => []);
+vi.mock("../project-roots", () => ({
+  loadProjectRoots: () => loadProjectRoots(),
+}));
+
 import { registerFileHandlers } from "../file-handlers";
 
 type Handler = (event: any, ...args: any[]) => unknown;
@@ -44,10 +52,12 @@ describe("files:read line limit", () => {
     __resetIpcAllowedOriginsForTesting();
     configureIpcAllowedOrigins(["http://localhost:5173"]);
     root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-file-read-limit-"));
+    loadProjectRoots.mockReturnValue([root]);
   });
 
   afterEach(() => {
     __resetIpcAllowedOriginsForTesting();
+    loadProjectRoots.mockReset();
     fs.rmSync(root, { recursive: true, force: true });
   });
 

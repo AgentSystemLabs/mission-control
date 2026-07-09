@@ -6,6 +6,7 @@ import { FILE_READ_MAX_BYTES, FILE_READ_MAX_LINES } from "../src/shared/file-rea
 import { bufferLooksBinary } from "../src/shared/git-status";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
+import { loadProjectRoots } from "./project-roots";
 
 const HARDCODED_IGNORES = [
   "node_modules",
@@ -161,9 +162,44 @@ function sanitizeDisplayPath(relPath: string): string {
   return out;
 }
 
+// A renderer-supplied `projectRoot` must be a registered Mission Control
+// project root (or a path inside one, e.g. a `.worktree/*` dir) — the same
+// containment `pty:spawn` already enforces via `loadProjectRoots()` (see
+// pty-manager.ts / pty-spawn-policy.ts). Without this, `resolveInsideRoot`
+// only bounds `relPath` *within the caller-supplied root*; it never vets the
+// root itself, so a compromised/XSS'd renderer (the documented threat model —
+// agent output is rendered as markdown/HTML) could point `files:*` at any
+// directory on disk (`~/.ssh`, `~/Library/LaunchAgents`, another project's
+// `.claude/`) and read secrets or plant auto-executing files outside every
+// project. Realpath both sides so a symlinked root can't dodge the check.
+export function isRegisteredProjectRoot(projectRoot: string): boolean {
+  if (!projectRoot || typeof projectRoot !== "string") return false;
+  let realTarget: string;
+  try {
+    realTarget = fs.realpathSync(path.resolve(projectRoot));
+  } catch {
+    return false;
+  }
+  for (const root of loadProjectRoots()) {
+    let realRoot: string;
+    try {
+      realRoot = fs.realpathSync(path.resolve(root));
+    } catch {
+      continue; // stale/removed project row — never widens the allow-list
+    }
+    if (realTarget === realRoot || realTarget.startsWith(realRoot + path.sep)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function resolveInsideRoot(projectRoot: string, relPath: string): string | null {
   if (!projectRoot || !relPath) return null;
   if (relPath.includes("\0")) return null;
+  // Reject any root that isn't a registered project (or inside one) before we
+  // touch the filesystem — see isRegisteredProjectRoot.
+  if (!isRegisteredProjectRoot(projectRoot)) return null;
   const root = path.resolve(projectRoot);
   const abs = path.resolve(root, relPath);
   const rel = path.relative(root, abs);
@@ -245,6 +281,11 @@ export function imageMimeForRelPath(relPath: string): (typeof IMAGE_MIME_BY_EXT)
 export function registerFileHandlers(ipc: IpcMain, getWin: () => BrowserWindow | null) {
   safeHandle(IPC.filesList, async (_evt, projectRoot: string) => {
     if (!projectRoot || typeof projectRoot !== "string") {
+      return { ok: false as const, error: "invalid root" };
+    }
+    // `listFiles` doesn't pass through `resolveInsideRoot`, so gate the root here
+    // too — otherwise `files:list("/")` would enumerate the whole filesystem.
+    if (!isRegisteredProjectRoot(projectRoot)) {
       return { ok: false as const, error: "invalid root" };
     }
     try {
