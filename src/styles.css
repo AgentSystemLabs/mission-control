@@ -1331,19 +1331,26 @@ select,
    accent ring + a subtle zoom of the capture) to read as "grab me", and the
    ✕ stays out of the way until you're on the card. */
 .screenshot-history-card {
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
   transition:
     transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms ease,
     box-shadow 160ms ease;
   will-change: transform;
 }
 .screenshot-history-card:hover {
   transform: translateY(-3px);
+  border-color: var(--accent);
   box-shadow:
     0 8px 20px rgba(0, 0, 0, 0.34),
-    inset 0 0 0 1px var(--accent);
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
 }
 .screenshot-history-card:focus-visible {
   outline: none;
+  border-color: var(--accent);
   box-shadow:
     0 0 0 2px var(--bg),
     0 0 0 4px var(--accent);
@@ -2832,11 +2839,33 @@ body[data-card-glow] .cursor-glow {
    becomes the ONE translucent painter, so the ground tone stacks once instead
    of compounding back to opaque. !important beats the pane body's inline
    var(--terminal-bg). */
-/* Session header: a soft tonal band over the glass so it still reads as the
-   pane's title bar (its own inline background is transparent). The focused
-   cell's accent-tinted header rule is more specific and keeps winning. */
+/* Session header: a lifted tonal band over the glass so it reads as the
+   pane's title bar (its own inline background is transparent). It sits a full
+   surface step LIGHTER than the terminal body's charcoal gradient — at
+   surface-0 the header lands on the same darkness as the pane ground and
+   becomes indistinguishable from the CLI's own status line at the flush seam
+   below, so adjacent cells blur together. Translucent (~60% surface share)
+   so the glass/pattern ground still ghosts through, but on surface-1 — a
+   step lighter than the body — so the band still registers; one step under
+   the focused header's accent-over-surface-1 fill. A thin constant white
+   veil is layered on top because the surface step alone only works at the
+   Intense tint (the lower tints keep surface-1 near-black, where 60% of it
+   composites back to the body's darkness) — an alpha lift stays visible
+   relative to the ground at EVERY tint level. The focused cell's
+   accent-tinted header rule is more specific and keeps winning. */
 [data-minimal="true"] [data-session-header] {
-  background: color-mix(in srgb, var(--surface-0) 45%, transparent) !important;
+  background:
+    linear-gradient(
+      oklch(1 0 0 / var(--mc-header-lift, 0.06)),
+      oklch(1 0 0 / var(--mc-header-lift, 0.06))
+    ),
+    color-mix(in srgb, var(--surface-1) 60%, transparent) !important;
+}
+/* Light mode steps to surface-2: light's surface-1 (#fafafb-ish) is
+   indistinguishable from the near-white terminal ground, so the band needs
+   the deeper gray to register at all. */
+[data-minimal="true"][data-theme="light"] [data-session-header] {
+  background: color-mix(in srgb, var(--surface-2) 75%, transparent) !important;
 }
 
 /* .xterm-scrollable-element is xterm 6's scroll wrapper: core re-applies the
@@ -3262,6 +3291,11 @@ body[data-card-glow] .cursor-glow {
    recipe (near-black + the generic intense --tint-lo wash), keeping the
    glass dark while the CHROME surfaces still take the full Intense lift. */
 [data-minimal="true"][data-theme="dark"][data-tint="intense"] {
+  /* Intense already lifts the whole surface ladder to mid-charcoal, so the
+     session header's surface-1 band separates from the pane body on its own —
+     the full white veil (0.06, needed at the darker tints) over-brightens it
+     here. Keep just a whisper. */
+  --mc-header-lift: 0.02;
   --surface-0: color-mix(in srgb, var(--accent) 8%, #2b2b2b);
   --surface-1: color-mix(in srgb, var(--accent) 8%, #323232);
   --surface-2: color-mix(in srgb, var(--accent) 9%, #3b3b3b);
