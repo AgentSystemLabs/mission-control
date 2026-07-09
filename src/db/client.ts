@@ -31,15 +31,32 @@ export function resolveSkillsDir(): string {
   return path.join(resolveUserDataDir(), "skills");
 }
 
+// missioncontrol.db holds the API bearer token and every sandbox pairing token
+// in cleartext. Created with default perms it is world-readable (~0644), so any
+// other local user / backup / sync process can lift those secrets straight off
+// disk. Tighten the directory to owner-only and the DB (plus its WAL/SHM
+// sidecars) to 0600. Best-effort: on filesystems/platforms without POSIX modes
+// (e.g. Windows) chmod is a harmless no-op.
+export function restrictDbFilePermissions(dbPath: string): void {
+  for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      if (fs.existsSync(p)) fs.chmodSync(p, 0o600);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
 export function getDb() {
   if (_db) return _db;
   const dir = resolveUserDataDir();
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const dbPath = path.join(dir, "missioncontrol.db");
   _sqlite = new Database(dbPath, {
     nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
   });
   _sqlite.pragma("journal_mode = WAL");
+  restrictDbFilePermissions(dbPath);
   _sqlite.pragma("foreign_keys = ON");
   _db = drizzle(_sqlite, { schema });
   const freshBootstrap = !tableExists(_sqlite, "projects");
