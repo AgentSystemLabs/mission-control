@@ -64,11 +64,14 @@ export function TopBar({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
+            // Fixed square (comfortable hit area) with the logo centered.
+            // No padding + negative-margin trick — negative margins shift a
+            // flex item off-centre, which is what threw the logo off.
+            width: 34,
+            height: 34,
+            flexShrink: 0,
             border: "none",
-            // Expand the hit area to a comfortable target without nudging the
-            // sibling controls: the negative margin pulls them back into place.
-            padding: 6,
-            margin: -6,
+            padding: 0,
             borderRadius: 8,
             cursor: "pointer",
             color: "inherit",
