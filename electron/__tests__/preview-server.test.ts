@@ -1,8 +1,17 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as http from "node:http";
+
+// startPreviewServer requires the root to be a registered project. Stub the
+// DB-backed allow-list so these integration tests stay focused on serving /
+// traversal / Host-header guards, not project registration.
+const loadProjectRoots = vi.fn<() => string[]>(() => []);
+vi.mock("../project-roots", () => ({
+  loadProjectRoots: () => loadProjectRoots(),
+}));
+
 import {
   disposeAllPreviewServers,
   isLoopbackHost,
@@ -85,6 +94,7 @@ describe("startPreviewServer (integration)", () => {
   beforeAll(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-preview-"));
     outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-secret-"));
+    loadProjectRoots.mockReturnValue([dir]);
     fs.writeFileSync(path.join(dir, "index.html"), "<!doctype html><h1>Hello</h1>");
     fs.mkdirSync(path.join(dir, "assets"));
     fs.writeFileSync(path.join(dir, "assets", "app.css"), "h1{color:red}");
@@ -102,6 +112,7 @@ describe("startPreviewServer (integration)", () => {
 
   afterAll(() => {
     disposeAllPreviewServers();
+    loadProjectRoots.mockReset();
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(outsideDir, { recursive: true, force: true });
   });
