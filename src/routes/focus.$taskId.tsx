@@ -8,15 +8,23 @@ import {
   type CSSProperties,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
 import { StatusDot } from "~/components/ui/StatusDot";
 import { HotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
 import { TerminalPane } from "~/components/views/TerminalPane";
 import { FocusSessionBar } from "~/components/views/FocusSessionBar";
+import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { applyQuestionServerEvent } from "~/lib/agent-question-store";
 import { STATUS_META } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
 import { exitFocusSession, switchFocusSession } from "~/lib/focus-session";
+import {
+  screenshotCaptureErrorMessage,
+  screenshotFromResult,
+  screenshotSupported as isScreenshotSupported,
+} from "~/lib/screenshot";
+import { playScreenshotCapture } from "~/lib/screenshot-sound";
 import {
   orderSessions,
   reconcileFocusOrder,
@@ -217,6 +225,33 @@ function FocusSessionPage() {
       .catch(() => undefined);
   }, [alwaysOnTop]);
 
+  // Native screenshot capture, mirroring the project route (which is unmounted
+  // while floating, taking its hotkey handler and toolbar button with it): same
+  // macOS-only gate, same capture flow. Captures land in a compact thumbnail
+  // stack overlaid on the terminal (see the render below).
+  const screenshotSupported = useMemo(() => isScreenshotSupported(), []);
+  const addScreenshot = terminals.addScreenshot;
+  const captureScreenshot = useCallback(async () => {
+    const projectId = currentProjectId;
+    if (!projectId) return;
+    const electron = getElectron();
+    if (!electron) return;
+    const result = await electron.screenshot.captureRegion();
+    if ("error" in result) {
+      toast.error(screenshotCaptureErrorMessage(result.error));
+      return;
+    }
+    const shot = screenshotFromResult(result);
+    if (shot) {
+      playScreenshotCapture();
+      addScreenshot({ ...shot, projectId });
+    }
+  }, [addScreenshot, currentProjectId]);
+  useHotkey("screenshot.capture", () => void captureScreenshot(), {
+    capture: true,
+    enabled: screenshotSupported && hasSession,
+  });
+
   // Collapsible session bar. Preference persists across launches; hiding it
   // hands the extra vertical space to the terminal without touching the session.
   const [barOpen, setBarOpen] = useState(loadBarOpenPref);
@@ -316,6 +351,8 @@ function FocusSessionPage() {
         showBarToggle={showBar}
         barOpen={barOpen}
         onToggleBar={toggleBar}
+        showScreenshot={screenshotSupported}
+        onCaptureScreenshot={() => void captureScreenshot()}
       />
       {showBar && (
         <FocusSessionBar
@@ -326,7 +363,20 @@ function FocusSessionPage() {
           onSelect={selectSession}
         />
       )}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      {/* data-task-id makes the terminal a drop target for thumbnail drags
+          (sessionHostAtPoint), matching the grid cells / docked panel; the
+          relative position anchors the focus-variant stack to the terminal
+          area so it always clears the header and session bar. */}
+      <div
+        data-task-id={session.taskId}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          position: "relative",
+        }}
+      >
         <TerminalPane
           key={`${session.taskId}:${scopeKey}`}
           project={session.project}
@@ -336,6 +386,11 @@ function FocusSessionPage() {
           hideHeader
           onPtyReady={(ptyId) => terminals.setPtyId(session.taskId, ptyId, scopeKey)}
         />
+        {/* Compact capture stack pinned top-right, over old scrollback rather
+            than the prompt and freshest output at the bottom of the pane. */}
+        {screenshotSupported && (
+          <ScreenshotThumbnail projectId={session.project.id} variant="focus" />
+        )}
       </div>
     </div>
   );
@@ -416,6 +471,8 @@ function FocusSessionHeader({
   showBarToggle,
   barOpen,
   onToggleBar,
+  showScreenshot,
+  onCaptureScreenshot,
 }: {
   session: OpenTerminal;
   alwaysOnTop: boolean;
@@ -424,6 +481,8 @@ function FocusSessionHeader({
   showBarToggle: boolean;
   barOpen: boolean;
   onToggleBar: () => void;
+  showScreenshot: boolean;
+  onCaptureScreenshot: () => void;
 }) {
   // session.task is kept live by the ScopeTaskSync subscriptions above.
   const task = session.task;
@@ -489,6 +548,18 @@ function FocusSessionHeader({
       >
         {statusMeta.label}
       </span>
+      {showScreenshot && (
+        <HotkeyTooltip action="screenshot.capture" label="Screenshot">
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="camera"
+            onClick={onCaptureScreenshot}
+            aria-label="Capture a screenshot"
+            style={{ width: 30, padding: 0 }}
+          />
+        </HotkeyTooltip>
+      )}
       {isElectron() && (
         <Tooltip content={alwaysOnTop ? "Always on top: on" : "Always on top: off"}>
           <Btn
