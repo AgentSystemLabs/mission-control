@@ -2450,7 +2450,7 @@ body[data-card-glow] .cursor-glow {
   background: var(--surface-0) !important;
 }
 [data-minimal="true"] .mc-project-header {
-  border-bottom: 1px solid var(--border) !important;
+  border-bottom: none !important;
   border-radius: 0 !important;
   background: var(--surface-0) !important;
 }
@@ -2697,7 +2697,7 @@ body[data-card-glow] .cursor-glow {
     var(--mm-ring) !important;
 }
 
-/* Flat keeps the cursor glow but quieter than painted; no dot grid. */
+/* Flat keeps the cursor glow but quieter than painted. */
 [data-minimal="true"] .cursor-glow {
   --cursor-glow-color: color-mix(in srgb, var(--accent) 9%, transparent);
   --cursor-glow-filter: brightness(1.06) saturate(1.08);
@@ -2706,8 +2706,78 @@ body[data-card-glow] .cursor-glow {
   --cursor-glow-color: color-mix(in srgb, var(--accent) 6%, transparent);
   --cursor-glow-filter: brightness(1.02) saturate(1.04);
 }
+/* Flat pattern ground — a blueprint texture (fine grid with a dot at each
+   intersection) layered over the theme's own --bg. Every mark derives from
+   var(--accent) via color-mix, so each flat accent color paints its own
+   pattern; the surface tint keeps flowing through --bg underneath. Dark and
+   light differ only in mark strength: accent glow reads easily on the
+   near-black ground but needs more ink on the light paper. */
 [data-minimal="true"] .dot-grid-bg {
-  background-image: none;
+  background-image:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--accent) 20%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      color-mix(in srgb, var(--accent) 7%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 7%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  background-position: 0 0;
+}
+[data-minimal="true"][data-theme="light"] .dot-grid-bg {
+  background-image:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--accent) 30%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      color-mix(in srgb, var(--accent) 11%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 11%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  background-position: 0 0;
+}
+
+/* Project page wrapper: dissolve its opaque card surface (the dashboard frame
+   already does this) so the pattern ground runs behind the session grid. */
+[data-minimal="true"] .mc-project-frame {
+  background: transparent !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* App chrome runs flush in flat: the header, the project rail and the
+   terminals footer drop their card border + rounding and sit square on the
+   ground — tone separation (surface vs ground) does the dividing. */
+[data-minimal="true"] .mc-topbar {
+  border-bottom: none !important;
+}
+[data-minimal="true"] .mc-project-rail,
+[data-minimal="true"] [data-user-terminal-panel] {
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* Session cells: pull the surface back toward transparent so the pattern
+   ground shows through the cell chrome. The xterm canvas itself stays opaque
+   (deliberate — its clear color must be a concrete value and readability wins),
+   so the see-through reads in headers, banners and empty regions. */
+[data-minimal="true"] [data-session-grid] .mc-card-frame {
+  background: color-mix(in srgb, var(--surface-0) 65%, transparent) !important;
 }
 
 /* =====================================================================
