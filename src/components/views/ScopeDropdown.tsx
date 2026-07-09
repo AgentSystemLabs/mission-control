@@ -121,7 +121,7 @@ function ScopeItem({
         {label}
       </span>
       <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-faint)" }}>{subtitle}</span>
-      {active && <Icon name="check" size={12} style={{ color: "var(--accent)" }} />}
+      {active && <Icon name="check" size={12} style={{ color: "var(--accent-ink)" }} />}
     </button>
   );
 }
@@ -1151,7 +1151,7 @@ export function ScopeDropdown() {
                     opacity: projectSandbox.checking ? 0.7 : 1,
                   }}
                 >
-                  <Icon name="plus" size={12} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                  <Icon name="plus" size={12} style={{ color: "var(--accent-ink)", flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
                     {projectSandbox.checking ? "Checking…" : "Create sandbox"}
                   </span>

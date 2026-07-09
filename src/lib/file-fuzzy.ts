@@ -1,6 +1,15 @@
 // Lightweight fuzzy file-path scorer.
 // Higher scores rank earlier. 0 means "no match".
 
+/** Upper bound for basename-substring scores; used to normalize into 0–1 elsewhere. */
+export const FUZZY_SCORE_MAX = 1000;
+
+const BASENAME_PREFIX_BONUS = 50;
+const BASENAME_EXACT_MATCH_BONUS = 200;
+const PATH_SUBSTRING_SCORE_BASE = 500;
+const BASENAME_SUBSEQ_SCORE_BASE = 200;
+const PATH_SUBSEQ_SCORE_BASE = 50;
+
 export type Scored = { path: string; score: number };
 
 export function fuzzyScore(query: string, target: string): number {
@@ -15,24 +24,25 @@ export function fuzzyScore(query: string, target: string): number {
   if (baseIdx >= 0) {
     // Earlier match in basename = higher. Treat a leading dot (hidden file)
     // as if the basename started at the dot — `.env` should beat `environment.ts`.
-    const effectiveIdx = baseIdx === 1 && base.charCodeAt(0) === 46 ? 0 : baseIdx;
-    let score = 1000 - effectiveIdx + (effectiveIdx === 0 ? 50 : 0);
+    const effectiveIdx = baseIdx === 1 && base.startsWith(".") ? 0 : baseIdx;
+    let score =
+      FUZZY_SCORE_MAX - effectiveIdx + (effectiveIdx === 0 ? BASENAME_PREFIX_BONUS : 0);
     // Whole-basename match bumps the score above any longer file with an early match.
     if (q.length === base.length || (baseIdx === 1 && q.length + 1 === base.length)) {
-      score += 200;
+      score += BASENAME_EXACT_MATCH_BONUS;
     }
     return score;
   }
 
   // Substring anywhere in path.
   const pathIdx = t.indexOf(q);
-  if (pathIdx >= 0) return 500 - pathIdx;
+  if (pathIdx >= 0) return PATH_SUBSTRING_SCORE_BASE - pathIdx;
 
   // Subsequence match in basename, then in full path.
   const baseSub = subseq(q, base);
-  if (baseSub > 0) return 200 + baseSub;
+  if (baseSub > 0) return BASENAME_SUBSEQ_SCORE_BASE + baseSub;
   const pathSub = subseq(q, t);
-  if (pathSub > 0) return 50 + pathSub;
+  if (pathSub > 0) return PATH_SUBSEQ_SCORE_BASE + pathSub;
 
   return 0;
 }

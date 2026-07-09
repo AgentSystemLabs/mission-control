@@ -301,6 +301,7 @@ function ThemeStyleGrid({
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(option.value)}
+            className="mc-swatch-card"
             style={{
               position: "relative",
               display: "flex",
@@ -308,13 +309,13 @@ function ThemeStyleGrid({
               gap: 10,
               cursor: "pointer",
               textAlign: "left",
-              transition: "border-color 0.15s, box-shadow 0.15s",
               ...cardChrome,
             }}
           >
             {selected && (
               <span
                 aria-hidden
+                className="mc-check-pop"
                 style={{
                   position: "absolute",
                   top: 8,
@@ -535,6 +536,7 @@ function ModeOption({
       role="radio"
       aria-checked={selected}
       onClick={onSelect}
+      className="mc-mode-option"
       style={{
         padding: "6px 12px",
         fontFamily: "var(--mono)",
@@ -546,8 +548,7 @@ function ModeOption({
         borderRadius: "var(--mm-radius-sm, 5px)",
         cursor: "pointer",
         background: selected ? "var(--accent-dim)" : "transparent",
-        color: selected ? "var(--accent)" : "var(--text-dim)",
-        transition: "background 0.12s ease, color 0.12s ease",
+        color: selected ? "var(--accent-ink)" : "var(--text-dim)",
       }}
     >
       {label}

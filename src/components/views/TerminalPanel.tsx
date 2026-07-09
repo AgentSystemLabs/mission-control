@@ -163,6 +163,7 @@ export function TerminalPanel({
       ref={rootRef}
       focused={focused}
       data-session-terminal-panel
+      data-task-id={active.taskId}
       style={{
         width: expanded ? "100%" : width,
         flex: expanded ? 1 : undefined,
@@ -211,6 +212,7 @@ export function TerminalPanel({
         onConfirm={confirmArchiveActive}
         title="Archive running session?"
         confirmLabel="Archive"
+        cancelLabel="Keep running"
         variant="danger"
         icon="archive"
         loading={archiving}

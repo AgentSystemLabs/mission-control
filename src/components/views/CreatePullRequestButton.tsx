@@ -179,7 +179,7 @@ export function CreatePullRequestDialog({
               href="https://cli.github.com/"
               target="_blank"
               rel="noreferrer"
-              style={{ color: "var(--accent)" }}
+              style={{ color: "var(--accent-ink)" }}
             >
               GitHub CLI
             </a>{" "}
@@ -192,7 +192,7 @@ export function CreatePullRequestDialog({
             target="_blank"
             rel="noreferrer"
             style={{
-              color: "var(--accent)",
+              color: "var(--accent-ink)",
               fontFamily: "var(--mono)",
               fontSize: 12,
               wordBreak: "break-all",

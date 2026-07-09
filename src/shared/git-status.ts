@@ -45,6 +45,18 @@ export type GitDiff =
 export const DIFF_MAX_BYTES = 2 * 1024 * 1024;
 export const DIFF_MAX_LINES = 50_000;
 
+/** Bytes to scan when sniffing raw file content for NUL (binary) markers. */
+export const BUFFER_BINARY_SNIFF_BYTES = 8 * 1024;
+
+/** Cheap binary sniff: any NUL in the first {@link BUFFER_BINARY_SNIFF_BYTES}. */
+export function bufferLooksBinary(buf: Uint8Array): boolean {
+  const len = Math.min(buf.length, BUFFER_BINARY_SNIFF_BYTES);
+  for (let i = 0; i < len; i++) {
+    if (buf[i] === 0) return true;
+  }
+  return false;
+}
+
 /** Map a porcelain v1 status code to one of our enum values. */
 export function mapStatusCode(code: string): GitFileStatus {
   if (code === "?") return "untracked";
@@ -117,6 +129,11 @@ export function isBinaryPatch(patch: string): boolean {
   return /^Binary files .* and .* differ$/m.test(patch) || /^GIT binary patch$/m.test(patch);
 }
 
+/** Count newline characters — used consistently for line-cap checks and metadata. */
+function patchLineCount(patch: string): number {
+  return (patch.match(/\n/g) || []).length;
+}
+
 /**
  * Classify a `git diff` patch body into the GitDiff union: empty, binary,
  * too-large (over the byte or line cap), or renderable text.
@@ -126,13 +143,12 @@ export function classifyDiffPatch(patch: string): GitDiff {
   if (isBinaryPatch(patch)) return { kind: "binary" };
 
   const bytes = Buffer.byteLength(patch, "utf8");
+  const lines = patchLineCount(patch);
   if (bytes > DIFF_MAX_BYTES) {
-    const lines = patch.split("\n").length;
     return { kind: "too-large", lines, bytes };
   }
-  const newlineCount = (patch.match(/\n/g) || []).length;
-  if (newlineCount > DIFF_MAX_LINES) {
-    return { kind: "too-large", lines: newlineCount, bytes };
+  if (lines > DIFF_MAX_LINES) {
+    return { kind: "too-large", lines, bytes };
   }
   return { kind: "text", patch, truncated: false };
 }

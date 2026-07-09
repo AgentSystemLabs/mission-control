@@ -11,11 +11,8 @@ import {
   type CustomScript,
   type ScriptArg,
 } from "~/shared/domain";
+import { shortId } from "~/shared/short-id";
 import type { Project } from "~/db/schema";
-
-function newRowId() {
-  return `cs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
 
 export function CustomScriptsDialog({
   open,
@@ -53,7 +50,7 @@ export function CustomScriptsDialog({
 
   const add = () => {
     if (rows.length >= CUSTOM_SCRIPTS_MAX) return;
-    setRows((prev) => [...prev, { id: newRowId(), name: "", command: "" }]);
+    setRows((prev) => [...prev, { id: shortId("cs"), name: "", command: "" }]);
   };
 
   const addArg = (id: string) =>
@@ -281,7 +278,7 @@ export function CustomScriptsDialog({
                   fontSize: 10,
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
-                  color: "var(--accent)",
+                  color: "var(--accent-ink)",
                   border: "1px solid color-mix(in srgb, var(--accent) 45%, transparent)",
                   borderRadius: 999,
                   padding: "1px 7px",

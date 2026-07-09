@@ -75,7 +75,7 @@ function statusBadge(
       };
     }
     case "connected":
-      return { label: `Connected · agent ${state.version}`, color: "var(--accent)" };
+      return { label: `Connected · agent ${state.version}`, color: "var(--accent-ink)" };
     case "update-required":
       return {
         label: `Agent mismatch · expected ${state.expectedVersion} · sandbox ${state.version}`,
@@ -94,7 +94,7 @@ function remoteVmStatusCopy(status: RemoteVmLifecycleStatus | string | null | un
     case "provisioning":
       return { label: "Provisioning", color: "var(--status-running)" };
     case "ready":
-      return { label: "Ready", color: "var(--accent)" };
+      return { label: "Ready", color: "var(--accent-ink)" };
     case "provisioning_failed":
       return { label: "Provisioning failed", color: "var(--status-failed)" };
     case "pausing":
@@ -335,7 +335,7 @@ function TabBar({
                 style={{
                   fontSize: 10,
                   fontVariantNumeric: "tabular-nums",
-                  color: selected ? "var(--accent)" : "var(--text-faint)",
+                  color: selected ? "var(--accent-ink)" : "var(--text-faint)",
                 }}
               >
                 {tab.badge}
@@ -433,7 +433,7 @@ function sandboxAgentVersionCopy(
   sandbox: { remoteImageAgentVersion: string | null },
 ): { label: string; value: string; valueColor?: string } | null {
   if (state.status === "connected") {
-    return { label: "Sandbox agent", value: state.version, valueColor: "var(--accent)" };
+    return { label: "Sandbox agent", value: state.version, valueColor: "var(--accent-ink)" };
   }
   if (state.status === "update-required") return null;
   if (sandbox.remoteImageAgentVersion) {

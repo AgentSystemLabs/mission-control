@@ -25,7 +25,7 @@ export function ProjectStatusBadge({ activity }: { activity: ProjectActivityStat
         height: 18,
         padding: "0 7px",
         borderRadius: 999,
-        color: active ? "var(--accent)" : "var(--text-faint)",
+        color: active ? "var(--accent-ink)" : "var(--text-faint)",
         fontFamily: "var(--mono)",
         fontSize: 10,
         fontWeight: 600,

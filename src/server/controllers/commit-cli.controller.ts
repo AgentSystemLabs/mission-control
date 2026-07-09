@@ -1,4 +1,5 @@
 import { COMMIT_CLI_VALUES, type CommitCliDetection } from "~/shared/commit-cli";
+import { errMsg } from "~/shared/err-msg";
 import { detectInstalledCommitClis } from "../services/commit-cli";
 import { json } from "./_helpers";
 
@@ -19,12 +20,11 @@ export async function detect(): Promise<Response> {
     const detected = await detectInstalledCommitClis();
     return json({ detected });
   } catch (e) {
-    console.error(
-      `[commit-cli] detect endpoint fell back to empty shape: ${(e as Error)?.message ?? String(e)}`,
-    );
+    const error = errMsg(e);
+    console.error(`[commit-cli] detect endpoint fell back to empty shape: ${error}`);
     return json({
       detected: EMPTY_DETECTION,
-      error: e instanceof Error ? e.message : String(e),
+      error,
     });
   }
 }

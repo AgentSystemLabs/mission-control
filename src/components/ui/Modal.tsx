@@ -201,6 +201,7 @@ export function Modal({
   const modal = (
     <div
       data-modal-open
+      className="mc-modal-backdrop-in"
       onMouseDown={closeOnBackdropClick ? handleBackdropMouseDown : undefined}
       onClick={closeOnBackdropClick ? handleBackdropClick : undefined}
       style={{
@@ -214,12 +215,12 @@ export function Modal({
         justifyContent: "center",
         paddingTop: placement === "top" ? "12vh" : 0,
         boxSizing: "border-box",
-        animation: "fade-up 0.12s ease-out",
       }}
     >
       <CardFrame
         as="section"
         ref={setPanelRef}
+        className="mc-modal-panel-in"
         {...panelProps}
         style={panelStyle}
       >

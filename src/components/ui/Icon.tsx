@@ -49,7 +49,17 @@ export type IconName =
   | "bell"
   | "zoom-in"
   | "zoom-out"
-  | "mic";
+  | "mic"
+  | "camera"
+  | "cursor"
+  | "arrow-up-right"
+  | "square"
+  | "circle"
+  | "text"
+  | "highlighter"
+  | "crop"
+  | "undo"
+  | "redo";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const iconStyle: CSSProperties = { display: "block", flexShrink: 0, ...style };
@@ -332,6 +342,66 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <rect x="6" y="2" width="4" height="7" rx="2" />
           <path d="M4 7.5a4 4 0 008 0" />
           <path d="M8 11.5V14M5.5 14h5" />
+        </svg>
+      );
+    case "camera":
+      return (
+        <svg {...common}>
+          <path d="M2 5.5c0-.5.4-1 1-1h1.8l1-1.5h4.4l1 1.5H13c.6 0 1 .5 1 1V12c0 .5-.4 1-1 1H3c-.6 0-1-.5-1-1V5.5z" />
+          <circle cx="8" cy="8.5" r="2.5" />
+        </svg>
+      );
+    case "cursor":
+      return (
+        <svg {...common}>
+          <path d="M3 2.5l9 4-3.8 1.3L6.9 12 3 2.5z" />
+        </svg>
+      );
+    case "arrow-up-right":
+      return (
+        <svg {...common}>
+          <path d="M4 12L12 4" />
+          <path d="M6 4h6v6" />
+        </svg>
+      );
+    case "square":
+      return <svg {...common}><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" /></svg>;
+    case "circle":
+      return <svg {...common}><circle cx="8" cy="8" r="5.5" /></svg>;
+    case "text":
+      return (
+        <svg {...common}>
+          <path d="M3.5 4V3h9v1" />
+          <path d="M8 3.5v9" />
+          <path d="M6 12.5h4" />
+        </svg>
+      );
+    case "crop":
+      return (
+        <svg {...common}>
+          <path d="M4.5 1.5v9a1 1 0 001 1h9" />
+          <path d="M1.5 4.5h9a1 1 0 011 1v9" />
+        </svg>
+      );
+    case "highlighter":
+      return (
+        <svg {...common}>
+          <path d="M8.5 3.5l4 4-5 5H4l-.5-3 5-6z" />
+          <path d="M2.5 13.5h5" />
+        </svg>
+      );
+    case "undo":
+      return (
+        <svg {...common}>
+          <path d="M4 8h6.5a2.5 2.5 0 010 5H6" />
+          <path d="M6 5L3 8l3 3" />
+        </svg>
+      );
+    case "redo":
+      return (
+        <svg {...common}>
+          <path d="M12 8H5.5a2.5 2.5 0 000 5H10" />
+          <path d="M10 5l3 3-3 3" />
         </svg>
       );
     default:

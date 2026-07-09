@@ -69,6 +69,7 @@ function FlatThemeCard({
       onClick={onSelect}
       aria-pressed={selected}
       title={color.name}
+      className="mc-swatch-card"
       style={{
         position: "relative",
         boxSizing: "border-box",
@@ -79,12 +80,12 @@ function FlatThemeCard({
         border: `1px solid ${selected ? color.value : "var(--border)"}`,
         borderRadius: "var(--mm-radius-lg, 10px)",
         boxShadow: selected ? `0 0 0 1px ${color.value} inset` : "none",
-        transition: "border-color 0.15s, box-shadow 0.15s",
       }}
     >
       {selected && (
         <span
           aria-hidden
+          className="mc-check-pop"
           style={{
             position: "absolute",
             top: 8,
@@ -146,12 +147,13 @@ function FlatThemeCard({
           </span>
           <span
             aria-hidden
+            className="mc-swatch-bar"
             style={{
               flex: 1,
               height: 4,
               borderRadius: "var(--mm-radius-sm, 2px)",
               background: `linear-gradient(90deg, ${color.value}, ${accentRgba(0)})`,
-              opacity: selected ? 1 : 0.6,
+              ...(selected ? { opacity: 1 } : null),
             }}
           />
         </div>
@@ -179,6 +181,7 @@ function ThemePreviewCard({
       onClick={onSelect}
       aria-pressed={selected}
       title={color.name}
+      className="mc-swatch-card"
       style={{
         position: "relative",
         boxSizing: "border-box",
@@ -198,13 +201,13 @@ function ThemePreviewCard({
         borderImageWidth: "16px",
         borderImageRepeat: "stretch",
         boxShadow: selected ? `0 0 22px ${accentRgba(0.35)}` : "none",
-        transition: "box-shadow 0.15s",
         overflow: "hidden",
       }}
     >
       {selected && (
         <span
           aria-hidden
+          className="mc-check-pop"
           style={{
             position: "absolute",
             top: 6,
@@ -290,12 +293,13 @@ function ThemePreviewCard({
           </span>
           <span
             aria-hidden
+            className="mc-swatch-bar"
             style={{
               flex: 1,
               height: 4,
               borderRadius: 2,
               background: `linear-gradient(90deg, ${color.value}, ${accentRgba(0)})`,
-              opacity: selected ? 1 : 0.6,
+              ...(selected ? { opacity: 1 } : null),
             }}
           />
         </div>

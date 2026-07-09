@@ -18,20 +18,29 @@ export const GIT_DIFF_CHANGED_FILES_WIDTH_MAX = 520;
 
 export type SelectedWorktreeByProject = Record<string, string>;
 
+function normalizeEnumValue<T extends string>(
+  value: unknown,
+  values: readonly T[],
+): T | null {
+  return typeof value === "string" && (values as readonly string[]).includes(value)
+    ? (value as T)
+    : null;
+}
+
 export function normalizeGitDiffChangedFilesView(
   value: unknown,
 ): GitDiffChangedFilesView | null {
-  return value === "list" || value === "tree" ? value : null;
+  return normalizeEnumValue(value, GIT_DIFF_CHANGED_FILES_VIEWS);
 }
 
 export function normalizeProjectsDashboardView(
   value: unknown,
 ): ProjectsDashboardView | null {
-  return value === "cards" || value === "table" ? value : null;
+  return normalizeEnumValue(value, PROJECTS_DASHBOARD_VIEWS);
 }
 
 export function normalizeFileFinderView(value: unknown): FileFinderView | null {
-  return value === "list" || value === "tree" ? value : null;
+  return normalizeEnumValue(value, FILE_FINDER_VIEWS);
 }
 
 export function normalizeGitDiffChangedFilesWidth(value: unknown): number | null {

@@ -27,6 +27,7 @@ export const HOTKEY_ACTIONS = [
   "project.runToggle",
   "voice.pushToTalk",
   "prompt.search",
+  "screenshot.capture",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -99,5 +100,10 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
     label: "Search prompt history",
     description:
       "Open a searchable popup of every prompt you've sent to a session; pick one to jump to that session.",
+  },
+  "screenshot.capture": {
+    label: "Capture screenshot",
+    description:
+      "Start a native region capture (macOS only) — drag a region, then drop the thumbnail on a session to attach it.",
   },
 };

@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { MEMORY_STALE_AFTER_MS } from "~/shared/project-memory";
+import { MS_PER_DAY } from "~/shared/time-ms";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-memory-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
@@ -28,7 +29,7 @@ const { buildFtsMatch, __setMemoryFtsAvailableForTest } = await import(
 
 /** Backdate a memory well past the staleness threshold (unverified/unused). */
 function makeStale(id: string) {
-  const old = Date.now() - (MEMORY_STALE_AFTER_MS + 1000 * 60 * 60 * 24);
+  const old = Date.now() - (MEMORY_STALE_AFTER_MS + MS_PER_DAY);
   getDb()
     .update(projectMemory)
     .set({ createdAt: old, updatedAt: old, lastUsedAt: null, lastVerifiedAt: null })

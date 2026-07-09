@@ -360,7 +360,7 @@ const markdownComponents: Components = {
           openMarkdownLink(href);
         }}
         style={{
-          color: "var(--accent)",
+          color: "var(--accent-ink)",
           textDecoration: "none",
           borderBottom: "1px solid color-mix(in srgb, var(--accent) 40%, transparent)",
         }}
