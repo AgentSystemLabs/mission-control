@@ -93,6 +93,20 @@ function isFlatActive(): boolean {
   );
 }
 
+// Transparency is scoped to flat DARK — the glass theme, the only mode whose
+// canvas clear color actually carries alpha. It must stay off everywhere else:
+// with allowTransparency on, xterm's glyph atlas rasterizes characters over a
+// TRANSPARENT backing instead of the opaque cell color, so the anti-aliased
+// edges lose ink. Light text on a dark ground hides it; dark ink on light
+// paper turns visibly thin and washed out — glass on light was tried and
+// rejected for exactly that reason, so flat LIGHT keeps an opaque canvas
+// (and its pane ground stays solid; see [data-terminal-body] in styles.css).
+export function terminalNeedsTransparency(
+  colorScheme: TerminalColorScheme = getTerminalColorScheme()
+): boolean {
+  return colorScheme === "dark" && isFlatActive();
+}
+
 export function getTerminalColorScheme(): TerminalColorScheme {
   if (typeof document === "undefined") return "dark";
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
@@ -119,7 +133,19 @@ function resolveCssColor(cssValue: string, fallback: string): string {
   document.body.appendChild(probe);
   const resolved = getComputedStyle(probe).color;
   document.body.removeChild(probe);
-  return resolved || fallback;
+  if (!resolved) return fallback;
+  // Chromium serializes computed colors that involve oklch()/color-mix() as
+  // "color(srgb r g b)" — a form withAlpha() can't edit (it knows only #hex
+  // and rgb()/rgba()), so alpha edits silently no-op on such colors (the flat
+  // theme's transparent terminal ground shipped opaque this way). Round-trip
+  // through a 2D canvas fillStyle, which normalizes any CSS color to #rrggbb
+  // (or rgba() when it carries alpha).
+  const ctx = document.createElement("canvas").getContext?.("2d");
+  if (ctx) {
+    ctx.fillStyle = resolved;
+    return ctx.fillStyle || resolved;
+  }
+  return resolved;
 }
 
 function getCurrentTerminalBackground(fallback: string): string {
@@ -144,6 +170,18 @@ function withAlpha(color: string, alpha: number): string {
   }
   const rgb = color.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
   if (rgb) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`;
+  // Chromium serializes computed colors that involve oklch()/color-mix() as
+  // "color(srgb r g b)" with 0..1 channels. resolveCssColor normalizes these
+  // away, but handle the form here too so an alpha edit can never silently
+  // no-op into an opaque color again.
+  const srgb = color.match(
+    /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/i
+  );
+  if (srgb) {
+    const to255 = (v: string) =>
+      Math.max(0, Math.min(255, Math.round(parseFloat(v) * 255)));
+    return `rgba(${to255(srgb[1]!)}, ${to255(srgb[2]!)}, ${to255(srgb[3]!)}, ${alpha})`;
+  }
   return color;
 }
 
@@ -154,7 +192,7 @@ export function createTerminalTheme({
   colorScheme?: TerminalColorScheme;
   cursorColor?: string;
 } = {}): TerminalTheme {
-  const flatDark = colorScheme === "dark" && isFlatActive();
+  const flatDark = terminalNeedsTransparency(colorScheme);
   const base = flatDark
     ? { ...TERMINAL_THEMES.dark, ...EMBER_TERMINAL_THEME }
     : TERMINAL_THEMES[colorScheme];
@@ -163,7 +201,13 @@ export function createTerminalTheme({
   const background = getCurrentTerminalBackground(base.background ?? "#050607");
   return {
     ...base,
-    background,
+    // Flat DARK is the glass theme: the canvas clear color goes fully
+    // transparent so the pane's translucent ground (painted by the
+    // [data-terminal-body] CSS override) and the pattern behind it show
+    // through the terminal itself. Requires allowTransparency (set in
+    // createTerminalOptions). DARK ONLY — see terminalNeedsTransparency for
+    // why flat-light keeps an opaque canvas.
+    background: flatDark ? withAlpha(background, 0) : background,
     cursor: cursorColor,
     // The accent selection wash needs more alpha on the flat theme's mid-gray
     // ground than on the near-black painted ground to stay visible.
@@ -225,6 +269,13 @@ export function createTerminalOptions({
     lineHeight: 1,
     cursorBlink: true,
     theme: createTerminalTheme({ colorScheme, cursorColor }),
+    // Flat dark clears the canvas to transparent (glass panes over the
+    // pattern ground); alpha in theme.background is ignored without this.
+    // NOT constant: transparency degrades glyph antialiasing (see
+    // terminalNeedsTransparency), so every opaque-canvas mode keeps it off.
+    // A live theme switch flips it via term.options — the WebGL renderer
+    // rebuilds its char atlas on any option change, so it applies in place.
+    allowTransparency: terminalNeedsTransparency(colorScheme),
     allowProposedApi: true,
     scrollback: 5000,
   };

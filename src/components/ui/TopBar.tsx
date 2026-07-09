@@ -24,6 +24,7 @@ export function TopBar({
 }) {
   return (
     <div
+      className="mc-topbar"
       style={{
         display: "flex",
         alignItems: "center",

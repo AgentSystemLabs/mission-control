@@ -2685,6 +2685,7 @@ function ProjectPage() {
         className="dot-grid-bg"
       >
       <CardFrame
+        className="mc-project-frame"
         style={{
           width: "100%",
           minHeight: showGrid ? 0 : "100%",

@@ -326,6 +326,7 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
       ref={barRef}
       glow
       role="navigation"
+      className="mc-project-rail"
       aria-label="Pinned projects"
       aria-disabled={disabled || undefined}
       style={{
