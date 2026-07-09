@@ -22,8 +22,10 @@ const DRAG_THRESHOLD_PX = 6;
 // Fixed thumbnail height keeps the strip a predictable height; width follows the
 // image aspect ratio up to a cap so a wide capture doesn't hog the row.
 const THUMB_HEIGHT_PX = 68;
-const THUMB_MAX_WIDTH_PX = 200;
-const THUMB_MIN_WIDTH_PX = 96;
+// Every card renders at one fixed width so the strip reads as an even row of
+// tiles regardless of each capture's native aspect ratio (the image is
+// object-fit: cover, so it fills the frame and crops rather than letterboxing).
+const THUMB_WIDTH_PX = 116;
 
 // The session cell / terminal panel under a screen point, if any.
 function sessionHostAtPoint(x: number, y: number): HTMLElement | null {
@@ -34,12 +36,15 @@ function sessionHostAtPoint(x: number, y: number): HTMLElement | null {
 const thumbFrameStyle: CSSProperties = {
   position: "relative",
   height: THUMB_HEIGHT_PX,
-  minWidth: THUMB_MIN_WIDTH_PX,
-  maxWidth: THUMB_MAX_WIDTH_PX,
+  width: THUMB_WIDTH_PX,
   borderRadius: 8,
   overflow: "hidden",
-  border: "1px solid var(--border)",
-  background: "var(--surface-2)",
+  // A soft top-lit surface so a card reads as a raised tile even before (or
+  // behind) its capture — the flat single-fill looked washed out on the strip.
+  // Border + resting shadow live in the .screenshot-history-card CSS so :hover
+  // can recolor the border to the accent without an inline style shadowing it.
+  background:
+    "linear-gradient(180deg, color-mix(in srgb, var(--text) 6%, var(--surface-2)), var(--surface-2))",
   lineHeight: 0,
   flexShrink: 0,
   userSelect: "none",
@@ -203,15 +208,14 @@ function ScreenshotHistoryCard({
         style={{
           display: "block",
           height: THUMB_HEIGHT_PX,
-          width: "auto",
-          maxWidth: THUMB_MAX_WIDTH_PX,
+          width: THUMB_WIDTH_PX,
           objectFit: "cover",
           objectPosition: "center",
         }}
       />
     ) : (
       // Restored-from-disk entry whose preview hasn't loaded yet.
-      <div style={{ width: 96, height: THUMB_HEIGHT_PX }} aria-hidden />
+      <div style={{ width: THUMB_WIDTH_PX, height: THUMB_HEIGHT_PX }} aria-hidden />
     );
 
   return (
@@ -326,6 +330,7 @@ function ScreenshotHistoryCard({
             left: dragPoint.x,
             top: dragPoint.y,
             transform: "translate(-50%, -50%)",
+            border: "1px solid var(--accent)",
             boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
             pointerEvents: "none",
             zIndex: 10001,
