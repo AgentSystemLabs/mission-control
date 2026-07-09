@@ -1238,6 +1238,97 @@ select,
     animation: none;
   }
 }
+
+/* Right-zone header controls — same meaning-driven hover language as the cockpit
+   icons above: each glyph animates toward what its button does. Screenshot,
+   Find file, New session (+ new row), and session settings all get a cue. */
+.mc-icon-camera,
+.mc-icon-file-search,
+.mc-icon-plus,
+.mc-icon-row-plus,
+.mc-icon-settings {
+  /* Whole <svg> is a replaced element, so its own box is the transform-origin. */
+  transform-origin: center;
+  transition: transform 0.3s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+
+/* Screenshot 📷 — the body lifts and the lens fires a shutter blink. Transforming
+   an SVG child needs fill-box so the origin resolves inside the viewBox. */
+.mc-icon-camera circle,
+.mc-icon-file-search circle {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mc-btn:hover .mc-icon-camera {
+  transform: translateY(-1px);
+}
+.mc-btn:hover .mc-icon-camera circle {
+  animation: mc-shutter 0.7s ease-in-out infinite;
+}
+@keyframes mc-shutter {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(0.6);
+  }
+}
+
+/* Find file 🔍 — the document lifts and the magnifier lens pulses as it focuses. */
+.mc-btn:hover .mc-icon-file-search {
+  transform: translateY(-1px);
+}
+.mc-btn:hover .mc-icon-file-search circle {
+  animation: mc-search-focus 0.85s ease-in-out infinite;
+}
+@keyframes mc-search-focus {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+/* New session ✚ — the plus spins a quarter-turn and swells, reading as "spawn". */
+.mc-btn:hover .mc-icon-plus {
+  transform: rotate(90deg) scale(1.12);
+}
+
+/* New row — the icon drops down a touch, like a fresh row sliding in below. */
+.mc-btn:hover .mc-icon-row-plus {
+  transform: translateY(1.5px) scale(1.06);
+}
+
+/* Session settings ⚙ — the gear notches over, the universal "configure" cue. */
+.mc-btn:hover .mc-icon-settings {
+  transform: rotate(72deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-icon-camera,
+  .mc-icon-camera circle,
+  .mc-icon-file-search,
+  .mc-icon-file-search circle,
+  .mc-icon-plus,
+  .mc-icon-row-plus,
+  .mc-icon-settings {
+    transition: none;
+  }
+  .mc-btn:hover .mc-icon-camera,
+  .mc-btn:hover .mc-icon-file-search,
+  .mc-btn:hover .mc-icon-plus,
+  .mc-btn:hover .mc-icon-row-plus,
+  .mc-btn:hover .mc-icon-settings {
+    transform: none;
+  }
+  .mc-btn:hover .mc-icon-camera circle,
+  .mc-btn:hover .mc-icon-file-search circle {
+    animation: none;
+  }
+}
 @keyframes fade-up {
   from {
     opacity: 0;
