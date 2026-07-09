@@ -86,7 +86,7 @@ export type AppSettings = {
   launchOverlayEnabled: boolean;
   automaticUpdateDownloadsEnabled: boolean;
   automaticUpdateInstallOnQuitEnabled: boolean;
-  /** Beta: git worktrees per project (off by default). */
+  /** Git worktrees per project (always on). */
   worktreesEnabled: boolean;
   /** Experimental: push-to-talk voice control (off by default). */
   voiceControlEnabled: boolean;
@@ -122,6 +122,13 @@ export type AppSettings = {
    */
   annotationAgent: AiRuntimeHarness;
   annotationModel: AiModelId | null;
+  /**
+   * Harness/model/prompt for the Ship button, which opens an AI session to push
+   * and sync with remote (pull/rebase/conflict fix when needed).
+   */
+  shipAgent: AiRuntimeHarness;
+  shipModel: AiModelId | null;
+  shipPrompt: string;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
   /**
@@ -597,6 +604,9 @@ export const api = {
         | "defaultModel"
         | "annotationAgent"
         | "annotationModel"
+        | "shipAgent"
+        | "shipModel"
+        | "shipPrompt"
         | "voiceCommandAliases"
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"

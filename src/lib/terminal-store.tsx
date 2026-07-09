@@ -28,6 +28,7 @@ import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
 import { scopeKeyForProject, type ScopedProject } from "./scoped-project";
 import { getDefaultModelForAgent } from "./default-model-store";
+import { peekPendingSessionModel } from "./session-model-overrides";
 import type { Shape as AnnotationShape } from "~/components/views/ScreenshotAnnotator";
 
 export type OpenTerminal = {
@@ -218,7 +219,10 @@ function tasksEqual(a: Task, b: Task): boolean {
  * have populated it).
  */
 export function commandForTask(task: Task): string {
-  return baseCommandForTask(task, getDefaultModelForAgent(task.agent));
+  return baseCommandForTask(
+    task,
+    peekPendingSessionModel(task.id) ?? getDefaultModelForAgent(task.agent),
+  );
 }
 
 function baseCommandForTask(task: Task, model: string | null): string {
