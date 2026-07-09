@@ -7,6 +7,7 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { Icon } from "~/components/ui/Icon";
+import { GridViewToggleIcon } from "~/components/ui/GridViewToggleIcon";
 import { Z_INDEX } from "~/lib/z-index";
 import { openExternal } from "~/lib/open-external";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
@@ -2631,7 +2632,6 @@ function ProjectPage() {
       >
         <Btn
           variant="ghost"
-          icon={terminals.gridView ? "list" : "grid"}
           onClick={toggleGridViewShowingAll}
           aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
           aria-pressed={terminals.gridView}
@@ -2639,7 +2639,9 @@ function ProjectPage() {
             background: terminals.gridView ? "var(--surface-2)" : undefined,
             color: terminals.gridView ? "var(--text)" : undefined,
           }}
-        />
+        >
+          <GridViewToggleIcon gridView={terminals.gridView} />
+        </Btn>
       </HotkeyTooltip>
     </HeaderBeforeSearch>
   );

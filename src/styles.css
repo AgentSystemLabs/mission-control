@@ -1138,6 +1138,106 @@ select,
     stroke-dashoffset: 0;
   }
 }
+
+/* Grid/list view toggle: morph the four cells between the grid and list layouts
+   so a click reads as the view physically changing. The geometry attributes are
+   CSS-animatable in Chromium (Electron), so a plain transition tweens the swap. */
+.mc-viewtoggle-icon rect {
+  transition:
+    x 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    y 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    width 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    height 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    rx 0.34s cubic-bezier(0.34, 1.32, 0.5, 1);
+}
+/* Stagger the right column slightly so the rows sweep out after the bullets
+   settle — a small cue that reinforces the "reflowing" feel. */
+.mc-viewtoggle-icon rect:nth-of-type(2) {
+  transition-delay: 0.04s;
+}
+.mc-viewtoggle-icon rect:nth-of-type(4) {
+  transition-delay: 0.06s;
+}
+.mc-viewtoggle-icon {
+  transform-origin: center;
+  transition: transform 0.18s ease;
+}
+.mc-btn:hover .mc-viewtoggle-icon {
+  transform: scale(1.06);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-viewtoggle-icon rect,
+  .mc-btn:hover .mc-viewtoggle-icon {
+    transition: none;
+  }
+}
+
+/* Header icon micro-animations: each top-bar button's glyph springs to life on
+   hover, so the control set reads as responsive rather than static. Each glyph
+   moves in the direction of its meaning: Run darts right, the branch node
+   pulses, the Changes page peeks up, and the Ship arrow lifts off. */
+.mc-icon-play,
+.mc-icon-file,
+.mc-icon-upload {
+  /* Whole <svg> is an HTML replaced element, so its own box drives the
+     transform-origin — no transform-box needed. */
+  transition: transform 0.28s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+
+/* Run ▶ — darts to the right, the "go" cue. */
+.mc-btn:hover .mc-icon-play {
+  transform: translateX(2px) scale(1.06);
+}
+
+/* Branch — the branch-off node (third circle) pulses to signal divergence.
+   Transforming an SVG child needs fill-box so the origin resolves inside the
+   viewBox rather than the element's border box. */
+.mc-icon-git-branch circle:nth-of-type(3) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mc-btn:hover .mc-icon-git-branch circle:nth-of-type(3) {
+  animation: mc-branch-pulse 0.9s ease-in-out infinite;
+}
+@keyframes mc-branch-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.5);
+  }
+}
+
+/* Changes — the page peeks up and tilts, like lifting a corner to look. */
+.mc-icon-file {
+  transform-origin: bottom left;
+}
+.mc-btn:hover .mc-icon-file {
+  transform: translateY(-1.5px) rotate(-5deg);
+}
+
+/* Ship ⬆ — the arrow lifts off. */
+.mc-btn:hover .mc-icon-upload {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-icon-play,
+  .mc-icon-git-branch circle:nth-of-type(3),
+  .mc-icon-file,
+  .mc-icon-upload {
+    transition: none;
+  }
+  .mc-btn:hover .mc-icon-play,
+  .mc-btn:hover .mc-icon-file,
+  .mc-btn:hover .mc-icon-upload {
+    transform: none;
+  }
+  .mc-btn:hover .mc-icon-git-branch circle:nth-of-type(3) {
+    animation: none;
+  }
+}
 @keyframes fade-up {
   from {
     opacity: 0;
