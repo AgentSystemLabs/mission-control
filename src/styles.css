@@ -576,6 +576,45 @@ select,
   outline-offset: 3px;
 }
 
+/* Logo-only home button in the top bar: CSS-driven hover + focus so it
+   feeds back like the rest of the chrome (no JS hover state, no re-render). */
+.mc-topbar-home {
+  background: transparent;
+  transition: background 150ms ease;
+}
+.mc-topbar-home:hover {
+  background: var(--surface-2);
+}
+.mc-topbar-home:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-topbar-home {
+    transition: none;
+  }
+}
+
+/* Branch-typeahead dropdown rows: raw <button>s that previously had no hover
+   feedback and only the UA focus ring. Give them the branded hover + focus so
+   every row (including "New worktree") reads as interactive and consistent. */
+.mc-branch-menu-item {
+  background: transparent;
+  transition: background 120ms ease;
+}
+.mc-branch-menu-item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.mc-branch-menu-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-branch-menu-item {
+    transition: none;
+  }
+}
+
 .mc-btn-primary:focus-visible,
 .mc-btn-frame:focus-visible,
 .mc-btn-ghost:focus-visible,

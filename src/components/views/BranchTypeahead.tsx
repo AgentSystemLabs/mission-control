@@ -383,6 +383,7 @@ export function BranchTypeahead({
                     key={`${item.local ? "local" : "remote"}:${item.name}:${item.remoteRef ?? ""}`}
                     type="button"
                     role="option"
+                    className="mc-branch-menu-item"
                     aria-selected={item.name === branchLabel}
                     disabled={checkout.isPending}
                     onMouseDown={(event) => event.preventDefault()}
@@ -395,7 +396,7 @@ export function BranchTypeahead({
                       minHeight: 32,
                       border: 0,
                       borderRadius: 6,
-                      background: item.name === branchLabel ? "var(--accent-dim)" : "transparent",
+                      background: item.name === branchLabel ? "var(--accent-dim)" : undefined,
                       color: item.name === branchLabel ? "var(--accent)" : "var(--text)",
                       cursor: checkout.isPending ? "default" : "pointer",
                       padding: "7px 9px",
@@ -428,6 +429,7 @@ export function BranchTypeahead({
                 <button
                   type="button"
                   role="option"
+                  className="mc-branch-menu-item"
                   aria-selected={false}
                   disabled={checkout.isPending}
                   onMouseDown={(event) => event.preventDefault()}
@@ -440,7 +442,6 @@ export function BranchTypeahead({
                     minHeight: 32,
                     border: 0,
                     borderRadius: 6,
-                    background: "transparent",
                     color: "var(--accent)",
                     cursor: checkout.isPending ? "default" : "pointer",
                     padding: "7px 9px",
@@ -474,6 +475,7 @@ export function BranchTypeahead({
               <div style={{ borderTop: "1px solid var(--border)", padding: 6 }}>
                 <button
                   type="button"
+                  className="mc-branch-menu-item"
                   disabled={createWorktreeDisabled}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
@@ -489,7 +491,6 @@ export function BranchTypeahead({
                     minHeight: 32,
                     border: 0,
                     borderRadius: 6,
-                    background: "transparent",
                     color: createWorktreeDisabled ? "var(--text-faint)" : "var(--text-dim)",
                     cursor: createWorktreeDisabled ? "default" : "pointer",
                     padding: "7px 9px",

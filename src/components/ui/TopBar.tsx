@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Icon } from "./Icon";
 
 export type Crumb = { label: string; onClick?: () => void; node?: ReactNode };
@@ -22,7 +22,6 @@ export function TopBar({
   contentTopInset?: number;
   dragRegion?: boolean;
 }) {
-  const [homeHover, setHomeHover] = useState(false);
   return (
     <div
       style={{
@@ -58,15 +57,13 @@ export function TopBar({
         <button
           type="button"
           onClick={onHome}
-          onMouseEnter={() => setHomeHover(true)}
-          onMouseLeave={() => setHomeHover(false)}
           aria-label="Mission Control home"
           title="Mission Control — home"
+          className="mc-topbar-home"
           style={{
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            background: homeHover ? "var(--surface-2)" : "transparent",
             border: "none",
             // Expand the hit area to a comfortable target without nudging the
             // sibling controls: the negative margin pulls them back into place.
@@ -75,7 +72,6 @@ export function TopBar({
             borderRadius: 8,
             cursor: "pointer",
             color: "inherit",
-            transition: "background 150ms ease",
             pointerEvents: "auto",
             ["WebkitAppRegion" as any]: "no-drag",
           }}
