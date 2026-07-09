@@ -1,0 +1,429 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to (re)publish (e.g. v0.1.0). The tag must already exist on origin."
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  resolve:
+    name: Resolve ref + notes
+    runs-on: ubuntu-24.04
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - id: ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            ref="$INPUT_TAG"
+          else
+            ref="$REF_NAME"
+          fi
+          if [[ ! "$ref" =~ ^v[0-9]+([.][0-9]+){0,2}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "release ref must be a version tag like v0.27.2" >&2
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 0
+
+      - id: notes
+        shell: bash
+        env:
+          RELEASE_REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          tag="$RELEASE_REF"
+          notes="$(git tag -l --format='%(contents:body)' "$tag" || true)"
+          if [[ -z "$notes" ]]; then
+            notes="$(git tag -l --format='%(contents)' "$tag" || true)"
+          fi
+          {
+            echo 'notes<<NOTES_EOF'
+            printf '%s\n' "$notes"
+            echo 'NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  release-gate:
+    name: Require Hosted CI success
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - id: tag
+        name: Resolve tagged commit
+        shell: bash
+        env:
+          RELEASE_REF: ${{ needs.resolve.outputs.ref }}
+        run: |
+          git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main
+          release_sha="$(git rev-parse "${RELEASE_REF}^{commit}")"
+          main_sha="$(git rev-parse origin/main)"
+          if ! git merge-base --is-ancestor "$release_sha" "$main_sha"; then
+            echo "Release tag $RELEASE_REF points at $release_sha, which is not reachable from origin/main ($main_sha)." >&2
+            exit 1
+          fi
+          echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Hosted CI to pass
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ steps.tag.outputs.sha }}
+          CI_GATE_MAX_ATTEMPTS: "120"
+          CI_GATE_POLL_SECONDS: "30"
+        run: |
+          node <<'NODE'
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
+          const token = process.env.GITHUB_TOKEN;
+          const releaseSha = process.env.RELEASE_SHA;
+          const workflowFile = "ci.yml";
+          const maxAttempts = Number(process.env.CI_GATE_MAX_ATTEMPTS);
+          const pollSeconds = Number(process.env.CI_GATE_POLL_SECONDS);
+
+          async function main() {
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const run = await findHostedCiRun();
+              if (!run) {
+                await waitForNextAttempt(
+                  `No Hosted CI push run on main found yet for ${releaseSha}`,
+                  attempt,
+                );
+                continue;
+              }
+
+              const conclusion = run.conclusion ?? "pending";
+              console.log(
+                `Hosted CI run ${run.html_url} is ${run.status}/${conclusion} for ${releaseSha}.`,
+              );
+
+              if (run.status === "completed") {
+                if (run.conclusion === "success") {
+                  console.log("Hosted CI passed; release may continue.");
+                  return;
+                }
+
+                throw new Error(
+                  `Hosted CI must pass before release. Run ${run.html_url} completed with conclusion ${run.conclusion}.`,
+                );
+              }
+
+              await waitForNextAttempt("Hosted CI is still running", attempt);
+            }
+
+            throw new Error(
+              `Timed out waiting for Hosted CI to pass for ${releaseSha} after ${maxAttempts} attempts.`,
+            );
+          }
+
+          async function findHostedCiRun() {
+            const params = new URLSearchParams({
+              branch: "main",
+              event: "push",
+              head_sha: releaseSha,
+              per_page: "10",
+            });
+            const path = `/repos/${owner}/${repo}/actions/workflows/${encodeURIComponent(
+              workflowFile,
+            )}/runs?${params}`;
+            const data = await githubApi(path);
+            const runs = data.workflow_runs ?? [];
+            return runs.find(
+              (run) =>
+                run.head_sha === releaseSha &&
+                run.head_branch === "main" &&
+                run.event === "push",
+            );
+          }
+
+          async function waitForNextAttempt(reason, attempt) {
+            if (attempt >= maxAttempts) {
+              return;
+            }
+            console.log(
+              `${reason}; checking again in ${pollSeconds}s (${attempt}/${maxAttempts}).`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, pollSeconds * 1000));
+          }
+
+          async function githubApi(path) {
+            const response = await fetch(`https://api.github.com${path}`, {
+              headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: `Bearer ${token}`,
+                "User-Agent": "mission-control-release-gate",
+                "X-GitHub-Api-Version": "2022-11-28",
+              },
+            });
+
+            if (!response.ok) {
+              const body = await response.text();
+              throw new Error(
+                `GitHub API request failed (${response.status} ${response.statusText}): ${body}`,
+              );
+            }
+
+            return response.json();
+          }
+
+          main().catch((error) => {
+            console.error(error.stack ?? error.message);
+            process.exit(1);
+          });
+          NODE
+
+  prepare:
+    name: Prepare release record
+    needs: [resolve, release-gate]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+      - name: Create-or-get release on academy
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+          RELEASE_NOTES: ${{ needs.resolve.outputs.notes }}
+          # Canonical full set — never narrowed by workflow_dispatch.platforms,
+          # which only controls *which jobs run this time*.
+          RELEASE_EXPECTED_PLATFORMS: "mac-arm64,mac-x64,win-x64,linux-x64"
+        run: node scripts/publish-release.mjs prepare
+
+  build:
+    name: Build + publish (${{ matrix.platform }})
+    needs: [resolve, release-gate, prepare]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac-arm64
+            builder_flags: "--mac --arm64"
+            artifact_ext: "dmg"
+          - os: macos-15-intel
+            platform: mac-x64
+            builder_flags: "--mac --x64"
+            artifact_ext: "dmg"
+          - os: windows-2025
+            platform: win-x64
+            builder_flags: "--win --x64"
+            artifact_ext: "exe"
+          - os: ubuntu-24.04
+            platform: linux-x64
+            builder_flags: "--linux --x64"
+            artifact_ext: "AppImage"
+
+    runs-on: ${{ matrix.os }}
+    # Cap each platform build so a hung job (notably mac-x64) can't block the
+    # rest. fail-fast: false above keeps siblings running; finalize tolerates
+    # missing platforms by leaving the release as a draft. To rebuild a single
+    # failed platform, re-run that matrix job from the Actions UI — asset
+    # upsert is idempotent on (releaseId, platform).
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.1.2
+          cache: false
+
+      # node-gyp 9.x (pulled in transitively by @electron/rebuild) imports
+      # distutils, which Python 3.12 removed. macOS runners ship 3.12+, so
+      # pin the 3.11 line to keep native rebuilds (node-pty under x64 cross-build) working.
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Populate bundled Whisper resources
+        run: pnpm setup:whisper
+
+      - name: Build web + electron tsc
+        shell: bash
+        run: |
+          pnpm build
+          pnpm native:electron
+
+      - name: Run electron-builder
+        shell: bash
+        env:
+          CSC_LINK: ${{ startsWith(matrix.os, 'macos-') && secrets.MAC_CERTS || '' }}
+          CSC_KEY_PASSWORD: ${{ startsWith(matrix.os, 'macos-') && secrets.MAC_CERTS_PASSWORD || '' }}
+          APPLE_ID: ${{ startsWith(matrix.os, 'macos-') && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ startsWith(matrix.os, 'macos-') && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ startsWith(matrix.os, 'macos-') && secrets.APPLE_TEAM_ID || '' }}
+        run: |
+          pnpm exec electron-builder ${{ matrix.builder_flags }} --publish never -c.directories.output=dist-electron-out
+
+      - name: List build output (debug)
+        shell: bash
+        run: |
+          echo "--- dist-electron-out ---"
+          ls -la dist-electron-out/ || true
+          echo "--- dist (web bundle) ---"
+          ls -la dist/ || true
+
+      - name: Stage release artifacts
+        shell: bash
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          RELEASE_ARTIFACT_EXT: ${{ matrix.artifact_ext }}
+        run: |
+          node scripts/stage-release-artifacts.mjs
+
+      - name: Upload release manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-manifest-${{ matrix.platform }}
+          path: artifacts/manifest.json
+          if-no-files-found: error
+          retention-days: 1
+
+      # Installer binaries for GitHub Release attachment in finalize (academy
+      # publish below is unchanged and remains the canonical CDN).
+      - name: Upload installer for GitHub Release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-${{ matrix.platform }}
+          path: artifacts/*.${{ matrix.artifact_ext }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish assets to academy
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+        run: node scripts/publish-release.mjs publish
+
+  finalize:
+    name: Finalize release
+    needs: [resolve, release-gate, prepare, build]
+    # Run regardless of per-matrix outcome — partial successes still leave the
+    # asset rows uploaded; finalize will refuse if any expected platform is
+    # missing, which is what we want (release stays a draft, can be completed
+    # by re-running the failed platform job).
+    if: ${{ !cancelled() && needs.release-gate.result == 'success' && needs.prepare.result == 'success' && needs.build.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-manifest-*
+          path: release-manifests
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: installer-*
+          path: release-installers
+          merge-multiple: true
+
+      - name: Compose + publish mac update manifest
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+        run: |
+          node scripts/compose-mac-update-manifest.mjs
+          ARTIFACTS_DIR=artifacts-mac-metadata node scripts/publish-release.mjs publish
+
+      - name: Finalize
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+        run: node scripts/publish-release.mjs finalize
+
+      - name: Attach installers to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+          RELEASE_NOTES: ${{ needs.resolve.outputs.notes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find release-installers -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) | sort)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No installer files found under release-installers/" >&2
+            ls -laR release-installers || true
+            exit 1
+          fi
+          echo "Attaching ${#files[@]} installer(s) to GitHub Release $RELEASE_VERSION:"
+          printf '  %s\n' "${files[@]}"
+
+          notes_file="$(mktemp)"
+          printf '%s\n' "$RELEASE_NOTES" > "$notes_file"
+
+          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_VERSION" "${files[@]}" --clobber
+          else
+            gh release create "$RELEASE_VERSION" "${files[@]}" \
+              --title "$RELEASE_VERSION" \
+              --notes-file "$notes_file" \
+              --verify-tag
+          fi

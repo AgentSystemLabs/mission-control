@@ -1,0 +1,76 @@
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index f9eb42f..83af107 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -333,6 +333,16 @@ jobs:
+           if-no-files-found: error
+           retention-days: 1
+ 
++      # Installer binaries for GitHub Release attachment in finalize (academy
++      # publish below is unchanged and remains the canonical CDN).
++      - name: Upload installer for GitHub Release
++        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
++        with:
++          name: installer-${{ matrix.platform }}
++          path: artifacts/*.${{ matrix.artifact_ext }}
++          if-no-files-found: error
++          retention-days: 14
++
+       - name: Publish assets to academy
+         env:
+           MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+@@ -350,7 +360,7 @@ jobs:
+     if: ${{ !cancelled() && needs.release-gate.result == 'success' && needs.prepare.result == 'success' && needs.build.result != 'skipped' }}
+     runs-on: ubuntu-24.04
+     permissions:
+-      contents: read
++      contents: write
+       actions: read
+     steps:
+       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+@@ -367,6 +377,12 @@ jobs:
+           pattern: release-manifest-*
+           path: release-manifests
+ 
++      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
++        with:
++          pattern: installer-*
++          path: release-installers
++          merge-multiple: true
++
+       - name: Compose + publish mac update manifest
+         env:
+           MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+@@ -382,3 +398,32 @@ jobs:
+           ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+           RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+         run: node scripts/publish-release.mjs finalize
++
++      - name: Attach installers to GitHub Release
++        env:
++          GH_TOKEN: ${{ github.token }}
++          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
++          RELEASE_NOTES: ${{ needs.resolve.outputs.notes }}
++        shell: bash
++        run: |
++          set -euo pipefail
++          mapfile -t files < <(find release-installers -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) | sort)
++          if [[ ${#files[@]} -eq 0 ]]; then
++            echo "No installer files found under release-installers/" >&2
++            ls -laR release-installers || true
++            exit 1
++          fi
++          echo "Attaching ${#files[@]} installer(s) to GitHub Release $RELEASE_VERSION:"
++          printf '  %s\n' "${files[@]}"
++
++          notes_file="$(mktemp)"
++          printf '%s\n' "$RELEASE_NOTES" > "$notes_file"
++
++          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
++            gh release upload "$RELEASE_VERSION" "${files[@]}" --clobber
++          else
++            gh release create "$RELEASE_VERSION" "${files[@]}" \
++              --title "$RELEASE_VERSION" \
++              --notes-file "$notes_file" \
++              --verify-tag
++          fi
