@@ -220,6 +220,26 @@ function configFor(id: string): SandboxConfig | null {
   return readSandboxConfig(userDataDir, id);
 }
 
+// A "secure" agent transport is TLS (`wss://`) or a loopback address. Copying
+// host secrets (SSH private keys, AI-CLI logins) to a sandbox over a plaintext
+// `ws://` connection to a public host would expose them to any on-path
+// observer, so credential provisioning is refused unless the transport is
+// secure. `normalizeRemoteAgentUrl` only ever permits plaintext-to-public when
+// the sandbox explicitly opted into `allowPlaintextPublic`; this guard makes
+// sure that opt-in never silently ships private keys in the clear.
+export function isSecureAgentTransport(config: SandboxConfig | null): boolean {
+  const raw = config?.remoteAgentUrl;
+  if (!raw) return false;
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "wss:") return true;
+    const host = url.hostname.toLowerCase();
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
 // Open the agent WS for a running sandbox. Streams are keyed by globally-unique
 // ptyId / watchId, so they forward unconditionally — the renderer routes to the
 // right pane (a background sandbox's output still reaches its handler).
@@ -532,6 +552,19 @@ async function provisionGitAuthFor(
     }
     return {};
   }
+  // Never push SSH keys (copy-host) or generate/return them over a plaintext
+  // agent connection to a public host — they'd be exposed on-path.
+  if (!isSecureAgentTransport(config)) {
+    const message =
+      "Refusing to provision Git/SSH credentials over an unencrypted agent connection. Use a wss:// (TLS) agent URL.";
+    if (options.requireConfigured) throw new Error(message);
+    log.warn("sandbox.git-auth.insecure-transport", {
+      event: "sandbox.git-auth.insecure-transport",
+      sandboxId: id,
+      mode,
+    });
+    return {};
+  }
   try {
     if (mode === "copy-host") {
       const files = readHostSshFiles();
@@ -599,6 +632,18 @@ async function provisionAgentCredsFor(
     if (options.requireConfigured) {
       throw new Error("This sandbox is not set to copy AI tool credentials.");
     }
+    return { wrote: 0 };
+  }
+  // Never push AI-CLI logins (Claude/Codex/Cursor/OpenCode tokens) over a
+  // plaintext agent connection to a public host — they'd be exposed on-path.
+  if (!isSecureAgentTransport(config)) {
+    const message =
+      "Refusing to copy AI tool credentials over an unencrypted agent connection. Use a wss:// (TLS) agent URL.";
+    if (options.requireConfigured) throw new Error(message);
+    log.warn("sandbox.agent-creds.insecure-transport", {
+      event: "sandbox.agent-creds.insecure-transport",
+      sandboxId: id,
+    });
     return { wrote: 0 };
   }
   const { items, diagnostics } = readHostAgentCredsWithDiagnostics();
