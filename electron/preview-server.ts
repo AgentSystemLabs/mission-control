@@ -2,6 +2,7 @@ import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import log from "electron-log/main";
+import { loadProjectRoots } from "./project-roots";
 
 // A tiny static file server for the file editor's HTML preview. One instance per
 // project root (cached by realpath), bound to loopback on an ephemeral port. It
@@ -233,6 +234,24 @@ function resetIdle(rec: PreviewServer): void {
   rec.idleTimer.unref?.();
 }
 
+// True when `realRoot` (already realpath'd) is a registered project root or a
+// descendant of one. Mirrors the `loadProjectRoots()` allow-list that
+// `pty:spawn` and the `files:*` handlers enforce.
+function isUnderRegisteredProjectRoot(realRoot: string): boolean {
+  for (const project of loadProjectRoots()) {
+    let realProject: string;
+    try {
+      realProject = fs.realpathSync(path.resolve(project));
+    } catch {
+      continue;
+    }
+    if (realRoot === realProject || realRoot.startsWith(realProject + path.sep)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export type StartPreviewServerResult = { ok: true; port: number } | { ok: false; error: string };
 
 export async function startPreviewServer(projectRoot: string): Promise<StartPreviewServerResult> {
@@ -244,6 +263,15 @@ export async function startPreviewServer(projectRoot: string): Promise<StartPrev
     root = fs.realpathSync(path.resolve(projectRoot));
     if (!fs.statSync(root).isDirectory()) return { ok: false, error: "invalid-root" };
   } catch {
+    return { ok: false, error: "invalid-root" };
+  }
+  // The projectRoot trust boundary must match `files:read`: only registered
+  // Mission Control projects (or paths inside one, e.g. `.worktree/*`) may be
+  // served. Without this a compromised renderer could root the loopback server
+  // at `/` or the home dir and read any file under it (traversal is blocked,
+  // but the *root* would otherwise be attacker-chosen). Realpath'd on both
+  // sides so a symlinked root can't dodge the check.
+  if (!isUnderRegisteredProjectRoot(root)) {
     return { ok: false, error: "invalid-root" };
   }
 
