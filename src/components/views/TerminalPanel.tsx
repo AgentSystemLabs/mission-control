@@ -9,6 +9,7 @@ import { useHotkey } from "~/lib/use-hotkey";
 import { useFocusWithin } from "~/lib/use-focus-within";
 import { isUserTerminalXtermFocused } from "~/lib/terminal-pane-helpers";
 import { api } from "~/lib/api";
+import { useTerminals } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys } from "~/queries";
 import { TerminalPane, type TerminalDescriptor } from "./TerminalPane";
@@ -40,6 +41,7 @@ export function TerminalPanel({
 }) {
   const queryClient = useQueryClient();
   const userTerminals = useUserTerminals();
+  const { gridFocusRequest, consumeGridFocusRequest } = useTerminals();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -145,6 +147,40 @@ export function TerminalPanel({
 
   const rootRef = useRef<HTMLElement | null>(null);
   const focused = useFocusWithin(rootRef, [active?.taskId]);
+
+  // Single-panel mirror of SessionGrid's focus spotlight. A focus request (e.g.
+  // a screenshot dropped on the docked terminal) makes the grid move the caret
+  // into the target cell so the image can be captioned and sent without an
+  // extra click; without this, the same drop in normal view pasted the image
+  // but left the terminal unfocused. TerminalPanel and SessionGrid are never
+  // mounted together (__root renders the panel only when the grid is hidden),
+  // so consuming the shared request here can't race the grid.
+  const activeTaskId = active?.taskId ?? null;
+  useEffect(() => {
+    if (!gridFocusRequest || !activeTaskId) return;
+    // The docked panel only shows the active session — attachImageToSession sets
+    // it active before requesting focus, so by now the target is what's docked.
+    if (gridFocusRequest.taskId !== activeTaskId) return;
+    if (!consumeGridFocusRequest(gridFocusRequest.nonce)) return;
+    // Switching the active session remounts the docked pane, so poll briefly
+    // and re-assert focus rather than making a single attempt that would miss a
+    // pane still mounting. Stop once the caret lands (or the user clicks away).
+    let attempts = 0;
+    const MAX_ATTEMPTS = 12; // ~0.8s at the 70ms cadence below
+    let poll = 0;
+    const step = () => {
+      const textarea = rootRef.current?.querySelector<HTMLTextAreaElement>(
+        ".xterm-helper-textarea",
+      );
+      if (textarea && document.activeElement !== textarea) {
+        textarea.focus({ preventScroll: true });
+      }
+      if (textarea && document.activeElement === textarea) return;
+      if (++attempts < MAX_ATTEMPTS) poll = window.setTimeout(step, 70);
+    };
+    poll = window.setTimeout(step, 0);
+    return () => window.clearTimeout(poll);
+  }, [gridFocusRequest, consumeGridFocusRequest, activeTaskId]);
 
   const { size: width, onMouseDown: onResizeMouseDown } = useResizablePanel({
     storageKey: "mc:agentsPanelWidth",
