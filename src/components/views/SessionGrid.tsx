@@ -39,7 +39,9 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
 import { readCachedThemeStyle } from "~/lib/theme-style";
 import { queryKeys, useSettings, useTasks } from "~/queries";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import type { TaskAgent } from "~/shared/domain";
 import { worktreeScopeKey } from "~/shared/worktrees";
+import { GridLayoutQuickPicker } from "./GridLayoutQuickPicker";
 import { TerminalPane } from "./TerminalPane";
 import type { Task } from "~/db/schema";
 
@@ -817,6 +819,8 @@ export function SessionGrid({
   const [columnLimit, setColumnLimit] = useState<number | null>(() =>
     loadGridColumnLimit(scopeKey),
   );
+  // The session.gridLayout quick picker (keyboard twin of the header dropdown).
+  const [quickPickerOpen, setQuickPickerOpen] = useState(false);
   // The most recently hidden session, restored when Cmd/Ctrl+L fires with no
   // visible session left to hide (every session hidden) — mirrors the single-
   // panel toggle where a second press brings the last hidden session back.
@@ -948,6 +952,7 @@ export function SessionGrid({
     setLayout(loadGridLayout(scopeKey) ?? EMPTY_LAYOUT);
     setHiddenTaskIds(loadHiddenTaskIds(scopeKey));
     setColumnLimit(loadGridColumnLimit(scopeKey));
+    setQuickPickerOpen(false);
     lastHiddenTaskIdRef.current = null;
     setExpandedTaskId(null);
     setNavTaskId(null);
@@ -1488,6 +1493,22 @@ export function SessionGrid({
   // mirrors how the project route wires these same actions in the normal view.
   useHotkey("session.cycleNext", () => cycleFocusedSession(1), { capture: true });
   useHotkey("session.cyclePrev", () => cycleFocusedSession(-1), { capture: true });
+
+  // Agents with open sessions in this scope (registry order) — the quick
+  // picker's sort options. Snapshot agents are safe: they never change over a
+  // session's life.
+  const agentsPresent = useMemo(() => {
+    const present = new Set(allScopedSessions.map((s) => s.task.agent));
+    return (Object.keys(AGENT_META) as TaskAgent[]).filter((a) => present.has(a));
+  }, [allScopedSessions]);
+
+  // Cmd/Ctrl+Shift+L (session.gridLayout): toggle the layout quick picker.
+  // Arranging edits the persisted Active layout, so the pinned read-through
+  // view leaves the shortcut off (same rule as reorder/resize/dropdown).
+  useHotkey("session.gridLayout", () => setQuickPickerOpen((v) => !v), {
+    capture: true,
+    enabled: !isFiltered && renderSessions.length > 0,
+  });
 
   // Progressive mount: cells beyond the budget render as empty frames and fill
   // in over the following frames. Panes with a cached surface used to bypass
@@ -2434,6 +2455,13 @@ export function SessionGrid({
         )}
       </div>
       {hiddenBar}
+      <GridLayoutQuickPicker
+        open={quickPickerOpen}
+        onClose={() => setQuickPickerOpen(false)}
+        scopeKey={scopeKey}
+        currentLimit={columnLimit}
+        agents={agentsPresent}
+      />
       <ConfirmDialog
         open={!!pendingArchive}
         onClose={() => setPendingArchive(null)}

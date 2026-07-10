@@ -4,7 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { Icon } from "~/components/ui/Icon";
-import { Tooltip } from "~/components/ui/Tooltip";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { AGENT_META } from "~/lib/design-meta";
 import {
   GRID_COLUMN_OPTIONS,
@@ -18,6 +18,10 @@ import { useTerminals } from "~/lib/terminal-store";
 import { Z_INDEX } from "~/lib/z-index";
 import type { TaskAgent } from "~/shared/domain";
 import { scopeKeyFor } from "./SessionGrid";
+
+// Fixed menu width: the width chips lay out as one 7-column row (Auto + 1–6),
+// and the viewport clamp in updateMenuRect needs the real width to be exact.
+const MENU_WIDTH = 288;
 
 /** Small section caption inside the dropdown ("Sessions per row", "Sort"). */
 function MenuLabel({ children }: { children: string }) {
@@ -50,7 +54,7 @@ function MenuLabel({ children }: { children: string }) {
 export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
   const { sessions } = useTerminals();
   const [open, setOpen] = useState(false);
-  const [menuRect, setMenuRect] = useState<{ top: number; right: number } | null>(null);
+  const [menuRect, setMenuRect] = useState<{ top: number; left: number } | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLElement>(null);
   const [columnLimit, setColumnLimit] = useState<number | null>(() =>
@@ -73,7 +77,12 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
     const anchor = anchorRef.current;
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
-    setMenuRect({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    // The button sits on the left side of the header (beside the scope
+    // toggle), so the menu hangs from the button's LEFT edge — right-aligning
+    // (the pattern the right-side header menus use) would push it away from
+    // its trigger. Clamped so a narrow window never clips it.
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - MENU_WIDTH - 8));
+    setMenuRect({ top: rect.bottom + 6, left });
   }, []);
 
   useLayoutEffect(() => {
@@ -132,22 +141,24 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
   };
 
   const chipBase = {
-    minWidth: 30,
+    minWidth: 0,
     height: 24,
-    padding: "0 8px",
+    padding: 0,
     borderRadius: 6,
     border: "1px solid var(--border)",
     background: "transparent",
     color: "var(--text-dim)",
     fontFamily: "var(--mono)",
     fontSize: 11,
+    textAlign: "center",
     cursor: "pointer",
   } as const;
 
   return (
     <div ref={anchorRef} style={{ display: "inline-flex", alignItems: "center" }}>
-      <Tooltip
-        content={
+      <HotkeyTooltip
+        action="session.gridLayout"
+        label={
           columnLimit === null
             ? "Grid layout"
             : `Grid layout — ${columnLimit} per row`
@@ -169,7 +180,7 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
         >
           <Icon name="grid" size={15} />
         </Btn>
-      </Tooltip>
+      </HotkeyTooltip>
       {open &&
         menuRect &&
         createPortal(
@@ -182,8 +193,9 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
             style={{
               position: "fixed",
               top: menuRect.top,
-              right: menuRect.right,
-              minWidth: 220,
+              left: menuRect.left,
+              width: MENU_WIDTH,
+              boxSizing: "border-box",
               boxShadow: "0 14px 32px rgba(0,0,0,0.42)",
               zIndex: Z_INDEX.popover,
             }}
@@ -193,9 +205,9 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
               role="radiogroup"
               aria-label="Sessions per row"
               style={{
-                display: "flex",
+                display: "grid",
+                gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
                 gap: 4,
-                flexWrap: "wrap",
                 padding: "2px 12px 8px",
               }}
             >
