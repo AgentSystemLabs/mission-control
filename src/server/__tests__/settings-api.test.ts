@@ -126,6 +126,73 @@ describe("settings API", () => {
     });
   });
 
+  it("defaults the agent launcher config to all agents visible in canonical order", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      agentLauncherConfig: {
+        order: ["claude-code", "codex", "cursor-cli", "opencode"],
+        hidden: [],
+      },
+    });
+  });
+
+  it("persists a reordered agent launcher config and normalizes unknown ids", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agentLauncherConfig: {
+            order: ["codex", "made-up-agent", "claude-code"],
+            hidden: ["opencode", "also-fake"],
+          },
+        }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    const expected = {
+      order: ["codex", "claude-code", "cursor-cli", "opencode"],
+      hidden: ["opencode"],
+    };
+    expect(await jsonBody(update!)).toMatchObject({ agentLauncherConfig: expected });
+    expect(await jsonBody(read!)).toMatchObject({ agentLauncherConfig: expected });
+  });
+
+  it("refuses to hide every launcher agent", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agentLauncherConfig: {
+            order: ["cursor-cli", "codex", "claude-code", "opencode"],
+            hidden: ["claude-code", "codex", "cursor-cli", "opencode"],
+          },
+        }),
+      }),
+    );
+
+    expect(update?.status).toBe(200);
+    const body = await jsonBody(update!);
+    const config = body.agentLauncherConfig as { order: string[]; hidden: string[] };
+    expect(config.hidden).not.toContain("cursor-cli");
+    expect(config.order.filter((id) => !config.hidden.includes(id))).toEqual(["cursor-cli"]);
+  });
+
+  it("rejects a malformed agent launcher config payload", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentLauncherConfig: "codex-first" }),
+      }),
+    );
+    expect(update?.status).toBe(400);
+  });
+
   it("defaults Recall off: master switch and every gated flag disabled", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
     expect(response?.status).toBe(200);

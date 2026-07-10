@@ -24,6 +24,13 @@ describe("agent CLI config", () => {
     expect(pathLookupCandidates("agent")).toEqual(["cursor-agent", "agent"]);
   });
 
+  it("declares an npm package for registry-published CLIs only", () => {
+    expect(AGENT_CLI_CONFIG["claude-code"].npmPackage).toBe("@anthropic-ai/claude-code");
+    expect(AGENT_CLI_CONFIG.codex.npmPackage).toBe("@openai/codex");
+    expect(AGENT_CLI_CONFIG.opencode.npmPackage).toBe("opencode-ai");
+    expect(AGENT_CLI_CONFIG["cursor-cli"].npmPackage).toBeUndefined();
+  });
+
   it("returns platform-specific install commands", () => {
     expect(resolveAgentCliUpdateCommands(AGENT_CLI_CONFIG["cursor-cli"].updateCommands, "win32")).toEqual([
       "irm 'https://cursor.com/install?win32=true' | iex",

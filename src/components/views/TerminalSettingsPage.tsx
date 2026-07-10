@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_LAUNCHER_CONFIG } from "~/shared/agent-launcher-config";
 import { useQueryClient } from "@tanstack/react-query";
 import { Field, SettingsSection } from "~/components/views/SettingsParts";
 import { api, type AppSettings } from "~/lib/api";
@@ -66,6 +67,7 @@ export function TerminalSettingsPage() {
     claudeUsageLimitsShowWeekly: settings?.claudeUsageLimitsShowWeekly ?? true,
     providerUsageEnabled: settings?.providerUsageEnabled ?? false,
     providerUsageIds: settings?.providerUsageIds ?? ["claude", "codex", "cursor"],
+    agentLauncherConfig: settings?.agentLauncherConfig ?? DEFAULT_AGENT_LAUNCHER_CONFIG,
     recallEnabled: settings?.recallEnabled ?? false,
     recallAutoCaptureEnabled: settings?.recallAutoCaptureEnabled ?? true,
     recallEngineEnabled: settings?.recallEngineEnabled ?? true,

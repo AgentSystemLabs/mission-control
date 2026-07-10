@@ -51,6 +51,10 @@ import {
   type ProviderUsageId,
 } from "~/shared/provider-usage";
 import {
+  normalizeAgentLauncherConfig,
+  type AgentLauncherConfig,
+} from "~/shared/agent-launcher-config";
+import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
   TERMINAL_ZOOM_MAX,
   TERMINAL_ZOOM_MIN,
@@ -92,6 +96,7 @@ const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
 const CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY = "claude_usage_limits_show_weekly";
 const PROVIDER_USAGE_ENABLED_KEY = "provider_usage_enabled";
 const PROVIDER_USAGE_IDS_KEY = "provider_usage_ids";
+const AGENT_LAUNCHER_CONFIG_KEY = "agent_launcher_config";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
   try {
@@ -170,6 +175,9 @@ const updateSettingsBody = z
     claudeUsageLimitsShowWeekly: z.boolean(),
     providerUsageEnabled: z.boolean(),
     providerUsageIds: z.array(z.string()).transform((value) => normalizeProviderUsageIds(value)),
+    agentLauncherConfig: z
+      .object({ order: z.array(z.string()), hidden: z.array(z.string()) })
+      .transform((value): AgentLauncherConfig => normalizeAgentLauncherConfig(value)),
     recallEnabled: z.boolean(),
     recallAutoCaptureEnabled: z.boolean(),
     recallEngineEnabled: z.boolean(),
@@ -269,6 +277,12 @@ function getSessionHeaderButtonsSetting(): SessionHeaderButtonVisibility {
   );
 }
 
+function getAgentLauncherConfigSetting(): AgentLauncherConfig {
+  return normalizeAgentLauncherConfig(
+    safeJsonParse<unknown>(getSetting(AGENT_LAUNCHER_CONFIG_KEY), null),
+  );
+}
+
 function getVoiceCommandAliasesSetting() {
   const raw = getSetting(VOICE_COMMAND_ALIASES_KEY);
   try {
@@ -340,6 +354,7 @@ function settingsPayload() {
     // so existing users who already enabled Claude usage keep their indicator.
     providerUsageEnabled: getProviderUsageEnabledSetting(),
     providerUsageIds: getProviderUsageIdsSetting(),
+    agentLauncherConfig: getAgentLauncherConfigSetting(),
     ...recallSettingsPayload(),
   };
 }
@@ -547,6 +562,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.providerUsageIds !== undefined) {
     setSetting(PROVIDER_USAGE_IDS_KEY, JSON.stringify(body.providerUsageIds));
+  }
+  if (body.agentLauncherConfig !== undefined) {
+    setSetting(AGENT_LAUNCHER_CONFIG_KEY, JSON.stringify(body.agentLauncherConfig));
   }
   writeRecallSettings({
     enabled: body.recallEnabled,

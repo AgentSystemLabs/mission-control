@@ -9,6 +9,7 @@ import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
+import { ProvidersSettingsPage } from "./ProvidersSettingsPage";
 import { RecallSettingsPage } from "./RecallSettings";
 import { SessionButtonsSettingsPage } from "./SessionButtonsSettingsPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
@@ -23,6 +24,7 @@ import { VoiceCommandsPage } from "./VoiceCommandsPage";
 export const SETTINGS_PANEL_IDS = [
   "general",
   "defaults",
+  "providers",
   "usage",
   "terminal",
   "session",
@@ -100,6 +102,7 @@ export function SettingsPanel({
   const items: NavItem[] = [
     { id: "general", label: "General", icon: "settings" },
     { id: "defaults", label: "Defaults", icon: "terminal" },
+    { id: "providers", label: "Providers", icon: "grid" },
     { id: "usage", label: "Usage", icon: "chart" },
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "session", label: "Session buttons", icon: "eye" },
@@ -337,6 +340,8 @@ export function SettingsPanel({
             <GeneralSettingsPage />
           ) : activePanel === "defaults" ? (
             <DefaultsSettingsPage />
+          ) : activePanel === "providers" ? (
+            <ProvidersSettingsPage />
           ) : activePanel === "usage" ? (
             <UsageSettingsPage />
           ) : activePanel === "terminal" ? (

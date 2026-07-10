@@ -122,7 +122,7 @@ function tokenIsUsable(accessToken: string): boolean {
   return exp * 1000 > Date.now() + 60_000;
 }
 
-export function readCursorAppSession(): CursorSession | null {
+function readCursorAccessToken(): string | null {
   let accessToken: string | null = null;
   for (const dbPath of cursorStateDbPaths()) {
     accessToken = readAccessTokenFromVscdb(dbPath);
@@ -131,7 +131,19 @@ export function readCursorAppSession(): CursorSession | null {
   // Port-only extension beyond CodexBar: cursor-agent CLI auth files.
   if (!accessToken) accessToken = readCursorAgentAuthFile();
   if (!accessToken) return null;
-  if (!tokenIsUsable(accessToken)) return null;
+  return tokenIsUsable(accessToken) ? accessToken : null;
+}
+
+/** Local Cursor identity (JWT `sub` tail) without any network call. Null when signed out or expired. */
+export function readCursorUserId(): string | null {
+  const accessToken = readCursorAccessToken();
+  if (!accessToken) return null;
+  return userIdFromAccessToken(accessToken);
+}
+
+export function readCursorAppSession(): CursorSession | null {
+  const accessToken = readCursorAccessToken();
+  if (!accessToken) return null;
 
   const userID = userIdFromAccessToken(accessToken);
   if (!userID) return null;

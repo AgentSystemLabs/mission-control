@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_LAUNCHER_CONFIG } from "~/shared/agent-launcher-config";
 import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { openExternal } from "~/lib/open-external";
@@ -122,6 +123,7 @@ export function GeneralSettingsPage() {
     claudeUsageLimitsShowWeekly: settings?.claudeUsageLimitsShowWeekly ?? true,
     providerUsageEnabled: settings?.providerUsageEnabled ?? false,
     providerUsageIds: settings?.providerUsageIds ?? ["claude", "codex", "cursor"],
+    agentLauncherConfig: settings?.agentLauncherConfig ?? DEFAULT_AGENT_LAUNCHER_CONFIG,
     recallEnabled: settings?.recallEnabled ?? false,
     recallAutoCaptureEnabled: settings?.recallAutoCaptureEnabled ?? true,
     recallEngineEnabled: settings?.recallEngineEnabled ?? true,
