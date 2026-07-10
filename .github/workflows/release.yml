@@ -299,11 +299,13 @@ jobs:
             echo "In-app updates stay on the previously approved agentsystem.dev release until this version is approved there."
           } > "$notes_file"
 
+          # Do not use --verify-tag: this job has no git checkout, and gh would
+          # fail with "not a git repository". The tag already exists on origin
+          # (auto-tag / manual push); create the release against that remote tag.
           if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
             gh release upload "$RELEASE_VERSION" "${files[@]}" --clobber
           else
             gh release create "$RELEASE_VERSION" "${files[@]}" \
               --title "$RELEASE_VERSION" \
-              --notes-file "$notes_file" \
-              --verify-tag
+              --notes-file "$notes_file"
           fi
