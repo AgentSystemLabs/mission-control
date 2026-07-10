@@ -1,4 +1,5 @@
 import { Btn } from "~/components/ui/Btn";
+import { GridLayoutIcon } from "~/components/ui/GridLayoutIcon";
 import { HotkeyTooltip, Tooltip } from "~/components/ui/Tooltip";
 import type { Project } from "~/db/schema";
 
@@ -43,7 +44,6 @@ export function NewAgentButton({
     <Tooltip content="New session grid — start several sessions at once">
       <Btn
         variant="ghost"
-        icon="grid"
         onClick={onNewGrid}
         disabled={disabled}
         aria-label="New session grid — start several sessions at once"
@@ -53,7 +53,29 @@ export function NewAgentButton({
             : "mc-btn-attached-left mc-btn-new-session-row"
         }
         style={{ minWidth: 52, paddingInline: 0 }}
-      />
+      >
+        {/* The layout glyph (3-per-row resting state, reflow morph on hover)
+            with a plus badge — "create a shape of sessions" — so it reads as
+            the grid sibling of the row-plus segment beside it, and stays
+            distinct from both the 2x2 view toggle and the layout dropdown. */}
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <GridLayoutIcon active={false} size={14} />
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              right: -4,
+              bottom: -3,
+              fontSize: 9,
+              lineHeight: 1,
+              fontWeight: 700,
+              fontFamily: "var(--mono)",
+            }}
+          >
+            +
+          </span>
+        </span>
+      </Btn>
     </Tooltip>
   );
 

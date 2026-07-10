@@ -1172,6 +1172,40 @@ select,
   }
 }
 
+/* Grid-layout control glyph: six cells reflow between two-rows-of-three and
+   three-rows-of-two (see GridLayoutIcon.tsx) — the same motion the control
+   applies to the real session grid. React swaps the coordinates while the
+   menu is open; hovering previews the morph by overriding the geometry in
+   CSS (geometry attributes are CSS properties in Chromium/Electron). */
+.mc-gridlayout-icon rect {
+  transition:
+    x 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    y 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    width 0.34s cubic-bezier(0.34, 1.32, 0.5, 1),
+    height 0.34s cubic-bezier(0.34, 1.32, 0.5, 1);
+}
+/* Stagger the later cells so the reflow sweeps across the grid in reading
+   order instead of snapping as one block. */
+.mc-gridlayout-icon rect:nth-of-type(2) { transition-delay: 0.03s; }
+.mc-gridlayout-icon rect:nth-of-type(3) { transition-delay: 0.05s; }
+.mc-gridlayout-icon rect:nth-of-type(4) { transition-delay: 0.04s; }
+.mc-gridlayout-icon rect:nth-of-type(5) { transition-delay: 0.07s; }
+.mc-gridlayout-icon rect:nth-of-type(6) { transition-delay: 0.09s; }
+/* Hover preview: morph to the reflowed state without opening the menu. The
+   values duplicate GridLayoutIcon's TWO_PER_ROW set — matching the open
+   state exactly, so hover-then-click never double-animates. */
+.mc-btn:hover .mc-gridlayout-icon rect:nth-of-type(1) { x: 2px; y: 2px; width: 5.5px; height: 3.4px; }
+.mc-btn:hover .mc-gridlayout-icon rect:nth-of-type(2) { x: 8.5px; y: 2px; width: 5.5px; height: 3.4px; }
+.mc-btn:hover .mc-gridlayout-icon rect:nth-of-type(3) { x: 2px; y: 6.3px; width: 5.5px; height: 3.4px; }
+.mc-btn:hover .mc-gridlayout-icon rect:nth-of-type(4) { x: 8.5px; y: 6.3px; width: 5.5px; height: 3.4px; }
+.mc-btn:hover .mc-gridlayout-icon rect:nth-of-type(5) { x: 2px; y: 10.6px; width: 5.5px; height: 3.4px; }
+.mc-btn:hover .mc-gridlayout-icon rect:nth-of-type(6) { x: 8.5px; y: 10.6px; width: 5.5px; height: 3.4px; }
+@media (prefers-reduced-motion: reduce) {
+  .mc-gridlayout-icon rect {
+    transition: none;
+  }
+}
+
 /* Header icon micro-animations: each top-bar button's glyph springs to life on
    hover, so the control set reads as responsive rather than static. Each glyph
    moves in the direction of its meaning: Run darts right, the branch node

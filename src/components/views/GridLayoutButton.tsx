@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
-import { Icon } from "~/components/ui/Icon";
+import { GridLayoutIcon } from "~/components/ui/GridLayoutIcon";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { AGENT_META } from "~/lib/design-meta";
 import {
@@ -178,7 +178,7 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
             color: open || columnLimit !== null ? "var(--text)" : undefined,
           }}
         >
-          <Icon name="grid" size={15} />
+          <GridLayoutIcon active={open} size={15} />
         </Btn>
       </HotkeyTooltip>
       {open &&
