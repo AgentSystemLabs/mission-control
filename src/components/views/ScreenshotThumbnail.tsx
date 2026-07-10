@@ -439,11 +439,22 @@ export function ScreenshotThumbnail({
   projectId,
   variant = "floating",
 }: {
-  projectId: string;
+  // The current-project id, used as the attach target for the plain-click /
+  // attach-button path. Null when the user is on no project route (the global
+  // floating stack still renders — drag-to-attach and per-card origin fallback
+  // keep working). The focus variant always receives a concrete project id.
+  projectId: string | null;
   variant?: "floating" | "focus";
 }) {
   const { pendingScreenshots } = useTerminals();
-  const shots = pendingScreenshots.filter((s) => s.projectId === projectId);
+  // The focus window is a single-project surface, so it only shows that
+  // project's shots. The global floating stack follows the user across
+  // projects — show the whole pile so a capture in one project can be dragged
+  // onto (or attached from) a session in another.
+  const shots =
+    variant === "focus"
+      ? pendingScreenshots.filter((s) => s.projectId === projectId)
+      : pendingScreenshots;
 
   if (shots.length === 0) return null;
 
@@ -467,7 +478,12 @@ export function ScreenshotThumbnail({
         }}
       >
         {[...shots].reverse().map((shot) => (
-          <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId} compact />
+          <ScreenshotStackCard
+            key={shot.id}
+            shot={shot}
+            projectId={projectId ?? shot.projectId}
+            compact
+          />
         ))}
       </div>
     );
@@ -494,7 +510,7 @@ export function ScreenshotThumbnail({
       }}
     >
       {shots.map((shot) => (
-        <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId} />
+        <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId ?? shot.projectId} />
       ))}
     </div>,
     document.body,

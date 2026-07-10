@@ -13,7 +13,6 @@ import { openExternal } from "~/lib/open-external";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
-import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import {
   CodexHooksNoticeDialog,
@@ -3255,8 +3254,6 @@ function ProjectPage() {
         </>
         )}
       </CardFrame>
-
-      {screenshotSupported && <ScreenshotThumbnail projectId={id} />}
 
       <GitDiffModal
         open={showDiffView}
