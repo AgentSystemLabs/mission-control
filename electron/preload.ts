@@ -426,6 +426,15 @@ const electronAPI = {
     findByTask: (taskId: string): Promise<{ ptyId: string | null }> =>
       ipcRenderer.invoke(IPC.ptyFindByTask, { taskId }) as Promise<{ ptyId: string | null }>,
   },
+  power: {
+    /** True while the machine runs on battery (false on AC or desktops). */
+    getOnBattery: (): Promise<boolean> => ipcRenderer.invoke(IPC.powerGetOnBattery),
+    onBatteryChange: (cb: (onBattery: boolean) => void) =>
+      subscribe(IPC.powerOnBatteryChange, cb),
+    /** Report the combined battery-saver state (battery × setting) to main. */
+    setSaverActive: (active: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.powerSetSaverActive, active),
+  },
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) =>
     subscribe(IPC.appSwipe, cb),
   isFullScreen: (): Promise<boolean> => ipcRenderer.invoke(IPC.appIsFullScreen),

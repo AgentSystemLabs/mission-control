@@ -126,7 +126,9 @@ import {
   type PtyReplaySnapshot,
   type SequencedPtyData,
 } from "~/lib/terminal-replay";
-import { queryKeys, useSettings, useTasks } from "~/queries";
+import { getPtyStreamRouter, type PtyStreamHandlers } from "~/lib/pty-stream-router";
+import { isPowerSaveActive, watchPowerSave } from "~/lib/power-save";
+import { queryKeys, useSettings, useTask } from "~/queries";
 import {
   DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
   type SessionHeaderButtonVisibility,
@@ -523,12 +525,15 @@ export function TerminalPane({
   const showMoreMenu = compactHeader && (tinyHeader || anyDiscretionaryButton);
 
   const activeRuntimeScopeId = project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID;
-  const { data: liveTasks } = useTasks(
+  // Per-row subscription: with N panes mounted, a whole-array subscription
+  // re-rendered every pane's header on any task change.
+  const { data: selectedLiveTask } = useTask(
     project.id,
     project.activeWorktreeId ?? null,
     activeRuntimeScopeId,
+    task.id,
   );
-  const liveTask = liveTasks?.find((t) => t.id === task.id) ?? task;
+  const liveTask = selectedLiveTask ?? task;
   liveTaskStatusRef.current = liveTask.status;
   const meta = AGENT_META[liveTask.agent];
   const statusMeta = STATUS_META[liveTask.status];
@@ -821,11 +826,24 @@ export function TerminalPane({
       const subscriptions: Array<() => void> = [];
       let rafHandle = 0;
       let activePtyId: string | null = null;
-      // The PTY subscription stays wired while parked; mirror the active pty onto
+      // One shared listener per transport, routed by ptyId (see
+      // pty-stream-router.ts) — the pane claims its active pty instead of
+      // subscribing to every pty's output.
+      const ptyRouter = ptyApi ? getPtyStreamRouter(ptyApi) : null;
+      // Assigned once questionHold/handlePtyExit exist; claims are only made
+      // from the wire* paths, which run after setup completes.
+      let ptyStreamHandlers: PtyStreamHandlers | null = null;
+      let unclaimActivePty: (() => void) | null = null;
+      // The PTY claim stays wired while parked; mirror the active pty onto
       // the surface so reattach + the session list's running state stay correct.
       const setActivePty = (id: string | null) => {
         activePtyId = id;
         surface.ptyId = id;
+        unclaimActivePty?.();
+        unclaimActivePty = null;
+        if (id && ptyRouter && ptyStreamHandlers) {
+          unclaimActivePty = ptyRouter.claim(id, ptyStreamHandlers);
+        }
       };
       // Coalesce interactive-resize storms (grid drag, wheel zoom) into one
       // agent SIGWINCH after the drag settles; targets the then-active pty.
@@ -833,11 +851,6 @@ export function TerminalPane({
         const id = activePtyId;
         if (id && ptyApi) ptyApi.resize(id, cols, rows);
       });
-      const pendingElectronData = new Map<string, SequencedPtyData[]>();
-      const pendingElectronExit = new Map<
-        string,
-        { ptyId: string; exitCode: number; signal?: number }
-      >();
       const PENDING_ELECTRON_OUTPUT_MAX_CHARS = 64_000;
       let electronReplayPtyId: string | null = null;
       let electronReplayData: SequencedPtyData[] = [];
@@ -891,6 +904,12 @@ export function TerminalPane({
           term.options.fontFamily = font;
           fitTerminalSurface(term, fit);
         }
+      });
+      // Battery saver stops the (focused) cursor blink — the only repaint a
+      // fully idle terminal makes.
+      term.options.cursorBlink = !isPowerSaveActive();
+      const stopWatchingPowerSave = watchPowerSave(() => {
+        term.options.cursorBlink = !isPowerSaveActive();
       });
       const detachLinks = attachTerminalLinks(term);
 
@@ -1036,45 +1055,38 @@ export function TerminalPane({
       subscriptions.push(subscribeQuestionStore(() => questionHold.sync()));
       subscriptions.push(() => questionHold.dispose());
 
-      if (ptyApi) {
-        subscriptions.push(
-          ptyApi.onData((msg) => {
-            if (activePtyId === msg.ptyId) {
-              clearSpawnAck(); // the agent is alive
-              releaseSpawnHold();
-              if (electronReplayPtyId === msg.ptyId) {
-                appendBoundedSequencedData(
-                  electronReplayData,
-                  sequencedPtyData(msg.seq, msg.data),
-                  PENDING_ELECTRON_OUTPUT_MAX_CHARS,
-                );
-                return;
-              }
-              questionHold.write(msg.data);
+      if (ptyRouter) {
+        // Routed by the shared transport router: these only ever fire for the
+        // pty this surface has claimed. Output for not-yet-claimed ptys is
+        // buffered inside the router and drained by the wire* paths below.
+        ptyStreamHandlers = {
+          data: (msg) => {
+            clearSpawnAck(); // the agent is alive
+            releaseSpawnHold();
+            if (electronReplayPtyId === msg.ptyId) {
+              appendBoundedSequencedData(
+                electronReplayData,
+                sequencedPtyData(msg.seq, msg.data),
+                PENDING_ELECTRON_OUTPUT_MAX_CHARS,
+              );
               return;
             }
-            const chunks = pendingElectronData.get(msg.ptyId) ?? [];
-            appendBoundedSequencedData(
-              chunks,
-              sequencedPtyData(msg.seq, msg.data),
-              PENDING_ELECTRON_OUTPUT_MAX_CHARS,
-            );
-            pendingElectronData.set(msg.ptyId, chunks);
-          }),
-          ptyApi.onExit((msg) => {
-            if (activePtyId === msg.ptyId) {
-              clearSpawnAck();
-              releaseSpawnHold();
-              if (electronReplayPtyId === msg.ptyId) {
-                electronReplayExit = msg;
-                return;
-              }
-              handlePtyExit(msg.exitCode);
+            questionHold.write(msg.data);
+          },
+          exit: (msg) => {
+            clearSpawnAck();
+            releaseSpawnHold();
+            if (electronReplayPtyId === msg.ptyId) {
+              electronReplayExit = msg;
               return;
             }
-            pendingElectronExit.set(msg.ptyId, msg);
-          })
-        );
+            handlePtyExit(msg.exitCode);
+          },
+        };
+        subscriptions.push(() => {
+          unclaimActivePty?.();
+          unclaimActivePty = null;
+        });
       }
 
       // Remote spawns fail asynchronously via spawnError (the agent rejected the
@@ -1172,15 +1184,13 @@ export function TerminalPane({
       };
 
       const wireNewElectronPty = (ptyId: string): boolean => {
-        if (!ptyApi) return false;
+        if (!ptyApi || !ptyRouter) return false;
         setActivePty(ptyId);
-        for (const chunk of pendingElectronData.get(ptyId) ?? []) {
+        for (const chunk of ptyRouter.takePendingData(ptyId)) {
           term.write(chunk.data);
         }
-        pendingElectronData.delete(ptyId);
-        const pendingExit = pendingElectronExit.get(ptyId);
+        const pendingExit = ptyRouter.takePendingExit(ptyId);
         if (pendingExit) {
-          pendingElectronExit.delete(ptyId);
           handlePtyExit(pendingExit.exitCode);
           return false;
         }
@@ -1189,16 +1199,14 @@ export function TerminalPane({
       };
 
       const wireExistingElectronPty = async (ptyId: string): Promise<boolean> => {
-        if (!ptyApi) return false;
+        if (!ptyApi || !ptyRouter) return false;
 
         electronReplayPtyId = ptyId;
         electronReplayData = [];
-        electronReplayExit = pendingElectronExit.get(ptyId) ?? null;
-        pendingElectronExit.delete(ptyId);
+        electronReplayExit = ptyRouter.takePendingExit(ptyId);
 
         setActivePty(ptyId);
-        const pendingBeforeReplay = pendingElectronData.get(ptyId) ?? [];
-        pendingElectronData.delete(ptyId);
+        const pendingBeforeReplay = ptyRouter.takePendingData(ptyId);
         wireTerminalInput(ptyId);
 
         void resizeElectronPtyToSurface(ptyId);
@@ -1401,6 +1409,7 @@ export function TerminalPane({
         releaseSpawnHold();
         for (const off of subscriptions) off();
         stopWatchingColorScheme();
+        stopWatchingPowerSave();
         detachLinks();
         detachFileDrop();
         fitRef.current = null;

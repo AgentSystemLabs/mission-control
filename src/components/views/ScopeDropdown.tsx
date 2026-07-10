@@ -532,6 +532,9 @@ export function ScopeDropdown() {
   useEffect(() => {
     if (!data?.sandboxes) return;
     const poll = () => {
+      // Network reconcile across all sandboxes — skip ticks nobody can see;
+      // the next visible tick (≤60s away) catches up.
+      if (document.hidden) return;
       const current = qc.getQueryData<SandboxesQueryData>(queryKeys.sandboxes) ?? data;
       for (const sandbox of current.sandboxes) {
         reconcileManagedRemoteInBackground(sandbox, { force: true });

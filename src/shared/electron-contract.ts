@@ -382,6 +382,13 @@ export type ElectronBridge = {
     /** Live agent PTY for a task (renderer reloads lose local pty ids). */
     findByTask: (taskId: string) => Promise<{ ptyId: string | null }>;
   };
+  power: {
+    /** True while the machine runs on battery (false on AC or desktops). */
+    getOnBattery: () => Promise<boolean>;
+    onBatteryChange: (cb: (onBattery: boolean) => void) => () => void;
+    /** Report the combined battery-saver state (battery × setting) to main. */
+    setSaverActive: (active: boolean) => Promise<boolean>;
+  };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
   /** Focused Session Mode: transform the main window into a small floating session card. */

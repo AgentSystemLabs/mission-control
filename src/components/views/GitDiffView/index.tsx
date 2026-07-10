@@ -46,6 +46,8 @@ export function GitDiffView({
   const { data: status, isLoading, error } = useGitStatus(projectId, worktreeId, {
     enabled,
     sandboxRepoPath,
+    // The diff view actively displays file-level changes — poll fast while open.
+    fastPoll: enabled,
   });
   const stageM = useStageFiles(projectId, worktreeId);
   const unstageM = useUnstageFiles(projectId, worktreeId);

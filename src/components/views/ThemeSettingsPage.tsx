@@ -55,6 +55,7 @@ export function ThemeSettingsPage() {
     // Every patch through here writes a theme setting, which marks it chosen.
     themeChosen: true,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
+    batterySaverEnabled: settings?.batterySaverEnabled ?? true,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,

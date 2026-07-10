@@ -544,6 +544,8 @@ function ProjectPage() {
   );
   const groups = groupsQuery.data ?? [];
   useApiToken();
+  const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView, setOpen: setDiffViewOpen } =
+    useGitDiffViewOpen(id);
   const {
     data: gitStatusData,
     error: gitStatusError,
@@ -551,6 +553,9 @@ function ProjectPage() {
     refetch: refetchGitStatus,
   } = useGitStatus(id, selectedWorktreeId, {
     enabled: projectPathUsable,
+    // The toolbar chip only needs a lazy cadence; file-level surfaces (the
+    // open diff view) poll fast via their own observer on the same key.
+    fastPoll: showDiffView,
   });
   const gitStatus = gitStatusIsError ? undefined : gitStatusData;
   const gitUnavailable = projectPathReady && gitStatusIsError;
@@ -561,8 +566,6 @@ function ProjectPage() {
     branch: gitStatus?.branch,
     projectPathUsable,
   });
-  const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView, setOpen: setDiffViewOpen } =
-    useGitDiffViewOpen(id);
   // onToggleDiffView is defined lower down (after `terminals`) because opening
   // the diff must also drop out of the grid view — see the comment there.
   useEffect(() => {
