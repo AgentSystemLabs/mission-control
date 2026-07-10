@@ -1680,6 +1680,56 @@ select,
   }
 }
 
+/* ── Attach-landing pulse ─────────────────────────────────────────────────
+   Overlay flashed on the grid cell that just received a screenshot, so the
+   landing pane is unmissable in a busy grid. Opacity-only (accent wash + inset
+   ring) pulsing twice; the base state is invisible and the element unmounts on
+   animationend, so nothing lingers. */
+.mc-cell-attach-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 0 32px color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: mc-cell-attach-flash 1s ease-out;
+}
+@keyframes mc-cell-attach-flash {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.25;
+  }
+  65% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes mc-cell-attach-flash-fade {
+  0% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* Reduced motion: one gentle fade instead of the double pulse — still an
+   animation so animationend fires and the overlay unmounts. */
+@media (prefers-reduced-motion: reduce) {
+  .mc-cell-attach-flash {
+    animation: mc-cell-attach-flash-fade 0.8s ease-out;
+  }
+}
+
 @keyframes launch-overlay-fade {
   0%,
   91% {
