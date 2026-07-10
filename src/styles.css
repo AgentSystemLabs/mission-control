@@ -3452,6 +3452,107 @@ body[data-card-glow] .cursor-glow {
   transform: translateX(22px);
 }
 
+/* ── Terminal / appearance settings: quiet control column + live preview hero ── */
+/* The shell owns the size query so the grid can re-flow to one column when the
+   settings panel is narrow, independent of the window's viewport width. */
+.term-settings-shell {
+  container-type: inline-size;
+}
+
+.term-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+  align-items: start;
+  gap: 36px;
+}
+
+/* Each setting sits on its own surface card; stack them with a steady rhythm. */
+.term-settings__controls {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.term-settings__preview {
+  min-width: 0;
+  position: sticky;
+  top: 4px;
+  align-self: start;
+}
+
+@container (max-width: 720px) {
+  .term-settings {
+    grid-template-columns: 1fr;
+    gap: 26px;
+  }
+  .term-settings__preview {
+    position: static;
+  }
+}
+
+/* Regular + Bold read as one weight control, not two identical fields. */
+.term-weight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.term-weight__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.term-weight__key {
+  flex: 0 0 auto;
+  min-width: 52px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Segmented value pickers gain the hover/focus feedback product UI expects. */
+.term-value {
+  border-radius: 5px;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+.term-value:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.term-value:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.term-select {
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.term-select:hover {
+  border-color: var(--border-strong);
+}
+
+.term-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-value,
+  .term-select {
+    transition: none;
+  }
+}
+
 /* Push-to-talk recording indicator pulse. */
 @keyframes mc-voice-pulse {
   0%,

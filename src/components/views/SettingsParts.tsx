@@ -73,6 +73,48 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
+/**
+ * A single setting presented on the app's surface card (same chrome as
+ * {@link ToggleRow}): a title, an optional description, then its control
+ * stacked below. Use for controls too wide to sit inline beside the label
+ * (selects, value pickers, sliders). Keeps settings pages visually consistent.
+ */
+export function SettingCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--surface-0)",
+        border: "1px solid var(--border)",
+        borderRadius: 7,
+        padding: "14px 16px",
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{title}</div>
+      {description && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--text-dim)",
+            lineHeight: 1.45,
+            marginTop: 3,
+          }}
+        >
+          {description}
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>{children}</div>
+    </div>
+  );
+}
+
 /** Row of discrete numeric options styled like a segmented picker (selected = accent + underline). */
 export function ValueRow<T extends number>({
   values,
@@ -100,6 +142,7 @@ export function ValueRow<T extends number>({
             key={candidate}
             type="button"
             role="radio"
+            className="term-value"
             aria-checked={selected}
             onClick={() => onSelect(candidate)}
             style={{

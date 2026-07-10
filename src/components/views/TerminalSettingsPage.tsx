@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Field, SettingsSection, ValueRow } from "~/components/views/SettingsParts";
+import { SettingCard, SettingsSection, ValueRow } from "~/components/views/SettingsParts";
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
 import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
@@ -83,7 +83,7 @@ function TerminalPreview({
           textAlign: "center",
         }}
       >
-        Terminal preview
+        Live preview
       </div>
       <pre
         style={{
@@ -243,168 +243,177 @@ export function TerminalSettingsPage() {
       subtitle="Typography for every terminal pane. Changes apply live to open sessions."
       headingLevel="h1"
     >
-      <Field label="Font family">
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 420 }}>
-          <select
-            value={fontFamily ?? ""}
-            aria-label="Terminal font family"
-            onChange={(event) => {
-              const value = event.target.value;
-              void save({ terminalFontFamily: value === "" ? null : value });
-            }}
-            style={{
-              width: "100%",
-              padding: "9px 10px",
-              borderRadius: 7,
-              border: "1px solid var(--border)",
-              background: "var(--surface-0)",
-              color: "var(--text)",
-              fontFamily: "var(--mono)",
-              fontSize: 12,
-            }}
-          >
-            <option value="">Theme default</option>
-            <optgroup label="Bundled">
-              {BUNDLED_TERMINAL_FONTS.map((family) => (
-                <option key={family} value={family}>
-                  {family}
-                </option>
-              ))}
-            </optgroup>
-            {(systemFonts.length > 0 || strayFamily) && (
-              <optgroup label="Installed on this Mac">
-                {strayFamily && (
-                  <option value={strayFamily}>{strayFamily} (not found)</option>
+      <div className="term-settings-shell">
+        <div className="term-settings">
+          <div className="term-settings__controls">
+            <SettingCard
+              title="Font family"
+              description="Bundled faces plus monospace fonts detected on your system. Theme default follows the active theme’s bundled face."
+            >
+              <select
+                value={fontFamily ?? ""}
+                aria-label="Terminal font family"
+                className="term-select"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  void save({ terminalFontFamily: value === "" ? null : value });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  borderRadius: 7,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface-1)",
+                  color: "var(--text)",
+                  fontFamily: "var(--mono)",
+                  fontSize: 12,
+                }}
+              >
+                <option value="">Theme default</option>
+                <optgroup label="Bundled">
+                  {BUNDLED_TERMINAL_FONTS.map((family) => (
+                    <option key={family} value={family}>
+                      {family}
+                    </option>
+                  ))}
+                </optgroup>
+                {(systemFonts.length > 0 || strayFamily) && (
+                  <optgroup label="Installed on this Mac">
+                    {strayFamily && (
+                      <option value={strayFamily}>{strayFamily} (not found)</option>
+                    )}
+                    {systemFonts.map((family) => (
+                      <option key={family} value={family}>
+                        {family}
+                      </option>
+                    ))}
+                  </optgroup>
                 )}
-                {systemFonts.map((family) => (
-                  <option key={family} value={family}>
-                    {family}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-          <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
-            Bundled faces plus monospace fonts detected on your system. Theme default
-            follows the active theme’s bundled face.
+              </select>
+            </SettingCard>
+
+            <SettingCard
+              title="Font weight"
+              description="Weight for regular text, and for bold runs like prompts and highlights."
+            >
+              <div className="term-weight">
+                <div className="term-weight__row">
+                  <span className="term-weight__key">Regular</span>
+                  <ValueRow
+                    values={TERMINAL_FONT_WEIGHTS}
+                    value={fontWeight}
+                    onSelect={(next) => void save({ terminalFontWeight: next })}
+                    ariaLabel="Weight for regular terminal text"
+                  />
+                </div>
+                <div className="term-weight__row">
+                  <span className="term-weight__key">Bold</span>
+                  <ValueRow
+                    values={TERMINAL_FONT_WEIGHTS}
+                    value={fontWeightBold}
+                    onSelect={(next) => void save({ terminalFontWeightBold: next })}
+                    ariaLabel="Weight for bold terminal text"
+                  />
+                </div>
+              </div>
+            </SettingCard>
+
+            <SettingCard
+              title="Default zoom"
+              description="Starting size for every terminal, until you zoom a pane from its header. Per-pane zoom is remembered separately."
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    fontFamily: "var(--mono)",
+                    fontSize: 11.5,
+                    color: "var(--text)",
+                  }}
+                >
+                  <span>{TERMINAL_ZOOM_LABELS[level]}</span>
+                  <span style={{ color: "var(--text-dim)" }}>{fontSize}px</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={TERMINAL_ZOOM_LEVELS.length - 1}
+                  step={1}
+                  value={TERMINAL_ZOOM_LEVELS.indexOf(level)}
+                  onChange={(event) => {
+                    const index = Number(event.currentTarget.value);
+                    const next = TERMINAL_ZOOM_LEVELS[index];
+                    if (next !== undefined)
+                      void save({ terminalZoomLevel: next as TerminalZoomLevel });
+                  }}
+                  aria-label="Default terminal zoom level"
+                  aria-valuemin={TERMINAL_ZOOM_MIN}
+                  aria-valuemax={TERMINAL_ZOOM_MAX}
+                  aria-valuenow={level}
+                  aria-valuetext={TERMINAL_ZOOM_LABELS[level]}
+                  style={{
+                    width: "100%",
+                    accentColor: "var(--accent)",
+                  }}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontFamily: "var(--mono)",
+                    fontSize: 10.5,
+                    color: "var(--text-faint)",
+                  }}
+                >
+                  {TERMINAL_ZOOM_LEVELS.map((step) => (
+                    <span key={step}>{step > 0 ? `+${step}` : step}</span>
+                  ))}
+                </div>
+              </div>
+            </SettingCard>
+
+            <SettingCard
+              title="Line height"
+              description="1.0 keeps box drawing and ANSI art flush; higher adds breathing room."
+            >
+              <ValueRow
+                values={TERMINAL_LINE_HEIGHTS}
+                value={lineHeight}
+                onSelect={(next) => void save({ terminalLineHeight: next })}
+                format={(v) => v.toFixed(1)}
+                ariaLabel="Spacing between terminal lines"
+              />
+            </SettingCard>
+
+            <SettingCard
+              title="Letter spacing"
+              description="Extra horizontal space between characters, in pixels."
+            >
+              <ValueRow
+                values={TERMINAL_LETTER_SPACINGS}
+                value={letterSpacing}
+                onSelect={(next) => void save({ terminalLetterSpacing: next })}
+                format={(v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))}
+                ariaLabel="Extra pixels between terminal characters"
+              />
+            </SettingCard>
           </div>
+
+          <aside className="term-settings__preview">
+            <TerminalPreview
+              fontFamily={previewFontFamily}
+              fontSize={fontSize}
+              fontWeight={fontWeight}
+              fontWeightBold={fontWeightBold}
+              lineHeight={lineHeight}
+              letterSpacing={letterSpacing}
+            />
+          </aside>
         </div>
-      </Field>
-
-      <Field label="Font weight">
-        <ValueRow
-          values={TERMINAL_FONT_WEIGHTS}
-          value={fontWeight}
-          onSelect={(next) => void save({ terminalFontWeight: next })}
-          ariaLabel="Weight for regular terminal text"
-        />
-      </Field>
-
-      <Field label="Bold font weight">
-        <ValueRow
-          values={TERMINAL_FONT_WEIGHTS}
-          value={fontWeightBold}
-          onSelect={(next) => void save({ terminalFontWeightBold: next })}
-          ariaLabel="Weight for bold terminal text"
-        />
-      </Field>
-
-      <Field label="Default zoom">
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 420 }}>
-          <div
-            style={{
-              fontSize: 12,
-              color: "var(--text-dim)",
-              lineHeight: 1.55,
-            }}
-          >
-            Applies to every terminal until you zoom that pane in or out from its header.
-            Per-pane zoom is remembered separately.
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              fontFamily: "var(--mono)",
-              fontSize: 11.5,
-              color: "var(--text)",
-            }}
-          >
-            <span>{TERMINAL_ZOOM_LABELS[level]}</span>
-            <span style={{ color: "var(--text-dim)" }}>{fontSize}px</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={TERMINAL_ZOOM_LEVELS.length - 1}
-            step={1}
-            value={TERMINAL_ZOOM_LEVELS.indexOf(level)}
-            onChange={(event) => {
-              const index = Number(event.currentTarget.value);
-              const next = TERMINAL_ZOOM_LEVELS[index];
-              if (next !== undefined) void save({ terminalZoomLevel: next as TerminalZoomLevel });
-            }}
-            aria-label="Default terminal zoom level"
-            aria-valuemin={TERMINAL_ZOOM_MIN}
-            aria-valuemax={TERMINAL_ZOOM_MAX}
-            aria-valuenow={level}
-            aria-valuetext={TERMINAL_ZOOM_LABELS[level]}
-            style={{
-              width: "100%",
-              accentColor: "var(--accent)",
-            }}
-          />
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              color: "var(--text-faint)",
-            }}
-          >
-            {TERMINAL_ZOOM_LEVELS.map((step) => (
-              <span key={step}>{step > 0 ? `+${step}` : step}</span>
-            ))}
-          </div>
-        </div>
-      </Field>
-
-      <Field label="Line height">
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <ValueRow
-            values={TERMINAL_LINE_HEIGHTS}
-            value={lineHeight}
-            onSelect={(next) => void save({ terminalLineHeight: next })}
-            format={(v) => v.toFixed(1)}
-            ariaLabel="Spacing between terminal lines"
-          />
-          <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
-            1.0 keeps box drawing and ANSI art flush; higher values add breathing room.
-          </div>
-        </div>
-      </Field>
-
-      <Field label="Letter spacing">
-        <ValueRow
-          values={TERMINAL_LETTER_SPACINGS}
-          value={letterSpacing}
-          onSelect={(next) => void save({ terminalLetterSpacing: next })}
-          format={(v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))}
-          ariaLabel="Extra pixels between terminal characters"
-        />
-      </Field>
-
-      <TerminalPreview
-        fontFamily={previewFontFamily}
-        fontSize={fontSize}
-        fontWeight={fontWeight}
-        fontWeightBold={fontWeightBold}
-        lineHeight={lineHeight}
-        letterSpacing={letterSpacing}
-      />
+      </div>
     </SettingsSection>
   );
 }

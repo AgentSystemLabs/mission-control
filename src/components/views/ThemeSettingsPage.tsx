@@ -1,6 +1,6 @@
 import { useId, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Field, SettingsSection } from "~/components/views/SettingsParts";
+import { Field, SettingCard, SettingsSection } from "~/components/views/SettingsParts";
 import { AccentColorGrid } from "~/components/views/AccentColorPicker";
 import { ThemeStylePreview } from "~/components/views/ThemeStylePreview";
 import { Icon } from "~/components/ui/Icon";
@@ -271,53 +271,51 @@ export function ThemeSettingsPage() {
       <Field label="Surface tint">
         <SurfaceTintToggle tint={surfaceTint} onChange={setSurfaceTint} />
       </Field>
-      <Field label="Interface font family">
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 420 }}>
-          <select
-            value={interfaceFontFamily ?? ""}
-            aria-label="Interface font family"
-            onChange={(event) => {
-              const value = event.target.value;
-              void setInterfaceFontFamily(value === "" ? null : value);
-            }}
-            style={{
-              width: "100%",
-              padding: "9px 10px",
-              borderRadius: 7,
-              border: "1px solid var(--border)",
-              background: "var(--surface-0)",
-              color: "var(--text)",
-              fontFamily: "var(--mono)",
-              fontSize: 12,
-            }}
-          >
-            <option value="">Theme default</option>
-            {strayInterfaceFamily && (
-              <option value={strayInterfaceFamily}>
-                {strayInterfaceFamily} (not found)
-              </option>
-            )}
-            {detectedInterfaceFonts.map((family) => (
-              <option key={family} value={family}>
-                {family}
-              </option>
-            ))}
-          </select>
-          <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
-            Used for the application UI. Pulls from fonts installed on your system;
-            terminal text is configured on the Terminal tab.
-          </div>
-        </div>
-      </Field>
-      <Field label="Interface font scale">
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <InterfaceScaleRow scale={interfaceFontScale} onChange={setInterfaceFontScale} />
-          <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
-            Adjusts the size of all UI elements. Currently{" "}
-            {Math.round(interfaceFontScale * 100)}%.
-          </div>
-        </div>
-      </Field>
+      <SettingCard
+        title="Interface font family"
+        description="Used for the application UI. Pulls from fonts installed on your system; terminal text is configured on the Terminal tab."
+      >
+        <select
+          value={interfaceFontFamily ?? ""}
+          aria-label="Interface font family"
+          className="term-select"
+          onChange={(event) => {
+            const value = event.target.value;
+            void setInterfaceFontFamily(value === "" ? null : value);
+          }}
+          style={{
+            width: "100%",
+            maxWidth: 440,
+            padding: "9px 10px",
+            borderRadius: 7,
+            border: "1px solid var(--border)",
+            background: "var(--surface-1)",
+            color: "var(--text)",
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+          }}
+        >
+          <option value="">Theme default</option>
+          {strayInterfaceFamily && (
+            <option value={strayInterfaceFamily}>
+              {strayInterfaceFamily} (not found)
+            </option>
+          )}
+          {detectedInterfaceFonts.map((family) => (
+            <option key={family} value={family}>
+              {family}
+            </option>
+          ))}
+        </select>
+      </SettingCard>
+      <SettingCard
+        title="Interface font scale"
+        description={`Adjusts the size of all UI elements. Currently ${Math.round(
+          interfaceFontScale * 100,
+        )}%.`}
+      >
+        <InterfaceScaleRow scale={interfaceFontScale} onChange={setInterfaceFontScale} />
+      </SettingCard>
     </SettingsSection>
   );
 }
