@@ -27,7 +27,10 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
+import { GridLayoutButton } from "~/components/views/GridLayoutButton";
+import { NewSessionGridDialog } from "~/components/views/NewSessionGridDialog";
 import { SessionGrid } from "~/components/views/SessionGrid";
+import { saveGridColumnLimit } from "~/lib/grid-layout-prefs";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { enterFocusSession } from "~/lib/focus-session";
 import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
@@ -569,6 +572,8 @@ function ProjectPage() {
     if (projectPathBlocked) closeDiffView();
   }, [projectPathBlocked, closeDiffView]);
   const [showNewAgent, setShowNewAgent] = useState(false);
+  // The grid-shape batch launcher ("new session grid") — grid view only.
+  const [showNewSessionGrid, setShowNewSessionGrid] = useState(false);
   // Where the session created from the New Agent dialog should land in the grid:
   // "newRow" is set by the grid's "New row" button so the result starts a fresh
   // row; "default" (the New session button / hotkey) uses the current row.
@@ -1635,6 +1640,46 @@ function ProjectPage() {
       { focusOnCreate: true },
     );
   }, [project, createSession, cliAvailability, showAgentUpdateRequired, terminals]);
+
+  // Launch a whole batch of sessions shaped rows×cols (the "new session grid"
+  // dialog). The column count becomes the scope's sessions-per-row lock — the
+  // grid reflows to it and the arriving batch stacks into fresh rows of that
+  // width (via the store's session-batch claim), so the result is the shape
+  // the user picked rather than sessions appended wherever the anchor sits.
+  const startSessionsInGrid = useCallback(
+    ({ agent, rows, cols }: { agent: TaskAgent; rows: number; cols: number }) => {
+      if (!project) return;
+      const availability = availabilityFor(cliAvailability, agent);
+      if (availability.status === "outdated") {
+        showAgentUpdateRequired(agent, availability);
+        return;
+      }
+      saveGridColumnLimit(selectedScopeKey, cols);
+      const count = rows * cols;
+      terminals.requestSessionBatch(selectedScopeKey, count);
+      // Reuse the remembered per-agent settings when they describe this agent;
+      // a different agent starts with the safe defaults.
+      const savedMatches = !!(project.rememberAgentSettings && project.savedAgent === agent);
+      const payload = {
+        agent,
+        branch: project.branch || DEFAULT_BRANCH,
+        skipPermissions: savedMatches ? !!project.savedSkipPermissions : false,
+        bareSession:
+          agent === "claude-code" && savedMatches ? !!project.savedBareSession : false,
+      };
+      for (let i = 0; i < count; i++) {
+        void createSession(payload, { focusOnCreate: i === 0 });
+      }
+    },
+    [
+      project,
+      cliAvailability,
+      showAgentUpdateRequired,
+      selectedScopeKey,
+      terminals,
+      createSession,
+    ],
+  );
 
   const onNewAgentPrimary = useCallback(() => {
     if (!projectPathReady) return;
@@ -2952,6 +2997,12 @@ function ProjectPage() {
               onChange={setSessionView}
             />
           )}
+          {/* Grid arrangement (row width lock + sort) edits the persisted Active
+           * layout, so it hides in the read-through Pinned tab — mirrors how the
+           * grid disables reorder/resize there. */}
+          {showGrid && !showPinned && (
+            <GridLayoutButton scopeKey={selectedScopeKey} />
+          )}
           <div
             style={{
               display: "inline-flex",
@@ -3026,6 +3077,13 @@ function ProjectPage() {
                 project={project}
                 onPrimary={onNewAgentPrimary}
                 onNewRow={showGrid ? onNewRowPrimary : undefined}
+                onNewGrid={
+                  gridViewActive && !showArchived
+                    ? () => {
+                        if (projectPathReady) setShowNewSessionGrid(true);
+                      }
+                    : undefined
+                }
                 disabled={!projectPathReady}
                 onConfigure={() => {
                   if (projectPathReady) setShowNewAgent(true);
@@ -3435,6 +3493,14 @@ function ProjectPage() {
             throw error;
           }
         }}
+      />
+
+      <NewSessionGridDialog
+        open={showNewSessionGrid}
+        onClose={() => setShowNewSessionGrid(false)}
+        cliAvailability={cliAvailability}
+        defaultAgent={project.rememberAgentSettings ? project.savedAgent : null}
+        onCreate={startSessionsInGrid}
       />
 
       <ProjectDialog

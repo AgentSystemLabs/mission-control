@@ -21,6 +21,13 @@ import { Tooltip } from "~/components/ui/Tooltip";
 import { archiveOpenSession } from "~/lib/archive-session";
 import { AGENT_META, GRID_EXPAND_TOGGLE_EVENT, STATUS_META } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
+import {
+  GRID_PREFS_EVENT,
+  GRID_SORT_EVENT,
+  loadGridColumnLimit,
+  type GridPrefsEventDetail,
+  type GridSortEventDetail,
+} from "~/lib/grid-layout-prefs";
 import { matchBinding } from "~/lib/keybindings/match";
 import { useKeybindings } from "~/lib/keybindings/store";
 import { DEFAULT_SESSION_ICON, isSessionIcon } from "~/lib/session-icons";
@@ -189,16 +196,68 @@ export function frTracks(weights: number[]): string {
 }
 
 /** A fresh scope with no saved layout seeds this near-square shape (mirrors the
- *  old auto-grid: `ceil(√n)` columns per row) so the first paint doesn't jump. */
-function chunkIntoRows(ids: string[]): GridLayout {
+ *  old auto-grid: `ceil(√n)` columns per row) so the first paint doesn't jump.
+ *  With a sessions-per-row lock the locked width wins over the square shape. */
+export function chunkIntoRows(ids: string[], maxPerRow: number | null = null): GridLayout {
   if (ids.length === 0) return EMPTY_LAYOUT;
-  const columns = ids.length <= 1 ? 1 : Math.ceil(Math.sqrt(ids.length));
+  const columns =
+    maxPerRow ?? (ids.length <= 1 ? 1 : Math.ceil(Math.sqrt(ids.length)));
   const rows: GridRow[] = [];
   for (let i = 0; i < ids.length; i += columns) {
     const cells = ids.slice(i, i + columns);
     rows.push({ cells, colSizes: cells.map(() => 1) });
   }
   return { rows, rowSizes: rows.map(() => 1) };
+}
+
+/** Reflow the layout's cells — current reading order kept — into rows of
+ *  exactly `columns` (last row may be short). Sizes reset to equal tracks: the
+ *  old weights described a different shape, carrying them over would skew the
+ *  fresh rows unpredictably. Used when the user picks a row width. */
+export function reflowToColumns(layout: GridLayout, columns: number): GridLayout {
+  return chunkIntoRows(
+    layout.rows.flatMap((r) => r.cells),
+    Math.max(1, columns),
+  );
+}
+
+/** Re-seat `orderedIds` into the layout's existing shape: every row keeps its
+ *  cell count, column widths, and height — only the occupants change, in
+ *  reading order. Ids not in the layout are ignored; layout cells missing from
+ *  `orderedIds` keep their relative order at the end (defensive — callers pass
+ *  a permutation). Used by "sort by agent" so sorting never reshapes the grid. */
+export function pourIdsIntoShape(layout: GridLayout, orderedIds: string[]): GridLayout {
+  const present = new Set(layout.rows.flatMap((r) => r.cells));
+  const queue = orderedIds.filter((id) => present.has(id));
+  const seen = new Set(queue);
+  for (const row of layout.rows) {
+    for (const id of row.cells) if (!seen.has(id)) queue.push(id);
+  }
+  const next = cloneLayout(layout);
+  let i = 0;
+  for (const row of next.rows) {
+    row.cells = row.cells.map(() => queue[i++]!);
+  }
+  return next;
+}
+
+/** Stable agent-grouped order: `firstAgent`'s sessions lead, the rest follow
+ *  grouped by agent in the given registry order, each group keeping the cells'
+ *  current reading order. */
+export function sortIdsByAgentFirst(
+  cells: Array<{ id: string; agent: string }>,
+  firstAgent: string,
+  agentOrder: readonly string[],
+): string[] {
+  const rank = (agent: string): number => {
+    if (agent === firstAgent) return -1;
+    const idx = agentOrder.indexOf(agent);
+    return idx === -1 ? agentOrder.length : idx;
+  };
+  return cells
+    .map((cell, i) => ({ cell, i }))
+    .sort((a, b) => rank(a.cell.agent) - rank(b.cell.agent) || a.i - b.i)
+    .map((e) => e.cell.id);
 }
 
 /** Row/column of a cell within the layout, or null if absent. */
@@ -228,14 +287,55 @@ function dropEmptyRows(layout: GridLayout): GridLayout {
   return { rows, rowSizes };
 }
 
+/** Append `ids` starting at `startRow`, honoring a sessions-per-row cap: fill
+ *  the first row from `startRow` down that still has space, then the next, and
+ *  open fresh rows once every existing row below is full. Mutates `layout`
+ *  (callers pass a clone). With no cap every id lands on the start row. */
+function placeWithRowCap(
+  layout: GridLayout,
+  ids: string[],
+  startRow: number,
+  maxPerRow: number | null,
+): void {
+  // `startRow` may point one past the end ("start a fresh row"): the loop
+  // below opens the row on demand.
+  let rowIdx = Math.max(0, Math.min(startRow, layout.rows.length));
+  for (const id of ids) {
+    while (
+      rowIdx < layout.rows.length &&
+      maxPerRow !== null &&
+      layout.rows[rowIdx]!.cells.length >= maxPerRow
+    ) {
+      rowIdx += 1;
+    }
+    if (rowIdx >= layout.rows.length) {
+      layout.rows.push({ cells: [], colSizes: [] });
+      layout.rowSizes.push(1);
+    }
+    const row = layout.rows[rowIdx]!;
+    row.colSizes.push(row.cells.length > 0 ? meanWeight(row.colSizes) : 1);
+    row.cells.push(id);
+  }
+}
+
 /** Reconcile a base layout against the live scoped sessions: follow id renames,
  *  prune closed cells (and empty rows), then place genuinely-new sessions —
- *  beside their clone source, in a fresh row, or appended to the current row. */
-function reconcileLayout(
+ *  beside their clone source, in a fresh row, or appended to the current row.
+ *  A sessions-per-row lock (`maxPerRow`) reroutes any placement that would
+ *  overfill a row into the next row with space, else a fresh row. */
+export function reconcileLayout(
   base: GridLayout,
   liveIds: string[],
   renames: Array<{ from: string; to: string }>,
-  placement: { cloneAfter: string | null; newRow: boolean; anchor: string | null },
+  placement: {
+    cloneAfter: string | null;
+    newRow: boolean;
+    anchor: string | null;
+    maxPerRow?: number | null;
+    /** Active grid-shape batch: `first` opens the block in a fresh bottom row,
+     *  continuations keep filling the block's rows. */
+    batch?: { first: boolean } | null;
+  },
 ): GridLayout {
   const idSet = new Set(liveIds);
   const layout = cloneLayout(base);
@@ -265,21 +365,45 @@ function reconcileLayout(
   const added = liveIds.filter((id) => !placed.has(id));
   if (added.length === 0) return next;
 
+  const maxPerRow = placement.maxPerRow ?? null;
+  if (placement.batch) {
+    // Batch block placement: the opening claim starts a fresh bottom row (so
+    // the block never tops up a pre-existing partial row); continuations start
+    // at the current bottom row — the one the block is mid-filling — and wrap
+    // into new rows at the cap.
+    const start = placement.batch.first
+      ? next.rows.length
+      : Math.max(0, next.rows.length - 1);
+    placeWithRowCap(next, added, start, maxPerRow);
+    return next;
+  }
   const cloneAt = placement.cloneAfter ? findCell(next.rows, placement.cloneAfter) : null;
   if (cloneAt) {
     const row = next.rows[cloneAt.row]!;
-    const weight = meanWeight(row.colSizes);
-    row.cells.splice(cloneAt.col + 1, 0, ...added);
-    row.colSizes.splice(cloneAt.col + 1, 0, ...added.map(() => weight));
+    // Beside the clone source only while the source's row has room for the
+    // whole insert; a full (locked) row falls through to the flow placement
+    // below, starting its scan at the source's row.
+    if (maxPerRow === null || row.cells.length + added.length <= maxPerRow) {
+      const weight = meanWeight(row.colSizes);
+      row.cells.splice(cloneAt.col + 1, 0, ...added);
+      row.colSizes.splice(cloneAt.col + 1, 0, ...added.map(() => weight));
+      return next;
+    }
+    placeWithRowCap(next, added, cloneAt.row + 1, maxPerRow);
     return next;
   }
   if (placement.newRow || next.rows.length === 0) {
-    next.rows.push({ cells: added.slice(), colSizes: added.map(() => 1) });
-    next.rowSizes.push(1);
+    // A fresh bottom row — with a lock, a batch wider than the cap wraps into
+    // further fresh rows instead of overfilling the one row.
+    placeWithRowCap(next, added, next.rows.length, maxPerRow);
     return next;
   }
   const anchorAt = placement.anchor ? findCell(next.rows, placement.anchor) : null;
   const targetRow = anchorAt ? anchorAt.row : next.rows.length - 1;
+  if (maxPerRow !== null) {
+    placeWithRowCap(next, added, targetRow, maxPerRow);
+    return next;
+  }
   const row = next.rows[targetRow]!;
   const weight = meanWeight(row.colSizes);
   row.cells.push(...added);
@@ -319,8 +443,9 @@ function moveCellInLayout(
 
 /** Surface/scope key for a session — mirrors TerminalPanel so the grid reuses
  *  the same cached xterm surface (and live PTY) as the single-panel view, and
- *  matches the route's `selectedScopeKey` exactly so we can filter by it. */
-function scopeKeyFor(session: OpenTerminal): string {
+ *  matches the route's `selectedScopeKey` exactly so we can filter by it.
+ *  Exported so the header's grid-layout dropdown scopes sessions identically. */
+export function scopeKeyFor(session: OpenTerminal): string {
   return `${worktreeScopeKey(session.project.id, session.project.activeWorktreeId)}:${
     session.project.activeRuntimeScopeId ?? LOCAL_SCOPE_ID
   }`;
@@ -652,6 +777,7 @@ export function SessionGrid({
     gridFocusRequest,
     takeCloneInsertAfter,
     takeNewRowRequest,
+    takeSessionBatch,
     takeSessionIdRenames,
     noteGridFocusedTask,
     activeTaskIdFor,
@@ -684,6 +810,12 @@ export function SessionGrid({
   // leaving grid view and app restarts.
   const [hiddenTaskIds, setHiddenTaskIds] = useState<ReadonlySet<string>>(() =>
     loadHiddenTaskIds(scopeKey),
+  );
+  // The scope's sessions-per-row lock (null = auto). Owned by the header's
+  // layout dropdown, persisted per scope; the grid re-reads it on the prefs
+  // event below and threads it into reconcile so new sessions respect it.
+  const [columnLimit, setColumnLimit] = useState<number | null>(() =>
+    loadGridColumnLimit(scopeKey),
   );
   // The most recently hidden session, restored when Cmd/Ctrl+L fires with no
   // visible session left to hide (every session hidden) — mirrors the single-
@@ -815,6 +947,7 @@ export function SessionGrid({
     scopeSwapRef.current = scopeKey;
     setLayout(loadGridLayout(scopeKey) ?? EMPTY_LAYOUT);
     setHiddenTaskIds(loadHiddenTaskIds(scopeKey));
+    setColumnLimit(loadGridColumnLimit(scopeKey));
     lastHiddenTaskIdRef.current = null;
     setExpandedTaskId(null);
     setNavTaskId(null);
@@ -839,11 +972,20 @@ export function SessionGrid({
     const scopeChanged = prevScopeRef.current !== scopeKey;
     // A scope switch isn't a create, so it never consumes a clone/new-row request.
     const prevIds = scopeChanged ? new Set<string>() : prevIdsRef.current;
-    const hasNewSession =
-      !scopeChanged &&
-      liveIds.some((id) => !prevIds.has(id) && !renames.some((r) => r.to === id));
-    const cloneAfter = hasNewSession ? takeCloneInsertAfter() : null;
-    const newRow = hasNewSession ? takeNewRowRequest() : false;
+    // On a scope switch/mount every live id counts as newly seen — that only
+    // matters for the batch claim below (a batch launched into an empty scope
+    // mounts the grid mid-batch, and its opening sessions arrive on this very
+    // pass; the seed/reconcile shapes them via the row cap).
+    const newIds = liveIds.filter(
+      (id) => !prevIds.has(id) && !renames.some((r) => r.to === id),
+    );
+    const hasNewSession = !scopeChanged && newIds.length > 0;
+    // A pending session batch (the grid-shape launcher) claims new arrivals
+    // first — batch sessions stack into fresh bottom rows, so the ordinary
+    // clone/new-row requests don't apply to them.
+    const batch = newIds.length > 0 ? takeSessionBatch(scopeKey, newIds.length) : null;
+    const cloneAfter = hasNewSession && !batch ? takeCloneInsertAfter() : null;
+    const newRow = hasNewSession && !batch ? takeNewRowRequest() : false;
     const anchor = lastFocusedTaskIdRef.current;
     prevScopeRef.current = scopeKey;
     prevIdsRef.current = new Set(liveIds);
@@ -854,8 +996,14 @@ export function SessionGrid({
       // dumping every session into one row.
       const next =
         base === null || (scopeChanged && base.rows.length === 0)
-          ? chunkIntoRows(liveIds)
-          : reconcileLayout(base, liveIds, renames, { cloneAfter, newRow, anchor });
+          ? chunkIntoRows(liveIds, columnLimit)
+          : reconcileLayout(base, liveIds, renames, {
+              cloneAfter,
+              newRow,
+              anchor,
+              maxPerRow: columnLimit,
+              batch,
+            });
       if (!scopeChanged && layoutSig(next) === layoutSig(prev)) return prev;
       if (next.rows.length > 0) saveGridLayout(scopeKey, next);
       return next;
@@ -865,10 +1013,64 @@ export function SessionGrid({
     // grid with reorder/resize disabled while no cell is visibly expanded. (The
     // scope-swap above already cleared transient state on a project change.)
     setExpandedTaskId((prev) => (prev && !idSet.has(prev) ? null : prev));
-  }, [scopedSessions, scopeKey]);
+  }, [scopedSessions, scopeKey, columnLimit]);
 
   useEffect(() => () => cleanupDragRef.current?.(), []);
   useEffect(() => () => resizeCleanupRef.current?.(), []);
+
+  // The header's layout dropdown lives outside this component, so it talks to
+  // the mounted grid over window events (the GRID_EXPAND_TOGGLE_EVENT bridge
+  // pattern). Handlers run through render-refreshed refs so the two listeners
+  // subscribe exactly once.
+  const onGridPrefsRef = useRef<(scope: string) => void>(() => {});
+  onGridPrefsRef.current = (scope: string) => {
+    if (scope !== scopeKey) return;
+    const limit = loadGridColumnLimit(scopeKey);
+    setColumnLimit(limit);
+    // Picking a width reflows the existing cells right away — the lock alone
+    // would only shape sessions created later. "Auto" just drops the lock and
+    // leaves the current arrangement untouched.
+    if (limit === null) return;
+    setLayout((prev) => {
+      const next = reflowToColumns(prev, limit);
+      // Same shape already: keep the user's resized tracks instead of
+      // resetting them (the signature ignores sizes).
+      if (layoutSig(next) === layoutSig(prev)) return prev;
+      saveGridLayout(scopeKey, next);
+      return next;
+    });
+  };
+  const onGridSortRef = useRef<(scope: string, firstAgent: string) => void>(() => {});
+  onGridSortRef.current = (scope: string, firstAgent: string) => {
+    if (scope !== scopeKey) return;
+    // Agents never change over a session's life, so the open-time snapshot on
+    // the store's session is safe to sort by.
+    const agentById = new Map(allScopedSessions.map((s) => [s.taskId, s.task.agent]));
+    setLayout((prev) => {
+      const cells = prev.rows
+        .flatMap((r) => r.cells)
+        .map((id) => ({ id, agent: agentById.get(id) ?? "" }));
+      const order = sortIdsByAgentFirst(cells, firstAgent, Object.keys(AGENT_META));
+      const next = pourIdsIntoShape(prev, order);
+      if (layoutSig(next) === layoutSig(prev)) return prev;
+      saveGridLayout(scopeKey, next);
+      return next;
+    });
+  };
+  useEffect(() => {
+    const onPrefs = (e: Event) =>
+      onGridPrefsRef.current((e as CustomEvent<GridPrefsEventDetail>).detail.scopeKey);
+    const onSort = (e: Event) => {
+      const detail = (e as CustomEvent<GridSortEventDetail>).detail;
+      onGridSortRef.current(detail.scopeKey, detail.firstAgent);
+    };
+    window.addEventListener(GRID_PREFS_EVENT, onPrefs);
+    window.addEventListener(GRID_SORT_EVENT, onSort);
+    return () => {
+      window.removeEventListener(GRID_PREFS_EVENT, onPrefs);
+      window.removeEventListener(GRID_SORT_EVENT, onSort);
+    };
+  }, []);
 
   // Track which cell most recently held focus, to anchor "current row" appends.
   useEffect(() => {

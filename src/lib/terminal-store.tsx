@@ -168,6 +168,15 @@ type Ctx = {
   requestNewRow: () => void;
   /** Consume the pending new-row request (true if one is queued). */
   takeNewRowRequest: () => boolean;
+  /** Declare that the next `count` new sessions in `scopeKey` belong to one
+   *  batch (the "new session grid" launcher): the grid stacks them into fresh
+   *  bottom rows, ignoring the usual beside-the-anchor placement. */
+  requestSessionBatch: (scopeKey: string, count: number) => void;
+  /** Claim `count` newly-arrived sessions against the pending batch. Null when
+   *  none is pending for `scopeKey`; otherwise `first` says whether this claim
+   *  opened the batch (the grid starts a fresh row) or continues it (bottom
+   *  rows fill). */
+  takeSessionBatch: (scopeKey: string, count: number) => { first: boolean } | null;
   /** Consume any provisional→persisted session id renames since the last call,
    *  so views keyed by taskId can preserve position across adoption. */
   takeSessionIdRenames: () => Array<{ from: string; to: string }>;
@@ -696,6 +705,29 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     const pending = newRowRequestRef.current;
     newRowRequestRef.current = false;
     return pending;
+  }, []);
+  // Pending batch from the "new session grid" launcher. Sessions trickle into
+  // the grid across several reconcile passes (each create is async), so a
+  // one-shot flag can't shape the whole batch — this counts arrivals down and
+  // tells the grid whether a pass opens the batch or continues it. A ref for
+  // the same reason as the requests above: consumed, never rendered.
+  const sessionBatchRef = useRef<{
+    scopeKey: string;
+    remaining: number;
+    started: boolean;
+  } | null>(null);
+  const requestSessionBatch = useCallback((scopeKey: string, count: number) => {
+    sessionBatchRef.current =
+      count > 0 ? { scopeKey, remaining: count, started: false } : null;
+  }, []);
+  const takeSessionBatch = useCallback((scopeKey: string, count: number) => {
+    const batch = sessionBatchRef.current;
+    if (!batch || batch.scopeKey !== scopeKey) return null;
+    const first = !batch.started;
+    batch.started = true;
+    batch.remaining -= count;
+    if (batch.remaining <= 0) sessionBatchRef.current = null;
+    return { first };
   }, []);
   const sessionIdRenamesRef = useRef<Array<{ from: string; to: string }>>([]);
   const takeSessionIdRenames = useCallback(() => {
@@ -1243,6 +1275,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       getGridFocusedTaskId,
       requestNewRow,
       takeNewRowRequest,
+      requestSessionBatch,
+      takeSessionBatch,
       takeSessionIdRenames,
     }),
     [
@@ -1273,6 +1307,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       getGridFocusedTaskId,
       requestNewRow,
       takeNewRowRequest,
+      requestSessionBatch,
+      takeSessionBatch,
       takeSessionIdRenames,
     ]
   );
