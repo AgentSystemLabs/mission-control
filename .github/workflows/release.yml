@@ -194,7 +194,7 @@ jobs:
       # node-gyp 9.x (pulled in transitively by @electron/rebuild) imports
       # distutils, which Python 3.12 removed. macOS runners ship 3.12+, so
       # pin the 3.11 line to keep native rebuilds (node-pty under x64 cross-build) working.
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
 
