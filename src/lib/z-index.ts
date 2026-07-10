@@ -5,4 +5,6 @@
  */
 export const Z_INDEX = {
   popover: 10000,
+  /** Mission Pet corner companion — above panels, below modals (9999) and popovers. */
+  pet: 9500,
 } as const;

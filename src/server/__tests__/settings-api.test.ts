@@ -970,6 +970,79 @@ describe("settings API", () => {
     });
   });
 
+  it("enables the pet with messages on and sounds off by default, with no stored state", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      petEnabled: true,
+      petMessagesEnabled: true,
+      petSoundsEnabled: false,
+      petState: null,
+    });
+  });
+
+  it("round-trips pet state, normalizing level from xp", async () => {
+    const petState = {
+      version: 1,
+      name: "  Draco  ",
+      xp: 160,
+      level: 1, // stale on purpose — the server recomputes from xp
+      personality: { snark: 7, wisdom: 4, chaos: 12, zen: -1 },
+      createdAt: 1700000000000,
+    };
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ petEnabled: false, petState }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    const expected = {
+      version: 1,
+      name: "Draco",
+      xp: 160,
+      level: 3, // 160 xp crosses the 150 threshold
+      personality: { snark: 7, wisdom: 4, chaos: 10, zen: 0 },
+      createdAt: 1700000000000,
+    };
+    expect(await jsonBody(update!)).toMatchObject({ petEnabled: false, petState: expected });
+    expect(await jsonBody(read!)).toMatchObject({ petEnabled: false, petState: expected });
+  });
+
+  it("clears stored pet state when sent garbage", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          petState: {
+            version: 1,
+            name: "Pixel",
+            xp: 10,
+            level: 1,
+            personality: { snark: 1, wisdom: 1, chaos: 1, zen: 1 },
+            createdAt: 1700000000000,
+          },
+        }),
+      }),
+    );
+    const cleared = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ petState: "not a pet" }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(cleared?.status).toBe(200);
+    expect(await jsonBody(read!)).toMatchObject({ petState: null });
+  });
+
   // Regression: GET /api/settings used to anonymously return the API bearer
   // token in the JSON body, collapsing the entire auth tier.
   // See todos/bugs/done/02-api-settings-leaks-bearer-token.md.

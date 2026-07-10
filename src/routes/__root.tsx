@@ -65,6 +65,8 @@ import { SessionNotificationsButton } from "~/components/views/SessionNotificati
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
+import { usePetController } from "~/lib/pet/use-pet-controller";
+import { PetWidget } from "~/components/pet/PetWidget";
 import {
   mergeAppNotificationLists,
   useDiagramReadyNotificationList,
@@ -325,6 +327,9 @@ function Shell() {
     : null;
 
   useNavigationSwipe();
+  // Above the focus-mode early return on purpose: the pet keeps folding events
+  // (and accruing XP) while focus mode hides the widget itself.
+  usePetController();
   const sessionNotifications = useSessionFinishNotifications();
   const diagramNotificationList = useDiagramReadyNotificationList();
   const appNotifications = useMemo(
@@ -716,7 +721,8 @@ function Shell() {
           position="bottom-right"
           theme="dark"
           closeButton
-          offset={16}
+          // Toasts stack above the Mission Pet when it occupies the corner.
+          offset={settings?.petEnabled ?? true ? { bottom: 132, right: 16 } : 16}
           icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{
             unstyled: true,
@@ -726,6 +732,7 @@ function Shell() {
           }}
         />
         <VoiceController />
+        <PetWidget />
       </div>
       <ConfirmDialog
         open={!!closeIntentTarget}

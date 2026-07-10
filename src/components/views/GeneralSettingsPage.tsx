@@ -33,6 +33,9 @@ import { isElectron } from "~/lib/electron";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
+import { DEFAULT_PET_NAME } from "~/shared/pet";
+import { petRename } from "~/lib/pet/pet-store";
+import { TextField } from "~/components/ui/TextField";
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
@@ -51,6 +54,15 @@ export function GeneralSettingsPage() {
   );
   const [permission, setPermission] = useState<OsNotificationPermission>("default");
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
+  const petEnabled = settings?.petEnabled ?? true;
+  const petMessagesEnabled = settings?.petMessagesEnabled ?? true;
+  const petSoundsEnabled = settings?.petSoundsEnabled ?? false;
+  const petState = settings?.petState ?? null;
+  const [petNameDraft, setPetNameDraft] = useState("");
+
+  useEffect(() => {
+    setPetNameDraft(petState?.name ?? "");
+  }, [petState?.name]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -83,6 +95,9 @@ export function GeneralSettingsPage() {
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
+        | "petEnabled"
+        | "petMessagesEnabled"
+        | "petSoundsEnabled"
       >
     >,
   ): AppSettings => ({
@@ -132,6 +147,10 @@ export function GeneralSettingsPage() {
     recallCodeGraphEnabled: settings?.recallCodeGraphEnabled ?? true,
     recallProactiveRecallEnabled: settings?.recallProactiveRecallEnabled ?? true,
     recallLearnedToastEnabled: settings?.recallLearnedToastEnabled ?? true,
+    petEnabled: settings?.petEnabled ?? true,
+    petMessagesEnabled: settings?.petMessagesEnabled ?? true,
+    petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,
     ...patch,
@@ -149,6 +168,9 @@ export function GeneralSettingsPage() {
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
+        | "petEnabled"
+        | "petMessagesEnabled"
+        | "petSoundsEnabled"
       >
     >,
   ) => {
@@ -356,6 +378,68 @@ export function GeneralSettingsPage() {
             </div>
           )}
         </Field>
+      </SettingsSection>
+      <SettingsSection
+        title="Mission Pet"
+        subtitle="An ambient companion that reacts to real agent activity — no care chores, your work is its life."
+      >
+        <Field label="Pet">
+          <ToggleRow
+            title="Show pet"
+            description="A small companion lives in the bottom-right corner: it works when your agents work, celebrates finished sessions, and hops when one is blocked on you."
+            checked={petEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petEnabled: enabled })}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Speech bubbles">
+          <ToggleRow
+            title="Commentary"
+            description="One-liners on real events — finished sessions, ships, blocked agents. Rate-limited so it stays charming."
+            checked={petMessagesEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petMessagesEnabled: enabled })}
+            disabled={!petEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Sounds">
+          <ToggleRow
+            title="Level-up chime"
+            description="A soft chime when the pet levels up. XP comes only from finished sessions, ships, and PRs."
+            checked={petSoundsEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petSoundsEnabled: enabled })}
+            disabled={!petEnabled}
+            label="Enable"
+          />
+        </Field>
+        {petEnabled && petState ? (
+          <Field label="Identity">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <TextField
+                label="Name"
+                value={petNameDraft}
+                onChange={setPetNameDraft}
+                onBlur={() => {
+                  // Rename through the store so the live pet updates and the
+                  // controller persists it (a direct settings write would be
+                  // overwritten by the store's next debounced save).
+                  if (petNameDraft.trim()) petRename(petNameDraft);
+                  else setPetNameDraft(petState.name);
+                }}
+                placeholder={DEFAULT_PET_NAME}
+                spellCheck={false}
+              />
+              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                Lv {petState.level} · {petState.xp} XP
+                <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span>
+                Snark {petState.personality.snark} · Wisdom {petState.personality.wisdom} ·
+                Chaos {petState.personality.chaos} · Zen {petState.personality.zen}
+                <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span>
+                personality is rolled once per install
+              </div>
+            </div>
+          </Field>
+        ) : null}
       </SettingsSection>
       <AboutSection />
       <ReloadSection />

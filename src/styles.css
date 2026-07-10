@@ -3572,3 +3572,368 @@ body[data-card-glow] .cursor-glow {
   --mc-card-bottom: color-mix(in srgb, var(--accent) 5%, #1f1f1f8c);
   --mc-card-glow: 0.11;
 }
+
+/* ===================== Mission Pet ===================== */
+/* Floating corner companion (src/components/pet/). All theming via tokens so
+   the pet adapts to every style × accent; all motion here, keyed off
+   data-mood, so the sprite component stays static markup. */
+
+.mc-pet-button {
+  pointer-events: auto;
+  display: block;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+  transition: transform 0.15s ease;
+}
+.mc-pet-button:hover {
+  transform: scale(1.05);
+}
+.mc-pet-button:active {
+  transform: scale(0.96);
+}
+.mc-pet-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+/* --- sprite parts --- */
+.mc-pet {
+  overflow: visible;
+  transform-origin: 50% 100%;
+}
+.mc-pet-body {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mc-pet-antenna line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.mc-pet-antenna-tip {
+  fill: var(--accent);
+}
+.mc-pet-feet path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.mc-pet-pupil {
+  fill: var(--text);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mc-pet-blink 5.5s infinite;
+}
+.mc-pet-eyes path {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.mc-pet-brow,
+.mc-pet-mouth {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.mc-pet[data-mood="alert"] .mc-pet-mouth {
+  fill: var(--text);
+  stroke-width: 2;
+}
+.mc-pet-sparkle path {
+  fill: var(--accent);
+  opacity: var(--pet-sparkle, 0.6);
+  animation: mc-pet-sparkle 2.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mc-pet-zzz-glyph {
+  fill: var(--text-dim);
+  font-size: 13px;
+  font-weight: 700;
+  animation: mc-pet-zzz-drift 2.6s ease-in-out infinite;
+}
+.mc-pet-zzz-glyph-2 {
+  font-size: 10px;
+  animation-delay: 1.3s;
+}
+.mc-pet-crate rect {
+  fill: color-mix(in srgb, var(--accent) 18%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.mc-pet-crate line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.mc-pet-confetti line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  animation: mc-pet-confetti-tick 0.7s ease-in-out infinite;
+}
+.mc-pet-sweat {
+  fill: color-mix(in srgb, var(--text-dim) 70%, transparent);
+}
+.mc-pet-alert-mark line,
+.mc-pet-alert-mark circle {
+  stroke: var(--status-failed, #e5484d);
+  fill: var(--status-failed, #e5484d);
+  stroke-width: 3;
+  stroke-linecap: round;
+  animation: mc-pet-alert-blink 1s ease-in-out infinite;
+}
+.mc-pet[data-night] {
+  opacity: 0.82;
+}
+
+/* --- mood motion (on the svg root; squash anchored to the ground line) --- */
+.mc-pet[data-mood="idle"] {
+  animation: mc-pet-breathe 4s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"] {
+  animation: mc-pet-breathe 2.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"] {
+  animation: mc-pet-breathe 6s ease-in-out infinite;
+  opacity: 0.7;
+}
+.mc-pet[data-mood="working"],
+.mc-pet[data-mood="shipping"] {
+  animation: mc-pet-bounce calc(1.1s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"] {
+  animation: mc-pet-alert-hop 0.9s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"] {
+  animation: mc-pet-celebrate 0.65s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"] {
+  animation: mc-pet-wobble 0.45s ease-in-out infinite;
+}
+
+/* --- speech bubble --- */
+.mc-pet-bubble {
+  pointer-events: none;
+  position: relative;
+  max-width: 220px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  animation: mc-pet-bubble-in 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.mc-pet-bubble[data-priority="critical"] {
+  border-color: var(--accent-border, var(--accent));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--accent-faint, transparent);
+}
+.mc-pet-bubble::after {
+  content: "";
+  position: absolute;
+  right: 28px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.mc-pet-bubble[data-priority="critical"]::after {
+  border-color: var(--accent-border, var(--accent));
+}
+
+/* --- petting hearts --- */
+.mc-pet-hearts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mc-pet-heart {
+  position: absolute;
+  left: 40%;
+  bottom: 55%;
+  color: var(--accent);
+  font-size: 15px;
+  opacity: 0;
+  animation: mc-pet-heart-float 1.1s ease-out forwards;
+}
+.mc-pet-heart-2 {
+  left: 60%;
+  font-size: 12px;
+  animation-delay: 0.15s;
+}
+.mc-pet-heart-3 {
+  left: 25%;
+  font-size: 11px;
+  animation-delay: 0.3s;
+}
+
+/* --- keyframes --- */
+@keyframes mc-pet-breathe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(1.035);
+  }
+}
+@keyframes mc-pet-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  30% {
+    transform: translateY(-5px) scaleY(1.02);
+  }
+  60% {
+    transform: translateY(0) scaleY(0.97);
+  }
+}
+@keyframes mc-pet-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  95%,
+  97% {
+    transform: scaleY(0.08);
+  }
+}
+@keyframes mc-pet-alert-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-7px) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(0);
+  }
+  70% {
+    transform: translateY(-3px) rotate(2deg);
+  }
+}
+@keyframes mc-pet-wobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-6deg);
+  }
+  75% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes mc-pet-celebrate {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  40% {
+    transform: translateY(-9px) scaleY(1.05);
+  }
+  70% {
+    transform: translateY(0) scaleY(0.94);
+  }
+}
+@keyframes mc-pet-heart-float {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.7);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-42px) scale(1.15);
+  }
+}
+@keyframes mc-pet-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes mc-pet-zzz-drift {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(5px, -9px);
+  }
+}
+@keyframes mc-pet-sparkle {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8) rotate(0deg);
+  }
+  50% {
+    opacity: var(--pet-sparkle, 0.8);
+    transform: scale(1.1) rotate(20deg);
+  }
+}
+@keyframes mc-pet-confetti-tick {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes mc-pet-alert-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Reduced motion: the pet holds still — mood still reads through the static
+   per-mood expressions — and bubbles appear/disappear without animation. */
+@media (prefers-reduced-motion: reduce) {
+  .mc-pet,
+  .mc-pet * ,
+  .mc-pet-bubble,
+  .mc-pet-heart,
+  .mc-pet-button {
+    animation: none !important;
+    transition: none !important;
+  }
+  .mc-pet-heart {
+    opacity: 0;
+  }
+}

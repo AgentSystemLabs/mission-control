@@ -33,6 +33,7 @@ export type AppEvent =
       questions: AgentQuestion[];
     }
   | { type: "task:question-cleared"; taskId: string; projectId: string }
+  | { type: "prompt:submitted"; taskId: string; projectId: string; snippet: string }
   | { type: "memory:created"; id: string; projectId: string }
   | { type: "memory:updated"; id: string; projectId: string }
   | { type: "memory:deleted"; id: string; projectId: string }
