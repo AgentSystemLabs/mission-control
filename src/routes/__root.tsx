@@ -20,6 +20,7 @@ import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
+import { Z_INDEX } from "~/lib/z-index";
 import {
   UserTerminalProvider,
   useUserTerminals,
@@ -717,6 +718,7 @@ function Shell() {
           theme="dark"
           closeButton
           offset={16}
+          style={{ zIndex: Z_INDEX.toast }}
           icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{
             unstyled: true,

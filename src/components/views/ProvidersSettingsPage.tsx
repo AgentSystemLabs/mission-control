@@ -7,6 +7,7 @@ import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
 import { CodeBlock, SettingsSection, ToggleSwitch, useCopy } from "~/components/views/SettingsParts";
 import { api, type AppSettings } from "~/lib/api";
+import { mcToastLoading, mcToastResultCard } from "~/lib/mc-toast";
 import {
   cliAvailabilityFromCheckResult,
   type CliAvailability,
@@ -41,35 +42,52 @@ type InstalledState =
   | { status: "browser" }
   | { status: "ready"; availability: CliAvailability };
 
-function useInstalledVersions(agents: readonly TaskAgent[]): Record<string, InstalledState> {
+function useInstalledVersions(agents: readonly TaskAgent[]): {
+  installed: Record<string, InstalledState>;
+  refreshInstalled: (agent: TaskAgent) => Promise<void>;
+} {
   const [state, setState] = useState<Record<string, InstalledState>>({});
+
+  const probe = useCallback(async (agent: TaskAgent) => {
+    const electron = getElectron();
+    if (!electron) return;
+    try {
+      const result = await electron.cliCheck(AGENT_REGISTRY[agent].command, {
+        verifyVersion: true,
+      });
+      setState((current) => ({
+        ...current,
+        [agent]: { status: "ready", availability: cliAvailabilityFromCheckResult(result) },
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        [agent]: { status: "ready", availability: { status: "missing" } },
+      }));
+    }
+  }, []);
+
   const agentsKey = agents.join(",");
   useEffect(() => {
-    const electron = getElectron();
-    if (!electron) {
+    if (!getElectron()) {
       setState(Object.fromEntries(agents.map((a) => [a, { status: "browser" }])));
       return;
     }
     setState(Object.fromEntries(agents.map((a) => [a, { status: "checking" }])));
-    for (const agent of agents) {
-      void electron
-        .cliCheck(AGENT_REGISTRY[agent].command, { verifyVersion: true })
-        .then((result) => {
-          setState((current) => ({
-            ...current,
-            [agent]: { status: "ready", availability: cliAvailabilityFromCheckResult(result) },
-          }));
-        })
-        .catch(() => {
-          setState((current) => ({
-            ...current,
-            [agent]: { status: "ready", availability: { status: "missing" } },
-          }));
-        });
-    }
+    for (const agent of agents) void probe(agent);
     // Re-probe only when the set of managed agents changes (effectively once).
   }, [agentsKey]);
-  return state;
+
+  const refreshInstalled = useCallback(
+    async (agent: TaskAgent) => {
+      if (!getElectron()) return;
+      setState((current) => ({ ...current, [agent]: { status: "checking" } }));
+      await probe(agent);
+    },
+    [probe],
+  );
+
+  return { installed: state, refreshInstalled };
 }
 
 export function ProvidersSettingsPage() {
@@ -80,8 +98,9 @@ export function ProvidersSettingsPage() {
   const { data: latestVersions } = useAgentLatestVersions();
   const { copied, copy } = useCopy();
   const [refreshing, setRefreshing] = useState<Partial<Record<TaskAgent, boolean>>>({});
+  const [updating, setUpdating] = useState<Partial<Record<TaskAgent, boolean>>>({});
 
-  const installed = useInstalledVersions(config.order);
+  const { installed, refreshInstalled } = useInstalledVersions(config.order);
 
   const accountByAgent = useMemo(
     () => new Map((accounts ?? []).map((account) => [account.agent, account])),
@@ -231,6 +250,56 @@ export function ProvidersSettingsPage() {
     }
   };
 
+  const runUpdate = async (agent: TaskAgent) => {
+    const electron = getElectron();
+    if (!electron?.cliRunUpdate) return;
+    const label = AGENT_META[agent].label;
+    setUpdating((current) => ({ ...current, [agent]: true }));
+    const toastId = mcToastLoading(`Updating ${label}…`, {
+      description: "This can take a few minutes.",
+    });
+    try {
+      const result = await electron.cliRunUpdate(agent);
+      if (result.ok) {
+        toast.success(
+          result.version ? `${label} updated to v${result.version}` : `${label} update finished`,
+          { id: toastId, description: result.command },
+        );
+      } else {
+        toast.dismiss(toastId);
+        const outputTail = result.output?.split("\n").filter(Boolean).slice(-3).join("\n");
+        mcToastResultCard(
+          {
+            tone: "error",
+            title:
+              result.reason === "timeout"
+                ? `${label} update timed out`
+                : `${label} update failed`,
+            detail:
+              outputTail ||
+              (result.command
+                ? `${result.command} did not succeed — run it in a terminal to see why.`
+                : "Run one of the update commands in a terminal to see why."),
+          },
+          { duration: 10_000 },
+        );
+      }
+    } catch (e) {
+      toast.dismiss(toastId);
+      mcToastResultCard(
+        {
+          tone: "error",
+          title: `${label} update failed`,
+          detail: e instanceof Error ? e.message : "Unknown error.",
+        },
+        { duration: 10_000 },
+      );
+    } finally {
+      setUpdating((current) => ({ ...current, [agent]: false }));
+      void refreshInstalled(agent);
+    }
+  };
+
   return (
     <SettingsSection
       title="Providers"
@@ -248,11 +317,15 @@ export function ProvidersSettingsPage() {
             latest={latestByAgent.get(agent)}
             account={accountByAgent.get(agent)}
             refreshing={!!refreshing[agent]}
+            updating={!!updating[agent]}
             copiedLabel={copied}
             onCopy={copy}
             onDragStart={(event) => startReorder(agent, event)}
             onToggleVisibility={() => toggleVisibility(agent)}
             onCheckForUpdate={() => void checkForUpdate(agent)}
+            onRunUpdate={
+              getElectron()?.cliRunUpdate ? () => void runUpdate(agent) : undefined
+            }
           />
         ))}
       </div>
@@ -268,11 +341,13 @@ function ProviderRow({
   latest,
   account,
   refreshing,
+  updating,
   copiedLabel,
   onCopy,
   onDragStart,
   onToggleVisibility,
   onCheckForUpdate,
+  onRunUpdate,
 }: {
   agent: TaskAgent;
   hidden: boolean;
@@ -281,11 +356,14 @@ function ProviderRow({
   latest: AgentLatestVersion | undefined;
   account: { connected: boolean; identifier: string | null } | undefined;
   refreshing: boolean;
+  updating: boolean;
   copiedLabel: string | null;
   onCopy: (text: string, label: string) => void;
   onDragStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onToggleVisibility: () => void;
   onCheckForUpdate: () => void;
+  /** Absent outside the Electron runtime (or with an older preload) — falls back to copy-only. */
+  onRunUpdate: (() => void) | undefined;
 }) {
   const meta = AGENT_META[agent];
   const registry = AGENT_REGISTRY[agent];
@@ -449,6 +527,25 @@ function ProviderRow({
       </div>
       {updateAvailable && (
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+          {onRunUpdate && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Btn
+                variant="accent"
+                size="sm"
+                icon={updating ? "refresh" : "download"}
+                onClick={onRunUpdate}
+                disabled={updating}
+                aria-label={`Update ${meta.label} to v${latest?.latestVersion}`}
+              >
+                {updating ? "Updating…" : `Update to v${latest?.latestVersion}`}
+              </Btn>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--text-faint)" }}>
+                {updating
+                  ? "Running the update command matching your install…"
+                  : "or run it yourself:"}
+              </span>
+            </div>
+          )}
           {updateCommands.map((command) => (
             <CodeBlock
               key={command}

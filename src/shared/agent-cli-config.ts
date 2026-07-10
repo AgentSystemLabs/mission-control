@@ -56,7 +56,7 @@ export const AGENT_CLI_CONFIG = {
     minimumVersion: "2.1.146",
     packageUrl: "https://docs.anthropic.com/en/docs/claude-code/setup",
     npmPackage: "@anthropic-ai/claude-code",
-    updateCommands: ["npm install -g @anthropic-ai/claude-code@latest"],
+    updateCommands: ["claude update", "npm install -g @anthropic-ai/claude-code@latest"],
   }),
   codex: withResolveAs({
     agent: "codex",

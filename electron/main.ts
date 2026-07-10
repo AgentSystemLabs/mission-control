@@ -54,6 +54,7 @@ import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
 import { checkAgentCliVersion } from "./agent-cli-version";
+import { runAgentCliUpdate } from "./agent-cli-update";
 import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore } from "./app-settings-store";
 import { getBinding, matchElectronInput } from "./keybindings-reader";
@@ -1584,6 +1585,10 @@ safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolea
   }
   return { ok: false, reason: "not-found" };
 });
+
+// The renderer only names an agent — the update command is chosen and run
+// entirely in the main process from the compiled-in CLI config.
+safeHandle(IPC.cliRunUpdate, (_evt, agent: string) => runAgentCliUpdate(agent));
 
 safeHandle(IPC.remoteVmDeploy, (_evt, input: RemoteVmDeployInput) => {
   return runRemoteVmDeploy(input);
