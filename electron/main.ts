@@ -53,7 +53,7 @@ import { errMsg } from "../src/shared/err-msg";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
-import { checkAgentCliVersion } from "./agent-cli-version";
+import { checkAgentCliVersionCached } from "./agent-cli-version";
 import { runAgentCliUpdate } from "./agent-cli-update";
 import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore } from "./app-settings-store";
@@ -1567,14 +1567,19 @@ safeHandle(IPC.appReload, (event) => {
   return { ok: true as const };
 });
 
-safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean }) => {
+safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean; fresh?: boolean }) => {
   if (!command) return { ok: false, reason: "empty" };
   const env = sanitizedProcessEnv();
   const resolved = resolveAgentCommandOnPath(command, env);
   if (resolved) {
     const requirement = AGENT_CLI_CONFIG_BY_COMMAND[command];
     if (requirement && opts?.verifyVersion) {
-      const versionCheck = checkAgentCliVersion(resolved, env, requirement, os.platform());
+      // Cached: shares the app-lifetime probe cache with pty spawns, so a
+      // repeat check doesn't re-spawn `<cli> --version` (which blocks main).
+      // `fresh` forces a re-probe for explicit user-initiated checks.
+      const versionCheck = checkAgentCliVersionCached(resolved, env, requirement, os.platform(), {
+        fresh: opts.fresh,
+      });
       if (!versionCheck.ok) {
         const { output: _output, ...safeVersionCheck } = versionCheck;
         return { ...safeVersionCheck, path: resolved };

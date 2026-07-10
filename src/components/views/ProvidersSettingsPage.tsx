@@ -36,29 +36,58 @@ const DRAG_THRESHOLD_PX = 4;
 // The Providers page runs its own version probe (with verifyVersion) instead
 // of piggybacking on the boot-time cli-availability store: the probe spawns
 // `<cli> --version` synchronously on the main process, so it should only pay
-// that cost when the user actually opens this page. Passing probes are cached
-// in the main process for the app's lifetime.
+// that cost when the user actually opens this page. Results persist for the
+// app's lifetime at both layers — the main process caches passing probes and
+// this module keeps resolved rows across page visits — so only the first
+// visit checks; the per-row Check button and a finished update re-probe with
+// `fresh` to pick up CLIs changed outside the app.
 type InstalledState =
   | { status: "checking" }
   | { status: "browser" }
   | { status: "ready"; availability: CliAvailability };
 
+// Only healthy results are kept across visits: a missing/outdated CLI is
+// exactly what the user is likely fixing in a terminal between visits, so
+// those rows re-probe on the next mount instead of pinning the bad state.
+const installedVersionCache = new Map<TaskAgent, CliAvailability>();
+
+function seedInstalledState(agents: readonly TaskAgent[]): Record<string, InstalledState> {
+  if (!getElectron()) {
+    return Object.fromEntries(agents.map((a) => [a, { status: "browser" }]));
+  }
+  return Object.fromEntries(
+    agents.map((agent) => {
+      const cached = installedVersionCache.get(agent);
+      return [agent, cached ? { status: "ready", availability: cached } : { status: "checking" }];
+    }),
+  );
+}
+
 function useInstalledVersions(agents: readonly TaskAgent[]): {
   installed: Record<string, InstalledState>;
   refreshInstalled: (agent: TaskAgent) => Promise<void>;
 } {
-  const [state, setState] = useState<Record<string, InstalledState>>({});
+  const [state, setState] = useState<Record<string, InstalledState>>(() =>
+    seedInstalledState(agents),
+  );
 
-  const probe = useCallback(async (agent: TaskAgent) => {
+  const probe = useCallback(async (agent: TaskAgent, opts?: { fresh?: boolean }) => {
     const electron = getElectron();
     if (!electron) return;
     try {
       const result = await electron.cliCheck(AGENT_REGISTRY[agent].command, {
         verifyVersion: true,
+        fresh: opts?.fresh,
       });
+      const availability = cliAvailabilityFromCheckResult(result);
+      if (availability.status === "available") {
+        installedVersionCache.set(agent, availability);
+      } else {
+        installedVersionCache.delete(agent);
+      }
       setState((current) => ({
         ...current,
-        [agent]: { status: "ready", availability: cliAvailabilityFromCheckResult(result) },
+        [agent]: { status: "ready", availability },
       }));
     } catch {
       setState((current) => ({
@@ -70,20 +99,20 @@ function useInstalledVersions(agents: readonly TaskAgent[]): {
 
   const agentsKey = agents.join(",");
   useEffect(() => {
-    if (!getElectron()) {
-      setState(Object.fromEntries(agents.map((a) => [a, { status: "browser" }])));
-      return;
+    setState(seedInstalledState(agents));
+    if (!getElectron()) return;
+    // Probe only rows without a cached healthy result — a revisit (or a drag
+    // reorder, which changes agentsKey) reuses what earlier probes resolved.
+    for (const agent of agents) {
+      if (!installedVersionCache.has(agent)) void probe(agent);
     }
-    setState(Object.fromEntries(agents.map((a) => [a, { status: "checking" }])));
-    for (const agent of agents) void probe(agent);
-    // Re-probe only when the set of managed agents changes (effectively once).
   }, [agentsKey]);
 
   const refreshInstalled = useCallback(
     async (agent: TaskAgent) => {
       if (!getElectron()) return;
       setState((current) => ({ ...current, [agent]: { status: "checking" } }));
-      await probe(agent);
+      await probe(agent, { fresh: true });
     },
     [probe],
   );
@@ -237,6 +266,9 @@ export function ProvidersSettingsPage() {
 
   const checkForUpdate = async (agent: TaskAgent) => {
     setRefreshing((current) => ({ ...current, [agent]: true }));
+    // Re-probe the installed version too — an explicit Check is the escape
+    // hatch when the CLI was updated outside the app and the cache is stale.
+    void refreshInstalled(agent);
     try {
       const { versions } = await api.getAgentLatestVersions([agent], { refresh: true });
       queryClient.setQueryData<AgentLatestVersion[]>(queryKeys.agentLatestVersions, (current) => {
@@ -513,14 +545,14 @@ function ProviderRow({
           <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
             {onRunUpdate && (
               <Btn
-                variant="accent"
+                variant="primary"
                 size="sm"
                 icon={updating ? "refresh" : "download"}
                 onClick={onRunUpdate}
                 disabled={updating}
                 aria-label={`Update ${meta.label} to v${latest?.latestVersion}`}
               >
-                {updating ? "Updating…" : `Update to v${latest?.latestVersion}`}
+                {updating ? "Updating…" : "Update"}
               </Btn>
             )}
             <Btn

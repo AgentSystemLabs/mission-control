@@ -165,11 +165,14 @@ export function checkAgentCliVersionCached(
   env: NodeJS.ProcessEnv,
   requirement: AgentCliVersionRequirement,
   platform: NodeJS.Platform = os.platform(),
+  opts?: { fresh?: boolean },
 ): AgentVersionCheck {
   const key = `${binary}\0${requirement.label}\0${requirement.minimumVersion}`;
-  const hit = versionCheckCache.get(key);
-  if (hit && (hit.check.ok || Date.now() - hit.at < VERSION_CHECK_FAILURE_TTL_MS)) {
-    return hit.check;
+  if (!opts?.fresh) {
+    const hit = versionCheckCache.get(key);
+    if (hit && (hit.check.ok || Date.now() - hit.at < VERSION_CHECK_FAILURE_TTL_MS)) {
+      return hit.check;
+    }
   }
   const check = checkAgentCliVersion(binary, env, requirement, platform);
   versionCheckCache.set(key, { check, at: Date.now() });

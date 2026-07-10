@@ -364,7 +364,10 @@ export type ElectronBridge = {
       }) => void,
     ) => () => void;
   };
-  cliCheck: (command: string, opts?: { verifyVersion?: boolean }) => Promise<CliCheckResult>;
+  cliCheck: (
+    command: string,
+    opts?: { verifyVersion?: boolean; fresh?: boolean },
+  ) => Promise<CliCheckResult>;
   /** Run the managed CLI's update command in the main process (input is only an agent id). */
   cliRunUpdate: (agent: PtySpawnAgent) => Promise<AgentCliUpdateRun>;
   pty: {

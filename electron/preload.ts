@@ -369,7 +369,7 @@ const electronAPI = {
       }) => void,
     ) => subscribe(IPC.notificationsSessionFinishedClick, cb),
   },
-  cliCheck: (command: string, opts?: { verifyVersion?: boolean }): Promise<
+  cliCheck: (command: string, opts?: { verifyVersion?: boolean; fresh?: boolean }): Promise<
     | {
         ok: true;
         path: string;
