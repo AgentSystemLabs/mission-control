@@ -36,6 +36,18 @@ export type PetMood =
 
 export type PetBubble = { id: number; text: string; priority: PetMessagePriority };
 
+/** Idle wandering along the bottom strip; x is px left of the home corner. */
+export type PetWander = {
+  x: number;
+  walking: boolean;
+  /** CSS transition duration for the current move. */
+  durationMs: number;
+  facing: 1 | -1;
+};
+
+/** One-shot idle antics; keyed by id so the animation restarts each time. */
+export type PetFlourish = { id: number; kind: "hop" | "stretch" };
+
 export type PetSnapshot = {
   enabled: boolean;
   mood: PetMood;
@@ -51,6 +63,8 @@ export type PetSnapshot = {
   level: number;
   /** Increments on each petting; keys the hearts burst animation. */
   heartsBurstId: number;
+  wander: PetWander;
+  flourish: PetFlourish | null;
 };
 
 export type PetInputs = {
@@ -73,6 +87,13 @@ const STARTLE_MS = 3_000;
 const LONG_RUN_MS = 20 * 60_000;
 const PETTING_XP_COOLDOWN_MS = 60_000;
 const CLOCK_TICK_MS = 30_000;
+
+/** How far left of its home corner the pet may wander, in px. */
+export const PET_WANDER_RANGE_PX = 300;
+const WALK_SPEED_PX_PER_S = 45;
+const HOME_SPEED_PX_PER_S = 120;
+const BEHAVIOR_TICK_MS = 6_500;
+const FLOURISH_MS = 1_400;
 
 const XP_SESSION_FINISHED = 5;
 const XP_SESSION_FINISHED_LONG = 8;
@@ -154,6 +175,9 @@ let bubbleId = 0;
 let alert: { taskId: string; projectId: string } | null = null;
 let heartsBurstId = 0;
 let lastPettingXpAt = 0;
+let wander: PetWander = { x: 0, walking: false, durationMs: 0, facing: 1 };
+let flourish: PetFlourish | null = null;
+let flourishId = 0;
 
 // Aggregate counts from useProjects can lag the SSE stream by a refetch, so
 // question events maintain their own live set; needs-input uses whichever is
@@ -181,6 +205,8 @@ function buildSnapshot(): PetSnapshot {
     xp: persistent?.xp ?? 0,
     level: persistent?.level ?? 1,
     heartsBurstId,
+    wander,
+    flourish,
   };
 }
 
@@ -196,6 +222,9 @@ let pulseTimer: ReturnType<typeof setTimeout> | null = null;
 let watchTimer: ReturnType<typeof setTimeout> | null = null;
 let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
 let clockTimer: ReturnType<typeof setInterval> | null = null;
+let behaviorTimer: ReturnType<typeof setInterval> | null = null;
+let arriveTimer: ReturnType<typeof setTimeout> | null = null;
+let flourishTimer: ReturnType<typeof setTimeout> | null = null;
 
 function ensureClock(): void {
   if (clockTimer !== null || typeof window === "undefined") return;
@@ -206,6 +235,69 @@ function ensureClock(): void {
     recompute();
     invalidate();
   }, CLOCK_TICK_MS);
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/** Walk to `target` px left of home. The widget renders it as a CSS transition. */
+function walkTo(target: number, speedPxPerS: number): void {
+  const clamped = Math.min(PET_WANDER_RANGE_PX, Math.max(0, Math.round(target)));
+  const dist = Math.abs(clamped - wander.x);
+  if (dist < 12) return;
+  const durationMs = (dist / speedPxPerS) * 1000;
+  wander = {
+    x: clamped,
+    walking: true,
+    durationMs,
+    // Increasing x = heading away from the home corner (leftward).
+    facing: clamped > wander.x ? -1 : 1,
+  };
+  if (arriveTimer) clearTimeout(arriveTimer);
+  arriveTimer = setTimeout(() => {
+    arriveTimer = null;
+    wander = { ...wander, walking: false, durationMs: 0 };
+    invalidate();
+  }, durationMs + 30);
+  invalidate();
+}
+
+function walkHome(): void {
+  if (wander.x === 0 && !wander.walking) return;
+  walkTo(0, HOME_SPEED_PX_PER_S);
+}
+
+function doFlourish(kind: PetFlourish["kind"]): void {
+  flourish = { id: ++flourishId, kind };
+  if (flourishTimer) clearTimeout(flourishTimer);
+  flourishTimer = setTimeout(() => {
+    flourishTimer = null;
+    flourish = null;
+    invalidate();
+  }, FLOURISH_MS);
+  invalidate();
+}
+
+function ensureBehaviorLoop(): void {
+  if (behaviorTimer !== null || typeof window === "undefined") return;
+  // Autonomous idle antics: stroll the bottom strip, hop, stretch. Anything
+  // more important than idling sends the pet home so status stays glanceable
+  // in the corner.
+  behaviorTimer = setInterval(() => {
+    if (!enabled || prefersReducedMotion()) return;
+    if (mood !== "idle") {
+      walkHome();
+      return;
+    }
+    const roll = Math.random();
+    if (roll < 0.45) walkTo(Math.random() * PET_WANDER_RANGE_PX, WALK_SPEED_PX_PER_S);
+    else if (roll < 0.6) doFlourish("hop");
+    else if (roll < 0.72) doFlourish("stretch");
+  }, BEHAVIOR_TICK_MS);
 }
 
 function recompute(): void {
@@ -250,6 +342,8 @@ function recompute(): void {
 function commitMood(next: { mood: PetMood; intensity: 1 | 2 | 3 }): void {
   mood = next.mood;
   intensity = next.intensity;
+  // Real activity (or bedtime) interrupts the stroll — hurry back to the corner.
+  if (mood !== "idle") walkHome();
   // Watching decays with no further event; re-check just after its window.
   if (watchTimer) clearTimeout(watchTimer);
   if (mood === "watching" && typeof window !== "undefined") {
@@ -331,11 +425,16 @@ export function petSetEnabled(
   if (enabled) {
     inputs.lastActivityAt = Date.now();
     ensureClock();
+    ensureBehaviorLoop();
     recompute();
-  } else if (bubble) {
-    bubble = null;
-    if (bubbleTimer) clearTimeout(bubbleTimer);
-    bubbleTimer = null;
+  } else {
+    if (bubble) {
+      bubble = null;
+      if (bubbleTimer) clearTimeout(bubbleTimer);
+      bubbleTimer = null;
+    }
+    wander = { x: 0, walking: false, durationMs: 0, facing: 1 };
+    flourish = null;
   }
   invalidate();
 }
@@ -555,6 +654,8 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     shipResult: petShipResult,
     ingest: petIngestServerEvent,
     grantXp,
+    walkTo: (x: number) => walkTo(x, WALK_SPEED_PX_PER_S),
+    flourish: doFlourish,
     state: () => snapshot,
   };
 }

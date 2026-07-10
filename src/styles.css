@@ -3731,6 +3731,23 @@ body[data-card-glow] .cursor-glow {
 .mc-pet[data-mood="startled"] {
   animation: mc-pet-wobble 0.45s ease-in-out infinite;
 }
+/* Walking overrides the mood animation while the walker strip translates. */
+.mc-pet-walker[data-walking] .mc-pet {
+  animation: mc-pet-waddle 0.5s ease-in-out infinite;
+}
+.mc-pet-walker {
+  will-change: transform;
+}
+/* One-shot idle antics, keyed per flourish so they restart every time. */
+.mc-pet-flourish {
+  transform-origin: 50% 100%;
+}
+.mc-pet-flourish[data-kind="hop"] {
+  animation: mc-pet-hop-once 0.7s ease-in-out;
+}
+.mc-pet-flourish[data-kind="stretch"] {
+  animation: mc-pet-stretch-once 1.3s ease-in-out;
+}
 
 /* --- speech bubble --- */
 .mc-pet-bubble {
@@ -3930,6 +3947,39 @@ body[data-card-glow] .cursor-glow {
     opacity: 0.35;
   }
 }
+@keyframes mc-pet-waddle {
+  0%,
+  100% {
+    transform: rotate(-4deg) translateY(0);
+  }
+  50% {
+    transform: rotate(4deg) translateY(-2px);
+  }
+}
+@keyframes mc-pet-hop-once {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  35% {
+    transform: translateY(-12px) scaleY(1.04);
+  }
+  70% {
+    transform: translateY(0) scaleY(0.94);
+  }
+}
+@keyframes mc-pet-stretch-once {
+  0%,
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+  40% {
+    transform: scaleY(1.12) scaleX(0.95);
+  }
+  60% {
+    transform: scaleY(1.1) scaleX(0.96);
+  }
+}
 
 /* Reduced motion: the pet holds still — mood still reads through the static
    per-mood expressions — and bubbles appear/disappear without animation. */
@@ -3938,7 +3988,9 @@ body[data-card-glow] .cursor-glow {
   .mc-pet * ,
   .mc-pet-bubble,
   .mc-pet-heart,
-  .mc-pet-button {
+  .mc-pet-button,
+  .mc-pet-flourish,
+  .mc-pet-walker {
     animation: none !important;
     transition: none !important;
   }
