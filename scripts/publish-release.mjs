@@ -8,8 +8,9 @@ import { makeFail } from "./lib/cli.mjs";
 //   publish   Read ./artifacts/manifest.json (built by the current job),
 //             register each asset on the release, and upload it to R2.
 //   finalize  Verify all expected platforms are uploaded and mark the
-//             release finalized. Tolerated to fail (caller decides) — useful
-//             for the "publish what we have, finalize when complete" mode.
+//             release finalized. Not called from release.yml CI — promotion
+//             is gated by approval on agentsystem.dev (keeps the Electron
+//             updater off unapproved builds).
 //
 // Why split: previously this script demanded all 4 platform manifests up front
 // and called one combined create-with-assets endpoint. That coupled every
