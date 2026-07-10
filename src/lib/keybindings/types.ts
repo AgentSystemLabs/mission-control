@@ -80,7 +80,7 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "session.gridLayout": {
     label: "Grid layout quick picker",
     description:
-      "In grid view, open a quick popup to set how many sessions each row holds (press 1–6, or A for auto) and sort the grid by agent (arrow keys + Enter).",
+      "In grid view, open a quick popup to set how many sessions each row holds (←/→ step the width live, 1–6 or A jump directly) and sort the grid by agent (↑/↓ + Enter).",
   },
   "session.gridView": {
     label: "Toggle grid view",

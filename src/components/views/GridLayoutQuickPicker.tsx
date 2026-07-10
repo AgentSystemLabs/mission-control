@@ -10,11 +10,17 @@ import {
 import { Z_INDEX } from "~/lib/z-index";
 import type { TaskAgent } from "~/shared/domain";
 
+// The width options as the arrow keys walk them: Auto, then 1..6.
+const WIDTH_STEPS: Array<number | null> = [null, ...GRID_COLUMN_OPTIONS];
+
 /**
- * Keyboard-first popup opened by the session.gridLayout shortcut: press 1–6 to
- * lock that many sessions per row (A for auto), or arrow through the sort
- * options and hit Enter to group the grid by an agent. Every action applies
- * instantly and closes the popup — it's the quick-hands twin of the header's
+ * Keyboard-first popup opened by the session.gridLayout shortcut. Two stacked
+ * sections share one focus: the width row (sessions per row) and the sort
+ * options. ←/→ step the width through Auto,1..6 — each step applies LIVE so
+ * the grid reflows behind the popup; 1–6 (or A/0 for auto) jump straight to a
+ * width and close; ↑/↓ move between the width row and the sort options; Enter
+ * applies the focused sort (or just closes on the width row, whose value is
+ * already applied); Esc closes. It's the quick-hands twin of the header's
  * grid-layout dropdown, sharing the same prefs/sort plumbing.
  *
  * Keys are intercepted in the capture phase so a focused terminal never sees
@@ -37,17 +43,29 @@ export function GridLayoutQuickPicker({
   agents: TaskAgent[];
 }) {
   const cardRef = useRef<HTMLElement>(null);
-  const [sortIdx, setSortIdx] = useState(0);
+  // Focused row: 0 = the width chips, 1..agents.length = a sort option.
+  const [focusRow, setFocusRow] = useState(0);
   const sortable = agents.length > 1;
+  const rowCount = 1 + (sortable ? agents.length : 0);
 
-  // Fresh highlight each open.
+  // Fresh focus each open.
   useEffect(() => {
-    if (open) setSortIdx(0);
+    if (open) setFocusRow(0);
   }, [open]);
 
   const pickLimit = (limit: number | null) => {
     saveGridColumnLimit(scopeKey, limit);
     onClose();
+  };
+  // Arrow-stepping applies live and keeps the popup open, so the user can
+  // watch the grid reflow behind it and keep stepping. Steps read the last
+  // committed value from props: the save fires the prefs event, the grid's
+  // listener updates its state, and the re-render lands well inside the
+  // ~30ms between key repeats, so each step sees the previous one.
+  const stepLimit = (delta: 1 | -1) => {
+    const idx = WIDTH_STEPS.findIndex((o) => o === currentLimit);
+    const next = Math.max(0, Math.min(WIDTH_STEPS.length - 1, (idx < 0 ? 0 : idx) + delta));
+    saveGridColumnLimit(scopeKey, WIDTH_STEPS[next] ?? null);
   };
   const applySort = (agent: TaskAgent | undefined) => {
     if (!agent) return;
@@ -74,15 +92,25 @@ export function GridLayoutQuickPicker({
       pickLimit(null);
       return;
     }
-    if (sortable && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       claim();
-      const delta = e.key === "ArrowDown" ? 1 : -1;
-      setSortIdx((i) => (i + delta + agents.length) % agents.length);
+      // Horizontal always means the width row — pull focus back onto it.
+      setFocusRow(0);
+      stepLimit(e.key === "ArrowRight" ? 1 : -1);
       return;
     }
-    if (sortable && e.key === "Enter") {
+    if (rowCount > 1 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       claim();
-      applySort(agents[sortIdx]);
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      setFocusRow((r) => (r + delta + rowCount) % rowCount);
+      return;
+    }
+    if (e.key === "Enter") {
+      claim();
+      // The width row's value is already applied (steps are live) — Enter
+      // just confirms and closes; on a sort row it applies that sort.
+      if (focusRow === 0) onClose();
+      else applySort(agents[focusRow - 1]);
       return;
     }
     if (e.key === "Escape") {
@@ -132,6 +160,10 @@ export function GridLayoutQuickPicker({
           ? "color-mix(in srgb, var(--accent) 16%, transparent)"
           : "transparent",
         color: active ? "var(--accent)" : "var(--text-dim)",
+        // The ←/→ caret lives on the active chip while the width row owns the
+        // popup's focus, so the eye lands where the arrows act.
+        boxShadow:
+          active && focusRow === 0 ? "0 0 0 2px var(--accent-glow)" : undefined,
         fontFamily: "var(--mono)",
         fontSize: 11,
         textAlign: "center",
@@ -207,8 +239,8 @@ export function GridLayoutQuickPicker({
                 key={agent}
                 type="button"
                 onClick={() => applySort(agent)}
-                onMouseEnter={() => setSortIdx(i)}
-                aria-current={i === sortIdx ? "true" : undefined}
+                onMouseEnter={() => setFocusRow(i + 1)}
+                aria-current={focusRow === i + 1 ? "true" : undefined}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -219,8 +251,8 @@ export function GridLayoutQuickPicker({
                   textAlign: "left",
                   fontSize: 12,
                   cursor: "pointer",
-                  background: i === sortIdx ? "var(--surface-2)" : "transparent",
-                  color: i === sortIdx ? "var(--text)" : "var(--text-dim)",
+                  background: focusRow === i + 1 ? "var(--surface-2)" : "transparent",
+                  color: focusRow === i + 1 ? "var(--text)" : "var(--text-dim)",
                 }}
               >
                 <span
@@ -249,7 +281,8 @@ export function GridLayoutQuickPicker({
           opacity: 0.8,
         }}
       >
-        <span>1–6 / A set width</span>
+        <span>← → width</span>
+        <span>1–6 / A jump</span>
         {sortable && <span>↑↓ Enter sort</span>}
         <span>Esc close</span>
       </div>
