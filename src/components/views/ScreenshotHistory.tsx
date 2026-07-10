@@ -13,6 +13,7 @@ import {
   type Shape as AnnotationShape,
   type CropBox,
 } from "~/components/views/ScreenshotAnnotator";
+import { SessionDropzoneHighlight } from "~/components/views/SessionDropzone";
 import { useTerminals, type ScreenshotEntry } from "~/lib/terminal-store";
 import { playScreenshotDrop } from "~/lib/screenshot-sound";
 
@@ -283,43 +284,7 @@ function ScreenshotHistoryCard({
       </div>
 
       {/* Dropzone highlight over the session currently under the cursor. */}
-      {dragging && dropTarget && (
-        <div
-          aria-hidden
-          style={{
-            position: "fixed",
-            left: dropTarget.rect.x,
-            top: dropTarget.rect.y,
-            width: dropTarget.rect.w,
-            height: dropTarget.rect.h,
-            border: "2px solid var(--accent)",
-            background: "color-mix(in srgb, var(--accent) 14%, transparent)",
-            borderRadius: 10,
-            boxShadow: "0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent)",
-            pointerEvents: "none",
-            boxSizing: "border-box",
-            zIndex: 9999,
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: 8,
-              transform: "translateX(-50%)",
-              padding: "3px 10px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontFamily: "var(--mono)",
-              color: "#fff",
-              background: "var(--accent)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Drop to attach
-          </div>
-        </div>
-      )}
+      {dragging && dropTarget && <SessionDropzoneHighlight rect={dropTarget.rect} />}
 
       {dragging && dragPoint && (
         <div
