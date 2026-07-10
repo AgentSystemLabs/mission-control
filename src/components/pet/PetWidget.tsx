@@ -29,7 +29,7 @@ export function PetWidget() {
 
   if (!pet.enabled) return null;
 
-  const { Sprite } = PET_SPECIES.blob;
+  const { Sprite } = PET_SPECIES.mochi;
 
   const handleClick = () => {
     const { navigateTo } = petInteract();

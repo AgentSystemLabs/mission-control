@@ -2,12 +2,13 @@ import { memo } from "react";
 import type { PetMood } from "~/lib/pet/pet-store";
 
 /**
- * Mission Pet sprite — a hand-authored line-drawn blob, themed entirely via
- * CSS variables (accent stroke, surface fill) so it adapts to every theme.
- * Expression comes from static per-mood eye/brow/mouth paths, which is also
- * the reduced-motion story: with animations off, mood still reads at a glance.
- * All motion lives in CSS keyed off `data-mood` (see the Mission Pet section
- * in styles.css).
+ * Mission Pet sprite — "Mochi": a pear-soft line-drawn companion with a
+ * heart-tipped antenna, big shine eyes, blush cheeks, and stub arms that go
+ * up when celebrating. Themed entirely via CSS variables (accent stroke,
+ * surface fill) so it adapts to every theme. Expression comes from static
+ * per-mood eyes/mouth, which is also the reduced-motion story: with
+ * animations off, mood still reads at a glance. All motion lives in CSS keyed
+ * off `data-mood` (see the Mission Pet section in styles.css).
  */
 
 export type PetSpriteProps = {
@@ -17,90 +18,87 @@ export type PetSpriteProps = {
   level: number;
 };
 
-type Face = {
-  eyes: "open" | "closed" | "happy" | "wide";
-  /** Brow paths; omitted = relaxed (none drawn). */
-  leftBrow?: string;
-  rightBrow?: string;
-  mouth: string;
-};
-
-const FACES: Record<PetMood, Face> = {
-  idle: {
-    eyes: "open",
-    mouth: "M 44 63 Q 50 67 56 63",
-  },
-  sleeping: {
-    eyes: "closed",
-    mouth: "M 47 64 Q 50 66 53 64",
-  },
-  watching: {
-    eyes: "open",
-    leftBrow: "M 33 38 Q 38 35 43 38",
-    rightBrow: "M 57 38 Q 62 35 67 38",
-    mouth: "M 45 63 Q 50 66 55 63",
-  },
-  working: {
-    eyes: "open",
-    leftBrow: "M 33 39 L 43 41",
-    rightBrow: "M 67 39 L 57 41",
-    mouth: "M 45 64 L 55 64",
-  },
-  alert: {
-    eyes: "wide",
-    leftBrow: "M 33 36 Q 38 32 43 36",
-    rightBrow: "M 57 36 Q 62 32 67 36",
-    mouth: "M 47 61 A 3.2 3.6 0 1 0 53 61 A 3.2 3.6 0 1 0 47 61",
-  },
-  celebrating: {
-    eyes: "happy",
-    mouth: "M 42 61 Q 50 70 58 61",
-  },
-  shipping: {
-    eyes: "open",
-    leftBrow: "M 33 39 L 43 41",
-    rightBrow: "M 67 39 L 57 41",
-    mouth: "M 45 63 Q 50 65 55 63",
-  },
-  startled: {
-    eyes: "wide",
-    leftBrow: "M 33 35 Q 38 33 43 36",
-    rightBrow: "M 57 36 Q 62 33 67 35",
-    mouth: "M 43 64 Q 46 61 49 64 Q 52 67 55 64",
-  },
-};
-
 const INTENSITY_SPEED: Record<1 | 2 | 3, number> = { 1: 1, 2: 1.5, 3: 2.2 };
 
-function Eyes({ kind }: { kind: Face["eyes"] }) {
+const EYE_LEFT = 38;
+const EYE_RIGHT = 62;
+const EYE_Y = 55;
+const MOUTH_Y = 67;
+
+type EyeKind = "open" | "wide" | "closed" | "happy";
+
+function eyeKindFor(mood: PetMood): EyeKind {
+  if (mood === "sleeping") return "closed";
+  if (mood === "celebrating") return "happy";
+  if (mood === "alert" || mood === "startled") return "wide";
+  return "open";
+}
+
+function Eyes({ kind }: { kind: EyeKind }) {
   if (kind === "closed") {
     return (
       <g className="mc-pet-eyes" data-eyes="closed">
-        <path d="M 33 48 Q 38 52 43 48" />
-        <path d="M 57 48 Q 62 52 67 48" />
+        <path d={`M ${EYE_LEFT - 5} ${EYE_Y} Q ${EYE_LEFT} ${EYE_Y + 4} ${EYE_LEFT + 5} ${EYE_Y}`} />
+        <path d={`M ${EYE_RIGHT - 5} ${EYE_Y} Q ${EYE_RIGHT} ${EYE_Y + 4} ${EYE_RIGHT + 5} ${EYE_Y}`} />
       </g>
     );
   }
   if (kind === "happy") {
     return (
       <g className="mc-pet-eyes" data-eyes="happy">
-        <path d="M 33 49 Q 38 43 43 49" />
-        <path d="M 57 49 Q 62 43 67 49" />
+        <path d={`M ${EYE_LEFT - 5} ${EYE_Y + 1} Q ${EYE_LEFT} ${EYE_Y - 5} ${EYE_LEFT + 5} ${EYE_Y + 1}`} />
+        <path d={`M ${EYE_RIGHT - 5} ${EYE_Y + 1} Q ${EYE_RIGHT} ${EYE_Y - 5} ${EYE_RIGHT + 5} ${EYE_Y + 1}`} />
       </g>
     );
   }
-  const r = kind === "wide" ? 5.6 : 4.2;
+  const r = kind === "wide" ? 6.6 : 5.8;
+  const eye = (cx: number) => (
+    <g className="mc-pet-eye" key={cx}>
+      <circle className="mc-pet-pupil" cx={cx} cy={EYE_Y} r={r} />
+      <circle className="mc-pet-shine" cx={cx - 2} cy={EYE_Y - 2} r={1.9} />
+      <circle className="mc-pet-shine" cx={cx + 1.6} cy={EYE_Y + 1.6} r={0.9} opacity={0.85} />
+    </g>
+  );
   return (
     <g className="mc-pet-eyes" data-eyes={kind}>
-      <circle className="mc-pet-pupil" cx="38" cy="48" r={r} />
-      <circle className="mc-pet-pupil" cx="62" cy="48" r={r} />
+      {eye(EYE_LEFT)}
+      {eye(EYE_RIGHT)}
     </g>
   );
 }
 
+function Mouth({ mood }: { mood: PetMood }) {
+  switch (mood) {
+    case "sleeping":
+      return <path className="mc-pet-mouth" d={`M 47 ${MOUTH_Y} Q 50 ${MOUTH_Y + 2} 53 ${MOUTH_Y}`} />;
+    case "celebrating":
+      return <path className="mc-pet-mouth" d={`M 43 ${MOUTH_Y - 2} Q 50 ${MOUTH_Y + 7} 57 ${MOUTH_Y - 2}`} />;
+    case "alert":
+      return <ellipse className="mc-pet-mouth-o" cx={50} cy={MOUTH_Y + 1} rx={3} ry={3.6} />;
+    case "startled":
+      return (
+        <path
+          className="mc-pet-mouth"
+          d={`M 43 ${MOUTH_Y + 1} Q 46 ${MOUTH_Y - 2} 49 ${MOUTH_Y + 1} Q 52 ${MOUTH_Y + 4} 55 ${MOUTH_Y + 1}`}
+        />
+      );
+    case "working":
+    case "shipping":
+      return <path className="mc-pet-mouth" d={`M 45 ${MOUTH_Y} Q 50 ${MOUTH_Y + 2} 55 ${MOUTH_Y}`} />;
+    default:
+      // The little ω — Mochi's resting face.
+      return (
+        <path
+          className="mc-pet-mouth"
+          d={`M 44 ${MOUTH_Y} Q 47 ${MOUTH_Y + 3} 50 ${MOUTH_Y} Q 53 ${MOUTH_Y + 3} 56 ${MOUTH_Y}`}
+        />
+      );
+  }
+}
+
 export const PetSprite = memo(function PetSprite({ mood, intensity, night, level }: PetSpriteProps) {
-  const face = FACES[mood];
   const sparkle = level >= 3;
+  const armsUp = mood === "celebrating";
   return (
     <svg
       className="mc-pet"
@@ -112,74 +110,93 @@ export const PetSprite = memo(function PetSprite({ mood, intensity, night, level
       aria-hidden
       style={{ "--pet-speed": INTENSITY_SPEED[intensity] } as React.CSSProperties}
     >
-      <g className="mc-pet-body-group">
-        {/* Antenna */}
-        <g className="mc-pet-antenna">
-          <line x1="50" y1="16" x2="50" y2="6" />
-          <circle className="mc-pet-antenna-tip" cx="50" cy="5" r="3" />
-          {sparkle ? (
-            <g className="mc-pet-sparkle" style={{ "--pet-sparkle": Math.min(1, 0.4 + level * 0.06) } as React.CSSProperties}>
-              <path d="M 58 6 L 60 2 L 62 6 L 66 8 L 62 10 L 60 14 L 58 10 L 54 8 Z" />
-            </g>
-          ) : null}
-        </g>
-
-        {/* Body blob */}
+      {/* Antenna with heart tip */}
+      <g className="mc-pet-antenna">
+        <line x1="50" y1="26" x2="50" y2="16" />
         <path
-          className="mc-pet-body"
-          d="M 50 90 C 24 90 13 70 15 50 C 17 30 32 15 50 15 C 68 15 83 30 85 50 C 87 70 76 90 50 90 Z"
+          className="mc-pet-antenna-tip"
+          d="M 50 13 C 48 8.5 42.5 9.8 43.8 13.8 C 44.5 16 47.5 18 50 19.8 C 52.5 18 55.5 16 56.2 13.8 C 57.5 9.8 52 8.5 50 13 Z"
         />
-
-        {/* Tiny feet */}
-        <g className="mc-pet-feet">
-          <path d="M 36 89 Q 36 94 32 94" />
-          <path d="M 64 89 Q 64 94 68 94" />
-        </g>
-
-        {/* Face */}
-        <g className="mc-pet-face">
-          {face.leftBrow ? <path className="mc-pet-brow" d={face.leftBrow} /> : null}
-          {face.rightBrow ? <path className="mc-pet-brow" d={face.rightBrow} /> : null}
-          <Eyes kind={face.eyes} />
-          <path className="mc-pet-mouth" d={face.mouth} />
-        </g>
-
-        {/* Mood props */}
-        {mood === "sleeping" ? (
-          <g className="mc-pet-zzz">
-            <text x="72" y="26" className="mc-pet-zzz-glyph">
-              z
-            </text>
-            <text x="80" y="16" className="mc-pet-zzz-glyph mc-pet-zzz-glyph-2">
-              z
-            </text>
-          </g>
-        ) : null}
-        {mood === "shipping" ? (
-          <g className="mc-pet-crate">
-            <rect x="70" y="70" width="16" height="14" rx="2" />
-            <line x1="70" y1="77" x2="86" y2="77" />
-            <line x1="78" y1="70" x2="78" y2="84" />
-          </g>
-        ) : null}
-        {mood === "celebrating" ? (
-          <g className="mc-pet-confetti">
-            <line x1="18" y1="18" x2="22" y2="14" />
-            <line x1="80" y1="20" x2="84" y2="16" />
-            <line x1="12" y1="42" x2="17" y2="41" />
-            <line x1="86" y1="40" x2="91" y2="38" />
-          </g>
-        ) : null}
-        {mood === "working" && intensity >= 3 ? (
-          <path className="mc-pet-sweat" d="M 78 30 Q 81 35 78 38 Q 75 35 78 30 Z" />
-        ) : null}
-        {mood === "alert" ? (
-          <g className="mc-pet-alert-mark">
-            <line x1="88" y1="18" x2="88" y2="28" />
-            <circle cx="88" cy="34" r="1.8" />
+        {sparkle ? (
+          <g
+            className="mc-pet-sparkle"
+            style={{ "--pet-sparkle": Math.min(1, 0.4 + level * 0.06) } as React.CSSProperties}
+          >
+            <path d="M 62 6 L 64 2 L 66 6 L 70 8 L 66 10 L 64 14 L 62 10 L 58 8 Z" />
           </g>
         ) : null}
       </g>
+
+      {/* Pear-soft body */}
+      <path
+        className="mc-pet-body"
+        d="M 50 90 C 25 90 13 77 15 59 C 18 38 34 26 50 26 C 66 26 82 38 85 59 C 87 77 75 90 50 90 Z"
+      />
+
+      {/* Stub arms — thrown up when celebrating */}
+      <g className="mc-pet-arms">
+        {armsUp ? (
+          <>
+            <path d="M 18 56 Q 8 48 10 42" />
+            <path d="M 82 56 Q 92 48 90 42" />
+          </>
+        ) : (
+          <>
+            <path d="M 17 62 Q 9 66 12 72" />
+            <path d="M 83 62 Q 91 66 88 72" />
+          </>
+        )}
+      </g>
+
+      {/* Tiny feet */}
+      <g className="mc-pet-feet">
+        <path d="M 38 90 Q 38 86 42 86" />
+        <path d="M 62 90 Q 62 86 58 86" />
+      </g>
+
+      {/* Face */}
+      <g className="mc-pet-face">
+        <Eyes kind={eyeKindFor(mood)} />
+        <Mouth mood={mood} />
+        <ellipse className="mc-pet-blush" cx={28} cy={64} rx={4.6} ry={2.4} />
+        <ellipse className="mc-pet-blush" cx={72} cy={64} rx={4.6} ry={2.4} />
+      </g>
+
+      {/* Mood props */}
+      {mood === "sleeping" ? (
+        <g className="mc-pet-zzz">
+          <text x="74" y="24" className="mc-pet-zzz-glyph">
+            z
+          </text>
+          <text x="83" y="14" className="mc-pet-zzz-glyph mc-pet-zzz-glyph-2">
+            z
+          </text>
+        </g>
+      ) : null}
+      {mood === "shipping" ? (
+        <g className="mc-pet-crate">
+          <rect x="72" y="72" width="16" height="14" rx="2" />
+          <line x1="72" y1="79" x2="88" y2="79" />
+          <line x1="80" y1="72" x2="80" y2="86" />
+        </g>
+      ) : null}
+      {mood === "celebrating" ? (
+        <g className="mc-pet-confetti">
+          <line x1="16" y1="16" x2="20" y2="12" />
+          <line x1="82" y1="18" x2="86" y2="14" />
+          <line x1="10" y1="40" x2="15" y2="39" />
+          <line x1="88" y1="38" x2="93" y2="36" />
+        </g>
+      ) : null}
+      {mood === "working" && intensity >= 3 ? (
+        <path className="mc-pet-sweat" d="M 80 34 Q 83 39 80 42 Q 77 39 80 34 Z" />
+      ) : null}
+      {mood === "alert" ? (
+        <g className="mc-pet-alert-mark">
+          <line x1="90" y1="14" x2="90" y2="26" />
+          <circle cx="90" cy="33" r="1.9" />
+        </g>
+      ) : null}
     </svg>
   );
 });
@@ -189,7 +206,7 @@ export type PetSpecies = {
   Sprite: typeof PetSprite;
 };
 
-/** Species seam — v1 ships the blob; future species register here. */
+/** Species seam — v1 ships Mochi; future species register here. */
 export const PET_SPECIES: Record<string, PetSpecies> = {
-  blob: { id: "blob", Sprite: PetSprite },
+  mochi: { id: "mochi", Sprite: PetSprite },
 };

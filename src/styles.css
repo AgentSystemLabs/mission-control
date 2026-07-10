@@ -3610,46 +3610,55 @@ body[data-card-glow] .cursor-glow {
 .mc-pet-body {
   fill: var(--surface-2);
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 2.6;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 .mc-pet-antenna line {
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 2.4;
   stroke-linecap: round;
 }
 .mc-pet-antenna-tip {
   fill: var(--accent);
 }
+.mc-pet-arms path,
 .mc-pet-feet path {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 2.4;
   stroke-linecap: round;
 }
-.mc-pet-pupil {
-  fill: var(--text);
+.mc-pet-eye {
   transform-box: fill-box;
   transform-origin: center;
   animation: mc-pet-blink 5.5s infinite;
 }
+.mc-pet-pupil {
+  fill: var(--text);
+}
+/* Shine dots read as a cutout of the body surface, in every theme. */
+.mc-pet-shine {
+  fill: var(--surface-2);
+}
+.mc-pet-blush {
+  fill: var(--accent);
+  opacity: 0.28;
+}
 .mc-pet-eyes path {
   fill: none;
   stroke: var(--text);
-  stroke-width: 2.5;
+  stroke-width: 2.4;
   stroke-linecap: round;
 }
-.mc-pet-brow,
 .mc-pet-mouth {
   fill: none;
   stroke: var(--text);
-  stroke-width: 2.5;
+  stroke-width: 2.4;
   stroke-linecap: round;
 }
-.mc-pet[data-mood="alert"] .mc-pet-mouth {
+.mc-pet-mouth-o {
   fill: var(--text);
-  stroke-width: 2;
 }
 .mc-pet-sparkle path {
   fill: var(--accent);
