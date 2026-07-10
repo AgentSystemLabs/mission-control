@@ -9,6 +9,7 @@ import { AGENT_META } from "~/lib/design-meta";
 import {
   GRID_COLUMN_OPTIONS,
   GRID_PREFS_EVENT,
+  GRID_QUICK_PICKER_EVENT,
   loadGridColumnLimit,
   requestGridSort,
   saveGridColumnLimit,
@@ -72,6 +73,14 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
     window.addEventListener(GRID_PREFS_EVENT, onPrefs);
     return () => window.removeEventListener(GRID_PREFS_EVENT, onPrefs);
   }, [scopeKey]);
+
+  // The session.gridLayout quick picker drives the same settings — when it
+  // opens, this menu closes instead of stacking underneath it.
+  useEffect(() => {
+    const onPickerOpen = () => setOpen(false);
+    window.addEventListener(GRID_QUICK_PICKER_EVENT, onPickerOpen);
+    return () => window.removeEventListener(GRID_QUICK_PICKER_EVENT, onPickerOpen);
+  }, []);
 
   const updateMenuRect = useCallback(() => {
     const anchor = anchorRef.current;
@@ -215,6 +224,11 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
                 type="button"
                 role="radio"
                 aria-checked={columnLimit === null}
+                // The menu stays open after a pick, so a click must not leave
+                // browser focus (and its ring) parked on the chip — or pull
+                // the caret out of the terminal. Selection is shown by the
+                // accent styling, not focus.
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pickLimit(null)}
                 style={{
                   ...chipBase,
@@ -235,6 +249,7 @@ export function GridLayoutButton({ scopeKey }: { scopeKey: string }) {
                   type="button"
                   role="radio"
                   aria-checked={columnLimit === n}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => pickLimit(n)}
                   title={`${n} session${n === 1 ? "" : "s"} per row`}
                   style={{

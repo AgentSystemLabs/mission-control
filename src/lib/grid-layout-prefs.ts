@@ -74,3 +74,14 @@ export function requestGridSort(scopeKey: string, firstAgent: TaskAgent): void {
     }),
   );
 }
+
+/** Announced when the session.gridLayout quick picker opens, so the header's
+ *  layout dropdown closes instead of stacking a second popup over it (the
+ *  reverse needs no event — opening the dropdown is an outside pointerdown,
+ *  which already dismisses the picker). */
+export const GRID_QUICK_PICKER_EVENT = "mc:grid-quick-picker-open";
+
+export function announceGridQuickPickerOpen(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(GRID_QUICK_PICKER_EVENT));
+}

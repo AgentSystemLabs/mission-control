@@ -148,6 +148,9 @@ export function GridLayoutQuickPicker({
     <button
       key={key ?? label}
       type="button"
+      // Keep browser focus (and the caret) where it was — the popup never
+      // owns focus; its keys arrive via the capture listener.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       aria-pressed={active}
       style={{
@@ -238,6 +241,7 @@ export function GridLayoutQuickPicker({
               <button
                 key={agent}
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => applySort(agent)}
                 onMouseEnter={() => setFocusRow(i + 1)}
                 aria-current={focusRow === i + 1 ? "true" : undefined}

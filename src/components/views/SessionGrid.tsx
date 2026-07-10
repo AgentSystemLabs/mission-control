@@ -24,6 +24,7 @@ import { getElectron, isElectron } from "~/lib/electron";
 import {
   GRID_PREFS_EVENT,
   GRID_SORT_EVENT,
+  announceGridQuickPickerOpen,
   loadGridColumnLimit,
   type GridPrefsEventDetail,
   type GridSortEventDetail,
@@ -1505,10 +1506,19 @@ export function SessionGrid({
   // Cmd/Ctrl+Shift+L (session.gridLayout): toggle the layout quick picker.
   // Arranging edits the persisted Active layout, so the pinned read-through
   // view leaves the shortcut off (same rule as reorder/resize/dropdown).
-  useHotkey("session.gridLayout", () => setQuickPickerOpen((v) => !v), {
-    capture: true,
-    enabled: !isFiltered && renderSessions.length > 0,
-  });
+  useHotkey(
+    "session.gridLayout",
+    () => {
+      // Opening announces itself so the header dropdown closes — the two
+      // popups drive the same settings and must never stack.
+      if (!quickPickerOpen) announceGridQuickPickerOpen();
+      setQuickPickerOpen(!quickPickerOpen);
+    },
+    {
+      capture: true,
+      enabled: !isFiltered && renderSessions.length > 0,
+    },
+  );
 
   // Progressive mount: cells beyond the budget render as empty frames and fill
   // in over the following frames. Panes with a cached surface used to bypass
