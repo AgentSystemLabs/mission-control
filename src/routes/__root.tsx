@@ -47,6 +47,17 @@ import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
 } from "~/lib/accent-colors";
+import { applyTerminalAppearance } from "~/lib/terminal-appearance";
+import {
+  applyInterfaceFontFamily,
+  applyInterfaceFontScale,
+} from "~/lib/interface-appearance";
+import {
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  DEFAULT_TERMINAL_LETTER_SPACING,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+} from "~/shared/terminal-appearance";
 import {
   SettingsPanel,
   SETTINGS_PANEL_IDS,
@@ -417,6 +428,47 @@ function Shell() {
   useEffect(() => {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
+
+  // Appearance settings land as inline CSS vars on <html>; live terminals
+  // pick them up through watchTerminalColorScheme's style observer.
+  const terminalFontFamily = settings?.terminalFontFamily ?? null;
+  const terminalFontWeight =
+    settings?.terminalFontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT;
+  const terminalFontWeightBold =
+    settings?.terminalFontWeightBold ?? DEFAULT_TERMINAL_FONT_WEIGHT_BOLD;
+  const terminalLineHeight =
+    settings?.terminalLineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT;
+  const terminalLetterSpacing =
+    settings?.terminalLetterSpacing ?? DEFAULT_TERMINAL_LETTER_SPACING;
+  useEffect(() => {
+    if (!settings) return;
+    applyTerminalAppearance({
+      fontFamily: terminalFontFamily,
+      fontWeight: terminalFontWeight,
+      fontWeightBold: terminalFontWeightBold,
+      lineHeight: terminalLineHeight,
+      letterSpacing: terminalLetterSpacing,
+    });
+  }, [
+    settings,
+    terminalFontFamily,
+    terminalFontWeight,
+    terminalFontWeightBold,
+    terminalLineHeight,
+    terminalLetterSpacing,
+  ]);
+
+  const interfaceFontFamily = settings?.interfaceFontFamily ?? null;
+  useEffect(() => {
+    if (!settings) return;
+    applyInterfaceFontFamily(interfaceFontFamily);
+  }, [settings, interfaceFontFamily]);
+
+  const interfaceFontScale = settings?.interfaceFontScale;
+  useEffect(() => {
+    if (interfaceFontScale === undefined) return;
+    applyInterfaceFontScale(interfaceFontScale);
+  }, [interfaceFontScale]);
 
   const launchOverlayEnabled = settings?.launchOverlayEnabled;
   const themeStyle = settings?.themeStyle;

@@ -73,6 +73,57 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
+/** Row of discrete numeric options styled like a segmented picker (selected = accent + underline). */
+export function ValueRow<T extends number>({
+  values,
+  value,
+  onSelect,
+  format = (v) => String(v),
+  ariaLabel,
+}: {
+  values: readonly T[];
+  value: T;
+  onSelect: (next: T) => void;
+  format?: (v: T) => string;
+  ariaLabel: string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      style={{ display: "flex", alignItems: "baseline", gap: 4, flexWrap: "wrap" }}
+    >
+      {values.map((candidate) => {
+        const selected = candidate === value;
+        return (
+          <button
+            key={candidate}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onSelect(candidate)}
+            style={{
+              background: "transparent",
+              border: "none",
+              borderBottom: selected
+                ? "2px solid var(--accent)"
+                : "2px solid transparent",
+              color: selected ? "var(--text)" : "var(--text-dim)",
+              fontFamily: "var(--mono)",
+              fontSize: 12,
+              fontWeight: selected ? 600 : 400,
+              padding: "3px 6px 2px",
+              cursor: "pointer",
+            }}
+          >
+            {format(candidate)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CodeBlock({
   value,
   onCopy,

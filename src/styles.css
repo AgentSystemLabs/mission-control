@@ -4,14 +4,27 @@
 @import "@fontsource/space-grotesk/500.css";
 @import "@fontsource/space-grotesk/600.css";
 @import "@fontsource/space-grotesk/700.css";
+/* Full weight ranges so the terminal font-weight settings bind to real faces
+   (browsers only fetch the weights a page actually uses). */
+@import "@fontsource/geist-mono/100.css";
+@import "@fontsource/geist-mono/200.css";
+@import "@fontsource/geist-mono/300.css";
 @import "@fontsource/geist-mono/400.css";
 @import "@fontsource/geist-mono/500.css";
 @import "@fontsource/geist-mono/600.css";
-/* Flat theme's bundled terminal + UI mono face — clearer, warmer mono. */
+@import "@fontsource/geist-mono/700.css";
+@import "@fontsource/geist-mono/800.css";
+@import "@fontsource/geist-mono/900.css";
+/* Flat theme's bundled terminal + UI mono face — clearer, warmer mono.
+   (JetBrains Mono ships 100–800; there is no 900 cut.) */
+@import "@fontsource/jetbrains-mono/100.css";
+@import "@fontsource/jetbrains-mono/200.css";
+@import "@fontsource/jetbrains-mono/300.css";
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
 @import "@fontsource/jetbrains-mono/600.css";
 @import "@fontsource/jetbrains-mono/700.css";
+@import "@fontsource/jetbrains-mono/800.css";
 /* Flat theme's UI sans face. */
 @import "@fontsource/plus-jakarta-sans/400.css";
 @import "@fontsource/plus-jakarta-sans/500.css";
