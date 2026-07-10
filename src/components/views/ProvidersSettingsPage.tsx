@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { Btn } from "~/components/ui/Btn";
 import { Icon } from "~/components/ui/Icon";
+import { Modal } from "~/components/ui/Modal";
 import { CodeBlock, SettingsSection, ToggleSwitch, useCopy } from "~/components/views/SettingsParts";
 import { api, type AppSettings } from "~/lib/api";
 import { mcToastLoading, mcToastResultCard } from "~/lib/mc-toast";
@@ -368,6 +369,7 @@ function ProviderRow({
   const meta = AGENT_META[agent];
   const registry = AGENT_REGISTRY[agent];
   const cliConfig = AGENT_CLI_CONFIG[agent];
+  const [manualOpen, setManualOpen] = useState(false);
 
   const availability = installed.status === "ready" ? installed.availability : null;
   const installedVersion = availability?.version ?? null;
@@ -507,6 +509,30 @@ function ProviderRow({
             )}
           </div>
         </div>
+        {updateAvailable && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            {onRunUpdate && (
+              <Btn
+                variant="accent"
+                size="sm"
+                icon={updating ? "refresh" : "download"}
+                onClick={onRunUpdate}
+                disabled={updating}
+                aria-label={`Update ${meta.label} to v${latest?.latestVersion}`}
+              >
+                {updating ? "Updating…" : `Update to v${latest?.latestVersion}`}
+              </Btn>
+            )}
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="info"
+              onClick={() => setManualOpen(true)}
+              aria-label={`How to update ${meta.label} manually`}
+              title="Update it yourself"
+            />
+          </div>
+        )}
         {latest?.supported !== false && (
           <Btn
             variant="ghost"
@@ -525,38 +551,29 @@ function ProviderRow({
           label={`Show ${meta.label} in the New Session dialog`}
         />
       </div>
-      {updateAvailable && (
-        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-          {onRunUpdate && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Btn
-                variant="accent"
-                size="sm"
-                icon={updating ? "refresh" : "download"}
-                onClick={onRunUpdate}
-                disabled={updating}
-                aria-label={`Update ${meta.label} to v${latest?.latestVersion}`}
-              >
-                {updating ? "Updating…" : `Update to v${latest?.latestVersion}`}
-              </Btn>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--text-faint)" }}>
-                {updating
-                  ? "Running the update command matching your install…"
-                  : "or run it yourself:"}
-              </span>
-            </div>
-          )}
+      <Modal
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        title={`Update ${meta.label} manually`}
+        width={520}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
+            {onRunUpdate
+              ? "Prefer to update it yourself? Run one of these in your terminal — pick the one matching how you installed the CLI."
+              : `Run one of these in your terminal to update the ${registry.command} CLI — pick the one matching how you installed it.`}
+          </p>
           {updateCommands.map((command) => (
             <CodeBlock
               key={command}
               value={command}
-              monoSize={11}
+              monoSize={11.5}
               copied={copiedLabel === `${agent}:${command}`}
               onCopy={() => onCopy(command, `${agent}:${command}`)}
             />
           ))}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
