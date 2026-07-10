@@ -33,8 +33,9 @@ import { isElectron } from "~/lib/electron";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
-import { DEFAULT_PET_NAME } from "~/shared/pet";
-import { petRename } from "~/lib/pet/pet-store";
+import { DEFAULT_PET_NAME, PET_SPECIES_IDS } from "~/shared/pet";
+import { petRename, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
+import { PET_SPECIES } from "~/components/pet/PetSprite";
 import { TextField } from "~/components/ui/TextField";
 
 export function GeneralSettingsPage() {
@@ -413,6 +414,11 @@ export function GeneralSettingsPage() {
           />
         </Field>
         {petEnabled && petState ? (
+          <Field label="Species">
+            <PetSpeciesPicker />
+          </Field>
+        ) : null}
+        {petEnabled && petState ? (
           <Field label="Identity">
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <TextField
@@ -444,6 +450,50 @@ export function GeneralSettingsPage() {
       <AboutSection />
       <ReloadSection />
     </>
+  );
+}
+
+/**
+ * Live species picker — each option renders that species' actual idle sprite,
+ * so what you pick is exactly what wanders the corner. Selection goes through
+ * the pet store (petSetSpecies) so the live pet switches instantly and the
+ * controller persists it with the rest of the identity.
+ */
+function PetSpeciesPicker() {
+  const pet = usePetSnapshot();
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }} role="radiogroup" aria-label="Pet species">
+      {PET_SPECIES_IDS.map((id) => {
+        const species = PET_SPECIES[id];
+        const selected = pet.species === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => petSetSpecies(id)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              padding: "8px 10px 6px",
+              borderRadius: 10,
+              cursor: "pointer",
+              background: selected
+                ? "color-mix(in srgb, var(--accent) 14%, transparent)"
+                : "transparent",
+              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+              color: selected ? "var(--text)" : "var(--text-dim)",
+            }}
+          >
+            <species.Sprite mood="idle" intensity={1} night={false} level={1} size={44} />
+            <span style={{ fontSize: 11 }}>{species.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

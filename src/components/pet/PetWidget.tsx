@@ -8,6 +8,7 @@ import {
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { DEFAULT_PET_SPECIES } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
 import type { Task } from "~/db/schema";
 import { PET_SPECIES } from "./PetSprite";
@@ -34,7 +35,7 @@ export function PetWidget() {
 
   if (!pet.enabled) return null;
 
-  const { Sprite } = PET_SPECIES.mochi;
+  const { Sprite } = PET_SPECIES[pet.species] ?? PET_SPECIES[DEFAULT_PET_SPECIES];
 
   const handleClick = () => {
     const { navigateTo } = petInteract();

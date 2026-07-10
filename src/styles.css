@@ -3651,6 +3651,44 @@ body[data-card-glow] .cursor-glow {
   stroke-width: 2.4;
   stroke-linecap: round;
 }
+/* Species parts: inner ears, belly/muzzle patches, noses, beaks, plumes. */
+.mc-pet-inner {
+  fill: var(--accent);
+  opacity: 0.25;
+}
+.mc-pet-patch {
+  fill: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.mc-pet-nose {
+  fill: var(--text);
+}
+.mc-pet-beak {
+  fill: var(--accent);
+}
+.mc-pet-plume {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.mc-pet-tail {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+.mc-pet-gill,
+.mc-pet-tuft {
+  transform-box: fill-box;
+  transform-origin: bottom right;
+  animation: mc-pet-sway 3s ease-in-out infinite;
+}
+.mc-pet-gill-r {
+  transform-origin: bottom left;
+}
+.mc-pet-tuft {
+  transform-origin: bottom center;
+  animation-duration: 3.4s;
+}
 .mc-pet-mouth {
   fill: none;
   stroke: var(--text);
@@ -3945,6 +3983,15 @@ body[data-card-glow] .cursor-glow {
   }
   50% {
     opacity: 0.35;
+  }
+}
+@keyframes mc-pet-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(6deg);
   }
 }
 @keyframes mc-pet-waddle {

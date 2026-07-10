@@ -74,6 +74,12 @@ describe("normalizePetState", () => {
     expect(normalizePetState({ ...valid(), name: "   " })!.name).toBe(DEFAULT_PET_NAME);
   });
 
+  it("keeps a valid species and defaults unknown/missing ones to mochi", () => {
+    expect(normalizePetState({ ...valid(), species: "bunny" })!.species).toBe("bunny");
+    expect(normalizePetState({ ...valid(), species: "goose" })!.species).toBe("mochi");
+    expect(normalizePetState(valid())!.species).toBe("mochi"); // pre-picker state
+  });
+
   it("rejects garbage", () => {
     expect(normalizePetState(null)).toBeNull();
     expect(normalizePetState("dragon")).toBeNull();

@@ -2,8 +2,10 @@ import { useSyncExternalStore } from "react";
 import type { ServerEvent } from "~/lib/use-events";
 import {
   createDefaultPetState,
+  DEFAULT_PET_SPECIES,
   levelForXp,
   type PetPersistentState,
+  type PetSpeciesId,
 } from "~/shared/pet";
 import { createListenerSet } from "../listener-set";
 import {
@@ -59,6 +61,7 @@ export type PetSnapshot = {
   /** Most recent session waiting on the user; click-through target. */
   alert: { taskId: string; projectId: string } | null;
   name: string;
+  species: PetSpeciesId;
   xp: number;
   level: number;
   /** Increments on each petting; keys the hearts burst animation. */
@@ -202,6 +205,7 @@ function buildSnapshot(): PetSnapshot {
     bubble,
     alert,
     name: persistent?.name ?? "",
+    species: persistent?.species ?? DEFAULT_PET_SPECIES,
     xp: persistent?.xp ?? 0,
     level: persistent?.level ?? 1,
     heartsBurstId,
@@ -463,6 +467,13 @@ export function petRename(name: string): void {
   const trimmed = name.trim().slice(0, 24);
   if (!trimmed || trimmed === persistent.name) return;
   persistent = { ...persistent, name: trimmed };
+  notifyPersistence();
+  invalidate();
+}
+
+export function petSetSpecies(species: PetSpeciesId): void {
+  if (!persistent || persistent.species === species) return;
+  persistent = { ...persistent, species };
   notifyPersistence();
   invalidate();
 }
