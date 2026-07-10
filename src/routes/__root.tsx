@@ -132,13 +132,16 @@ var tt=localStorage.getItem(${JSON.stringify(SURFACE_TINT_CACHE_KEY)});
 if(tt==="subtle"||tt==="vivid"||tt==="intense"){d.setAttribute("data-tint",tt);}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
-  Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),
+  Object.fromEntries(
+    ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb, k: c.onAccent }]),
+  ),
 )};
 var a=localStorage.getItem(${JSON.stringify(ACCENT_CACHE_KEY)});
 var c=a&&t[a]?t[a]:t[${JSON.stringify(DEFAULT_ACCENT_COLOR)}];
 if(c&&a&&a!==${JSON.stringify(DEFAULT_ACCENT_COLOR)}){
   var s=d.style;
   s.setProperty("--accent",c.v);
+  s.setProperty("--mc-on-accent",c.k);
   s.setProperty("--accent-dim","rgba("+c.r+", 0.18)");
   s.setProperty("--accent-faint","rgba("+c.r+", 0.1)");
   s.setProperty("--accent-border","rgba("+c.r+", 0.38)");
