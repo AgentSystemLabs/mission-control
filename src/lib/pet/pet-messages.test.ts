@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { PetPersonality } from "~/shared/pet";
 import {
+  calendarTriggers,
   classifyPromptSnippet,
   createRateLimiter,
   pickLine,
 } from "./pet-messages";
+import { PET_LINES } from "./pet-lines";
 
 const neutral: PetPersonality = { snark: 5, wisdom: 5, chaos: 5, zen: 5 };
 const ctx = { name: "Pixel", level: 2, runningCount: 3 };
@@ -124,6 +126,66 @@ describe("classifyPromptSnippet", () => {
 
   it("prefers fix over later categories when both match", () => {
     expect(classifyPromptSnippet("fix the failing tests")).toBe("prompt-fix");
+  });
+
+  it("maps the expanded keyword categories", () => {
+    expect(classifyPromptSnippet("resolve the merge conflict in api.ts")).toBe(
+      "prompt-merge-conflict",
+    );
+    expect(classifyPromptSnippet("rebase onto main")).toBe("prompt-rebase");
+    expect(classifyPromptSnippet("the tests are failing on CI")).toBe("prompt-test-fail");
+    expect(classifyPromptSnippet("center a div properly")).toBe("prompt-css");
+    expect(classifyPromptSnippet("upgrade dependencies in package.json")).toBe("prompt-deps");
+    expect(classifyPromptSnippet("write a dockerfile for the api")).toBe("prompt-docker");
+    expect(classifyPromptSnippet("tighten the regex in the parser")).toBe("prompt-regex");
+    expect(classifyPromptSnippet("update the readme")).toBe("prompt-docs");
+    expect(classifyPromptSnippet("port this module to rust")).toBe("prompt-rust");
+    expect(classifyPromptSnippet("audit for sql injection")).toBe("prompt-security");
+  });
+});
+
+describe("calendarTriggers", () => {
+  it("fires date-specific triggers on their dates", () => {
+    expect(calendarTriggers(new Date(2026, 9, 31, 12))).toContain("halloween");
+    expect(calendarTriggers(new Date(2026, 9, 10, 12))).toContain("spooky-season");
+    expect(calendarTriggers(new Date(2026, 11, 25, 12))).toContain("christmas");
+    expect(calendarTriggers(new Date(2026, 0, 1, 12))).toContain("new-year");
+  });
+
+  it("fires weekday and early-morning triggers", () => {
+    // 2026-07-10 is a Friday; 2026-07-13 a Monday.
+    expect(calendarTriggers(new Date(2026, 6, 10, 12))).toContain("friday");
+    expect(calendarTriggers(new Date(2026, 6, 11, 12))).toContain("weekend");
+    const mondayMorning = calendarTriggers(new Date(2026, 6, 13, 7));
+    expect(mondayMorning).toContain("monday");
+    expect(mondayMorning).toContain("early-morning");
+    expect(calendarTriggers(new Date(2026, 6, 15, 12))).toHaveLength(0);
+  });
+
+  it("once-per-boot calendar triggers fire exactly once", () => {
+    let t = 0;
+    const limiter = createRateLimiter(() => t);
+    expect(limiter.allow("friday")).toBe(true);
+    t += 24 * 60 * 60_000;
+    expect(limiter.allow("friday")).toBe(false);
+  });
+});
+
+describe("PET_LINES coverage", () => {
+  it("every trigger has at least one line", () => {
+    for (const [trigger, lines] of Object.entries(PET_LINES)) {
+      expect(lines.length, `empty pack for ${trigger}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("every line resolves to non-empty text", () => {
+    const ctx = { name: "Pixel", level: 3, runningCount: 2 };
+    for (const lines of Object.values(PET_LINES)) {
+      for (const line of lines) {
+        const text = typeof line.text === "function" ? line.text(ctx) : line.text;
+        expect(text.trim().length).toBeGreaterThan(0);
+      }
+    }
   });
 });
 

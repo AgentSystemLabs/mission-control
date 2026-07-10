@@ -10,6 +10,8 @@ import { PET_LINES } from "./pet-lines";
 export type PetMessagePriority = "critical" | "info" | "flavor";
 
 export type PetTrigger =
+  // lifecycle + core activity
+  | "hatch"
   | "greeting"
   | "session-finished"
   | "session-finished-long"
@@ -20,17 +22,67 @@ export type PetTrigger =
   | "ship-failure"
   | "pr-created"
   | "multi-agent"
-  | "prompt-fix"
-  | "prompt-test"
-  | "prompt-refactor"
-  | "prompt-deploy"
   | "memory-learned"
   | "graph-indexed"
   | "interrupted"
   | "idle"
-  | "night"
   | "petting"
-  | "level-up";
+  | "level-up"
+  // clock + calendar
+  | "night"
+  | "early-morning"
+  | "friday"
+  | "weekend"
+  | "monday"
+  | "long-session"
+  | "marathon"
+  | "new-year"
+  | "valentines"
+  | "pi-day"
+  | "april-fools"
+  | "halloween"
+  | "christmas"
+  | "new-years-eve"
+  | "spooky-season"
+  // prompt keyword flavor (what you're asking the agents to do)
+  | "prompt-fix"
+  | "prompt-test"
+  | "prompt-test-fail"
+  | "prompt-refactor"
+  | "prompt-deploy"
+  | "prompt-merge-conflict"
+  | "prompt-rebase"
+  | "prompt-branch"
+  | "prompt-lint"
+  | "prompt-types"
+  | "prompt-build"
+  | "prompt-security"
+  | "prompt-deps"
+  | "prompt-docs"
+  | "prompt-env"
+  | "prompt-config"
+  | "prompt-css"
+  | "prompt-sql"
+  | "prompt-docker"
+  | "prompt-ci"
+  | "prompt-regex"
+  | "prompt-delete"
+  | "prompt-create"
+  | "prompt-todo"
+  // prompt language flavor
+  | "prompt-python"
+  | "prompt-typescript"
+  | "prompt-rust"
+  | "prompt-go"
+  | "prompt-java"
+  | "prompt-ruby"
+  | "prompt-php"
+  | "prompt-cpp"
+  | "prompt-haskell"
+  | "prompt-swift"
+  | "prompt-kotlin"
+  | "prompt-elixir"
+  | "prompt-zig";
 
 export type PetLineCtx = {
   name: string;
@@ -44,59 +96,96 @@ export type PetLine = {
   weights?: Partial<PetPersonality>;
 };
 
+type TriggerMeta = {
+  priority: PetMessagePriority;
+  /** ms between firings; Infinity = once per app boot (the limiter is module-lifetime). */
+  cooldownMs: number;
+};
+
+const ONCE_PER_BOOT = Infinity;
+const PROMPT_FLAVOR_COOLDOWN = 90_000;
+const PROMPT_LANG_COOLDOWN = 600_000;
+
 /**
  * critical — the user should act (blocked agent, failed ship). Preempts a
  * visible bubble and bypasses the global bucket.
  * info — worth a glance; flavor — pure ambience, first to be dropped.
  */
-export const TRIGGER_PRIORITY: Record<PetTrigger, PetMessagePriority> = {
-  greeting: "info",
-  "session-finished": "info",
-  "session-finished-long": "info",
-  "needs-input": "critical",
-  "ship-committing": "info",
-  "ship-pushing": "info",
-  "ship-success": "info",
-  "ship-failure": "critical",
-  "pr-created": "info",
-  "multi-agent": "flavor",
-  "prompt-fix": "flavor",
-  "prompt-test": "flavor",
-  "prompt-refactor": "flavor",
-  "prompt-deploy": "flavor",
-  "memory-learned": "flavor",
-  "graph-indexed": "flavor",
-  interrupted: "info",
-  idle: "flavor",
-  night: "flavor",
-  petting: "info",
-  "level-up": "info",
+const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
+  hatch: { priority: "info", cooldownMs: ONCE_PER_BOOT },
+  greeting: { priority: "info", cooldownMs: ONCE_PER_BOOT },
+  "session-finished": { priority: "info", cooldownMs: 45_000 },
+  "session-finished-long": { priority: "info", cooldownMs: 45_000 },
+  "needs-input": { priority: "critical", cooldownMs: 60_000 },
+  "ship-committing": { priority: "info", cooldownMs: 30_000 },
+  "ship-pushing": { priority: "info", cooldownMs: 30_000 },
+  "ship-success": { priority: "info", cooldownMs: 30_000 },
+  "ship-failure": { priority: "critical", cooldownMs: 30_000 },
+  "pr-created": { priority: "info", cooldownMs: 300_000 },
+  "multi-agent": { priority: "flavor", cooldownMs: 600_000 },
+  "memory-learned": { priority: "flavor", cooldownMs: 300_000 },
+  "graph-indexed": { priority: "flavor", cooldownMs: 300_000 },
+  interrupted: { priority: "info", cooldownMs: 60_000 },
+  idle: { priority: "flavor", cooldownMs: 900_000 },
+  petting: { priority: "info", cooldownMs: 20_000 },
+  "level-up": { priority: "info", cooldownMs: 0 },
+  night: { priority: "flavor", cooldownMs: 1_800_000 },
+  "early-morning": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  friday: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  weekend: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  monday: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "long-session": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  marathon: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "new-year": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  valentines: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "pi-day": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "april-fools": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  halloween: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  christmas: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "new-years-eve": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "spooky-season": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "prompt-fix": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-test": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-test-fail": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-refactor": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-deploy": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-merge-conflict": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-rebase": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-branch": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-lint": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-types": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-build": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-security": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-deps": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-docs": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-env": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-config": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-css": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-sql": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-docker": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-ci": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-regex": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-delete": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-create": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-todo": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
+  "prompt-python": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-typescript": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-rust": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-go": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-java": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-ruby": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-php": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-cpp": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-haskell": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-swift": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-kotlin": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-elixir": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
+  "prompt-zig": { priority: "flavor", cooldownMs: PROMPT_LANG_COOLDOWN },
 };
 
-/** Infinity = once per app boot (the limiter is module-lifetime). */
-const TRIGGER_COOLDOWN_MS: Record<PetTrigger, number> = {
-  greeting: Infinity,
-  "session-finished": 45_000,
-  "session-finished-long": 45_000,
-  "needs-input": 60_000,
-  "ship-committing": 30_000,
-  "ship-pushing": 30_000,
-  "ship-success": 30_000,
-  "ship-failure": 30_000,
-  "pr-created": 300_000,
-  "multi-agent": 600_000,
-  "prompt-fix": 90_000,
-  "prompt-test": 90_000,
-  "prompt-refactor": 90_000,
-  "prompt-deploy": 90_000,
-  "memory-learned": 300_000,
-  "graph-indexed": 300_000,
-  interrupted: 60_000,
-  idle: 900_000,
-  night: 1_800_000,
-  petting: 20_000,
-  "level-up": 0,
-};
+export const TRIGGER_PRIORITY: Record<PetTrigger, PetMessagePriority> = Object.fromEntries(
+  Object.entries(TRIGGER_META).map(([k, v]) => [k, v.priority]),
+) as Record<PetTrigger, PetMessagePriority>;
 
 // The global bucket keeps the pet charming instead of noisy: at most this many
 // non-exempt messages inside a sliding window. Critical triggers and direct
@@ -114,13 +203,13 @@ export function createRateLimiter(now: () => number = Date.now): {
     /** `key` scopes the cooldown (e.g. needs-input per taskId). */
     allow(trigger, key) {
       const t = now();
-      const cooldown = TRIGGER_COOLDOWN_MS[trigger];
+      const cooldown = TRIGGER_META[trigger].cooldownMs;
       const cooldownKey = key ? `${trigger}:${key}` : trigger;
       const last = lastFired.get(cooldownKey);
       if (last !== undefined && (cooldown === Infinity || t - last < cooldown)) {
         return false;
       }
-      const priority = TRIGGER_PRIORITY[trigger];
+      const priority = TRIGGER_META[trigger].priority;
       if (priority !== "critical" && !BUCKET_EXEMPT.has(trigger)) {
         while (bucket.length > 0 && t - bucket[0] > GLOBAL_WINDOW_MS) bucket.shift();
         if (bucket.length >= GLOBAL_MAX) return false;
@@ -172,11 +261,47 @@ export function bubbleDurationMs(text: string): number {
   return 4_500 + 40 * text.length;
 }
 
+// Ordered — first match wins, so the urgent categories sit on top. All of
+// this reads the first 200 chars of the submitted prompt (the SSE snippet).
 const PROMPT_PATTERNS: ReadonlyArray<[RegExp, PetTrigger]> = [
   [/\b(fix|bug|broken|crash)/i, "prompt-fix"],
-  [/\btest(s|ing)?\b/i, "prompt-test"],
+  [/\b(fail(ing|ed|s)?\s+tests?|tests?\s+(are\s+)?fail)/i, "prompt-test-fail"],
+  [/\b(test(s|ing)?|coverage)\b/i, "prompt-test"],
   [/\brefactor/i, "prompt-refactor"],
+  [/\bmerge\s+conflict|conflict(s|ed)?\b.*\bmerge/i, "prompt-merge-conflict"],
+  [/\brebase/i, "prompt-rebase"],
+  [/\bbranch\b/i, "prompt-branch"],
   [/\b(deploy|release|ship)\b/i, "prompt-deploy"],
+  [/\b(lint|eslint|prettier|format(ting)?)\b/i, "prompt-lint"],
+  [/\b(type\s?error|typecheck|type\s+safety|typings?)\b/i, "prompt-types"],
+  [/\b(build\s+(fail|break|error)|fix\s+the\s+build|compil(e|ation))\b/i, "prompt-build"],
+  [/\b(security|vulnerab|xss|csrf|injection|exploit)/i, "prompt-security"],
+  [/\b(dependenc|package\.json|lockfile|node_modules|upgrade\s+\w+\s+to|deprecat)/i, "prompt-deps"],
+  [/\b(docs?|documentation|readme|changelog)\b/i, "prompt-docs"],
+  [/\b(\.env|env\s+var|environment\s+variable|secret(s)?\b)/i, "prompt-env"],
+  [/\b(config(uration)?|settings\s+file|yaml|toml)\b/i, "prompt-config"],
+  [/\b(css|stylesheet|tailwind|styling|center\s+a?\s?div)\b/i, "prompt-css"],
+  [/\b(sql|database|migration|postgres|sqlite|query)\b/i, "prompt-sql"],
+  [/\b(docker|container|dockerfile|compose)\b/i, "prompt-docker"],
+  [/\b(ci\b|pipeline|github\s+actions?|workflow\s+file)/i, "prompt-ci"],
+  [/\b(regex|regular\s+expression)\b/i, "prompt-regex"],
+  [/\btodo|fixme\b/i, "prompt-todo"],
+  [/\b(delete|remove)\b/i, "prompt-delete"],
+  [/\b(create|scaffold|new\s+file)\b/i, "prompt-create"],
+  // languages last — they flavor rather than characterize the task
+  [/\bpython|\.py\b/i, "prompt-python"],
+  [/\btypescript|\.tsx?\b/i, "prompt-typescript"],
+  [/\brust|\.rs\b|cargo\b/i, "prompt-rust"],
+  [/\bgolang\b|\bgo\s+(code|file|module|service)/i, "prompt-go"],
+  [/\bjava\b(?!script)/i, "prompt-java"],
+  [/\bruby|\.rb\b|rails\b/i, "prompt-ruby"],
+  [/\bphp\b|laravel\b/i, "prompt-php"],
+  [/\bc\+\+|cpp\b/i, "prompt-cpp"],
+  [/\bhaskell\b/i, "prompt-haskell"],
+  [/\bswift(ui)?\b/i, "prompt-swift"],
+  [/\bkotlin\b/i, "prompt-kotlin"],
+  [/\belixir\b|phoenix\b/i, "prompt-elixir"],
+  [/\bzig\b/i, "prompt-zig"],
 ];
 
 /** Map a submitted prompt's snippet to a flavor trigger (first match wins). */
@@ -185,4 +310,29 @@ export function classifyPromptSnippet(snippet: string): PetTrigger | null {
     if (pattern.test(snippet)) return trigger;
   }
   return null;
+}
+
+/**
+ * Calendar triggers the controller checks once per boot (and on day rollover).
+ * Returned in priority order — the caller fires the first the limiter allows.
+ */
+export function calendarTriggers(now: Date): PetTrigger[] {
+  const out: PetTrigger[] = [];
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+  const weekday = now.getDay();
+  const hour = now.getHours();
+  if (month === 1 && day === 1) out.push("new-year");
+  if (month === 2 && day === 14) out.push("valentines");
+  if (month === 3 && day === 14) out.push("pi-day");
+  if (month === 4 && day === 1) out.push("april-fools");
+  if (month === 10 && day === 31) out.push("halloween");
+  else if (month === 10) out.push("spooky-season");
+  if (month === 12 && day === 25) out.push("christmas");
+  if (month === 12 && day === 31) out.push("new-years-eve");
+  if (weekday === 5) out.push("friday");
+  if (weekday === 0 || weekday === 6) out.push("weekend");
+  if (weekday === 1) out.push("monday");
+  if (hour >= 6 && hour < 9) out.push("early-morning");
+  return out;
 }

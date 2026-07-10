@@ -130,6 +130,8 @@ let enabled = false;
 let messagesEnabled = true;
 let soundsEnabled = false;
 let hydrated = false;
+// True when this boot rolled a brand-new pet — the greeting becomes a hatch.
+let freshlyHatched = false;
 let persistent: PetPersistentState | null = null;
 
 const inputs: PetInputs = {
@@ -346,6 +348,7 @@ export function petSoundsOn(): boolean {
 export function petHydrate(state: PetPersistentState | null): void {
   if (hydrated) return;
   hydrated = true;
+  freshlyHatched = !state;
   persistent = state ?? createDefaultPetState();
   // A fresh roll must reach the server even before any XP accrues.
   if (!state) notifyPersistence();
@@ -511,8 +514,16 @@ export function petSetWindowHidden(hidden: boolean): void {
   recompute();
 }
 
-/** Ambient one-liners the controller triggers on its slow clock. */
-export function petAmbientSay(trigger: "greeting" | "idle" | "night"): void {
+/**
+ * Ambient one-liners the controller triggers on its slow clock — greetings,
+ * idle/night flavor, calendar days, and uptime milestones. A brand-new pet's
+ * first greeting becomes a hatch.
+ */
+export function petAmbientSay(trigger: PetTrigger): void {
+  if (trigger === "greeting" && freshlyHatched) {
+    say("hatch");
+    return;
+  }
   say(trigger);
 }
 

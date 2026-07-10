@@ -5,6 +5,7 @@ import { queryKeys, useProjects, useSettings } from "~/queries";
 import type { AppSettings } from "~/lib/api";
 import { playNotificationDing } from "~/lib/notification-sound";
 import { useServerEvents, type ServerEvent } from "~/lib/use-events";
+import { calendarTriggers } from "./pet-messages";
 import {
   getPetPersistentState,
   getPetSnapshot,
@@ -24,8 +25,11 @@ import {
 
 const PERSIST_DEBOUNCE_MS = 3_000;
 const GREETING_DELAY_MS = 2_000;
+const CALENDAR_DELAY_MS = 15_000;
 const AMBIENT_TICK_MS = 60_000;
 const POINTER_THROTTLE_MS = 1_000;
+const LONG_SESSION_MS = 60 * 60_000;
+const MARATHON_MS = 3 * 60 * 60_000;
 
 // Ship detection rides on the stable mutationKey suffixes defined in
 // src/queries/git.ts (useGitCommit / useGitPush / useGitCreatePullRequest).
@@ -168,13 +172,23 @@ export function usePetController(): void {
     };
   }, [petEnabled, queryClient]);
 
-  // 7. Greeting shortly after boot + a slow ambient tick for idle/night lines.
+  // 7. Greeting shortly after boot, one calendar line (friday / halloween /
+  //    early-morning…) a beat later, and a slow ambient tick for idle/night
+  //    flavor plus uptime milestones. The rate limiter caps every once-per-boot
+  //    trigger, so a settings toggle or remount can't replay them.
+  const bootAt = useRef(Date.now());
   useEffect(() => {
     if (!petEnabled || typeof window === "undefined") return;
-    // The message rate limiter caps greeting at once per app boot, so a
-    // settings toggle or remount can't replay it.
     const greetTimer = setTimeout(() => petAmbientSay("greeting"), GREETING_DELAY_MS);
+    // At most one calendar line per boot — the first that applies today.
+    const calendarTimer = setTimeout(() => {
+      const [first] = calendarTriggers(new Date());
+      if (first) petAmbientSay(first);
+    }, CALENDAR_DELAY_MS);
     const ambientTimer = setInterval(() => {
+      const uptime = Date.now() - bootAt.current;
+      if (uptime > MARATHON_MS) petAmbientSay("marathon");
+      else if (uptime > LONG_SESSION_MS) petAmbientSay("long-session");
       const snapshot = getPetSnapshot();
       if (snapshot.night && (snapshot.mood === "idle" || snapshot.mood === "sleeping")) {
         petAmbientSay("night");
@@ -184,6 +198,7 @@ export function usePetController(): void {
     }, AMBIENT_TICK_MS);
     return () => {
       clearTimeout(greetTimer);
+      clearTimeout(calendarTimer);
       clearInterval(ambientTimer);
     };
   }, [petEnabled]);
