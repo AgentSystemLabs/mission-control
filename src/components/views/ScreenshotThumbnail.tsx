@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -8,6 +9,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "~/components/ui/Icon";
+import { Tooltip } from "~/components/ui/Tooltip";
+import { getElectron } from "~/lib/electron";
 import {
   ScreenshotAnnotator,
   type Shape as AnnotationShape,
@@ -76,6 +79,9 @@ function ScreenshotStackCard({
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
   const [editing, setEditing] = useState(false);
+  // Brief "copied" confirmation on the copy button (green check, then revert).
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Play the slide-out before the card is actually pulled from the store.
   const [leaving, setLeaving] = useState(false);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
@@ -228,6 +234,31 @@ function ScreenshotStackCard({
     [activeTaskIdFor, attachImageToSession, dismiss, projectId, shot.path],
   );
 
+  // Copy button: put this card's PNG on the OS clipboard so it can be pasted
+  // (Cmd/Ctrl+V) into any other app. Stop the pointer/click from bubbling so it
+  // never starts a drag or opens the editor. Leaves the card in place.
+  const onCopyClick = useCallback(
+    async (e: MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      const electron = getElectron();
+      if (!electron) return;
+      const res = await electron.terminalImages.copyToClipboard(shot.path).catch(() => null);
+      if (!res || "error" in res) return;
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+    },
+    [shot.path],
+  );
+
+  // Clear the pending "copied" reset if the card unmounts mid-confirmation.
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
   const dragging = dragPoint !== null;
 
   // Shared card visuals so the anchored card and the drag ghost are identical —
@@ -281,49 +312,72 @@ function ScreenshotStackCard({
           </button>
         )}
         {!ghost && (
-          <button
-            type="button"
-            className="screenshot-stack-attach"
-            aria-label="Attach to active session"
-            title="Attach to active session"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onAttachClick}
-            style={{
-              position: "absolute",
-              bottom: 6,
-              right: 6,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: compact ? 22 : 26,
-              height: compact ? 22 : 26,
-              padding: 0,
-              borderRadius: 8,
-              border: "none",
-              cursor: "pointer",
-              color: "#fff",
-              background: "var(--accent)",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-            }}
-          >
-            <Icon name="plus" size={compact ? 13 : 15} />
-          </button>
+          <Tooltip content={copied ? "Copied" : "Copy to clipboard"}>
+            <button
+              type="button"
+              className="screenshot-stack-copy"
+              aria-label={copied ? "Copied to clipboard" : "Copy image to clipboard"}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onCopyClick}
+              style={{
+                position: "absolute",
+                bottom: 6,
+                // Sit just to the left of the accent attach button.
+                right: 6 + (compact ? 22 : 26) + 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: compact ? 22 : 26,
+                height: compact ? 22 : 26,
+                padding: 0,
+                borderRadius: 8,
+                border: copied
+                  ? "1px solid #22c55e"
+                  : "1px solid rgba(255,255,255,0.28)",
+                cursor: "pointer",
+                color: "#fff",
+                background: copied ? "#22c55e" : "rgba(255,255,255,0.16)",
+                backdropFilter: "blur(6px)",
+                WebkitBackdropFilter: "blur(6px)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+                transition: "background 0.15s ease, border-color 0.15s ease",
+              }}
+            >
+              <Icon name={copied ? "check" : "copy"} size={compact ? 12 : 14} />
+            </button>
+          </Tooltip>
+        )}
+        {!ghost && (
+          <Tooltip content="Attach to active session">
+            <button
+              type="button"
+              className="screenshot-stack-attach"
+              aria-label="Attach to active session"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onAttachClick}
+              style={{
+                position: "absolute",
+                bottom: 6,
+                right: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: compact ? 22 : 26,
+                height: compact ? 22 : 26,
+                padding: 0,
+                borderRadius: 8,
+                border: "none",
+                cursor: "pointer",
+                color: "#fff",
+                background: "var(--accent)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+              }}
+            >
+              <Icon name="plus" size={compact ? 13 : 15} />
+            </button>
+          </Tooltip>
         )}
       </div>
-      {/* The caption doesn't fit the compact card; its aria-label carries the
-          same instructions there. */}
-      {!compact && (
-        <div
-          style={{
-            fontSize: 11,
-            color: "var(--text-dim)",
-            textAlign: "center",
-            fontFamily: "var(--mono)",
-          }}
-        >
-          Click to edit · drag to attach
-        </div>
-      )}
     </>
   );
 
