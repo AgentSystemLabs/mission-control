@@ -20,9 +20,9 @@ Phased workflow for this Electron desktop app. **Read [`references/mission-contr
 1. **Bump `package.json` before creating the git tag.** The tag version (without `v`) and `package.json` `version` must be identical on the commit you tag.
 2. **Use `pnpm version X.Y.Z --no-git-tag-version`** — never `git tag` first and bump later.
 3. **Never reuse or force-move a remote tag.** If a bad tag shipped, bump to the next patch and release again.
-4. **Pushing the tag triggers `release.yml`** — CI builds signed installers, uploads academy **draft** assets, and attaches installers to the **GitHub Release**. It does **not** finalize / promote the Electron updater.
-5. **In-app Update / electron-updater only advance after approval on agentsystem.dev.** GitHub Releases are for manual download only.
-6. **Verify after CI + after academy approval:** GitHub assets exist immediately; academy `latestVersion` only matches after you approve.
+4. **Pushing the tag triggers `release.yml`** — CI builds signed installers, uploads academy assets, **finalizes** the academy row (Approve unlocks), and attaches installers to the **GitHub Release**. It does **not** Approve / promote the Electron updater.
+5. **In-app Update / electron-updater only advance after you Approve on agentsystem.dev.** GitHub Releases are for manual download only. Admin **Waiting** means not finalized yet (CI finalize failed or still running).
+6. **Verify after CI + after academy approval:** GitHub assets + finalized draft exist after CI; academy public `latestVersion` only matches after you Approve.
 
 ### Version alignment check (run before tagging)
 
@@ -115,7 +115,7 @@ git push --follow-tags
 
 When the user explicitly requests push in the same turn, push immediately after local tag creation.
 
-Monitor: GitHub Actions → `Release` workflow for the new tag. Wait for `publish-github` to succeed (GitHub Release assets). Remind the user that **existing users are not prompted until they approve the release on agentsystem.dev**.
+Monitor: GitHub Actions → `Release` workflow for the new tag. Wait for `finalize-academy` and `publish-github` to succeed. Remind the user that **existing users are not prompted until they Approve the release on agentsystem.dev** (Waiting/Draft means finalize has not completed).
 
 ---
 

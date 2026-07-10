@@ -171,9 +171,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Cap each platform build so a hung job (notably mac-x64) can't block the
     # rest. fail-fast: false above keeps siblings running; academy stays draft
-    # until you approve on agentsystem.dev. To rebuild a single failed
-    # platform, re-run that matrix job from the Actions UI — asset upsert is
-    # idempotent on (releaseId, platform).
+    # until finalize-academy runs after all platforms succeed. To rebuild a
+    # single failed platform, re-run that matrix job from the Actions UI —
+    # asset upsert is idempotent on (releaseId, platform).
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -238,13 +238,23 @@ jobs:
           node scripts/stage-release-artifacts.mjs
 
       # Installer binaries for GitHub Release attachment in publish-github.
-      # Academy publish below uploads draft/versioned assets only — finalize /
-      # auto-update feeds are gated by approval on agentsystem.dev.
+      # Academy publish below uploads draft/versioned assets; finalize-academy
+      # marks the release ready for Approve on agentsystem.dev (updater still
+      # waits on that approval).
       - name: Upload installer for GitHub Release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: installer-${{ matrix.platform }}
           path: artifacts/*.${{ matrix.artifact_ext }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # Per-platform manifests (incl. mac zip sha512) for compose-mac-update-manifest.
+      - name: Upload release manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-manifest-${{ matrix.platform }}
+          path: artifacts/manifest.json
           if-no-files-found: error
           retention-days: 14
 
@@ -255,12 +265,53 @@ jobs:
           RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
         run: node scripts/publish-release.mjs publish
 
+  finalize-academy:
+    name: Finalize academy release
+    needs: [resolve, release-gate, prepare, build]
+    # Only when every platform published — partial matrices leave the draft
+    # so a re-run can finish missing installers before Approve unlocks.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-manifest-*
+          path: release-manifests
+
+      - name: Compose + publish latest-mac.yml
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+          RELEASE_MANIFESTS_DIR: release-manifests
+          ARTIFACTS_DIR: artifacts-mac-metadata
+        run: |
+          node scripts/compose-mac-update-manifest.mjs
+          node scripts/publish-release.mjs publish
+
+      - name: Finalize academy release
+        env:
+          MISSION_CONTROL_RELEASE_TOKEN: ${{ secrets.MISSION_CONTROL_RELEASE_TOKEN }}
+          ACADEMY_BASE_URL: ${{ secrets.ACADEMY_BASE_URL }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
+        run: node scripts/publish-release.mjs finalize
+
   publish-github:
     name: Publish GitHub Release
     needs: [resolve, release-gate, prepare, build]
     # Attach installers even when some matrix legs fail — operators can
-    # download what succeeded. Academy finalize stays offline until approval
-    # on agentsystem.dev (this job must NOT call finalize or publish latest-*).
+    # download what succeeded. Does not talk to academy (finalize-academy
+    # and agentsystem.dev Approve gate the updater).
     if: ${{ !cancelled() && needs.release-gate.result == 'success' && needs.prepare.result == 'success' && needs.build.result != 'skipped' }}
     runs-on: ubuntu-24.04
     permissions:
@@ -276,6 +327,8 @@ jobs:
       - name: Attach installers to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          # No checkout in this job — gh must not infer the repo from .git.
+          GH_REPO: ${{ github.repository }}
           RELEASE_VERSION: ${{ needs.resolve.outputs.ref }}
           RELEASE_NOTES: ${{ needs.resolve.outputs.notes }}
         shell: bash
@@ -299,9 +352,9 @@ jobs:
             echo "In-app updates stay on the previously approved agentsystem.dev release until this version is approved there."
           } > "$notes_file"
 
-          # Do not use --verify-tag: this job has no git checkout, and gh would
-          # fail with "not a git repository". The tag already exists on origin
-          # (auto-tag / manual push); create the release against that remote tag.
+          # Tag already exists on origin (auto-tag / manual push). Do not use
+          # --verify-tag (extra git). GH_REPO above is what avoids
+          # "not a git repository" when there is no checkout.
           if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
             gh release upload "$RELEASE_VERSION" "${files[@]}" --clobber
           else

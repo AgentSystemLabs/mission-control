@@ -26,11 +26,14 @@ merge to main (feature commits)
   → auto-tag-release.yml patch-bumps package.json, commits chore(release): vX.Y.Z, pushes annotated tag
   → release.yml (triggered by tag)
       → prepare + per-platform publish → academy draft/versioned assets
+      → finalize-academy (compose latest-mac.yml + finalize) → Draft clears, Approve unlocks
       → attach installers to GitHub Release (manual download)
-  → you approve on agentsystem.dev
-      → finalize + activate auto-update feed
+  → you Approve on agentsystem.dev
+      → activate auto-update feed / public downloads
       → Electron updater / in-app Update UI advance
 ```
+
+Admin UI **Waiting** = draft (`finalizedAt` null). CI finalize flips that to **Awaiting approval**; Approve is a separate human step.
 
 Skip automation for a main push: include `[skip release]` in the merge commit message.
 
@@ -63,9 +66,10 @@ Triggered on `push: tags: v*` (manual tags / `--follow-tags`) or `workflow_dispa
 | `release-gate` | Wait for `ci.yml` on the tagged commit, or its parent when the tip is `chore(release): v*` (bot bump has no CI run) |
 | `prepare` | `scripts/publish-release.mjs prepare` — create-or-get academy release row (draft) |
 | `build` (matrix) | mac-arm64, mac-x64, win-x64, linux-x64 — electron-builder + academy `publish` |
-| `publish-github` | Attach `.dmg` / `.exe` / `.AppImage` to the GitHub Release |
+| `finalize-academy` | Compose `latest-mac.yml`, publish it, then `finalize` — unlocks Approve (only if all matrix legs succeeded) |
+| `publish-github` | Attach `.dmg` / `.exe` / `.AppImage` to the GitHub Release (`GH_REPO` set; no checkout) |
 
-**Not done by CI:** `publish-release.mjs finalize` and publishing `latest-mac.yml` / auto-update feeds. Those stay on agentsystem.dev approval so existing users are not prompted until you promote.
+**Not done by CI:** agentsystem.dev **Approve**. That alone advances public downloads / Electron auto-update feeds.
 
 Secrets required in GitHub: `MISSION_CONTROL_RELEASE_TOKEN`, `ACADEMY_BASE_URL`, mac signing (`MAC_CERTS`, `APPLE_*`).
 
@@ -103,22 +107,23 @@ git push --follow-tags
 
 ## Post-release verification
 
-After `publish-github` succeeds:
+After `finalize-academy` + `publish-github` succeed:
 
 ```bash
 # 1. GitHub Release has installers (manual download)
 gh release view vX.Y.Z --json assets --jq '.assets[].name'
 
-# 2. Academy latest finalized still the previous approved version until you approve
+# 2. Public list still shows the previous *approved* version until you Approve
+#    (admin UI should show Awaiting approval, not Draft/Waiting)
 curl -sS -H 'Accept: application/json' \
   'https://agentsystem.dev/api/mission-control/releases?limit=1' \
   | jq '.releases[0].version'
 ```
 
-After **approving on agentsystem.dev**:
+After **Approving on agentsystem.dev**:
 
 ```bash
-# Latest finalized matches the new tag
+# Latest finalized+approved matches the new tag
 curl -sS -H 'Accept: application/json' \
   'https://agentsystem.dev/api/mission-control/releases?limit=1' \
   | jq '.releases[0].version'

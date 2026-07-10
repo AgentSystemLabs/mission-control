@@ -3,7 +3,7 @@ name: Auto tag release
 # After a green Hosted CI run on main, patch-bump package.json, commit, and
 # push an annotated v* tag. Because pushes that use GITHUB_TOKEN do not trigger
 # other workflows, this job then starts release.yml via workflow_dispatch.
-# Academy finalize / approval remains the gate for the Electron updater.
+# Academy finalize unlocks Approve; approval remains the gate for the Electron updater.
 
 on:
   push:
