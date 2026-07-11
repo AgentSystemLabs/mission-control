@@ -335,9 +335,6 @@ export function reconcileLayout(
     newRow: boolean;
     anchor: string | null;
     maxPerRow?: number | null;
-    /** Active grid-shape batch: `first` opens the block in a fresh bottom row,
-     *  continuations keep filling the block's rows. */
-    batch?: { first: boolean } | null;
   },
 ): GridLayout {
   const idSet = new Set(liveIds);
@@ -369,17 +366,6 @@ export function reconcileLayout(
   if (added.length === 0) return next;
 
   const maxPerRow = placement.maxPerRow ?? null;
-  if (placement.batch) {
-    // Batch block placement: the opening claim starts a fresh bottom row (so
-    // the block never tops up a pre-existing partial row); continuations start
-    // at the current bottom row — the one the block is mid-filling — and wrap
-    // into new rows at the cap.
-    const start = placement.batch.first
-      ? next.rows.length
-      : Math.max(0, next.rows.length - 1);
-    placeWithRowCap(next, added, start, maxPerRow);
-    return next;
-  }
   const cloneAt = placement.cloneAfter ? findCell(next.rows, placement.cloneAfter) : null;
   if (cloneAt) {
     const row = next.rows[cloneAt.row]!;
@@ -780,7 +766,6 @@ export function SessionGrid({
     gridFocusRequest,
     takeCloneInsertAfter,
     takeNewRowRequest,
-    takeSessionBatch,
     takeSessionIdRenames,
     noteGridFocusedTask,
     activeTaskIdFor,
@@ -978,20 +963,11 @@ export function SessionGrid({
     const scopeChanged = prevScopeRef.current !== scopeKey;
     // A scope switch isn't a create, so it never consumes a clone/new-row request.
     const prevIds = scopeChanged ? new Set<string>() : prevIdsRef.current;
-    // On a scope switch/mount every live id counts as newly seen — that only
-    // matters for the batch claim below (a batch launched into an empty scope
-    // mounts the grid mid-batch, and its opening sessions arrive on this very
-    // pass; the seed/reconcile shapes them via the row cap).
-    const newIds = liveIds.filter(
-      (id) => !prevIds.has(id) && !renames.some((r) => r.to === id),
-    );
-    const hasNewSession = !scopeChanged && newIds.length > 0;
-    // A pending session batch (the grid-shape launcher) claims new arrivals
-    // first — batch sessions stack into fresh bottom rows, so the ordinary
-    // clone/new-row requests don't apply to them.
-    const batch = newIds.length > 0 ? takeSessionBatch(scopeKey, newIds.length) : null;
-    const cloneAfter = hasNewSession && !batch ? takeCloneInsertAfter() : null;
-    const newRow = hasNewSession && !batch ? takeNewRowRequest() : false;
+    const hasNewSession =
+      !scopeChanged &&
+      liveIds.some((id) => !prevIds.has(id) && !renames.some((r) => r.to === id));
+    const cloneAfter = hasNewSession ? takeCloneInsertAfter() : null;
+    const newRow = hasNewSession ? takeNewRowRequest() : false;
     const anchor = lastFocusedTaskIdRef.current;
     prevScopeRef.current = scopeKey;
     prevIdsRef.current = new Set(liveIds);
@@ -1008,7 +984,6 @@ export function SessionGrid({
               newRow,
               anchor,
               maxPerRow: columnLimit,
-              batch,
             });
       if (!scopeChanged && layoutSig(next) === layoutSig(prev)) return prev;
       if (next.rows.length > 0) saveGridLayout(scopeKey, next);
