@@ -47,12 +47,55 @@ export type PetWander = {
   facing: 1 | -1;
 };
 
-/** One-shot idle antics; keyed by id so the animation restarts each time. */
-export type PetFlourish = { id: number; kind: "hop" | "stretch" };
+/** One-shot antics (idle antics + petting reactions); keyed by id so the
+ * animation restarts each time. */
+export type PetFlourish = {
+  id: number;
+  kind:
+    | "hop"
+    | "stretch"
+    | "spin"
+    | "flip"
+    | "tada"
+    | "bound"
+    | "dance"
+    | "jump"
+    | "shimmy"
+    | "pounce";
+};
+
+/** Upbeat subset the pet plays when you fire a prompt — it perks up and hops. */
+const PET_EXCITED_REACTIONS: readonly PetFlourish["kind"][] = [
+  "bound",
+  "pounce",
+  "hop",
+  "shimmy",
+  "jump",
+  "dance",
+];
+
+/** Pool a click/pet draws its one-shot reaction from, never twice in a row. */
+const PET_REACTIONS: readonly PetFlourish["kind"][] = [
+  "hop",
+  "stretch",
+  "spin",
+  "flip",
+  "tada",
+  "bound",
+  "dance",
+  "jump",
+  "shimmy",
+  "pounce",
+];
+
+/** Each mood has this many looping animation variants in CSS (data-move). */
+export const PET_MOVES_PER_MOOD = 10;
 
 export type PetSnapshot = {
   enabled: boolean;
   mood: PetMood;
+  /** Which of the mood's animation variants is playing (0..PET_MOVES_PER_MOOD-1). */
+  move: number;
   /** True between 22:00 and 06:00 — a visual modifier, not a mood. */
   night: boolean;
   /** Working animation speed, scaled by how many agents run in parallel. */
@@ -170,6 +213,7 @@ const inputs: PetInputs = {
 };
 
 let mood: PetMood = "idle";
+let move = 0;
 let intensity: 1 | 2 | 3 = 1;
 let pendingMood: PetMood | null = null;
 let pendingSince = 0;
@@ -200,6 +244,7 @@ function buildSnapshot(): PetSnapshot {
   return {
     enabled,
     mood,
+    move,
     night: isNightHour(Date.now()),
     intensity,
     bubble,
@@ -275,6 +320,30 @@ function walkHome(): void {
   walkTo(0, HOME_SPEED_PX_PER_S);
 }
 
+/** Pick a fresh animation variant for the current mood — never the same twice. */
+function rollMove(): void {
+  const next = Math.floor(Math.random() * (PET_MOVES_PER_MOOD - 1));
+  move = next >= move ? next + 1 : next;
+}
+
+let lastReactionIdx = 0;
+
+/** Random petting reaction, never repeating the previous one. */
+function pickReaction(): PetFlourish["kind"] {
+  const next = Math.floor(Math.random() * (PET_REACTIONS.length - 1));
+  lastReactionIdx = next >= lastReactionIdx ? next + 1 : next;
+  return PET_REACTIONS[lastReactionIdx];
+}
+
+let lastExcitedIdx = 0;
+
+/** Random upbeat reaction for a prompt send, never repeating the previous one. */
+function pickExcitedReaction(): PetFlourish["kind"] {
+  const next = Math.floor(Math.random() * (PET_EXCITED_REACTIONS.length - 1));
+  lastExcitedIdx = next >= lastExcitedIdx ? next + 1 : next;
+  return PET_EXCITED_REACTIONS[lastExcitedIdx];
+}
+
 function doFlourish(kind: PetFlourish["kind"]): void {
   flourish = { id: ++flourishId, kind };
   if (flourishTimer) clearTimeout(flourishTimer);
@@ -293,6 +362,12 @@ function ensureBehaviorLoop(): void {
   // in the corner.
   behaviorTimer = setInterval(() => {
     if (!enabled || prefersReducedMotion()) return;
+    // Whatever the mood, occasionally switch to another of its move variants
+    // so the pet doesn't loop one animation forever.
+    if (Math.random() < 0.45) {
+      rollMove();
+      invalidate();
+    }
     if (mood !== "idle") {
       walkHome();
       return;
@@ -346,6 +421,8 @@ function recompute(): void {
 function commitMood(next: { mood: PetMood; intensity: 1 | 2 | 3 }): void {
   mood = next.mood;
   intensity = next.intensity;
+  // Every mood change enters on a fresh variant of that mood's move set.
+  rollMove();
   // Real activity (or bedtime) interrupts the stroll — hurry back to the corner.
   if (mood !== "idle") walkHome();
   // Watching decays with no further event; re-check just after its window.
@@ -534,9 +611,19 @@ export function petIngestServerEvent(event: ServerEvent): void {
     case "prompt:submitted": {
       const taskId = typeof event.taskId === "string" ? event.taskId : "";
       const snippet = typeof event.snippet === "string" ? event.snippet : "";
-      if (taskId) promptStartedAt.set(taskId, Date.now());
-      const trigger = snippet ? classifyPromptSnippet(snippet) : null;
-      if (trigger) say(trigger);
+      const now = Date.now();
+      if (taskId) promptStartedAt.set(taskId, now);
+      // Visibly react to the hand-off: count it as fresh activity (wakes a
+      // sleeping pet, calls a wanderer home, perks it to "watching") and play
+      // an excited hop — the way a companion looks up when you give it a task.
+      inputs.lastActivityAt = now;
+      inputs.lastKeyAt = now;
+      recompute();
+      if (!prefersReducedMotion()) doFlourish(pickExcitedReaction());
+      // Always acknowledge: a keyword-flavored line when the snippet matches,
+      // otherwise a generic "on it". The rate limiter keeps rapid sends from
+      // each popping a bubble even though the hop plays every time.
+      say((snippet && classifyPromptSnippet(snippet)) || "prompt-sent");
       return;
     }
     case "memory:learned": {
@@ -645,6 +732,8 @@ export function petInteract(): { navigateTo: { taskId: string; projectId: string
   if (!enabled) return { navigateTo: null };
   if (alert && mood === "alert") return { navigateTo: alert };
   heartsBurstId += 1;
+  // Every petting gets a random one-shot reaction alongside the hearts.
+  doFlourish(pickReaction());
   const now = Date.now();
   if (now - lastPettingXpAt > PETTING_XP_COOLDOWN_MS) {
     lastPettingXpAt = now;
@@ -667,6 +756,10 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     grantXp,
     walkTo: (x: number) => walkTo(x, WALK_SPEED_PX_PER_S),
     flourish: doFlourish,
+    setMove: (m: number) => {
+      move = ((m % PET_MOVES_PER_MOOD) + PET_MOVES_PER_MOOD) % PET_MOVES_PER_MOOD;
+      invalidate();
+    },
     state: () => snapshot,
   };
 }

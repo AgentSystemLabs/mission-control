@@ -131,6 +131,7 @@ export function PetWidget() {
                   intensity={pet.intensity}
                   night={pet.night}
                   level={pet.level}
+                  move={pet.move}
                 />
               </button>
             </div>

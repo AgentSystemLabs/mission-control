@@ -3,7 +3,7 @@ import type { PetSpeciesId } from "~/shared/pet";
 import type { PetMood } from "~/lib/pet/pet-store";
 
 /**
- * Mission Pet sprites — five hand-drawn line-art species sharing one face
+ * Mission Pet sprites — seven hand-drawn line-art species sharing one face
  * grammar (shine eyes, blush, mood mouths) and one prop set (Zzz, crate,
  * confetti, sweat, alert mark). Themed entirely via CSS variables (accent
  * stroke, surface fill) so every species adapts to every theme. Expression is
@@ -17,6 +17,11 @@ export type PetSpriteProps = {
   intensity: 1 | 2 | 3;
   night: boolean;
   level: number;
+  /**
+   * Which of the mood's animation variants plays (0..9, see the per-mood
+   * data-move rules in styles.css). Omitted (settings picker) = variant 0.
+   */
+  move?: number;
   /** Rendered square size in px (the settings picker uses a small one). */
   size?: number;
 };
@@ -189,6 +194,7 @@ function PetSvg({
   mood,
   intensity,
   night,
+  move,
   size = 84,
   children,
 }: PetSpriteProps & { children: ReactNode }) {
@@ -196,6 +202,7 @@ function PetSvg({
     <svg
       className="mc-pet"
       data-mood={mood}
+      data-move={move || undefined}
       data-night={night || undefined}
       viewBox="0 0 100 100"
       width={size}
@@ -415,6 +422,74 @@ const LotlSprite = memo(function LotlSprite(props: PetSpriteProps) {
   );
 });
 
+const RivetSprite = memo(function RivetSprite(props: PetSpriteProps) {
+  const { mood, intensity, level } = props;
+  return (
+    <PetSvg {...props}>
+      <g className="mc-pet-antenna">
+        <line x1="50" y1="30" x2="50" y2="17" />
+        <circle className="mc-pet-antenna-tip" cx="50" cy="14" r="3.4" />
+        <Sparkle level={level} />
+      </g>
+      <rect className="mc-pet-body" x="13" y="50" width="8" height="16" rx="3.5" />
+      <rect className="mc-pet-body" x="79" y="50" width="8" height="16" rx="3.5" />
+      <rect className="mc-pet-body" x="22" y="30" width="56" height="60" rx="17" />
+      <circle className="mc-pet-bolt" cx="30" cy="38" r="1.4" />
+      <circle className="mc-pet-bolt" cx="70" cy="38" r="1.4" />
+      <StubArms up={mood === "celebrating"} />
+      {FEET}
+      <g className="mc-pet-face">
+        <Eyes kind={eyeKindFor(mood)} y={54} />
+        <Mouth mood={mood} y={66} />
+        <Blush y={63} lx={29} rx={71} />
+      </g>
+      <MoodProps mood={mood} intensity={intensity} />
+    </PetSvg>
+  );
+});
+
+const TrundleSprite = memo(function TrundleSprite(props: PetSpriteProps) {
+  const { mood, intensity, level } = props;
+  return (
+    <PetSvg {...props}>
+      <g className="mc-pet-antenna">
+        <line x1="50" y1="32" x2="50" y2="19" />
+        <circle className="mc-pet-detail" cx="50" cy="14.5" r="3.4" />
+        <Sparkle level={level} />
+      </g>
+      <rect className="mc-pet-body" x="25" y="32" width="50" height="48" rx="15" />
+      {/* Wheels stand in for feet; hubs use the bolt dot. */}
+      <circle className="mc-pet-body" cx="37" cy="84" r="6" />
+      <circle className="mc-pet-bolt" cx="37" cy="84" r="1.7" />
+      <circle className="mc-pet-body" cx="63" cy="84" r="6" />
+      <circle className="mc-pet-bolt" cx="63" cy="84" r="1.7" />
+      <g className="mc-pet-detail">
+        <line x1="31" y1="73" x2="37" y2="73" />
+        <line x1="63" y1="73" x2="69" y2="73" />
+      </g>
+      <g className="mc-pet-arms">
+        {mood === "celebrating" ? (
+          <>
+            <path d="M 24 48 Q 14 40 16 34" />
+            <path d="M 76 48 Q 86 40 84 34" />
+          </>
+        ) : (
+          <>
+            <path d="M 24 58 Q 16 62 19 68" />
+            <path d="M 76 58 Q 84 62 81 68" />
+          </>
+        )}
+      </g>
+      <g className="mc-pet-face">
+        <Eyes kind={eyeKindFor(mood)} y={50} />
+        <Mouth mood={mood} y={62} />
+        <Blush y={59} lx={31} rx={69} />
+      </g>
+      <MoodProps mood={mood} intensity={intensity} />
+    </PetSvg>
+  );
+});
+
 /* ── registry ────────────────────────────────────────────────────────── */
 
 export type PetSpecies = {
@@ -429,4 +504,6 @@ export const PET_SPECIES: Record<PetSpeciesId, PetSpecies> = {
   chick: { id: "chick", label: "Chick", Sprite: ChickSprite },
   cub: { id: "cub", label: "Cub", Sprite: CubSprite },
   lotl: { id: "lotl", label: "Axolotl", Sprite: LotlSprite },
+  rivet: { id: "rivet", label: "Rivet", Sprite: RivetSprite },
+  trundle: { id: "trundle", label: "Trundle", Sprite: TrundleSprite },
 };

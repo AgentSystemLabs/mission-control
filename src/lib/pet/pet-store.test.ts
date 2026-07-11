@@ -1,5 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { isNightHour, resolvePetMood, type PetInputs } from "./pet-store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getPetSnapshot,
+  isNightHour,
+  MOOD_DEBOUNCE_MS,
+  PET_MOVES_PER_MOOD,
+  petHydrate,
+  petIngestServerEvent,
+  petInteract,
+  petPulse,
+  petSetEnabled,
+  petUserActivity,
+  resolvePetMood,
+  type PetInputs,
+} from "./pet-store";
 
 const NOW = 10_000_000;
 
@@ -86,6 +99,123 @@ describe("resolvePetMood priority", () => {
     expect(
       resolvePetMood(inputs({ runningCount: 1, hiddenSince: NOW - 120_000 }), NOW).mood,
     ).toBe("working");
+  });
+});
+
+describe("move variants", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 11, 12, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("rolls a fresh move on every mood change, never repeating back-to-back", () => {
+    petHydrate(null);
+    petSetEnabled(true, false, false);
+    const celebrationMoves: number[] = [];
+    let prev = getPetSnapshot().move;
+
+    for (let i = 0; i < 30; i++) {
+      petPulse("celebrate");
+      const snap = getPetSnapshot();
+      expect(snap.mood).toBe("celebrating");
+      expect(snap.move).toBeGreaterThanOrEqual(0);
+      expect(snap.move).toBeLessThan(PET_MOVES_PER_MOOD);
+      // Entering a mood must land on a different variant than whatever
+      // was playing before it.
+      expect(snap.move).not.toBe(prev);
+      celebrationMoves.push(snap.move);
+
+      // Let the 5s celebration expire, then settle through the calm-mood
+      // debounce back to idle before the next celebration.
+      vi.advanceTimersByTime(6_000);
+      petUserActivity("pointer");
+      vi.advanceTimersByTime(1_500);
+      expect(getPetSnapshot().mood).toBe("idle");
+      prev = getPetSnapshot().move;
+      expect(prev).not.toBe(celebrationMoves[celebrationMoves.length - 1]);
+    }
+
+    // 30 draws from 10 variants: seeing ≤3 distinct ones is astronomically
+    // unlikely unless the roll is broken.
+    expect(new Set(celebrationMoves).size).toBeGreaterThan(3);
+  });
+
+  it("petting fires a random one-shot reaction, never repeating back-to-back", () => {
+    petHydrate(null);
+    petSetEnabled(true, false, false);
+    const kinds: string[] = [];
+    let prev: string | null = null;
+
+    for (let i = 0; i < 30; i++) {
+      petInteract();
+      const { flourish } = getPetSnapshot();
+      expect(flourish).not.toBeNull();
+      expect(flourish!.kind).not.toBe(prev);
+      prev = flourish!.kind;
+      kinds.push(flourish!.kind);
+      // Let the flourish clear before the next click.
+      vi.advanceTimersByTime(1_500);
+      expect(getPetSnapshot().flourish).toBeNull();
+    }
+
+    expect(new Set(kinds).size).toBeGreaterThan(3);
+  });
+});
+
+describe("prompt:submitted reaction", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // A distinctly later clock than the other suites: the store's inputs and
+    // pulse timers are module-level and leak across tests, so any celebrate/
+    // startle window left behind must fall safely in the past.
+    vi.setSystemTime(new Date(2026, 6, 11, 14, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("perks to watching, hops, and speaks when a prompt is sent", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    // Let any leaked celebrate/startle pulse from a prior suite lapse.
+    vi.advanceTimersByTime(30_000);
+
+    petIngestServerEvent({
+      type: "prompt:submitted",
+      taskId: "t1",
+      projectId: "p1",
+      snippet: "just chatting, no keywords here",
+    } as never);
+
+    // The excited hop and an acknowledgment (here the generic fallback line)
+    // land immediately.
+    const immediate = getPetSnapshot();
+    expect(immediate.flourish).not.toBeNull();
+    expect(immediate.bubble).not.toBeNull();
+
+    // The send counts as a fresh keystroke; after the calm-mood debounce the
+    // pet has perked from idle to watching.
+    vi.advanceTimersByTime(MOOD_DEBOUNCE_MS + 100);
+    expect(getPetSnapshot().mood).toBe("watching");
+  });
+
+  it("stays quiet on flourish when messages are disabled but still hops", () => {
+    petHydrate(null);
+    petSetEnabled(true, false, false);
+    petIngestServerEvent({
+      type: "prompt:submitted",
+      taskId: "t2",
+      projectId: "p1",
+      snippet: "refactor the parser",
+    } as never);
+    const snap = getPetSnapshot();
+    expect(snap.flourish).not.toBeNull();
+    expect(snap.bubble).toBeNull();
   });
 });
 

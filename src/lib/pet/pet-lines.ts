@@ -222,6 +222,19 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
   ],
 
   /* ── prompt flavor: what you asked the agents to do ────────────────── */
+  // Generic acknowledgment when a prompt fires and no keyword flavor matches.
+  "prompt-sent": [
+    { text: "*perks up* on it." },
+    { text: "*ears twitch* handing that to the agent." },
+    { text: "Message away. Fingers crossed.", weights: { chaos: 1 } },
+    { text: "*sits up straight* ooh, a new one.", weights: { chaos: 2 } },
+    { text: "Off it goes. I'll keep watch.", weights: { wisdom: 1 } },
+    { text: "*nods* sending that off.", weights: { zen: 2 } },
+    { text: "Another prompt into the void. Godspeed.", weights: { snark: 2 } },
+    { text: "*whoosh* delivered." },
+    { text: "Let's see what it does with THAT.", weights: { snark: 1 } },
+    { text: "*excited wiggle* let's go.", weights: { chaos: 2 } },
+  ],
   "prompt-fix": [
     { text: "A bug hunt. Fetching my tiny hat.", weights: { chaos: 2 } },
     { text: "'fix' — narrator: it did not fix it on the first try.", weights: { snark: 2 } },

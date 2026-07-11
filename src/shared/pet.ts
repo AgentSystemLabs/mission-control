@@ -17,7 +17,7 @@ export type PetPersonality = {
   zen: number;
 };
 
-export const PET_SPECIES_IDS = ["mochi", "bunny", "chick", "cub", "lotl"] as const;
+export const PET_SPECIES_IDS = ["mochi", "bunny", "chick", "cub", "lotl", "rivet", "trundle"] as const;
 
 export type PetSpeciesId = (typeof PET_SPECIES_IDS)[number];
 

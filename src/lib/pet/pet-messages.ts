@@ -45,6 +45,7 @@ export type PetTrigger =
   | "new-years-eve"
   | "spooky-season"
   // prompt keyword flavor (what you're asking the agents to do)
+  | "prompt-sent"
   | "prompt-fix"
   | "prompt-test"
   | "prompt-test-fail"
@@ -103,6 +104,9 @@ type TriggerMeta = {
 };
 
 const ONCE_PER_BOOT = Infinity;
+// A prompt-send acknowledgment fires often but not on every rapid-fire send;
+// the excited hop still plays each time (that's a flourish, not a bubble).
+const PROMPT_SENT_COOLDOWN = 20_000;
 const PROMPT_FLAVOR_COOLDOWN = 90_000;
 const PROMPT_LANG_COOLDOWN = 600_000;
 
@@ -144,6 +148,7 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   christmas: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
   "new-years-eve": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
   "spooky-season": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  "prompt-sent": { priority: "flavor", cooldownMs: PROMPT_SENT_COOLDOWN },
   "prompt-fix": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
   "prompt-test": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
   "prompt-test-fail": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
