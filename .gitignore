@@ -38,3 +38,7 @@ resources/whisper/*
 CLAUDE.local.md
 # Mission Control Recall (code graph MCP) — machine-specific, regenerated per session
 .mcp.json
+
+# Grok goal scratch dirs (local agent workspaces)
+Temp/
+**/grok-goal-*/
