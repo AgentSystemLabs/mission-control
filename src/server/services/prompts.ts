@@ -6,6 +6,7 @@ import {
   recentPrompts,
   searchPrompts,
 } from "../repositories/prompts.repo";
+import { events } from "../events";
 import { newId } from "./_ids";
 import { getTask } from "./tasks";
 
@@ -48,6 +49,14 @@ export function recordPrompt(input: {
     agent: task.agent,
     text,
     ts: now,
+  });
+
+  // Fed to the renderer over SSE (pet reactions, ambient UI). Emitted after the
+  // dedup guard so a hook + terminal double-capture yields a single event.
+  events.emit("prompt:submitted", {
+    taskId: task.id,
+    projectId: task.projectId,
+    snippet: text.slice(0, 200),
   });
 }
 

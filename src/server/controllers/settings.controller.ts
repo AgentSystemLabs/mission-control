@@ -82,6 +82,7 @@ import {
 } from "~/shared/session-header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
+import { normalizePetState } from "~/shared/pet";
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -107,6 +108,10 @@ const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
 const CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY = "claude_usage_limits_show_weekly";
 const PROVIDER_USAGE_ENABLED_KEY = "provider_usage_enabled";
 const PROVIDER_USAGE_IDS_KEY = "provider_usage_ids";
+const PET_ENABLED_KEY = "pet_enabled";
+const PET_MESSAGES_ENABLED_KEY = "pet_messages_enabled";
+const PET_SOUNDS_ENABLED_KEY = "pet_sounds_enabled";
+const PET_STATE_KEY = "pet_state";
 const TERMINAL_FONT_FAMILY_KEY = "terminal_font_family";
 const TERMINAL_FONT_WEIGHT_KEY = "terminal_font_weight";
 const TERMINAL_FONT_WEIGHT_BOLD_KEY = "terminal_font_weight_bold";
@@ -239,6 +244,11 @@ const updateSettingsBody = z
     recallCodeGraphEnabled: z.boolean(),
     recallProactiveRecallEnabled: z.boolean(),
     recallLearnedToastEnabled: z.boolean(),
+    petEnabled: z.boolean(),
+    petMessagesEnabled: z.boolean(),
+    petSoundsEnabled: z.boolean(),
+    // Garbage in → null → the stored state is cleared (pet re-rolls on next boot).
+    petState: z.unknown().transform((value) => normalizePetState(value)),
   })
   .partial();
 
@@ -444,6 +454,10 @@ function settingsPayload() {
     // so existing users who already enabled Claude usage keep their indicator.
     providerUsageEnabled: getProviderUsageEnabledSetting(),
     providerUsageIds: getProviderUsageIdsSetting(),
+    petEnabled: getBooleanSetting(PET_ENABLED_KEY, true),
+    petMessagesEnabled: getBooleanSetting(PET_MESSAGES_ENABLED_KEY, true),
+    petSoundsEnabled: getBooleanSetting(PET_SOUNDS_ENABLED_KEY, false),
+    petState: normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null)),
     ...recallSettingsPayload(),
   };
 }
@@ -683,6 +697,22 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.providerUsageIds !== undefined) {
     setSetting(PROVIDER_USAGE_IDS_KEY, JSON.stringify(body.providerUsageIds));
+  }
+  if (body.petEnabled !== undefined) {
+    setBooleanSetting(PET_ENABLED_KEY, body.petEnabled);
+  }
+  if (body.petMessagesEnabled !== undefined) {
+    setBooleanSetting(PET_MESSAGES_ENABLED_KEY, body.petMessagesEnabled);
+  }
+  if (body.petSoundsEnabled !== undefined) {
+    setBooleanSetting(PET_SOUNDS_ENABLED_KEY, body.petSoundsEnabled);
+  }
+  if (body.petState !== undefined) {
+    if (body.petState === null) {
+      deleteSetting(PET_STATE_KEY);
+    } else {
+      setSetting(PET_STATE_KEY, JSON.stringify(body.petState));
+    }
   }
   writeRecallSettings({
     enabled: body.recallEnabled,

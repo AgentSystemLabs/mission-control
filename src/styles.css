@@ -3855,3 +3855,1876 @@ body[data-card-glow] .cursor-glow {
   --mc-card-bottom: color-mix(in srgb, var(--accent) 5%, #1f1f1f8c);
   --mc-card-glow: 0.11;
 }
+
+/* ===================== Mission Pet ===================== */
+/* Floating corner companion (src/components/pet/). All theming via tokens so
+   the pet adapts to every style × accent; all motion here, keyed off
+   data-mood, so the sprite component stays static markup. */
+
+.mc-pet-button {
+  pointer-events: auto;
+  display: block;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+  transition: transform 0.15s ease;
+}
+.mc-pet-button:hover {
+  /* Perks up under the cursor — a little lift, not just a zoom. */
+  transform: scale(1.06) translateY(-2px);
+}
+.mc-pet-button:active {
+  transform: scale(0.96);
+}
+.mc-pet-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+/* --- sprite parts --- */
+.mc-pet {
+  overflow: visible;
+  transform-origin: 50% 100%;
+}
+.mc-pet-body {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mc-pet-antenna line {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.mc-pet-antenna-tip {
+  fill: var(--accent);
+}
+.mc-pet-arms path,
+.mc-pet-feet path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.mc-pet-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mc-pet-blink 5.5s infinite;
+}
+.mc-pet-pupil {
+  fill: var(--text);
+}
+/* Shine dots read as a cutout of the body surface, in every theme. */
+.mc-pet-shine {
+  fill: var(--surface-2);
+}
+.mc-pet-blush {
+  fill: var(--accent);
+  opacity: 0.28;
+}
+.mc-pet-eyes path {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+/* Species parts: inner ears, belly/muzzle patches, noses, beaks, plumes. */
+.mc-pet-inner {
+  fill: var(--accent);
+  opacity: 0.25;
+}
+.mc-pet-patch {
+  fill: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.mc-pet-nose {
+  fill: var(--text);
+}
+.mc-pet-beak {
+  fill: var(--accent);
+}
+.mc-pet-plume {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.mc-pet-tail {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+/* Robot parts: rivet dots / wheel hubs, and thin trim (vents, loop antenna). */
+.mc-pet-bolt {
+  fill: var(--accent);
+  opacity: 0.55;
+}
+.mc-pet-detail,
+.mc-pet-detail line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+.mc-pet-gill,
+.mc-pet-tuft {
+  transform-box: fill-box;
+  transform-origin: bottom right;
+  animation: mc-pet-sway 3s ease-in-out infinite;
+}
+.mc-pet-gill-r {
+  transform-origin: bottom left;
+}
+.mc-pet-tuft {
+  transform-origin: bottom center;
+  animation-duration: 3.4s;
+}
+.mc-pet-mouth {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.mc-pet-mouth-o {
+  fill: var(--text);
+}
+.mc-pet-sparkle path {
+  fill: var(--accent);
+  opacity: var(--pet-sparkle, 0.6);
+  animation: mc-pet-sparkle 2.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+/* Level gear — permanent details earned at evolution thresholds (scarf 5,
+   tool belt 8, crown 10; see LevelGear in PetSprite). */
+.mc-pet-scarf path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+.mc-pet-scarf .mc-pet-scarf-band {
+  stroke-width: 5;
+}
+.mc-pet-scarf .mc-pet-scarf-tail {
+  stroke-width: 3.6;
+}
+.mc-pet-belt path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.mc-pet-belt rect {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.mc-pet-belt circle {
+  fill: var(--accent);
+  opacity: 0.8;
+}
+.mc-pet-crown {
+  fill: var(--accent);
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  opacity: 0.95;
+}
+/* The molt star — permanent prestige badge, worn top-left by every species. */
+.mc-pet-prestige {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mc-pet-sparkle 3.2s ease-in-out infinite;
+}
+/* Ember: the inner glow and the motes drifting off the flame. */
+.mc-pet-flame-core {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.mc-pet-ember-motes circle {
+  fill: var(--accent);
+  opacity: 0.7;
+  animation: mc-pet-ember-rise 2.8s ease-in-out infinite;
+}
+.mc-pet-ember-motes circle:nth-child(2) {
+  animation-delay: 0.9s;
+}
+.mc-pet-ember-motes circle:nth-child(3) {
+  animation-delay: 1.8s;
+}
+.mc-pet-zzz-glyph {
+  fill: var(--text-dim);
+  font-size: 13px;
+  font-weight: 700;
+  animation: mc-pet-zzz-drift 2.6s ease-in-out infinite;
+}
+.mc-pet-zzz-glyph-2 {
+  font-size: 10px;
+  animation-delay: 1.3s;
+}
+.mc-pet-crate rect {
+  fill: color-mix(in srgb, var(--accent) 18%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.mc-pet-crate line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.mc-pet-confetti line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  animation: mc-pet-confetti-tick 0.7s ease-in-out infinite;
+}
+.mc-pet-sweat {
+  fill: color-mix(in srgb, var(--text-dim) 70%, transparent);
+}
+.mc-pet-alert-mark line,
+.mc-pet-alert-mark circle {
+  stroke: var(--status-failed, #e5484d);
+  fill: var(--status-failed, #e5484d);
+  stroke-width: 3;
+  stroke-linecap: round;
+  animation: mc-pet-alert-blink 1s ease-in-out infinite;
+}
+.mc-pet[data-night] {
+  opacity: 0.82;
+}
+
+/* --- mood motion (on the svg root; squash anchored to the ground line) --- */
+.mc-pet[data-mood="idle"] {
+  animation: mc-pet-breathe 4s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"] {
+  animation: mc-pet-breathe 2.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"] {
+  animation: mc-pet-breathe 6s ease-in-out infinite;
+  opacity: 0.7;
+}
+.mc-pet[data-mood="working"],
+.mc-pet[data-mood="shipping"] {
+  animation: mc-pet-bounce calc(1.1s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"] {
+  animation: mc-pet-alert-hop 0.9s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"] {
+  animation: mc-pet-celebrate 0.65s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"] {
+  animation: mc-pet-wobble 0.45s ease-in-out infinite;
+}
+
+/* --- move variants ---
+   Each mood owns 10 looping variants; the store rolls data-move (0-9) on
+   every mood change and re-rolls on its behavior tick so the pet never loops
+   one animation forever. Move 0 is the classic rule above; 1-9 override it.
+   Every variant starts and ends at the identity transform, so a mid-cycle
+   re-roll settles without a jump. */
+
+/* idle — unhurried puttering */
+.mc-pet[data-mood="idle"][data-move="1"] {
+  animation: mc-pet-mv-sway 3.6s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="2"] {
+  animation: mc-pet-mv-bob 3.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="3"] {
+  animation: mc-pet-mv-squish 3.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="4"] {
+  animation: mc-pet-mv-look 5.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="5"] {
+  animation: mc-pet-mv-wiggle 2.9s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="6"] {
+  animation: mc-pet-mv-tiptoe 4.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="7"] {
+  animation: mc-pet-mv-shimmy 3.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="8"] {
+  animation: mc-pet-mv-lean 5s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"][data-move="9"] {
+  animation: mc-pet-mv-pulse 3.8s ease-in-out infinite;
+}
+
+/* watching — same family as idle but perkier and quicker */
+.mc-pet[data-mood="watching"][data-move="1"] {
+  animation: mc-pet-mv-perk 2.3s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="2"] {
+  animation: mc-pet-mv-lean 2.8s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="3"] {
+  animation: mc-pet-mv-nod 2.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="4"] {
+  animation: mc-pet-mv-bob 2.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="5"] {
+  animation: mc-pet-mv-sway 2.3s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="6"] {
+  animation: mc-pet-mv-shimmy 2.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="7"] {
+  animation: mc-pet-mv-pulse 2.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="8"] {
+  animation: mc-pet-mv-wiggle 2.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"][data-move="9"] {
+  animation: mc-pet-mv-look 3.4s ease-in-out infinite;
+}
+
+/* working + shipping — busy motions, all sped up by agent-count intensity */
+.mc-pet[data-mood="working"][data-move="1"],
+.mc-pet[data-mood="shipping"][data-move="1"] {
+  animation: mc-pet-mv-jiggle calc(0.55s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"][data-move="2"],
+.mc-pet[data-mood="shipping"][data-move="2"] {
+  animation: mc-pet-mv-rock calc(1s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"][data-move="3"],
+.mc-pet[data-mood="shipping"][data-move="3"] {
+  animation: mc-pet-mv-nod calc(0.8s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"][data-move="4"],
+.mc-pet[data-mood="shipping"][data-move="4"] {
+  animation: mc-pet-mv-shimmy calc(0.9s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"][data-move="5"],
+.mc-pet[data-mood="shipping"][data-move="5"] {
+  animation: mc-pet-mv-pump calc(0.9s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"][data-move="6"],
+.mc-pet[data-mood="shipping"][data-move="6"] {
+  animation: mc-pet-mv-bounce-tilt calc(1.1s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"][data-move="7"],
+.mc-pet[data-mood="shipping"][data-move="7"] {
+  animation: mc-pet-mv-vibrate calc(0.45s / var(--pet-speed, 1)) linear infinite;
+}
+.mc-pet[data-mood="working"][data-move="8"],
+.mc-pet[data-mood="shipping"][data-move="8"] {
+  animation: mc-pet-mv-scoot calc(1.4s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"][data-move="9"],
+.mc-pet[data-mood="shipping"][data-move="9"] {
+  animation: mc-pet-mv-squish calc(0.85s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+
+/* sleeping — everything slow and shallow (base opacity 0.7 still applies) */
+.mc-pet[data-mood="sleeping"][data-move="1"] {
+  animation: mc-pet-mv-deep-breathe 7s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="2"] {
+  animation: mc-pet-mv-slump 8s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="3"] {
+  animation: mc-pet-mv-drift 9s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="4"] {
+  animation: mc-pet-breathe 5.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="5"] {
+  animation: mc-pet-mv-squish 7.5s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="6"] {
+  animation: mc-pet-mv-sway 10s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="7"] {
+  animation: mc-pet-mv-pulse 8s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="8"] {
+  animation: mc-pet-mv-lean 9s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"][data-move="9"] {
+  animation: mc-pet-mv-deep-breathe 6.2s ease-in-out infinite;
+}
+
+/* alert — insistent "over here!" motions */
+.mc-pet[data-mood="alert"][data-move="1"] {
+  animation: mc-pet-mv-hophop 1.7s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"][data-move="2"] {
+  animation: mc-pet-wobble 0.6s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"][data-move="3"] {
+  animation: mc-pet-mv-vibrate 0.5s linear infinite;
+}
+.mc-pet[data-mood="alert"][data-move="4"] {
+  animation: mc-pet-bounce 0.75s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"][data-move="5"] {
+  animation: mc-pet-mv-perk 0.9s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"][data-move="6"] {
+  animation: mc-pet-mv-jump-big 1.3s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"][data-move="7"] {
+  animation: mc-pet-mv-rock 0.7s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"][data-move="8"] {
+  animation: mc-pet-mv-shimmy 0.6s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"][data-move="9"] {
+  animation: mc-pet-mv-pump 0.75s ease-in-out infinite;
+}
+
+/* celebrating — party moves */
+.mc-pet[data-mood="celebrating"][data-move="1"] {
+  animation: mc-pet-mv-jump-big 0.9s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="2"] {
+  animation: mc-pet-mv-dance 1s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="3"] {
+  animation: mc-pet-mv-spin-wiggle 1.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="4"] {
+  animation: mc-pet-mv-flip 1.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="5"] {
+  animation: mc-pet-mv-bounce-tilt 0.75s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="6"] {
+  animation: mc-pet-mv-hophop 1.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="7"] {
+  animation: mc-pet-mv-tada 1.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="8"] {
+  animation: mc-pet-mv-bound 1.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"][data-move="9"] {
+  animation: mc-pet-mv-rock 0.7s ease-in-out infinite;
+}
+
+/* startled — jumpy, flinchy */
+.mc-pet[data-mood="startled"][data-move="1"] {
+  animation: mc-pet-mv-shiver 0.3s linear infinite;
+}
+.mc-pet[data-mood="startled"][data-move="2"] {
+  animation: mc-pet-mv-recoil 1.3s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"][data-move="3"] {
+  animation: mc-pet-mv-jump-back 1.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"][data-move="4"] {
+  animation: mc-pet-mv-vibrate 0.3s linear infinite;
+}
+.mc-pet[data-mood="startled"][data-move="5"] {
+  animation: mc-pet-wobble 0.65s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"][data-move="6"] {
+  animation: mc-pet-mv-squish 0.5s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"][data-move="7"] {
+  animation: mc-pet-mv-shimmy 0.45s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"][data-move="8"] {
+  animation: mc-pet-mv-jiggle 0.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="startled"][data-move="9"] {
+  animation: mc-pet-mv-pulse 0.45s ease-in-out infinite;
+}
+
+/* --- articulated parts (bunny pilot) ---
+   Each part sits in its own <g> pivoted at its anatomical joint
+   (transform-box: fill-box + a per-part origin), so moods choreograph ears,
+   gaze, paws, feet, and tail individually on top of the whole-body motion on
+   the svg root. Only transform is animated (compositor-friendly). Static pose
+   transforms (sleepy ear droop, startled pupils) live outside the keyframes
+   so they survive prefers-reduced-motion. Species adopt this by wrapping
+   parts in these classes — no per-species CSS needed. */
+.mc-pet-ear,
+.mc-pet-arm,
+.mc-pet-foot,
+.mc-pet-tail-grp,
+.mc-pet-pupil-set,
+.mc-pet-face {
+  transform-box: fill-box;
+}
+.mc-pet-ear-l {
+  transform-origin: 75% 95%;
+}
+.mc-pet-ear-r {
+  transform-origin: 25% 95%;
+}
+/* The folded ear hangs off the side of the head, so it hinges at its left edge. */
+.mc-pet-ear-flop {
+  transform-origin: 5% 60%;
+}
+.mc-pet-arm-l {
+  transform-origin: 90% 10%;
+}
+.mc-pet-arm-r {
+  transform-origin: 10% 10%;
+}
+.mc-pet-foot {
+  transform-origin: 50% 100%;
+}
+.mc-pet-tail-grp,
+.mc-pet-pupil-set,
+.mc-pet-face {
+  transform-origin: 50% 50%;
+}
+
+/* idle — ears sway out of phase, the gaze wanders, the tail twitches now and then */
+.mc-pet[data-mood="idle"] .mc-pet-ear-l {
+  animation: mc-pet-ear-sway 4.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"] .mc-pet-ear-r {
+  animation: mc-pet-ear-sway 4.2s ease-in-out -1.6s infinite;
+}
+.mc-pet[data-mood="idle"] .mc-pet-pupil-set {
+  animation: mc-pet-pupil-glance 9s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"] .mc-pet-tail-grp {
+  animation: mc-pet-tail-twitch 6s ease-in-out infinite;
+}
+
+/* watching — perked ears twitching, eyes tracking your cursor line, head tilt */
+.mc-pet[data-mood="watching"] .mc-pet-ear-l {
+  animation: mc-pet-ear-perk 2.6s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"] .mc-pet-ear-r {
+  animation: mc-pet-ear-perk 2.6s ease-in-out -0.5s infinite;
+}
+.mc-pet[data-mood="watching"] .mc-pet-pupil-set {
+  animation: mc-pet-pupil-track 3.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"] .mc-pet-face {
+  animation: mc-pet-face-tilt 3.2s ease-in-out infinite;
+}
+
+/* working + shipping — paws alternate typing (speed scales with agent count),
+   gaze locked down on the "keyboard", ears rebounding off the body bounce */
+.mc-pet[data-mood="working"] .mc-pet-arm-l,
+.mc-pet[data-mood="shipping"] .mc-pet-arm-l {
+  animation: mc-pet-arm-type-l calc(0.5s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-arm-r,
+.mc-pet[data-mood="shipping"] .mc-pet-arm-r {
+  animation: mc-pet-arm-type-r calc(0.5s / var(--pet-speed, 1)) ease-in-out
+    calc(-0.25s / var(--pet-speed, 1)) infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-pupil-set,
+.mc-pet[data-mood="shipping"] .mc-pet-pupil-set {
+  animation: mc-pet-pupil-focus 2.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-ear-l,
+.mc-pet[data-mood="shipping"] .mc-pet-ear-l {
+  animation: mc-pet-ear-rebound calc(1.1s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-ear-r,
+.mc-pet[data-mood="shipping"] .mc-pet-ear-r {
+  animation: mc-pet-ear-rebound calc(1.1s / var(--pet-speed, 1)) ease-in-out
+    calc(-0.12s / var(--pet-speed, 1)) infinite;
+}
+
+/* sleeping — upright ear droops (static pose + slow sag), folded ear sways */
+.mc-pet[data-mood="sleeping"] .mc-pet-ear-l {
+  transform: rotate(-16deg);
+  animation: mc-pet-ear-doze 6s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"] .mc-pet-ear-flop {
+  animation: mc-pet-sway 6s ease-in-out infinite;
+}
+
+/* alert — both ears bolt upright and twitch; the classic warning foot-thump */
+.mc-pet[data-mood="alert"] .mc-pet-ear-l {
+  animation: mc-pet-ear-twitch 1.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"] .mc-pet-ear-r {
+  animation: mc-pet-ear-twitch 1.1s ease-in-out -0.35s infinite;
+}
+.mc-pet[data-mood="alert"] .mc-pet-foot-r {
+  animation: mc-pet-foot-thump 0.6s ease-in-out infinite;
+}
+
+/* celebrating — paws wave alternately, ears flop about, tail wags */
+.mc-pet[data-mood="celebrating"] .mc-pet-arm-l {
+  animation: mc-pet-arm-wave-l 0.7s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-arm-r {
+  animation: mc-pet-arm-wave-r 0.7s ease-in-out -0.35s infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-ear-l {
+  animation: mc-pet-ear-flap 0.7s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-ear-r {
+  animation: mc-pet-ear-flap 0.7s ease-in-out -0.18s infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-tail-grp {
+  animation: mc-pet-tail-wag 0.5s ease-in-out infinite;
+}
+
+/* startled — ears quiver, pupils contract (static pose so it survives
+   reduced motion) */
+.mc-pet[data-mood="startled"] .mc-pet-ear-l,
+.mc-pet[data-mood="startled"] .mc-pet-ear-r {
+  animation: mc-pet-ear-quiver 0.28s linear infinite;
+}
+.mc-pet[data-mood="startled"] .mc-pet-pupil-set {
+  transform: scale(0.85);
+}
+
+/* Walking overrides the mood animation while the walker strip translates. */
+.mc-pet-walker[data-walking] .mc-pet {
+  animation: mc-pet-waddle 0.5s ease-in-out infinite;
+}
+/* Gait: feet alternate steps, paws swing opposite, ears bounce with each
+   stride. Declared after the mood rules so walking wins the cascade. */
+.mc-pet-walker[data-walking] .mc-pet-foot-l {
+  animation: mc-pet-foot-step 0.5s ease-in-out infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-foot-r {
+  animation: mc-pet-foot-step 0.5s ease-in-out -0.25s infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-arm-l {
+  animation: mc-pet-arm-swing 0.5s ease-in-out infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-arm-r {
+  animation: mc-pet-arm-swing 0.5s ease-in-out -0.25s infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-ear-l {
+  animation: mc-pet-ear-jog 0.5s ease-in-out infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-ear-r {
+  animation: mc-pet-ear-jog 0.5s ease-in-out -0.25s infinite;
+}
+.mc-pet-walker {
+  will-change: transform;
+}
+/* One-shot antics (idle antics + petting reactions), keyed per flourish so
+   they restart every time. Durations stay under the store's 1.4s flourish
+   window. */
+.mc-pet-flourish {
+  transform-origin: 50% 100%;
+}
+.mc-pet-flourish[data-kind="hop"] {
+  animation: mc-pet-hop-once 0.7s ease-in-out;
+}
+.mc-pet-flourish[data-kind="stretch"] {
+  animation: mc-pet-stretch-once 1.3s ease-in-out;
+}
+.mc-pet-flourish[data-kind="spin"] {
+  animation: mc-pet-mv-spin-wiggle 0.9s ease-in-out;
+}
+.mc-pet-flourish[data-kind="flip"] {
+  animation: mc-pet-mv-flip 1s ease-in-out;
+}
+.mc-pet-flourish[data-kind="tada"] {
+  animation: mc-pet-mv-tada 1.1s ease-in-out;
+}
+.mc-pet-flourish[data-kind="bound"] {
+  animation: mc-pet-mv-bound 1s ease-in-out;
+}
+.mc-pet-flourish[data-kind="dance"] {
+  animation: mc-pet-mv-dance 0.45s ease-in-out 2;
+}
+.mc-pet-flourish[data-kind="jump"] {
+  animation: mc-pet-mv-jump-big 0.9s ease-in-out;
+}
+.mc-pet-flourish[data-kind="shimmy"] {
+  animation: mc-pet-mv-shimmy 0.5s ease-in-out 2;
+}
+.mc-pet-flourish[data-kind="pounce"] {
+  animation: mc-pet-mv-pump 0.6s ease-in-out 2;
+}
+
+/* --- speech bubble --- */
+.mc-pet-bubble {
+  pointer-events: none;
+  position: relative;
+  max-width: 220px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  animation: mc-pet-bubble-in 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.mc-pet-bubble[data-priority="critical"] {
+  border-color: var(--accent-border, var(--accent));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--accent-faint, transparent);
+}
+.mc-pet-bubble::after {
+  content: "";
+  position: absolute;
+  right: 28px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.mc-pet-bubble[data-priority="critical"]::after {
+  border-color: var(--accent-border, var(--accent));
+}
+
+/* --- petting hearts --- */
+.mc-pet-hearts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mc-pet-heart {
+  position: absolute;
+  left: 40%;
+  bottom: 55%;
+  color: var(--accent);
+  font-size: 15px;
+  opacity: 0;
+  animation: mc-pet-heart-float 1.1s ease-out forwards;
+}
+.mc-pet-heart-2 {
+  left: 60%;
+  font-size: 12px;
+  animation-delay: 0.15s;
+}
+.mc-pet-heart-3 {
+  left: 25%;
+  font-size: 11px;
+  animation-delay: 0.3s;
+}
+
+/* --- hover awareness + press-and-hold (PetWidget) --- */
+/* The emote the pet pops above its head when it notices your cursor. */
+.mc-pet-emote {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  animation:
+    mc-pet-emote-in 0.22s cubic-bezier(0.34, 1.4, 0.64, 1),
+    mc-pet-emote-bob 1.8s ease-in-out 0.25s infinite;
+}
+/* Held down: a slow contented squish while the hearts keep coming. */
+.mc-pet-button[data-stroking] {
+  animation: mc-pet-stroke-pulse 0.7s ease-in-out infinite;
+}
+/* Pupils track a nearby cursor (vars set imperatively by PetWidget). The
+   independent `translate` property composes with the mood keyframes animating
+   `transform`, and --pet-facing un-mirrors x when the walker flips the sprite. */
+.mc-pet-pupil-set {
+  translate: calc(var(--pet-look-x, 0px) * var(--pet-facing, 1)) var(--pet-look-y, 0px);
+  transition: translate 0.15s ease-out;
+}
+
+/* --- keyframes --- */
+@keyframes mc-pet-emote-in {
+  from {
+    opacity: 0;
+    translate: 0 5px;
+    scale: 0.4;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+@keyframes mc-pet-emote-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -3px;
+  }
+}
+@keyframes mc-pet-stroke-pulse {
+  0%,
+  100% {
+    transform: scale(1.03) translateY(-1px);
+  }
+  50% {
+    transform: scale(0.96) translateY(1px);
+  }
+}
+@keyframes mc-pet-breathe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(1.035);
+  }
+}
+@keyframes mc-pet-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  30% {
+    transform: translateY(-5px) scaleY(1.02);
+  }
+  60% {
+    transform: translateY(0) scaleY(0.97);
+  }
+}
+@keyframes mc-pet-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  95%,
+  97% {
+    transform: scaleY(0.08);
+  }
+}
+@keyframes mc-pet-alert-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-7px) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(0);
+  }
+  70% {
+    transform: translateY(-3px) rotate(2deg);
+  }
+}
+@keyframes mc-pet-wobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-6deg);
+  }
+  75% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes mc-pet-celebrate {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  40% {
+    transform: translateY(-9px) scaleY(1.05);
+  }
+  70% {
+    transform: translateY(0) scaleY(0.94);
+  }
+}
+@keyframes mc-pet-heart-float {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.7);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-42px) scale(1.15);
+  }
+}
+@keyframes mc-pet-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes mc-pet-zzz-drift {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(5px, -9px);
+  }
+}
+@keyframes mc-pet-sparkle {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8) rotate(0deg);
+  }
+  50% {
+    opacity: var(--pet-sparkle, 0.8);
+    transform: scale(1.1) rotate(20deg);
+  }
+}
+@keyframes mc-pet-confetti-tick {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* Ember motes drift up off the flame and fade, then respawn at the source. */
+@keyframes mc-pet-ember-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  25% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-9px);
+  }
+}
+@keyframes mc-pet-alert-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes mc-pet-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes mc-pet-waddle {
+  0%,
+  100% {
+    transform: rotate(-4deg) translateY(0);
+  }
+  50% {
+    transform: rotate(4deg) translateY(-2px);
+  }
+}
+@keyframes mc-pet-hop-once {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  35% {
+    transform: translateY(-12px) scaleY(1.04);
+  }
+  70% {
+    transform: translateY(0) scaleY(0.94);
+  }
+}
+@keyframes mc-pet-stretch-once {
+  0%,
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+  40% {
+    transform: scaleY(1.12) scaleX(0.95);
+  }
+  60% {
+    transform: scaleY(1.1) scaleX(0.96);
+  }
+}
+
+/* --- move-variant keyframes (mc-pet-mv-*) ---
+   Shared library behind the per-mood data-move rules. Transform-only, all
+   anchored to the sprite's ground line (transform-origin 50% 100%), all
+   passing through identity at 0%/100% so re-rolls settle cleanly. */
+@keyframes mc-pet-mv-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-3.5deg);
+  }
+  75% {
+    transform: rotate(3.5deg);
+  }
+}
+@keyframes mc-pet-mv-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+@keyframes mc-pet-mv-squish {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.04, 0.96);
+  }
+}
+@keyframes mc-pet-mv-look {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  18%,
+  36% {
+    transform: translateX(-3px) rotate(-1.5deg);
+  }
+  60%,
+  80% {
+    transform: translateX(3px) rotate(1.5deg);
+  }
+}
+@keyframes mc-pet-mv-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-2deg);
+  }
+  45% {
+    transform: rotate(2deg);
+  }
+  70% {
+    transform: rotate(-1deg);
+  }
+}
+@keyframes mc-pet-mv-tiptoe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  30%,
+  55% {
+    transform: scaleY(1.06) scaleX(0.98);
+  }
+  70% {
+    transform: scaleY(0.99);
+  }
+}
+@keyframes mc-pet-mv-shimmy {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2.5px);
+  }
+  75% {
+    transform: translateX(2.5px);
+  }
+}
+@keyframes mc-pet-mv-lean {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  35%,
+  65% {
+    transform: rotate(-4deg);
+  }
+}
+@keyframes mc-pet-mv-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+@keyframes mc-pet-mv-perk {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  20% {
+    transform: scaleY(1.07) scaleX(0.97);
+  }
+  45% {
+    transform: scaleY(1.04) scaleX(0.99);
+  }
+}
+@keyframes mc-pet-mv-nod {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  40% {
+    transform: translateY(1.5px) scaleY(0.965);
+  }
+}
+@keyframes mc-pet-mv-jiggle {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate(-1px, -1px) rotate(-1deg);
+  }
+  50% {
+    transform: translate(1px, 0) rotate(1deg);
+  }
+  75% {
+    transform: translate(-0.5px, -1px) rotate(-0.5deg);
+  }
+}
+@keyframes mc-pet-mv-vibrate {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-0.8px);
+  }
+  75% {
+    transform: translateX(0.8px);
+  }
+}
+@keyframes mc-pet-mv-rock {
+  0%,
+  100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  25% {
+    transform: rotate(-3deg) translateY(-1.5px);
+  }
+  75% {
+    transform: rotate(3deg) translateY(-1.5px);
+  }
+}
+@keyframes mc-pet-mv-scoot {
+  0%,
+  100% {
+    transform: translateX(0) translateY(0);
+  }
+  20% {
+    transform: translateX(-2px) translateY(-2px);
+  }
+  35% {
+    transform: translateX(-4px) translateY(0);
+  }
+  60% {
+    transform: translateX(-2px) translateY(-2px);
+  }
+  80% {
+    transform: translateX(0) translateY(0);
+  }
+}
+@keyframes mc-pet-mv-pump {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  30% {
+    transform: scaleY(1.05) scaleX(0.98);
+  }
+  65% {
+    transform: scaleY(0.96) scaleX(1.03);
+  }
+}
+@keyframes mc-pet-mv-bounce-tilt {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scaleY(1);
+  }
+  30% {
+    transform: translateY(-5px) rotate(-3deg) scaleY(1.02);
+  }
+  60% {
+    transform: translateY(0) rotate(2deg) scaleY(0.97);
+  }
+}
+@keyframes mc-pet-mv-hophop {
+  0%,
+  55%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  12% {
+    transform: translateY(-8px) scaleY(1.03);
+  }
+  24% {
+    transform: translateY(0) scaleY(0.96);
+  }
+  36% {
+    transform: translateY(-8px) scaleY(1.03);
+  }
+  48% {
+    transform: translateY(0) scaleY(0.96);
+  }
+}
+@keyframes mc-pet-mv-spin-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-9deg);
+  }
+  45% {
+    transform: rotate(9deg);
+  }
+  65% {
+    transform: rotate(-4deg);
+  }
+  85% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes mc-pet-mv-flip {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  35% {
+    transform: scaleX(-1) translateY(-4px);
+  }
+  70% {
+    transform: scaleX(1) translateY(-2px);
+  }
+}
+@keyframes mc-pet-mv-jump-big {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  15% {
+    transform: translateY(0) scaleY(0.92) scaleX(1.05);
+  }
+  40% {
+    transform: translateY(-12px) scaleY(1.06) scaleX(0.97);
+  }
+  70% {
+    transform: translateY(0) scaleY(0.95);
+  }
+}
+@keyframes mc-pet-mv-dance {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  25% {
+    transform: translateX(-4px) rotate(4deg);
+  }
+  75% {
+    transform: translateX(4px) rotate(-4deg);
+  }
+}
+@keyframes mc-pet-mv-shiver {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-1.4deg);
+  }
+  75% {
+    transform: rotate(1.4deg);
+  }
+}
+@keyframes mc-pet-mv-recoil {
+  0%,
+  100% {
+    transform: translateX(0) scaleX(1);
+  }
+  12%,
+  45% {
+    transform: translateX(5px) scaleX(0.94);
+  }
+  70% {
+    transform: translateX(1px) scaleX(0.99);
+  }
+}
+@keyframes mc-pet-mv-jump-back {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  12% {
+    transform: translate(7px, -6px);
+  }
+  26% {
+    transform: translate(7px, 0);
+  }
+  60% {
+    transform: translate(3px, 0);
+  }
+}
+@keyframes mc-pet-mv-slump {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  40%,
+  70% {
+    transform: scaleY(0.95) scaleX(1.02);
+  }
+}
+@keyframes mc-pet-mv-drift {
+  0%,
+  100% {
+    transform: rotate(0deg) scaleY(1);
+  }
+  50% {
+    transform: rotate(1.6deg) scaleY(1.025);
+  }
+}
+@keyframes mc-pet-mv-tada {
+  0%,
+  90%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  15% {
+    transform: scale(1.1) rotate(-4deg);
+  }
+  30% {
+    transform: scale(1.1) rotate(4deg);
+  }
+  45% {
+    transform: scale(1.1) rotate(-4deg);
+  }
+  60% {
+    transform: scale(1.1) rotate(3deg);
+  }
+  75% {
+    transform: scale(1.04) rotate(0deg);
+  }
+}
+@keyframes mc-pet-mv-bound {
+  0%,
+  40%,
+  80%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  20% {
+    transform: translate(-6px, -8px) rotate(-4deg);
+  }
+  60% {
+    transform: translate(6px, -8px) rotate(4deg);
+  }
+}
+@keyframes mc-pet-mv-deep-breathe {
+  0%,
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+  50% {
+    transform: scaleY(1.055) scaleX(0.985);
+  }
+}
+
+/* --- articulated part keyframes (transform-only; pivots set per part above) --- */
+@keyframes mc-pet-ear-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(5deg);
+  }
+  70% {
+    transform: rotate(-4deg);
+  }
+}
+@keyframes mc-pet-ear-perk {
+  0%,
+  45%,
+  100% {
+    transform: rotate(0deg);
+  }
+  10%,
+  30% {
+    transform: rotate(-7deg);
+  }
+  20% {
+    transform: rotate(-3deg);
+  }
+}
+@keyframes mc-pet-ear-twitch {
+  0%,
+  50%,
+  100% {
+    transform: rotate(0deg);
+  }
+  12% {
+    transform: rotate(8deg);
+  }
+  28% {
+    transform: rotate(-4deg);
+  }
+}
+@keyframes mc-pet-ear-quiver {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(3deg);
+  }
+  75% {
+    transform: rotate(-3deg);
+  }
+}
+@keyframes mc-pet-ear-doze {
+  0%,
+  100% {
+    transform: rotate(-16deg);
+  }
+  50% {
+    transform: rotate(-21deg);
+  }
+}
+@keyframes mc-pet-ear-rebound {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(-6deg);
+  }
+  60% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes mc-pet-ear-flap {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  40% {
+    transform: rotate(-13deg);
+  }
+  70% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes mc-pet-ear-jog {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-5deg);
+  }
+}
+@keyframes mc-pet-pupil-glance {
+  0%,
+  20%,
+  55%,
+  100% {
+    transform: translate(0, 0);
+  }
+  26%,
+  38% {
+    transform: translate(-2.2px, 0.4px);
+  }
+  62%,
+  80% {
+    transform: translate(2.2px, 0.3px);
+  }
+}
+@keyframes mc-pet-pupil-track {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-2.4px, 0);
+  }
+  75% {
+    transform: translate(2.4px, 0);
+  }
+}
+@keyframes mc-pet-pupil-focus {
+  0%,
+  100% {
+    transform: translate(0, 1.6px);
+  }
+  40% {
+    transform: translate(-1.2px, 1.7px);
+  }
+  70% {
+    transform: translate(1.2px, 1.7px);
+  }
+}
+@keyframes mc-pet-face-tilt {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(2.5deg);
+  }
+  70% {
+    transform: rotate(-2deg);
+  }
+}
+@keyframes mc-pet-arm-type-l {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(16deg) translateY(-1px);
+  }
+}
+@keyframes mc-pet-arm-type-r {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-16deg) translateY(-1px);
+  }
+}
+@keyframes mc-pet-arm-wave-l {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+@keyframes mc-pet-arm-wave-r {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+@keyframes mc-pet-arm-swing {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+@keyframes mc-pet-foot-thump {
+  0%,
+  45%,
+  70%,
+  100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-2.6px);
+  }
+  57% {
+    transform: translateY(-1.4px);
+  }
+}
+@keyframes mc-pet-foot-step {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2.2px) rotate(-8deg);
+  }
+}
+@keyframes mc-pet-tail-twitch {
+  0%,
+  86%,
+  100% {
+    transform: translate(0, 0);
+  }
+  90% {
+    transform: translate(1.2px, -0.6px);
+  }
+  95% {
+    transform: translate(-0.6px, 0.4px);
+  }
+}
+@keyframes mc-pet-tail-wag {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(1.5px, -1px) scale(1.25);
+  }
+}
+
+/* --- picked up + tossed --- */
+/* While held, the pet dangles with a small indignant tilt; the fall back to
+   the ground uses the stage's inline bounce transition. */
+.mc-pet-stage[data-dragging] .mc-pet-button {
+  cursor: grabbing;
+  rotate: -8deg;
+  transition: rotate 0.2s ease;
+}
+.mc-pet-stage[data-dropping] .mc-pet-button {
+  rotate: 0deg;
+  transition: rotate 0.3s ease;
+}
+
+/* --- idle props --- */
+/* Morning coffee: parked by the pet's feet with a lazy steam bob. */
+.mc-pet-prop-coffee {
+  position: absolute;
+  left: -20px;
+  bottom: 2px;
+  font-size: 15px;
+  line-height: 1;
+  pointer-events: none;
+  animation: mc-pet-coffee-bob 3.2s ease-in-out infinite;
+}
+@keyframes mc-pet-coffee-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+/* --- stats card (right-click / "stats" command) --- */
+.mc-pet-stats-card {
+  pointer-events: auto;
+  width: 248px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  animation: mc-pet-bubble-in 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mc-pet-stats-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mc-pet-stats-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.mc-pet-stats-prestige {
+  margin-left: 5px;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.mc-pet-stats-sub {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.mc-pet-stats-close {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.mc-pet-stats-close:hover {
+  color: var(--text);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+.mc-pet-stats-level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.mc-pet-stats-xpbar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.mc-pet-stats-xpfill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.mc-pet-stats-xptext {
+  color: var(--text-faint);
+  font-weight: 400;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* Molt: the prestige reset offered at the level cap. */
+.mc-pet-stats-molt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mc-pet-stats-molt-button,
+.mc-pet-stats-molt-confirm,
+.mc-pet-stats-molt-cancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mc-pet-stats-molt-button {
+  align-self: flex-start;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mc-pet-stats-molt-button:hover,
+.mc-pet-stats-molt-confirm:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+.mc-pet-stats-molt-confirm {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.mc-pet-stats-molt-cancel:hover {
+  color: var(--text);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+.mc-pet-stats-molt-note {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.mc-pet-stats-molt-actions {
+  display: flex;
+  gap: 6px;
+}
+.mc-pet-stats-personality {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.mc-pet-stats-trait-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.mc-pet-stats-drift {
+  font-size: 8px;
+}
+.mc-pet-stats-drift[data-direction="up"] {
+  color: var(--accent);
+}
+.mc-pet-stats-drift[data-direction="down"] {
+  color: var(--text-faint);
+}
+.mc-pet-stats-trait-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+  margin-top: 2px;
+}
+.mc-pet-stats-trait-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.75;
+}
+.mc-pet-stats-counters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 10px;
+  margin: 0;
+}
+.mc-pet-stats-counter {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.mc-pet-stats-counter dt {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.mc-pet-stats-counter dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.mc-pet-stats-favorite {
+  color: var(--text-dim);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+/* Reduced motion: the pet holds still — mood still reads through the static
+   per-mood expressions — and bubbles appear/disappear without animation. */
+@media (prefers-reduced-motion: reduce) {
+  .mc-pet,
+  .mc-pet * ,
+  .mc-pet-bubble,
+  .mc-pet-heart,
+  .mc-pet-button,
+  .mc-pet-emote,
+  .mc-pet-flourish,
+  .mc-pet-walker,
+  .mc-pet-widget,
+  .mc-pet-stats-card,
+  .mc-pet-prop-coffee,
+  .mc-pet-stage {
+    animation: none !important;
+    transition: none !important;
+  }
+  .mc-pet-heart {
+    opacity: 0;
+  }
+}

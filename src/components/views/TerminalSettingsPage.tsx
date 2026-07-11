@@ -217,6 +217,10 @@ export function TerminalSettingsPage() {
     recallCodeGraphEnabled: settings?.recallCodeGraphEnabled ?? true,
     recallProactiveRecallEnabled: settings?.recallProactiveRecallEnabled ?? true,
     recallLearnedToastEnabled: settings?.recallLearnedToastEnabled ?? true,
+    petEnabled: settings?.petEnabled ?? true,
+    petMessagesEnabled: settings?.petMessagesEnabled ?? true,
+    petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,
   });

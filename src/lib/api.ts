@@ -63,6 +63,7 @@ import type {
 } from "~/shared/code-graph";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
+import type { PetPersistentState } from "~/shared/pet";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 import { HTTP_NO_CONTENT } from "~/shared/http-status";
 
@@ -194,6 +195,15 @@ export type AppSettings = {
   recallProactiveRecallEnabled: boolean;
   /** Whether the "Learned N memories from this session" toast fires after auto-capture. */
   recallLearnedToastEnabled: boolean;
+  /**
+   * Mission Pet — the ambient corner companion that reacts to real agent
+   * activity. `petState` holds its persistent identity (name, XP, personality);
+   * null until the pet first hydrates (or after a reset).
+   */
+  petEnabled: boolean;
+  petMessagesEnabled: boolean;
+  petSoundsEnabled: boolean;
+  petState: PetPersistentState | null;
 };
 
 export class ApiError extends Error {
@@ -661,6 +671,10 @@ export const api = {
         | "recallCodeGraphEnabled"
         | "recallProactiveRecallEnabled"
         | "recallLearnedToastEnabled"
+        | "petEnabled"
+        | "petMessagesEnabled"
+        | "petSoundsEnabled"
+        | "petState"
       >
     >,
   ) =>

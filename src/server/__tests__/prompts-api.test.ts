@@ -18,6 +18,8 @@ const { createProject } = await import("../services/projects");
 const { createTask } = await import("../services/tasks");
 const { getDb } = await import("~/db/client");
 const { prompts, tasks, projects, groups, worktrees } = await import("~/db/schema");
+const { events } = await import("../events");
+type AppEvent = import("../events").AppEvent;
 
 const LOOPBACK_HEADERS = { origin: "http://127.0.0.1:5173" };
 
@@ -99,5 +101,30 @@ describe("prompt capture + search API", () => {
     await submitPrompt(task.id, "some earlier request");
     const results = await search("");
     expect(results.map((r) => r.text)).toContain("some earlier request");
+  });
+
+  it("emits prompt:submitted once per capture (dedup included), with a snippet", async () => {
+    const { project, task } = makeTask();
+    const seen: AppEvent[] = [];
+    const off = events.onAny((e) => {
+      if (e.type === "prompt:submitted") seen.push(e);
+    });
+    try {
+      await submitPrompt(task.id, "fix the login crash");
+      await submitPrompt(task.id, "fix the login crash"); // dedup window
+      await submitPrompt(task.id, `refactor ${"x".repeat(400)}`);
+    } finally {
+      off();
+    }
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatchObject({
+      type: "prompt:submitted",
+      taskId: task.id,
+      projectId: project.id,
+      snippet: "fix the login crash",
+    });
+    // Long prompts are clipped to a 200-char snippet for the SSE payload.
+    expect((seen[1] as { snippet: string }).snippet).toHaveLength(200);
   });
 });
