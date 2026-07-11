@@ -953,3 +953,119 @@ describe("level progression: evolve + molt", () => {
     expect(getPetPersistentState()!.species).toBe("ember");
   });
 });
+
+describe("stale question reconciliation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Later than every earlier suite — the module-level rate limiter carries
+    // real timestamps across suites, so the clock must only move forward.
+    vi.setSystemTime(new Date(2026, 6, 29, 10, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("clears a question whose cleared/deleted event never arrived once aggregates repeatedly say zero", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    petIngestServerEvent({
+      type: "task:question",
+      taskId: "t-lost",
+      projectId: "p1",
+    } as never);
+    expect(getPetSnapshot().mood).toBe("alert");
+
+    // One or two zero reports must NOT cull it — aggregates can lag a fresh
+    // question by a refetch.
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    expect(getPetSnapshot().mood).toBe("alert");
+
+    // The third consecutive authoritative zero means the id is stale.
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    vi.advanceTimersByTime(MOOD_DEBOUNCE_MS + 100);
+    expect(getPetSnapshot().mood).not.toBe("alert");
+    expect(getPetSnapshot().alert).toBeNull();
+  });
+
+  it("a non-zero report resets the stale counter", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    petIngestServerEvent({
+      type: "task:question",
+      taskId: "t-live",
+      projectId: "p1",
+    } as never);
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    // The aggregates catch up — the question is real after all.
+    petSetAggregates({ running: 0, needsInput: 1, interrupted: 0 });
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    expect(getPetSnapshot().mood).toBe("alert");
+
+    // Clean up module-level state for later suites.
+    petIngestServerEvent({ type: "task:question-cleared", taskId: "t-live" } as never);
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+  });
+
+  it("a fresh question event restarts the stale count", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    petIngestServerEvent({ type: "task:question", taskId: "t-a", projectId: "p1" } as never);
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    petIngestServerEvent({ type: "task:question", taskId: "t-b", projectId: "p1" } as never);
+    // Two zero reports predate t-b; it must get a full window of its own.
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+    expect(getPetSnapshot().mood).toBe("alert");
+
+    petIngestServerEvent({ type: "task:question-cleared", taskId: "t-a" } as never);
+    petIngestServerEvent({ type: "task:question-cleared", taskId: "t-b" } as never);
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 0 });
+  });
+});
+
+describe("molt announcement preempts a visible bubble", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 30, 15, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("the molt line replaces whatever bubble is still up instead of being dropped", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    // Reach the cap, aging each PR bubble out along the way.
+    while (getPetPersistentState()!.xp < 3_000) {
+      petShipResult("pr-created");
+      vi.advanceTimersByTime(30_000);
+    }
+    expect(getPetPersistentState()!.level).toBe(PET_MAX_LEVEL);
+    vi.advanceTimersByTime(600_000); // clear cooldown/bucket residue
+
+    // Put a fresh bubble on screen (petting bypasses a full bucket)…
+    petInteract();
+    const before = getPetSnapshot().bubble;
+    expect(before).not.toBeNull();
+
+    // …and molt while it is still visible. The announcement of the pet's
+    // rarest event must preempt, not silently vanish behind the petting line.
+    expect(petMolt()).toBe(true);
+    const bubble = getPetSnapshot().bubble;
+    expect(bubble).not.toBeNull();
+    expect(bubble!.id).not.toBe(before!.id);
+  });
+});

@@ -314,6 +314,14 @@ let heldByUser = false;
 // question events maintain their own live set; needs-input uses whichever is
 // larger.
 const questionTaskIds = new Set<string>();
+// The set is pruned by task:question-cleared / task:deleted / a tool run — but
+// those all arrive over SSE, so a dropped event (reconnect gap) would leave the
+// pet alert forever. The aggregates are authoritative once refetched: after
+// this many consecutive zero needs-input reports with the set still non-empty,
+// the entries are stale — clear them. (>1 so a fresh question isn't culled by
+// a refetch that raced in before its status landed.)
+const STALE_QUESTION_ZERO_REPORTS = 3;
+let staleQuestionZeroReports = 0;
 let aggregateNeedsInput = 0;
 let aggregateInterrupted = 0;
 // prompt:submitted timestamps, so session:finished can tell a long run.
@@ -634,8 +642,12 @@ function schedulePulseExpiry(now: number): void {
 function say(trigger: PetTrigger, opts?: { key?: string }): boolean {
   if (!enabled || !messagesEnabled || !persistent) return false;
   const priority = TRIGGER_PRIORITY[trigger];
-  // A visible bubble blocks new lines; only critical preempts it.
-  if (bubble && priority !== "critical") return false;
+  // A visible bubble blocks new lines; only critical preempts it — plus the
+  // molt announcement: it answers an explicit user action and is rare enough
+  // that dropping it behind whatever line is still up (typically the level-10
+  // one) would read as a silent no-op. Plain level-up/evolve stay blocked on
+  // purpose: the finish's story (comeback, milestone) outranks them.
+  if (bubble && priority !== "critical" && trigger !== "molt") return false;
   if (!limiter.allow(trigger, opts?.key)) return false;
   const favorite = favoriteProjectOf(persistent.projectXp);
   const text = pickLine(trigger, persistent.personality, {
@@ -773,6 +785,22 @@ export function petSetEnabled(
     statsOpen = false;
     alertWalkX = null;
     heldByUser = false;
+    // A disabled pet should cost nothing: stop the ambient loops and any
+    // in-flight one-shot timers. ensureClock/ensureBehaviorLoop re-arm on
+    // the next enable.
+    if (clockTimer !== null) {
+      clearInterval(clockTimer);
+      clockTimer = null;
+    }
+    if (behaviorTimer !== null) {
+      clearInterval(behaviorTimer);
+      behaviorTimer = null;
+    }
+    for (const timer of [pendingTimer, pulseTimer, watchTimer, arriveTimer, flourishTimer]) {
+      if (timer !== null) clearTimeout(timer);
+    }
+    pendingTimer = pulseTimer = watchTimer = arriveTimer = flourishTimer = null;
+    pendingMood = null;
   }
   invalidate();
 }
@@ -859,6 +887,7 @@ export function petIngestServerEvent(event: ServerEvent): void {
       const projectId = typeof event.projectId === "string" ? event.projectId : "";
       if (!taskId || !projectId) return;
       questionTaskIds.add(taskId);
+      staleQuestionZeroReports = 0;
       alert = { taskId, projectId };
       recompute();
       say("needs-input", { key: taskId });
@@ -1039,6 +1068,19 @@ export function petSetAggregates(counts: {
   inputs.runningCount = counts.running;
   aggregateNeedsInput = counts.needsInput;
   aggregateInterrupted = counts.interrupted;
+  // Reconcile against dropped SSE events: enough consecutive authoritative
+  // "nothing needs input" reports mean the tracked question ids are stale
+  // (their cleared/deleted events never arrived) — without this the pet stays
+  // alert forever on a task that already resumed or vanished.
+  if (counts.needsInput === 0 && questionTaskIds.size > 0) {
+    staleQuestionZeroReports += 1;
+    if (staleQuestionZeroReports >= STALE_QUESTION_ZERO_REPORTS) {
+      staleQuestionZeroReports = 0;
+      questionTaskIds.clear();
+    }
+  } else {
+    staleQuestionZeroReports = 0;
+  }
   if (aggregateNeedsInput === 0 && questionTaskIds.size === 0) {
     alert = null;
     clearAlertWalk();

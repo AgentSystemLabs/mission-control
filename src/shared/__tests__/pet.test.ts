@@ -9,6 +9,8 @@ import {
   favoriteProjectOf,
   isPetSpeciesUnlocked,
   levelForXp,
+  MAX_PET_XP,
+  mergePetStateWrite,
   moltPetState,
   mulberry32,
   normalizePetState,
@@ -269,5 +271,92 @@ describe("project xp + favorite", () => {
     expect(
       favoriteProjectOf({ a: { name: "Alpha", xp: 25 }, b: { name: "Beta", xp: 20 } }),
     ).toEqual({ projectId: "a", name: "Alpha", xp: 25 });
+  });
+});
+
+describe("MAX_PET_XP clamp", () => {
+  it("clamps absurd xp magnitudes instead of storing them", () => {
+    const state = normalizePetState({
+      ...createDefaultPetState(),
+      xp: 1e300,
+    })!;
+    expect(state.xp).toBe(MAX_PET_XP);
+    expect(state.level).toBe(PET_MAX_LEVEL);
+  });
+});
+
+describe("mergePetStateWrite", () => {
+  const base = () => {
+    const s = createDefaultPetState(1_000);
+    return { ...s, name: "Zezo" };
+  };
+
+  it("adopts the incoming state when nothing is stored", () => {
+    const incoming = base();
+    expect(mergePetStateWrite(null, incoming)).toBe(incoming);
+  });
+
+  it("a lower-prestige write cannot revert a molt — only identity fields land", () => {
+    const stored = { ...base(), prestige: 1, xp: 40, level: levelForXp(40), species: "ember" as const };
+    const incoming = { ...base(), prestige: 0, xp: 900, level: levelForXp(900), name: "Renamed", size: "l" as const, species: "bunny" as const };
+    const merged = mergePetStateWrite(stored, incoming);
+    expect(merged.prestige).toBe(1);
+    expect(merged.xp).toBe(40);
+    expect(merged.level).toBe(levelForXp(40));
+    // The freely-editable identity bits still follow the write.
+    expect(merged.name).toBe("Renamed");
+    expect(merged.size).toBe("l");
+    expect(merged.species).toBe("bunny");
+  });
+
+  it("a lower-prestige write keeps a species that the stored prestige has unlocked", () => {
+    // The stale window legitimately wears ember (unlocked by the STORED
+    // prestige, even though the writer's own prestige is lower).
+    const merged = mergePetStateWrite(
+      { ...base(), prestige: 2, species: "ember" as const },
+      { ...base(), prestige: 1, species: "ember" as const },
+    );
+    expect(merged.species).toBe("ember");
+    expect(merged.prestige).toBe(2);
+  });
+
+  it("a higher-prestige write wins wholesale", () => {
+    const stored = { ...base(), prestige: 0, xp: 2900, level: levelForXp(2900) };
+    const incoming = { ...base(), prestige: 1, xp: 0, level: 1 };
+    expect(mergePetStateWrite(stored, incoming)).toBe(incoming);
+  });
+
+  it("same prestige: xp and lifetime counters never decrease", () => {
+    const stored = base();
+    stored.xp = 120;
+    stored.level = levelForXp(120);
+    stored.stats = { ...stored.stats, sessions: 10, pets: 4 };
+    const incoming = base();
+    incoming.xp = 90;
+    incoming.level = levelForXp(90);
+    incoming.stats = { ...incoming.stats, sessions: 7, pets: 6, ships: 2 };
+    const merged = mergePetStateWrite(stored, incoming);
+    expect(merged.xp).toBe(120);
+    expect(merged.level).toBe(levelForXp(120));
+    expect(merged.stats.sessions).toBe(10);
+    expect(merged.stats.pets).toBe(6);
+    expect(merged.stats.ships).toBe(2);
+  });
+
+  it("same week merges counters per-field; project affection unions with per-project max", () => {
+    const stored = base();
+    stored.weekly = { ...stored.weekly, sessions: 3, ships: 1 };
+    stored.projectXp = { a: { name: "alpha", xp: 30 }, b: { name: "beta", xp: 5 } };
+    const incoming = base();
+    incoming.weekly = { ...incoming.weekly, sessions: 2, ships: 4 };
+    incoming.projectXp = { a: { name: "alpha", xp: 10 }, c: { name: "gamma", xp: 8 } };
+    const merged = mergePetStateWrite(stored, incoming);
+    expect(merged.weekly.sessions).toBe(3);
+    expect(merged.weekly.ships).toBe(4);
+    expect(merged.projectXp).toEqual({
+      a: { name: "alpha", xp: 30 },
+      b: { name: "beta", xp: 5 },
+      c: { name: "gamma", xp: 8 },
+    });
   });
 });

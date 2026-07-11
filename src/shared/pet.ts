@@ -130,6 +130,13 @@ const LEVEL_THRESHOLDS = [0, 50, 150, 300, 500, 800, 1200, 1700, 2300, 3000] as 
 export const PET_MAX_LEVEL = LEVEL_THRESHOLDS.length;
 
 /**
+ * Ceiling on persisted XP. Real work can't get anywhere near this within one
+ * prestige (the cap sits at 3000), so anything larger is a corrupt or
+ * hand-edited payload — clamp it instead of storing absurd magnitudes.
+ */
+export const MAX_PET_XP = 1_000_000;
+
+/**
  * Levels where the sprite gains a permanent visible detail: the growing
  * sparkle at 3, a scarf at 5, a tool belt at 8, a tiny crown at the cap.
  * The store announces these with their own trigger instead of the plain
@@ -381,7 +388,7 @@ export function normalizePetState(value: unknown): PetPersistentState | null {
 
   const xpRaw = raw.xp;
   if (typeof xpRaw !== "number" || !Number.isFinite(xpRaw)) return null;
-  const xp = Math.max(0, Math.floor(xpRaw));
+  const xp = Math.min(MAX_PET_XP, Math.max(0, Math.floor(xpRaw)));
 
   const name =
     typeof raw.name === "string" && raw.name.trim()
@@ -425,6 +432,86 @@ export function normalizePetState(value: unknown): PetPersistentState | null {
     stats: normalizeLifetimeStats(raw.stats),
     weekly: normalizeWeeklyStats(raw.weekly, Date.now()),
     projectXp: normalizeProjectXp(raw.projectXp),
+    createdAt,
+  };
+}
+
+/**
+ * Guard a full-state write against a stale writer. Every renderer window
+ * (main shell, focus mode) holds its own copy of the pet, hydrated once at
+ * boot, and blind-writes it back on change — so a window that hydrated before
+ * a molt or a level-up in another window would revert that progression
+ * wholesale. Progression is monotonic within a life, so merge accordingly:
+ *
+ * - prestige only ever climbs; a lower-prestige write is a stale window, keep
+ *   the stored progression and adopt only its freely-editable identity bits.
+ * - at equal prestige, XP only accrues, so the larger XP wins; lifetime
+ *   counters never decrease, so take the per-field max.
+ * - name and size follow the incoming write (the settings page edits them);
+ *   species follows it too when the unlock allows.
+ */
+export function mergePetStateWrite(
+  stored: PetPersistentState | null,
+  incoming: PetPersistentState,
+): PetPersistentState {
+  if (!stored) return incoming;
+  // A molt just landed: the molter's write is the new truth wholesale.
+  if (incoming.prestige > stored.prestige) return incoming;
+
+  // Lifetime counters survive molts, so they merge per-field regardless of
+  // which side's prestige wins.
+  const stats = { ...incoming.stats };
+  for (const key of Object.keys(stats) as (keyof PetLifetimeStats)[]) {
+    stats[key] = Math.max(stats[key], stored.stats[key]);
+  }
+  // Same week: counters only accrue, take the max; otherwise the newer
+  // weekStart's counters win.
+  let weekly = incoming.weekly;
+  if (stored.weekly.weekStart === incoming.weekly.weekStart) {
+    weekly = {
+      weekStart: incoming.weekly.weekStart,
+      sessions: Math.max(stored.weekly.sessions, incoming.weekly.sessions),
+      ships: Math.max(stored.weekly.ships, incoming.weekly.ships),
+      prs: Math.max(stored.weekly.prs, incoming.weekly.prs),
+      failures: Math.max(stored.weekly.failures, incoming.weekly.failures),
+    };
+  } else if (stored.weekly.weekStart > incoming.weekly.weekStart) {
+    weekly = stored.weekly;
+  }
+  // Project affection only accrues too — union, per-project max.
+  const projectXp: PetProjectXp = { ...incoming.projectXp };
+  for (const [projectId, entry] of Object.entries(stored.projectXp)) {
+    const mine = projectXp[projectId];
+    if (!mine || entry.xp > mine.xp) projectXp[projectId] = entry;
+  }
+  const createdAt = Math.min(stored.createdAt, incoming.createdAt);
+
+  if (incoming.prestige < stored.prestige) {
+    // Stale window: keep the stored progression (prestige, xp, level); adopt
+    // only the freely-editable identity bits and the merged accruals.
+    const species = isPetSpeciesUnlocked(incoming.species, stored.prestige)
+      ? incoming.species
+      : stored.species;
+    return {
+      ...stored,
+      name: incoming.name,
+      size: incoming.size,
+      species,
+      stats,
+      weekly,
+      projectXp,
+      createdAt,
+    };
+  }
+
+  const xp = Math.max(stored.xp, incoming.xp);
+  return {
+    ...incoming,
+    xp,
+    level: levelForXp(xp),
+    stats,
+    weekly,
+    projectXp,
     createdAt,
   };
 }
