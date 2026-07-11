@@ -1080,7 +1080,40 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({ petEnabled: false, petState: expected });
   });
 
-  it("clears stored pet state when sent garbage", async () => {
+  it("rejects garbage pet state instead of erasing the stored pet", async () => {
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          petState: {
+            version: 1,
+            name: "Pixel",
+            xp: 10,
+            level: 1,
+            personality: { snark: 1, wisdom: 1, chaos: 1, zen: 1 },
+            createdAt: 1700000000000,
+          },
+        }),
+      }),
+    );
+    const rejected = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ petState: "not a pet" }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    // A malformed write must never destroy the pet — only an explicit null may.
+    expect(rejected?.status).toBe(400);
+    expect(await jsonBody(read!)).toMatchObject({
+      petState: { name: "Pixel", xp: 10 },
+    });
+  });
+
+  it("clears stored pet state on an explicit null", async () => {
     await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
@@ -1101,13 +1134,66 @@ describe("settings API", () => {
       authedRequest("http://localhost/api/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ petState: "not a pet" }),
+        body: JSON.stringify({ petState: null }),
       }),
     );
     const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
 
     expect(cleared?.status).toBe(200);
     expect(await jsonBody(read!)).toMatchObject({ petState: null });
+  });
+
+  it("a stale window's write cannot revert a molt or shrink progression", async () => {
+    const personality = { snark: 1, wisdom: 1, chaos: 1, zen: 1 };
+    // Window A persisted a molt: prestige 1, fresh xp, ember unlocked.
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          petState: {
+            version: 1,
+            name: "Zezo",
+            species: "ember",
+            xp: 5,
+            prestige: 1,
+            personality,
+            stats: { sessions: 12, longSessions: 0, ships: 3, prs: 1, memories: 0, failures: 2, worstStreak: 2, pets: 20 },
+            createdAt: 1700000000000,
+          },
+        }),
+      }),
+    );
+    // Window B hydrated before the molt and blind-writes its stale copy.
+    const staleWrite = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          petState: {
+            version: 1,
+            name: "Zezo",
+            species: "chick",
+            xp: 2980,
+            prestige: 0,
+            personality,
+            stats: { sessions: 11, longSessions: 0, ships: 3, prs: 1, memories: 0, failures: 2, worstStreak: 2, pets: 25 },
+            createdAt: 1700000000000,
+          },
+        }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(staleWrite?.status).toBe(200);
+    expect(await jsonBody(read!)).toMatchObject({
+      petState: {
+        prestige: 1, // the molt survives
+        xp: 5,
+        species: "chick", // cosmetic choice still follows the latest write
+        stats: { sessions: 12, pets: 25 }, // lifetime counters keep their max
+      },
+    });
   });
 
   // Regression: GET /api/settings used to anonymously return the API bearer

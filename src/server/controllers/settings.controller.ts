@@ -86,8 +86,9 @@ import {
 } from "~/shared/session-header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
-import { normalizePetState } from "~/shared/pet";
-import { json, parseJsonBody } from "./_helpers";
+import { mergePetStateWrite, normalizePetState } from "~/shared/pet";
+import { HTTP_BAD_REQUEST } from "~/shared/http-status";
+import { json, jsonError, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
 const DEFAULT_AGENT_SETTING_KEY = "default_agent";
@@ -255,8 +256,10 @@ const updateSettingsBody = z
     petEnabled: z.boolean(),
     petMessagesEnabled: z.boolean(),
     petSoundsEnabled: z.boolean(),
-    // Garbage in → null → the stored state is cleared (pet re-rolls on next boot).
-    petState: z.unknown().transform((value) => normalizePetState(value)),
+    // Raw on purpose: update() distinguishes an explicit null (reset the pet)
+    // from a payload that fails normalization (rejected — a malformed write
+    // must never erase the stored pet).
+    petState: z.unknown(),
   })
   .partial();
 
@@ -729,7 +732,13 @@ export async function update(request: Request): Promise<Response> {
     if (body.petState === null) {
       deleteSetting(PET_STATE_KEY);
     } else {
-      setSetting(PET_STATE_KEY, JSON.stringify(body.petState));
+      const incoming = normalizePetState(body.petState);
+      if (!incoming) return jsonError(HTTP_BAD_REQUEST, "invalid petState");
+      // Merge against the stored state so a stale renderer window (each holds
+      // its own copy, hydrated once at boot) can't revert a molt, level-up, or
+      // lifetime counters that another window already persisted.
+      const stored = normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null));
+      setSetting(PET_STATE_KEY, JSON.stringify(mergePetStateWrite(stored, incoming)));
     }
   }
   writeRecallSettings({
