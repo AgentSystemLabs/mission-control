@@ -2900,7 +2900,10 @@ body[data-card-glow] .cursor-glow {
 [data-minimal="true"] .mc-btn-primary {
   background: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 90%, black);
-  color: var(--mm-on-accent);
+  /* Per-accent on-fill ink (set alongside --accent in accent-colors.ts): light
+     ink for the darker/saturated accents where near-black reads muddy, dark ink
+     for bright ones. Falls back to --mm-on-accent (dark) for the default. */
+  color: var(--mc-on-accent, var(--mm-on-accent));
   box-shadow:
     0 1px 0 oklch(1 0 0 / 0.14) inset,
     0 1px 2px oklch(0 0 0 / 0.30);
@@ -3013,17 +3016,20 @@ body[data-card-glow] .cursor-glow {
     var(--mm-ring);
 }
 
-/* New session button: outline style in minimal theme only.
-   Transparent fill, accent border + accent text/icon. */
+/* New session button: soft-outline style in minimal theme only.
+   A faint accent fill + a firm accent border give the cluster a defined
+   pill body, so the label and its attached +/gear segments read as one
+   button rather than three loose accent glyphs. Still clearly lighter than
+   a solid primary, preserving the minimal-theme aesthetic. */
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
   color: var(--accent-ink);
   box-shadow: none;
 }
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 64%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
   box-shadow: none;
 }
 [data-minimal="true"] .mc-btn-primary.mc-btn-new-session:focus-visible {
@@ -3037,15 +3043,15 @@ body[data-card-glow] .cursor-glow {
    still form the seamless middle seams. */
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config,
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
   color: var(--accent-ink);
   box-shadow: none;
 }
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-config:hover,
 [data-minimal="true"] .mc-btn-ghost.mc-btn-new-session-row:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 64%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
 }
 
 [data-minimal="true"] .mc-btn-primary.mc-btn-attached-left,

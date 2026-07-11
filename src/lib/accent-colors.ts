@@ -19,27 +19,37 @@ export type AccentColor = {
   name: string;
   value: string;
   rgb: string;
+  /** Ink for text/icons sitting ON the solid accent fill (e.g. the Ship /
+   *  primary buttons in the flat theme). Bright accents take dark ink; the
+   *  darker, saturated accents (blue/indigo/purple/red) take light ink, where
+   *  near-black reads as muddy even though its raw contrast ratio passes. */
+  onAccent: string;
 };
+
+// On-accent ink options. Dark is the near-black used across the flat theme;
+// light is plain white for accents where dark ink reads unclear.
+const ON_ACCENT_DARK = "#050607";
+const ON_ACCENT_LIGHT = "#ffffff";
 
 export const DEFAULT_ACCENT_COLOR: AccentColorId = "deep-orange";
 
 export const ACCENT_COLORS: AccentColor[] = [
-  { id: "deep-orange", name: "Deep orange", value: "#ff5a1f", rgb: "255, 90, 31" },
+  { id: "deep-orange", name: "Deep orange", value: "#ff5a1f", rgb: "255, 90, 31", onAccent: ON_ACCENT_DARK },
   // Warm terracotta-amber sampled from the ember reference (the focused pane's
   // border + cursor). Ember defaults to this; any theme can use it.
-  { id: "terracotta", name: "Terracotta", value: "#d0854e", rgb: "208, 133, 78" },
-  { id: "blue", name: "Blue", value: "#3b82f6", rgb: "59, 130, 246" },
-  { id: "green", name: "Green", value: "#22c55e", rgb: "34, 197, 94" },
-  { id: "teal", name: "Teal", value: "#14b8a6", rgb: "20, 184, 166" },
-  { id: "cyan", name: "Cyan", value: "#06b6d4", rgb: "6, 182, 212" },
-  { id: "purple", name: "Purple", value: "#a855f7", rgb: "168, 85, 247" },
-  { id: "magenta", name: "Magenta", value: "#d946ef", rgb: "217, 70, 239" },
-  { id: "pink", name: "Pink", value: "#f472b6", rgb: "244, 114, 182" },
-  { id: "red", name: "Red", value: "#ef4444", rgb: "239, 68, 68" },
-  { id: "amber", name: "Amber", value: "#f59e0b", rgb: "245, 158, 11" },
-  { id: "lime", name: "Lime", value: "#84cc16", rgb: "132, 204, 22" },
-  { id: "indigo", name: "Indigo", value: "#6366f1", rgb: "99, 102, 241" },
-  { id: "slate", name: "Slate", value: "#94a3b8", rgb: "148, 163, 184" },
+  { id: "terracotta", name: "Terracotta", value: "#d0854e", rgb: "208, 133, 78", onAccent: ON_ACCENT_DARK },
+  { id: "blue", name: "Blue", value: "#3b82f6", rgb: "59, 130, 246", onAccent: ON_ACCENT_LIGHT },
+  { id: "green", name: "Green", value: "#22c55e", rgb: "34, 197, 94", onAccent: ON_ACCENT_DARK },
+  { id: "teal", name: "Teal", value: "#14b8a6", rgb: "20, 184, 166", onAccent: ON_ACCENT_DARK },
+  { id: "cyan", name: "Cyan", value: "#06b6d4", rgb: "6, 182, 212", onAccent: ON_ACCENT_DARK },
+  { id: "purple", name: "Purple", value: "#a855f7", rgb: "168, 85, 247", onAccent: ON_ACCENT_LIGHT },
+  { id: "magenta", name: "Magenta", value: "#d946ef", rgb: "217, 70, 239", onAccent: ON_ACCENT_DARK },
+  { id: "pink", name: "Pink", value: "#f472b6", rgb: "244, 114, 182", onAccent: ON_ACCENT_DARK },
+  { id: "red", name: "Red", value: "#ef4444", rgb: "239, 68, 68", onAccent: ON_ACCENT_LIGHT },
+  { id: "amber", name: "Amber", value: "#f59e0b", rgb: "245, 158, 11", onAccent: ON_ACCENT_DARK },
+  { id: "lime", name: "Lime", value: "#84cc16", rgb: "132, 204, 22", onAccent: ON_ACCENT_DARK },
+  { id: "indigo", name: "Indigo", value: "#6366f1", rgb: "99, 102, 241", onAccent: ON_ACCENT_LIGHT },
+  { id: "slate", name: "Slate", value: "#94a3b8", rgb: "148, 163, 184", onAccent: ON_ACCENT_DARK },
 ];
 
 export function getAccentColor(id: string | null | undefined): AccentColor {
@@ -59,6 +69,7 @@ export function applyAccentColor(id: string | null | undefined) {
   const color = getAccentColor(id);
   const root = document.documentElement;
   root.style.setProperty("--accent", color.value);
+  root.style.setProperty("--mc-on-accent", color.onAccent);
   root.style.setProperty("--accent-dim", `rgba(${color.rgb}, 0.18)`);
   root.style.setProperty("--accent-faint", `rgba(${color.rgb}, 0.1)`);
   root.style.setProperty("--accent-border", `rgba(${color.rgb}, 0.38)`);
