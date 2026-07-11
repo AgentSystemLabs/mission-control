@@ -8,7 +8,9 @@ import {
   petIngestServerEvent,
   petInteract,
   petPulse,
+  petSetAggregates,
   petSetEnabled,
+  petSetShipping,
   petShipResult,
   petStroke,
   petUserActivity,
@@ -323,11 +325,12 @@ describe("failure streaks and recovery", () => {
     expect(snap.bubble).not.toBeNull();
     expect(PET_LINES["error-streak"].map((l) => l.text)).toContain(snap.bubble!.text);
 
-    // The win after the rough patch reads as a recovery, not a routine push.
+    // The win after the rough patch reads as a recovery typed by what kept
+    // failing (ships), not a routine push.
     vi.advanceTimersByTime(40_000);
     petShipResult("push-success");
     snap = getPetSnapshot();
-    expect(PET_LINES.comeback.map((l) => l.text)).toContain(snap.bubble!.text);
+    expect(PET_LINES["comeback-ship"].map((l) => l.text)).toContain(snap.bubble!.text);
 
     // Streak reset: a lone failure is back to the per-failure line.
     vi.advanceTimersByTime(40_000);
@@ -363,7 +366,13 @@ describe("session milestones", () => {
     expect(snap.bubble).not.toBeNull();
     const expected = PET_LINES["session-milestone"].map((line) =>
       typeof line.text === "function"
-        ? line.text({ name: snap.name, level: snap.level, runningCount: 0, sessionsFinished: 5 })
+        ? line.text({
+            name: snap.name,
+            level: snap.level,
+            runningCount: 0,
+            sessionsFinished: 5,
+            species: snap.species,
+          })
         : line.text,
     );
     expect(expected).toContain(snap.bubble!.text);
@@ -398,5 +407,112 @@ describe("workspace event reactions", () => {
     petIngestServerEvent({ type: "diagram:show", id: "d1" } as never);
     snap = getPetSnapshot();
     expect(PET_LINES["diagram-show"].map((l) => l.text)).toContain(snap.bubble!.text);
+  });
+});
+
+describe("error streak escalation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Next day again: earlier suites' cooldowns have lapsed and the streak
+    // counter sits at 0 (the milestone suite's successes reset it).
+    vi.setSystemTime(new Date(2026, 6, 13, 9, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("escalates at five, ten, and the 20+ void tier", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+    const texts = (trigger: keyof typeof PET_LINES) => PET_LINES[trigger].map((l) => l.text);
+
+    for (let i = 1; i <= 5; i++) {
+      if (i > 1) vi.advanceTimersByTime(130_000);
+      petShipResult("failure");
+    }
+    expect(texts("error-streak-5")).toContain(getPetSnapshot().bubble!.text);
+
+    for (let i = 6; i <= 10; i++) {
+      vi.advanceTimersByTime(130_000);
+      petShipResult("failure");
+    }
+    expect(texts("error-streak-10")).toContain(getPetSnapshot().bubble!.text);
+
+    for (let i = 11; i <= 20; i++) {
+      vi.advanceTimersByTime(130_000);
+      petShipResult("failure");
+    }
+    expect(texts("error-streak-20")).toContain(getPetSnapshot().bubble!.text);
+
+    // The void tier keeps answering further failures (cooldown permitting).
+    vi.advanceTimersByTime(130_000);
+    petShipResult("failure");
+    expect(texts("error-streak-20")).toContain(getPetSnapshot().bubble!.text);
+  });
+});
+
+describe("typed comebacks", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 14, 10, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("a clean finish after interruptions reads as an interruption comeback", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+
+    // Clear the losing streak the escalation suite left behind.
+    petShipResult("push-success");
+    vi.advanceTimersByTime(70_000);
+
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 1 });
+    vi.advanceTimersByTime(70_000);
+    petSetAggregates({ running: 0, needsInput: 0, interrupted: 2 });
+    vi.advanceTimersByTime(70_000);
+    petIngestServerEvent({ type: "session:finished", id: "cb1" } as never);
+    const snap = getPetSnapshot();
+    expect(PET_LINES["comeback-interrupted"].map((l) => l.text)).toContain(snap.bubble!.text);
+  });
+});
+
+describe("context combos", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // 2026-07-17 is a Friday.
+    vi.setSystemTime(new Date(2026, 6, 17, 14, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("a friday push speaks the friday-push line", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+
+    petSetShipping(true, "pushing");
+    const snap = getPetSnapshot();
+    expect(PET_LINES["friday-push"].map((l) => l.text)).toContain(snap.bubble!.text);
+    petSetShipping(false, null);
+  });
+
+  it("a late-night commit speaks the night-commit line", () => {
+    vi.setSystemTime(new Date(2026, 6, 17, 23, 30, 0));
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+
+    petSetShipping(true, "committing");
+    const snap = getPetSnapshot();
+    expect(PET_LINES["night-commit"].map((l) => l.text)).toContain(snap.bubble!.text);
+    petSetShipping(false, null);
   });
 });

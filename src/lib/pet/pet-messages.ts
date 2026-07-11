@@ -1,4 +1,4 @@
-import type { PetPersonality } from "~/shared/pet";
+import type { PetPersonality, PetSpeciesId } from "~/shared/pet";
 import { PET_LINES } from "./pet-lines";
 
 /**
@@ -21,8 +21,15 @@ export type PetTrigger =
   | "ship-pushing"
   | "ship-success"
   | "ship-failure"
+  // consecutive-failure escalation tiers (3 / 5 / 10 / 20 straight losses)
   | "error-streak"
+  | "error-streak-5"
+  | "error-streak-10"
+  | "error-streak-20"
+  // first win after a rough patch, flavored by what kept failing
   | "comeback"
+  | "comeback-ship"
+  | "comeback-interrupted"
   | "pr-created"
   | "multi-agent"
   | "memory-learned"
@@ -51,6 +58,11 @@ export type PetTrigger =
   | "christmas"
   | "new-years-eve"
   | "spooky-season"
+  // context combos — a base trigger landing at a telling hour or weekday
+  | "night-commit"
+  | "night-failure"
+  | "friday-push"
+  | "weekend-commit"
   // prompt keyword flavor (what you're asking the agents to do)
   | "prompt-sent"
   | "prompt-fix"
@@ -98,12 +110,16 @@ export type PetLineCtx = {
   runningCount: number;
   /** Sessions finished since app boot — feeds the milestone lines. */
   sessionsFinished: number;
+  /** The active species — species-tagged lines are its native voice. */
+  species: PetSpeciesId;
 };
 
 export type PetLine = {
   text: string | ((ctx: PetLineCtx) => string);
   /** Personality stats that make this line more likely (see pickLine). */
   weights?: Partial<PetPersonality>;
+  /** Restricts the line to these species and boosts it for them (see pickLine). */
+  species?: readonly PetSpeciesId[];
 };
 
 type TriggerMeta = {
@@ -137,7 +153,12 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   "ship-success": { priority: "info", cooldownMs: 30_000 },
   "ship-failure": { priority: "critical", cooldownMs: 30_000 },
   "error-streak": { priority: "critical", cooldownMs: 120_000 },
+  "error-streak-5": { priority: "critical", cooldownMs: 120_000 },
+  "error-streak-10": { priority: "critical", cooldownMs: 120_000 },
+  "error-streak-20": { priority: "critical", cooldownMs: 120_000 },
   comeback: { priority: "info", cooldownMs: 60_000 },
+  "comeback-ship": { priority: "info", cooldownMs: 60_000 },
+  "comeback-interrupted": { priority: "info", cooldownMs: 60_000 },
   "pr-created": { priority: "info", cooldownMs: 300_000 },
   "multi-agent": { priority: "flavor", cooldownMs: 600_000 },
   "memory-learned": { priority: "flavor", cooldownMs: 300_000 },
@@ -167,6 +188,12 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   christmas: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
   "new-years-eve": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
   "spooky-season": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
+  // Combos keep the base trigger's loudness; long cooldowns stop the joke
+  // wearing out over one late-night or weekend stretch.
+  "night-commit": { priority: "info", cooldownMs: 3_600_000 },
+  "night-failure": { priority: "critical", cooldownMs: 3_600_000 },
+  "friday-push": { priority: "info", cooldownMs: ONCE_PER_BOOT },
+  "weekend-commit": { priority: "info", cooldownMs: ONCE_PER_BOOT },
   "prompt-sent": { priority: "flavor", cooldownMs: PROMPT_SENT_COOLDOWN },
   "prompt-fix": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
   "prompt-test": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
@@ -245,10 +272,15 @@ export function createRateLimiter(now: () => number = Date.now): {
   };
 }
 
+/** Extra selection weight a species-tagged line gets for its own species. */
+const SPECIES_VOICE_BOOST = 2;
+
 /**
  * Weighted random pick from a trigger's pack. Every line starts at weight 1;
  * personality adds `(stat / 10) × lineWeight` per stat, so a snark-10 pet
  * strongly favors snarky lines but never loses access to the rest.
+ * Species-tagged lines exist only for their species (never leak to others)
+ * and get a flat boost there — they're that species' native voice.
  */
 export function pickLine(
   trigger: PetTrigger,
@@ -256,10 +288,12 @@ export function pickLine(
   ctx: PetLineCtx,
   rand: () => number = Math.random,
 ): string | null {
-  const lines = PET_LINES[trigger];
-  if (!lines || lines.length === 0) return null;
+  const pack = PET_LINES[trigger];
+  if (!pack || pack.length === 0) return null;
+  const lines = pack.filter((line) => !line.species || line.species.includes(ctx.species));
+  if (lines.length === 0) return null;
   const scores = lines.map((line) => {
-    let score = 1;
+    let score = 1 + (line.species ? SPECIES_VOICE_BOOST : 0);
     if (line.weights) {
       for (const stat of Object.keys(line.weights) as (keyof PetPersonality)[]) {
         score += (personality[stat] / 10) * (line.weights[stat] ?? 0);
@@ -359,4 +393,20 @@ export function calendarTriggers(now: Date): PetTrigger[] {
   if (weekday === 1) out.push("monday");
   if (hour >= 6 && hour < 9) out.push("early-morning");
   return out;
+}
+
+/**
+ * Context × event combos — the same trigger lands differently at 2am or on a
+ * Friday. Returns the sharper trigger when the clock agrees, else null; the
+ * caller falls back to the base pack once the combo's cooldown has spent it.
+ */
+export function comboTrigger(base: PetTrigger, now: Date): PetTrigger | null {
+  const weekday = now.getDay();
+  const hour = now.getHours();
+  const night = hour >= 22 || hour < 6;
+  if (night && base === "ship-committing") return "night-commit";
+  if (night && base === "ship-failure") return "night-failure";
+  if (base === "ship-pushing" && weekday === 5) return "friday-push";
+  if (base === "ship-committing" && (weekday === 0 || weekday === 6)) return "weekend-commit";
+  return null;
 }

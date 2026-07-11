@@ -14,6 +14,7 @@ import { playPetChirp } from "./pet-sounds";
 import {
   bubbleDurationMs,
   classifyPromptSnippet,
+  comboTrigger,
   createRateLimiter,
   pickLine,
   TRIGGER_PRIORITY,
@@ -253,6 +254,8 @@ const promptStartedAt = new Map<string, number>();
 // Consecutive failures (ship errors, interruptions) with no success between —
 // feeds the error-streak / comeback lines. Resets on any win.
 let failureStreak = 0;
+// What kept failing, so the eventual comeback line can name the struggle.
+let lastFailureKind: "ship" | "interrupted" | null = null;
 // Sessions finished since app boot; milestones (5, 10, 20…) get their own line.
 let sessionsFinishedCount = 0;
 
@@ -260,17 +263,33 @@ function isSessionMilestone(count: number): boolean {
   return count === 5 || (count >= 10 && count % 10 === 0);
 }
 
-/** Note a failure; returns the trigger for it (streak line once it's a pattern). */
+/**
+ * Note a failure; returns the trigger for it. Streak escalation fires at the
+ * exact counts 3, 5, and 10 — between tiers the per-failure line returns so
+ * the joke doesn't repeat — then stays in the 20+ void tier (its cooldown
+ * throttles the repeats).
+ */
 function noteFailure(perFailureTrigger: PetTrigger): PetTrigger {
   failureStreak += 1;
-  return failureStreak >= ERROR_STREAK_THRESHOLD ? "error-streak" : perFailureTrigger;
+  lastFailureKind = perFailureTrigger === "ship-failure" ? "ship" : "interrupted";
+  if (failureStreak >= 20) return "error-streak-20";
+  if (failureStreak === 10) return "error-streak-10";
+  if (failureStreak === 5) return "error-streak-5";
+  if (failureStreak === ERROR_STREAK_THRESHOLD) return "error-streak";
+  return perFailureTrigger;
 }
 
-/** Note a success; true when it ends a losing streak (say "comeback" instead). */
-function noteSuccess(): boolean {
+/** Note a success; when it ends a losing streak, returns the comeback trigger
+ * typed by what had been failing (null for a routine win). */
+function noteSuccess(): PetTrigger | null {
   const comeback = failureStreak >= COMEBACK_MIN_STREAK;
+  const kind = lastFailureKind;
   failureStreak = 0;
-  return comeback;
+  lastFailureKind = null;
+  if (!comeback) return null;
+  if (kind === "ship") return "comeback-ship";
+  if (kind === "interrupted") return "comeback-interrupted";
+  return "comeback";
 }
 
 // Resolve Date.now at call time, not module load, so the limiter follows the
@@ -487,19 +506,20 @@ function schedulePulseExpiry(now: number): void {
   }, until - now + 20);
 }
 
-function say(trigger: PetTrigger, opts?: { key?: string }): void {
-  if (!enabled || !messagesEnabled || !persistent) return;
+function say(trigger: PetTrigger, opts?: { key?: string }): boolean {
+  if (!enabled || !messagesEnabled || !persistent) return false;
   const priority = TRIGGER_PRIORITY[trigger];
   // A visible bubble blocks new lines; only critical preempts it.
-  if (bubble && priority !== "critical") return;
-  if (!limiter.allow(trigger, opts?.key)) return;
+  if (bubble && priority !== "critical") return false;
+  if (!limiter.allow(trigger, opts?.key)) return false;
   const text = pickLine(trigger, persistent.personality, {
     name: persistent.name,
     level: persistent.level,
     runningCount: inputs.runningCount,
     sessionsFinished: sessionsFinishedCount,
+    species: persistent.species,
   });
-  if (!text) return;
+  if (!text) return false;
   bubble = { id: ++bubbleId, text, priority };
   if (bubbleTimer) clearTimeout(bubbleTimer);
   bubbleTimer = setTimeout(() => {
@@ -508,6 +528,15 @@ function say(trigger: PetTrigger, opts?: { key?: string }): void {
     invalidate();
   }, bubbleDurationMs(text));
   invalidate();
+  return true;
+}
+
+/** Say `base`, upgraded to its context combo (2am commit, friday push…) when
+ * the clock agrees and the combo's own cooldown hasn't spent it yet. */
+function sayWithCombo(base: PetTrigger): void {
+  const combo = comboTrigger(base, new Date());
+  if (combo && say(combo)) return;
+  say(base);
 }
 
 /** The pet's voice, in its own species' timbre; gated by the sounds setting. */
@@ -661,12 +690,13 @@ export function petIngestServerEvent(event: ServerEvent): void {
       sessionsFinishedCount += 1;
       const comeback = noteSuccess();
       petPulse("celebrate");
-      grantXp(longRun ? XP_SESSION_FINISHED_LONG : XP_SESSION_FINISHED);
       // One bubble per finish — the rarest story wins: ending a losing streak
-      // beats a count milestone beats the routine line.
-      if (comeback) say("comeback");
+      // beats a count milestone beats the routine line. Speak before granting
+      // XP so a level-up ding can't steal the finish's story.
+      if (comeback) say(comeback);
       else if (isSessionMilestone(sessionsFinishedCount)) say("session-milestone");
       else say(longRun ? "session-finished-long" : "session-finished");
+      grantXp(longRun ? XP_SESSION_FINISHED_LONG : XP_SESSION_FINISHED);
       return;
     }
     case "prompt:submitted": {
@@ -737,8 +767,8 @@ export function petSetShipping(active: boolean, phase: "committing" | "pushing" 
   const phaseChangedToPush = active && phase === "pushing";
   inputs.shippingActive = active;
   recompute();
-  if (started && phase === "committing") say("ship-committing");
-  else if (phaseChangedToPush) say("ship-pushing");
+  if (started && phase === "committing") sayWithCombo("ship-committing");
+  else if (phaseChangedToPush) sayWithCombo("ship-pushing");
 }
 
 /** Outcome of a ship-family mutation (from the MutationCache). */
@@ -748,14 +778,20 @@ export function petShipResult(kind: "push-success" | "failure" | "pr-created"): 
     case "push-success": {
       const comeback = noteSuccess();
       petPulse("celebrate");
+      // Speak before granting XP so a level-up ding can't steal the story.
+      say(comeback ?? "ship-success");
       grantXp(XP_SHIP_SUCCESS);
-      say(comeback ? "comeback" : "ship-success");
       return;
     }
-    case "failure":
+    case "failure": {
       petPulse("startle");
-      say(noteFailure("ship-failure"));
+      const trigger = noteFailure("ship-failure");
+      // Streak escalations outrank the clock flavor; a plain failure may
+      // still land as its late-night variant.
+      if (trigger === "ship-failure") sayWithCombo(trigger);
+      else say(trigger);
       return;
+    }
     case "pr-created":
       noteSuccess();
       petPulse("celebrate");

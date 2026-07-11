@@ -3,13 +3,21 @@ import type { PetPersonality } from "~/shared/pet";
 import {
   calendarTriggers,
   classifyPromptSnippet,
+  comboTrigger,
   createRateLimiter,
   pickLine,
+  type PetLineCtx,
 } from "./pet-messages";
 import { PET_LINES } from "./pet-lines";
 
 const neutral: PetPersonality = { snark: 5, wisdom: 5, chaos: 5, zen: 5 };
-const ctx = { name: "Pixel", level: 2, runningCount: 3, sessionsFinished: 5 };
+const ctx: PetLineCtx = {
+  name: "Pixel",
+  level: 2,
+  runningCount: 3,
+  sessionsFinished: 5,
+  species: "mochi",
+};
 
 describe("createRateLimiter", () => {
   it("enforces per-trigger cooldowns", () => {
@@ -113,6 +121,56 @@ describe("pickLine", () => {
     expect(samples(snarky).get(snarkLine)! > samples(zenful).get(snarkLine)!).toBe(true);
     expect(samples(zenful).get(zenLine)! > samples(snarky).get(zenLine)!).toBe(true);
   });
+
+  it("never picks another species' native-voice line", () => {
+    const foreign = PET_LINES.night
+      .filter((line) => line.species && !line.species.includes("mochi"))
+      .map((line) => line.text);
+    expect(foreign.length).toBeGreaterThan(0);
+    const rand = mulberrylite();
+    for (let i = 0; i < 300; i++) {
+      const line = pickLine("night", neutral, ctx, rand)!;
+      expect(foreign).not.toContain(line);
+    }
+  });
+
+  it("a species regularly speaks in its own voice", () => {
+    const rivetTexts = PET_LINES.night
+      .filter((line) => line.species?.includes("rivet"))
+      .map((line) => line.text);
+    expect(rivetTexts.length).toBeGreaterThan(0);
+    const rand = mulberrylite();
+    let hits = 0;
+    for (let i = 0; i < 300; i++) {
+      const line = pickLine("night", neutral, { ...ctx, species: "rivet" }, rand)!;
+      if (rivetTexts.includes(line)) hits += 1;
+    }
+    // Two boosted lines in a ~13-line pack: well above a no-boost share.
+    expect(hits).toBeGreaterThan(30);
+  });
+});
+
+describe("comboTrigger", () => {
+  it("upgrades ship triggers when the clock agrees", () => {
+    // 2026-07-17 is a Friday; 07-18 a Saturday; 07-14 a Tuesday.
+    const fridayNoon = new Date(2026, 6, 17, 12);
+    expect(comboTrigger("ship-pushing", fridayNoon)).toBe("friday-push");
+    expect(comboTrigger("ship-committing", fridayNoon)).toBeNull();
+    const lateNight = new Date(2026, 6, 15, 23, 30);
+    expect(comboTrigger("ship-committing", lateNight)).toBe("night-commit");
+    expect(comboTrigger("ship-failure", lateNight)).toBe("night-failure");
+    expect(comboTrigger("ship-committing", new Date(2026, 6, 18, 12))).toBe("weekend-commit");
+    expect(comboTrigger("ship-pushing", new Date(2026, 6, 14, 12))).toBeNull();
+  });
+
+  it("night outranks the weekend for a 2am saturday commit", () => {
+    expect(comboTrigger("ship-committing", new Date(2026, 6, 18, 2))).toBe("night-commit");
+  });
+
+  it("leaves non-ship triggers alone", () => {
+    expect(comboTrigger("session-finished", new Date(2026, 6, 17, 23))).toBeNull();
+    expect(comboTrigger("error-streak", new Date(2026, 6, 17, 23))).toBeNull();
+  });
 });
 
 describe("classifyPromptSnippet", () => {
@@ -179,7 +237,13 @@ describe("PET_LINES coverage", () => {
   });
 
   it("every line resolves to non-empty text", () => {
-    const ctx = { name: "Pixel", level: 3, runningCount: 2, sessionsFinished: 10 };
+    const ctx: PetLineCtx = {
+      name: "Pixel",
+      level: 3,
+      runningCount: 2,
+      sessionsFinished: 10,
+      species: "mochi",
+    };
     for (const lines of Object.values(PET_LINES)) {
       for (const line of lines) {
         const text = typeof line.text === "function" ? line.text(ctx) : line.text;

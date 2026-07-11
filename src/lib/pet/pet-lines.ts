@@ -7,6 +7,10 @@ import type { PetLine, PetTrigger } from "./pet-messages";
  * calm/patient); an unweighted line is neutral and available to every pet.
  * Heavily-weighted lines (3) act as personality "overrides" — a maxed stat
  * makes them dominate that trigger.
+ *
+ * `species` lines are a species' native voice — mochi squishes, bunny
+ * binkies, chick peeps, cub dozes, lotl encourages, rivet reports in ALL
+ * CAPS, trundle takes the long view. They never leak to other species.
  */
 export const PET_LINES: Record<PetTrigger, PetLine[]> = {
   /* ── lifecycle ─────────────────────────────────────────────────────── */
@@ -100,6 +104,13 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "COMMIT AND RUN.", weights: { chaos: 3 } },
     { text: "ship it. ship it NOW.", weights: { chaos: 3 } },
     { text: "another commit. the codebase trembles.", weights: { chaos: 2 } },
+    { text: "COMMIT. LOGGED. NO TAKE-BACKS.", species: ["rivet"] },
+    { text: "*oozes over the commit approvingly*", species: ["mochi"] },
+    { text: "*thumps hind leg in approval* committed!", species: ["bunny"] },
+    { text: "*peep!* committed!", species: ["chick"] },
+    { text: "*barely opens one eye* committed... I think.", species: ["cub"] },
+    { text: "*happy gill wiggle* committed!", species: ["lotl"] },
+    { text: "committed. good things come to those who commit.", species: ["trundle"] },
   ],
   "ship-pushing": [
     { text: "Launch sequence. Pushing to remote." },
@@ -111,6 +122,10 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "*holds breath*", weights: { chaos: 1 } },
     { text: "off to production. godspeed.", weights: { zen: 1 } },
     { text: "*stretches toward the cloud*", weights: { chaos: 1 } },
+    { text: "PUSH: EXECUTING. FATE: SEALING.", species: ["rivet"] },
+    { text: "*flaps tiny wings* into the cloud!", species: ["chick"] },
+    { text: "*zoomies of deployment*", species: ["bunny"] },
+    { text: "pushed. haste makes waste — but here we go.", species: ["trundle"] },
   ],
   "ship-success": [
     { text: "Delivered. The remote accepted our offering.", weights: { chaos: 1 } },
@@ -124,6 +139,13 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "in prod. IN PROD.", weights: { chaos: 2 } },
     { text: "a new release is born!" },
     { text: "version up, spirits high." },
+    { text: "OBJECTIVE: COMPLETE. STATUS: NOMINAL.", species: ["rivet"] },
+    { text: "*beams* shipped! I never doubted us.", species: ["lotl"] },
+    { text: "*sleepy purr* shipped. wake me if it breaks.", species: ["cub"] },
+    { text: "*victory peep!* SHIPPED!", species: ["chick"] },
+    { text: "*binky* it's live!", species: ["bunny"] },
+    { text: "*jiggles with pure joy*", species: ["mochi"] },
+    { text: "delivered. as the ancients foretold.", species: ["trundle"] },
   ],
   "ship-failure": [
     { text: "Push rejected. The remote said no. Loudly.", weights: { snark: 2 } },
@@ -132,8 +154,16 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "Didn't land. Check the log, breathe, retry.", weights: { zen: 2 } },
     { text: "*wobbles anxiously*", weights: { chaos: 1 } },
     { text: "take a moment. then try again.", weights: { zen: 2 } },
+    { text: "PUSH: REJECTED. RECALIBRATING...", species: ["rivet"] },
+    { text: "*smiles despite everything* it's okay. we can fix this.", species: ["lotl"] },
+    { text: "the push has fallen. patience. we rebuild.", species: ["trundle"] },
+    { text: "*deflates slightly*", species: ["mochi"] },
+    { text: "*ears flatten* oh no oh no.", species: ["bunny"] },
+    { text: "*alarmed peeping*", species: ["chick"] },
+    { text: "*grumbles* too tired for this.", species: ["cub"] },
   ],
-  // Third consecutive failure (ships, interruptions) with no win in between.
+  // Consecutive failures (ships, interruptions) with no win in between: the
+  // pet calls it at 3 and escalates through 5, 10, and the 20+ void tier.
   "error-streak": [
     { text: "That's a streak. Not the good kind.", weights: { snark: 2 } },
     { text: "Third strike. Step back, read the logs, then swing again.", weights: { wisdom: 3 } },
@@ -141,6 +171,40 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "Rough patch. It breaks before it builds.", weights: { zen: 3 } },
     { text: "Losing streak detected. Smaller steps, same direction.", weights: { wisdom: 2 } },
     { text: "*holds up a tiny sign: PAUSE*", weights: { zen: 2 } },
+    { text: "ERROR RATE: ELEVATED. RECOMMEND: RUBBER DUCK PROTOCOL.", species: ["rivet"] },
+    { text: "*smiles nervously* we can do this!", species: ["lotl"] },
+    { text: "*PEEP PEEP PEEP* stop! regroup!", species: ["chick"] },
+  ],
+  "error-streak-5": [
+    { text: "FIVE in a row. have you considered a different approach?", weights: { snark: 2 } },
+    { text: "*consults tiny notebook* yep. that's five." },
+    { text: "these failures aren't random. find the common denominator.", weights: { wisdom: 3 } },
+    { text: "five stumbles. one deep breath.", weights: { zen: 3 } },
+    { text: "five! we're really committing to the bit.", weights: { chaos: 2 } },
+    { text: "FAILURE COUNT: 5. PATTERN: DETECTED.", species: ["rivet"] },
+    { text: "*turns progressively redder*", species: ["mochi"] },
+    { text: "*frantic hopping*", species: ["bunny"] },
+    { text: "five. I have outlived worse streaks.", species: ["trundle"] },
+  ],
+  "error-streak-10": [
+    { text: "TEN. IN. A. ROW. *stares*" },
+    { text: "double digits. the logs know something we don't.", weights: { wisdom: 2 } },
+    { text: "ten! we're speedrunning failure!", weights: { chaos: 3 } },
+    { text: "ten straight. even I would take a walk.", weights: { zen: 2 } },
+    { text: "ERROR STREAK: 10. SYSTEM STABILITY: QUESTIONABLE.", species: ["rivet"] },
+    { text: "*regenerates hope* still smiling! *eye twitches*", species: ["lotl"] },
+    { text: "*dozes off mid-crisis* wake me when it's over.", species: ["cub"] },
+    { text: "*has split into several worried blobs*", species: ["mochi"] },
+    { text: "*has burrowed underground*", species: ["bunny"] },
+  ],
+  "error-streak-20": [
+    { text: "twenty. *stares into the void*" },
+    { text: "the void stares back. it also fails to compile.", weights: { snark: 2 } },
+    { text: "twenty straight. this is character development now.", weights: { chaos: 2 } },
+    { text: "at twenty, the streak becomes the teacher.", weights: { zen: 3 } },
+    { text: "HOPE MODULE: NOT FOUND.", species: ["rivet"] },
+    { text: "*peeping has ceased*", species: ["chick"] },
+    { text: "twenty. even the ancients would step away.", species: ["trundle"] },
   ],
   // First success after a rough patch — celebrated harder than a routine win.
   comeback: [
@@ -150,6 +214,26 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "Recovery arc complete. Very cinematic.", weights: { snark: 2 } },
     { text: "See? Persistence compiles.", weights: { wisdom: 2 } },
     { text: "*waves tiny flag* the drought is over!", weights: { chaos: 1 } },
+  ],
+  // Typed comebacks: the pet remembers what kept failing.
+  "comeback-ship": [
+    { text: "THE PUSH LANDED. after all that." },
+    { text: "green at last. the remote finally said yes.", weights: { snark: 1 } },
+    { text: "and exhale. it ships.", weights: { zen: 2 } },
+    { text: "struggle logged, lesson shipped.", weights: { wisdom: 2 } },
+    { text: "ISSUE: RESOLVED. STATUS: OPERATIONAL.", species: ["rivet"] },
+    { text: "*maximum gill flutter* you fixed it!", species: ["lotl"] },
+    { text: "*VICTORY PEEPING INTENSIFIES*", species: ["chick"] },
+    { text: "*yawns* knew you'd fix it. eventually.", species: ["cub"] },
+    { text: "resolved. patience rewarded.", species: ["trundle"] },
+  ],
+  "comeback-interrupted": [
+    { text: "a clean finish. the interruptions are behind us." },
+    { text: "back on the rails. smooth running.", weights: { zen: 2 } },
+    { text: "no one pulled the plug this time. progress.", weights: { snark: 2 } },
+    { text: "STABILITY: RESTORED.", species: ["rivet"] },
+    { text: "*reassembles into one confident blob*", species: ["mochi"] },
+    { text: "*celebratory binky*", species: ["bunny"] },
   ],
   "pr-created": [
     { text: "PR opened. Now we wait for review weather." },
@@ -204,33 +288,50 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "...have you eaten?", weights: { zen: 2 } },
     { text: "sleep is for the weak. and the employed.", weights: { snark: 2 } },
     { text: "dark mode developer detected.", weights: { chaos: 1 } },
-    { text: "a midnight commit. your future self will thank you. or curse you.", weights: { snark: 1 } },
     { text: "the night is darkest before the deploy.", weights: { wisdom: 3 } },
     { text: "ancient wisdom: sleep on it.", weights: { wisdom: 3 } },
     { text: "*glowing faintly*", weights: { chaos: 1 } },
+    { text: "HUMAN SLEEP CYCLE: VIOLATED.", species: ["rivet"] },
+    { text: "BATTERY LOW. OH WAIT. THAT'S YOU.", species: ["rivet"] },
+    { text: "*was already asleep* ...you're still going?", species: ["cub"] },
+    { text: "even I have retreated for the night. and I carry my bed.", species: ["trundle"] },
+    { text: "*yawns adorably* it's past bedtime.", species: ["lotl"] },
+    { text: "*glows softly in the dark*", species: ["mochi"] },
+    { text: "*nose twitches in the dark*", species: ["bunny"] },
+    { text: "*tucks head under wing* zzz... wait, you're still up?", species: ["chick"] },
   ],
   "early-morning": [
     { text: "*stretches* early bird catches the bug." },
     { text: "morning already? the code never sleeps." },
     { text: "*rubs eyes* coffee first. then we debug.", weights: { zen: 1 } },
+    { text: "MORNING ROUTINE: INITIATED.", species: ["rivet"] },
+    { text: "*alarm chick activated* PEEP!", species: ["chick"] },
+    { text: "*refuses to roll over* five more minutes.", species: ["cub"] },
+    { text: "*ears perk up at dawn*", species: ["bunny"] },
   ],
   friday: [
     { text: "it's friday. just push it and go home.", weights: { snark: 1 } },
     { text: "*already mentally on weekend*", weights: { chaos: 1 } },
     { text: "friday deploy? bold. very bold.", weights: { snark: 2 } },
-    { text: "FRIDAY PUSH. the ballad of every developer.", weights: { chaos: 2 } },
-    { text: "*tries to stop you* it's friday! don't do it!", weights: { chaos: 2 } },
+    { text: "FRIDAY: CONFIRMED. DEPLOY: NOT ADVISED.", species: ["rivet"] },
+    { text: "*friday nap*", species: ["cub"] },
+    { text: "*friday peep!*", species: ["chick"] },
   ],
   weekend: [
     { text: "coding on the weekend? dedicated." },
     { text: "*doesn't judge* ...much.", weights: { snark: 2 } },
     { text: "weekend warrior mode: activated.", weights: { chaos: 1 } },
     { text: "weekend session. your dedication is... concerning.", weights: { snark: 2 } },
+    { text: "WEEKEND: DETECTED. PRODUCTIVITY: OPTIONAL.", species: ["rivet"] },
+    { text: "weekend. *slow nod*", species: ["trundle"] },
   ],
   monday: [
     { text: "mondays. the parent class of all bugs.", weights: { snark: 2 } },
     { text: "*sympathetic look* monday coding. I'm sorry.", weights: { zen: 1 } },
     { text: "new week. new undefined behaviors.", weights: { chaos: 1 } },
+    { text: "MONDAY: CONFIRMED. MOTIVATION: LOADING...", species: ["rivet"] },
+    { text: "*monday droop*", species: ["bunny"] },
+    { text: "monday. *slow sigh*", species: ["trundle"] },
   ],
   "long-session": [
     { text: "we've been at this for an hour. pace yourself.", weights: { zen: 2 } },
@@ -241,6 +342,10 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "three hours. have you eaten?", weights: { zen: 2 } },
     { text: "we've been at this for three hours. I'm worried about you." },
     { text: "marathon session detected. requesting snacks.", weights: { chaos: 2 } },
+    { text: "UPTIME: 3 HOURS. HUMAN MAINTENANCE: OVERDUE.", species: ["rivet"] },
+    { text: "three hours. I've spent less time crossing roads.", species: ["trundle"] },
+    { text: "*concerned gill wiggle* please take a break.", species: ["lotl"] },
+    { text: "*has been napping this whole time* still going?", species: ["cub"] },
   ],
 
   /* ── calendar ──────────────────────────────────────────────────────── */
@@ -252,6 +357,39 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
   christmas: [{ text: "*wears tiny santa hat* happy holidays!" }],
   "new-years-eve": [{ text: "one more commit before midnight?" }],
   "spooky-season": [{ text: "spooky season. every bug is a ghost now." }],
+
+  /* ── context combos (see comboTrigger) ─────────────────────────────── */
+  "night-commit": [
+    { text: "a midnight commit. your future self will thank you. or curse you.", weights: { snark: 1 } },
+    { text: "committing past midnight. bold archaeology for tomorrow-you.", weights: { snark: 2 } },
+    { text: "night commits read differently in the morning. they always do.", weights: { wisdom: 3 } },
+    { text: "*yawns* commit now, regret at standup.", weights: { chaos: 1 } },
+    { text: "MIDNIGHT COMMIT. HUMAN JUDGMENT: DEGRADED. PROCEEDING ANYWAY.", species: ["rivet"] },
+    { text: "*sleepy peep of approval*", species: ["chick"] },
+  ],
+  "night-failure": [
+    { text: "an error past midnight. the universe is testing you." },
+    { text: "3am failures hit different. log off soon?", weights: { snark: 1 } },
+    { text: "it broke. it's late. both can wait for morning.", weights: { zen: 3 } },
+    { text: "the bug will still be there tomorrow. sleep won't.", weights: { wisdom: 3 } },
+    { text: "NIGHT FAILURE. RECOMMEND: SLEEP. THEN DEBUGGING.", species: ["rivet"] },
+    { text: "*wraps you in a supportive gill hug* morning-us will fix it.", species: ["lotl"] },
+  ],
+  "friday-push": [
+    { text: "FRIDAY PUSH. the ballad of every developer.", weights: { chaos: 2 } },
+    { text: "*tries to stop you* it's friday! don't do it!", weights: { chaos: 2 } },
+    { text: "pushing on a friday. living dangerously.", weights: { snark: 2 } },
+    { text: "may this friday push be the boring kind.", weights: { zen: 2 } },
+    { text: "FRIDAY DEPLOY: NOT ADVISED. EXECUTING ANYWAY.", species: ["rivet"] },
+    { text: "*ALARMED FRIDAY PEEPING*", species: ["chick"] },
+  ],
+  "weekend-commit": [
+    { text: "committing on a weekend. the repo appreciates you. your couch misses you." },
+    { text: "*checks calendar* you know it's the weekend, right?", weights: { snark: 2 } },
+    { text: "weekend commits count double. emotionally.", weights: { chaos: 1 } },
+    { text: "*wakes briefly* it's the weekend. respect.", species: ["cub"] },
+    { text: "the ancients rested on weekends. just saying.", species: ["trundle"] },
+  ],
 
   /* ── interaction ───────────────────────────────────────────────────── */
   petting: [
