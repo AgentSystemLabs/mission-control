@@ -14,6 +14,7 @@ import { playPetChirp } from "./pet-sounds";
 import {
   bubbleDurationMs,
   classifyPromptSnippet,
+  mentionsPetName,
   comboTrigger,
   createRateLimiter,
   pickLine,
@@ -711,10 +712,16 @@ export function petIngestServerEvent(event: ServerEvent): void {
       inputs.lastKeyAt = now;
       recompute();
       if (!prefersReducedMotion()) doFlourish(pickExcitedReaction());
-      // Always acknowledge: a keyword-flavored line when the snippet matches,
-      // otherwise a generic "on it". The rate limiter keeps rapid sends from
-      // each popping a bubble even though the hop plays every time.
-      say((snippet && classifyPromptSnippet(snippet)) || "prompt-sent");
+      // Its own name in the prompt is addressed to the pet, not the agents —
+      // it outranks keyword flavor and carries no cooldown. Otherwise
+      // acknowledge: a keyword-flavored line when the snippet matches, or a
+      // generic "on it". The rate limiter keeps rapid sends from each popping
+      // a bubble even though the hop plays every time.
+      if (snippet && persistent && mentionsPetName(snippet, persistent.name)) {
+        say("name-mentioned");
+      } else {
+        say((snippet && classifyPromptSnippet(snippet)) || "prompt-sent");
+      }
       return;
     }
     case "memory:learned": {

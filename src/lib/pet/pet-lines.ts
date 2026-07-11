@@ -423,6 +423,23 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
   ],
 
   /* ── prompt flavor: what you asked the agents to do ────────────────── */
+  // The user typed the pet's name into a prompt — always answered, no cooldown.
+  "name-mentioned": [
+    { text: "*perks up* you rang?" },
+    { text: (ctx) => `${ctx.name}, present and accounted for.` },
+    { text: "That's my name. Don't wear it out.", weights: { snark: 2 } },
+    { text: "You said my name. I'm contractually obligated to appear.", weights: { chaos: 2 } },
+    { text: "*materializes* someone summoned me?", weights: { chaos: 2 } },
+    { text: "Heard. What do you need?", weights: { wisdom: 2 } },
+    { text: "I'm here. I was always here.", weights: { zen: 2 } },
+    { text: "*squishes upright* that's me!", species: ["mochi"] },
+    { text: "*binkies* you said my name!", species: ["bunny"] },
+    { text: "*peep peep!* here! I'm here!", species: ["chick"] },
+    { text: "*one ear twitches* ...you called?", species: ["cub"] },
+    { text: "*happy gill flutter* yes! hi! that's me!", species: ["lotl"] },
+    { text: "DESIGNATION RECOGNIZED. REPORTING.", species: ["rivet"] },
+    { text: "no need to shout. I was already listening.", species: ["trundle"] },
+  ],
   // Generic acknowledgment when a prompt fires and no keyword flavor matches.
   "prompt-sent": [
     { text: "*perks up* on it." },

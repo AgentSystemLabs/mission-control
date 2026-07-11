@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  getPetPersistentState,
   getPetSnapshot,
   isNightHour,
   MOOD_DEBOUNCE_MS,
@@ -207,6 +208,38 @@ describe("prompt:submitted reaction", () => {
     // pet has perked from idle to watching.
     vi.advanceTimersByTime(MOOD_DEBOUNCE_MS + 100);
     expect(getPetSnapshot().mood).toBe("watching");
+  });
+
+  it("answers to its own name over keyword flavor", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+
+    const state = getPetPersistentState()!;
+    petIngestServerEvent({
+      type: "prompt:submitted",
+      taskId: "t-name",
+      projectId: "p1",
+      // "fix" would otherwise route to prompt-fix; the name outranks it.
+      snippet: `hey ${state.name}, fix the login crash`,
+    } as never);
+
+    const { bubble } = getPetSnapshot();
+    expect(bubble).not.toBeNull();
+    const nameLines = PET_LINES["name-mentioned"]
+      .filter((line) => !line.species || line.species.includes(state.species))
+      .map((line) =>
+        typeof line.text === "function"
+          ? line.text({
+              name: state.name,
+              level: state.level,
+              runningCount: 0,
+              sessionsFinished: 0,
+              species: state.species,
+            })
+          : line.text,
+      );
+    expect(nameLines).toContain(bubble!.text);
   });
 
   it("stays quiet on flourish when messages are disabled but still hops", () => {

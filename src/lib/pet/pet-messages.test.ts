@@ -5,6 +5,7 @@ import {
   classifyPromptSnippet,
   comboTrigger,
   createRateLimiter,
+  mentionsPetName,
   pickLine,
   type PetLineCtx,
 } from "./pet-messages";
@@ -88,6 +89,25 @@ describe("createRateLimiter", () => {
     expect(limiter.allow("petting")).toBe(true); // exempt
     expect(limiter.allow("level-up")).toBe(true); // exempt
   });
+
+  it("name-mentioned has no cooldown and bypasses a full bucket", () => {
+    let t = 0;
+    const limiter = createRateLimiter(() => t);
+    const flavors = [
+      "prompt-fix",
+      "prompt-test",
+      "prompt-refactor",
+      "prompt-deploy",
+      "memory-learned",
+      "graph-indexed",
+    ] as const;
+    for (const trigger of flavors) {
+      t += 1_000;
+      limiter.allow(trigger);
+    }
+    expect(limiter.allow("name-mentioned")).toBe(true);
+    expect(limiter.allow("name-mentioned")).toBe(true); // back-to-back
+  });
 });
 
 describe("pickLine", () => {
@@ -170,6 +190,31 @@ describe("comboTrigger", () => {
   it("leaves non-ship triggers alone", () => {
     expect(comboTrigger("session-finished", new Date(2026, 6, 17, 23))).toBeNull();
     expect(comboTrigger("error-streak", new Date(2026, 6, 17, 23))).toBeNull();
+  });
+});
+
+describe("mentionsPetName", () => {
+  it("matches the name as a whole word, case-insensitively", () => {
+    expect(mentionsPetName("hey pixel, take a look", "Pixel")).toBe(true);
+    expect(mentionsPetName("PIXEL!", "Pixel")).toBe(true);
+    expect(mentionsPetName("Pixel", "Pixel")).toBe(true);
+    expect(mentionsPetName("ask (pixel) about it", "Pixel")).toBe(true);
+  });
+
+  it("ignores the name embedded in another word", () => {
+    expect(mentionsPetName("fix the pixels on the canvas", "Pixel")).toBe(false);
+    expect(mentionsPetName("subpixel rendering is off", "Pixel")).toBe(false);
+  });
+
+  it("never matches an empty or whitespace name", () => {
+    expect(mentionsPetName("anything at all", "")).toBe(false);
+    expect(mentionsPetName("anything at all", "   ")).toBe(false);
+  });
+
+  it("treats regex specials in the name as literals", () => {
+    expect(mentionsPetName("hey c++ can you help", "C++")).toBe(true);
+    expect(mentionsPetName("hey cpp can you help", "C++")).toBe(false);
+    expect(mentionsPetName("paging dr. dot", "Dr. Dot")).toBe(true);
   });
 });
 

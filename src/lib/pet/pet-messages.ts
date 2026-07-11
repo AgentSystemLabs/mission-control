@@ -63,6 +63,8 @@ export type PetTrigger =
   | "night-failure"
   | "friday-push"
   | "weekend-commit"
+  // the user addressed the pet by name in a prompt
+  | "name-mentioned"
   // prompt keyword flavor (what you're asking the agents to do)
   | "prompt-sent"
   | "prompt-fix"
@@ -194,6 +196,8 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   "night-failure": { priority: "critical", cooldownMs: 3_600_000 },
   "friday-push": { priority: "info", cooldownMs: ONCE_PER_BOOT },
   "weekend-commit": { priority: "info", cooldownMs: ONCE_PER_BOOT },
+  // Typing the pet's name is deliberate — it always answers, like petting.
+  "name-mentioned": { priority: "info", cooldownMs: 0 },
   "prompt-sent": { priority: "flavor", cooldownMs: PROMPT_SENT_COOLDOWN },
   "prompt-fix": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
   "prompt-test": { priority: "flavor", cooldownMs: PROMPT_FLAVOR_COOLDOWN },
@@ -243,7 +247,12 @@ export const TRIGGER_PRIORITY: Record<PetTrigger, PetMessagePriority> = Object.f
 // responses to the user (petting, level-up) don't count against it.
 const GLOBAL_WINDOW_MS = 600_000;
 const GLOBAL_MAX = 6;
-const BUCKET_EXEMPT: ReadonlySet<PetTrigger> = new Set(["petting", "overpet", "level-up"]);
+const BUCKET_EXEMPT: ReadonlySet<PetTrigger> = new Set([
+  "petting",
+  "overpet",
+  "level-up",
+  "name-mentioned",
+]);
 
 export function createRateLimiter(now: () => number = Date.now): {
   allow(trigger: PetTrigger, key?: string): boolean;
@@ -361,6 +370,18 @@ const PROMPT_PATTERNS: ReadonlyArray<[RegExp, PetTrigger]> = [
   [/\belixir\b|phoenix\b/i, "prompt-elixir"],
   [/\bzig\b/i, "prompt-zig"],
 ];
+
+/**
+ * Whole-word, case-insensitive check for the pet's name in a prompt snippet.
+ * Word boundaries are "not a letter" rather than \b so names ending in
+ * digits or symbols ("Mochi2", "C-3PO") still terminate cleanly.
+ */
+export function mentionsPetName(snippet: string, name: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-zA-Z])${escaped}([^a-zA-Z]|$)`, "i").test(snippet);
+}
 
 /** Map a submitted prompt's snippet to a flavor trigger (first match wins). */
 export function classifyPromptSnippet(snippet: string): PetTrigger | null {
