@@ -36,6 +36,7 @@ import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 import {
   DEFAULT_PET_NAME,
   isPetSpeciesUnlocked,
+  PET_MAX_LEVEL,
   PET_SIZE_IDS,
   PET_SPECIES_IDS,
   type PetSizeId,
@@ -449,6 +450,9 @@ export function GeneralSettingsPage() {
               <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
                 Lv {petState.level} · {petState.xp} XP
                 {petState.prestige > 0 ? ` · ★${petState.prestige} molt${petState.prestige === 1 ? "" : "s"}` : ""}
+                {petState.level >= PET_MAX_LEVEL
+                  ? " · max level — right-click the pet to molt"
+                  : ""}
                 <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span>
                 Snark {petState.personality.snark} · Wisdom {petState.personality.wisdom} ·
                 Chaos {petState.personality.chaos} · Zen {petState.personality.zen}
@@ -488,7 +492,11 @@ function PetSpeciesPicker() {
             aria-checked={selected}
             aria-disabled={locked || undefined}
             disabled={locked}
-            title={locked ? "Molt at level 10 to unlock" : undefined}
+            title={
+              locked
+                ? "Unlocks after your pet molts — reach level 10, then choose “Molt” on its stats card"
+                : undefined
+            }
             onClick={() => petSetSpecies(id)}
             style={{
               display: "flex",

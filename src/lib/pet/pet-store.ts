@@ -1250,6 +1250,13 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     grantXp,
     molt: petMolt,
     setSpecies: petSetSpecies,
+    // Roll a brand-new pet (fresh personality, level 1, prestige 0 — Ember
+    // locks again) and persist it through the normal debounced save.
+    reset: () => {
+      persistent = createDefaultPetState();
+      notifyPersistence();
+      invalidate();
+    },
     tossed: petTossed,
     statsOpen: petSetStatsOpen,
     noteUncommitted: petNoteUncommitted,
