@@ -210,6 +210,15 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     event === AGENT_HOOK_EVENTS.postToolUse &&
     payload.tool_name !== ASK_USER_QUESTION_TOOL
   ) {
+    // A tool just ran, so the agent is provably working — not blocked on the
+    // user. If the task is still parked in needs-input (e.g. an AskUserQuestion
+    // was answered via "Chat about this" / declined, which fires no
+    // AskUserQuestion PostToolUse), heal it back to running now instead of
+    // waiting for the turn's Stop hook. updateStatus clears any stale pending
+    // question, so the native overlay and the pet's alert both stand down.
+    if (task.status === "needs-input") {
+      updateStatus(taskId, { status: "running" });
+    }
     if (getBooleanSetting(PET_ENABLED_KEY, true)) {
       events.emit("agent:tool-used", {
         taskId,

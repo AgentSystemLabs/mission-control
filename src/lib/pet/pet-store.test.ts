@@ -339,6 +339,70 @@ describe("agent:tool-used mid-run reaction", () => {
     expect(snap.bubble).toBeNull();
     expect(snap.flourish).toBeNull();
   });
+
+  it("clears a stale needs-input alert when the same task runs a tool", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    // The agent asked a question — the pet posts an alert (an instant mood).
+    petIngestServerEvent({
+      type: "task:question",
+      taskId: "t-ask",
+      projectId: "p1",
+      questionId: "q1",
+      questions: [],
+    } as never);
+    expect(getPetSnapshot().mood).toBe("alert");
+
+    // The question was answered (e.g. "Chat about this") without an
+    // AskUserQuestion PostToolUse, so no task:question-cleared arrived. The
+    // agent resumes and runs a tool — that alone must stand the alert down.
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t-ask",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "neutral",
+    } as never);
+
+    // Leaving the instant alert for a calm mood settles after the debounce.
+    vi.advanceTimersByTime(MOOD_DEBOUNCE_MS + 100);
+    expect(getPetSnapshot().mood).not.toBe("alert");
+  });
+
+  it("keeps alerting when a DIFFERENT task runs a tool", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    petIngestServerEvent({
+      type: "task:question",
+      taskId: "t-ask",
+      projectId: "p1",
+      questionId: "q1",
+      questions: [],
+    } as never);
+    expect(getPetSnapshot().mood).toBe("alert");
+
+    // A tool in an unrelated task must not clear another task's pending question.
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t-other",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "neutral",
+    } as never);
+    vi.advanceTimersByTime(MOOD_DEBOUNCE_MS + 100);
+    expect(getPetSnapshot().mood).toBe("alert");
+
+    // Clear the alert so this module-level state doesn't leak into later suites.
+    petIngestServerEvent({
+      type: "task:question-cleared",
+      taskId: "t-ask",
+      projectId: "p1",
+    } as never);
+  });
 });
 
 describe("isNightHour", () => {

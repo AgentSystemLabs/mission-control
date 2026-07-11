@@ -9,7 +9,8 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken, setBooleanSetting } = await import("../services/settings");
 const { createProject } = await import("../services/projects");
-const { createTask } = await import("../services/tasks");
+const { createTask, getTask, updateStatus } = await import("../services/tasks");
+const { setPendingQuestion, getPendingQuestion } = await import("../services/pending-questions");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings, worktrees } = await import("~/db/schema");
 const { TITLE_WAITING } = await import("~/lib/task-sentinels");
@@ -121,5 +122,35 @@ describe("pet mid-run tool hook API", () => {
       tool_response: { ok: true },
     });
     expect(toolUsed()).toBeUndefined();
+  });
+
+  it("heals a stale needs-input task back to running when a tool runs", async () => {
+    setBooleanSetting("pet_enabled", true);
+    // The task is parked in needs-input with a pending question (as after an
+    // AskUserQuestion answered via "Chat about this", which fires no
+    // AskUserQuestion PostToolUse to move it on).
+    updateStatus(taskId, { status: "needs-input" });
+    setPendingQuestion({
+      taskId,
+      projectId: getTask(taskId)!.projectId,
+      questions: [],
+    });
+
+    await postBash({ stdout: "ok", stderr: "" });
+
+    // The tool proves the agent resumed: status is running again and the stale
+    // question cleared (which fires task:question-cleared for the overlay/pet).
+    expect(getTask(taskId)?.status).toBe("running");
+    expect(getPendingQuestion(taskId)).toBeNull();
+    expect(captured.some((e) => e.type === "task:question-cleared")).toBe(true);
+    // Still a normal mid-run pet signal.
+    expect(toolUsed()?.taskId).toBe(taskId);
+  });
+
+  it("leaves a running task's status untouched on a tool hook", async () => {
+    setBooleanSetting("pet_enabled", true);
+    updateStatus(taskId, { status: "running" });
+    await postBash({ stdout: "ok", stderr: "" });
+    expect(getTask(taskId)?.status).toBe("running");
   });
 });

@@ -996,6 +996,15 @@ export function petIngestServerEvent(event: ServerEvent): void {
       // bailed above if the pet is off).
       const now = Date.now();
       inputs.lastActivityAt = now;
+      // A tool running in this task proves the agent resumed after any question,
+      // so a needs-input alert left over from an AskUserQuestion is stale —
+      // stand it down locally even if the server's task:question-cleared was
+      // missed. (The server also heals the task status; this is defense in depth.)
+      const toolTaskId = typeof event.taskId === "string" ? event.taskId : "";
+      if (toolTaskId && questionTaskIds.delete(toolTaskId) && alert?.taskId === toolTaskId) {
+        alert = null;
+        clearAlertWalk();
+      }
       const isError = event.sentiment === "error";
       // Visual reaction (skipped under reduced-motion, independent of the
       // messages toggle — like prompt:submitted always hops). An error always
