@@ -126,6 +126,67 @@ export function parsePorcelainZ(stdout: string): { staged: GitChangedFile[]; uns
   return { staged, unstaged };
 }
 
+export type GitBranchHeader = {
+  /** Short branch name, or "HEAD" when detached. */
+  branch: string;
+  /** True when the branch has a configured upstream (a `...<remote>` in the header). */
+  hasUpstream: boolean;
+  /**
+   * Commits ahead of / behind the upstream, straight from the header's
+   * `[ahead N, behind M]`. Both `0` when an upstream exists but the bracket is
+   * absent (in sync). `null` when there is no upstream (caller falls back).
+   */
+  ahead: number | null;
+  behind: number | null;
+};
+
+/**
+ * Parse the `## ...` branch header emitted by `git status --porcelain=v1 -b`.
+ * Handles the forms git produces:
+ *   `## main`                              (no upstream)
+ *   `## main...origin/main`                (upstream, in sync)
+ *   `## main...origin/main [ahead 2]`      (ahead only)
+ *   `## main...origin/main [behind 1]`     (behind only)
+ *   `## main...origin/main [ahead 1, behind 1]` (diverged)
+ *   `## HEAD (no branch)`                  (detached)
+ *   `## No commits yet on main`            (unborn branch)
+ */
+export function parseGitBranchHeader(headerLine: string): GitBranchHeader {
+  let s = headerLine.replace(/^##\s?/, "").trim();
+
+  // Peel off the trailing `[ahead N, behind M]` bracket, if any.
+  let ahead: number | null = null;
+  let behind: number | null = null;
+  const bracket = s.match(/\s*\[([^\]]*)\]\s*$/);
+  if (bracket) {
+    s = s.slice(0, bracket.index).trimEnd();
+    const am = bracket[1].match(/ahead (\d+)/);
+    const bm = bracket[1].match(/behind (\d+)/);
+    if (am) ahead = parseInt(am[1], 10);
+    if (bm) behind = parseInt(bm[1], 10);
+  }
+
+  // Detached HEAD — no branch, no upstream.
+  if (/^HEAD \(/.test(s)) {
+    return { branch: "HEAD", hasUpstream: false, ahead: null, behind: null };
+  }
+
+  // Unborn branch: the name trails the phrase git prints before any commit.
+  const unborn = s.match(/^(?:No commits yet on|Initial commit on) (.+)$/);
+  if (unborn) s = unborn[1].trim();
+
+  // `<branch>...<upstream>` — the `...` marks a configured upstream.
+  const sep = s.indexOf("...");
+  const hasUpstream = sep >= 0;
+  const branch = (hasUpstream ? s.slice(0, sep) : s).trim() || "HEAD";
+  return {
+    branch,
+    hasUpstream,
+    ahead: hasUpstream ? ahead ?? 0 : null,
+    behind: hasUpstream ? behind ?? 0 : null,
+  };
+}
+
 /** Compute the unique changed-file count across staged + unstaged. */
 export function changedFileCount(staged: GitChangedFile[], unstaged: GitChangedFile[]): number {
   const seen = new Set<string>();

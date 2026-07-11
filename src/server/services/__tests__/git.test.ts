@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseBranchList, parsePorcelainZ } from "../git";
+import { parseBranchList, parsePorcelainZ, parseGitBranchHeader } from "../git";
 
 /** Build a porcelain-z stream from {x, y, path} entries. Renamed/copied entries
  *  carry an extra `from` field that emits a paired NUL-terminated path. */
@@ -72,6 +72,80 @@ describe("parsePorcelainZ", () => {
       buildPorcelain([{ x: "M", y: " ", path: "a.ts" }]) + "\0\0",
     );
     expect(r.staged).toHaveLength(1);
+  });
+});
+
+describe("parseGitBranchHeader", () => {
+  it("parses a branch with no upstream (counts fall back to null)", () => {
+    expect(parseGitBranchHeader("## main")).toEqual({
+      branch: "main",
+      hasUpstream: false,
+      ahead: null,
+      behind: null,
+    });
+  });
+
+  it("parses a branch with an upstream and no divergence (0/0)", () => {
+    expect(parseGitBranchHeader("## main...origin/main")).toEqual({
+      branch: "main",
+      hasUpstream: true,
+      ahead: 0,
+      behind: 0,
+    });
+  });
+
+  it("parses ahead-only counts", () => {
+    expect(parseGitBranchHeader("## main...origin/main [ahead 2]")).toEqual({
+      branch: "main",
+      hasUpstream: true,
+      ahead: 2,
+      behind: 0,
+    });
+  });
+
+  it("parses behind-only counts", () => {
+    expect(parseGitBranchHeader("## main...origin/main [behind 3]")).toEqual({
+      branch: "main",
+      hasUpstream: true,
+      ahead: 0,
+      behind: 3,
+    });
+  });
+
+  it("parses a diverged branch (ahead and behind)", () => {
+    expect(parseGitBranchHeader("## feat/x...origin/feat/x [ahead 1, behind 4]")).toEqual({
+      branch: "feat/x",
+      hasUpstream: true,
+      ahead: 1,
+      behind: 4,
+    });
+  });
+
+  it("reports HEAD for a detached checkout", () => {
+    expect(parseGitBranchHeader("## HEAD (no branch)")).toEqual({
+      branch: "HEAD",
+      hasUpstream: false,
+      ahead: null,
+      behind: null,
+    });
+  });
+
+  it("parses the unborn-branch header (no commits yet)", () => {
+    expect(parseGitBranchHeader("## No commits yet on main")).toEqual({
+      branch: "main",
+      hasUpstream: false,
+      ahead: null,
+      behind: null,
+    });
+    // Older git phrasing.
+    expect(parseGitBranchHeader("## Initial commit on trunk").branch).toBe("trunk");
+  });
+
+  it("keeps slashes in branch and upstream names", () => {
+    const r = parseGitBranchHeader("## release/1.2...upstream/release/1.2 [ahead 5]");
+    expect(r.branch).toBe("release/1.2");
+    expect(r.hasUpstream).toBe(true);
+    expect(r.ahead).toBe(5);
   });
 });
 
