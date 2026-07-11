@@ -2331,6 +2331,66 @@ body[data-card-glow] .cursor-glow {
   flex-shrink: 0;
 }
 
+/* Provider usage popover: fade-only entrance (no transform — a translate
+   animation composites the popover on a GPU layer at fractional offsets
+   over the WebGL terminals, which resamples every glyph blurry);
+   bars ease between refreshes. */
+.mc-usage-pop {
+  animation: mc-usage-pop-in 0.15s ease-out;
+}
+@keyframes mc-usage-pop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.mc-usage-fill {
+  transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mc-usage-ring-arc {
+  transition: stroke-dashoffset 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-usage-pop {
+    animation: none;
+  }
+  .mc-usage-fill {
+    transition: none;
+  }
+  .mc-usage-ring-arc {
+    transition: none;
+  }
+}
+
+/* Provider usage popover — solid glass-styled surface. The popover floats
+   over the WebGL terminal canvases; an opaque pane keeps the text crisp
+   against whatever's behind it while the crisp top specular rim, hairline
+   border, and layered drop shadow keep the polished glass read. The tint is
+   a gentle --surface-1 → --surface-2 gradient, so it re-derives per theme —
+   painted-dark, flat-light, ember — without a per-theme rule. Surface treatment
+   derived from the gradientdeck glassmorphism recipe. */
+.mc-usage-glass {
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  background: linear-gradient(158deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  box-shadow:
+    0 24px 60px -14px rgba(0, 0, 0, 0.6),
+    0 6px 18px -8px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 0 color-mix(in srgb, #fff6ec 16%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, #fff6ec 4%, transparent);
+}
+/* Light themes: a bright white rim blows out on a pale pane and a pale
+   hairline vanishes — darken the border, brighten the top specular. */
+[data-theme="light"] .mc-usage-glass {
+  border-color: color-mix(in srgb, var(--text) 14%, transparent);
+  box-shadow:
+    0 24px 50px -16px rgba(15, 18, 24, 0.28),
+    0 6px 16px -10px rgba(15, 18, 24, 0.2),
+    inset 0 1px 0 0 color-mix(in srgb, #fff6ec 55%, transparent);
+}
+
 /* Tooltip */
 .mc-tooltip-trigger {
   display: contents;
