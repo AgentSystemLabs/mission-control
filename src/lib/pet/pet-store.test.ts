@@ -269,6 +269,78 @@ describe("prompt:submitted reaction", () => {
   });
 });
 
+describe("agent:tool-used mid-run reaction", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // A distinct, later clock than the other suites so any leaked bubble bucket
+    // / pulse window from them has aged out of its sliding window.
+    vi.setSystemTime(new Date(2026, 6, 11, 16, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  const linesFor = (trigger: "agent-working" | "agent-error", species: string) =>
+    PET_LINES[trigger]
+      .filter((line) => !line.species || line.species.includes(species as never))
+      .map((line) => line.text as string);
+
+  it("reacts to a neutral tool with an antic and a line", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000); // clear any leaked bucket/pulse from prior suites
+
+    const state = getPetPersistentState()!;
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t1",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "neutral",
+    } as never);
+
+    const snap = getPetSnapshot();
+    expect(snap.flourish).not.toBeNull();
+    expect(snap.bubble).not.toBeNull();
+    expect(linesFor("agent-working", state.species)).toContain(snap.bubble!.text);
+  });
+
+  it("startles and shows a concerned line on an error result", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    const state = getPetPersistentState()!;
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t1",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "error",
+    } as never);
+
+    const snap = getPetSnapshot();
+    expect(snap.mood).toBe("startled");
+    expect(linesFor("agent-error", state.species)).toContain(snap.bubble!.text);
+  });
+
+  it("does nothing when the pet is disabled", () => {
+    petSetEnabled(false, true, false);
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t1",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "error",
+    } as never);
+    const snap = getPetSnapshot();
+    expect(snap.enabled).toBe(false);
+    expect(snap.bubble).toBeNull();
+    expect(snap.flourish).toBeNull();
+  });
+});
+
 describe("isNightHour", () => {
   it("flags late-night and early-morning hours", () => {
     const at = (hour: number) => new Date(2026, 6, 11, hour, 0, 0).getTime();

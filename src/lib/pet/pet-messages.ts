@@ -37,6 +37,10 @@ export type PetTrigger =
   | "worktree-created"
   | "project-created"
   | "diagram-show"
+  // mid-run tool awareness: the agent is actively working (running Bash /
+  // editing files) or a tool result just looked like an error
+  | "agent-working"
+  | "agent-error"
   | "interrupted"
   | "idle"
   | "petting"
@@ -199,6 +203,11 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   "worktree-created": { priority: "flavor", cooldownMs: 300_000 },
   "project-created": { priority: "flavor", cooldownMs: 600_000 },
   "diagram-show": { priority: "flavor", cooldownMs: 300_000 },
+  // Ambient "still on it" line during a long run — rare so it stays charming.
+  "agent-working": { priority: "flavor", cooldownMs: 180_000 },
+  // A tool result looked like an error. Gentle (not critical — agents hit and
+  // recover from errors constantly) and well-spaced so it never nags.
+  "agent-error": { priority: "info", cooldownMs: 90_000 },
   interrupted: { priority: "info", cooldownMs: 60_000 },
   idle: { priority: "flavor", cooldownMs: 900_000 },
   petting: { priority: "info", cooldownMs: 20_000 },

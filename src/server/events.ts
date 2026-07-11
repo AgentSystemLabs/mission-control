@@ -34,6 +34,15 @@ export type AppEvent =
     }
   | { type: "task:question-cleared"; taskId: string; projectId: string }
   | { type: "prompt:submitted"; taskId: string; projectId: string; snippet: string }
+  | {
+      // A Bash/Write/Edit tool finished mid-turn. Emitted (pet-gated) so the
+      // Mission Pet can react to the agent working, not just to turn boundaries.
+      type: "agent:tool-used";
+      taskId: string;
+      projectId: string;
+      toolName: string;
+      sentiment: "error" | "neutral";
+    }
   | { type: "memory:created"; id: string; projectId: string }
   | { type: "memory:updated"; id: string; projectId: string }
   | { type: "memory:deleted"; id: string; projectId: string }

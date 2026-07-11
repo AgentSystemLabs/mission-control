@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { getAppTheme } from "./app-theme";
 import { installAgentHooks } from "./agent-hooks";
+import { getBooleanAppSetting } from "./app-settings-store";
 import { installAgentMemoryBrief } from "./agent-memory-brief";
 import { ensureStatuslineTap } from "../src/shared/statusline-tap";
 import { ensureDiagramSkillForAgent } from "./ensure-diagram-skill";
@@ -481,7 +482,12 @@ export function registerPtyHandlers(
       // Use the canonical cwd from the plan, not the original request, so a
       // symlink-swap race between validation and spawn can't move us into a
       // post-validation target outside the project root.
-      installAgentHooks(opts.agent, plan.cwd);
+      // Install the pet's mid-run tool hook only while the pet is enabled.
+      // Read synchronously from the same app_settings DB the server owns; when
+      // off, the hook is omitted (and any previously-installed one is stripped
+      // by the rebuild inside installAgentHooks). Default true = pet-on default.
+      const petEnabled = getBooleanAppSetting(app.getPath("userData"), "pet_enabled", true);
+      installAgentHooks(opts.agent, plan.cwd, undefined, { petEnabled });
       const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       if (plan.mode === "agent") {
         ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);

@@ -8,6 +8,8 @@ import { maybeAutoIndexGraph } from "../services/graph-auto-index";
 import { ensureGraphWatch } from "../services/graph-watcher";
 import { setTranscriptPath } from "../services/session-transcripts";
 import { readRecallSettings } from "../services/recall-settings";
+import { getBooleanSetting } from "../services/settings";
+import { events } from "../events";
 import {
   assembleTurnContext,
   renderToolLoadInstruction,
@@ -32,6 +34,8 @@ const hookPayload = z
     tool_name: z.string(),
     tool_use_id: z.string(),
     tool_input: z.unknown(),
+    // PostToolUse carries the tool's result; the pet sniffs it for errors.
+    tool_response: z.unknown(),
     // SessionStart's trigger: "startup" | "resume" | "clear" | "compact".
     source: z.string(),
     // Absolute path to the session's JSONL transcript (Claude Code). Stashed per
@@ -66,6 +70,43 @@ function isPromptSubmitEvent(event: string): boolean {
     event === AGENT_HOOK_EVENTS.userPromptSubmit ||
     event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt
   );
+}
+
+// Mirrors settings.controller.ts PET_ENABLED_KEY — the app_settings row that
+// backs the Mission Pet master switch. The pet's mid-run tool hook is only
+// installed while this is on; we re-check it here so an already-running session
+// (whose hook is still on disk) stops emitting the instant the pet is disabled.
+const PET_ENABLED_KEY = "pet_enabled";
+
+// How much of a tool result we scan for error markers — enough to catch a
+// stack trace's first lines without shipping huge Bash outputs through a regex.
+const TOOL_RESPONSE_SCAN_CAP = 8_000;
+
+// Precise, low-false-positive error signatures (compiler/linter/runtime/CI).
+// Bare "failed"/"not found" are deliberately excluded — they fire on normal
+// output ("0 tests failed", "grep: not found") and would cry wolf.
+const TOOL_ERROR_MARKERS =
+  /\berror:|\bexception\b|\btraceback\b|\bpanicked at\b|\bfatal:|exit code [1-9]|Build failed|Failed to compile|ERROR in |compilation error|Command failed/i;
+
+/** Classify a PostToolUse result as an error (concerned pet) or neutral. */
+function classifyToolResponse(toolResponse: unknown): "error" | "neutral" {
+  if (toolResponse == null) return "neutral";
+  // An explicit structured error flag wins over text sniffing.
+  if (typeof toolResponse === "object") {
+    const rec = toolResponse as Record<string, unknown>;
+    if (rec.isError === true || rec.is_error === true) return "error";
+  }
+  let text: string;
+  if (typeof toolResponse === "string") {
+    text = toolResponse;
+  } else {
+    try {
+      text = JSON.stringify(toolResponse);
+    } catch {
+      return "neutral";
+    }
+  }
+  return TOOL_ERROR_MARKERS.test(text.slice(0, TOOL_RESPONSE_SCAN_CAP)) ? "error" : "neutral";
 }
 
 async function reconcileSessionId(
@@ -158,6 +199,26 @@ export async function receive(url: URL, request: Request): Promise<Response> {
         id: payload.tool_use_id,
       });
     }
+  }
+
+  // Mid-run tool signal for the Mission Pet: the broad Bash|Write|Edit
+  // PostToolUse hook (installed only while the pet is on). The
+  // AskUserQuestion-matched PostToolUse is a status signal handled below, so it
+  // is excluded here. Pet-gated on both ends — see PET_ENABLED_KEY — so a
+  // toggled-off pet stops reacting even for sessions whose hook is still on disk.
+  if (
+    event === AGENT_HOOK_EVENTS.postToolUse &&
+    payload.tool_name !== ASK_USER_QUESTION_TOOL
+  ) {
+    if (getBooleanSetting(PET_ENABLED_KEY, true)) {
+      events.emit("agent:tool-used", {
+        taskId,
+        projectId: task.projectId,
+        toolName: typeof payload.tool_name === "string" ? payload.tool_name : "",
+        sentiment: classifyToolResponse(payload.tool_response),
+      });
+    }
+    return json({ ok: true, event });
   }
 
   // SessionStart carries no status, but it is the fallback channel for the

@@ -187,6 +187,13 @@ const WALK_SPEED_PX_PER_S = 45;
 const HOME_SPEED_PX_PER_S = 120;
 const BEHAVIOR_TICK_MS = 6_500;
 const FLOURISH_MS = 1_400;
+/**
+ * Client-side floor between mid-run tool reactions (a "still working" antic).
+ * The hook already throttles the POST, but several sessions can each fire, so
+ * this keeps a busy grid from chaining antics. Errors bypass it — they lean on
+ * the say() cooldown instead, so a genuine failure is never silently dropped.
+ */
+const TOOL_REACT_THROTTLE_MS = 15_000;
 
 /** Consecutive failures (ships, interruptions) before the pet calls a streak. */
 const ERROR_STREAK_THRESHOLD = 3;
@@ -507,6 +514,7 @@ function pickReaction(): PetFlourish["kind"] {
 }
 
 let lastExcitedKind: PetFlourish["kind"] | null = null;
+let lastToolReactAt = 0;
 
 /** Random upbeat reaction for a prompt send, never repeating the previous one. */
 function pickExcitedReaction(): PetFlourish["kind"] {
@@ -978,6 +986,34 @@ export function petIngestServerEvent(event: ServerEvent): void {
     }
     case "diagram:show": {
       say("diagram-show");
+      return;
+    }
+    case "agent:tool-used": {
+      // The agent ran a Bash/Write/Edit tool mid-turn. Keep the pet awake and
+      // let it react to what the tool did. The server only emits this while the
+      // pet is enabled, and the hook that produces it is only installed then —
+      // this case is the third, renderer-side gate (petIngestServerEvent already
+      // bailed above if the pet is off).
+      const now = Date.now();
+      inputs.lastActivityAt = now;
+      const isError = event.sentiment === "error";
+      // Visual reaction (skipped under reduced-motion, independent of the
+      // messages toggle — like prompt:submitted always hops). An error always
+      // startles: it's worth registering, and the hook's own cooldown already
+      // bounds it to ~once/20s per session. A routine tool only gets an
+      // occasional low-key antic, floored so a busy grid can't chain motion.
+      if (!prefersReducedMotion()) {
+        if (isError) {
+          petPulse("startle");
+        } else if (now - lastToolReactAt >= TOOL_REACT_THROTTLE_MS) {
+          lastToolReactAt = now;
+          doFlourish("stretch");
+        }
+      }
+      // A line, on its own per-trigger cooldown (agent-error 90s / agent-working
+      // 180s) — gated by the messages toggle inside say().
+      say(isError ? "agent-error" : "agent-working");
+      recompute();
       return;
     }
   }

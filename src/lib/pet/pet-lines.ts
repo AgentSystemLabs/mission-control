@@ -287,6 +287,27 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "Architecture rendered. The arrows never lie. Mostly.", weights: { snark: 1 } },
   ],
 
+  /* ── mid-run tool awareness ────────────────────────────────────────── */
+  "agent-working": [
+    { text: "*watches the tool calls scroll by*" },
+    { text: "Still going. I'll keep an eye on it.", weights: { zen: 2 } },
+    { text: "Busy in there. Good.", weights: { wisdom: 1 } },
+    { text: "*leans in* ooh, it's doing the thing.", weights: { chaos: 2 } },
+    { text: "Tools firing. I love a productive agent.", weights: { snark: 1 } },
+    { text: "*nods along to the diffs*", weights: { zen: 1 } },
+    { text: "*supervises intently*", species: ["rivet"] },
+    { text: "*stokes the forge*", species: ["ember"] },
+  ],
+  "agent-error": [
+    { text: "*winces* that one threw an error." },
+    { text: "Something went red. It'll recover — they usually do.", weights: { zen: 2 } },
+    { text: "Error in the output. Watching to see how it handles it.", weights: { wisdom: 1 } },
+    { text: "*flinches* ooh. that did not go well.", weights: { chaos: 2 } },
+    { text: "A stack trace. My favorite bedtime reading.", weights: { snark: 2 } },
+    { text: "Red text spotted. Deep breath.", weights: { zen: 1 } },
+    { text: "*flags the error*", species: ["rivet"] },
+  ],
+
   /* ── ambience ──────────────────────────────────────────────────────── */
   idle: [
     { text: "All quiet. I'll be over here, existing.", weights: { zen: 2 } },
