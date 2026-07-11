@@ -24,6 +24,9 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "session.cycleNext": makeBinding({ mod: true, shift: true, key: "]" }),
   "session.cyclePrev": makeBinding({ mod: true, shift: true, key: "[" }),
   "session.gridNavigate": makeBinding({ mod: true, shift: true, key: "g" }),
+  // Shift+L on top of terminal.close's mod+L: "L for layout", and the chord is
+  // free — mod+shift+R would collide with Chromium's hard reload in dev.
+  "session.gridLayout": makeBinding({ mod: true, shift: true, key: "l" }),
   "session.gridView": makeBinding({ mod: true, shift: true, key: "a" }),
   "session.focusMode": makeBinding({ mod: true, shift: true, key: "f" }),
   "dialog.submit": makeBinding({ mod: true, key: "Enter" }),

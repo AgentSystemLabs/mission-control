@@ -27,6 +27,7 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
+import { GridLayoutButton } from "~/components/views/GridLayoutButton";
 import { SessionGrid } from "~/components/views/SessionGrid";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { enterFocusSession } from "~/lib/focus-session";
@@ -2951,6 +2952,12 @@ function ProjectPage() {
               showArchivedTab={hasArchivedTasks || showArchived}
               onChange={setSessionView}
             />
+          )}
+          {/* Grid arrangement (row width lock + sort) edits the persisted Active
+           * layout, so it hides in the read-through Pinned tab — mirrors how the
+           * grid disables reorder/resize there. */}
+          {showGrid && !showPinned && (
+            <GridLayoutButton scopeKey={selectedScopeKey} />
           )}
           <div
             style={{
