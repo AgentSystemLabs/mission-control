@@ -345,6 +345,8 @@ export type ElectronBridge = {
   /** Sync the native window background with the renderer theme (dark/light)
    *  so resize gutters and the launch frame match the page ground. */
   setWindowBackgroundColor: (color: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Scale the whole UI via the window zoom factor (interface font scale). 1 = 100%. */
+  setZoomFactor: (factor: number) => Promise<{ ok: true } | { ok: false; error: string }>;
   notifications: {
     getPermission: () => Promise<"granted" | "unsupported">;
     showSessionFinished: (payload: {

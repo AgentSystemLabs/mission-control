@@ -23,6 +23,13 @@ import {
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import {
+  DEFAULT_INTERFACE_FONT_SCALE,
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  DEFAULT_TERMINAL_LETTER_SPACING,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+} from "~/shared/terminal-appearance";
 import { DEFAULT_SURFACE_TINT } from "~/shared/surface-tint";
 import {
   readOsNotificationPermission,
@@ -105,6 +112,15 @@ export function GeneralSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
+    terminalFontFamily: settings?.terminalFontFamily ?? null,
+    terminalFontWeight: settings?.terminalFontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT,
+    terminalFontWeightBold:
+      settings?.terminalFontWeightBold ?? DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+    terminalLineHeight: settings?.terminalLineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT,
+    terminalLetterSpacing:
+      settings?.terminalLetterSpacing ?? DEFAULT_TERMINAL_LETTER_SPACING,
+    interfaceFontFamily: settings?.interfaceFontFamily ?? null,
+    interfaceFontScale: settings?.interfaceFontScale ?? DEFAULT_INTERFACE_FONT_SCALE,
     sessionHeaderButtons:
       settings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
     defaultAgent: settings?.defaultAgent ?? "claude-code",

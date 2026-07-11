@@ -50,6 +50,7 @@ import {
   terminalNeedsTransparency,
   watchTerminalColorScheme,
 } from "~/lib/terminal-options";
+import { getCurrentTerminalAppearanceOptions } from "~/lib/terminal-appearance";
 import {
   useTerminalZoom,
   useTerminalPaneZoomShortcuts,
@@ -884,11 +885,23 @@ export function TerminalPane({
         // so xterm computes the new background alpha under the right rule.
         term.options.allowTransparency = terminalNeedsTransparency(colorScheme);
         term.options.theme = createTerminalTheme({ cursorColor, colorScheme });
-        // A theme with a bundled face (ember → JetBrains Mono) swaps the
-        // terminal font live; the glyph box changes, so refit to reflow.
+        // A theme with a bundled face (ember → JetBrains Mono) or an
+        // appearance-settings change swaps typography live; any of these
+        // alters the glyph box, so refit to reflow.
         const font = getCurrentTerminalFont();
-        if (term.options.fontFamily !== font) {
+        const appearance = getCurrentTerminalAppearanceOptions();
+        const typographyChanged =
+          term.options.fontFamily !== font ||
+          term.options.fontWeight !== appearance.fontWeight ||
+          term.options.fontWeightBold !== appearance.fontWeightBold ||
+          term.options.lineHeight !== appearance.lineHeight ||
+          term.options.letterSpacing !== appearance.letterSpacing;
+        if (typographyChanged) {
           term.options.fontFamily = font;
+          term.options.fontWeight = appearance.fontWeight;
+          term.options.fontWeightBold = appearance.fontWeightBold;
+          term.options.lineHeight = appearance.lineHeight;
+          term.options.letterSpacing = appearance.letterSpacing;
           fitTerminalSurface(term, fit);
         }
       });
