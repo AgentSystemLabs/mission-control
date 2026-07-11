@@ -34,6 +34,13 @@ export function CursorGlow() {
       if (rafId === null) rafId = requestAnimationFrame(flush);
     };
     const onLeave = () => {
+      // Cancel any pending flush so it can't re-set data-active after we clear
+      // it — otherwise moving the pointer out of the window in the same frame as
+      // a queued move would leave the glow stuck on at its last position.
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       delete el.dataset.active;
     };
 
