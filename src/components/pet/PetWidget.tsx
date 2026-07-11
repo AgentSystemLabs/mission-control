@@ -1,8 +1,17 @@
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+} from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   PET_WANDER_RANGE_PX,
   petInteract,
+  petStroke,
   usePetSnapshot,
   type PetMood,
 } from "~/lib/pet/pet-store";
@@ -15,6 +24,27 @@ import { PET_SPECIES } from "./PetSprite";
 
 /** Rendered sprite size per setting; "m" is the pre-setting default (84px). */
 const SIZE_PX: Record<PetSizeId, number> = { s: 64, m: 84, l: 108 };
+
+/** What the pet "feels" above its head when your cursor hovers it. */
+const MOOD_EMOTE: Record<PetMood, string> = {
+  sleeping: "?",
+  idle: "♥",
+  watching: "♥",
+  working: "…",
+  alert: "!",
+  celebrating: "♪",
+  shipping: "…",
+  startled: "!",
+};
+
+/** Holding the pointer down this long turns a click into stroking. */
+const HOLD_TO_STROKE_MS = 350;
+const STROKE_TICK_MS = 600;
+/** Pupils track the cursor inside this radius around the pet. */
+const LOOK_RADIUS_PX = 220;
+/** Max pupil offset, in sprite user units (the eye radius is ~6). */
+const LOOK_MAX_X = 2.2;
+const LOOK_MAX_Y = 1.6;
 
 const MOOD_DESCRIPTION: Record<PetMood, string> = {
   sleeping: "asleep",
@@ -35,12 +65,90 @@ export function PetWidget() {
   const pet = usePetSnapshot();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  const strokeTimer = useRef<number | null>(null);
+  // Set when a hold turned into stroking, so the pointer-up click stays quiet.
+  const suppressClick = useRef(false);
+  const [hovered, setHovered] = useState(false);
+  const [stroking, setStroking] = useState(false);
+
+  // Pupils follow the cursor when it comes near — the pet sees you coming.
+  // Imperative CSS vars on the stage (no re-render); the sprite reads them
+  // via `translate` on .mc-pet-pupil-set.
+  useEffect(() => {
+    if (!pet.enabled) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    let raf = 0;
+    const onMove = (event: MouseEvent) => {
+      if (raf) return;
+      const { clientX, clientY } = event;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const stage = stageRef.current;
+        if (!stage) return;
+        const rect = stage.getBoundingClientRect();
+        const dx = clientX - (rect.left + rect.width / 2);
+        const dy = clientY - (rect.top + rect.height / 2);
+        const dist = Math.hypot(dx, dy);
+        const near = dist > 0 && dist <= LOOK_RADIUS_PX;
+        stage.style.setProperty(
+          "--pet-look-x",
+          near ? `${((dx / dist) * LOOK_MAX_X).toFixed(2)}px` : "0px",
+        );
+        stage.style.setProperty(
+          "--pet-look-y",
+          near ? `${((dy / dist) * LOOK_MAX_Y).toFixed(2)}px` : "0px",
+        );
+      });
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [pet.enabled]);
+
+  const stopStroking = useCallback(() => {
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    if (strokeTimer.current !== null) {
+      window.clearInterval(strokeTimer.current);
+      strokeTimer.current = null;
+    }
+    setStroking(false);
+  }, []);
+
+  // Stop any in-flight hold/stroke when the pet is disabled…
+  useEffect(() => {
+    if (!pet.enabled) stopStroking();
+  }, [pet.enabled, stopStroking]);
+  // …and never leave the interval ticking past unmount.
+  useEffect(() => stopStroking, [stopStroking]);
 
   if (!pet.enabled) return null;
 
   const { Sprite } = PET_SPECIES[pet.species] ?? PET_SPECIES[DEFAULT_PET_SPECIES];
 
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    // While alert, the click is a jump-to-session shortcut — keep it instant.
+    if (event.button !== 0 || pet.mood === "alert") return;
+    holdTimer.current = window.setTimeout(() => {
+      holdTimer.current = null;
+      suppressClick.current = true;
+      setStroking(true);
+      petStroke();
+      strokeTimer.current = window.setInterval(() => petStroke(), STROKE_TICK_MS);
+    }, HOLD_TO_STROKE_MS);
+  };
+
   const handleClick = () => {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
     const { navigateTo } = petInteract();
     if (!navigateTo) return;
     // Best effort: find the task in any cached tasks query to recover its
@@ -105,7 +213,13 @@ export function PetWidget() {
             {pet.bubble.text}
           </div>
         ) : null}
-        <div className="mc-pet-stage" style={{ position: "relative" }}>
+        <div className="mc-pet-stage" ref={stageRef} style={{ position: "relative" }}>
+          {/* Emote the pet feels above its head while your cursor rests on it. */}
+          {hovered && !stroking && !pet.bubble ? (
+            <div className="mc-pet-emote" aria-hidden>
+              {MOOD_EMOTE[pet.mood]}
+            </div>
+          ) : null}
           {/* Hearts burst on petting; keyed so each burst restarts the animation. */}
           {pet.heartsBurstId > 0 ? (
             <div key={pet.heartsBurstId} className="mc-pet-hearts" aria-hidden>
@@ -120,14 +234,31 @@ export function PetWidget() {
             className="mc-pet-flourish"
             data-kind={pet.flourish?.kind}
           >
-            <div style={{ transform: `scaleX(${pet.wander.facing})` }}>
+            <div
+              style={
+                {
+                  transform: `scaleX(${pet.wander.facing})`,
+                  // Lets the pupil-tracking CSS un-mirror its x offset.
+                  "--pet-facing": pet.wander.facing,
+                } as CSSProperties
+              }
+            >
               <button
                 type="button"
                 className="mc-pet-button"
                 onClick={handleClick}
+                onPointerEnter={() => setHovered(true)}
+                onPointerLeave={() => {
+                  setHovered(false);
+                  stopStroking();
+                }}
+                onPointerDown={handlePointerDown}
+                onPointerUp={stopStroking}
+                onPointerCancel={stopStroking}
                 aria-label={`${pet.name || "Pet"} — ${MOOD_DESCRIPTION[pet.mood]}`}
                 title={`${pet.name || "Pet"} · Lv ${pet.level} · ${MOOD_DESCRIPTION[pet.mood]}`}
                 data-mood={pet.mood}
+                data-stroking={stroking || undefined}
               >
                 <Sprite
                   mood={pet.mood}

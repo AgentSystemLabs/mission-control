@@ -215,6 +215,17 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "again! again!", weights: { chaos: 1 } },
     { text: "*closes eyes peacefully*", weights: { zen: 2 } },
   ],
+  // Spam-clicked into the dizzy spin — mildly annoyed, never mean.
+  overpet: [
+    { text: "*sees stars*" },
+    { text: "*dizzy* okay — OKAY. I get it." },
+    { text: "429: too many pets. try again later.", weights: { snark: 2 } },
+    { text: "Easy. I'm a companion, not a stress ball.", weights: { snark: 2 } },
+    { text: "*wobbles* affection buffer overflow.", weights: { chaos: 2 } },
+    { text: "*spins to a stop* which way is the repo.", weights: { chaos: 2 } },
+    { text: "That's plenty. Channel this into a code review.", weights: { wisdom: 2 } },
+    { text: "*steadies self* moderation. in all things.", weights: { zen: 2 } },
+  ],
   "level-up": [
     { text: (ctx) => `Level ${ctx.level}. My antenna feels stronger.` },
     { text: (ctx) => `Level ${ctx.level} — earned from real shipped work, mind you.`, weights: { snark: 2 } },

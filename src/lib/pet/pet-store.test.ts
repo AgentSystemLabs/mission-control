@@ -9,10 +9,12 @@ import {
   petInteract,
   petPulse,
   petSetEnabled,
+  petStroke,
   petUserActivity,
   resolvePetMood,
   type PetInputs,
 } from "./pet-store";
+import { PET_LINES } from "./pet-lines";
 
 const NOW = 10_000_000;
 
@@ -229,5 +231,64 @@ describe("isNightHour", () => {
     expect(isNightHour(at(12))).toBe(false);
     expect(isNightHour(at(21))).toBe(false);
     expect(isNightHour(at(22))).toBe(true);
+  });
+});
+
+describe("hover/press interactivity", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Later clock than the other suites so their leaked module-level state
+    // (petting XP cooldown, pulse windows) has safely lapsed.
+    vi.setSystemTime(new Date(2026, 6, 11, 18, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("stroking bursts hearts every tick but XP only once per cooldown", () => {
+    petHydrate(null);
+    petSetEnabled(true, false, false);
+    const before = getPetSnapshot();
+
+    petStroke();
+    vi.advanceTimersByTime(600);
+    petStroke();
+    vi.advanceTimersByTime(600);
+    petStroke();
+
+    const after = getPetSnapshot();
+    expect(after.heartsBurstId).toBe(before.heartsBurstId + 3);
+    expect(after.xp).toBe(before.xp + 1);
+  });
+
+  it("spam-clicking makes the pet dizzy and complains over the petting line", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    // Let the startle window from any earlier interaction lapse.
+    vi.advanceTimersByTime(30_000);
+
+    for (let i = 0; i < 4; i++) {
+      const result = petInteract();
+      expect(result.navigateTo).toBeNull();
+      vi.advanceTimersByTime(100);
+    }
+    expect(getPetSnapshot().mood).not.toBe("startled");
+    // The first click's petting line is still on screen.
+    const pettingBubble = getPetSnapshot().bubble;
+    expect(pettingBubble).not.toBeNull();
+
+    const heartsBefore = getPetSnapshot().heartsBurstId;
+    petInteract();
+    const snap = getPetSnapshot();
+    expect(snap.mood).toBe("startled");
+    expect(snap.flourish?.kind).toBe("spin");
+    // The dizzy click is not another petting: no fresh hearts.
+    expect(snap.heartsBurstId).toBe(heartsBefore);
+    // The overpet complaint preempts the visible petting bubble.
+    expect(snap.bubble).not.toBeNull();
+    expect(snap.bubble!.id).not.toBe(pettingBubble!.id);
+    const overpetTexts = PET_LINES.overpet.map((line) => line.text);
+    expect(overpetTexts).toContain(snap.bubble!.text);
   });
 });

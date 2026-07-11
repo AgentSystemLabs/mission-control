@@ -10,6 +10,7 @@ import {
   type PetSpeciesId,
 } from "~/shared/pet";
 import { createListenerSet } from "../listener-set";
+import { playPetChirp } from "./pet-sounds";
 import {
   bubbleDurationMs,
   classifyPromptSnippet,
@@ -136,6 +137,11 @@ const STARTLE_MS = 3_000;
 const LONG_RUN_MS = 20 * 60_000;
 const PETTING_XP_COOLDOWN_MS = 60_000;
 const CLOCK_TICK_MS = 30_000;
+/** This many clicks inside the window makes the pet dizzy instead of happy. */
+const DIZZY_CLICK_COUNT = 5;
+const DIZZY_WINDOW_MS = 2_500;
+/** Hold-to-pet murmurs on this throttle, not on every 600ms stroke tick. */
+const STROKE_CHIRP_MS = 1_500;
 
 /** How far left of its home corner the pet may wander, in px. */
 export const PET_WANDER_RANGE_PX = 300;
@@ -225,6 +231,8 @@ let bubbleId = 0;
 let alert: { taskId: string; projectId: string } | null = null;
 let heartsBurstId = 0;
 let lastPettingXpAt = 0;
+let recentPetClicks: number[] = [];
+let lastStrokeChirpAt = 0;
 let wander: PetWander = { x: 0, walking: false, durationMs: 0, facing: 1 };
 let flourish: PetFlourish | null = null;
 let flourishId = 0;
@@ -470,6 +478,12 @@ function say(trigger: PetTrigger, opts?: { key?: string }): void {
     invalidate();
   }, bubbleDurationMs(text));
   invalidate();
+}
+
+/** The pet's voice, in its own species' timbre; gated by the sounds setting. */
+function chirp(kind: "pet" | "dizzy" = "pet"): void {
+  if (!soundsEnabled) return;
+  playPetChirp(persistent?.species ?? DEFAULT_PET_SPECIES, kind);
 }
 
 function grantXp(amount: number): void {
@@ -742,10 +756,29 @@ export function petAmbientSay(trigger: PetTrigger): void {
 export function petInteract(): { navigateTo: { taskId: string; projectId: string } | null } {
   if (!enabled) return { navigateTo: null };
   if (alert && mood === "alert") return { navigateTo: alert };
+  const now = Date.now();
+  // Spam-clicking overwhelms the pet: it spins out dizzy (startled) instead
+  // of endlessly lapping up affection.
+  recentPetClicks = recentPetClicks.filter((t) => now - t < DIZZY_WINDOW_MS);
+  recentPetClicks.push(now);
+  if (recentPetClicks.length >= DIZZY_CLICK_COUNT) {
+    recentPetClicks = [];
+    // The dizzy complaint preempts whatever petting line is still up.
+    if (bubble) {
+      bubble = null;
+      if (bubbleTimer) clearTimeout(bubbleTimer);
+      bubbleTimer = null;
+    }
+    doFlourish("spin");
+    petPulse("startle");
+    chirp("dizzy");
+    say("overpet");
+    return { navigateTo: null };
+  }
   heartsBurstId += 1;
   // Every petting gets a random one-shot reaction alongside the hearts.
   doFlourish(pickReaction());
-  const now = Date.now();
+  chirp();
   if (now - lastPettingXpAt > PETTING_XP_COOLDOWN_MS) {
     lastPettingXpAt = now;
     grantXp(XP_PETTING);
@@ -753,6 +786,27 @@ export function petInteract(): { navigateTo: { taskId: string; projectId: string
   say("petting");
   invalidate();
   return { navigateTo: null };
+}
+
+/**
+ * Press-and-hold petting. The widget calls this on a slow tick while the
+ * pointer stays down: hearts keep bursting, while the "petting" line and XP
+ * stay behind their usual limiter/cooldown so holding isn't an XP farm.
+ */
+export function petStroke(): void {
+  if (!enabled) return;
+  heartsBurstId += 1;
+  const now = Date.now();
+  if (now - lastStrokeChirpAt > STROKE_CHIRP_MS) {
+    lastStrokeChirpAt = now;
+    chirp();
+  }
+  if (now - lastPettingXpAt > PETTING_XP_COOLDOWN_MS) {
+    lastPettingXpAt = now;
+    grantXp(XP_PETTING);
+  }
+  say("petting");
+  invalidate();
 }
 
 // Dev harness: poke the pet from the console without faking real sessions.
@@ -764,6 +818,7 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     setShipping: petSetShipping,
     shipResult: petShipResult,
     ingest: petIngestServerEvent,
+    stroke: petStroke,
     grantXp,
     walkTo: (x: number) => walkTo(x, WALK_SPEED_PX_PER_S),
     flourish: doFlourish,

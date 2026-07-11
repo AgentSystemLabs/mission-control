@@ -3591,7 +3591,8 @@ body[data-card-glow] .cursor-glow {
   transition: transform 0.15s ease;
 }
 .mc-pet-button:hover {
-  transform: scale(1.05);
+  /* Perks up under the cursor — a little lift, not just a zoom. */
+  transform: scale(1.06) translateY(-2px);
 }
 .mc-pet-button:active {
   transform: scale(0.96);
@@ -4268,7 +4269,66 @@ body[data-card-glow] .cursor-glow {
   animation-delay: 0.3s;
 }
 
+/* --- hover awareness + press-and-hold (PetWidget) --- */
+/* The emote the pet pops above its head when it notices your cursor. */
+.mc-pet-emote {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  animation:
+    mc-pet-emote-in 0.22s cubic-bezier(0.34, 1.4, 0.64, 1),
+    mc-pet-emote-bob 1.8s ease-in-out 0.25s infinite;
+}
+/* Held down: a slow contented squish while the hearts keep coming. */
+.mc-pet-button[data-stroking] {
+  animation: mc-pet-stroke-pulse 0.7s ease-in-out infinite;
+}
+/* Pupils track a nearby cursor (vars set imperatively by PetWidget). The
+   independent `translate` property composes with the mood keyframes animating
+   `transform`, and --pet-facing un-mirrors x when the walker flips the sprite. */
+.mc-pet-pupil-set {
+  translate: calc(var(--pet-look-x, 0px) * var(--pet-facing, 1)) var(--pet-look-y, 0px);
+  transition: translate 0.15s ease-out;
+}
+
 /* --- keyframes --- */
+@keyframes mc-pet-emote-in {
+  from {
+    opacity: 0;
+    translate: 0 5px;
+    scale: 0.4;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+@keyframes mc-pet-emote-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -3px;
+  }
+}
+@keyframes mc-pet-stroke-pulse {
+  0%,
+  100% {
+    transform: scale(1.03) translateY(-1px);
+  }
+  50% {
+    transform: scale(0.96) translateY(1px);
+  }
+}
 @keyframes mc-pet-breathe {
   0%,
   100% {
@@ -5083,6 +5143,7 @@ body[data-card-glow] .cursor-glow {
   .mc-pet-bubble,
   .mc-pet-heart,
   .mc-pet-button,
+  .mc-pet-emote,
   .mc-pet-flourish,
   .mc-pet-walker {
     animation: none !important;

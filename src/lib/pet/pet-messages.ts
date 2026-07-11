@@ -27,6 +27,7 @@ export type PetTrigger =
   | "interrupted"
   | "idle"
   | "petting"
+  | "overpet"
   | "level-up"
   // clock + calendar
   | "night"
@@ -132,6 +133,9 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   interrupted: { priority: "info", cooldownMs: 60_000 },
   idle: { priority: "flavor", cooldownMs: 900_000 },
   petting: { priority: "info", cooldownMs: 20_000 },
+  // The spam-click complaint — short cooldown so a stubborn clicker gets a
+  // second line once the first bubble has cleared.
+  overpet: { priority: "info", cooldownMs: 15_000 },
   "level-up": { priority: "info", cooldownMs: 0 },
   night: { priority: "flavor", cooldownMs: 1_800_000 },
   "early-morning": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
@@ -197,7 +201,7 @@ export const TRIGGER_PRIORITY: Record<PetTrigger, PetMessagePriority> = Object.f
 // responses to the user (petting, level-up) don't count against it.
 const GLOBAL_WINDOW_MS = 600_000;
 const GLOBAL_MAX = 6;
-const BUCKET_EXEMPT: ReadonlySet<PetTrigger> = new Set(["petting", "level-up"]);
+const BUCKET_EXEMPT: ReadonlySet<PetTrigger> = new Set(["petting", "overpet", "level-up"]);
 
 export function createRateLimiter(now: () => number = Date.now): {
   allow(trigger: PetTrigger, key?: string): boolean;
