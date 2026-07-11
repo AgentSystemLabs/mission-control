@@ -25,6 +25,7 @@ import {
   useUserTerminals,
 } from "~/lib/user-terminal-store";
 import { TerminalPanel } from "~/components/views/TerminalPanel";
+import { SessionFileDropZone } from "~/components/views/SessionDropzone";
 import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
@@ -593,6 +594,7 @@ function Shell() {
         }}
       >
         <Outlet />
+        <SessionFileDropZone />
       </div>
     );
   }
@@ -726,6 +728,7 @@ function Shell() {
           }}
         />
         <VoiceController />
+        <SessionFileDropZone />
       </div>
       <ConfirmDialog
         open={!!closeIntentTarget}

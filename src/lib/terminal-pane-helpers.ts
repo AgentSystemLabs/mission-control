@@ -25,7 +25,7 @@ type TerminalLike = {
 const TERMINAL_IMAGE_MIME = /^image\/(?:png|jpe?g|webp|gif|bmp)$/i;
 const TERMINAL_IMAGE_EXT = /\.(?:png|jpe?g|webp|gif|bmp)$/i;
 const TERMINAL_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
-const TERMINAL_DROP_MAX_FILES = 10;
+export const TERMINAL_DROP_MAX_FILES = 10;
 
 const ANSI_ESCAPE_REGEX =
   /(?:\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[PX^_].*?(?:\x1b\\)|\x1b[@-_])/g;
@@ -152,7 +152,12 @@ function isTerminalImageFile(file: File): boolean {
   return TERMINAL_IMAGE_MIME.test(file.type) || TERMINAL_IMAGE_EXT.test(file.name);
 }
 
-async function resolveTerminalDropPath(electron: Electron, file: File): Promise<string | null> {
+/** Absolute path for a dropped File: the native path when the OS provides one,
+ *  else (browser-originated image drags) the payload saved to a temp PNG. */
+export async function resolveTerminalDropPath(
+  electron: Electron,
+  file: File,
+): Promise<string | null> {
   const nativePath = electron.getPathForFile(file);
   if (nativePath) return nativePath;
   if (!isTerminalImageFile(file)) return null;
