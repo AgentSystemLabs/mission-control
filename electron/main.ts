@@ -202,6 +202,10 @@ augmentProcessEnv();
 let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let runtimePort: number | null = null;
+// The appIsFullScreen ipcMain handler is registered from inside createWindow but
+// closes over the module `win`, so it must register exactly once — createWindow
+// re-runs on macOS `activate`.
+let appIsFullScreenHandlerRegistered = false;
 
 function windowBackgroundFile(): string {
   return path.join(missionControlUserDataDir, ".window-bg");
@@ -228,6 +232,63 @@ function persistWindowBackground(color: string): void {
   } catch {
     /* non-fatal: only costs a wrong-colored first frame next launch */
   }
+}
+
+/** Relative luminance test so the splash/error chrome contrasts with the
+ *  persisted theme background (dark by default, but flat-light users persist a
+ *  near-white frame). Input is always a validated `#rrggbb`. */
+function isLightBackground(hex: string): boolean {
+  const m = /^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(hex);
+  if (!m) return false;
+  const [r, g, b] = [1, 2, 3].map((i) => parseInt(m[i]!, 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 140;
+}
+
+function htmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Themed spinner shown the instant the window appears, while the bundled server
+ * boots. A data: URL so it needs no server; it loads before the IPC allow-list
+ * is armed, so its frame sits on a deny-all origin (it makes no IPC calls).
+ */
+function startupSplashDataUrl(background: string): string {
+  const light = isLightBackground(background);
+  const track = light ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.16)";
+  const head = light ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.72)";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;background:${background};overflow:hidden;}
+body{display:flex;align-items:center;justify-content:center;}
+.s{width:34px;height:34px;border-radius:50%;border:3px solid ${track};border-top-color:${head};animation:mc-spin .8s linear infinite;}
+@keyframes mc-spin{to{transform:rotate(360deg);}}
+</style></head><body><div class="s"></div></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+/**
+ * Fallback page shown in the already-visible window when the server never
+ * comes up, instead of quitting silently. The message is HTML-escaped.
+ */
+function startupErrorDataUrl(background: string, message: string): string {
+  const light = isLightBackground(background);
+  const fg = light ? "#1a1a1a" : "#e6e6e6";
+  const heading = light ? "#000" : "#fff";
+  const codeFg = light ? "#b3261e" : "#ff9b9b";
+  const codeBg = light ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;background:${background};color:${fg};font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;}
+body{display:flex;align-items:center;justify-content:center;padding:32px;box-sizing:border-box;}
+.w{max-width:520px;}
+h1{font-size:15px;font-weight:600;margin:0 0 12px;color:${heading};text-align:center;}
+pre{white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;color:${codeFg};background:${codeBg};border-radius:8px;padding:12px;margin:0;}
+</style></head><body><div class="w"><h1>Mission Control failed to start</h1><pre>${htmlEscape(message)}</pre></div></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
 function pickPort(startPort: number): Promise<number> {
@@ -926,6 +987,19 @@ function configurePermissionHandlers(): void {
 }
 
 async function startProductionServer(): Promise<string> {
+  // macOS `activate` re-runs createWindow after the last window was closed, but
+  // the bundled server process outlives the window. Reuse the running one
+  // instead of spawning a second server on a fresh port — that also keeps the
+  // renderer origin stable so the IPC allow-list re-arm is a no-op.
+  if (
+    serverProcess &&
+    serverProcess.exitCode === null &&
+    !serverProcess.killed &&
+    runtimePort !== null
+  ) {
+    return `http://${devServerHost}:${runtimePort}`;
+  }
+
   const portFile = path.join(missionControlUserDataDir, ".port");
   // Dev mode writes the fixed Vite port to the shared .port file for hook
   // wiring. A packaged app must not reuse that port or it blocks `pnpm dev`.
@@ -965,17 +1039,37 @@ async function startProductionServer(): Promise<string> {
     stdio: ["ignore", "inherit", "inherit"],
   });
 
+  // Rejects if the server process dies before it ever answers HTTP, so the
+  // caller can show the error page instead of hanging on waitForHttp until its
+  // 30s timeout.
+  let serverBooted = false;
+  let rejectEarlyExit: ((err: Error) => void) | null = null;
+  const earlyExit = new Promise<never>((_resolve, reject) => {
+    rejectEarlyExit = reject;
+  });
+
   serverProcess.on("exit", (code) => {
-    // On a normal quit `before-quit` kills the server, so an exit here is
-    // expected — stay silent to avoid a shutdown-time stdout write (EIO). Only
-    // an unexpected death is worth logging, and it triggers app teardown.
+    if (!serverBooted) {
+      rejectEarlyExit?.(
+        new Error(`Mission Control server exited with code ${code} before it finished starting.`),
+      );
+      return;
+    }
+    // Post-boot: on a normal quit `before-quit` kills the server, so an exit
+    // here is expected — stay silent to avoid a shutdown-time stdout write
+    // (EIO). Only an unexpected death is worth logging, and it triggers teardown.
     if (!(app as any).isQuiting) {
       console.error(`[server] exited with code ${code}`);
       app.quit();
     }
   });
 
-  await waitForHttp(origin);
+  const httpReady = waitForHttp(origin);
+  // If earlyExit wins the race, waitForHttp keeps polling until its own timeout;
+  // swallow that late rejection so it can't surface as an unhandled rejection.
+  httpReady.catch(() => {});
+  await Promise.race([httpReady, earlyExit]);
+  serverBooted = true;
   return origin;
 }
 
@@ -1001,18 +1095,19 @@ async function createWindow() {
     );
   }
 
-  const url = isDev ? await bootDevServer() : await startProductionServer();
-  // The renderer is only ever loaded from this URL — pin the IPC allow-list
-  // to that origin so a future renderer compromise (XSS in markdown, agent
-  // output rendered as HTML, an added webview) can't reach the IPC surface.
-  configureIpcAllowedOrigins([url]);
+  // Read the persisted theme background once — the window frame, the startup
+  // splash, and the error page all paint on it.
+  const backgroundColor = readPersistedWindowBackground();
 
+  // Build the window BEFORE booting the server so the splash can paint the
+  // instant Chromium is ready; the server boot (waitForHttp) is the long pole
+  // that used to block the first visible frame entirely.
   win = new BrowserWindow({
     width: MAIN_WINDOW_DEFAULT_WIDTH,
     height: MAIN_WINDOW_DEFAULT_HEIGHT,
     minWidth: MAIN_WINDOW_MIN_WIDTH,
     minHeight: MAIN_WINDOW_MIN_HEIGHT,
-    backgroundColor: readPersistedWindowBackground(),
+    backgroundColor,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition:
       process.platform === "darwin" ? TRAFFIC_LIGHT_POSITION_DARWIN : undefined,
@@ -1071,11 +1166,40 @@ async function createWindow() {
 
   win.on("enter-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, true));
   win.on("leave-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, false));
-  safeHandle(IPC.appIsFullScreen, () => win?.isFullScreen() ?? false);
+  // Registered once: the handler closes over the module `win`, and createWindow
+  // re-runs on macOS `activate` — re-registering the same ipcMain channel throws.
+  if (!appIsFullScreenHandlerRegistered) {
+    appIsFullScreenHandlerRegistered = true;
+    safeHandle(IPC.appIsFullScreen, () => win?.isFullScreen() ?? false);
+  }
   win.webContents.setWindowOpenHandler(({ url }) => {
     void openExternalHttpUrl(url);
     return { action: "deny" };
   });
+
+  // Production only: paint a themed spinner splash the instant the window shows,
+  // while the bundled server boots. Dev keeps its exact prior behavior (window
+  // stays hidden until the dev server answers) so the dev loop is byte-identical.
+  // The splash is a data: URL loaded before the IPC allow-list is armed — its
+  // frame sits on a deny-all origin, which is safe (it issues no IPC).
+  if (!isDev) await win.loadURL(startupSplashDataUrl(backgroundColor));
+
+  let url: string;
+  try {
+    url = isDev ? await bootDevServer() : await startProductionServer();
+  } catch (err) {
+    log.error("main.server-boot-failed", { error: errMsg(err) });
+    if (win && !win.isDestroyed()) {
+      await win.loadURL(startupErrorDataUrl(backgroundColor, errMsg(err)));
+    }
+    return;
+  }
+
+  // The renderer is only ever loaded from this URL — pin the IPC allow-list to
+  // that origin (MUST be before the real loadURL) so a future renderer
+  // compromise (XSS in markdown, agent output rendered as HTML, an added
+  // webview) can't reach the IPC surface.
+  configureIpcAllowedOrigins([url]);
 
   // A file dropped outside any drop target would otherwise navigate the
   // window to its file:// URL, blowing away the app shell.

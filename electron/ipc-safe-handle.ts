@@ -24,15 +24,21 @@ function toOrigin(maybeUrl: string | null | undefined): string | null {
 }
 
 export function configureIpcAllowedOrigins(urls: readonly string[]): void {
-  // One-shot: the trust root for the entire IPC surface should not be
-  // re-armable from elsewhere in the codebase. Tests reset via the helper below.
-  if (allowedOrigins.size > 0) {
-    throw new Error("ipc-safe-handle: allowed origins already configured");
-  }
   const set = new Set<string>();
   for (const raw of urls) {
     const origin = toOrigin(raw);
     if (origin) set.add(origin);
+  }
+  // Near-one-shot: the trust root for the entire IPC surface should not be
+  // re-pointable from elsewhere in the codebase. Re-arming with the IDENTICAL
+  // origin set is a no-op — createWindow re-runs on macOS `app.on('activate')`
+  // (dock click after the last window was closed) and re-arms with the same
+  // origin — but any DIFFERENT set still throws. Tests reset via the helper below.
+  if (allowedOrigins.size > 0) {
+    const same =
+      set.size === allowedOrigins.size && [...set].every((origin) => allowedOrigins.has(origin));
+    if (same) return;
+    throw new Error("ipc-safe-handle: allowed origins already configured");
   }
   allowedOrigins = set;
 }
