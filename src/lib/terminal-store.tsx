@@ -115,8 +115,15 @@ type Ctx = {
   /** Run an arbitrary command in the active PTY for this task. */
   runIn: (taskId: string, command: string) => Promise<void>;
   /** Paste an image path into a session's terminal (no submit) and make it
-   *  active + focused — the drop target of the native screenshot flow. */
-  attachImageToSession: (taskId: string, imagePath: string) => Promise<void>;
+   *  active + focused — the drop target of the native screenshot flow. The
+   *  receiving grid cell also pulses so the landing spot is visible; pass
+   *  `flash: false` from surfaces where the user aimed at the cell themselves
+   *  (drag-and-drop) and the cue would be noise. */
+  attachImageToSession: (
+    taskId: string,
+    imagePath: string,
+    opts?: { flash?: boolean },
+  ) => Promise<void>;
   /** Persistent, per-project screenshot history (oldest first), backed by the
    *  PNGs on disk and restored across app restarts. The on-demand history strip
    *  filters this by project and renders it newest-first. */
@@ -143,10 +150,14 @@ type Ctx = {
   toggleGridView: () => void;
   /** Latest request to spotlight a session cell in the grid (e.g. from a
    *  notification's "Open"). The nonce makes repeated requests for the same
-   *  task retrigger the grid's focus effect. */
-  gridFocusRequest: { taskId: string; nonce: number } | null;
-  /** Ask the grid to scroll to, highlight, and focus a session's cell. */
-  focusGridSession: (taskId: string) => void;
+   *  task retrigger the grid's focus effect. `flash` asks the grid to also
+   *  play the attach pulse on the cell. */
+  gridFocusRequest: { taskId: string; nonce: number; flash?: boolean } | null;
+  /** Ask the grid to scroll to, highlight, and focus a session's cell.
+   *  `flash` additionally pulses the cell — the "your image landed here" cue
+   *  after a screenshot attach, which the static spotlight ring can't convey
+   *  when the target is already the focused cell. */
+  focusGridSession: (taskId: string, opts?: { flash?: boolean }) => void;
   /** Claim a spotlight request for handling. True exactly once per nonce: the
    *  request state lingers after the grid's focus effect runs, and the grid
    *  remounts across project switches, so without this a stale request would
@@ -633,12 +644,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, [screenshots, pendingScreenshotIds]);
 
   const [gridFocusRequest, setGridFocusRequest] = useState<
-    { taskId: string; nonce: number } | null
+    { taskId: string; nonce: number; flash?: boolean } | null
   >(null);
   const gridFocusNonceRef = useRef(0);
-  const focusGridSession = useCallback((taskId: string) => {
+  const focusGridSession = useCallback((taskId: string, opts?: { flash?: boolean }) => {
     gridFocusNonceRef.current += 1;
-    setGridFocusRequest({ taskId, nonce: gridFocusNonceRef.current });
+    setGridFocusRequest({ taskId, nonce: gridFocusNonceRef.current, flash: opts?.flash });
   }, []);
   // Highest nonce the grid has handled. Kept here (not in the grid) so it
   // survives the grid unmounting/remounting across project switches — a ref,
@@ -1155,7 +1166,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   );
 
   const attachImageToSession = useCallback(
-    async (taskId: string, imagePath: string) => {
+    async (taskId: string, imagePath: string, opts?: { flash?: boolean }) => {
       const target = sessionsRef.current.find((p) => p.taskId === taskId);
       if (!target?.ptyId) return;
       const electron = getElectron();
@@ -1178,7 +1189,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         }
       }
       setActiveSession(target.project, taskId);
-      focusGridSession(taskId);
+      // Flash the receiving cell: with many sessions open (and click-to-attach
+      // targeting the *active* one, which already wears the focus ring) the
+      // plain spotlight gives no visible cue about where the image landed.
+      // Drag-drop callers opt out — the user aimed at the cell themselves.
+      focusGridSession(taskId, { flash: opts?.flash !== false });
     },
     [setActiveSession, focusGridSession]
   );

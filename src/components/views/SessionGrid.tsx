@@ -377,6 +377,11 @@ type GridCellProps = {
   /** True when this session is pinned — tints the cell frame so pinned panes
    *  stand out from the rest of the grid. */
   isPinned: boolean;
+  /** Nonce of a pending "image attached" pulse on this cell (null = none).
+   *  Keys the overlay element so back-to-back attaches restart the animation. */
+  flashNonce: number | null;
+  /** Drop the pulse overlay once its animation finishes. */
+  onFlashDone: (taskId: string) => void;
 };
 
 /** One grid cell (its terminal), memoized so a per-grid state change — moving
@@ -402,6 +407,8 @@ const GridCell = memo(function GridCell({
   onTogglePin,
   pinBusy,
   isPinned,
+  flashNonce,
+  onFlashDone,
 }: GridCellProps) {
   return (
     <CardFrame
@@ -471,6 +478,14 @@ const GridCell = memo(function GridCell({
           />
         )}
       </div>
+      {flashNonce !== null && (
+        <div
+          key={flashNonce}
+          className="mc-cell-attach-flash"
+          aria-hidden
+          onAnimationEnd={() => onFlashDone(session.taskId)}
+        />
+      )}
     </CardFrame>
   );
 });
@@ -672,6 +687,23 @@ export function SessionGrid({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   // Task whose cell is momentarily spotlighted after a notification "Open".
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  // Cell pulsing the "image landed here" flash after a screenshot attach. The
+  // nonce keys the overlay so a repeat attach to the same cell replays it; the
+  // overlay clears itself on animationend.
+  const [attachFlash, setAttachFlash] = useState<{ taskId: string; nonce: number } | null>(null);
+  const handleFlashDone = useCallback((taskId: string) => {
+    setAttachFlash((prev) => (prev?.taskId === taskId ? null : prev));
+  }, []);
+  // A focus request already pending when the grid mounts was posted from a
+  // gridless surface (focus mode, single-panel view). It still gets consumed —
+  // scroll + caret as usual — but its attach flash is stale by the time the
+  // grid appears, so only requests raised after this nonce may pulse.
+  const preMountFlashNonceRef = useRef(gridFocusRequest?.nonce ?? 0);
+  // Live mirror of `expandedTaskId` for the spotlight effect: reading the state
+  // there would add it to the effect's deps, and the dep-change cleanup would
+  // kill the in-flight focus poll on every expand/collapse.
+  const expandedTaskIdRef = useRef<string | null>(null);
+  expandedTaskIdRef.current = expandedTaskId;
   // Keyboard-navigation mode (Cmd/Ctrl+G): the selected cell, or null when off.
   const [navTaskId, setNavTaskId] = useState<string | null>(null);
   const [pendingArchive, setPendingArchive] = useState<OpenTerminal | null>(null);
@@ -917,6 +949,19 @@ export function SessionGrid({
     setNavTaskId(null);
     setExpandedTaskId((prev) => (prev && prev !== taskId ? null : prev));
     setFocusedTaskId(taskId);
+    // An attach-flagged request also pulses the cell: the static spotlight ring
+    // is invisible when the target is already the focused cell — exactly the
+    // click-to-attach case, which targets the active session. Skip the pulse
+    // where it can't inform: the receiving cell is expanded (it fills the grid,
+    // there's nothing to pick it out from), or the request predates this grid
+    // (attached from focus mode / single view — stale by the time cells exist).
+    if (
+      gridFocusRequest.flash &&
+      gridFocusRequest.nonce > preMountFlashNonceRef.current &&
+      expandedTaskIdRef.current !== taskId
+    ) {
+      setAttachFlash({ taskId, nonce: gridFocusRequest.nonce });
+    }
 
     // A brand-new session's pane can mount a few frames late (progressive mount)
     // and then rebuild once as it persists (awaitingCreate → persisted), which
@@ -2128,6 +2173,10 @@ export function SessionGrid({
                   onTogglePin={onTogglePinned ? handleTogglePin : undefined}
                   pinBusy={pinningTaskIds?.has(session.taskId) ?? false}
                   isPinned={pinnedTaskIds?.has(session.taskId) ?? false}
+                  flashNonce={
+                    attachFlash?.taskId === session.taskId ? attachFlash.nonce : null
+                  }
+                  onFlashDone={handleFlashDone}
                 />
               );
             })}

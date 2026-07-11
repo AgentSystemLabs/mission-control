@@ -161,7 +161,8 @@ function ScreenshotStackCard({
         const taskId = sessionHostAtPoint(e.clientX, e.clientY)?.getAttribute("data-task-id");
         // Dropped on empty space: keep the thumbnail for another try.
         if (!taskId) return;
-        void attachImageToSession(taskId, shot.path);
+        // No landing pulse: the drop gesture itself pointed at the cell.
+        void attachImageToSession(taskId, shot.path, { flash: false });
         playScreenshotDrop();
         dismiss();
         return;

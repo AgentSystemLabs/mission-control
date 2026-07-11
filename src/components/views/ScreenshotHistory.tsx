@@ -148,7 +148,8 @@ function ScreenshotHistoryCard({
         const taskId = sessionHostAtPoint(e.clientX, e.clientY)?.getAttribute("data-task-id");
         // Dropped on empty space: no-op, the screenshot stays in history.
         if (!taskId) return;
-        void attachImageToSession(taskId, shot.path);
+        // No landing pulse: the drop gesture itself pointed at the cell.
+        void attachImageToSession(taskId, shot.path, { flash: false });
         playScreenshotDrop();
         // No removal — history persists after attaching.
         return;
