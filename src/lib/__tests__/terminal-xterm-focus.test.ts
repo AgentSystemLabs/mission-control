@@ -41,4 +41,11 @@ describe("isXtermWithinScope", () => {
     expect(isXtermWithinScope(gridEl, "[data-session-terminal-panel]")).toBe(false);
     expect(isXtermWithinScope(gridEl, "[data-user-terminal-panel]")).toBe(false);
   });
+
+  it("matches an xterm nested inside the focus-mode terminal, so Cmd/Ctrl +/- zooms the session", () => {
+    const el = fakeElement([".xterm", "[data-focus-terminal-panel]"]);
+    expect(isXtermWithinScope(el, "[data-focus-terminal-panel]")).toBe(true);
+    // stays distinct from the other terminal scopes
+    expect(isXtermWithinScope(el, "[data-grid-cell]")).toBe(false);
+  });
 });

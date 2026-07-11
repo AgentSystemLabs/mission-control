@@ -13,7 +13,6 @@ import { openExternal } from "~/lib/open-external";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { TaskColumn } from "~/components/views/TaskColumn";
-import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { NewAgentDialog } from "~/components/views/NewAgentDialog";
 import {
   CodexHooksNoticeDialog,
@@ -27,6 +26,7 @@ import { FileEditorDialog } from "~/components/views/FileEditorDialog";
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
+import { GridLayoutButton } from "~/components/views/GridLayoutButton";
 import { SessionGrid } from "~/components/views/SessionGrid";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { enterFocusSession } from "~/lib/focus-session";
@@ -544,6 +544,8 @@ function ProjectPage() {
   );
   const groups = groupsQuery.data ?? [];
   useApiToken();
+  const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView, setOpen: setDiffViewOpen } =
+    useGitDiffViewOpen(id);
   const {
     data: gitStatusData,
     error: gitStatusError,
@@ -551,6 +553,9 @@ function ProjectPage() {
     refetch: refetchGitStatus,
   } = useGitStatus(id, selectedWorktreeId, {
     enabled: projectPathUsable,
+    // The toolbar chip only needs a lazy cadence; file-level surfaces (the
+    // open diff view) poll fast via their own observer on the same key.
+    fastPoll: showDiffView,
   });
   const gitStatus = gitStatusIsError ? undefined : gitStatusData;
   const gitUnavailable = projectPathReady && gitStatusIsError;
@@ -561,8 +566,6 @@ function ProjectPage() {
     branch: gitStatus?.branch,
     projectPathUsable,
   });
-  const { open: showDiffView, toggle: toggleDiffView, close: closeDiffView, setOpen: setDiffViewOpen } =
-    useGitDiffViewOpen(id);
   // onToggleDiffView is defined lower down (after `terminals`) because opening
   // the diff must also drop out of the grid view — see the comment there.
   useEffect(() => {
@@ -2952,6 +2955,12 @@ function ProjectPage() {
               onChange={setSessionView}
             />
           )}
+          {/* Grid arrangement (row width lock + sort) edits the persisted Active
+           * layout, so it hides in the read-through Pinned tab — mirrors how the
+           * grid disables reorder/resize there. */}
+          {showGrid && !showPinned && (
+            <GridLayoutButton scopeKey={selectedScopeKey} />
+          )}
           <div
             style={{
               display: "inline-flex",
@@ -3255,8 +3264,6 @@ function ProjectPage() {
         </>
         )}
       </CardFrame>
-
-      {screenshotSupported && <ScreenshotThumbnail projectId={id} />}
 
       <GitDiffModal
         open={showDiffView}

@@ -18,6 +18,7 @@ export const HOTKEY_ACTIONS = [
   "session.cycleNext",
   "session.cyclePrev",
   "session.gridNavigate",
+  "session.gridLayout",
   "session.gridView",
   "session.focusMode",
   "dialog.submit",
@@ -75,6 +76,11 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
     label: "Navigate session grid",
     description:
       "In the full-width grid view, start keyboard navigation — arrow keys move the selection between open sessions and Enter opens the highlighted one (Esc cancels).",
+  },
+  "session.gridLayout": {
+    label: "Grid layout quick picker",
+    description:
+      "In grid view, open a quick popup to set how many sessions each row holds (←/→ step the width live, 1–6 or A jump directly) and sort the grid by agent (↑/↓ + Enter).",
   },
   "session.gridView": {
     label: "Toggle grid view",

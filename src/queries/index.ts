@@ -235,6 +235,7 @@ export const claudeUsageLimitsQueryOptions = (enabled: boolean) =>
     enabled,
     staleTime: CLAUDE_USAGE_LIMITS_STALE_MS,
     refetchInterval: enabled ? CLAUDE_USAGE_LIMITS_REFETCH_MS : false,
+    refetchIntervalInBackground: false,
   });
 
 const PROVIDER_USAGE_STALE_MS = 20_000;
@@ -251,6 +252,7 @@ export const providerUsageQueryOptions = (
     enabled: enabled && providerIds.length > 0,
     staleTime: PROVIDER_USAGE_STALE_MS,
     refetchInterval: enabled ? PROVIDER_USAGE_REFETCH_MS : false,
+    refetchIntervalInBackground: false,
   });
 };
 
@@ -304,6 +306,21 @@ export const useProject = (id: string) => useQuery(projectQueryOptions(id));
 export const useGroups = () => useQuery(groupsQueryOptions());
 export const useTasks = (projectId: string, worktreeId?: string | null, scopeId?: string | null) =>
   useQuery(tasksQueryOptions(projectId, worktreeId, scopeId));
+/**
+ * Per-row task subscription. Structural sharing keeps an unchanged row's
+ * identity stable across list refetches, so a consumer (e.g. a terminal pane
+ * header) re-renders only when ITS task changes — not on every task:* event.
+ */
+export const useTask = (
+  projectId: string,
+  worktreeId: string | null | undefined,
+  scopeId: string | null | undefined,
+  taskId: string,
+) =>
+  useQuery({
+    ...tasksQueryOptions(projectId, worktreeId, scopeId),
+    select: (tasks) => tasks.find((t) => t.id === taskId),
+  });
 export const useWorktrees = (projectId: string) => useQuery(worktreesQueryOptions(projectId));
 export const useSettings = () => useQuery(settingsQueryOptions());
 export const useApiToken = () => useQuery(apiTokenQueryOptions());

@@ -70,16 +70,32 @@ export function getDb() {
   // One-time parity migration to the multi-sandbox model (idempotent; reads the
   // legacy sandbox.* app_settings). Runs after schema is guaranteed present.
   migrateMultiSandbox(_sqlite);
-  // PTYs are owned by the Electron process and are not restored across app
-  // restarts. Any task left as running after a restart is stale.
-  _sqlite
-    .prepare("UPDATE tasks SET status = 'disconnected', updated_at = ? WHERE status = 'running'")
-    .run(Date.now());
+  reconcileStaleSessionsOnBoot(_sqlite);
   // Launch-spawned user terminals are session-only: their PTY died with the
   // previous app process, so the persisted row would respawn the command on
   // next visit and look like the run "survived" the restart. Drop them.
   _sqlite.prepare("DELETE FROM user_terminals WHERE start_command IS NOT NULL").run();
   return _db;
+}
+
+/**
+ * PTYs are owned by the Electron process and are not restored across app
+ * restarts, so on every launch any task the app left mid-session has a dead PTY
+ * now: one that was actively `running`, or one blocked waiting on the user
+ * (`needs-input`). Left as-is, a `needs-input` row never transitions on its own
+ * — its agent is gone — so it would linger forever, keep the project's "needs
+ * input" dot lit, and hold the Mission Pet in its alert mood across restarts.
+ * Reset both to `disconnected` (click-to-resume) so the stale state is cleared.
+ *
+ * `ready` is deliberately left alone: it means "created but never launched", so
+ * there is no dead session to reconcile.
+ */
+export function reconcileStaleSessionsOnBoot(sqlite: Database.Database): void {
+  sqlite
+    .prepare(
+      "UPDATE tasks SET status = 'disconnected', updated_at = ? WHERE status IN ('running', 'needs-input')"
+    )
+    .run(Date.now());
 }
 
 /**

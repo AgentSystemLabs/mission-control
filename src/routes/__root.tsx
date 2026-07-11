@@ -12,6 +12,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { getPinnedProjects } from "~/lib/pinned-project-order";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
+import { screenshotSupported } from "~/lib/screenshot";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -19,6 +20,7 @@ import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
+import { usePowerSaveController } from "~/lib/power-save";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import { Z_INDEX } from "~/lib/z-index";
 import {
@@ -26,9 +28,11 @@ import {
   useUserTerminals,
 } from "~/lib/user-terminal-store";
 import { TerminalPanel } from "~/components/views/TerminalPanel";
+import { SessionFileDropZone } from "~/components/views/SessionDropzone";
 import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
+import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
@@ -48,6 +52,17 @@ import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
 } from "~/lib/accent-colors";
+import { applyTerminalAppearance } from "~/lib/terminal-appearance";
+import {
+  applyInterfaceFontFamily,
+  applyInterfaceFontScale,
+} from "~/lib/interface-appearance";
+import {
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  DEFAULT_TERMINAL_LETTER_SPACING,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+} from "~/shared/terminal-appearance";
 import {
   SettingsPanel,
   SETTINGS_PANEL_IDS,
@@ -66,6 +81,8 @@ import { SessionNotificationsButton } from "~/components/views/SessionNotificati
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
+import { usePetController } from "~/lib/pet/use-pet-controller";
+import { PetWidget } from "~/components/pet/PetWidget";
 import {
   mergeAppNotificationLists,
   useDiagramReadyNotificationList,
@@ -133,13 +150,16 @@ var tt=localStorage.getItem(${JSON.stringify(SURFACE_TINT_CACHE_KEY)});
 if(tt==="subtle"||tt==="vivid"||tt==="intense"){d.setAttribute("data-tint",tt);}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
-  Object.fromEntries(ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb }])),
+  Object.fromEntries(
+    ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb, k: c.onAccent }]),
+  ),
 )};
 var a=localStorage.getItem(${JSON.stringify(ACCENT_CACHE_KEY)});
 var c=a&&t[a]?t[a]:t[${JSON.stringify(DEFAULT_ACCENT_COLOR)}];
 if(c&&a&&a!==${JSON.stringify(DEFAULT_ACCENT_COLOR)}){
   var s=d.style;
   s.setProperty("--accent",c.v);
+  s.setProperty("--mc-on-accent",c.k);
   s.setProperty("--accent-dim","rgba("+c.r+", 0.18)");
   s.setProperty("--accent-faint","rgba("+c.r+", 0.1)");
   s.setProperty("--accent-border","rgba("+c.r+", 0.38)");
@@ -284,6 +304,9 @@ function Shell() {
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
   }, [router]);
   useTheme();
+  // Battery saver: drives the data-power-save root attribute from the
+  // powerMonitor signal + setting (see src/lib/power-save.ts).
+  usePowerSaveController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable
@@ -326,6 +349,9 @@ function Shell() {
     : null;
 
   useNavigationSwipe();
+  // Above the focus-mode early return on purpose: the pet keeps folding events
+  // (and accruing XP) while focus mode hides the widget itself.
+  usePetController();
   const sessionNotifications = useSessionFinishNotifications();
   const diagramNotificationList = useDiagramReadyNotificationList();
   const appNotifications = useMemo(
@@ -350,6 +376,11 @@ function Shell() {
   // Focused Session Mode strips the whole shell: the /focus route renders the
   // only visible chrome, and the Electron window is a small floating card.
   const focusActive = isFocusPath(path);
+  // The captured-screenshot stack is mounted here (not in the per-project route)
+  // so it survives navigation between projects; the focus branch below returns
+  // before it, so the focus window keeps its own scoped stack. macOS + Electron
+  // only, mirroring the project route's gate.
+  const screenshotsSupported = useMemo(() => screenshotSupported(), []);
 
   // Boot resync guard: if the main process says the window is still in focus
   // mode but we didn't land on a focus path (e.g. state drifted across a dev
@@ -418,6 +449,47 @@ function Shell() {
   useEffect(() => {
     applyAccentColor(settings?.accentColor ?? DEFAULT_ACCENT_COLOR);
   }, [settings?.accentColor]);
+
+  // Appearance settings land as inline CSS vars on <html>; live terminals
+  // pick them up through watchTerminalColorScheme's style observer.
+  const terminalFontFamily = settings?.terminalFontFamily ?? null;
+  const terminalFontWeight =
+    settings?.terminalFontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT;
+  const terminalFontWeightBold =
+    settings?.terminalFontWeightBold ?? DEFAULT_TERMINAL_FONT_WEIGHT_BOLD;
+  const terminalLineHeight =
+    settings?.terminalLineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT;
+  const terminalLetterSpacing =
+    settings?.terminalLetterSpacing ?? DEFAULT_TERMINAL_LETTER_SPACING;
+  useEffect(() => {
+    if (!settings) return;
+    applyTerminalAppearance({
+      fontFamily: terminalFontFamily,
+      fontWeight: terminalFontWeight,
+      fontWeightBold: terminalFontWeightBold,
+      lineHeight: terminalLineHeight,
+      letterSpacing: terminalLetterSpacing,
+    });
+  }, [
+    settings,
+    terminalFontFamily,
+    terminalFontWeight,
+    terminalFontWeightBold,
+    terminalLineHeight,
+    terminalLetterSpacing,
+  ]);
+
+  const interfaceFontFamily = settings?.interfaceFontFamily ?? null;
+  useEffect(() => {
+    if (!settings) return;
+    applyInterfaceFontFamily(interfaceFontFamily);
+  }, [settings, interfaceFontFamily]);
+
+  const interfaceFontScale = settings?.interfaceFontScale;
+  useEffect(() => {
+    if (interfaceFontScale === undefined) return;
+    applyInterfaceFontScale(interfaceFontScale);
+  }, [interfaceFontScale]);
 
   const launchOverlayEnabled = settings?.launchOverlayEnabled;
   const themeStyle = settings?.themeStyle;
@@ -594,12 +666,14 @@ function Shell() {
         }}
       >
         <Outlet />
+        <SessionFileDropZone />
       </div>
     );
   }
 
   return (
     <>
+      {screenshotsSupported && <ScreenshotThumbnail projectId={projectId} />}
       <div id="root">
         <div
           aria-hidden
@@ -717,7 +791,8 @@ function Shell() {
           position="bottom-right"
           theme="dark"
           closeButton
-          offset={16}
+          // Toasts stack above the Mission Pet when it occupies the corner.
+          offset={settings?.petEnabled ?? true ? { bottom: 132, right: 16 } : 16}
           style={{ zIndex: Z_INDEX.toast }}
           icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{
@@ -728,6 +803,8 @@ function Shell() {
           }}
         />
         <VoiceController />
+        <PetWidget />
+        <SessionFileDropZone />
       </div>
       <ConfirmDialog
         open={!!closeIntentTarget}

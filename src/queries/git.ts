@@ -6,11 +6,18 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { api } from "~/lib/api";
+import { isPowerSaveActive } from "~/lib/power-save";
 import { fetchGitStatus, fetchGitDiff } from "~/lib/project-git";
 import type { GitStatus } from "~/shared/git-status";
 import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
 
-const GIT_STATUS_REFETCH_INTERVAL_MS = 3000;
+// Each status tick spawns several git processes on the server (status,
+// branch, ahead-count), so the idle cadence is deliberately lazy — mutations
+// (stage/commit/push/checkout) invalidate immediately, and surfaces that
+// actively display file-level changes opt into the fast cadence.
+const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
+const GIT_STATUS_FAST_REFETCH_INTERVAL_MS = 3_000;
+const GIT_STATUS_POWER_SAVE_REFETCH_INTERVAL_MS = 30_000;
 
 export const gitKeys = {
   all: (projectId: string, worktreeId?: string | null) =>
@@ -26,7 +33,7 @@ export const gitKeys = {
 export const gitStatusQueryOptions = (
   projectId: string,
   worktreeId?: string | null,
-  opts: { enabled?: boolean; sandboxRepoPath?: string } = {},
+  opts: { enabled?: boolean; sandboxRepoPath?: string; fastPoll?: boolean } = {},
 ) =>
   queryOptions({
     queryKey: gitKeys.status(projectId, worktreeId),
@@ -35,7 +42,16 @@ export const gitStatusQueryOptions = (
     queryFn: () => fetchGitStatus(projectId, worktreeId, opts.sandboxRepoPath),
     enabled: opts.enabled ?? true,
     placeholderData: keepPreviousData,
-    refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
+    // With several observers on the same key, TanStack polls at the smallest
+    // interval — so an open diff/changes surface wins over the idle route.
+    // Evaluated per tick (function form) so battery saver applies live; a
+    // surface the user is actively reading keeps the fast cadence regardless.
+    refetchInterval: () =>
+      opts.fastPoll
+        ? GIT_STATUS_FAST_REFETCH_INTERVAL_MS
+        : isPowerSaveActive()
+          ? GIT_STATUS_POWER_SAVE_REFETCH_INTERVAL_MS
+          : GIT_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
 
@@ -70,7 +86,7 @@ export const gitDiffQueryOptions = (
 export const useGitStatus = (
   projectId: string,
   worktreeId?: string | null,
-  opts: { enabled?: boolean; sandboxRepoPath?: string } = {},
+  opts: { enabled?: boolean; sandboxRepoPath?: string; fastPoll?: boolean } = {},
 ) => useQuery(gitStatusQueryOptions(projectId, worktreeId, opts));
 
 export const useGitBranches = (
@@ -108,6 +124,9 @@ export function useUnstageFiles(projectId: string, worktreeId?: string | null) {
   });
 }
 
+// The "commit" / "push" / "create-pr" mutationKey suffixes below are watched
+// by the Mission Pet (src/lib/pet/use-pet-controller.ts) via the MutationCache
+// for its shipping reactions — keep them in sync if renamed.
 export function useGitCommit(projectId: string, worktreeId?: string | null) {
   const invalidate = useInvalidateGit(projectId, worktreeId);
   return useMutation({

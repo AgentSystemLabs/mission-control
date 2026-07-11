@@ -61,6 +61,21 @@ import {
   normalizeTerminalZoomLevel,
 } from "~/shared/terminal-zoom";
 import {
+  DEFAULT_INTERFACE_FONT_SCALE,
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  FONT_FAMILY_MAX_LENGTH,
+  INTERFACE_FONT_SCALES,
+  TERMINAL_FONT_WEIGHTS,
+  TERMINAL_LETTER_SPACINGS,
+  TERMINAL_LINE_HEIGHTS,
+  normalizeFontFamily,
+  normalizeInterfaceFontScale,
+  normalizeTerminalFontWeight,
+  normalizeTerminalLetterSpacing,
+  normalizeTerminalLineHeight,
+} from "~/shared/terminal-appearance";
+import {
   emptyVoiceCommandAliases,
   normalizeVoiceCommandAliases,
   type VoiceCommandAliases,
@@ -71,6 +86,7 @@ import {
 } from "~/shared/session-header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
+import { normalizePetState } from "~/shared/pet";
 import { json, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -97,6 +113,17 @@ const CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY = "claude_usage_limits_show_weekly";
 const PROVIDER_USAGE_ENABLED_KEY = "provider_usage_enabled";
 const PROVIDER_USAGE_IDS_KEY = "provider_usage_ids";
 const AGENT_LAUNCHER_CONFIG_KEY = "agent_launcher_config";
+const PET_ENABLED_KEY = "pet_enabled";
+const PET_MESSAGES_ENABLED_KEY = "pet_messages_enabled";
+const PET_SOUNDS_ENABLED_KEY = "pet_sounds_enabled";
+const PET_STATE_KEY = "pet_state";
+const TERMINAL_FONT_FAMILY_KEY = "terminal_font_family";
+const TERMINAL_FONT_WEIGHT_KEY = "terminal_font_weight";
+const TERMINAL_FONT_WEIGHT_BOLD_KEY = "terminal_font_weight_bold";
+const TERMINAL_LINE_HEIGHT_KEY = "terminal_line_height";
+const TERMINAL_LETTER_SPACING_KEY = "terminal_letter_spacing";
+const INTERFACE_FONT_FAMILY_KEY = "interface_font_family";
+const INTERFACE_FONT_SCALE_KEY = "interface_font_scale";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
   try {
@@ -136,6 +163,7 @@ const updateSettingsBody = z
     themeStyle: z.string().refine(isThemeStyle, { message: "invalid themeStyle" }),
     surfaceTint: z.string().refine(isSurfaceTint, { message: "invalid surfaceTint" }),
     mouseGradientDisabled: z.boolean(),
+    batterySaverEnabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
     notificationSoundEnabled: z.boolean(),
@@ -156,6 +184,42 @@ const updateSettingsBody = z
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
     terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
+    terminalFontFamily: z
+      .string()
+      .max(FONT_FAMILY_MAX_LENGTH)
+      .nullable()
+      .transform((value) => normalizeFontFamily(value)),
+    terminalFontWeight: z
+      .number()
+      .refine((value) => (TERMINAL_FONT_WEIGHTS as readonly number[]).includes(value), {
+        message: "invalid terminalFontWeight",
+      }),
+    terminalFontWeightBold: z
+      .number()
+      .refine((value) => (TERMINAL_FONT_WEIGHTS as readonly number[]).includes(value), {
+        message: "invalid terminalFontWeightBold",
+      }),
+    terminalLineHeight: z
+      .number()
+      .refine((value) => (TERMINAL_LINE_HEIGHTS as readonly number[]).includes(value), {
+        message: "invalid terminalLineHeight",
+      }),
+    terminalLetterSpacing: z
+      .number()
+      .refine(
+        (value) => (TERMINAL_LETTER_SPACINGS as readonly number[]).includes(value),
+        { message: "invalid terminalLetterSpacing" },
+      ),
+    interfaceFontFamily: z
+      .string()
+      .max(FONT_FAMILY_MAX_LENGTH)
+      .nullable()
+      .transform((value) => normalizeFontFamily(value)),
+    interfaceFontScale: z
+      .number()
+      .refine((value) => (INTERFACE_FONT_SCALES as readonly number[]).includes(value), {
+        message: "invalid interfaceFontScale",
+      }),
     sessionHeaderButtons: z
       .record(z.string(), z.boolean())
       .transform(
@@ -188,6 +252,11 @@ const updateSettingsBody = z
     recallCodeGraphEnabled: z.boolean(),
     recallProactiveRecallEnabled: z.boolean(),
     recallLearnedToastEnabled: z.boolean(),
+    petEnabled: z.boolean(),
+    petMessagesEnabled: z.boolean(),
+    petSoundsEnabled: z.boolean(),
+    // Garbage in → null → the stored state is cleared (pet re-rolls on next boot).
+    petState: z.unknown().transform((value) => normalizePetState(value)),
   })
   .partial();
 
@@ -271,6 +340,41 @@ function getTerminalZoomLevelSetting() {
   return normalizeTerminalZoomLevel(getSetting(TERMINAL_ZOOM_LEVEL_KEY)) ?? DEFAULT_TERMINAL_ZOOM_LEVEL;
 }
 
+function getTerminalFontFamilySetting(): string | null {
+  return normalizeFontFamily(getSetting(TERMINAL_FONT_FAMILY_KEY));
+}
+
+function getTerminalFontWeightSetting() {
+  return normalizeTerminalFontWeight(
+    getSetting(TERMINAL_FONT_WEIGHT_KEY),
+    DEFAULT_TERMINAL_FONT_WEIGHT,
+  );
+}
+
+function getTerminalFontWeightBoldSetting() {
+  return normalizeTerminalFontWeight(
+    getSetting(TERMINAL_FONT_WEIGHT_BOLD_KEY),
+    DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  );
+}
+
+function getTerminalLineHeightSetting() {
+  return normalizeTerminalLineHeight(getSetting(TERMINAL_LINE_HEIGHT_KEY));
+}
+
+function getTerminalLetterSpacingSetting() {
+  return normalizeTerminalLetterSpacing(getSetting(TERMINAL_LETTER_SPACING_KEY));
+}
+
+function getInterfaceFontFamilySetting(): string | null {
+  return normalizeFontFamily(getSetting(INTERFACE_FONT_FAMILY_KEY));
+}
+
+function getInterfaceFontScaleSetting() {
+  const raw = getSetting(INTERFACE_FONT_SCALE_KEY);
+  return raw === null ? DEFAULT_INTERFACE_FONT_SCALE : normalizeInterfaceFontScale(raw);
+}
+
 function getSessionHeaderButtonsSetting(): SessionHeaderButtonVisibility {
   return normalizeSessionHeaderButtonVisibility(
     safeJsonParse<unknown>(getSetting(SESSION_HEADER_BUTTONS_KEY), null),
@@ -312,6 +416,9 @@ function settingsPayload() {
       getSetting(THEME_STYLE_KEY) !== null ||
       getSetting(MINIMAL_THEME_KEY) !== null,
     mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
+    // On battery, the renderer freezes decorative animations and slows idle
+    // polls (see src/lib/power-save.ts). Default on.
+    batterySaverEnabled: getBooleanSetting("battery_saver_enabled", true),
     sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
       "session_finish_os_notification_enabled",
@@ -337,6 +444,13 @@ function settingsPayload() {
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
     terminalZoomLevel: getTerminalZoomLevelSetting(),
+    terminalFontFamily: getTerminalFontFamilySetting(),
+    terminalFontWeight: getTerminalFontWeightSetting(),
+    terminalFontWeightBold: getTerminalFontWeightBoldSetting(),
+    terminalLineHeight: getTerminalLineHeightSetting(),
+    terminalLetterSpacing: getTerminalLetterSpacingSetting(),
+    interfaceFontFamily: getInterfaceFontFamilySetting(),
+    interfaceFontScale: getInterfaceFontScaleSetting(),
     sessionHeaderButtons: getSessionHeaderButtonsSetting(),
     defaultAgent: getDefaultAgentSetting(),
     defaultModel: getDefaultModelSetting(),
@@ -355,6 +469,10 @@ function settingsPayload() {
     providerUsageEnabled: getProviderUsageEnabledSetting(),
     providerUsageIds: getProviderUsageIdsSetting(),
     agentLauncherConfig: getAgentLauncherConfigSetting(),
+    petEnabled: getBooleanSetting(PET_ENABLED_KEY, true),
+    petMessagesEnabled: getBooleanSetting(PET_MESSAGES_ENABLED_KEY, true),
+    petSoundsEnabled: getBooleanSetting(PET_SOUNDS_ENABLED_KEY, false),
+    petState: normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null)),
     ...recallSettingsPayload(),
   };
 }
@@ -426,6 +544,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.mouseGradientDisabled !== undefined) {
     setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
+  }
+  if (body.batterySaverEnabled !== undefined) {
+    setBooleanSetting("battery_saver_enabled", body.batterySaverEnabled);
   }
   if (body.sessionFinishToastEnabled !== undefined) {
     setBooleanSetting("session_finish_toast_enabled", body.sessionFinishToastEnabled);
@@ -502,6 +623,35 @@ export async function update(request: Request): Promise<Response> {
   if (body.terminalZoomLevel !== undefined) {
     setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
   }
+  if (body.terminalFontFamily !== undefined) {
+    if (body.terminalFontFamily === null) {
+      deleteSetting(TERMINAL_FONT_FAMILY_KEY);
+    } else {
+      setSetting(TERMINAL_FONT_FAMILY_KEY, body.terminalFontFamily);
+    }
+  }
+  if (body.terminalFontWeight !== undefined) {
+    setSetting(TERMINAL_FONT_WEIGHT_KEY, String(body.terminalFontWeight));
+  }
+  if (body.terminalFontWeightBold !== undefined) {
+    setSetting(TERMINAL_FONT_WEIGHT_BOLD_KEY, String(body.terminalFontWeightBold));
+  }
+  if (body.terminalLineHeight !== undefined) {
+    setSetting(TERMINAL_LINE_HEIGHT_KEY, String(body.terminalLineHeight));
+  }
+  if (body.terminalLetterSpacing !== undefined) {
+    setSetting(TERMINAL_LETTER_SPACING_KEY, String(body.terminalLetterSpacing));
+  }
+  if (body.interfaceFontFamily !== undefined) {
+    if (body.interfaceFontFamily === null) {
+      deleteSetting(INTERFACE_FONT_FAMILY_KEY);
+    } else {
+      setSetting(INTERFACE_FONT_FAMILY_KEY, body.interfaceFontFamily);
+    }
+  }
+  if (body.interfaceFontScale !== undefined) {
+    setSetting(INTERFACE_FONT_SCALE_KEY, String(body.interfaceFontScale));
+  }
   if (body.sessionHeaderButtons !== undefined) {
     setSetting(SESSION_HEADER_BUTTONS_KEY, JSON.stringify(body.sessionHeaderButtons));
   }
@@ -565,6 +715,22 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.agentLauncherConfig !== undefined) {
     setSetting(AGENT_LAUNCHER_CONFIG_KEY, JSON.stringify(body.agentLauncherConfig));
+  }
+  if (body.petEnabled !== undefined) {
+    setBooleanSetting(PET_ENABLED_KEY, body.petEnabled);
+  }
+  if (body.petMessagesEnabled !== undefined) {
+    setBooleanSetting(PET_MESSAGES_ENABLED_KEY, body.petMessagesEnabled);
+  }
+  if (body.petSoundsEnabled !== undefined) {
+    setBooleanSetting(PET_SOUNDS_ENABLED_KEY, body.petSoundsEnabled);
+  }
+  if (body.petState !== undefined) {
+    if (body.petState === null) {
+      deleteSetting(PET_STATE_KEY);
+    } else {
+      setSetting(PET_STATE_KEY, JSON.stringify(body.petState));
+    }
   }
   writeRecallSettings({
     enabled: body.recallEnabled,

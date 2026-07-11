@@ -24,6 +24,13 @@ import {
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import {
+  DEFAULT_INTERFACE_FONT_SCALE,
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  DEFAULT_TERMINAL_LETTER_SPACING,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+} from "~/shared/terminal-appearance";
 import { DEFAULT_SURFACE_TINT } from "~/shared/surface-tint";
 import {
   readOsNotificationPermission,
@@ -34,11 +41,23 @@ import { isElectron } from "~/lib/electron";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
+import {
+  DEFAULT_PET_NAME,
+  isPetSpeciesUnlocked,
+  PET_MAX_LEVEL,
+  PET_SIZE_IDS,
+  PET_SPECIES_IDS,
+  type PetSizeId,
+} from "~/shared/pet";
+import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
+import { PET_SPECIES } from "~/components/pet/PetSprite";
+import { TextField } from "~/components/ui/TextField";
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const mouseGradientEnabled = !(settings?.mouseGradientDisabled ?? false);
+  const batterySaverEnabled = settings?.batterySaverEnabled ?? true;
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
@@ -52,6 +71,15 @@ export function GeneralSettingsPage() {
   );
   const [permission, setPermission] = useState<OsNotificationPermission>("default");
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
+  const petEnabled = settings?.petEnabled ?? true;
+  const petMessagesEnabled = settings?.petMessagesEnabled ?? true;
+  const petSoundsEnabled = settings?.petSoundsEnabled ?? false;
+  const petState = settings?.petState ?? null;
+  const [petNameDraft, setPetNameDraft] = useState("");
+
+  useEffect(() => {
+    setPetNameDraft(petState?.name ?? "");
+  }, [petState?.name]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -78,12 +106,16 @@ export function GeneralSettingsPage() {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
+        | "petEnabled"
+        | "petMessagesEnabled"
+        | "petSoundsEnabled"
       >
     >,
   ): AppSettings => ({
@@ -94,6 +126,7 @@ export function GeneralSettingsPage() {
     minimalTheme: settings?.minimalTheme ?? false,
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
+    batterySaverEnabled,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
     notificationSoundEnabled,
@@ -106,6 +139,15 @@ export function GeneralSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
+    terminalFontFamily: settings?.terminalFontFamily ?? null,
+    terminalFontWeight: settings?.terminalFontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT,
+    terminalFontWeightBold:
+      settings?.terminalFontWeightBold ?? DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+    terminalLineHeight: settings?.terminalLineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT,
+    terminalLetterSpacing:
+      settings?.terminalLetterSpacing ?? DEFAULT_TERMINAL_LETTER_SPACING,
+    interfaceFontFamily: settings?.interfaceFontFamily ?? null,
+    interfaceFontScale: settings?.interfaceFontScale ?? DEFAULT_INTERFACE_FONT_SCALE,
     sessionHeaderButtons:
       settings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
     defaultAgent: settings?.defaultAgent ?? "claude-code",
@@ -134,6 +176,10 @@ export function GeneralSettingsPage() {
     recallCodeGraphEnabled: settings?.recallCodeGraphEnabled ?? true,
     recallProactiveRecallEnabled: settings?.recallProactiveRecallEnabled ?? true,
     recallLearnedToastEnabled: settings?.recallLearnedToastEnabled ?? true,
+    petEnabled: settings?.petEnabled ?? true,
+    petMessagesEnabled: settings?.petMessagesEnabled ?? true,
+    petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,
     ...patch,
@@ -145,12 +191,16 @@ export function GeneralSettingsPage() {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
         | "launchOverlayEnabled"
         | "automaticUpdateDownloadsEnabled"
         | "automaticUpdateInstallOnQuitEnabled"
+        | "petEnabled"
+        | "petMessagesEnabled"
+        | "petSoundsEnabled"
       >
     >,
   ) => {
@@ -168,6 +218,10 @@ export function GeneralSettingsPage() {
 
   const setMouseGradientEnabled = async (enabled: boolean) => {
     await updateSettings({ mouseGradientDisabled: !enabled });
+  };
+
+  const setBatterySaverEnabled = async (enabled: boolean) => {
+    await updateSettings({ batterySaverEnabled: enabled });
   };
 
   const setToastEnabled = async (sessionFinishToastEnabled: boolean) => {
@@ -279,6 +333,15 @@ export function GeneralSettingsPage() {
             label="Enable"
           />
         </Field>
+        <Field label="Battery saver">
+          <ToggleRow
+            title="Reduce energy use on battery"
+            description="On battery power, decorative animations freeze, terminal cursors stop blinking, and idle refresh slows down."
+            checked={batterySaverEnabled}
+            onChange={setBatterySaverEnabled}
+            label="Enable"
+          />
+        </Field>
         <Field label="Startup loading screen">
           <ToggleRow
             title="Show launch intro"
@@ -359,9 +422,201 @@ export function GeneralSettingsPage() {
           )}
         </Field>
       </SettingsSection>
+      <SettingsSection
+        title="Mission Pet"
+        subtitle="An ambient companion that reacts to real agent activity — no care chores, your work is its life."
+      >
+        <Field label="Pet">
+          <ToggleRow
+            title="Show pet"
+            description="A small companion lives in the bottom-right corner: it works when your agents work, celebrates finished sessions, and hops when one is blocked on you."
+            checked={petEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petEnabled: enabled })}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Speech bubbles">
+          <ToggleRow
+            title="Commentary"
+            description="One-liners on real events — finished sessions, ships, blocked agents. Rate-limited so it stays charming."
+            checked={petMessagesEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petMessagesEnabled: enabled })}
+            disabled={!petEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Sounds">
+          <ToggleRow
+            title="Level-up chime"
+            description="A soft chime when the pet levels up. XP comes only from finished sessions, ships, and PRs."
+            checked={petSoundsEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petSoundsEnabled: enabled })}
+            disabled={!petEnabled}
+            label="Enable"
+          />
+        </Field>
+        {petEnabled && petState ? (
+          <Field label="Species">
+            <PetSpeciesPicker />
+          </Field>
+        ) : null}
+        {petEnabled && petState ? (
+          <Field label="Size">
+            <PetSizePicker />
+          </Field>
+        ) : null}
+        {petEnabled && petState ? (
+          <Field label="Identity">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <TextField
+                label="Name"
+                value={petNameDraft}
+                onChange={setPetNameDraft}
+                onBlur={() => {
+                  // Rename through the store so the live pet updates and the
+                  // controller persists it (a direct settings write would be
+                  // overwritten by the store's next debounced save).
+                  if (petNameDraft.trim()) petRename(petNameDraft);
+                  else setPetNameDraft(petState.name);
+                }}
+                placeholder={DEFAULT_PET_NAME}
+                spellCheck={false}
+              />
+              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                Lv {petState.level} · {petState.xp} XP
+                {petState.prestige > 0 ? ` · ★${petState.prestige} molt${petState.prestige === 1 ? "" : "s"}` : ""}
+                {petState.level >= PET_MAX_LEVEL
+                  ? " · max level — right-click the pet to molt"
+                  : ""}
+                <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span>
+                Snark {petState.personality.snark} · Wisdom {petState.personality.wisdom} ·
+                Chaos {petState.personality.chaos} · Zen {petState.personality.zen}
+                <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span>
+                personality is rolled once per install
+              </div>
+            </div>
+          </Field>
+        ) : null}
+      </SettingsSection>
       <AboutSection />
       <ReloadSection />
     </>
+  );
+}
+
+/**
+ * Live species picker — each option renders that species' actual idle sprite,
+ * so what you pick is exactly what wanders the corner. Selection goes through
+ * the pet store (petSetSpecies) so the live pet switches instantly and the
+ * controller persists it with the rest of the identity.
+ */
+function PetSpeciesPicker() {
+  const pet = usePetSnapshot();
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }} role="radiogroup" aria-label="Pet species">
+      {PET_SPECIES_IDS.map((id) => {
+        const species = PET_SPECIES[id];
+        const selected = pet.species === id;
+        // Ember is earned, not picked: locked until the pet has molted.
+        const locked = !isPetSpeciesUnlocked(id, pet.prestige);
+        return (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            aria-disabled={locked || undefined}
+            disabled={locked}
+            title={
+              locked
+                ? "Unlocks after your pet molts — reach level 10, then choose “Molt” on its stats card"
+                : undefined
+            }
+            onClick={() => petSetSpecies(id)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              padding: "8px 10px 6px",
+              borderRadius: 10,
+              cursor: locked ? "not-allowed" : "pointer",
+              background: selected
+                ? "color-mix(in srgb, var(--accent) 14%, transparent)"
+                : "transparent",
+              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+              color: selected ? "var(--text)" : "var(--text-dim)",
+              opacity: locked ? 0.45 : 1,
+            }}
+          >
+            <span style={{ filter: locked ? "grayscale(1)" : undefined, lineHeight: 0 }}>
+              <species.Sprite mood="idle" intensity={1} night={false} level={1} size={44} />
+            </span>
+            <span style={{ fontSize: 11 }}>{locked ? `${species.label} 🔒` : species.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const PET_SIZE_LABELS: Record<PetSizeId, string> = { s: "Small", m: "Medium", l: "Large" };
+/** Preview sprite sizes — the same S/M/L ratio the corner widget renders at. */
+const PET_SIZE_PREVIEW_PX: Record<PetSizeId, number> = { s: 34, m: 44, l: 56 };
+
+/**
+ * Size picker in the species-picker style: each option shows the current
+ * species' idle sprite at that size's scale. Selection goes through the pet
+ * store (petSetSize) so the live pet resizes instantly and the controller
+ * persists it with the rest of the identity.
+ */
+function PetSizePicker() {
+  const pet = usePetSnapshot();
+  const species = PET_SPECIES[pet.species];
+  return (
+    <div
+      style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+      role="radiogroup"
+      aria-label="Pet size"
+    >
+      {PET_SIZE_IDS.map((id) => {
+        const selected = pet.size === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => petSetSize(id)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 2,
+              minWidth: 76,
+              padding: "8px 10px 6px",
+              borderRadius: 10,
+              cursor: "pointer",
+              background: selected
+                ? "color-mix(in srgb, var(--accent) 14%, transparent)"
+                : "transparent",
+              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+              color: selected ? "var(--text)" : "var(--text-dim)",
+            }}
+          >
+            <species.Sprite
+              mood="idle"
+              intensity={1}
+              night={false}
+              level={1}
+              size={PET_SIZE_PREVIEW_PX[id]}
+            />
+            <span style={{ fontSize: 11 }}>{PET_SIZE_LABELS[id]}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

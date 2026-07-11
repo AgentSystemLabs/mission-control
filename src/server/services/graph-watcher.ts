@@ -92,8 +92,9 @@ function onFsEvent(projectId: string, filename: string): void {
 function shouldIgnore(filename: string): boolean {
   const segments = filename.split(/[\\/]/).filter(Boolean);
   if (segments.some((s) => IGNORE_DIRS.has(s))) return true;
-  const base = segments[segments.length - 1] ?? "";
-  if (!base || base.startsWith(".")) return true;
+  // Any dot-segment along the path (not just the basename) is non-source —
+  // .worktree/<branch>/src/foo.ts must not re-index the parent project.
+  if (segments.length === 0 || segments.some((s) => s.startsWith("."))) return true;
   return !isGraphSourceFile(filename);
 }
 

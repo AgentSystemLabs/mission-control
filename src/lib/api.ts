@@ -37,6 +37,12 @@ import type {
   SelectedWorktreeByProject,
 } from "~/shared/ui-preferences";
 import type { TerminalZoomLevel } from "~/shared/terminal-zoom";
+import type {
+  InterfaceFontScale,
+  TerminalFontWeight,
+  TerminalLetterSpacing,
+  TerminalLineHeight,
+} from "~/shared/terminal-appearance";
 import type { ThemeStyle } from "~/shared/theme-style";
 import type { SurfaceTint } from "~/shared/surface-tint";
 import type {
@@ -59,6 +65,7 @@ import type {
 } from "~/shared/code-graph";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
+import type { PetPersistentState } from "~/shared/pet";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 import { HTTP_NO_CONTENT } from "~/shared/http-status";
 
@@ -82,6 +89,8 @@ export type AppSettings = {
    */
   themeChosen: boolean;
   mouseGradientDisabled: boolean;
+  /** Reduce energy use on battery: freeze decorative animations, slow idle polls. */
+  batterySaverEnabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   /** Ding when a session-finish or diagram-ready notification arrives. */
@@ -107,6 +116,20 @@ export type AppSettings = {
   commitCli: CommitCli | null;
   /** Default terminal text zoom (-2 … +2). Per-pane overrides live in localStorage. */
   terminalZoomLevel: TerminalZoomLevel;
+  /** Terminal font face; `null` = the active theme's bundled face. */
+  terminalFontFamily: string | null;
+  /** CSS weight for regular terminal text (100–900). */
+  terminalFontWeight: TerminalFontWeight;
+  /** CSS weight for bold terminal text (100–900). */
+  terminalFontWeightBold: TerminalFontWeight;
+  /** Terminal row height multiplier (1.0–1.8; 1.0 keeps ANSI art flush). */
+  terminalLineHeight: TerminalLineHeight;
+  /** Extra px between terminal characters (0–3). */
+  terminalLetterSpacing: TerminalLetterSpacing;
+  /** UI font face; `null` = the active theme's UI face. */
+  interfaceFontFamily: string | null;
+  /** Window zoom factor scaling all UI elements (1 = 100%). */
+  interfaceFontScale: InterfaceFontScale;
   /**
    * Which discretionary session-pane header buttons are shown. Zoom is hidden
    * by default (it's driven by keyboard shortcuts); the rest default on.
@@ -176,6 +199,15 @@ export type AppSettings = {
   recallProactiveRecallEnabled: boolean;
   /** Whether the "Learned N memories from this session" toast fires after auto-capture. */
   recallLearnedToastEnabled: boolean;
+  /**
+   * Mission Pet — the ambient corner companion that reacts to real agent
+   * activity. `petState` holds its persistent identity (name, XP, personality);
+   * null until the pet first hydrates (or after a reset).
+   */
+  petEnabled: boolean;
+  petMessagesEnabled: boolean;
+  petSoundsEnabled: boolean;
+  petState: PetPersistentState | null;
 };
 
 export class ApiError extends Error {
@@ -596,6 +628,7 @@ export const api = {
         | "surfaceTint"
         | "minimalTheme"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -611,6 +644,13 @@ export const api = {
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"
+        | "terminalFontFamily"
+        | "terminalFontWeight"
+        | "terminalFontWeightBold"
+        | "terminalLineHeight"
+        | "terminalLetterSpacing"
+        | "interfaceFontFamily"
+        | "interfaceFontScale"
         | "sessionHeaderButtons"
         | "defaultAgent"
         | "defaultModel"
@@ -636,6 +676,10 @@ export const api = {
         | "recallCodeGraphEnabled"
         | "recallProactiveRecallEnabled"
         | "recallLearnedToastEnabled"
+        | "petEnabled"
+        | "petMessagesEnabled"
+        | "petSoundsEnabled"
+        | "petState"
       >
     >,
   ) =>

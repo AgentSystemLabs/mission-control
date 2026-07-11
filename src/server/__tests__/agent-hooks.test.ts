@@ -255,4 +255,57 @@ describe("agent hook installation", () => {
     expect(source).toContain("session.idle");
     expect(source).toContain("MissionControlStatus");
   });
+
+  const readClaudePostToolUse = (cwd: string) => {
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude", "settings.local.json"), "utf8"),
+    ) as {
+      hooks: Record<
+        string,
+        Array<{ matcher?: string; hooks?: Array<{ command?: string }>; _mcManaged?: boolean }>
+      >;
+    };
+    return settings.hooks.PostToolUse ?? [];
+  };
+
+  it("installs the throttled pet mid-run PostToolUse hook when the pet is enabled", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd, undefined, { petEnabled: true });
+
+    const groups = readClaudePostToolUse(cwd);
+    // AskUserQuestion (status) group is preserved alongside the pet group.
+    expect(groups.some((g) => g.matcher === "AskUserQuestion")).toBe(true);
+    const pet = groups.find((g) => g.matcher === "Bash|Write|Edit");
+    expect(pet?._mcManaged).toBe(true);
+    const command = pet?.hooks?.[0]?.command ?? "";
+    expect(command).toContain("hookEvent=PostToolUse");
+    // The in-command cooldown gate — no per-tool POST.
+    expect(command).toContain("mc-tool-react.$MC_TASK_ID");
+  });
+
+  it("omits the pet hook when the pet is disabled, keeping AskUserQuestion", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd, undefined, { petEnabled: false });
+
+    const groups = readClaudePostToolUse(cwd);
+    expect(groups.some((g) => g.matcher === "AskUserQuestion")).toBe(true);
+    expect(groups.some((g) => g.matcher === "Bash|Write|Edit")).toBe(false);
+    const raw = fs.readFileSync(path.join(cwd, ".claude", "settings.local.json"), "utf8");
+    expect(raw).not.toContain("mc-tool-react");
+  });
+
+  it("strips a previously-installed pet hook when the pet is turned off", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd, undefined, { petEnabled: true });
+    expect(readClaudePostToolUse(cwd).some((g) => g.matcher === "Bash|Write|Edit")).toBe(true);
+
+    // Next spawn with the pet off rebuilds managed groups without it.
+    installAgentHooks("claude-code", cwd, undefined, { petEnabled: false });
+    const groups = readClaudePostToolUse(cwd);
+    expect(groups.some((g) => g.matcher === "Bash|Write|Edit")).toBe(false);
+    expect(groups.some((g) => g.matcher === "AskUserQuestion")).toBe(true);
+  });
 });

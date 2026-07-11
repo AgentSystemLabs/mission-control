@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { getAppTheme } from "./app-theme";
 import { installAgentHooks } from "./agent-hooks";
+import { getBooleanAppSetting } from "./app-settings-store";
 import { installAgentMemoryBrief } from "./agent-memory-brief";
 import { ensureStatuslineTap } from "../src/shared/statusline-tap";
 import { ensureDiagramSkillForAgent } from "./ensure-diagram-skill";
@@ -14,6 +15,7 @@ import { ensureRecallMcpForAgent, removeRecallMcpForAgent } from "./ensure-recal
 import { fetchRecallEnabled } from "./recall-enabled";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
+import { PtyOutputBatcher } from "./pty-output-batch";
 import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import {
   resolveShell,
@@ -83,6 +85,9 @@ type Pty = {
   mcEnv?: PtyHookEnv;
   scanTail: string;
   lastInterruptAt: number;
+  /** Last renderer write (user keystroke) — marks the PTY as interactive so
+   *  battery saver never throttles typing echo (see pty-output-batch.ts). */
+  lastInputAt: number;
 };
 
 type PtyBufferChunk = {
@@ -93,6 +98,8 @@ type PtyBufferChunk = {
 
 const INTERRUPT_COOLDOWN_MS = 2000;
 const SCAN_TAIL_MAX = 256;
+/** How long after a keystroke a PTY still counts as interactive. */
+const PTY_INTERACTIVE_WINDOW_MS = 10_000;
 
 const LSOF_PROBE_TIMEOUT_MS = 2_000;
 // Time we'll wait for SIGTERM to take before escalating to SIGKILL (port-kill)
@@ -418,6 +425,18 @@ export function registerPtyHandlers(
   getProtectedPorts: () => Iterable<number | null | undefined> = () => [],
 ) {
   ensureClaudeShiftEnterBinding();
+  // The interrupt/hook scans run on the coalesced batch: the rolling scan tail
+  // sees the same byte stream it did per-chunk, detection latency is at most
+  // one flush interval.
+  const outputBatcher = new PtyOutputBatcher((ptyId, data, seq) => {
+    const p = ptys.get(ptyId);
+    if (p) {
+      const haystack = scanTail(p, data);
+      scanForInterrupt(p, haystack);
+      scanForCodexHookReview(p, haystack);
+    }
+    send(getWin, IPC.ptyData, { ptyId, data, seq });
+  });
   safeHandle(
     IPC.ptySpawn,
     async (_evt, opts: SpawnRequest) => {
@@ -481,7 +500,12 @@ export function registerPtyHandlers(
       // Use the canonical cwd from the plan, not the original request, so a
       // symlink-swap race between validation and spawn can't move us into a
       // post-validation target outside the project root.
-      installAgentHooks(opts.agent, plan.cwd);
+      // Install the pet's mid-run tool hook only while the pet is enabled.
+      // Read synchronously from the same app_settings DB the server owns; when
+      // off, the hook is omitted (and any previously-installed one is stripped
+      // by the rebuild inside installAgentHooks). Default true = pet-on default.
+      const petEnabled = getBooleanAppSetting(app.getPath("userData"), "pet_enabled", true);
+      installAgentHooks(opts.agent, plan.cwd, undefined, { petEnabled });
       const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       if (plan.mode === "agent") {
         ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
@@ -586,6 +610,7 @@ export function registerPtyHandlers(
         mcEnv: mcEnv ?? undefined,
         scanTail: "",
         lastInterruptAt: 0,
+        lastInputAt: 0,
       };
       ptys.set(id, p);
 
@@ -630,10 +655,7 @@ export function registerPtyHandlers(
 
       proc.onData((data: string) => {
         const seq = appendBuffer(p, data);
-        const haystack = scanTail(p, data);
-        scanForInterrupt(p, haystack);
-        scanForCodexHookReview(p, haystack);
-        send(getWin, IPC.ptyData, { ptyId: id, data, seq });
+        outputBatcher.push(id, seq, data, Date.now() - p.lastInputAt < PTY_INTERACTIVE_WINDOW_MS);
         if (initialInput) scheduleInitialInput(INITIAL_INPUT_SETTLE_MS);
       });
       // Fallback so the prompt still lands even if the agent emits no output.
@@ -643,6 +665,8 @@ export function registerPtyHandlers(
       proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
         if (initialInputTimer) clearTimeout(initialInputTimer);
         if (initialInputFallback) clearTimeout(initialInputFallback);
+        // Final output must land before the exit event or it's lost.
+        outputBatcher.flush(id);
         send(getWin, IPC.ptyExit, { ptyId: id, exitCode, signal });
         ptys.delete(id);
       });
@@ -655,6 +679,7 @@ export function registerPtyHandlers(
   safeHandle(IPC.ptyWrite, (_evt, { ptyId, data }: { ptyId: string; data: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return false;
+    p.lastInputAt = Date.now();
     p.proc.write(data);
     return true;
   }, ipcMain);
@@ -738,6 +763,10 @@ export function registerPtyHandlers(
   safeHandle(IPC.ptyReplay, (_evt, { ptyId }: { ptyId: string }) => {
     const p = ptys.get(ptyId);
     if (!p) return { data: "", nextSeq: 0 };
+    // Deliver pending output as a pre-snapshot message first, so no later
+    // batch ever mixes chunks from both sides of this snapshot (see the
+    // invariant note in pty-output-batch.ts).
+    outputBatcher.flush(ptyId);
     return {
       data: p.buffer.map((chunk) => chunk.data).join(""),
       nextSeq: p.nextSeq,
