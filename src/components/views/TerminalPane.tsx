@@ -465,6 +465,11 @@ export function TerminalPane({
   // latest task status without rebuilding the terminal. Used to re-arm the
   // Cursor/Codex Enter→running fallback after a turn finishes.
   const liveTaskStatusRef = useRef(task.status);
+  // Latest onHide (the header's close button) read from a ref so the once-per-
+  // surface PTY-exit handler can invoke it without rebuilding on every render.
+  // Lets a clean shell exit (typing `exit`) close the pane just like the X.
+  const onHideRef = useRef(onHide);
+  onHideRef.current = onHide;
   // When a sandbox project's repo isn't cloned into the container yet, offer to
   // clone it (remote detected from the host project) instead of opening empty.
   const [cloneOffer, setCloneOffer] = useState<{ remote: string; slug: string } | null>(null);
@@ -1027,6 +1032,13 @@ export function TerminalPane({
             queryClient.invalidateQueries({ queryKey: queryKeys.project(project.id) }),
             queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
           ]);
+          // A clean shell exit (the user typed `exit`) should dismiss the pane
+          // just like clicking the header's close button — otherwise a dead
+          // "Session finished" cell lingers in the grid. Fire after the status
+          // patch + invalidation so the close path sees a non-running task and
+          // archives without a confirm prompt. Terminated (crashed) sessions
+          // stay put so their output can be inspected.
+          if (status === "finished") onHideRef.current?.();
         })();
       };
 
