@@ -2775,6 +2775,21 @@ function ProjectPage() {
               }}
             >
               <ProjectIcon project={project} size={32} />
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "var(--text)",
+                  letterSpacing: "-0.01em",
+                  maxWidth: 220,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {project.name}
+              </span>
               <Icon
                 name="chevron-down"
                 size={14}
