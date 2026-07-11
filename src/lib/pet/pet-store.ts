@@ -150,6 +150,11 @@ const HOME_SPEED_PX_PER_S = 120;
 const BEHAVIOR_TICK_MS = 6_500;
 const FLOURISH_MS = 1_400;
 
+/** Consecutive failures (ships, interruptions) before the pet calls a streak. */
+const ERROR_STREAK_THRESHOLD = 3;
+/** A win after this many straight failures reads as a comeback. */
+const COMEBACK_MIN_STREAK = 2;
+
 const XP_SESSION_FINISHED = 5;
 const XP_SESSION_FINISHED_LONG = 8;
 const XP_SHIP_SUCCESS = 10;
@@ -245,8 +250,32 @@ let aggregateNeedsInput = 0;
 let aggregateInterrupted = 0;
 // prompt:submitted timestamps, so session:finished can tell a long run.
 const promptStartedAt = new Map<string, number>();
+// Consecutive failures (ship errors, interruptions) with no success between —
+// feeds the error-streak / comeback lines. Resets on any win.
+let failureStreak = 0;
+// Sessions finished since app boot; milestones (5, 10, 20…) get their own line.
+let sessionsFinishedCount = 0;
 
-const limiter = createRateLimiter();
+function isSessionMilestone(count: number): boolean {
+  return count === 5 || (count >= 10 && count % 10 === 0);
+}
+
+/** Note a failure; returns the trigger for it (streak line once it's a pattern). */
+function noteFailure(perFailureTrigger: PetTrigger): PetTrigger {
+  failureStreak += 1;
+  return failureStreak >= ERROR_STREAK_THRESHOLD ? "error-streak" : perFailureTrigger;
+}
+
+/** Note a success; true when it ends a losing streak (say "comeback" instead). */
+function noteSuccess(): boolean {
+  const comeback = failureStreak >= COMEBACK_MIN_STREAK;
+  failureStreak = 0;
+  return comeback;
+}
+
+// Resolve Date.now at call time, not module load, so the limiter follows the
+// same (possibly faked) clock as every other timer in this store.
+const limiter = createRateLimiter(() => Date.now());
 let levelUpCallback: ((level: number) => void) | null = null;
 
 let snapshot: PetSnapshot = buildSnapshot();
@@ -468,6 +497,7 @@ function say(trigger: PetTrigger, opts?: { key?: string }): void {
     name: persistent.name,
     level: persistent.level,
     runningCount: inputs.runningCount,
+    sessionsFinished: sessionsFinishedCount,
   });
   if (!text) return;
   bubble = { id: ++bubbleId, text, priority };
@@ -628,9 +658,15 @@ export function petIngestServerEvent(event: ServerEvent): void {
       const startedAt = taskId ? promptStartedAt.get(taskId) : undefined;
       if (taskId) promptStartedAt.delete(taskId);
       const longRun = startedAt !== undefined && Date.now() - startedAt > LONG_RUN_MS;
+      sessionsFinishedCount += 1;
+      const comeback = noteSuccess();
       petPulse("celebrate");
       grantXp(longRun ? XP_SESSION_FINISHED_LONG : XP_SESSION_FINISHED);
-      say(longRun ? "session-finished-long" : "session-finished");
+      // One bubble per finish — the rarest story wins: ending a losing streak
+      // beats a count milestone beats the routine line.
+      if (comeback) say("comeback");
+      else if (isSessionMilestone(sessionsFinishedCount)) say("session-milestone");
+      else say(longRun ? "session-finished-long" : "session-finished");
       return;
     }
     case "prompt:submitted": {
@@ -660,6 +696,18 @@ export function petIngestServerEvent(event: ServerEvent): void {
       say("graph-indexed");
       return;
     }
+    case "worktree:created": {
+      say("worktree-created");
+      return;
+    }
+    case "project:created": {
+      say("project-created");
+      return;
+    }
+    case "diagram:show": {
+      say("diagram-show");
+      return;
+    }
   }
 }
 
@@ -677,7 +725,7 @@ export function petSetAggregates(counts: {
   if (aggregateNeedsInput === 0 && questionTaskIds.size === 0) alert = null;
   if (interruptedRose) {
     petPulse("startle");
-    say("interrupted");
+    say(noteFailure("interrupted"));
   }
   recompute();
   if (crossedIntoFleet) say("multi-agent");
@@ -697,16 +745,19 @@ export function petSetShipping(active: boolean, phase: "committing" | "pushing" 
 export function petShipResult(kind: "push-success" | "failure" | "pr-created"): void {
   if (!enabled) return;
   switch (kind) {
-    case "push-success":
+    case "push-success": {
+      const comeback = noteSuccess();
       petPulse("celebrate");
       grantXp(XP_SHIP_SUCCESS);
-      say("ship-success");
+      say(comeback ? "comeback" : "ship-success");
       return;
+    }
     case "failure":
       petPulse("startle");
-      say("ship-failure");
+      say(noteFailure("ship-failure"));
       return;
     case "pr-created":
+      noteSuccess();
       petPulse("celebrate");
       grantXp(XP_PR_CREATED);
       say("pr-created");

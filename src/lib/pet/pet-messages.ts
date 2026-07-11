@@ -15,15 +15,21 @@ export type PetTrigger =
   | "greeting"
   | "session-finished"
   | "session-finished-long"
+  | "session-milestone"
   | "needs-input"
   | "ship-committing"
   | "ship-pushing"
   | "ship-success"
   | "ship-failure"
+  | "error-streak"
+  | "comeback"
   | "pr-created"
   | "multi-agent"
   | "memory-learned"
   | "graph-indexed"
+  | "worktree-created"
+  | "project-created"
+  | "diagram-show"
   | "interrupted"
   | "idle"
   | "petting"
@@ -90,6 +96,8 @@ export type PetLineCtx = {
   name: string;
   level: number;
   runningCount: number;
+  /** Sessions finished since app boot — feeds the milestone lines. */
+  sessionsFinished: number;
 };
 
 export type PetLine = {
@@ -121,15 +129,22 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   greeting: { priority: "info", cooldownMs: ONCE_PER_BOOT },
   "session-finished": { priority: "info", cooldownMs: 45_000 },
   "session-finished-long": { priority: "info", cooldownMs: 45_000 },
+  // Fires only at exact milestone counts, so the store gates it, not the clock.
+  "session-milestone": { priority: "info", cooldownMs: 0 },
   "needs-input": { priority: "critical", cooldownMs: 60_000 },
   "ship-committing": { priority: "info", cooldownMs: 30_000 },
   "ship-pushing": { priority: "info", cooldownMs: 30_000 },
   "ship-success": { priority: "info", cooldownMs: 30_000 },
   "ship-failure": { priority: "critical", cooldownMs: 30_000 },
+  "error-streak": { priority: "critical", cooldownMs: 120_000 },
+  comeback: { priority: "info", cooldownMs: 60_000 },
   "pr-created": { priority: "info", cooldownMs: 300_000 },
   "multi-agent": { priority: "flavor", cooldownMs: 600_000 },
   "memory-learned": { priority: "flavor", cooldownMs: 300_000 },
   "graph-indexed": { priority: "flavor", cooldownMs: 300_000 },
+  "worktree-created": { priority: "flavor", cooldownMs: 300_000 },
+  "project-created": { priority: "flavor", cooldownMs: 600_000 },
+  "diagram-show": { priority: "flavor", cooldownMs: 300_000 },
   interrupted: { priority: "info", cooldownMs: 60_000 },
   idle: { priority: "flavor", cooldownMs: 900_000 },
   petting: { priority: "info", cooldownMs: 20_000 },

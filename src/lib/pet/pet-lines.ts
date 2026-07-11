@@ -47,6 +47,22 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "Long run finished. Review it twice — fatigue writes bugs.", weights: { wisdom: 2 } },
     { text: "It's done. I aged three versions waiting.", weights: { chaos: 2 } },
   ],
+  "session-milestone": [
+    { text: (ctx) => `${ctx.sessionsFinished} sessions since boot. The assembly line hums.` },
+    {
+      text: (ctx) => `That's ${ctx.sessionsFinished} finished. Someone's on a roll.`,
+      weights: { snark: 1 },
+    },
+    {
+      text: (ctx) => `${ctx.sessionsFinished} sessions and counting. I'm rationing the confetti.`,
+      weights: { chaos: 2 },
+    },
+    { text: (ctx) => `${ctx.sessionsFinished} done. Steady hands.`, weights: { zen: 2 } },
+    {
+      text: (ctx) => `${ctx.sessionsFinished} sessions. Volume is nice; review them anyway.`,
+      weights: { wisdom: 2 },
+    },
+  ],
   "needs-input": [
     { text: "Agent's blocked on a question. The blocker is you.", weights: { snark: 2 } },
     { text: "Input needed — click me, I'll take you there.", weights: { wisdom: 2 } },
@@ -117,6 +133,24 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "*wobbles anxiously*", weights: { chaos: 1 } },
     { text: "take a moment. then try again.", weights: { zen: 2 } },
   ],
+  // Third consecutive failure (ships, interruptions) with no win in between.
+  "error-streak": [
+    { text: "That's a streak. Not the good kind.", weights: { snark: 2 } },
+    { text: "Third strike. Step back, read the logs, then swing again.", weights: { wisdom: 3 } },
+    { text: "*dons tiny hard hat* everything is on fire. suggest tea.", weights: { chaos: 2 } },
+    { text: "Rough patch. It breaks before it builds.", weights: { zen: 3 } },
+    { text: "Losing streak detected. Smaller steps, same direction.", weights: { wisdom: 2 } },
+    { text: "*holds up a tiny sign: PAUSE*", weights: { zen: 2 } },
+  ],
+  // First success after a rough patch — celebrated harder than a routine win.
+  comeback: [
+    { text: "Back in the green. Told you it was fixable.", weights: { zen: 2 } },
+    { text: "Streak broken. Order restored." },
+    { text: "*exhales* THAT one landed.", weights: { chaos: 2 } },
+    { text: "Recovery arc complete. Very cinematic.", weights: { snark: 2 } },
+    { text: "See? Persistence compiles.", weights: { wisdom: 2 } },
+    { text: "*waves tiny flag* the drought is over!", weights: { chaos: 1 } },
+  ],
   "pr-created": [
     { text: "PR opened. Now we wait for review weather." },
     { text: "Pull request away. May the diff be small.", weights: { wisdom: 1 } },
@@ -132,6 +166,24 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
   "graph-indexed": [
     { text: "Code graph refreshed. I know where everything lives now.", weights: { wisdom: 1 } },
     { text: "Re-indexed. The map matches the territory again.", weights: { zen: 2 } },
+  ],
+  "worktree-created": [
+    { text: "Fresh worktree. Same repo, new sandbox." },
+    { text: "A new worktree. Parallel universes, but for branches.", weights: { chaos: 2 } },
+    { text: "Worktree spun up. Keep your timelines straight.", weights: { wisdom: 1 } },
+    { text: "*plants tiny flag in the new worktree*", weights: { chaos: 1 } },
+  ],
+  "project-created": [
+    { text: "New project on the board. Welcome aboard." },
+    { text: "A new project. Day-one optimism — bottle it.", weights: { snark: 1 } },
+    { text: "*salutes* another repo under watch.", weights: { chaos: 1 } },
+    { text: "Every big codebase started as an empty folder.", weights: { wisdom: 2 } },
+  ],
+  "diagram-show": [
+    { text: "Ooh, a diagram. Boxes and arrows make it official." },
+    { text: "A picture is worth a thousand greps.", weights: { wisdom: 2 } },
+    { text: "*studies the diagram* so THAT'S how it fits together.", weights: { chaos: 1 } },
+    { text: "Architecture rendered. The arrows never lie. Mostly.", weights: { snark: 1 } },
   ],
 
   /* ── ambience ──────────────────────────────────────────────────────── */

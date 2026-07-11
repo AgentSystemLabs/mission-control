@@ -9,6 +9,7 @@ import {
   petInteract,
   petPulse,
   petSetEnabled,
+  petShipResult,
   petStroke,
   petUserActivity,
   resolvePetMood,
@@ -290,5 +291,112 @@ describe("hover/press interactivity", () => {
     expect(snap.bubble!.id).not.toBe(pettingBubble!.id);
     const overpetTexts = PET_LINES.overpet.map((line) => line.text);
     expect(overpetTexts).toContain(snap.bubble!.text);
+  });
+});
+
+describe("failure streaks and recovery", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Next day: module-level cooldowns/pulses from every earlier suite have
+    // safely lapsed, and the failure streak counter is still untouched.
+    vi.setSystemTime(new Date(2026, 6, 12, 9, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("escalates the third straight failure and celebrates the next win as a comeback", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+
+    petShipResult("failure");
+    let snap = getPetSnapshot();
+    expect(PET_LINES["ship-failure"].map((l) => l.text)).toContain(snap.bubble!.text);
+
+    vi.advanceTimersByTime(40_000);
+    petShipResult("failure");
+    vi.advanceTimersByTime(40_000);
+    petShipResult("failure");
+    snap = getPetSnapshot();
+    expect(snap.bubble).not.toBeNull();
+    expect(PET_LINES["error-streak"].map((l) => l.text)).toContain(snap.bubble!.text);
+
+    // The win after the rough patch reads as a recovery, not a routine push.
+    vi.advanceTimersByTime(40_000);
+    petShipResult("push-success");
+    snap = getPetSnapshot();
+    expect(PET_LINES.comeback.map((l) => l.text)).toContain(snap.bubble!.text);
+
+    // Streak reset: a lone failure is back to the per-failure line.
+    vi.advanceTimersByTime(40_000);
+    petShipResult("failure");
+    snap = getPetSnapshot();
+    expect(PET_LINES["ship-failure"].map((l) => l.text)).toContain(snap.bubble!.text);
+  });
+});
+
+describe("session milestones", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 12, 12, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("the fifth finished session gets a milestone line", () => {
+    // Relies on no earlier suite in this file ingesting session:finished — the
+    // module-level counter must sit at 0 when this test starts.
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+
+    for (let i = 1; i <= 4; i++) {
+      petIngestServerEvent({ type: "session:finished", id: `s${i}` } as never);
+      vi.advanceTimersByTime(60_000);
+    }
+    petIngestServerEvent({ type: "session:finished", id: "s5" } as never);
+    const snap = getPetSnapshot();
+    expect(snap.bubble).not.toBeNull();
+    const expected = PET_LINES["session-milestone"].map((line) =>
+      typeof line.text === "function"
+        ? line.text({ name: snap.name, level: snap.level, runningCount: 0, sessionsFinished: 5 })
+        : line.text,
+    );
+    expect(expected).toContain(snap.bubble!.text);
+  });
+});
+
+describe("workspace event reactions", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 12, 15, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("reacts to worktree, project, and diagram events", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(30_000);
+
+    petIngestServerEvent({ type: "worktree:created", id: "w1", projectId: "p1" } as never);
+    let snap = getPetSnapshot();
+    expect(PET_LINES["worktree-created"].map((l) => l.text)).toContain(snap.bubble!.text);
+
+    vi.advanceTimersByTime(60_000);
+    petIngestServerEvent({ type: "project:created", id: "p2" } as never);
+    snap = getPetSnapshot();
+    expect(PET_LINES["project-created"].map((l) => l.text)).toContain(snap.bubble!.text);
+
+    vi.advanceTimersByTime(60_000);
+    petIngestServerEvent({ type: "diagram:show", id: "d1" } as never);
+    snap = getPetSnapshot();
+    expect(PET_LINES["diagram-show"].map((l) => l.text)).toContain(snap.bubble!.text);
   });
 });

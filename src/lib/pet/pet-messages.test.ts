@@ -9,7 +9,7 @@ import {
 import { PET_LINES } from "./pet-lines";
 
 const neutral: PetPersonality = { snark: 5, wisdom: 5, chaos: 5, zen: 5 };
-const ctx = { name: "Pixel", level: 2, runningCount: 3 };
+const ctx = { name: "Pixel", level: 2, runningCount: 3, sessionsFinished: 5 };
 
 describe("createRateLimiter", () => {
   it("enforces per-trigger cooldowns", () => {
@@ -179,7 +179,7 @@ describe("PET_LINES coverage", () => {
   });
 
   it("every line resolves to non-empty text", () => {
-    const ctx = { name: "Pixel", level: 3, runningCount: 2 };
+    const ctx = { name: "Pixel", level: 3, runningCount: 2, sessionsFinished: 10 };
     for (const lines of Object.values(PET_LINES)) {
       for (const line of lines) {
         const text = typeof line.text === "function" ? line.text(ctx) : line.text;
