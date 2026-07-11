@@ -56,6 +56,13 @@ export function getDb() {
     nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
   });
   _sqlite.pragma("journal_mode = WAL");
+  // WAL + NORMAL is the durable-enough, low-fsync combo SQLite recommends for
+  // app databases: writers only fsync on checkpoint, not per commit, which cuts
+  // disk churn on our frequent small writes. busy_timeout lets a blocked writer
+  // wait (up to 5s) for a concurrent checkpoint/writer instead of throwing
+  // SQLITE_BUSY immediately.
+  _sqlite.pragma("synchronous = NORMAL");
+  _sqlite.pragma("busy_timeout = 5000");
   restrictDbFilePermissions(dbPath);
   _sqlite.pragma("foreign_keys = ON");
   _db = drizzle(_sqlite, { schema });
