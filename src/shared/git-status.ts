@@ -33,6 +33,16 @@ export type GitStatus = {
    * `null` when no comparable ref exists (e.g. fresh repo, detached HEAD).
    */
   aheadCount: number | null;
+  /**
+   * Commits on the configured upstream (`@{u}`) that HEAD does not have yet —
+   * what a `git pull` would bring in. Strictly the branch's own tracking ref
+   * (no `origin/main` fallback), so a feature branch isn't reported "behind"
+   * just because main advanced. `null` when the branch has no upstream, or when
+   * the producer doesn't compute it (e.g. the remote sandbox agent's git RPC).
+   * Only meaningful once remote-tracking refs are fresh — the host runs a
+   * periodic background fetch to keep it current.
+   */
+  behindCount: number | null;
 };
 
 export type GitDiff =

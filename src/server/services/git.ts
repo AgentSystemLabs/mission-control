@@ -176,10 +176,11 @@ async function currentBranchName(cwd: string): Promise<string> {
 export async function getGitStatus(projectId: string, worktreeId?: string | null): Promise<GitStatus> {
   const cwd = projectCwd(projectId, worktreeId);
   await assertGitRepository(cwd);
-  const [statusOut, branchOut, aheadCount] = await Promise.all([
+  const [statusOut, branchOut, aheadCount, behindCount] = await Promise.all([
     gitOk(cwd, ["status", "--porcelain=v1", "-uall", "-z"]),
     currentBranchName(cwd),
     countAhead(cwd),
+    countBehind(cwd),
   ]);
   const { staged, unstaged } = parsePorcelainZ(statusOut);
   return {
@@ -188,6 +189,7 @@ export async function getGitStatus(projectId: string, worktreeId?: string | null
     unstaged,
     changedCount: changedFileCount(staged, unstaged),
     aheadCount,
+    behindCount,
   };
 }
 
@@ -200,6 +202,18 @@ async function countAhead(cwd: string): Promise<number | null> {
     }
   }
   return null;
+}
+
+// Commits the configured upstream has that HEAD lacks — what `git pull` brings
+// in. Strictly `@{u}` (the branch's own tracking ref): unlike countAhead we do
+// NOT fall back to origin/main, because "behind" against main would falsely
+// flag every feature branch as having upstream changes to sync. Returns null
+// when the branch has no upstream. Only as fresh as the last `git fetch`.
+async function countBehind(cwd: string): Promise<number | null> {
+  const r = await runGit(cwd, ["rev-list", "--count", "HEAD..@{u}"]);
+  if (r.code !== 0) return null;
+  const n = parseInt(r.stdout.trim(), 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function getGitDiff(

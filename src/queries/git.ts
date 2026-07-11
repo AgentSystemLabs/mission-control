@@ -19,6 +19,14 @@ const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
 const GIT_STATUS_FAST_REFETCH_INTERVAL_MS = 3_000;
 const GIT_STATUS_POWER_SAVE_REFETCH_INTERVAL_MS = 30_000;
 
+// The status poll only reads local refs, so it can't discover new upstream
+// commits on its own. This slower loop runs `git fetch` in the background to
+// keep remote-tracking refs fresh — that's what makes GitStatus.behindCount
+// (and the branch Sync button) meaningful. Deliberately lazy and focus-gated:
+// no point hitting the network for a project the user isn't looking at.
+const GIT_UPSTREAM_FETCH_INTERVAL_MS = 60_000;
+const GIT_UPSTREAM_FETCH_POWER_SAVE_INTERVAL_MS = 180_000;
+
 export const gitKeys = {
   all: (projectId: string, worktreeId?: string | null) =>
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git"] as const,
@@ -28,6 +36,11 @@ export const gitKeys = {
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "branches"] as const,
   diff: (projectId: string, worktreeId: string | null | undefined, file: string, staged: boolean) =>
     ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git", "diff", file, staged ? "staged" : "unstaged"] as const,
+  // Sibling of `git` (NOT nested under it) so the mutation invalidations that
+  // target gitKeys.all — which prefix-match everything under `…/git` — don't
+  // force-refetch this side-effecting fetch loop on every commit/push/checkout.
+  upstreamFetch: (projectId: string, worktreeId?: string | null) =>
+    ["projects", projectId, "worktrees", worktreeId || MAIN_WORKTREE_ID, "git-upstream-fetch"] as const,
 };
 
 export const gitStatusQueryOptions = (
@@ -94,6 +107,44 @@ export const useGitBranches = (
   worktreeId?: string | null,
   opts: { enabled?: boolean } = {},
 ) => useQuery(gitBranchesQueryOptions(projectId, worktreeId, opts));
+
+// Background `git fetch` loop that keeps remote-tracking refs current so
+// GitStatus.behindCount reflects reality. Modeled as a side-effecting query
+// (not a mutation) so it inherits TanStack's focus gating and window-focus
+// refetch for free, and so it stays off the MutationCache the Mission Pet
+// watches. The fetch is best-effort: offline / no-remote / auth-required
+// failures are swallowed on the server (GIT_TERMINAL_PROMPT=0 fails fast),
+// leaving the last-known refs in place. After each fetch we invalidate the
+// status query so a freshly-appeared "behind" surfaces without waiting for the
+// next status tick.
+export function useUpstreamFetchPoll(
+  projectId: string,
+  worktreeId?: string | null,
+  opts: { enabled?: boolean } = {},
+) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: gitKeys.upstreamFetch(projectId, worktreeId),
+    queryFn: async () => {
+      try {
+        await api.gitFetch(projectId, worktreeId);
+      } catch {
+        // Best-effort: keep the last-known tracking refs on failure.
+      }
+      void qc.invalidateQueries({ queryKey: gitKeys.status(projectId, worktreeId) });
+      return Date.now();
+    },
+    enabled: !!projectId && (opts.enabled ?? true),
+    // Nothing renders this query's data; it exists purely for the side effect.
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchInterval: () =>
+      isPowerSaveActive()
+        ? GIT_UPSTREAM_FETCH_POWER_SAVE_INTERVAL_MS
+        : GIT_UPSTREAM_FETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
 
 export const useGitDiff = (
   projectId: string,

@@ -155,6 +155,14 @@ export type AppSettings = {
   shipAgent: AiRuntimeHarness;
   shipModel: AiModelId | null;
   shipPrompt: string;
+  /**
+   * Harness/model/prompt for the branch Sync split-button, which opens an AI
+   * session to pull upstream changes into the current branch (stash/commit,
+   * conflict resolution, stash-pop). Mirrors the Ship trio.
+   */
+  syncAgent: AiRuntimeHarness;
+  syncModel: AiModelId | null;
+  syncPrompt: string;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
   /**
@@ -659,6 +667,9 @@ export const api = {
         | "shipAgent"
         | "shipModel"
         | "shipPrompt"
+        | "syncAgent"
+        | "syncModel"
+        | "syncPrompt"
         | "voiceCommandAliases"
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"

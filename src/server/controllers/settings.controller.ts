@@ -88,6 +88,7 @@ import { readRecallSettings, writeRecallSettings } from "../services/recall-sett
 import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
 import { mergePetStateWrite, normalizePetState } from "~/shared/pet";
 import { HTTP_BAD_REQUEST } from "~/shared/http-status";
+import { DEFAULT_SYNC_PROMPT, normalizeSyncPrompt } from "~/shared/sync-defaults";
 import { json, jsonError, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -98,6 +99,9 @@ const ANNOTATION_MODEL_SETTING_KEY = "annotation_model";
 const SHIP_AGENT_SETTING_KEY = "ship_agent";
 const SHIP_MODEL_SETTING_KEY = "ship_model";
 const SHIP_PROMPT_SETTING_KEY = "ship_prompt";
+const SYNC_AGENT_SETTING_KEY = "sync_agent";
+const SYNC_MODEL_SETTING_KEY = "sync_model";
+const SYNC_PROMPT_SETTING_KEY = "sync_prompt";
 const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
@@ -234,6 +238,9 @@ const updateSettingsBody = z
     shipAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     shipModel: aiModelBody,
     shipPrompt: z.string().transform((value) => normalizeShipPrompt(value)),
+    syncAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    syncModel: aiModelBody,
+    syncPrompt: z.string().transform((value) => normalizeSyncPrompt(value)),
     voiceCommandAliases: voiceCommandAliasesBody,
     claudeUsageLimitsEnabled: z.boolean(),
     claudeUsageLimitsShowSession: z.boolean(),
@@ -320,6 +327,21 @@ function getShipModelSetting(): AiModelId | null {
 function getShipPromptSetting(): string {
   const value = getSetting(SHIP_PROMPT_SETTING_KEY);
   return value === null ? DEFAULT_SHIP_PROMPT : normalizeShipPrompt(value);
+}
+
+function getSyncAgentSetting(): AiRuntimeHarness {
+  const value = getSetting(SYNC_AGENT_SETTING_KEY);
+  return isAiRuntimeHarness(value) ? value : "claude-code";
+}
+
+function getSyncModelSetting(): AiModelId | null {
+  const value = getSetting(SYNC_MODEL_SETTING_KEY);
+  return normalizeAiModelId(value);
+}
+
+function getSyncPromptSetting(): string {
+  const value = getSetting(SYNC_PROMPT_SETTING_KEY);
+  return value === null ? DEFAULT_SYNC_PROMPT : normalizeSyncPrompt(value);
 }
 
 function getGitDiffChangedFilesViewSetting() {
@@ -462,6 +484,9 @@ function settingsPayload() {
     shipAgent: getShipAgentSetting(),
     shipModel: getShipModelSetting(),
     shipPrompt: getShipPromptSetting(),
+    syncAgent: getSyncAgentSetting(),
+    syncModel: getSyncModelSetting(),
+    syncPrompt: getSyncPromptSetting(),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
     // Off by default: usage reaches out to provider APIs using local logins.
     claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
@@ -690,6 +715,19 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.shipPrompt !== undefined) {
     setSetting(SHIP_PROMPT_SETTING_KEY, body.shipPrompt);
+  }
+  if (body.syncAgent !== undefined) {
+    setSetting(SYNC_AGENT_SETTING_KEY, body.syncAgent);
+  }
+  if (body.syncModel !== undefined) {
+    if (body.syncModel === null) {
+      deleteSetting(SYNC_MODEL_SETTING_KEY);
+    } else {
+      setSetting(SYNC_MODEL_SETTING_KEY, body.syncModel);
+    }
+  }
+  if (body.syncPrompt !== undefined) {
+    setSetting(SYNC_PROMPT_SETTING_KEY, body.syncPrompt);
   }
   if (body.voiceCommandAliases !== undefined) {
     setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));

@@ -88,6 +88,7 @@ import {
   setPendingSessionModel,
 } from "~/lib/session-model-overrides";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
+import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
 import type { AiModelId } from "~/shared/ai-runtime-defaults";
 import {
   VOICE_NEW_AGENT_EVENT,
@@ -132,11 +133,12 @@ import {
   useWorktrees,
 } from "~/queries";
 import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
-import { useGitStatus } from "~/queries/git";
+import { useGitStatus, useUpstreamFetchPoll } from "~/queries/git";
 import { GitDiffModal } from "~/components/views/GitDiffView/GitDiffModal";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { RecallModal } from "~/components/views/RecallModal";
 import { BranchTypeahead } from "~/components/views/BranchTypeahead";
+import { SyncButton } from "~/components/views/SyncButton";
 import {
   CreatePullRequestDialog,
   CreatePullRequestMenuItem,
@@ -558,6 +560,12 @@ function ProjectPage() {
     fastPoll: showDiffView,
   });
   const gitStatus = gitStatusIsError ? undefined : gitStatusData;
+  // Keep remote-tracking refs fresh (focus-gated background fetch) so
+  // gitStatus.behindCount — and the branch Sync button — stay accurate. Local
+  // scope only: the remote sandbox agent's git RPC doesn't compute behindCount.
+  useUpstreamFetchPoll(id, selectedWorktreeId, {
+    enabled: projectPathUsable && activeRuntimeScopeId === LOCAL_SCOPE_ID,
+  });
   const gitUnavailable = projectPathReady && gitStatusIsError;
   const gitUnavailableMessage = gitUnavailable ? gitUnavailableTitle(gitStatusError) : null;
   const createPullRequest = useCreatePullRequestAction({
@@ -1757,6 +1765,50 @@ function ProjectPage() {
     terminals,
   ]);
 
+  // Sync: open an AI session that pulls upstream changes into the current
+  // branch (stash/commit → pull → resolve conflicts → stash pop), driven by the
+  // prompt in Settings → Defaults → Sync. Mirrors startShipSession, plus a
+  // re-entry guard: unlike Ship, two concurrent sync sessions would each run
+  // `git stash`/`git stash pop` in the same worktree and can clobber each
+  // other's stash, so we block an accidental double-spawn while one is in flight.
+  const syncSpawnLockRef = useRef(false);
+  const startSyncSession = useCallback(() => {
+    if (syncSpawnLockRef.current) return;
+    if (!project || !projectPathReady) return;
+    if (activeRuntimeScopeId !== LOCAL_SCOPE_ID) {
+      toast.error("Sync isn't supported in sandbox sessions yet.");
+      return;
+    }
+    const payload = defaultSessionPayload(project);
+    const anchor = anchorSessionId();
+    if (anchor) terminals.requestCloneInsertAfter(anchor);
+    syncSpawnLockRef.current = true;
+    void createSession(
+      {
+        ...payload,
+        agent: settings?.syncAgent ?? "claude-code",
+        bareSession: false,
+      },
+      {
+        initialInput: settings?.syncPrompt ?? DEFAULT_SYNC_PROMPT,
+        focusOnCreate: true,
+        model: settings?.syncModel ?? null,
+      },
+    ).finally(() => {
+      syncSpawnLockRef.current = false;
+    });
+  }, [
+    project,
+    projectPathReady,
+    activeRuntimeScopeId,
+    createSession,
+    settings?.syncAgent,
+    settings?.syncModel,
+    settings?.syncPrompt,
+    anchorSessionId,
+    terminals,
+  ]);
+
   // Command bus: VoiceController (mounted at root) dispatches these for the
   // active project route to perform. Mirrors the project.runToggle hotkey.
   useEffect(() => {
@@ -2611,6 +2663,9 @@ function ProjectPage() {
           shipDisabled={projectPathBlocked}
           shipEnabled={projectPathUsable}
           onShip={startShipSession}
+          behindCount={gitStatus?.behindCount ?? null}
+          syncEnabled={projectPathUsable && activeRuntimeScopeId === LOCAL_SCOPE_ID}
+          onSync={startSyncSession}
           onCreateWorktree={() => void createProjectWorktree()}
           createWorktreeDisabled={creatingWorktree || projectPathBlocked || gitUnavailable}
           createWorktreeTitle={
@@ -4070,6 +4125,9 @@ function WorktreeToggleGroup({
   shipDisabled = false,
   shipEnabled = true,
   onShip,
+  behindCount = null,
+  syncEnabled = true,
+  onSync,
   onCreateWorktree,
   createWorktreeDisabled = false,
   createWorktreeTitle,
@@ -4091,6 +4149,10 @@ function WorktreeToggleGroup({
   shipDisabled?: boolean;
   shipEnabled?: boolean;
   onShip: () => void;
+  /** Commits the current branch is behind its upstream; > 0 reveals Sync. */
+  behindCount?: number | null;
+  syncEnabled?: boolean;
+  onSync?: () => void;
   onCreateWorktree?: () => void;
   createWorktreeDisabled?: boolean;
   createWorktreeTitle?: string;
@@ -4125,6 +4187,9 @@ function WorktreeToggleGroup({
         );
         const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
         const label = worktree.isMain ? "main" : worktree.name;
+        // Fused split-button: the branch selector welds to a trailing Sync half
+        // (drops the shared edge) only when the branch is behind its upstream.
+        const showSync = (behindCount ?? 0) > 0 && !!onSync;
         // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read
         // as two distinct controls with hierarchy, not one welded segment.
         const shipControls = () => (
@@ -4157,7 +4222,7 @@ function WorktreeToggleGroup({
               <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
               <div
                 role="group"
-                aria-label="Branch, review changes, and ship"
+                aria-label="Branch, sync, review changes, and ship"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -4189,16 +4254,30 @@ function WorktreeToggleGroup({
                     </span>
                   </Btn>
                 ) : (
-                  <BranchTypeahead
-                    projectId={projectId}
-                    worktreeId={null}
-                    branch={mainBranchLabel}
-                    disabled={branchSwitchDisabled}
-                    worktreePath={worktree.path}
-                    onCreateWorktree={onCreateWorktree}
-                    createWorktreeDisabled={createWorktreeDisabled}
-                    createWorktreeTitle={createWorktreeTitle}
-                  />
+                  // Zero-gap wrapper so the branch selector and Sync half touch
+                  // (welded split-button) while the pair keeps the group's 8px
+                  // gap from the Changes/Ship controls.
+                  <div style={{ display: "inline-flex", alignItems: "center", minWidth: 0 }}>
+                    <BranchTypeahead
+                      projectId={projectId}
+                      worktreeId={null}
+                      branch={mainBranchLabel}
+                      disabled={branchSwitchDisabled}
+                      worktreePath={worktree.path}
+                      attachedTrailing={showSync}
+                      onCreateWorktree={onCreateWorktree}
+                      createWorktreeDisabled={createWorktreeDisabled}
+                      createWorktreeTitle={createWorktreeTitle}
+                    />
+                    {showSync && onSync && (
+                      <SyncButton
+                        behindCount={behindCount ?? 0}
+                        attachedLeading
+                        enabled={syncEnabled}
+                        onSync={onSync}
+                      />
+                    )}
+                  </div>
                 )}
                 {shipControls()}
               </div>

@@ -45,6 +45,7 @@ import {
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
+import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
 
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
@@ -124,6 +125,9 @@ export function ThemeSettingsPage() {
     shipAgent: settings?.shipAgent ?? "claude-code",
     shipModel: settings?.shipModel ?? null,
     shipPrompt: settings?.shipPrompt ?? DEFAULT_SHIP_PROMPT,
+    syncAgent: settings?.syncAgent ?? "claude-code",
+    syncModel: settings?.syncModel ?? null,
+    syncPrompt: settings?.syncPrompt ?? DEFAULT_SYNC_PROMPT,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,
