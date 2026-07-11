@@ -42,6 +42,10 @@ export type PetTrigger =
   | "petting"
   | "overpet"
   | "level-up"
+  // a level-up that landed on an evolution threshold (new permanent detail)
+  | "evolve"
+  // the prestige reset at the level cap — shed the levels, keep the star
+  | "molt"
   // work-awareness: a big uncommitted pile in the evening, the pet's favorite
   // project (top lifetime XP earner), and being picked up and tossed
   | "uncommitted-pile"
@@ -122,6 +126,8 @@ export type PetTrigger =
 export type PetLineCtx = {
   name: string;
   level: number;
+  /** Molt count — prestige-gated lines only exist for pets that earned them. */
+  prestige: number;
   runningCount: number;
   /** Sessions finished since app boot — feeds the milestone lines. */
   sessionsFinished: number;
@@ -143,6 +149,10 @@ export type PetLine = {
   weights?: Partial<PetPersonality>;
   /** Restricts the line to these species and boosts it for them (see pickLine). */
   species?: readonly PetSpeciesId[];
+  /** The line unlocks at this level — a level-up visibly changes the voice. */
+  minLevel?: number;
+  /** The line unlocks after this many molts (1 = any prestige pet). */
+  minPrestige?: number;
 };
 
 type TriggerMeta = {
@@ -196,6 +206,9 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   // second line once the first bubble has cleared.
   overpet: { priority: "info", cooldownMs: 15_000 },
   "level-up": { priority: "info", cooldownMs: 0 },
+  // Both fire only at exact, rare moments the store gates — no clock needed.
+  evolve: { priority: "info", cooldownMs: 0 },
+  molt: { priority: "info", cooldownMs: 0 },
   // Fires at most once per evening-ish stretch; the controller gates on hours.
   "uncommitted-pile": { priority: "info", cooldownMs: 4 * 3_600_000 },
   // Rare by design — a favorite is a long-term fact, not a per-session gag.
@@ -285,6 +298,9 @@ const BUCKET_EXEMPT: ReadonlySet<PetTrigger> = new Set([
   "petting",
   "overpet",
   "level-up",
+  // Evolving is a level-up; molting is a deliberate user action.
+  "evolve",
+  "molt",
   "name-mentioned",
   // Direct physical/verbal interactions — the pet always answers the user.
   "tossed",
@@ -330,6 +346,7 @@ const SPECIES_VOICE_BOOST = 2;
  * strongly favors snarky lines but never loses access to the rest.
  * Species-tagged lines exist only for their species (never leak to others)
  * and get a flat boost there — they're that species' native voice.
+ * Level/prestige-gated lines stay locked until the pet has earned them.
  */
 export function pickLine(
   trigger: PetTrigger,
@@ -339,7 +356,12 @@ export function pickLine(
 ): string | null {
   const pack = PET_LINES[trigger];
   if (!pack || pack.length === 0) return null;
-  const lines = pack.filter((line) => !line.species || line.species.includes(ctx.species));
+  const lines = pack.filter(
+    (line) =>
+      (!line.species || line.species.includes(ctx.species)) &&
+      (line.minLevel ?? 0) <= ctx.level &&
+      (line.minPrestige ?? 0) <= ctx.prestige,
+  );
   if (lines.length === 0) return null;
   const scores = lines.map((line) => {
     let score = 1 + (line.species ? SPECIES_VOICE_BOOST : 0);

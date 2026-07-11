@@ -16,6 +16,7 @@ const neutral: PetPersonality = { snark: 5, wisdom: 5, chaos: 5, zen: 5 };
 const ctx: PetLineCtx = {
   name: "Pixel",
   level: 2,
+  prestige: 0,
   runningCount: 3,
   sessionsFinished: 5,
   species: "mochi",
@@ -156,6 +157,42 @@ describe("pickLine", () => {
     for (let i = 0; i < 300; i++) {
       const line = pickLine("night", neutral, ctx, rand)!;
       expect(foreign).not.toContain(line);
+    }
+  });
+
+  it("locks minLevel lines below their level and offers them from it", () => {
+    const scarfLine = "*adjusts scarf* Right. Where were we.";
+    const outputsAt = (level: number) =>
+      new Set(
+        Array.from({ length: 120 }, (_, i) =>
+          pickLine("greeting", neutral, { ...ctx, level }, () => i / 120),
+        ),
+      );
+    expect(outputsAt(1).has(scarfLine)).toBe(false);
+    expect(outputsAt(4).has(scarfLine)).toBe(false);
+    expect(outputsAt(5).has(scarfLine)).toBe(true);
+    expect(outputsAt(10).has(scarfLine)).toBe(true);
+  });
+
+  it("locks minPrestige lines until the pet has molted", () => {
+    const lapLine = "This isn't my first lap. Let's go.";
+    const outputsAt = (prestige: number) =>
+      new Set(
+        Array.from({ length: 120 }, (_, i) =>
+          pickLine("greeting", neutral, { ...ctx, prestige }, () => i / 120),
+        ),
+      );
+    expect(outputsAt(0).has(lapLine)).toBe(false);
+    expect(outputsAt(1).has(lapLine)).toBe(true);
+  });
+
+  it("evolve lines name the gear for the level just reached", () => {
+    const rand = mulberrylite();
+    for (let i = 0; i < 60; i++) {
+      expect(pickLine("evolve", neutral, { ...ctx, level: 5 }, rand)).toContain("scarf");
+    }
+    for (let i = 0; i < 60; i++) {
+      expect(pickLine("evolve", neutral, { ...ctx, level: 8 }, rand)).toContain("tool belt");
     }
   });
 
@@ -307,6 +344,7 @@ describe("PET_LINES coverage", () => {
     const ctx: PetLineCtx = {
       name: "Pixel",
       level: 3,
+      prestige: 2,
       runningCount: 2,
       sessionsFinished: 10,
       species: "mochi",

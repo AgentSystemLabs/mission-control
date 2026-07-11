@@ -7,7 +7,9 @@ import {
   DEFAULT_PET_NAME,
   effectivePersonality,
   favoriteProjectOf,
+  isPetSpeciesUnlocked,
   levelForXp,
+  moltPetState,
   mulberry32,
   normalizePetState,
   PET_DRIFT_LIMIT,
@@ -90,6 +92,21 @@ describe("normalizePetState", () => {
     expect(normalizePetState(valid())!.species).toBe("mochi"); // pre-picker state
   });
 
+  it("defaults prestige to 0 and clamps malformed values", () => {
+    expect(normalizePetState(valid())!.prestige).toBe(0); // pre-prestige state
+    expect(normalizePetState({ ...valid(), prestige: 2 })!.prestige).toBe(2);
+    expect(normalizePetState({ ...valid(), prestige: -3 })!.prestige).toBe(0);
+    expect(normalizePetState({ ...valid(), prestige: "many" })!.prestige).toBe(0);
+  });
+
+  it("gates the prestige species on the molt count", () => {
+    // Ember on a never-molted state is a hand-edited payload — fall back.
+    expect(normalizePetState({ ...valid(), species: "ember" })!.species).toBe("mochi");
+    expect(normalizePetState({ ...valid(), species: "ember", prestige: 1 })!.species).toBe(
+      "ember",
+    );
+  });
+
   it("keeps a valid size and defaults unknown/missing ones to medium", () => {
     expect(normalizePetState({ ...valid(), size: "s" })!.size).toBe("s");
     expect(normalizePetState({ ...valid(), size: "l" })!.size).toBe("l");
@@ -156,6 +173,40 @@ describe("normalizePetState", () => {
     expect(result.weekly.weekStart).toBe(startOfWeek(Date.now()));
     expect(result.weekly.sessions).toBe(2);
     expect(result.projectXp).toEqual({ good: { name: "mission-control", xp: 40 } });
+  });
+});
+
+describe("moltPetState", () => {
+  it("no-ops below the level cap", () => {
+    const state = createDefaultPetState(1_700_000_000_000);
+    expect(moltPetState(state)).toBe(state);
+  });
+
+  it("resets xp/level, increments prestige, and keeps everything lived-in", () => {
+    const base = createDefaultPetState(1_700_000_000_000);
+    const capped = {
+      ...base,
+      xp: 3_120,
+      level: PET_MAX_LEVEL,
+      stats: { ...base.stats, ships: 40, pets: 12 },
+      personalityDrift: { ...base.personalityDrift, zen: 1.5 },
+    };
+    const molted = moltPetState(capped);
+    expect(molted).toMatchObject({ xp: 0, level: 1, prestige: 1 });
+    expect(molted.stats).toEqual(capped.stats);
+    expect(molted.personalityDrift).toEqual(capped.personalityDrift);
+    expect(molted.personalityBase).toEqual(capped.personalityBase);
+    expect(molted.createdAt).toBe(capped.createdAt);
+    expect(molted.projectXp).toEqual(capped.projectXp);
+    // A second lap works the same way.
+    const again = moltPetState({ ...molted, xp: 3_000, level: PET_MAX_LEVEL });
+    expect(again.prestige).toBe(2);
+  });
+
+  it("isPetSpeciesUnlocked frees ember only after a molt", () => {
+    expect(isPetSpeciesUnlocked("ember", 0)).toBe(false);
+    expect(isPetSpeciesUnlocked("ember", 1)).toBe(true);
+    expect(isPetSpeciesUnlocked("mochi", 0)).toBe(true);
   });
 });
 

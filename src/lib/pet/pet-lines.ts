@@ -10,8 +10,18 @@ import type { PetLine, PetTrigger } from "./pet-messages";
  *
  * `species` lines are a species' native voice — mochi squishes, bunny
  * binkies, chick peeps, cub dozes, lotl encourages, rivet reports in ALL
- * CAPS, trundle takes the long view. They never leak to other species.
+ * CAPS, trundle takes the long view, ember burns with reborn intensity.
+ * They never leak to other species.
  */
+
+/** What the sprite visibly gained at each evolution level (see PET_EVOLUTION_LEVELS). */
+function gearAt(level: number): string {
+  if (level >= 10) return "crown";
+  if (level >= 8) return "tool belt";
+  if (level >= 5) return "scarf";
+  return "sparkle";
+}
+
 export const PET_LINES: Record<PetTrigger, PetLine[]> = {
   /* ── lifecycle ─────────────────────────────────────────────────────── */
   hatch: [
@@ -28,6 +38,10 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "I've been watching the event bus. It's quiet. Too quiet.", weights: { chaos: 2 } },
     { text: "Online. Watching your agents so you don't have to.", weights: { wisdom: 2 } },
     { text: (ctx) => `${ctx.name}, reporting for ground crew duty.` },
+    { text: "*adjusts scarf* Right. Where were we.", minLevel: 5 },
+    { text: "*straightens crown* Court is in session.", minLevel: 10, weights: { snark: 1 } },
+    { text: "This isn't my first lap. Let's go.", minPrestige: 1, weights: { zen: 1 } },
+    { text: "*reignites* good morning.", species: ["ember"] },
   ],
 
   /* ── sessions ──────────────────────────────────────────────────────── */
@@ -44,6 +58,8 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "*celebrates!*", weights: { chaos: 1 } },
     { text: "*does a little dance*", weights: { chaos: 2 } },
     { text: "*beams* I knew you could do it.", weights: { zen: 1 } },
+    { text: "Another one for the veterans' ledger.", minLevel: 6, weights: { wisdom: 1 } },
+    { text: "*flares brighter for a second*", species: ["ember"] },
   ],
   "session-finished-long": [
     { text: "That one ran forever. Worth a stretch.", weights: { zen: 2 } },
@@ -105,6 +121,7 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "ship it. ship it NOW.", weights: { chaos: 3 } },
     { text: "another commit. the codebase trembles.", weights: { chaos: 2 } },
     { text: "COMMIT. LOGGED. NO TAKE-BACKS.", species: ["rivet"] },
+    { text: "*seals the commit in flame* done is done.", species: ["ember"] },
     { text: "*oozes over the commit approvingly*", species: ["mochi"] },
     { text: "*thumps hind leg in approval* committed!", species: ["bunny"] },
     { text: "*peep!* committed!", species: ["chick"] },
@@ -279,6 +296,9 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "*dozes off*" },
     { text: "*doodles in margins*", weights: { chaos: 1 } },
     { text: "*stares at cursor blinking*" },
+    { text: "*polishes tool belt* readiness is a discipline.", minLevel: 8, weights: { wisdom: 1 } },
+    { text: "I've been level 10 before. It's overrated.", minPrestige: 1, weights: { snark: 2 } },
+    { text: "*smolders quietly*", species: ["ember"] },
   ],
   night: [
     { text: "Past midnight. The linter sleeps. You could too.", weights: { zen: 2 } },
@@ -297,6 +317,7 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "even I have retreated for the night. and I carry my bed.", species: ["trundle"] },
     { text: "*yawns adorably* it's past bedtime.", species: ["lotl"] },
     { text: "*glows softly in the dark*", species: ["mochi"] },
+    { text: "*is the night light*", species: ["ember"] },
     { text: "*nose twitches in the dark*", species: ["bunny"] },
     { text: "*tucks head under wing* zzz... wait, you're still up?", species: ["chick"] },
   ],
@@ -404,6 +425,9 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "*wiggles*" },
     { text: "again! again!", weights: { chaos: 1 } },
     { text: "*closes eyes peacefully*", weights: { zen: 2 } },
+    { text: "*tool belt jingles happily*", minLevel: 8 },
+    { text: "careful — the crown. okay fine, don't be careful.", minLevel: 10, weights: { snark: 1 } },
+    { text: "*warm to the touch*", species: ["ember"] },
   ],
   // Spam-clicked into the dizzy spin — mildly annoyed, never mean.
   overpet: [
@@ -420,6 +444,43 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: (ctx) => `Level ${ctx.level}. My antenna feels stronger.` },
     { text: (ctx) => `Level ${ctx.level} — earned from real shipped work, mind you.`, weights: { snark: 2 } },
     { text: (ctx) => `Level ${ctx.level}. The grind was real.`, weights: { zen: 1 } },
+  ],
+  // A level-up that landed on an evolution threshold (3/5/8/10) — the sprite
+  // just gained a permanent detail, and the pet has noticed.
+  evolve: [
+    { text: (ctx) => `Level ${ctx.level}. New ${gearAt(ctx.level)}. This is permanent, by the way.` },
+    {
+      text: (ctx) => `Level ${ctx.level} — and yes, the ${gearAt(ctx.level)} is real. I earned it.`,
+      weights: { snark: 2 },
+    },
+    {
+      text: (ctx) => `*admires ${gearAt(ctx.level)}* shipped code did this.`,
+      weights: { chaos: 1 },
+    },
+    {
+      text: (ctx) => `Level ${ctx.level}. The ${gearAt(ctx.level)} suits me. Back to work.`,
+      weights: { zen: 2 },
+    },
+    {
+      text: "Level 10. The crown. There is nothing above this... *checks notes* except molting.",
+      minLevel: 10,
+    },
+    { text: "LEVEL 10. MAXIMUM RANK ACHIEVED. CROWN: EQUIPPED.", species: ["rivet"], minLevel: 10 },
+  ],
+  // The prestige reset — deliberately chosen from the stats card at the cap.
+  molt: [
+    { text: "*sheds everything* ...kept the star, though. The star is forever." },
+    { text: "Level 1 again. The star says otherwise.", weights: { snark: 2 } },
+    { text: "Begin again. That's the whole art.", weights: { zen: 3 } },
+    { text: "*emerges gleaming* same me. more history.", weights: { chaos: 1 } },
+    { text: "Everything I learned stays. Everything I wore, we start over.", weights: { wisdom: 2 } },
+    {
+      text: (ctx) => `Molt #${ctx.prestige}. At this point it's a lifestyle.`,
+      minPrestige: 2,
+      weights: { snark: 1 },
+    },
+    { text: "MOLT COMPLETE. RANK: RESET. LEGEND: RETAINED.", species: ["rivet"] },
+    { text: "*rises from its own embers* right on schedule.", species: ["ember"] },
   ],
 
   /* ── work awareness ────────────────────────────────────────────────── */

@@ -44,6 +44,11 @@ const SPECIES_CHIRPS: Record<PetSpeciesId, ChirpNote[]> = {
   ],
   // Trundle: a slow low mechanical purr.
   trundle: [{ from: 250, to: 190, dur: 0.18, at: 0, type: "triangle", gain: 0.08 }],
+  // Ember the flame spirit: a warm crackle — two quick rising flickers.
+  ember: [
+    { from: 640, to: 1040, dur: 0.07, at: 0, type: "triangle", gain: 0.05 },
+    { from: 480, to: 860, dur: 0.09, at: 0.09, type: "triangle", gain: 0.05 },
+  ],
 };
 
 /** The spam-click reaction: a wobbly slide down, the same for every species. */

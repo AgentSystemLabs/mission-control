@@ -9,7 +9,11 @@ import {
   DEFAULT_PET_SPECIES,
   effectivePersonality,
   favoriteProjectOf,
+  isPetSpeciesUnlocked,
   levelForXp,
+  moltPetState,
+  PET_EVOLUTION_LEVELS,
+  PET_MAX_LEVEL,
   startOfWeek,
   type PetLifetimeStats,
   type PetPersistentState,
@@ -103,6 +107,24 @@ const PET_REACTIONS: readonly PetFlourish["kind"][] = [
   "pounce",
 ];
 
+/**
+ * The fancier antics unlock as the pet levels, so a level-up visibly changes
+ * behavior. Only the random pools are gated — direct commands ("Pixel,
+ * dance") and scripted reactions (the toss spin) always play.
+ */
+const REACTION_MIN_LEVEL: Record<PetFlourish["kind"], number> = {
+  hop: 1,
+  stretch: 1,
+  spin: 1,
+  bound: 1,
+  jump: 1,
+  dance: 2,
+  shimmy: 3,
+  flip: 4,
+  pounce: 5,
+  tada: 6,
+};
+
 /** Each mood has this many looping animation variants in CSS (data-move). */
 export const PET_MOVES_PER_MOOD = 10;
 
@@ -123,6 +145,8 @@ export type PetSnapshot = {
   size: PetSizeId;
   xp: number;
   level: number;
+  /** Molt count — drives the permanent star badge and species unlocks. */
+  prestige: number;
   /** Increments on each petting; keys the hearts burst animation. */
   heartsBurstId: number;
   wander: PetWander;
@@ -359,6 +383,7 @@ function buildSnapshot(): PetSnapshot {
     size: persistent?.size ?? DEFAULT_PET_SIZE,
     xp: persistent?.xp ?? 0,
     level: persistent?.level ?? 1,
+    prestige: persistent?.prestige ?? 0,
     heartsBurstId,
     wander,
     flourish,
@@ -465,22 +490,30 @@ function rollMove(): void {
   move = next >= move ? next + 1 : next;
 }
 
-let lastReactionIdx = 0;
-
-/** Random petting reaction, never repeating the previous one. */
-function pickReaction(): PetFlourish["kind"] {
-  const next = Math.floor(Math.random() * (PET_REACTIONS.length - 1));
-  lastReactionIdx = next >= lastReactionIdx ? next + 1 : next;
-  return PET_REACTIONS[lastReactionIdx];
+/** The subset of `pool` this pet has unlocked (never empty — hop is level 1). */
+function unlockedReactions(pool: readonly PetFlourish["kind"][]): PetFlourish["kind"][] {
+  const level = persistent?.level ?? 1;
+  return pool.filter((kind) => REACTION_MIN_LEVEL[kind] <= level);
 }
 
-let lastExcitedIdx = 0;
+let lastReactionKind: PetFlourish["kind"] | null = null;
+
+/** Random petting reaction from the unlocked pool, never twice in a row. */
+function pickReaction(): PetFlourish["kind"] {
+  const pool = unlockedReactions(PET_REACTIONS);
+  const options = pool.length > 1 ? pool.filter((kind) => kind !== lastReactionKind) : pool;
+  lastReactionKind = options[Math.floor(Math.random() * options.length)];
+  return lastReactionKind;
+}
+
+let lastExcitedKind: PetFlourish["kind"] | null = null;
 
 /** Random upbeat reaction for a prompt send, never repeating the previous one. */
 function pickExcitedReaction(): PetFlourish["kind"] {
-  const next = Math.floor(Math.random() * (PET_EXCITED_REACTIONS.length - 1));
-  lastExcitedIdx = next >= lastExcitedIdx ? next + 1 : next;
-  return PET_EXCITED_REACTIONS[lastExcitedIdx];
+  const pool = unlockedReactions(PET_EXCITED_REACTIONS);
+  const options = pool.length > 1 ? pool.filter((kind) => kind !== lastExcitedKind) : pool;
+  lastExcitedKind = options[Math.floor(Math.random() * options.length)];
+  return lastExcitedKind;
 }
 
 function doFlourish(kind: PetFlourish["kind"]): void {
@@ -517,6 +550,8 @@ function ensureBehaviorLoop(): void {
     if (roll < 0.45) walkTo(Math.random() * PET_WANDER_RANGE_PX, WALK_SPEED_PX_PER_S);
     else if (roll < 0.6) doFlourish("hop");
     else if (roll < 0.72) doFlourish("stretch");
+    // Veterans show off: the occasional unprompted backflip from level 7.
+    else if (roll < 0.78 && (persistent?.level ?? 1) >= 7) doFlourish("flip");
   }, BEHAVIOR_TICK_MS);
 }
 
@@ -598,6 +633,7 @@ function say(trigger: PetTrigger, opts?: { key?: string }): boolean {
   const text = pickLine(trigger, persistent.personality, {
     name: persistent.name,
     level: persistent.level,
+    prestige: persistent.prestige,
     runningCount: inputs.runningCount,
     sessionsFinished: sessionsFinishedCount,
     species: persistent.species,
@@ -644,7 +680,9 @@ function grantXp(amount: number): void {
   const leveledUp = level > persistent.level;
   persistent = { ...persistent, xp, level };
   if (leveledUp) {
-    say("level-up");
+    // Landing on an evolution threshold announces the new permanent detail
+    // instead of the plain level-up line.
+    say(PET_EVOLUTION_LEVELS.has(level) ? "evolve" : "level-up");
     levelUpCallback?.(level);
   }
   notifyPersistence();
@@ -761,9 +799,28 @@ export function petRename(name: string): void {
 
 export function petSetSpecies(species: PetSpeciesId): void {
   if (!persistent || persistent.species === species) return;
+  // The prestige species is earned by molting, not picked early.
+  if (!isPetSpeciesUnlocked(species, persistent.prestige)) return;
   persistent = { ...persistent, species };
   notifyPersistence();
   invalidate();
+}
+
+/**
+ * Molt: the prestige reset, offered on the stats card at the level cap. XP
+ * and level return to the start, the molt count (and its permanent star)
+ * increments, and everything lived-in — stats, drift, favorite project,
+ * hatch date — survives. Returns false when not at the cap.
+ */
+export function petMolt(): boolean {
+  if (!enabled || !persistent || persistent.level < PET_MAX_LEVEL) return false;
+  persistent = moltPetState(persistent);
+  petPulse("celebrate");
+  if (!prefersReducedMotion()) doFlourish("tada");
+  say("molt");
+  notifyPersistence();
+  invalidate();
+  return true;
 }
 
 export function petSetSize(size: PetSizeId): void {
@@ -1191,6 +1248,8 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     ingest: petIngestServerEvent,
     stroke: petStroke,
     grantXp,
+    molt: petMolt,
+    setSpecies: petSetSpecies,
     tossed: petTossed,
     statsOpen: petSetStatsOpen,
     noteUncommitted: petNoteUncommitted,

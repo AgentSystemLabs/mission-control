@@ -3719,6 +3719,65 @@ body[data-card-glow] .cursor-glow {
   transform-box: fill-box;
   transform-origin: center;
 }
+/* Level gear — permanent details earned at evolution thresholds (scarf 5,
+   tool belt 8, crown 10; see LevelGear in PetSprite). */
+.mc-pet-scarf path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+.mc-pet-scarf .mc-pet-scarf-band {
+  stroke-width: 5;
+}
+.mc-pet-scarf .mc-pet-scarf-tail {
+  stroke-width: 3.6;
+}
+.mc-pet-belt path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.mc-pet-belt rect {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.mc-pet-belt circle {
+  fill: var(--accent);
+  opacity: 0.8;
+}
+.mc-pet-crown {
+  fill: var(--accent);
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  opacity: 0.95;
+}
+/* The molt star — permanent prestige badge, worn top-left by every species. */
+.mc-pet-prestige {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mc-pet-sparkle 3.2s ease-in-out infinite;
+}
+/* Ember: the inner glow and the motes drifting off the flame. */
+.mc-pet-flame-core {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.mc-pet-ember-motes circle {
+  fill: var(--accent);
+  opacity: 0.7;
+  animation: mc-pet-ember-rise 2.8s ease-in-out infinite;
+}
+.mc-pet-ember-motes circle:nth-child(2) {
+  animation-delay: 0.9s;
+}
+.mc-pet-ember-motes circle:nth-child(3) {
+  animation-delay: 1.8s;
+}
 .mc-pet-zzz-glyph {
   fill: var(--text-dim);
   font-size: 13px;
@@ -4454,6 +4513,20 @@ body[data-card-glow] .cursor-glow {
   }
   50% {
     opacity: 1;
+  }
+}
+/* Ember motes drift up off the flame and fade, then respawn at the source. */
+@keyframes mc-pet-ember-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  25% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-9px);
   }
 }
 @keyframes mc-pet-alert-blink {
@@ -5196,6 +5269,12 @@ body[data-card-glow] .cursor-glow {
   font-weight: 600;
   font-size: 13px;
 }
+.mc-pet-stats-prestige {
+  margin-left: 5px;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
 .mc-pet-stats-sub {
   color: var(--text-faint);
   font-size: 11px;
@@ -5238,6 +5317,51 @@ body[data-card-glow] .cursor-glow {
   font-weight: 400;
   font-size: 11px;
   white-space: nowrap;
+}
+/* Molt: the prestige reset offered at the level cap. */
+.mc-pet-stats-molt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mc-pet-stats-molt-button,
+.mc-pet-stats-molt-confirm,
+.mc-pet-stats-molt-cancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mc-pet-stats-molt-button {
+  align-self: flex-start;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mc-pet-stats-molt-button:hover,
+.mc-pet-stats-molt-confirm:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+.mc-pet-stats-molt-confirm {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.mc-pet-stats-molt-cancel:hover {
+  color: var(--text);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+.mc-pet-stats-molt-note {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.mc-pet-stats-molt-actions {
+  display: flex;
+  gap: 6px;
 }
 .mc-pet-stats-personality {
   display: grid;

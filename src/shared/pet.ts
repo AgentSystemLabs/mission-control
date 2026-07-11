@@ -17,14 +17,31 @@ export type PetPersonality = {
   zen: number;
 };
 
-export const PET_SPECIES_IDS = ["mochi", "bunny", "chick", "cub", "lotl", "rivet", "trundle"] as const;
+export const PET_SPECIES_IDS = [
+  "mochi",
+  "bunny",
+  "chick",
+  "cub",
+  "lotl",
+  "rivet",
+  "trundle",
+  "ember",
+] as const;
 
 export type PetSpeciesId = (typeof PET_SPECIES_IDS)[number];
 
 export const DEFAULT_PET_SPECIES: PetSpeciesId = "mochi";
 
+/** The molt-exclusive species — only a pet that has molted may wear it. */
+export const PRESTIGE_PET_SPECIES: PetSpeciesId = "ember";
+
 export function isPetSpeciesId(value: unknown): value is PetSpeciesId {
   return typeof value === "string" && (PET_SPECIES_IDS as readonly string[]).includes(value);
+}
+
+/** Whether a species is selectable at this prestige (molt count). */
+export function isPetSpeciesUnlocked(species: PetSpeciesId, prestige: number): boolean {
+  return species !== PRESTIGE_PET_SPECIES || prestige >= 1;
 }
 
 export const PET_SIZE_IDS = ["s", "m", "l"] as const;
@@ -71,6 +88,12 @@ export type PetPersistentState = {
   xp: number;
   level: number;
   /**
+   * Molt count. At the level cap the pet may molt: XP and level reset, this
+   * increments, and everything lived-in (stats, drift, favorite project,
+   * hatch date) survives. Permanent — the star badge never comes off.
+   */
+  prestige: number;
+  /**
    * Effective personality — what line-picking reads. Always equals
    * effectivePersonality(personalityBase, personalityDrift); kept denormalized
    * so older consumers (and the settings page) need no drift math.
@@ -105,6 +128,14 @@ const FAVORITE_MIN_XP = 15;
 /** Cumulative XP required to reach each level (index 0 = level 1). */
 const LEVEL_THRESHOLDS = [0, 50, 150, 300, 500, 800, 1200, 1700, 2300, 3000] as const;
 export const PET_MAX_LEVEL = LEVEL_THRESHOLDS.length;
+
+/**
+ * Levels where the sprite gains a permanent visible detail: the growing
+ * sparkle at 3, a scarf at 5, a tool belt at 8, a tiny crown at the cap.
+ * The store announces these with their own trigger instead of the plain
+ * level-up line; the sprite gates the matching SVG layer on `level`.
+ */
+export const PET_EVOLUTION_LEVELS: ReadonlySet<number> = new Set([3, 5, 8, 10]);
 
 /** Small deterministic PRNG so a caller can roll a reproducible personality. */
 export function mulberry32(seed: number): () => number {
@@ -229,6 +260,7 @@ export function createDefaultPetState(now: number = Date.now()): PetPersistentSt
     size: DEFAULT_PET_SIZE,
     xp: 0,
     level: 1,
+    prestige: 0,
     personality,
     personalityBase: personality,
     personalityDrift: { ...ZERO_DRIFT },
@@ -251,6 +283,16 @@ export function levelForXp(xp: number): number {
 export function xpForNextLevel(level: number): number | null {
   if (level >= PET_MAX_LEVEL) return null;
   return LEVEL_THRESHOLDS[level];
+}
+
+/**
+ * Molt: begin again at level 1 with a permanent star. Only XP and level
+ * reset — lifetime stats, personality (base + drift), project affection, and
+ * the hatch date all carry across. Returns the state unchanged below the cap.
+ */
+export function moltPetState(state: PetPersistentState): PetPersistentState {
+  if (state.level < PET_MAX_LEVEL) return state;
+  return { ...state, xp: 0, level: 1, prestige: state.prestige + 1 };
 }
 
 function clampStat(value: unknown): number | null {
@@ -351,8 +393,14 @@ export function normalizePetState(value: unknown): PetPersistentState | null {
       ? raw.createdAt
       : Date.now();
 
-  // States persisted before the species picker existed default to Mochi.
-  const species = isPetSpeciesId(raw.species) ? raw.species : DEFAULT_PET_SPECIES;
+  // States persisted before prestige existed have never molted.
+  const prestige = clampCount(raw.prestige);
+
+  // States persisted before the species picker existed default to Mochi. A
+  // prestige species on a never-molted state (a hand-edited or stale payload)
+  // falls back too — the unlock is earned, not typed in.
+  const speciesRaw = isPetSpeciesId(raw.species) ? raw.species : DEFAULT_PET_SPECIES;
+  const species = isPetSpeciesUnlocked(speciesRaw, prestige) ? speciesRaw : DEFAULT_PET_SPECIES;
   // States persisted before the size picker existed default to medium.
   const size = isPetSizeId(raw.size) ? raw.size : DEFAULT_PET_SIZE;
 
@@ -370,6 +418,7 @@ export function normalizePetState(value: unknown): PetPersistentState | null {
     size,
     xp,
     level: levelForXp(xp),
+    prestige,
     personality: effectivePersonality(personalityBase, personalityDrift),
     personalityBase,
     personalityDrift,

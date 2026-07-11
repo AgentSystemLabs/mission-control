@@ -9,11 +9,13 @@ import {
   petHydrate,
   petIngestServerEvent,
   petInteract,
+  petMolt,
   petNoteUncommitted,
   petPulse,
   petSetAggregates,
   petSetEnabled,
   petSetShipping,
+  petSetSpecies,
   petSetStatsOpen,
   petShipResult,
   petStroke,
@@ -23,6 +25,7 @@ import {
   type PetInputs,
 } from "./pet-store";
 import { PET_LINES } from "./pet-lines";
+import { PET_MAX_LEVEL } from "~/shared/pet";
 
 const NOW = 10_000_000;
 
@@ -237,6 +240,7 @@ describe("prompt:submitted reaction", () => {
           ? line.text({
               name: state.name,
               level: state.level,
+              prestige: state.prestige,
               runningCount: 0,
               sessionsFinished: 0,
               species: state.species,
@@ -410,6 +414,7 @@ describe("session milestones", () => {
         ? line.text({
             name: snap.name,
             level: snap.level,
+            prestige: snap.prestige,
             runningCount: 0,
             sessionsFinished: 5,
             species: snap.species,
@@ -587,6 +592,7 @@ describe("work awareness + direct interactions", () => {
           ? line.text({
               name: state.name,
               level: state.level,
+              prestige: state.prestige,
               runningCount: 0,
               sessionsFinished: 0,
               species: state.species,
@@ -714,5 +720,100 @@ describe("work awareness + direct interactions", () => {
     expect(after.personalityDrift.snark).toBeCloseTo(before.personalityDrift.snark + 0.1, 5);
     // The base never moves; only drift does.
     expect(after.personalityBase).toEqual(before.personalityBase);
+  });
+});
+
+describe("level progression: evolve + molt", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Later than every prior suite — module-level cooldowns and the XP total
+    // leak across the file, so this suite grinds from wherever XP stands.
+    vi.setSystemTime(new Date(2026, 6, 28, 12, 0, 0));
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  /** PR-created grants (+15) with the bubble aged out between each. */
+  function grindTo(targetXp: number): void {
+    while (getPetPersistentState()!.xp + 15 < targetXp) {
+      petShipResult("pr-created");
+      vi.advanceTimersByTime(30_000);
+    }
+  }
+
+  /** Resolve a pack to candidate texts for the current pet. */
+  function packTexts(trigger: keyof typeof PET_LINES): string[] {
+    const state = getPetPersistentState()!;
+    return PET_LINES[trigger]
+      .filter((line) => !line.species || line.species.includes(state.species))
+      .map((line) =>
+        typeof line.text === "function"
+          ? line.text({
+              name: state.name,
+              level: state.level,
+              prestige: state.prestige,
+              runningCount: 0,
+              sessionsFinished: 0,
+              species: state.species,
+              uncommittedCount: 0,
+              favoriteProject: null,
+              ageDays: 0,
+              weekly: { sessions: 0, ships: 0, prs: 0, failures: 0 },
+            })
+          : line.text,
+      );
+  }
+
+  it("crossing an evolution threshold announces the new gear, not the plain level-up", () => {
+    vi.advanceTimersByTime(60_000 * 10);
+    const thresholds = [
+      { level: 3, xp: 150 },
+      { level: 5, xp: 500 },
+      { level: 8, xp: 1_700 },
+      { level: 10, xp: 3_000 },
+    ];
+    const target = thresholds.find((t) => t.xp > getPetPersistentState()!.xp);
+    expect(target).toBeDefined();
+    grindTo(target!.xp);
+    // The crossing grant: grantXp runs before the pr-created line, so the
+    // evolve announcement wins the bubble.
+    petShipResult("pr-created");
+    const state = getPetPersistentState()!;
+    expect(state.level).toBe(target!.level);
+    expect(packTexts("evolve")).toContain(getPetSnapshot().bubble!.text);
+  });
+
+  it("molting at the cap resets xp/level, keeps the life lived, and unlocks ember", () => {
+    vi.advanceTimersByTime(60_000 * 10);
+    grindTo(3_000);
+    petShipResult("pr-created");
+    vi.advanceTimersByTime(30_000);
+    const before = getPetPersistentState()!;
+    expect(before.level).toBe(PET_MAX_LEVEL);
+
+    // The prestige species stays locked until the first molt completes.
+    petSetSpecies("ember");
+    expect(getPetPersistentState()!.species).toBe(before.species);
+
+    expect(petMolt()).toBe(true);
+    const after = getPetPersistentState()!;
+    expect(after).toMatchObject({ xp: 0, level: 1, prestige: before.prestige + 1 });
+    expect(after.stats).toEqual(before.stats);
+    expect(after.personalityBase).toEqual(before.personalityBase);
+    expect(after.personalityDrift).toEqual(before.personalityDrift);
+    expect(after.projectXp).toEqual(before.projectXp);
+    expect(after.createdAt).toBe(before.createdAt);
+    expect(packTexts("molt")).toContain(getPetSnapshot().bubble!.text);
+
+    // Below the cap there is nothing to molt.
+    expect(petMolt()).toBe(false);
+
+    // The molt earned the ember form.
+    petSetSpecies("ember");
+    expect(getPetPersistentState()!.species).toBe("ember");
   });
 });

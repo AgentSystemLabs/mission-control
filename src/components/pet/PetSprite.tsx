@@ -17,6 +17,8 @@ export type PetSpriteProps = {
   intensity: 1 | 2 | 3;
   night: boolean;
   level: number;
+  /** Molt count — any value above 0 pins the permanent star badge. */
+  prestige?: number;
   /**
    * Which of the mood's animation variants plays (0..9, see the per-mood
    * data-move rules in styles.css). Omitted (settings picker) = variant 0.
@@ -155,6 +157,65 @@ function MoodProps({ mood, intensity }: { mood: PetMood; intensity: 1 | 2 | 3 })
   );
 }
 
+/**
+ * Level gear — permanent details earned at evolution thresholds (see
+ * PET_EVOLUTION_LEVELS): a scarf at 5, a tool belt at 8, a tiny crown at 10.
+ * One shared drawing, positioned per species like the rest of the face
+ * grammar; the level-3 sparkle stays its own component (it predates these).
+ */
+type GearSpec = {
+  scarf: { y: number; halfW: number };
+  belt: { y: number; halfW: number };
+  crown: { x: number; y: number; tilt?: number };
+};
+
+function LevelGear({ level, spec }: { level: number; spec: GearSpec }) {
+  const { scarf, belt, crown } = spec;
+  return (
+    <>
+      {level >= 5 ? (
+        <g className="mc-pet-scarf">
+          <path
+            className="mc-pet-scarf-band"
+            d={`M ${50 - scarf.halfW} ${scarf.y} Q 50 ${scarf.y + 7} ${50 + scarf.halfW} ${scarf.y}`}
+          />
+          <path
+            className="mc-pet-scarf-tail"
+            d={`M ${50 + scarf.halfW - 8} ${scarf.y + 4} q 3 7 -1 12`}
+          />
+        </g>
+      ) : null}
+      {level >= 8 ? (
+        <g className="mc-pet-belt">
+          <path
+            d={`M ${50 - belt.halfW} ${belt.y} Q 50 ${belt.y + 4} ${50 + belt.halfW} ${belt.y}`}
+          />
+          <rect x={46.5} y={belt.y - 0.5} width={7} height={5.5} rx={1.2} />
+          <circle cx={50 + belt.halfW - 6} cy={belt.y + 1.4} r={1.2} />
+        </g>
+      ) : null}
+      {level >= 10 ? (
+        <path
+          className="mc-pet-crown"
+          transform={crown.tilt ? `rotate(${crown.tilt} ${crown.x} ${crown.y})` : undefined}
+          d={`M ${crown.x - 6} ${crown.y} L ${crown.x - 6} ${crown.y - 6} L ${crown.x - 3} ${crown.y - 2.5} L ${crown.x} ${crown.y - 7.5} L ${crown.x + 3} ${crown.y - 2.5} L ${crown.x + 6} ${crown.y - 6} L ${crown.x + 6} ${crown.y} Z`}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** The permanent molt star — worn top-left, opposite the growing sparkle. */
+function PrestigeStar({ prestige }: { prestige?: number }) {
+  if (!prestige) return null;
+  return (
+    <path
+      className="mc-pet-prestige"
+      d="M 14 3.5 L 16.2 8.8 L 21.5 11 L 16.2 13.2 L 14 18.5 L 11.8 13.2 L 6.5 11 L 11.8 8.8 Z"
+    />
+  );
+}
+
 function Sparkle({ level, dx = 0 }: { level: number; dx?: number }) {
   if (level < 3) return null;
   return (
@@ -199,6 +260,7 @@ function PetSvg({
   intensity,
   night,
   move,
+  prestige,
   size = 84,
   children,
 }: PetSpriteProps & { children: ReactNode }) {
@@ -215,6 +277,9 @@ function PetSvg({
       style={{ "--pet-speed": INTENSITY_SPEED[intensity] } as React.CSSProperties}
     >
       {children}
+      {/* Every species wears the molt star the same way — it's the pet's, not
+          the body's. */}
+      <PrestigeStar prestige={prestige} />
     </svg>
   );
 }
@@ -236,6 +301,14 @@ const MochiSprite = memo(function MochiSprite(props: PetSpriteProps) {
       <path
         className="mc-pet-body"
         d="M 50 90 C 25 90 13 77 15 59 C 18 38 34 26 50 26 C 66 26 82 38 85 59 C 87 77 75 90 50 90 Z"
+      />
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 74, halfW: 26 },
+          belt: { y: 84, halfW: 21 },
+          crown: { x: 32, y: 26, tilt: -18 },
+        }}
       />
       <StubArms up={mood === "celebrating"} />
       {FEET}
@@ -299,6 +372,14 @@ const BunnySprite = memo(function BunnySprite(props: PetSpriteProps) {
         className="mc-pet-body"
         d="M 50 90 C 26 90 14 78 16 62 C 18 44 33 32 50 32 C 67 32 82 44 84 62 C 86 78 74 90 50 90 Z"
       />
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 78, halfW: 24 },
+          belt: { y: 85, halfW: 20 },
+          crown: { x: 50, y: 28 },
+        }}
+      />
       <g className="mc-pet-tail-grp">
         <circle className="mc-pet-tail" cx="87" cy="80" r="3.6" />
       </g>
@@ -347,6 +428,14 @@ const ChickSprite = memo(function ChickSprite(props: PetSpriteProps) {
         <path className="mc-pet-plume" d="M 54 28 Q 57 20 62 18" />
       </g>
       <Sparkle level={level} dx={14} />
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 74, halfW: 25 },
+          belt: { y: 83, halfW: 21 },
+          crown: { x: 30, y: 26, tilt: -20 },
+        }}
+      />
       {excited ? (
         <>
           <path className="mc-pet-beak" d="M 45 60 L 50 57 L 55 60 L 50 63 Z" />
@@ -383,6 +472,14 @@ const CubSprite = memo(function CubSprite(props: PetSpriteProps) {
       <path
         className="mc-pet-nose"
         d="M 47.4 61.5 Q 50 59.8 52.6 61.5 Q 52.4 64.4 50 65.4 Q 47.6 64.4 47.4 61.5 Z"
+      />
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 78, halfW: 25 },
+          belt: { y: 85, halfW: 21 },
+          crown: { x: 50, y: 27 },
+        }}
       />
       <g className="mc-pet-arms">
         {mood === "celebrating" ? (
@@ -440,6 +537,14 @@ const LotlSprite = memo(function LotlSprite(props: PetSpriteProps) {
         className="mc-pet-body"
         d="M 50 90 C 24 90 12 76 15 57 C 18 37 34 27 50 27 C 66 27 82 37 85 57 C 88 76 76 90 50 90 Z"
       />
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 77, halfW: 25 },
+          belt: { y: 84, halfW: 21 },
+          crown: { x: 50, y: 25, tilt: 12 },
+        }}
+      />
       <StubArms up={mood === "celebrating"} />
       {FEET}
       <g className="mc-pet-face">
@@ -466,6 +571,14 @@ const RivetSprite = memo(function RivetSprite(props: PetSpriteProps) {
       <rect className="mc-pet-body" x="22" y="30" width="56" height="60" rx="17" />
       <circle className="mc-pet-bolt" cx="30" cy="38" r="1.4" />
       <circle className="mc-pet-bolt" cx="70" cy="38" r="1.4" />
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 74, halfW: 24 },
+          belt: { y: 82, halfW: 23 },
+          crown: { x: 32, y: 27, tilt: -15 },
+        }}
+      />
       <StubArms up={mood === "celebrating"} />
       {FEET}
       <g className="mc-pet-face">
@@ -497,6 +610,14 @@ const TrundleSprite = memo(function TrundleSprite(props: PetSpriteProps) {
         <line x1="31" y1="73" x2="37" y2="73" />
         <line x1="63" y1="73" x2="69" y2="73" />
       </g>
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 66, halfW: 23 },
+          belt: { y: 74, halfW: 22 },
+          crown: { x: 33, y: 29, tilt: -15 },
+        }}
+      />
       <g className="mc-pet-arms">
         {mood === "celebrating" ? (
           <>
@@ -520,6 +641,50 @@ const TrundleSprite = memo(function TrundleSprite(props: PetSpriteProps) {
   );
 });
 
+/**
+ * Ember — the molt-exclusive species: a small flame spirit whose body rises
+ * to a flame-tip head, with an inner glow and drifting ember motes. Only a
+ * pet that has molted at the level cap may wear it (see isPetSpeciesUnlocked).
+ */
+const EmberSprite = memo(function EmberSprite(props: PetSpriteProps) {
+  const { mood, intensity, level } = props;
+  return (
+    <PetSvg {...props}>
+      {/* Motes rising off the flame; CSS drifts them upward on a loop. */}
+      <g className="mc-pet-ember-motes">
+        <circle cx="33" cy="24" r="1.6" />
+        <circle cx="64" cy="18" r="1.3" />
+        <circle cx="55" cy="10" r="1.1" />
+      </g>
+      <Sparkle level={level} dx={14} />
+      <path
+        className="mc-pet-body"
+        d="M 50 90 C 27 90 15 76 17 59 C 19 44 30 33 41 25 C 45 22 48 16 50 9 C 52 16 55 22 59 25 C 70 33 81 44 83 59 C 85 76 73 90 50 90 Z"
+      />
+      <path
+        className="mc-pet-flame-core"
+        d="M 50 87 C 39 87 32 80 33 70 C 34 61 43 55 50 47 C 57 55 66 61 67 70 C 68 80 61 87 50 87 Z"
+      />
+      <LevelGear
+        level={level}
+        spec={{
+          scarf: { y: 77, halfW: 25 },
+          belt: { y: 84, halfW: 20 },
+          crown: { x: 33, y: 27, tilt: -18 },
+        }}
+      />
+      <StubArms up={mood === "celebrating"} />
+      {FEET}
+      <g className="mc-pet-face">
+        <Eyes kind={eyeKindFor(mood)} y={57} />
+        <Mouth mood={mood} y={69} />
+        <Blush y={66} lx={29} rx={71} />
+      </g>
+      <MoodProps mood={mood} intensity={intensity} />
+    </PetSvg>
+  );
+});
+
 /* ── registry ────────────────────────────────────────────────────────── */
 
 export type PetSpecies = {
@@ -536,4 +701,5 @@ export const PET_SPECIES: Record<PetSpeciesId, PetSpecies> = {
   lotl: { id: "lotl", label: "Axolotl", Sprite: LotlSprite },
   rivet: { id: "rivet", label: "Rivet", Sprite: RivetSprite },
   trundle: { id: "trundle", label: "Trundle", Sprite: TrundleSprite },
+  ember: { id: "ember", label: "Ember", Sprite: EmberSprite },
 };

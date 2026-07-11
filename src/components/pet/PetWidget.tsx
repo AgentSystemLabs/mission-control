@@ -541,7 +541,7 @@ export function PetWidget() {
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
                 aria-label={`${pet.name || "Pet"} — ${MOOD_DESCRIPTION[pet.mood]}`}
-                title={`${pet.name || "Pet"} · Lv ${pet.level} · ${MOOD_DESCRIPTION[pet.mood]}`}
+                title={`${pet.name || "Pet"} · Lv ${pet.level}${pet.prestige > 0 ? ` ★${pet.prestige}` : ""} · ${MOOD_DESCRIPTION[pet.mood]}`}
                 data-mood={pet.mood}
                 data-stroking={stroking || undefined}
               >
@@ -550,6 +550,7 @@ export function PetWidget() {
                   intensity={pet.intensity}
                   night={pet.night}
                   level={pet.level}
+                  prestige={pet.prestige}
                   move={pet.move}
                   size={SIZE_PX[pet.size]}
                 />

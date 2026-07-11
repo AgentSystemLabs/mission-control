@@ -33,7 +33,13 @@ import { isElectron } from "~/lib/electron";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
-import { DEFAULT_PET_NAME, PET_SIZE_IDS, PET_SPECIES_IDS, type PetSizeId } from "~/shared/pet";
+import {
+  DEFAULT_PET_NAME,
+  isPetSpeciesUnlocked,
+  PET_SIZE_IDS,
+  PET_SPECIES_IDS,
+  type PetSizeId,
+} from "~/shared/pet";
 import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
 import { PET_SPECIES } from "~/components/pet/PetSprite";
 import { TextField } from "~/components/ui/TextField";
@@ -442,6 +448,7 @@ export function GeneralSettingsPage() {
               />
               <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
                 Lv {petState.level} · {petState.xp} XP
+                {petState.prestige > 0 ? ` · ★${petState.prestige} molt${petState.prestige === 1 ? "" : "s"}` : ""}
                 <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span>
                 Snark {petState.personality.snark} · Wisdom {petState.personality.wisdom} ·
                 Chaos {petState.personality.chaos} · Zen {petState.personality.zen}
@@ -471,12 +478,17 @@ function PetSpeciesPicker() {
       {PET_SPECIES_IDS.map((id) => {
         const species = PET_SPECIES[id];
         const selected = pet.species === id;
+        // Ember is earned, not picked: locked until the pet has molted.
+        const locked = !isPetSpeciesUnlocked(id, pet.prestige);
         return (
           <button
             key={id}
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-disabled={locked || undefined}
+            disabled={locked}
+            title={locked ? "Molt at level 10 to unlock" : undefined}
             onClick={() => petSetSpecies(id)}
             style={{
               display: "flex",
@@ -485,16 +497,19 @@ function PetSpeciesPicker() {
               gap: 2,
               padding: "8px 10px 6px",
               borderRadius: 10,
-              cursor: "pointer",
+              cursor: locked ? "not-allowed" : "pointer",
               background: selected
                 ? "color-mix(in srgb, var(--accent) 14%, transparent)"
                 : "transparent",
               border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
               color: selected ? "var(--text)" : "var(--text-dim)",
+              opacity: locked ? 0.45 : 1,
             }}
           >
-            <species.Sprite mood="idle" intensity={1} night={false} level={1} size={44} />
-            <span style={{ fontSize: 11 }}>{species.label}</span>
+            <span style={{ filter: locked ? "grayscale(1)" : undefined, lineHeight: 0 }}>
+              <species.Sprite mood="idle" intensity={1} night={false} level={1} size={44} />
+            </span>
+            <span style={{ fontSize: 11 }}>{locked ? `${species.label} 🔒` : species.label}</span>
           </button>
         );
       })}

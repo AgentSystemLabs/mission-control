@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   favoriteProjectOf,
   xpForNextLevel,
@@ -6,6 +6,7 @@ import {
   type PetPersistentState,
   type PetPersonality,
 } from "~/shared/pet";
+import { petMolt } from "~/lib/pet/pet-store";
 import { PET_SPECIES } from "./PetSprite";
 
 /**
@@ -38,6 +39,9 @@ export function PetStatsCard({
   onClose: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
+  // The molt button arms an inline confirm — it resets level and XP, so a
+  // stray right-click-then-click shouldn't do it.
+  const [confirmingMolt, setConfirmingMolt] = useState(false);
 
   // Esc or any pointer-down outside the card closes it.
   useEffect(() => {
@@ -81,7 +85,17 @@ export function PetStatsCard({
     <div className="mc-pet-stats-card" ref={cardRef} role="dialog" aria-label="Pet stats">
       <div className="mc-pet-stats-head">
         <div>
-          <div className="mc-pet-stats-name">{state.name}</div>
+          <div className="mc-pet-stats-name">
+            {state.name}
+            {state.prestige > 0 ? (
+              <span
+                className="mc-pet-stats-prestige"
+                title={`Molted ${state.prestige} time${state.prestige === 1 ? "" : "s"}`}
+              >
+                {state.prestige <= 3 ? "★".repeat(state.prestige) : `★×${state.prestige}`}
+              </span>
+            ) : null}
+          </div>
           <div className="mc-pet-stats-sub">
             {speciesLabel} · hatched {formatHatchDate(state.createdAt)} ({ageDays}d)
           </div>
@@ -119,6 +133,48 @@ export function PetStatsCard({
           <span className="mc-pet-stats-xptext">max level ({PET_MAX_LEVEL})</span>
         )}
       </div>
+
+      {/* At the cap the pet may molt: begin again at level 1 with a permanent
+          star. Everything lived-in survives — only level and XP reset. */}
+      {state.level >= PET_MAX_LEVEL ? (
+        <div className="mc-pet-stats-molt">
+          {confirmingMolt ? (
+            <>
+              <span className="mc-pet-stats-molt-note">
+                Back to level 1 — stats, personality, and favorites stay; the ★ is forever
+                {state.prestige === 0 ? ", and Ember unlocks" : ""}.
+              </span>
+              <div className="mc-pet-stats-molt-actions">
+                <button
+                  type="button"
+                  className="mc-pet-stats-molt-confirm"
+                  onClick={() => {
+                    petMolt();
+                    setConfirmingMolt(false);
+                  }}
+                >
+                  Molt
+                </button>
+                <button
+                  type="button"
+                  className="mc-pet-stats-molt-cancel"
+                  onClick={() => setConfirmingMolt(false)}
+                >
+                  Not yet
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="mc-pet-stats-molt-button"
+              onClick={() => setConfirmingMolt(true)}
+            >
+              Molt ★ — begin again
+            </button>
+          )}
+        </div>
+      ) : null}
 
       <div className="mc-pet-stats-personality">
         {STAT_LABELS.map(([key, label]) => {
