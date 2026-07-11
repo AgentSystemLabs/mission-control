@@ -118,6 +118,9 @@ export function PetWidget() {
     raf: number;
   } | null>(null);
   const dropTimer = useRef<number | null>(null);
+  // The pending drop's completion handler, so a re-grab mid-fall can finish
+  // the handoff immediately instead of letting the timer fire mid-new-drag.
+  const dropFinish = useRef<(() => void) | null>(null);
   const [dragPhase, setDragPhase] = useState<"held" | "dropping" | null>(null);
   // One render with no walker transition, so the post-toss wander.x handoff
   // doesn't animate (the stage offset and the walker offset cancel exactly).
@@ -137,9 +140,13 @@ export function PetWidget() {
     if (!pet.enabled) return;
     const measure = () => {
       const dock = document.querySelector("[data-user-terminal-panel]");
+      const rect = dock?.getBoundingClientRect();
+      // A hidden or collapsing dock reports a zero-size rect whose top is 0 —
+      // trusting it would set the lift to the full window height and slam the
+      // pet to the very top of the screen. No box, no perch.
       setDockLift(
-        dock
-          ? Math.max(0, window.innerHeight - dock.getBoundingClientRect().top)
+        rect && rect.height > 0 && rect.width > 0
+          ? Math.max(0, window.innerHeight - rect.top)
           : 0,
       );
     };
@@ -235,6 +242,13 @@ export function PetWidget() {
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     // While alert, the click is a jump-to-session shortcut — keep it instant.
     if (event.button !== 0 || pet.mood === "alert") return;
+    // Caught mid-fall: complete the pending drop's handoff right now, so its
+    // timer can't fire later and wipe this new interaction's transform.
+    if (dropTimer.current !== null) {
+      window.clearTimeout(dropTimer.current);
+      dropTimer.current = null;
+      dropFinish.current?.();
+    }
     // Capture at press, not at drag activation: a walking pet can slide out
     // from under the press, and without capture the button never receives the
     // pointerup — the drag origin goes stale and later hover movement fakes a
@@ -336,6 +350,7 @@ export function PetWidget() {
     );
     const stage = stageRef.current;
     const finish = () => {
+      dropFinish.current = null;
       if (stage) {
         stage.style.transition = "";
         stage.style.transform = "";
@@ -347,6 +362,7 @@ export function PetWidget() {
       petTossed(landing);
       window.setTimeout(() => setInstantJump(false), 50);
     };
+    dropFinish.current = finish;
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // How high above the ground line it was released (dy ≤ 0 means lifted).
     // A low release lands in place — no theatrical fall from a sideways drag.

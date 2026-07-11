@@ -1178,6 +1178,11 @@ export function petStroke(): void {
 // Dev harness: poke the pet from the console without faking real sessions.
 if (import.meta.env.DEV && typeof window !== "undefined") {
   (window as unknown as Record<string, unknown>).mcPet = {
+    // Force-enable outside Electron (plain-browser dev has no settings auth).
+    enable: () => {
+      petHydrate(null);
+      petSetEnabled(true, true, false);
+    },
     say: (trigger: PetTrigger) => say(trigger),
     pulse: petPulse,
     setAggregates: petSetAggregates,
