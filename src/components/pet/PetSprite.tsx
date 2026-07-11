@@ -57,11 +57,15 @@ function Eyes({ kind, y, lx = 38, rx = 62 }: { kind: EyeKind; y: number; lx?: nu
     );
   }
   const r = kind === "wide" ? 6.6 : 5.8;
+  // Pupil + shines share a group so moods can dart the gaze around inside the
+  // eye while the blink squish stays on the outer .mc-pet-eye wrapper.
   const eye = (cx: number) => (
     <g className="mc-pet-eye" key={cx}>
-      <circle className="mc-pet-pupil" cx={cx} cy={y} r={r} />
-      <circle className="mc-pet-shine" cx={cx - 2} cy={y - 2} r={1.9} />
-      <circle className="mc-pet-shine" cx={cx + 1.6} cy={y + 1.6} r={0.9} opacity={0.85} />
+      <g className="mc-pet-pupil-set">
+        <circle className="mc-pet-pupil" cx={cx} cy={y} r={r} />
+        <circle className="mc-pet-shine" cx={cx - 2} cy={y - 2} r={1.9} />
+        <circle className="mc-pet-shine" cx={cx + 1.6} cy={y + 1.6} r={0.9} opacity={0.85} />
+      </g>
     </g>
   );
   return (
@@ -245,21 +249,30 @@ const MochiSprite = memo(function MochiSprite(props: PetSpriteProps) {
   );
 });
 
+/**
+ * Bunny is the articulation pilot: every part (ears, paws, feet, tail, gaze)
+ * lives in its own pivoted <g> so CSS can choreograph parts per mood on top
+ * of the whole-body motion on the svg root. See "articulated parts" in
+ * styles.css. Other species keep static parts until they adopt this grammar.
+ */
 const BunnySprite = memo(function BunnySprite(props: PetSpriteProps) {
   const { mood, intensity, level } = props;
   const earsUp = mood === "alert" || mood === "celebrating";
+  const armsUp = mood === "celebrating";
   return (
     <PetSvg {...props}>
-      <path
-        className="mc-pet-body"
-        d="M 34 38 C 28 30 24 17 28 9 C 31 4 37 7 38 16 C 39 25 38 32 37 37 Z"
-      />
-      <path
-        className="mc-pet-inner"
-        d="M 33 32 C 30 26 29 17 31 12 C 33 9 35 12 35 18 C 36 25 35 29 34 33 Z"
-      />
+      <g className="mc-pet-ear mc-pet-ear-l">
+        <path
+          className="mc-pet-body"
+          d="M 34 38 C 28 30 24 17 28 9 C 31 4 37 7 38 16 C 39 25 38 32 37 37 Z"
+        />
+        <path
+          className="mc-pet-inner"
+          d="M 33 32 C 30 26 29 17 31 12 C 33 9 35 12 35 18 C 36 25 35 29 34 33 Z"
+        />
+      </g>
       {earsUp ? (
-        <>
+        <g className="mc-pet-ear mc-pet-ear-r">
           <path
             className="mc-pet-body"
             d="M 66 38 C 72 30 76 17 72 9 C 69 4 63 7 62 16 C 61 25 62 32 63 37 Z"
@@ -268,9 +281,9 @@ const BunnySprite = memo(function BunnySprite(props: PetSpriteProps) {
             className="mc-pet-inner"
             d="M 67 32 C 70 26 71 17 69 12 C 67 9 65 12 65 18 C 64 25 65 29 66 33 Z"
           />
-        </>
+        </g>
       ) : (
-        <>
+        <g className="mc-pet-ear mc-pet-ear-r mc-pet-ear-flop">
           <path
             className="mc-pet-body"
             d="M 63 37 C 68 30 78 22 85 22 C 90 23 89 29 83 32 C 76 36 69 38 65 39 Z"
@@ -279,15 +292,32 @@ const BunnySprite = memo(function BunnySprite(props: PetSpriteProps) {
             className="mc-pet-inner"
             d="M 69 34 C 74 30 80 27 83 27 C 85 28 84 30 80 31 C 76 33 72 34 70 35 Z"
           />
-        </>
+        </g>
       )}
       <Sparkle level={level} dx={20} />
       <path
         className="mc-pet-body"
         d="M 50 90 C 26 90 14 78 16 62 C 18 44 33 32 50 32 C 67 32 82 44 84 62 C 86 78 74 90 50 90 Z"
       />
-      <circle className="mc-pet-tail" cx="87" cy="80" r="3.6" />
-      {FEET}
+      <g className="mc-pet-tail-grp">
+        <circle className="mc-pet-tail" cx="87" cy="80" r="3.6" />
+      </g>
+      <g className="mc-pet-arms">
+        <g className="mc-pet-arm mc-pet-arm-l">
+          <path d={armsUp ? "M 18 56 Q 8 48 10 42" : "M 17 62 Q 9 66 12 72"} />
+        </g>
+        <g className="mc-pet-arm mc-pet-arm-r">
+          <path d={armsUp ? "M 82 56 Q 92 48 90 42" : "M 83 62 Q 91 66 88 72"} />
+        </g>
+      </g>
+      <g className="mc-pet-feet">
+        <g className="mc-pet-foot mc-pet-foot-l">
+          <path d="M 38 90 Q 38 86 42 86" />
+        </g>
+        <g className="mc-pet-foot mc-pet-foot-r">
+          <path d="M 62 90 Q 62 86 58 86" />
+        </g>
+      </g>
       <g className="mc-pet-face">
         <Eyes kind={eyeKindFor(mood)} y={58} />
         <Mouth mood={mood} y={70} />

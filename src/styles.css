@@ -4002,9 +4002,170 @@ body[data-card-glow] .cursor-glow {
   animation: mc-pet-mv-pulse 0.45s ease-in-out infinite;
 }
 
+/* --- articulated parts (bunny pilot) ---
+   Each part sits in its own <g> pivoted at its anatomical joint
+   (transform-box: fill-box + a per-part origin), so moods choreograph ears,
+   gaze, paws, feet, and tail individually on top of the whole-body motion on
+   the svg root. Only transform is animated (compositor-friendly). Static pose
+   transforms (sleepy ear droop, startled pupils) live outside the keyframes
+   so they survive prefers-reduced-motion. Species adopt this by wrapping
+   parts in these classes — no per-species CSS needed. */
+.mc-pet-ear,
+.mc-pet-arm,
+.mc-pet-foot,
+.mc-pet-tail-grp,
+.mc-pet-pupil-set,
+.mc-pet-face {
+  transform-box: fill-box;
+}
+.mc-pet-ear-l {
+  transform-origin: 75% 95%;
+}
+.mc-pet-ear-r {
+  transform-origin: 25% 95%;
+}
+/* The folded ear hangs off the side of the head, so it hinges at its left edge. */
+.mc-pet-ear-flop {
+  transform-origin: 5% 60%;
+}
+.mc-pet-arm-l {
+  transform-origin: 90% 10%;
+}
+.mc-pet-arm-r {
+  transform-origin: 10% 10%;
+}
+.mc-pet-foot {
+  transform-origin: 50% 100%;
+}
+.mc-pet-tail-grp,
+.mc-pet-pupil-set,
+.mc-pet-face {
+  transform-origin: 50% 50%;
+}
+
+/* idle — ears sway out of phase, the gaze wanders, the tail twitches now and then */
+.mc-pet[data-mood="idle"] .mc-pet-ear-l {
+  animation: mc-pet-ear-sway 4.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"] .mc-pet-ear-r {
+  animation: mc-pet-ear-sway 4.2s ease-in-out -1.6s infinite;
+}
+.mc-pet[data-mood="idle"] .mc-pet-pupil-set {
+  animation: mc-pet-pupil-glance 9s ease-in-out infinite;
+}
+.mc-pet[data-mood="idle"] .mc-pet-tail-grp {
+  animation: mc-pet-tail-twitch 6s ease-in-out infinite;
+}
+
+/* watching — perked ears twitching, eyes tracking your cursor line, head tilt */
+.mc-pet[data-mood="watching"] .mc-pet-ear-l {
+  animation: mc-pet-ear-perk 2.6s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"] .mc-pet-ear-r {
+  animation: mc-pet-ear-perk 2.6s ease-in-out -0.5s infinite;
+}
+.mc-pet[data-mood="watching"] .mc-pet-pupil-set {
+  animation: mc-pet-pupil-track 3.2s ease-in-out infinite;
+}
+.mc-pet[data-mood="watching"] .mc-pet-face {
+  animation: mc-pet-face-tilt 3.2s ease-in-out infinite;
+}
+
+/* working + shipping — paws alternate typing (speed scales with agent count),
+   gaze locked down on the "keyboard", ears rebounding off the body bounce */
+.mc-pet[data-mood="working"] .mc-pet-arm-l,
+.mc-pet[data-mood="shipping"] .mc-pet-arm-l {
+  animation: mc-pet-arm-type-l calc(0.5s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-arm-r,
+.mc-pet[data-mood="shipping"] .mc-pet-arm-r {
+  animation: mc-pet-arm-type-r calc(0.5s / var(--pet-speed, 1)) ease-in-out
+    calc(-0.25s / var(--pet-speed, 1)) infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-pupil-set,
+.mc-pet[data-mood="shipping"] .mc-pet-pupil-set {
+  animation: mc-pet-pupil-focus 2.4s ease-in-out infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-ear-l,
+.mc-pet[data-mood="shipping"] .mc-pet-ear-l {
+  animation: mc-pet-ear-rebound calc(1.1s / var(--pet-speed, 1)) ease-in-out infinite;
+}
+.mc-pet[data-mood="working"] .mc-pet-ear-r,
+.mc-pet[data-mood="shipping"] .mc-pet-ear-r {
+  animation: mc-pet-ear-rebound calc(1.1s / var(--pet-speed, 1)) ease-in-out
+    calc(-0.12s / var(--pet-speed, 1)) infinite;
+}
+
+/* sleeping — upright ear droops (static pose + slow sag), folded ear sways */
+.mc-pet[data-mood="sleeping"] .mc-pet-ear-l {
+  transform: rotate(-16deg);
+  animation: mc-pet-ear-doze 6s ease-in-out infinite;
+}
+.mc-pet[data-mood="sleeping"] .mc-pet-ear-flop {
+  animation: mc-pet-sway 6s ease-in-out infinite;
+}
+
+/* alert — both ears bolt upright and twitch; the classic warning foot-thump */
+.mc-pet[data-mood="alert"] .mc-pet-ear-l {
+  animation: mc-pet-ear-twitch 1.1s ease-in-out infinite;
+}
+.mc-pet[data-mood="alert"] .mc-pet-ear-r {
+  animation: mc-pet-ear-twitch 1.1s ease-in-out -0.35s infinite;
+}
+.mc-pet[data-mood="alert"] .mc-pet-foot-r {
+  animation: mc-pet-foot-thump 0.6s ease-in-out infinite;
+}
+
+/* celebrating — paws wave alternately, ears flop about, tail wags */
+.mc-pet[data-mood="celebrating"] .mc-pet-arm-l {
+  animation: mc-pet-arm-wave-l 0.7s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-arm-r {
+  animation: mc-pet-arm-wave-r 0.7s ease-in-out -0.35s infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-ear-l {
+  animation: mc-pet-ear-flap 0.7s ease-in-out infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-ear-r {
+  animation: mc-pet-ear-flap 0.7s ease-in-out -0.18s infinite;
+}
+.mc-pet[data-mood="celebrating"] .mc-pet-tail-grp {
+  animation: mc-pet-tail-wag 0.5s ease-in-out infinite;
+}
+
+/* startled — ears quiver, pupils contract (static pose so it survives
+   reduced motion) */
+.mc-pet[data-mood="startled"] .mc-pet-ear-l,
+.mc-pet[data-mood="startled"] .mc-pet-ear-r {
+  animation: mc-pet-ear-quiver 0.28s linear infinite;
+}
+.mc-pet[data-mood="startled"] .mc-pet-pupil-set {
+  transform: scale(0.85);
+}
+
 /* Walking overrides the mood animation while the walker strip translates. */
 .mc-pet-walker[data-walking] .mc-pet {
   animation: mc-pet-waddle 0.5s ease-in-out infinite;
+}
+/* Gait: feet alternate steps, paws swing opposite, ears bounce with each
+   stride. Declared after the mood rules so walking wins the cascade. */
+.mc-pet-walker[data-walking] .mc-pet-foot-l {
+  animation: mc-pet-foot-step 0.5s ease-in-out infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-foot-r {
+  animation: mc-pet-foot-step 0.5s ease-in-out -0.25s infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-arm-l {
+  animation: mc-pet-arm-swing 0.5s ease-in-out infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-arm-r {
+  animation: mc-pet-arm-swing 0.5s ease-in-out -0.25s infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-ear-l {
+  animation: mc-pet-ear-jog 0.5s ease-in-out infinite;
+}
+.mc-pet-walker[data-walking] .mc-pet-ear-r {
+  animation: mc-pet-ear-jog 0.5s ease-in-out -0.25s infinite;
 }
 .mc-pet-walker {
   will-change: transform;
@@ -4674,6 +4835,243 @@ body[data-card-glow] .cursor-glow {
   }
   50% {
     transform: scaleY(1.055) scaleX(0.985);
+  }
+}
+
+/* --- articulated part keyframes (transform-only; pivots set per part above) --- */
+@keyframes mc-pet-ear-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(5deg);
+  }
+  70% {
+    transform: rotate(-4deg);
+  }
+}
+@keyframes mc-pet-ear-perk {
+  0%,
+  45%,
+  100% {
+    transform: rotate(0deg);
+  }
+  10%,
+  30% {
+    transform: rotate(-7deg);
+  }
+  20% {
+    transform: rotate(-3deg);
+  }
+}
+@keyframes mc-pet-ear-twitch {
+  0%,
+  50%,
+  100% {
+    transform: rotate(0deg);
+  }
+  12% {
+    transform: rotate(8deg);
+  }
+  28% {
+    transform: rotate(-4deg);
+  }
+}
+@keyframes mc-pet-ear-quiver {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(3deg);
+  }
+  75% {
+    transform: rotate(-3deg);
+  }
+}
+@keyframes mc-pet-ear-doze {
+  0%,
+  100% {
+    transform: rotate(-16deg);
+  }
+  50% {
+    transform: rotate(-21deg);
+  }
+}
+@keyframes mc-pet-ear-rebound {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(-6deg);
+  }
+  60% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes mc-pet-ear-flap {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  40% {
+    transform: rotate(-13deg);
+  }
+  70% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes mc-pet-ear-jog {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-5deg);
+  }
+}
+@keyframes mc-pet-pupil-glance {
+  0%,
+  20%,
+  55%,
+  100% {
+    transform: translate(0, 0);
+  }
+  26%,
+  38% {
+    transform: translate(-2.2px, 0.4px);
+  }
+  62%,
+  80% {
+    transform: translate(2.2px, 0.3px);
+  }
+}
+@keyframes mc-pet-pupil-track {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-2.4px, 0);
+  }
+  75% {
+    transform: translate(2.4px, 0);
+  }
+}
+@keyframes mc-pet-pupil-focus {
+  0%,
+  100% {
+    transform: translate(0, 1.6px);
+  }
+  40% {
+    transform: translate(-1.2px, 1.7px);
+  }
+  70% {
+    transform: translate(1.2px, 1.7px);
+  }
+}
+@keyframes mc-pet-face-tilt {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(2.5deg);
+  }
+  70% {
+    transform: rotate(-2deg);
+  }
+}
+@keyframes mc-pet-arm-type-l {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(16deg) translateY(-1px);
+  }
+}
+@keyframes mc-pet-arm-type-r {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-16deg) translateY(-1px);
+  }
+}
+@keyframes mc-pet-arm-wave-l {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+@keyframes mc-pet-arm-wave-r {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+@keyframes mc-pet-arm-swing {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+@keyframes mc-pet-foot-thump {
+  0%,
+  45%,
+  70%,
+  100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-2.6px);
+  }
+  57% {
+    transform: translateY(-1.4px);
+  }
+}
+@keyframes mc-pet-foot-step {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2.2px) rotate(-8deg);
+  }
+}
+@keyframes mc-pet-tail-twitch {
+  0%,
+  86%,
+  100% {
+    transform: translate(0, 0);
+  }
+  90% {
+    transform: translate(1.2px, -0.6px);
+  }
+  95% {
+    transform: translate(-0.6px, 0.4px);
+  }
+}
+@keyframes mc-pet-tail-wag {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(1.5px, -1px) scale(1.25);
   }
 }
 
