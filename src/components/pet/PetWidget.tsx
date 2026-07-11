@@ -58,8 +58,12 @@ const HOLD_TO_STROKE_MS = 350;
 const STROKE_TICK_MS = 600;
 /** Moving the pointer this far while held turns the hold into a drag. */
 const DRAG_START_PX = 12;
-/** How long the release-drop bounce runs before the store takes over. */
-const DROP_MS = 380;
+/** Longest the release-drop bounce may run (a full-window fall). */
+const DROP_MAX_MS = 350;
+/** Shortest drop that still reads as a fall rather than a blink. */
+const DROP_MIN_MS = 140;
+/** Released lower than this above the ground, there's nothing to fall. */
+const MIN_FALL_PX = 24;
 /** Pupils track the cursor inside this radius around the pet. */
 const LOOK_RADIUS_PX = 220;
 /** Max pupil offset, in sprite user units (the eye radius is ~6). */
@@ -344,18 +348,31 @@ export function PetWidget() {
       window.setTimeout(() => setInstantJump(false), 50);
     };
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reducedMotion || !stage) {
+    // How high above the ground line it was released (dy ≤ 0 means lifted).
+    // A low release lands in place — no theatrical fall from a sideways drag.
+    const fallHeight = Math.max(0, -origin.dy);
+    if (reducedMotion || !stage || fallHeight < MIN_FALL_PX) {
       finish();
     } else {
-      // Let go: fall straight down from where it was dropped, then hand off.
+      // Let go: fall straight down from where it was dropped, over a duration
+      // that scales with the actual height, then hand off.
       setDragPhase("dropping");
-      stage.style.transition = `transform ${DROP_MS - 30}ms cubic-bezier(0.34, 1.56, 0.64, 1)`;
+      // The rAF write may not have flushed the final offset yet — pin the
+      // exact release position first so the fall starts from where you see it.
+      stage.style.transition = "none";
+      stage.style.transform = `translate(${origin.dx}px, ${origin.dy}px)`;
+      stage.getBoundingClientRect(); // flush, so the transition starts here
+      const fallMs = Math.max(
+        DROP_MIN_MS,
+        Math.min(DROP_MAX_MS, Math.round(22 * Math.sqrt(fallHeight))),
+      );
+      stage.style.transition = `transform ${fallMs}ms cubic-bezier(0.34, 1.56, 0.64, 1)`;
       stage.style.transform = `translate(${origin.dx}px, 0px)`;
       if (dropTimer.current !== null) window.clearTimeout(dropTimer.current);
       dropTimer.current = window.setTimeout(() => {
         dropTimer.current = null;
         finish();
-      }, DROP_MS);
+      }, fallMs + 30);
     }
     return true;
   };
