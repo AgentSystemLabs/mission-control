@@ -712,8 +712,8 @@ function Shell() {
           dragRegion
           right={
             <>
-              <ProviderUsageIndicator />
               <UpdateAvailableButton />
+              <ProviderUsageIndicator />
               <HeaderBeforeSearchSlot />
               <PromptSearchButton />
               <VoicePushToTalkButton />
