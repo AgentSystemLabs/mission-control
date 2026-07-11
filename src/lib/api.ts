@@ -86,6 +86,8 @@ export type AppSettings = {
    */
   themeChosen: boolean;
   mouseGradientDisabled: boolean;
+  /** Reduce energy use on battery: freeze decorative animations, slow idle polls. */
+  batterySaverEnabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   /** Ding when a session-finish or diagram-ready notification arrives. */
@@ -612,6 +614,7 @@ export const api = {
         | "surfaceTint"
         | "minimalTheme"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"

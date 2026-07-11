@@ -45,6 +45,7 @@ export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const mouseGradientEnabled = !(settings?.mouseGradientDisabled ?? false);
+  const batterySaverEnabled = settings?.batterySaverEnabled ?? true;
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
@@ -84,6 +85,7 @@ export function GeneralSettingsPage() {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -100,6 +102,7 @@ export function GeneralSettingsPage() {
     minimalTheme: settings?.minimalTheme ?? false,
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
+    batterySaverEnabled,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
     notificationSoundEnabled,
@@ -159,6 +162,7 @@ export function GeneralSettingsPage() {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -182,6 +186,10 @@ export function GeneralSettingsPage() {
 
   const setMouseGradientEnabled = async (enabled: boolean) => {
     await updateSettings({ mouseGradientDisabled: !enabled });
+  };
+
+  const setBatterySaverEnabled = async (enabled: boolean) => {
+    await updateSettings({ batterySaverEnabled: enabled });
   };
 
   const setToastEnabled = async (sessionFinishToastEnabled: boolean) => {
@@ -290,6 +298,15 @@ export function GeneralSettingsPage() {
             description="Cursor and card gradients follow the pointer across the workspace."
             checked={mouseGradientEnabled}
             onChange={setMouseGradientEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Battery saver">
+          <ToggleRow
+            title="Reduce energy use on battery"
+            description="On battery power, decorative animations freeze, terminal cursors stop blinking, and idle refresh slows down."
+            checked={batterySaverEnabled}
+            onChange={setBatterySaverEnabled}
             label="Enable"
           />
         </Field>

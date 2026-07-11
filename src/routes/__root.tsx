@@ -20,6 +20,7 @@ import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
+import { usePowerSaveController } from "~/lib/power-save";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import {
   UserTerminalProvider,
@@ -300,6 +301,9 @@ function Shell() {
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
   }, [router]);
   useTheme();
+  // Battery saver: drives the data-power-save root attribute from the
+  // powerMonitor signal + setting (see src/lib/power-save.ts).
+  usePowerSaveController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable

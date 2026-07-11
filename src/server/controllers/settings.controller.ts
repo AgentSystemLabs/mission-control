@@ -153,6 +153,7 @@ const updateSettingsBody = z
     themeStyle: z.string().refine(isThemeStyle, { message: "invalid themeStyle" }),
     surfaceTint: z.string().refine(isSurfaceTint, { message: "invalid surfaceTint" }),
     mouseGradientDisabled: z.boolean(),
+    batterySaverEnabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
     notificationSoundEnabled: z.boolean(),
@@ -391,6 +392,9 @@ function settingsPayload() {
       getSetting(THEME_STYLE_KEY) !== null ||
       getSetting(MINIMAL_THEME_KEY) !== null,
     mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
+    // On battery, the renderer freezes decorative animations and slows idle
+    // polls (see src/lib/power-save.ts). Default on.
+    batterySaverEnabled: getBooleanSetting("battery_saver_enabled", true),
     sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
       "session_finish_os_notification_enabled",
@@ -511,6 +515,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.mouseGradientDisabled !== undefined) {
     setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
+  }
+  if (body.batterySaverEnabled !== undefined) {
+    setBooleanSetting("battery_saver_enabled", body.batterySaverEnabled);
   }
   if (body.sessionFinishToastEnabled !== undefined) {
     setBooleanSetting("session_finish_toast_enabled", body.sessionFinishToastEnabled);

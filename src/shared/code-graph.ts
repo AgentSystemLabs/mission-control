@@ -88,6 +88,10 @@ export const GRAPH_IGNORE_DIRS: readonly string[] = [
   "vendor",
   "coverage",
   "dist-electron",
+  // Worktrees are created inside the project root (projectRoot/.worktree/<branch>);
+  // their edits belong to the worktree's own index, not the parent's.
+  ".worktree",
+  ".worktrees",
   // Python environments/caches — huge and never source.
   "__pycache__",
   ".venv",

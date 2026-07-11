@@ -9,6 +9,7 @@ import {
   session,
   clipboard,
   nativeImage,
+  powerMonitor,
   systemPreferences,
   type NativeImage,
 } from "electron";
@@ -21,6 +22,7 @@ import * as nodeNet from "node:net";
 import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
+import { setPtyStreamHidden, setPtyStreamPowerSave } from "./pty-output-batch";
 import { setAppThemeFromBackground } from "./app-theme";
 import {
   isWhisperAvailable,
@@ -126,7 +128,10 @@ function remoteVmSpawnEnv(): NodeJS.ProcessEnv {
 // That's already on the user's own machine, so not a privacy risk unless they share the bundle externally.
 log.initialize();
 log.transports.file.level = "info";
-log.transports.console.level = "debug";
+// electron-log console writes are synchronous on the main thread and invisible
+// in a packaged app — keep them for dev only. The file transport stays at
+// "info" as the auto-updater debugging trail described above.
+log.transports.console.level = app.isPackaged ? false : "debug";
 
 // stdout/stderr writes can fail with EPIPE/EIO/EBADF once the controlling
 // terminal or parent pipe goes away — almost always during shutdown. These
@@ -1056,6 +1061,13 @@ async function createWindow() {
     }
   });
 
+  // Slow the PTY→renderer output pump while nobody can see the window (the
+  // renderer can't paint anyway); restore + flush the instant it's back.
+  win.on("hide", () => setPtyStreamHidden(true));
+  win.on("minimize", () => setPtyStreamHidden(true));
+  win.on("show", () => setPtyStreamHidden(false));
+  win.on("restore", () => setPtyStreamHidden(false));
+
   win.on("enter-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, true));
   win.on("leave-full-screen", () => win?.webContents.send(IPC.appFullScreenChange, false));
   safeHandle(IPC.appIsFullScreen, () => win?.isFullScreen() ?? false);
@@ -1720,6 +1732,21 @@ app.whenReady().then(() => {
   // so it must be configured before any window can issue an IPC call.
   configureProjectRootsDb(missionControlUserDataDir);
   configurePermissionHandlers();
+  // Battery signal for the renderer's power-save mode (src/lib/power-save.ts).
+  // powerMonitor is only usable after 'ready'.
+  safeHandle(IPC.powerGetOnBattery, () => powerMonitor.isOnBatteryPower());
+  powerMonitor.on("on-battery", () =>
+    win?.webContents.send(IPC.powerOnBatteryChange, true),
+  );
+  powerMonitor.on("on-ac", () =>
+    win?.webContents.send(IPC.powerOnBatteryChange, false),
+  );
+  // The renderer owns the battery-saver setting; it reports the combined
+  // state back so the PTY output pump can slow non-interactive terminals.
+  safeHandle(IPC.powerSetSaverActive, (_evt, active: boolean) => {
+    setPtyStreamPowerSave(active === true);
+    return true;
+  });
   registerProjectImageProtocol();
   registerUpdateManager(ipcMain, () => win, missionControlUserDataDir);
   registerFocusMode(() => win, missionControlUserDataDir, {

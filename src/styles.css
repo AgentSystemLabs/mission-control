@@ -1151,6 +1151,25 @@ select,
     stroke-dashoffset: 0;
   }
 }
+/* Battery saver (html[data-power-save], driven by src/lib/power-save.ts):
+   freeze the paint-per-frame infinite animations — the SVG stroke draw
+   repaints every frame × every running session, and shimmer/sweep repaint
+   their gradients continuously. Compositor-cheap opacity pulses (StatusDot
+   and friends) are left running; they cost nothing measurable. Each frozen
+   state mirrors its prefers-reduced-motion fallback. */
+html[data-power-save] .mc-session-icon-drawing > * {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+html[data-power-save] .shimmer-bar,
+html[data-power-save] [data-activity] [class*="shimmer"] {
+  animation: none !important;
+}
+html[data-power-save] .pinned-project-logo-surface--running::after {
+  animation: none;
+  opacity: 0.28;
+  transform: none;
+}
 
 /* Grid/list view toggle: morph the four cells between the grid and list layouts
    so a click reads as the view physically changing. The geometry attributes are

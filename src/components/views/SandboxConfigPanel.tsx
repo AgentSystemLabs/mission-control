@@ -645,7 +645,10 @@ export function SandboxConfigPanel({
   useEffect(() => {
     if (state.status !== "starting" && state.status !== "running") return;
     setConnectClock(Date.now());
-    const timer = window.setInterval(() => setConnectClock(Date.now()), 1000);
+    // Cosmetic elapsed clock — don't re-render a hidden window every second.
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setConnectClock(Date.now());
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [state.status, state.status === "starting" || state.status === "running" ? state.since : null]);
 

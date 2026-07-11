@@ -23,6 +23,7 @@ import {
 } from "./sandbox-store";
 import type { SandboxConfig, OpResult } from "./sandbox-types";
 import { SandboxAgentClient } from "./sandbox-agent-client";
+import { PtyOutputBatcher } from "./pty-output-batch";
 import { buildSandboxHookRelayUrl } from "./pty-hook-env";
 import {
   SANDBOX_AGENT_UPGRADE_COMMAND,
@@ -87,6 +88,11 @@ function forwardSandboxHook(
 // remotePty:replay is request/response, but the agent answers with a streamed
 // replayResult frame — correlate the pending invoke by ptyId.
 const pendingReplays = new Map<string, (r: { data: string; nextSeq: number }) => void>();
+
+// Last renderer keystroke per remote pty — marks it interactive so battery
+// saver never throttles typing echo (see pty-output-batch.ts).
+const remotePtyLastInputAt = new Map<string, number>();
+const REMOTE_PTY_INTERACTIVE_WINDOW_MS = 10_000;
 
 // Phase 2: one remote agent connection per sandbox. The registry owns the
 // per-sandbox state machine (sandbox-registry.ts); this module supplies the
@@ -260,6 +266,11 @@ function connectAgent(
     kind: config.kind,
     copyAgentCreds: config.copyAgentCreds,
   });
+  // Remote PTY output is coalesced before crossing IPC, mirroring the local
+  // path in pty-manager.ts (see pty-output-batch.ts for the replay invariant).
+  const outputBatcher = new PtyOutputBatcher((ptyId, data, seq) => {
+    send(IPC.remotePtyData, { ptyId, data, seq });
+  });
   const client = new SandboxAgentClient(agentUrl, token, {
     onReady: (version, agents) => {
       cb.onReady(version, agents);
@@ -299,6 +310,7 @@ function connectAgent(
       }
     },
     onClose: () => {
+      outputBatcher.dispose();
       failPendingUpgradesForSandbox(id, "Agent connection closed before upgrade finished.", {
         onlyIfNoProgress: true,
       });
@@ -321,7 +333,15 @@ function connectAgent(
     },
     onOutput: (ptyId, seq, data) => {
       noteUpgradeOutput(ptyId, data);
-      if (!isSandboxAgentUpgradePty(ptyId)) send(IPC.remotePtyData, { ptyId, data, seq });
+      if (!isSandboxAgentUpgradePty(ptyId)) {
+        const lastInputAt = remotePtyLastInputAt.get(ptyId) ?? 0;
+        outputBatcher.push(
+          ptyId,
+          seq,
+          data,
+          Date.now() - lastInputAt < REMOTE_PTY_INTERACTIVE_WINDOW_MS,
+        );
+      }
     },
     onExit: (ptyId, exitCode, signal) => {
       if (isSandboxAgentUpgradePty(ptyId)) {
@@ -337,9 +357,17 @@ function connectAgent(
         }
         return;
       }
+      // Final output must land before the exit event or it's lost.
+      outputBatcher.flush(ptyId);
+      remotePtyLastInputAt.delete(ptyId);
       send(IPC.remotePtyExit, { ptyId, exitCode: exitCode ?? 0, signal });
     },
     onReplayResult: (ptyId, data, nextSeq) => {
+      // WS delivery is ordered, so everything batched at this point was
+      // emitted before the agent snapshotted its ring. Flush it as a
+      // pre-snapshot message so no later batch straddles nextSeq (see the
+      // invariant note in pty-output-batch.ts).
+      outputBatcher.flush(ptyId);
       const resolve = pendingReplays.get(ptyId);
       if (resolve) {
         pendingReplays.delete(ptyId);
@@ -352,6 +380,7 @@ function connectAgent(
   clients.set(id, client);
   return {
     close: () => {
+      outputBatcher.dispose();
       if (clients.get(id) === client) clients.delete(id);
       client.close();
     },
@@ -1356,6 +1385,7 @@ export function registerSandboxManager(
     ipcMain,
   );
   safeHandle(IPC.remotePtyWrite, (_e, ptyId: string, data: string) => {
+    remotePtyLastInputAt.set(ptyId, Date.now());
     return withOwnerClient(ptyId, (c) => c.write(ptyId, data));
   }, ipcMain);
   safeHandle(IPC.remotePtyResize, (_e, ptyId: string, cols: number, rows: number) => {
@@ -1363,6 +1393,7 @@ export function registerSandboxManager(
   }, ipcMain);
   safeHandle(IPC.remotePtyKill, (_e, ptyId: string) => {
     ptyOwner.delete(ptyId);
+    remotePtyLastInputAt.delete(ptyId);
     return withOwnerClient(ptyId, (c) => c.kill(ptyId));
   }, ipcMain);
   safeHandle(IPC.remotePtyReplay, (_e, ptyId: string) => {

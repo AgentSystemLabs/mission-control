@@ -2,6 +2,7 @@ import {
   Component,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ErrorInfo,
@@ -626,8 +627,12 @@ function SafeCodeMirror({
   onChange: (value: string) => void;
 }) {
   const [plainTextOnly, setPlainTextOnly] = useState(false);
-  const languageExtensions = plainTextOnly ? [] : languageForFilename(fileName);
-  const extensions: Extension[] = [EditorView.lineWrapping, ...languageExtensions];
+  // A fresh extensions array each render makes CodeMirror reconfigure the
+  // editor on every keystroke — memoize so it only changes with the inputs.
+  const extensions: Extension[] = useMemo(
+    () => [EditorView.lineWrapping, ...(plainTextOnly ? [] : languageForFilename(fileName))],
+    [plainTextOnly, fileName],
+  );
 
   return (
     <CodeMirrorErrorBoundary
