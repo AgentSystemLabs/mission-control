@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
@@ -22,7 +22,15 @@ import {
 import { AgentUpdateRequiredDialog } from "~/components/views/AgentUpdateRequiredDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
-import { FileEditorDialog } from "~/components/views/FileEditorDialog";
+// FileEditorDialog drags in the CodeMirror stack (~250 KB min / ~470 KB gz with
+// HtmlPreview) that nothing needs until the user opens a file. Split it into an
+// on-demand chunk; it mounts only while open (Modal renders null when closed, so
+// there's no exit animation to preserve). FileFinderDialog is left static so the
+// file-list helpers it shares with the route don't get hoisted into the eager
+// entry when the two dialogs live in separate chunks.
+const FileEditorDialog = lazy(() =>
+  import("~/components/views/FileEditorDialog").then((m) => ({ default: m.FileEditorDialog })),
+);
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
@@ -3543,15 +3551,19 @@ function ProjectPage() {
         onPick={(rel) => setOpenFileRel(rel)}
       />
 
-      <FileEditorDialog
-        projectRoot={selectedWorktreePath || project.path}
-        relPath={openFileRel}
-        onClose={() => setOpenFileRel(null)}
-        onBack={() => {
-          setOpenFileRel(null);
-          setFileFinderOpen(true);
-        }}
-      />
+      {openFileRel !== null && (
+        <Suspense fallback={null}>
+          <FileEditorDialog
+            projectRoot={selectedWorktreePath || project.path}
+            relPath={openFileRel}
+            onClose={() => setOpenFileRel(null)}
+            onBack={() => {
+              setOpenFileRel(null);
+              setFileFinderOpen(true);
+            }}
+          />
+        </Suspense>
+      )}
 
       <CreatePullRequestDialog
         state={createPullRequest.dialog}
