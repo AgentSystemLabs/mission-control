@@ -12,6 +12,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { getPinnedProjects } from "~/lib/pinned-project-order";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
+import { screenshotSupported } from "~/lib/screenshot";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -29,6 +30,7 @@ import { SessionFileDropZone } from "~/components/views/SessionDropzone";
 import { UserTerminalPanel } from "~/components/views/UserTerminalPanel";
 import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
+import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
@@ -364,6 +366,11 @@ function Shell() {
   // Focused Session Mode strips the whole shell: the /focus route renders the
   // only visible chrome, and the Electron window is a small floating card.
   const focusActive = isFocusPath(path);
+  // The captured-screenshot stack is mounted here (not in the per-project route)
+  // so it survives navigation between projects; the focus branch below returns
+  // before it, so the focus window keeps its own scoped stack. macOS + Electron
+  // only, mirroring the project route's gate.
+  const screenshotsSupported = useMemo(() => screenshotSupported(), []);
 
   // Boot resync guard: if the main process says the window is still in focus
   // mode but we didn't land on a focus path (e.g. state drifted across a dev
@@ -656,6 +663,7 @@ function Shell() {
 
   return (
     <>
+      {screenshotsSupported && <ScreenshotThumbnail projectId={projectId} />}
       <div id="root">
         <div
           aria-hidden
