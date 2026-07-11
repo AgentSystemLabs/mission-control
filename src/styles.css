@@ -1,35 +1,57 @@
 @import "tailwindcss";
 
-@import "@fontsource/space-grotesk/400.css";
-@import "@fontsource/space-grotesk/500.css";
-@import "@fontsource/space-grotesk/600.css";
-@import "@fontsource/space-grotesk/700.css";
-/* Full weight ranges so the terminal font-weight settings bind to real faces
-   (browsers only fetch the weights a page actually uses). */
-@import "@fontsource/geist-mono/100.css";
-@import "@fontsource/geist-mono/200.css";
-@import "@fontsource/geist-mono/300.css";
-@import "@fontsource/geist-mono/400.css";
-@import "@fontsource/geist-mono/500.css";
-@import "@fontsource/geist-mono/600.css";
-@import "@fontsource/geist-mono/700.css";
-@import "@fontsource/geist-mono/800.css";
-@import "@fontsource/geist-mono/900.css";
+/* Per-subset imports: keep ALL weights (the terminal font-weight picker binds
+   to real faces) but drop the subsets this app never renders. The whole-weight
+   `<weight>.css` entrypoints each pull 6 subsets (cyrillic, greek, vietnamese,
+   …); the UI is latin-only, so import just the latin (+ latin-ext for mono,
+   which surfaces box-drawing / extended glyphs in terminals) cuts. */
+/* Sans UI face — latin only. */
+@import "@fontsource/space-grotesk/latin-400.css";
+@import "@fontsource/space-grotesk/latin-500.css";
+@import "@fontsource/space-grotesk/latin-600.css";
+@import "@fontsource/space-grotesk/latin-700.css";
+/* Terminal + UI mono face — latin + latin-ext, full weight range. */
+@import "@fontsource/geist-mono/latin-100.css";
+@import "@fontsource/geist-mono/latin-ext-100.css";
+@import "@fontsource/geist-mono/latin-200.css";
+@import "@fontsource/geist-mono/latin-ext-200.css";
+@import "@fontsource/geist-mono/latin-300.css";
+@import "@fontsource/geist-mono/latin-ext-300.css";
+@import "@fontsource/geist-mono/latin-400.css";
+@import "@fontsource/geist-mono/latin-ext-400.css";
+@import "@fontsource/geist-mono/latin-500.css";
+@import "@fontsource/geist-mono/latin-ext-500.css";
+@import "@fontsource/geist-mono/latin-600.css";
+@import "@fontsource/geist-mono/latin-ext-600.css";
+@import "@fontsource/geist-mono/latin-700.css";
+@import "@fontsource/geist-mono/latin-ext-700.css";
+@import "@fontsource/geist-mono/latin-800.css";
+@import "@fontsource/geist-mono/latin-ext-800.css";
+@import "@fontsource/geist-mono/latin-900.css";
+@import "@fontsource/geist-mono/latin-ext-900.css";
 /* Flat theme's bundled terminal + UI mono face — clearer, warmer mono.
-   (JetBrains Mono ships 100–800; there is no 900 cut.) */
-@import "@fontsource/jetbrains-mono/100.css";
-@import "@fontsource/jetbrains-mono/200.css";
-@import "@fontsource/jetbrains-mono/300.css";
-@import "@fontsource/jetbrains-mono/400.css";
-@import "@fontsource/jetbrains-mono/500.css";
-@import "@fontsource/jetbrains-mono/600.css";
-@import "@fontsource/jetbrains-mono/700.css";
-@import "@fontsource/jetbrains-mono/800.css";
-/* Flat theme's UI sans face. */
-@import "@fontsource/plus-jakarta-sans/400.css";
-@import "@fontsource/plus-jakarta-sans/500.css";
-@import "@fontsource/plus-jakarta-sans/600.css";
-@import "@fontsource/plus-jakarta-sans/700.css";
+   (JetBrains Mono ships 100–800; there is no 900 cut.) latin + latin-ext. */
+@import "@fontsource/jetbrains-mono/latin-100.css";
+@import "@fontsource/jetbrains-mono/latin-ext-100.css";
+@import "@fontsource/jetbrains-mono/latin-200.css";
+@import "@fontsource/jetbrains-mono/latin-ext-200.css";
+@import "@fontsource/jetbrains-mono/latin-300.css";
+@import "@fontsource/jetbrains-mono/latin-ext-300.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-ext-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+@import "@fontsource/jetbrains-mono/latin-ext-500.css";
+@import "@fontsource/jetbrains-mono/latin-600.css";
+@import "@fontsource/jetbrains-mono/latin-ext-600.css";
+@import "@fontsource/jetbrains-mono/latin-700.css";
+@import "@fontsource/jetbrains-mono/latin-ext-700.css";
+@import "@fontsource/jetbrains-mono/latin-800.css";
+@import "@fontsource/jetbrains-mono/latin-ext-800.css";
+/* Flat theme's UI sans face — latin only. */
+@import "@fontsource/plus-jakarta-sans/latin-400.css";
+@import "@fontsource/plus-jakarta-sans/latin-500.css";
+@import "@fontsource/plus-jakarta-sans/latin-600.css";
+@import "@fontsource/plus-jakarta-sans/latin-700.css";
 
 @import "@xterm/xterm/css/xterm.css";
 
