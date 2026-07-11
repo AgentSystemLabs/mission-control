@@ -23,6 +23,13 @@ import {
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import {
+  DEFAULT_INTERFACE_FONT_SCALE,
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  DEFAULT_TERMINAL_LETTER_SPACING,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+} from "~/shared/terminal-appearance";
 import { DEFAULT_SURFACE_TINT } from "~/shared/surface-tint";
 import {
   readOsNotificationPermission,
@@ -49,6 +56,7 @@ export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const mouseGradientEnabled = !(settings?.mouseGradientDisabled ?? false);
+  const batterySaverEnabled = settings?.batterySaverEnabled ?? true;
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
@@ -97,6 +105,7 @@ export function GeneralSettingsPage() {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -116,6 +125,7 @@ export function GeneralSettingsPage() {
     minimalTheme: settings?.minimalTheme ?? false,
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
+    batterySaverEnabled,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
     notificationSoundEnabled,
@@ -128,6 +138,15 @@ export function GeneralSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
+    terminalFontFamily: settings?.terminalFontFamily ?? null,
+    terminalFontWeight: settings?.terminalFontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT,
+    terminalFontWeightBold:
+      settings?.terminalFontWeightBold ?? DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+    terminalLineHeight: settings?.terminalLineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT,
+    terminalLetterSpacing:
+      settings?.terminalLetterSpacing ?? DEFAULT_TERMINAL_LETTER_SPACING,
+    interfaceFontFamily: settings?.interfaceFontFamily ?? null,
+    interfaceFontScale: settings?.interfaceFontScale ?? DEFAULT_INTERFACE_FONT_SCALE,
     sessionHeaderButtons:
       settings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
     defaultAgent: settings?.defaultAgent ?? "claude-code",
@@ -170,6 +189,7 @@ export function GeneralSettingsPage() {
         AppSettings,
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
+        | "batterySaverEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -196,6 +216,10 @@ export function GeneralSettingsPage() {
 
   const setMouseGradientEnabled = async (enabled: boolean) => {
     await updateSettings({ mouseGradientDisabled: !enabled });
+  };
+
+  const setBatterySaverEnabled = async (enabled: boolean) => {
+    await updateSettings({ batterySaverEnabled: enabled });
   };
 
   const setToastEnabled = async (sessionFinishToastEnabled: boolean) => {
@@ -304,6 +328,15 @@ export function GeneralSettingsPage() {
             description="Cursor and card gradients follow the pointer across the workspace."
             checked={mouseGradientEnabled}
             onChange={setMouseGradientEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Battery saver">
+          <ToggleRow
+            title="Reduce energy use on battery"
+            description="On battery power, decorative animations freeze, terminal cursors stop blinking, and idle refresh slows down."
+            checked={batterySaverEnabled}
+            onChange={setBatterySaverEnabled}
             label="Enable"
           />
         </Field>

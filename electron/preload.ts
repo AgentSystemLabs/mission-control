@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from "electron";
+import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 import { IPC } from "./ipc-channels";
 
 /** Subscribe to a main→renderer IPC channel; returns an unsubscribe fn. */
@@ -349,6 +349,13 @@ const electronAPI = {
     ipcRenderer.invoke(IPC.appReload),
   setWindowBackgroundColor: (color: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IPC.appSetBackgroundColor, color),
+  setZoomFactor: (factor: number): Promise<{ ok: true } | { ok: false; error: string }> => {
+    // webFrame is renderer-local — no IPC round-trip needed. Clamp to the
+    // interface-scale range so a bad value can't blow the window up.
+    const clamped = Math.min(1.5, Math.max(0.5, factor));
+    webFrame.setZoomFactor(clamped);
+    return Promise.resolve({ ok: true });
+  },
   notifications: {
     getPermission: (): Promise<"granted" | "unsupported"> =>
       ipcRenderer.invoke(IPC.notificationsGetPermission),
@@ -425,6 +432,15 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.ptyReplay, { ptyId }) as Promise<{ data: string; nextSeq: number }>,
     findByTask: (taskId: string): Promise<{ ptyId: string | null }> =>
       ipcRenderer.invoke(IPC.ptyFindByTask, { taskId }) as Promise<{ ptyId: string | null }>,
+  },
+  power: {
+    /** True while the machine runs on battery (false on AC or desktops). */
+    getOnBattery: (): Promise<boolean> => ipcRenderer.invoke(IPC.powerGetOnBattery),
+    onBatteryChange: (cb: (onBattery: boolean) => void) =>
+      subscribe(IPC.powerOnBatteryChange, cb),
+    /** Report the combined battery-saver state (battery × setting) to main. */
+    setSaverActive: (active: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.powerSetSaverActive, active),
   },
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) =>
     subscribe(IPC.appSwipe, cb),

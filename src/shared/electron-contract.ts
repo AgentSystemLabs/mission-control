@@ -345,6 +345,8 @@ export type ElectronBridge = {
   /** Sync the native window background with the renderer theme (dark/light)
    *  so resize gutters and the launch frame match the page ground. */
   setWindowBackgroundColor: (color: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Scale the whole UI via the window zoom factor (interface font scale). 1 = 100%. */
+  setZoomFactor: (factor: number) => Promise<{ ok: true } | { ok: false; error: string }>;
   notifications: {
     getPermission: () => Promise<"granted" | "unsupported">;
     showSessionFinished: (payload: {
@@ -381,6 +383,13 @@ export type ElectronBridge = {
     replay: (ptyId: string) => Promise<{ data: string; nextSeq: number }>;
     /** Live agent PTY for a task (renderer reloads lose local pty ids). */
     findByTask: (taskId: string) => Promise<{ ptyId: string | null }>;
+  };
+  power: {
+    /** True while the machine runs on battery (false on AC or desktops). */
+    getOnBattery: () => Promise<boolean>;
+    onBatteryChange: (cb: (onBattery: boolean) => void) => () => void;
+    /** Report the combined battery-saver state (battery × setting) to main. */
+    setSaverActive: (active: boolean) => Promise<boolean>;
   };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;

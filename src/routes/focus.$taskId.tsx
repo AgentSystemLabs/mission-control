@@ -366,9 +366,13 @@ function FocusSessionPage() {
       {/* data-task-id makes the terminal a drop target for thumbnail drags
           (sessionHostAtPoint), matching the grid cells / docked panel; the
           relative position anchors the focus-variant stack to the terminal
-          area so it always clears the header and session bar. */}
+          area so it always clears the header and session bar.
+          data-focus-terminal-panel scopes Cmd/Ctrl +/-/0 to the per-session
+          terminal zoom (see isTerminalXtermFocused) instead of Electron's
+          native app zoom. */}
       <div
         data-task-id={session.taskId}
+        data-focus-terminal-panel
         style={{
           flex: 1,
           minHeight: 0,

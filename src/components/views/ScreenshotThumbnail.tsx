@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -8,11 +9,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "~/components/ui/Icon";
+import { Tooltip } from "~/components/ui/Tooltip";
+import { getElectron } from "~/lib/electron";
 import {
   ScreenshotAnnotator,
   type Shape as AnnotationShape,
   type CropBox,
 } from "~/components/views/ScreenshotAnnotator";
+import { SessionDropzoneHighlight } from "~/components/views/SessionDropzone";
 import { useTerminals, type PendingScreenshot } from "~/lib/terminal-store";
 import { playScreenshotDrop } from "~/lib/screenshot-sound";
 
@@ -76,6 +80,9 @@ function ScreenshotStackCard({
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
   const [editing, setEditing] = useState(false);
+  // Brief "copied" confirmation on the copy button (green check, then revert).
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Play the slide-out before the card is actually pulled from the store.
   const [leaving, setLeaving] = useState(false);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
@@ -161,7 +168,8 @@ function ScreenshotStackCard({
         const taskId = sessionHostAtPoint(e.clientX, e.clientY)?.getAttribute("data-task-id");
         // Dropped on empty space: keep the thumbnail for another try.
         if (!taskId) return;
-        void attachImageToSession(taskId, shot.path);
+        // No landing pulse: the drop gesture itself pointed at the cell.
+        void attachImageToSession(taskId, shot.path, { flash: false });
         playScreenshotDrop();
         dismiss();
         return;
@@ -228,6 +236,31 @@ function ScreenshotStackCard({
     [activeTaskIdFor, attachImageToSession, dismiss, projectId, shot.path],
   );
 
+  // Copy button: put this card's PNG on the OS clipboard so it can be pasted
+  // (Cmd/Ctrl+V) into any other app. Stop the pointer/click from bubbling so it
+  // never starts a drag or opens the editor. Leaves the card in place.
+  const onCopyClick = useCallback(
+    async (e: MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      const electron = getElectron();
+      if (!electron) return;
+      const res = await electron.terminalImages.copyToClipboard(shot.path).catch(() => null);
+      if (!res || "error" in res) return;
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+    },
+    [shot.path],
+  );
+
+  // Clear the pending "copied" reset if the card unmounts mid-confirmation.
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
   const dragging = dragPoint !== null;
 
   // Shared card visuals so the anchored card and the drag ghost are identical —
@@ -281,49 +314,72 @@ function ScreenshotStackCard({
           </button>
         )}
         {!ghost && (
-          <button
-            type="button"
-            className="screenshot-stack-attach"
-            aria-label="Attach to active session"
-            title="Attach to active session"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onAttachClick}
-            style={{
-              position: "absolute",
-              bottom: 6,
-              right: 6,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: compact ? 22 : 26,
-              height: compact ? 22 : 26,
-              padding: 0,
-              borderRadius: 8,
-              border: "none",
-              cursor: "pointer",
-              color: "#fff",
-              background: "var(--accent)",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-            }}
-          >
-            <Icon name="plus" size={compact ? 13 : 15} />
-          </button>
+          <Tooltip content={copied ? "Copied" : "Copy to clipboard"}>
+            <button
+              type="button"
+              className="screenshot-stack-copy"
+              aria-label={copied ? "Copied to clipboard" : "Copy image to clipboard"}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onCopyClick}
+              style={{
+                position: "absolute",
+                bottom: 6,
+                // Sit just to the left of the accent attach button.
+                right: 6 + (compact ? 22 : 26) + 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: compact ? 22 : 26,
+                height: compact ? 22 : 26,
+                padding: 0,
+                borderRadius: 8,
+                border: copied
+                  ? "1px solid #22c55e"
+                  : "1px solid rgba(255,255,255,0.28)",
+                cursor: "pointer",
+                color: "#fff",
+                background: copied ? "#22c55e" : "rgba(255,255,255,0.16)",
+                backdropFilter: "blur(6px)",
+                WebkitBackdropFilter: "blur(6px)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+                transition: "background 0.15s ease, border-color 0.15s ease",
+              }}
+            >
+              <Icon name={copied ? "check" : "copy"} size={compact ? 12 : 14} />
+            </button>
+          </Tooltip>
+        )}
+        {!ghost && (
+          <Tooltip content="Attach to active session">
+            <button
+              type="button"
+              className="screenshot-stack-attach"
+              aria-label="Attach to active session"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onAttachClick}
+              style={{
+                position: "absolute",
+                bottom: 6,
+                right: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: compact ? 22 : 26,
+                height: compact ? 22 : 26,
+                padding: 0,
+                borderRadius: 8,
+                border: "none",
+                cursor: "pointer",
+                color: "#fff",
+                background: "var(--accent)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+              }}
+            >
+              <Icon name="plus" size={compact ? 13 : 15} />
+            </button>
+          </Tooltip>
         )}
       </div>
-      {/* The caption doesn't fit the compact card; its aria-label carries the
-          same instructions there. */}
-      {!compact && (
-        <div
-          style={{
-            fontSize: 11,
-            color: "var(--text-dim)",
-            textAlign: "center",
-            fontFamily: "var(--mono)",
-          }}
-        >
-          Click to edit · drag to attach
-        </div>
-      )}
     </>
   );
 
@@ -364,43 +420,7 @@ function ScreenshotStackCard({
       </div>
 
       {/* Dropzone highlight over the session currently under the cursor. */}
-      {dragging && dropTarget && (
-        <div
-          aria-hidden
-          style={{
-            position: "fixed",
-            left: dropTarget.rect.x,
-            top: dropTarget.rect.y,
-            width: dropTarget.rect.w,
-            height: dropTarget.rect.h,
-            border: "2px solid var(--accent)",
-            background: "color-mix(in srgb, var(--accent) 14%, transparent)",
-            borderRadius: 10,
-            boxShadow: "0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent)",
-            pointerEvents: "none",
-            boxSizing: "border-box",
-            zIndex: 9999,
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: 8,
-              transform: "translateX(-50%)",
-              padding: "3px 10px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontFamily: "var(--mono)",
-              color: "#fff",
-              background: "var(--accent)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Drop to attach
-          </div>
-        </div>
-      )}
+      {dragging && dropTarget && <SessionDropzoneHighlight rect={dropTarget.rect} />}
 
       {dragging && dragPoint && (
         <div
@@ -439,11 +459,22 @@ export function ScreenshotThumbnail({
   projectId,
   variant = "floating",
 }: {
-  projectId: string;
+  // The current-project id, used as the attach target for the plain-click /
+  // attach-button path. Null when the user is on no project route (the global
+  // floating stack still renders — drag-to-attach and per-card origin fallback
+  // keep working). The focus variant always receives a concrete project id.
+  projectId: string | null;
   variant?: "floating" | "focus";
 }) {
   const { pendingScreenshots } = useTerminals();
-  const shots = pendingScreenshots.filter((s) => s.projectId === projectId);
+  // The focus window is a single-project surface, so it only shows that
+  // project's shots. The global floating stack follows the user across
+  // projects — show the whole pile so a capture in one project can be dragged
+  // onto (or attached from) a session in another.
+  const shots =
+    variant === "focus"
+      ? pendingScreenshots.filter((s) => s.projectId === projectId)
+      : pendingScreenshots;
 
   if (shots.length === 0) return null;
 
@@ -467,7 +498,12 @@ export function ScreenshotThumbnail({
         }}
       >
         {[...shots].reverse().map((shot) => (
-          <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId} compact />
+          <ScreenshotStackCard
+            key={shot.id}
+            shot={shot}
+            projectId={projectId ?? shot.projectId}
+            compact
+          />
         ))}
       </div>
     );
@@ -494,7 +530,7 @@ export function ScreenshotThumbnail({
       }}
     >
       {shots.map((shot) => (
-        <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId} />
+        <ScreenshotStackCard key={shot.id} shot={shot} projectId={projectId ?? shot.projectId} />
       ))}
     </div>,
     document.body,

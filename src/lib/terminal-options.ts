@@ -1,4 +1,8 @@
 import type { ITerminalOptions } from "@xterm/xterm";
+import {
+  getCurrentTerminalAppearanceOptions,
+  terminalAppearanceKey,
+} from "~/lib/terminal-appearance";
 
 const DEFAULT_CURSOR_COLOR = "#ff5a1f";
 
@@ -236,8 +240,10 @@ export function watchTerminalColorScheme(
   };
   // Font is part of the key so switching to/from the flat theme (which ships a
   // bundled face) re-fires and the consumer can restyle + refit the terminal.
+  // Appearance (weights/line height/letter spacing) rides along the same way —
+  // the settings page writes inline vars on <html>, which this observer sees.
   const currentKey = () =>
-    `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${getCurrentTerminalFont()}:${styleFlags()}`;
+    `${getTerminalColorScheme()}:${getCurrentAccentColor()}:${getCurrentTerminalFont()}:${styleFlags()}:${terminalAppearanceKey()}`;
   let previous = currentKey();
   const observer = new MutationObserver(() => {
     const next = currentKey();
@@ -261,12 +267,16 @@ export function createTerminalOptions({
   colorScheme?: TerminalColorScheme;
   fontSize?: number;
 } = {}): ITerminalOptions {
+  const appearance = getCurrentTerminalAppearanceOptions();
   return {
     fontFamily: getCurrentTerminalFont(),
     fontSize,
-    // Keep xterm's default line height so multi-row ANSI art (OpenCode's
-    // startup wordmark, box drawing, background fills) renders flush.
-    lineHeight: 1,
+    fontWeight: appearance.fontWeight,
+    fontWeightBold: appearance.fontWeightBold,
+    // 1.0 (the default) keeps multi-row ANSI art (OpenCode's startup wordmark,
+    // box drawing, background fills) flush; users can trade that for air.
+    lineHeight: appearance.lineHeight,
+    letterSpacing: appearance.letterSpacing,
     cursorBlink: true,
     theme: createTerminalTheme({ colorScheme, cursorColor }),
     // Flat dark clears the canvas to transparent (glass panes over the

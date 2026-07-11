@@ -22,6 +22,7 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
       "session.cycleNext",
       "session.cyclePrev",
       "session.gridNavigate",
+      "session.gridLayout",
       "session.gridView",
       "session.focusMode",
       "screenshot.capture",

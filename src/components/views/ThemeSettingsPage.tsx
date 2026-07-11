@@ -1,6 +1,6 @@
 import { useId, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Field, SettingsSection } from "~/components/views/SettingsParts";
+import { Field, SettingCard, SettingsSection } from "~/components/views/SettingsParts";
 import { AccentColorGrid } from "~/components/views/AccentColorPicker";
 import { ThemeStylePreview } from "~/components/views/ThemeStylePreview";
 import { Icon } from "~/components/ui/Icon";
@@ -24,6 +24,23 @@ import {
   readCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import {
+  DEFAULT_INTERFACE_FONT_SCALE,
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+  DEFAULT_TERMINAL_LETTER_SPACING,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+  INTERFACE_FONT_SCALES,
+  type InterfaceFontScale,
+} from "~/shared/terminal-appearance";
+import {
+  applyInterfaceFontFamily,
+  applyInterfaceFontScale,
+} from "~/lib/interface-appearance";
+import {
+  INTERFACE_FONT_CANDIDATES,
+  useDetectedFonts,
+} from "~/lib/font-detection";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
@@ -36,6 +53,15 @@ export function ThemeSettingsPage() {
   const themeStyle = settings?.themeStyle ?? DEFAULT_THEME_STYLE;
   const surfaceTint = settings?.surfaceTint ?? DEFAULT_SURFACE_TINT;
   const minimalTheme = settings?.minimalTheme ?? false;
+  const interfaceFontFamily = settings?.interfaceFontFamily ?? null;
+  const interfaceFontScale =
+    settings?.interfaceFontScale ?? DEFAULT_INTERFACE_FONT_SCALE;
+  const detectedInterfaceFonts = useDetectedFonts(INTERFACE_FONT_CANDIDATES);
+  // A stored family that's no longer installed still needs to appear selected.
+  const strayInterfaceFamily =
+    interfaceFontFamily && !detectedInterfaceFonts.includes(interfaceFontFamily)
+      ? interfaceFontFamily
+      : null;
   const launchOverlayEnabled = typeof settings?.launchOverlayEnabled === "boolean"
     ? settings.launchOverlayEnabled
     : hasCachedLaunchIntroPreference()
@@ -44,7 +70,15 @@ export function ThemeSettingsPage() {
 
   const optimisticSettings = (
     patch: Partial<
-      Pick<AppSettings, "accentColor" | "themeStyle" | "surfaceTint" | "minimalTheme">
+      Pick<
+        AppSettings,
+        | "accentColor"
+        | "themeStyle"
+        | "surfaceTint"
+        | "minimalTheme"
+        | "interfaceFontFamily"
+        | "interfaceFontScale"
+      >
     >,
   ): AppSettings => ({
     agentSystemBannerDisabled: settings?.agentSystemBannerDisabled ?? false,
@@ -55,6 +89,7 @@ export function ThemeSettingsPage() {
     // Every patch through here writes a theme setting, which marks it chosen.
     themeChosen: true,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
+    batterySaverEnabled: settings?.batterySaverEnabled ?? true,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
@@ -70,6 +105,15 @@ export function ThemeSettingsPage() {
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
+    terminalFontFamily: settings?.terminalFontFamily ?? null,
+    terminalFontWeight: settings?.terminalFontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT,
+    terminalFontWeightBold:
+      settings?.terminalFontWeightBold ?? DEFAULT_TERMINAL_FONT_WEIGHT_BOLD,
+    terminalLineHeight: settings?.terminalLineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT,
+    terminalLetterSpacing:
+      settings?.terminalLetterSpacing ?? DEFAULT_TERMINAL_LETTER_SPACING,
+    interfaceFontFamily: settings?.interfaceFontFamily ?? null,
+    interfaceFontScale: settings?.interfaceFontScale ?? DEFAULT_INTERFACE_FONT_SCALE,
     sessionHeaderButtons:
       settings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
     defaultAgent: settings?.defaultAgent ?? "claude-code",
@@ -166,6 +210,42 @@ export function ThemeSettingsPage() {
     }
   };
 
+  const setInterfaceFontFamily = async (next: string | null) => {
+    applyInterfaceFontFamily(next);
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    const optimistic = optimisticSettings({ interfaceFontFamily: next });
+    queryClient.setQueryData(queryKeys.settings, optimistic);
+    try {
+      const updated = await api.updateSettings({ interfaceFontFamily: next });
+      queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(queryKeys.settings, previous);
+        applyInterfaceFontFamily(previous.interfaceFontFamily ?? null);
+      }
+      throw error;
+    }
+  };
+
+  const setInterfaceFontScale = async (next: InterfaceFontScale) => {
+    applyInterfaceFontScale(next);
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    const optimistic = optimisticSettings({ interfaceFontScale: next });
+    queryClient.setQueryData(queryKeys.settings, optimistic);
+    try {
+      const updated = await api.updateSettings({ interfaceFontScale: next });
+      queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(queryKeys.settings, previous);
+        applyInterfaceFontScale(
+          previous.interfaceFontScale ?? DEFAULT_INTERFACE_FONT_SCALE,
+        );
+      }
+      throw error;
+    }
+  };
+
   return (
     <SettingsSection
       title="Theme"
@@ -196,7 +276,100 @@ export function ThemeSettingsPage() {
       <Field label="Surface tint">
         <SurfaceTintToggle tint={surfaceTint} onChange={setSurfaceTint} />
       </Field>
+      <SettingCard
+        title="Interface font family"
+        description="Used for the application UI. Pulls from fonts installed on your system; terminal text is configured on the Terminal tab."
+      >
+        <select
+          value={interfaceFontFamily ?? ""}
+          aria-label="Interface font family"
+          className="term-select"
+          onChange={(event) => {
+            const value = event.target.value;
+            void setInterfaceFontFamily(value === "" ? null : value);
+          }}
+          style={{
+            width: "100%",
+            maxWidth: 440,
+            padding: "9px 10px",
+            borderRadius: 7,
+            border: "1px solid var(--border)",
+            background: "var(--surface-1)",
+            color: "var(--text)",
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+          }}
+        >
+          <option value="">Theme default</option>
+          {strayInterfaceFamily && (
+            <option value={strayInterfaceFamily}>
+              {strayInterfaceFamily} (not found)
+            </option>
+          )}
+          {detectedInterfaceFonts.map((family) => (
+            <option key={family} value={family}>
+              {family}
+            </option>
+          ))}
+        </select>
+      </SettingCard>
+      <SettingCard
+        title="Interface font scale"
+        description={`Adjusts the size of all UI elements. Currently ${Math.round(
+          interfaceFontScale * 100,
+        )}%.`}
+      >
+        <InterfaceScaleRow scale={interfaceFontScale} onChange={setInterfaceFontScale} />
+      </SettingCard>
     </SettingsSection>
+  );
+}
+
+function InterfaceScaleRow({
+  scale,
+  onChange,
+}: {
+  scale: InterfaceFontScale;
+  onChange: (next: InterfaceFontScale) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Interface font scale"
+      style={{ display: "flex", alignItems: "baseline", gap: 2, flexWrap: "wrap" }}
+    >
+      {INTERFACE_FONT_SCALES.map((candidate, index) => {
+        const selected = candidate === scale;
+        return (
+          <button
+            key={candidate}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            aria-label={`${Math.round(candidate * 100)}%`}
+            title={`${Math.round(candidate * 100)}%`}
+            onClick={() => onChange(candidate)}
+            style={{
+              background: "transparent",
+              border: "none",
+              borderBottom: selected
+                ? "2px solid var(--accent)"
+                : "2px solid transparent",
+              color: selected ? "var(--accent)" : "var(--text-dim)",
+              fontFamily: "var(--sans)",
+              // The glyph itself communicates the step, like a type-size ramp.
+              fontSize: 10 + index * 1.5,
+              fontWeight: selected ? 700 : 500,
+              padding: "3px 7px 2px",
+              cursor: "pointer",
+              lineHeight: 1,
+            }}
+          >
+            A
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
