@@ -82,6 +82,13 @@ describe("normalizePetState", () => {
     expect(normalizePetState(valid())!.species).toBe("mochi"); // pre-picker state
   });
 
+  it("keeps a valid size and defaults unknown/missing ones to medium", () => {
+    expect(normalizePetState({ ...valid(), size: "s" })!.size).toBe("s");
+    expect(normalizePetState({ ...valid(), size: "l" })!.size).toBe("l");
+    expect(normalizePetState({ ...valid(), size: "xl" })!.size).toBe("m");
+    expect(normalizePetState(valid())!.size).toBe("m"); // pre-picker state
+  });
+
   it("rejects garbage", () => {
     expect(normalizePetState(null)).toBeNull();
     expect(normalizePetState("dragon")).toBeNull();

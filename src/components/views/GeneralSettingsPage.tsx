@@ -33,8 +33,8 @@ import { isElectron } from "~/lib/electron";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
-import { DEFAULT_PET_NAME, PET_SPECIES_IDS } from "~/shared/pet";
-import { petRename, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
+import { DEFAULT_PET_NAME, PET_SIZE_IDS, PET_SPECIES_IDS, type PetSizeId } from "~/shared/pet";
+import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
 import { PET_SPECIES } from "~/components/pet/PetSprite";
 import { TextField } from "~/components/ui/TextField";
 
@@ -419,6 +419,11 @@ export function GeneralSettingsPage() {
           </Field>
         ) : null}
         {petEnabled && petState ? (
+          <Field label="Size">
+            <PetSizePicker />
+          </Field>
+        ) : null}
+        {petEnabled && petState ? (
           <Field label="Identity">
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <TextField
@@ -490,6 +495,66 @@ function PetSpeciesPicker() {
           >
             <species.Sprite mood="idle" intensity={1} night={false} level={1} size={44} />
             <span style={{ fontSize: 11 }}>{species.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const PET_SIZE_LABELS: Record<PetSizeId, string> = { s: "Small", m: "Medium", l: "Large" };
+/** Preview sprite sizes — the same S/M/L ratio the corner widget renders at. */
+const PET_SIZE_PREVIEW_PX: Record<PetSizeId, number> = { s: 34, m: 44, l: 56 };
+
+/**
+ * Size picker in the species-picker style: each option shows the current
+ * species' idle sprite at that size's scale. Selection goes through the pet
+ * store (petSetSize) so the live pet resizes instantly and the controller
+ * persists it with the rest of the identity.
+ */
+function PetSizePicker() {
+  const pet = usePetSnapshot();
+  const species = PET_SPECIES[pet.species];
+  return (
+    <div
+      style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+      role="radiogroup"
+      aria-label="Pet size"
+    >
+      {PET_SIZE_IDS.map((id) => {
+        const selected = pet.size === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => petSetSize(id)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 2,
+              minWidth: 76,
+              padding: "8px 10px 6px",
+              borderRadius: 10,
+              cursor: "pointer",
+              background: selected
+                ? "color-mix(in srgb, var(--accent) 14%, transparent)"
+                : "transparent",
+              border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+              color: selected ? "var(--text)" : "var(--text-dim)",
+            }}
+          >
+            <species.Sprite
+              mood="idle"
+              intensity={1}
+              night={false}
+              level={1}
+              size={PET_SIZE_PREVIEW_PX[id]}
+            />
+            <span style={{ fontSize: 11 }}>{PET_SIZE_LABELS[id]}</span>
           </button>
         );
       })}

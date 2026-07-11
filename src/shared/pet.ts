@@ -27,10 +27,21 @@ export function isPetSpeciesId(value: unknown): value is PetSpeciesId {
   return typeof value === "string" && (PET_SPECIES_IDS as readonly string[]).includes(value);
 }
 
+export const PET_SIZE_IDS = ["s", "m", "l"] as const;
+
+export type PetSizeId = (typeof PET_SIZE_IDS)[number];
+
+export const DEFAULT_PET_SIZE: PetSizeId = "m";
+
+export function isPetSizeId(value: unknown): value is PetSizeId {
+  return typeof value === "string" && (PET_SIZE_IDS as readonly string[]).includes(value);
+}
+
 export type PetPersistentState = {
   version: 1;
   name: string;
   species: PetSpeciesId;
+  size: PetSizeId;
   xp: number;
   level: number;
   personality: PetPersonality;
@@ -68,6 +79,7 @@ export function createDefaultPetState(now: number = Date.now()): PetPersistentSt
     version: 1,
     name: DEFAULT_PET_NAME,
     species: DEFAULT_PET_SPECIES,
+    size: DEFAULT_PET_SIZE,
     xp: 0,
     level: 1,
     personality: rollPetPersonality(),
@@ -129,6 +141,8 @@ export function normalizePetState(value: unknown): PetPersistentState | null {
 
   // States persisted before the species picker existed default to Mochi.
   const species = isPetSpeciesId(raw.species) ? raw.species : DEFAULT_PET_SPECIES;
+  // States persisted before the size picker existed default to medium.
+  const size = isPetSizeId(raw.size) ? raw.size : DEFAULT_PET_SIZE;
 
-  return { version: 1, name, species, xp, level: levelForXp(xp), personality, createdAt };
+  return { version: 1, name, species, size, xp, level: levelForXp(xp), personality, createdAt };
 }

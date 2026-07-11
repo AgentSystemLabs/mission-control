@@ -8,10 +8,13 @@ import {
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
-import { DEFAULT_PET_SPECIES } from "~/shared/pet";
+import { DEFAULT_PET_SPECIES, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
 import type { Task } from "~/db/schema";
 import { PET_SPECIES } from "./PetSprite";
+
+/** Rendered sprite size per setting; "m" is the pre-setting default (84px). */
+const SIZE_PX: Record<PetSizeId, number> = { s: 64, m: 84, l: 108 };
 
 const MOOD_DESCRIPTION: Record<PetMood, string> = {
   sleeping: "asleep",
@@ -132,6 +135,7 @@ export function PetWidget() {
                   night={pet.night}
                   level={pet.level}
                   move={pet.move}
+                  size={SIZE_PX[pet.size]}
                 />
               </button>
             </div>
