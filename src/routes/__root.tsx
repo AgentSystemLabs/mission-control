@@ -21,6 +21,7 @@ import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
 import { usePowerSaveController } from "~/lib/power-save";
+import { useWindowIdleController } from "~/lib/window-idle";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import { Z_INDEX } from "~/lib/z-index";
 import {
@@ -307,6 +308,9 @@ function Shell() {
   // Battery saver: drives the data-power-save root attribute from the
   // powerMonitor signal + setting (see src/lib/power-save.ts).
   usePowerSaveController();
+  // Window idle: freezes decorative per-frame animations while the window is
+  // blurred/hidden (see src/lib/window-idle.ts).
+  useWindowIdleController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable

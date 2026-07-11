@@ -1202,6 +1202,20 @@ html[data-power-save] .mc-pet,
 html[data-power-save] .mc-pet * {
   animation: none !important;
 }
+/* Window idle (html[data-window-idle], driven by src/lib/window-idle.ts): the
+   window is blurred or hidden, so nobody is watching the repaint-per-frame
+   decorations — freeze the same session-icon stroke draw and pet sprite battery
+   saver does. Cleared the instant focus/visibility returns, so there's no
+   visible change while the window is in front. Mirrors the reduced-motion
+   fallback. */
+html[data-window-idle] .mc-session-icon-drawing > * {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+html[data-window-idle] .mc-pet,
+html[data-window-idle] .mc-pet * {
+  animation: none !important;
+}
 
 /* Reduced-motion users get a static Mission Pet sprite: same freeze as battery
    saver, mirroring the prefers-reduced-motion fallbacks above. */
