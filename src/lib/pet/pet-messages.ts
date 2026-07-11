@@ -42,6 +42,19 @@ export type PetTrigger =
   | "petting"
   | "overpet"
   | "level-up"
+  // work-awareness: a big uncommitted pile in the evening, the pet's favorite
+  // project (top lifetime XP earner), and being picked up and tossed
+  | "uncommitted-pile"
+  | "favorite-project"
+  | "tossed"
+  // memory: weekly recap on friday afternoons, hatch-day anniversary
+  | "friday-recap"
+  | "hatch-day"
+  // direct commands addressed to the pet by name in a prompt
+  | "command-dance"
+  | "command-sleep"
+  | "command-sing"
+  | "command-stats"
   // clock + calendar
   | "night"
   | "early-morning"
@@ -114,6 +127,14 @@ export type PetLineCtx = {
   sessionsFinished: number;
   /** The active species — species-tagged lines are its native voice. */
   species: PetSpeciesId;
+  /** Largest cached uncommitted-file count — feeds the evening nudge. */
+  uncommittedCount: number;
+  /** Name of the pet's favorite project (top lifetime XP), if it has one. */
+  favoriteProject: string | null;
+  /** Whole days since the pet hatched — feeds the hatch-day lines. */
+  ageDays: number;
+  /** This week's tallies — feeds the friday recap. */
+  weekly: { sessions: number; ships: number; prs: number; failures: number };
 };
 
 export type PetLine = {
@@ -175,6 +196,19 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   // second line once the first bubble has cleared.
   overpet: { priority: "info", cooldownMs: 15_000 },
   "level-up": { priority: "info", cooldownMs: 0 },
+  // Fires at most once per evening-ish stretch; the controller gates on hours.
+  "uncommitted-pile": { priority: "info", cooldownMs: 4 * 3_600_000 },
+  // Rare by design — a favorite is a long-term fact, not a per-session gag.
+  "favorite-project": { priority: "flavor", cooldownMs: 6 * 3_600_000 },
+  // Being thrown is a direct interaction — it always lands, like petting.
+  tossed: { priority: "info", cooldownMs: 8_000 },
+  "friday-recap": { priority: "info", cooldownMs: ONCE_PER_BOOT },
+  "hatch-day": { priority: "info", cooldownMs: ONCE_PER_BOOT },
+  // Commands are deliberate, so they answer nearly every time.
+  "command-dance": { priority: "info", cooldownMs: 5_000 },
+  "command-sleep": { priority: "info", cooldownMs: 5_000 },
+  "command-sing": { priority: "info", cooldownMs: 5_000 },
+  "command-stats": { priority: "info", cooldownMs: 5_000 },
   night: { priority: "flavor", cooldownMs: 1_800_000 },
   "early-morning": { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
   friday: { priority: "flavor", cooldownMs: ONCE_PER_BOOT },
@@ -252,6 +286,12 @@ const BUCKET_EXEMPT: ReadonlySet<PetTrigger> = new Set([
   "overpet",
   "level-up",
   "name-mentioned",
+  // Direct physical/verbal interactions — the pet always answers the user.
+  "tossed",
+  "command-dance",
+  "command-sleep",
+  "command-sing",
+  "command-stats",
 ]);
 
 export function createRateLimiter(now: () => number = Date.now): {
@@ -381,6 +421,28 @@ export function mentionsPetName(snippet: string, name: string): boolean {
   if (!trimmed) return false;
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^a-zA-Z])${escaped}([^a-zA-Z]|$)`, "i").test(snippet);
+}
+
+export type PetCommand = "dance" | "sleep" | "sing" | "stats";
+
+// Ordered — "stats" first so "Pixel, dance stats" reads as the useful one.
+const COMMAND_PATTERNS: ReadonlyArray<[RegExp, PetCommand]> = [
+  [/\b(stats|status\s+card|scorecard|report\s+card)\b/i, "stats"],
+  [/\b(dance|boogie|groove|wiggle|spin|twirl)\b/i, "dance"],
+  [/\b(sleep|nap|rest|bedtime)\b/i, "sleep"],
+  [/\b(sing|song|serenade|hum)\b/i, "sing"],
+];
+
+/**
+ * A prompt that mentions the pet by name may also be telling it to do
+ * something. Only called after mentionsPetName matched — the name is the
+ * address, the verb is the command.
+ */
+export function parsePetCommand(snippet: string): PetCommand | null {
+  for (const [pattern, command] of COMMAND_PATTERNS) {
+    if (pattern.test(snippet)) return command;
+  }
+  return null;
 }
 
 /** Map a submitted prompt's snippet to a flavor trigger (first match wins). */

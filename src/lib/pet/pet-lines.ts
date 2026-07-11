@@ -422,6 +422,127 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: (ctx) => `Level ${ctx.level}. The grind was real.`, weights: { zen: 1 } },
   ],
 
+  /* ── work awareness ────────────────────────────────────────────────── */
+  // Evening nudge when a large uncommitted diff sits in a working tree.
+  "uncommitted-pile": [
+    {
+      text: (ctx) => `${ctx.uncommittedCount} changed files, zero commits. Living dangerously.`,
+      weights: { snark: 2 },
+    },
+    {
+      text: (ctx) => `${ctx.uncommittedCount} uncommitted files. One power cut from legend.`,
+      weights: { chaos: 2 },
+    },
+    { text: "That working tree isn't going to commit itself.", weights: { wisdom: 2 } },
+    { text: "Commit before you close the lid. Trust me.", weights: { wisdom: 3 } },
+    { text: "The diff grows. I watch. I worry.", weights: { zen: 2 } },
+    { text: "ALERT: UNSAVED PROGRESS DETECTED. RECOMMEND CHECKPOINT.", species: ["rivet"] },
+    { text: "big diffs are heavy to carry overnight. set it down in a commit.", species: ["trundle"] },
+  ],
+  // Finishing a session in the pet's favorite project (top lifetime XP).
+  "favorite-project": [
+    { text: (ctx) => `Back in ${ctx.favoriteProject ?? "this one"}. My favorite.` },
+    {
+      text: (ctx) => `Ah, ${ctx.favoriteProject ?? "this repo"}. We've shipped some things, you and I.`,
+      weights: { wisdom: 2 },
+    },
+    { text: (ctx) => `${ctx.favoriteProject ?? "This one"} again? Good. I like it here.`, weights: { zen: 2 } },
+    { text: (ctx) => `${ctx.favoriteProject ?? "This repo"}. Home turf.`, weights: { snark: 1 } },
+    {
+      text: (ctx) => `Statistically, ${ctx.favoriteProject ?? "this project"} is where I'm happiest. I ran the numbers.`,
+      weights: { chaos: 2 },
+    },
+  ],
+  // Picked up, dragged, and dropped. A little indignity, taken well.
+  tossed: [
+    { text: "*tumbles* ...I'm fine. I'm FINE.", weights: { snark: 2 } },
+    { text: "wheee— ow." },
+    { text: "Gravity. Noted.", weights: { zen: 2 } },
+    { text: "Was that necessary?", weights: { snark: 2 } },
+    { text: "*dusts self off* do it again.", weights: { chaos: 3 } },
+    { text: "I'm a professional. Professionals bounce.", weights: { chaos: 1 } },
+    { text: "Airborne telemetry logged. Landing: survivable.", weights: { wisdom: 1 } },
+    { text: "*splats, slowly reforms* rude.", species: ["mochi"] },
+    { text: "*ears flat* I jump. I am not FOR jumping.", species: ["bunny"] },
+    { text: "*ruffled peep* my feathers!!", species: ["chick"] },
+    { text: "*lands, stays down* ...five more minutes.", species: ["cub"] },
+    { text: "*wobbles upright* water landings are easier.", species: ["lotl"] },
+    { text: "STRUCTURAL INTEGRITY: MAINTAINED. DIGNITY: DEGRADED.", species: ["rivet"] },
+    { text: "*retracts into shell mid-air* wake me when we land.", species: ["trundle"] },
+  ],
+
+  /* ── memory: weekly recap + hatch day ──────────────────────────────── */
+  "friday-recap": [
+    {
+      text: (ctx) =>
+        `Week's tally: ${ctx.weekly.sessions} sessions, ${ctx.weekly.ships} ships. Acceptable.`,
+      weights: { snark: 2 },
+    },
+    {
+      text: (ctx) =>
+        `${ctx.weekly.sessions} sessions, ${ctx.weekly.prs} PRs this week. Go be a person now.`,
+      weights: { wisdom: 2 },
+    },
+    {
+      text: (ctx) =>
+        `This week: ${ctx.weekly.ships} ships, ${ctx.weekly.failures} explosions. Balanced.`,
+      weights: { chaos: 2 },
+    },
+    {
+      text: (ctx) => `The week ends. ${ctx.weekly.sessions} sessions. Enough.`,
+      weights: { zen: 3 },
+    },
+    {
+      text: (ctx) =>
+        `Friday ledger: ${ctx.weekly.sessions} sessions, ${ctx.weekly.ships} ships, ${ctx.weekly.prs} PRs. I kept count so you don't have to.`,
+    },
+  ],
+  "hatch-day": [
+    {
+      text: (ctx) =>
+        `${Math.max(1, Math.floor(ctx.ageDays / 365))} year${Math.floor(ctx.ageDays / 365) > 1 ? "s" : ""} since I hatched. Cake?`,
+    },
+    { text: "It's my hatch day. I expect nothing. But also, everything.", weights: { chaos: 2 } },
+    { text: (ctx) => `Hatch day. ${ctx.ageDays} days of diffs and I'd watch every one again.`, weights: { zen: 2 } },
+    { text: "One more year of supervising your agents. Happy hatch day to me.", weights: { snark: 2 } },
+    { text: "Hatch day protocol: accept pets, reflect fondly, resume duty.", weights: { wisdom: 1 } },
+  ],
+
+  /* ── commands: addressed by name with a verb ───────────────────────── */
+  "command-dance": [
+    { text: "*busts a move*" },
+    { text: "*dances like nobody's watching* you're watching. worth it.", weights: { chaos: 2 } },
+    { text: "*two-step* this one's for the shipped code." },
+    { text: "*spins* choreography by caffeine.", weights: { snark: 2 } },
+    { text: "*sways precisely once* there.", weights: { zen: 3 } },
+    { text: "INITIATING DANCE SUBROUTINE. DO NOT LAUGH.", species: ["rivet"] },
+    { text: "*full binky*", species: ["bunny"] },
+    { text: "*jiggles rhythmically*", species: ["mochi"] },
+  ],
+  "command-sleep": [
+    { text: "*curls up* wake me for the merge conflicts.", weights: { snark: 2 } },
+    { text: "Napping. The agents can supervise themselves. Probably.", weights: { chaos: 2 } },
+    { text: "*yawns* good idea.", weights: { zen: 2 } },
+    { text: "*settles down* rest is a feature.", weights: { wisdom: 2 } },
+    { text: "*was already asleep* ...way ahead of you.", species: ["cub"] },
+    { text: "POWERING DOWN NON-ESSENTIAL SYSTEMS.", species: ["rivet"] },
+  ],
+  "command-sing": [
+    { text: "🎵 ninety-nine little bugs in the code 🎵" },
+    { text: "*hums the CI pipeline theme*", weights: { chaos: 2 } },
+    { text: "I only know songs about deploys.", weights: { snark: 2 } },
+    { text: "*chirps a tiny anthem*" },
+    { text: "*one perfect sustained note*", weights: { zen: 2 } },
+    { text: "*peep peep peeeeep* 🎵", species: ["chick"] },
+    { text: "EMITTING MELODIC FREQUENCIES. YOU ARE WELCOME.", species: ["rivet"] },
+  ],
+  "command-stats": [
+    { text: "*produces card* the numbers, as requested." },
+    { text: "My life, quantified.", weights: { snark: 2 } },
+    { text: "Stats coming up. I counted everything.", weights: { wisdom: 1 } },
+    { text: "Behold: receipts.", weights: { chaos: 2 } },
+  ],
+
   /* ── prompt flavor: what you asked the agents to do ────────────────── */
   // The user typed the pet's name into a prompt — always answered, no cooldown.
   "name-mentioned": [

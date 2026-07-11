@@ -6,6 +6,7 @@ import {
   comboTrigger,
   createRateLimiter,
   mentionsPetName,
+  parsePetCommand,
   pickLine,
   type PetLineCtx,
 } from "./pet-messages";
@@ -18,6 +19,10 @@ const ctx: PetLineCtx = {
   runningCount: 3,
   sessionsFinished: 5,
   species: "mochi",
+  uncommittedCount: 12,
+  favoriteProject: "mission-control",
+  ageDays: 400,
+  weekly: { sessions: 4, ships: 2, prs: 1, failures: 1 },
 };
 
 describe("createRateLimiter", () => {
@@ -218,6 +223,23 @@ describe("mentionsPetName", () => {
   });
 });
 
+describe("parsePetCommand", () => {
+  it("maps command verbs, with stats outranking the rest", () => {
+    expect(parsePetCommand("pixel, dance for me")).toBe("dance");
+    expect(parsePetCommand("Pixel do a little twirl")).toBe("dance");
+    expect(parsePetCommand("go to sleep pixel")).toBe("sleep");
+    expect(parsePetCommand("pixel take a nap")).toBe("sleep");
+    expect(parsePetCommand("sing us a song, pixel")).toBe("sing");
+    expect(parsePetCommand("pixel show me your stats")).toBe("stats");
+    expect(parsePetCommand("pixel, dance while showing stats")).toBe("stats");
+  });
+
+  it("returns null when the mention carries no command", () => {
+    expect(parsePetCommand("hey pixel, fix the login crash")).toBeNull();
+    expect(parsePetCommand("pixel!")).toBeNull();
+  });
+});
+
 describe("classifyPromptSnippet", () => {
   it("maps keywords to flavor triggers", () => {
     expect(classifyPromptSnippet("please fix the login crash")).toBe("prompt-fix");
@@ -288,6 +310,10 @@ describe("PET_LINES coverage", () => {
       runningCount: 2,
       sessionsFinished: 10,
       species: "mochi",
+      uncommittedCount: 12,
+      favoriteProject: "mission-control",
+      ageDays: 400,
+      weekly: { sessions: 4, ships: 2, prs: 1, failures: 1 },
     };
     for (const lines of Object.values(PET_LINES)) {
       for (const line of lines) {

@@ -5,15 +5,19 @@ import {
   isNightHour,
   MOOD_DEBOUNCE_MS,
   PET_MOVES_PER_MOOD,
+  petGrabbed,
   petHydrate,
   petIngestServerEvent,
   petInteract,
+  petNoteUncommitted,
   petPulse,
   petSetAggregates,
   petSetEnabled,
   petSetShipping,
+  petSetStatsOpen,
   petShipResult,
   petStroke,
+  petTossed,
   petUserActivity,
   resolvePetMood,
   type PetInputs,
@@ -236,6 +240,10 @@ describe("prompt:submitted reaction", () => {
               runningCount: 0,
               sessionsFinished: 0,
               species: state.species,
+              uncommittedCount: 0,
+              favoriteProject: null,
+              ageDays: 0,
+              weekly: { sessions: 0, ships: 0, prs: 0, failures: 0 },
             })
           : line.text,
       );
@@ -405,6 +413,10 @@ describe("session milestones", () => {
             runningCount: 0,
             sessionsFinished: 5,
             species: snap.species,
+            uncommittedCount: 0,
+            favoriteProject: null,
+            ageDays: 0,
+            weekly: { sessions: 0, ships: 0, prs: 0, failures: 0 },
           })
         : line.text,
     );
@@ -547,5 +559,160 @@ describe("context combos", () => {
     const snap = getPetSnapshot();
     expect(PET_LINES["night-commit"].map((l) => l.text)).toContain(snap.bubble!.text);
     petSetShipping(false, null);
+  });
+});
+
+describe("work awareness + direct interactions", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Later than every prior suite (module-level cooldowns leak), and a new
+    // ISO week relative to their 2026-07-06 week — exercising the weekly
+    // rollover on the first counter bump below.
+    vi.setSystemTime(new Date(2026, 6, 20, 12, 0, 0));
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  /** Resolve a pack to its candidate texts for the hydrated pet's species. */
+  function packTexts(trigger: keyof typeof PET_LINES, ctx: Record<string, unknown>): string[] {
+    const state = getPetPersistentState()!;
+    return PET_LINES[trigger]
+      .filter((line) => !line.species || line.species.includes(state.species))
+      .map((line) =>
+        typeof line.text === "function"
+          ? line.text({
+              name: state.name,
+              level: state.level,
+              runningCount: 0,
+              sessionsFinished: 0,
+              species: state.species,
+              uncommittedCount: 0,
+              favoriteProject: null,
+              ageDays: 0,
+              weekly: { sessions: 0, ships: 0, prs: 0, failures: 0 },
+              ...ctx,
+            })
+          : line.text,
+      );
+  }
+
+  it("a finished session lands in lifetime stats, the rolled-over week, and project XP", () => {
+    vi.advanceTimersByTime(60_000);
+
+    const before = getPetPersistentState()!;
+    petIngestServerEvent({
+      type: "session:finished",
+      id: "aw-1",
+      projectId: "proj-alpha",
+      projectName: "Alpha",
+    } as never);
+    const after = getPetPersistentState()!;
+    expect(after.stats.sessions).toBe(before.stats.sessions + 1);
+    // New week relative to the earlier suites' bumps — the window reset.
+    expect(after.weekly.weekStart).toBe(new Date(2026, 6, 20).getTime());
+    expect(after.weekly.sessions).toBe(1);
+    expect(after.projectXp["proj-alpha"]).toEqual({
+      name: "Alpha",
+      xp: (before.projectXp["proj-alpha"]?.xp ?? 0) + 5,
+    });
+  });
+
+  it("ship outcomes update ships/failures and track the worst streak", () => {
+    vi.advanceTimersByTime(60_000);
+    const before = getPetPersistentState()!;
+    petShipResult("failure");
+    const mid = getPetPersistentState()!;
+    expect(mid.stats.failures).toBe(before.stats.failures + 1);
+    expect(mid.weekly.failures).toBe(before.weekly.failures + 1);
+    expect(mid.stats.worstStreak).toBeGreaterThanOrEqual(1);
+    petShipResult("push-success");
+    const after = getPetPersistentState()!;
+    expect(after.stats.ships).toBe(mid.stats.ships + 1);
+    expect(after.weekly.ships).toBe(mid.weekly.ships + 1);
+  });
+
+  it("a dance command by name dances instead of the plain name answer", () => {
+    vi.advanceTimersByTime(60_000);
+    const state = getPetPersistentState()!;
+    petIngestServerEvent({
+      type: "prompt:submitted",
+      taskId: "t-dance",
+      projectId: "p1",
+      snippet: `${state.name}, dance for us!`,
+    } as never);
+    const snap = getPetSnapshot();
+    expect(snap.flourish?.kind).toBe("dance");
+    expect(packTexts("command-dance", {})).toContain(snap.bubble!.text);
+  });
+
+  it("a stats command opens the stats card", () => {
+    vi.advanceTimersByTime(60_000);
+    const state = getPetPersistentState()!;
+    expect(getPetSnapshot().statsOpen).toBe(false);
+    petIngestServerEvent({
+      type: "prompt:submitted",
+      taskId: "t-stats",
+      projectId: "p1",
+      snippet: `${state.name} show me your stats`,
+    } as never);
+    expect(getPetSnapshot().statsOpen).toBe(true);
+    petSetStatsOpen(false);
+    expect(getPetSnapshot().statsOpen).toBe(false);
+  });
+
+  it("a toss lands the pet where dropped, dizzy, then it walks home after the daze", () => {
+    vi.advanceTimersByTime(60_000);
+    petTossed(500);
+    const snap = getPetSnapshot();
+    expect(snap.wander).toMatchObject({ x: 500, walking: false });
+    expect(snap.flourish?.kind).toBe("spin");
+    expect(packTexts("tossed", {})).toContain(snap.bubble!.text);
+    // The startle's walk-home is suppressed while dazed; after the rest the
+    // pet heads back on its own.
+    vi.advanceTimersByTime(2_600);
+    const rested = getPetSnapshot();
+    expect(rested.wander.x).toBe(0);
+    expect(rested.wander.walking).toBe(true);
+  });
+
+  it("a grab pins the pet at its visual spot and freezes walking until put down", () => {
+    vi.advanceTimersByTime(60_000);
+    petTossed(400);
+    // Daze over — it starts walking home (store target 0, transition running).
+    vi.advanceTimersByTime(2_600);
+    expect(getPetSnapshot().wander).toMatchObject({ x: 0, walking: true });
+    // Caught mid-walk at its measured visual position: pinned, not the target.
+    petGrabbed(250);
+    expect(getPetSnapshot().wander).toMatchObject({ x: 250, walking: false });
+    // While held nothing may move it — not behavior ticks, not stale timers.
+    vi.advanceTimersByTime(20_000);
+    expect(getPetSnapshot().wander).toMatchObject({ x: 250, walking: false });
+    // Putting it down releases the hold and lands it where dropped.
+    petTossed(120);
+    expect(getPetSnapshot().wander).toMatchObject({ x: 120, walking: false });
+  });
+
+  it("nudges about a big uncommitted pile, but not a small one", () => {
+    vi.advanceTimersByTime(60_000 * 10);
+    expect(getPetSnapshot().bubble).toBeNull();
+    petNoteUncommitted(3);
+    expect(getPetSnapshot().bubble).toBeNull();
+    petNoteUncommitted(25);
+    const snap = getPetSnapshot();
+    expect(packTexts("uncommitted-pile", { uncommittedCount: 25 })).toContain(snap.bubble!.text);
+  });
+
+  it("getting spam-clicked dizzy drifts snark upward", () => {
+    vi.advanceTimersByTime(60_000 * 10);
+    const before = getPetPersistentState()!;
+    for (let i = 0; i < 5; i++) petInteract();
+    const after = getPetPersistentState()!;
+    expect(after.personalityDrift.snark).toBeCloseTo(before.personalityDrift.snark + 0.1, 5);
+    // The base never moves; only drift does.
+    expect(after.personalityBase).toEqual(before.personalityBase);
   });
 });

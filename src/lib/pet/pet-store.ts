@@ -1,13 +1,22 @@
 import { useSyncExternalStore } from "react";
 import type { ServerEvent } from "~/lib/use-events";
 import {
+  applyPersonalityDrift,
+  bumpProjectXp,
   createDefaultPetState,
+  createEmptyWeeklyStats,
   DEFAULT_PET_SIZE,
   DEFAULT_PET_SPECIES,
+  effectivePersonality,
+  favoriteProjectOf,
   levelForXp,
+  startOfWeek,
+  type PetLifetimeStats,
   type PetPersistentState,
+  type PetPersonality,
   type PetSizeId,
   type PetSpeciesId,
+  type PetWeeklyStats,
 } from "~/shared/pet";
 import { createListenerSet } from "../listener-set";
 import { playPetChirp } from "./pet-sounds";
@@ -17,6 +26,7 @@ import {
   mentionsPetName,
   comboTrigger,
   createRateLimiter,
+  parsePetCommand,
   pickLine,
   TRIGGER_PRIORITY,
   type PetMessagePriority,
@@ -117,6 +127,8 @@ export type PetSnapshot = {
   heartsBurstId: number;
   wander: PetWander;
   flourish: PetFlourish | null;
+  /** The stats card (right-click or "stats" command) is showing. */
+  statsOpen: boolean;
 };
 
 export type PetInputs = {
@@ -163,6 +175,17 @@ const XP_SHIP_SUCCESS = 10;
 const XP_PR_CREATED = 15;
 const XP_MEMORY_LEARNED = 3;
 const XP_PETTING = 1;
+
+/** Cached uncommitted-file count that earns the evening nudge. */
+const UNCOMMITTED_NUDGE_THRESHOLD = 10;
+/** How long a tossed pet sits dazed where it landed before trotting home. */
+const TOSS_REST_MS = 2_500;
+/**
+ * Personality drift per formative event — small enough that character changes
+ * over weeks of real work, not an afternoon (the cap is ±2 stat points).
+ */
+const DRIFT_NUDGE = 0.15;
+const DRIFT_NUDGE_SMALL = 0.1;
 
 /**
  * Pure mood resolution — first matching row wins. Rows 1–4 (urgent/pulse
@@ -243,6 +266,18 @@ let lastStrokeChirpAt = 0;
 let wander: PetWander = { x: 0, walking: false, durationMs: 0, facing: 1 };
 let flourish: PetFlourish | null = null;
 let flourishId = 0;
+let statsOpen = false;
+// Largest cached uncommitted-file count the controller last reported.
+let uncommittedCount = 0;
+// When a blocked session's grid cell is on screen, the pet walks under it and
+// stays there (instead of walking home) until the question clears.
+let alertWalkX: number | null = null;
+// Freshly tossed: the pet sits where it landed until this passes — the
+// startle's own walkHome (via commitMood) must not teleport it home mid-daze.
+let tossedRestUntil = 0;
+// Picked up by the user: every walk is frozen until the toss lands, so the
+// walker can't keep sliding underneath the drag.
+let heldByUser = false;
 
 // Aggregate counts from useProjects can lag the SSE stream by a refetch, so
 // question events maintain their own live set; needs-input uses whichever is
@@ -273,6 +308,16 @@ function isSessionMilestone(count: number): boolean {
 function noteFailure(perFailureTrigger: PetTrigger): PetTrigger {
   failureStreak += 1;
   lastFailureKind = perFailureTrigger === "ship-failure" ? "ship" : "interrupted";
+  bumpStats(
+    persistent && failureStreak > persistent.stats.worstStreak
+      ? { failures: 1, worstStreak: failureStreak - persistent.stats.worstStreak }
+      : { failures: 1 },
+    { failures: 1 },
+  );
+  // Surviving a streak tier leaves a mark: the pet gets a little snarkier.
+  if (failureStreak === 3 || failureStreak === 5 || failureStreak === 10 || failureStreak === 20) {
+    driftPersonality({ snark: DRIFT_NUDGE });
+  }
   if (failureStreak >= 20) return "error-streak-20";
   if (failureStreak === 10) return "error-streak-10";
   if (failureStreak === 5) return "error-streak-5";
@@ -317,6 +362,7 @@ function buildSnapshot(): PetSnapshot {
     heartsBurstId,
     wander,
     flourish,
+    statsOpen,
   };
 }
 
@@ -354,9 +400,12 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-/** Walk to `target` px left of home. The widget renders it as a CSS transition. */
-function walkTo(target: number, speedPxPerS: number): void {
-  const clamped = Math.min(PET_WANDER_RANGE_PX, Math.max(0, Math.round(target)));
+/** Walk to `target` px left of home. The widget renders it as a CSS transition.
+ * `maxX` defaults to the idle wander strip; the alert walk passes the viewport. */
+function walkTo(target: number, speedPxPerS: number, maxX: number = PET_WANDER_RANGE_PX): void {
+  // In the user's hand: nothing walks the pet anywhere until it's put down.
+  if (heldByUser) return;
+  const clamped = Math.min(maxX, Math.max(0, Math.round(target)));
   const dist = Math.abs(clamped - wander.x);
   if (dist < 12) return;
   const durationMs = (dist / speedPxPerS) * 1000;
@@ -377,8 +426,37 @@ function walkTo(target: number, speedPxPerS: number): void {
 }
 
 function walkHome(): void {
+  if (Date.now() < tossedRestUntil) return;
   if (wander.x === 0 && !wander.walking) return;
   walkTo(0, HOME_SPEED_PX_PER_S);
+}
+
+/**
+ * Walk under the blocked session's grid cell and stay there — the alert made
+ * spatial. No-ops when the cell isn't on screen or motion is reduced; the
+ * bubble and mood carry the message on their own.
+ */
+function walkToAlertCell(taskId: string): void {
+  if (typeof document === "undefined" || prefersReducedMotion()) return;
+  const cell = document.querySelector(
+    `[data-grid-cell][data-task-id="${CSS.escape(taskId)}"]`,
+  );
+  if (!cell) return;
+  const rect = cell.getBoundingClientRect();
+  if (rect.width === 0) return;
+  // wander.x counts px left of the home corner (right: 18); aim the pet's
+  // center (~42px half-sprite) at the cell's center, staying on screen.
+  const homeCenterX = window.innerWidth - 18 - 42;
+  const target = homeCenterX - (rect.left + rect.width / 2);
+  if (target <= 0) return;
+  alertWalkX = Math.min(window.innerWidth - 140, target);
+  walkTo(alertWalkX, HOME_SPEED_PX_PER_S, window.innerWidth);
+}
+
+function clearAlertWalk(): void {
+  if (alertWalkX === null) return;
+  alertWalkX = null;
+  walkHome();
 }
 
 /** Pick a fresh animation variant for the current mood — never the same twice. */
@@ -430,7 +508,9 @@ function ensureBehaviorLoop(): void {
       invalidate();
     }
     if (mood !== "idle") {
-      walkHome();
+      // Posted under a blocked cell, the pet holds position instead of
+      // drifting home — that's the whole point of walking there.
+      if (!(mood === "alert" && alertWalkX !== null)) walkHome();
       return;
     }
     const roll = Math.random();
@@ -484,8 +564,9 @@ function commitMood(next: { mood: PetMood; intensity: 1 | 2 | 3 }): void {
   intensity = next.intensity;
   // Every mood change enters on a fresh variant of that mood's move set.
   rollMove();
-  // Real activity (or bedtime) interrupts the stroll — hurry back to the corner.
-  if (mood !== "idle") walkHome();
+  // Real activity (or bedtime) interrupts the stroll — hurry back to the
+  // corner, unless the pet is posted under a blocked cell.
+  if (mood !== "idle" && !(mood === "alert" && alertWalkX !== null)) walkHome();
   // Watching decays with no further event; re-check just after its window.
   if (watchTimer) clearTimeout(watchTimer);
   if (mood === "watching" && typeof window !== "undefined") {
@@ -513,12 +594,22 @@ function say(trigger: PetTrigger, opts?: { key?: string }): boolean {
   // A visible bubble blocks new lines; only critical preempts it.
   if (bubble && priority !== "critical") return false;
   if (!limiter.allow(trigger, opts?.key)) return false;
+  const favorite = favoriteProjectOf(persistent.projectXp);
   const text = pickLine(trigger, persistent.personality, {
     name: persistent.name,
     level: persistent.level,
     runningCount: inputs.runningCount,
     sessionsFinished: sessionsFinishedCount,
     species: persistent.species,
+    uncommittedCount,
+    favoriteProject: favorite?.name ?? null,
+    ageDays: Math.max(0, Math.floor((Date.now() - persistent.createdAt) / 86_400_000)),
+    weekly: {
+      sessions: persistent.weekly.sessions,
+      ships: persistent.weekly.ships,
+      prs: persistent.weekly.prs,
+      failures: persistent.weekly.failures,
+    },
   });
   if (!text) return false;
   bubble = { id: ++bubbleId, text, priority };
@@ -560,6 +651,45 @@ function grantXp(amount: number): void {
   invalidate();
 }
 
+/** Increment lifetime (and optionally this week's) counters, rolling the
+ * weekly window over when a new week has started. */
+function bumpStats(
+  lifetime: Partial<PetLifetimeStats>,
+  weekly?: Partial<Pick<PetWeeklyStats, "sessions" | "ships" | "prs" | "failures">>,
+): void {
+  if (!persistent) return;
+  const now = Date.now();
+  const stats = { ...persistent.stats };
+  for (const [key, amount] of Object.entries(lifetime) as [keyof PetLifetimeStats, number][]) {
+    stats[key] += amount;
+  }
+  let week = persistent.weekly;
+  if (startOfWeek(now) !== week.weekStart) week = createEmptyWeeklyStats(now);
+  if (weekly) {
+    week = { ...week };
+    for (const [key, amount] of Object.entries(weekly) as [
+      "sessions" | "ships" | "prs" | "failures",
+      number,
+    ][]) {
+      week[key] += amount;
+    }
+  }
+  persistent = { ...persistent, stats, weekly: week };
+  notifyPersistence();
+}
+
+/** Formative events slowly reshape the personality around its rolled base. */
+function driftPersonality(nudge: Partial<PetPersonality>): void {
+  if (!persistent) return;
+  const personalityDrift = applyPersonalityDrift(persistent.personalityDrift, nudge);
+  persistent = {
+    ...persistent,
+    personalityDrift,
+    personality: effectivePersonality(persistent.personalityBase, personalityDrift),
+  };
+  notifyPersistence();
+}
+
 // ---------------------------------------------------------------------------
 // Public API (imperative inputs, called by use-pet-controller + the widget)
 // ---------------------------------------------------------------------------
@@ -594,6 +724,9 @@ export function petSetEnabled(
     }
     wander = { x: 0, walking: false, durationMs: 0, facing: 1 };
     flourish = null;
+    statsOpen = false;
+    alertWalkX = null;
+    heldByUser = false;
   }
   invalidate();
 }
@@ -664,6 +797,8 @@ export function petIngestServerEvent(event: ServerEvent): void {
       alert = { taskId, projectId };
       recompute();
       say("needs-input", { key: taskId });
+      // Make the alert spatial: trot over and stand under the blocked cell.
+      walkToAlertCell(taskId);
       invalidate();
       return;
     }
@@ -677,7 +812,10 @@ export function petIngestServerEvent(event: ServerEvent): void {
             : "";
       if (!taskId) return;
       questionTaskIds.delete(taskId);
-      if (alert?.taskId === taskId) alert = null;
+      if (alert?.taskId === taskId) {
+        alert = null;
+        clearAlertWalk();
+      }
       promptStartedAt.delete(taskId);
       recompute();
       invalidate();
@@ -685,19 +823,39 @@ export function petIngestServerEvent(event: ServerEvent): void {
     }
     case "session:finished": {
       const taskId = typeof event.id === "string" ? event.id : "";
+      const projectId = typeof event.projectId === "string" ? event.projectId : "";
+      const projectName = typeof event.projectName === "string" ? event.projectName : "";
       const startedAt = taskId ? promptStartedAt.get(taskId) : undefined;
       if (taskId) promptStartedAt.delete(taskId);
       const longRun = startedAt !== undefined && Date.now() - startedAt > LONG_RUN_MS;
       sessionsFinishedCount += 1;
       const comeback = noteSuccess();
       petPulse("celebrate");
+      const xpAmount = longRun ? XP_SESSION_FINISHED_LONG : XP_SESSION_FINISHED;
+      bumpStats({ sessions: 1, ...(longRun ? { longSessions: 1 } : {}) }, { sessions: 1 });
+      // Sitting through a long run teaches patience.
+      if (longRun) driftPersonality({ zen: DRIFT_NUDGE_SMALL });
+      // Real work in a real project earns that project a spot in the pet's
+      // heart; the top earner (with a clear lead) becomes its favorite.
+      if (persistent && projectId && projectName) {
+        persistent = {
+          ...persistent,
+          projectXp: bumpProjectXp(persistent.projectXp, projectId, projectName, xpAmount),
+        };
+        notifyPersistence();
+      }
+      const favorite = persistent ? favoriteProjectOf(persistent.projectXp) : null;
+      const inFavorite = favorite !== null && favorite.projectId === projectId;
       // One bubble per finish — the rarest story wins: ending a losing streak
-      // beats a count milestone beats the routine line. Speak before granting
+      // beats a count milestone beats favorite-project affection (whose long
+      // cooldown makes it rare) beats the routine line. Speak before granting
       // XP so a level-up ding can't steal the finish's story.
       if (comeback) say(comeback);
       else if (isSessionMilestone(sessionsFinishedCount)) say("session-milestone");
-      else say(longRun ? "session-finished-long" : "session-finished");
-      grantXp(longRun ? XP_SESSION_FINISHED_LONG : XP_SESSION_FINISHED);
+      else if (!(inFavorite && say("favorite-project"))) {
+        say(longRun ? "session-finished-long" : "session-finished");
+      }
+      grantXp(xpAmount);
       return;
     }
     case "prompt:submitted": {
@@ -718,13 +876,33 @@ export function petIngestServerEvent(event: ServerEvent): void {
       // generic "on it". The rate limiter keeps rapid sends from each popping
       // a bubble even though the hop plays every time.
       if (snippet && persistent && mentionsPetName(snippet, persistent.name)) {
-        say("name-mentioned");
+        // Addressed by name — maybe with a command verb. Commands beat the
+        // plain name-answer: "Pixel, dance" gets a dance, not a "you rang?".
+        const command = parsePetCommand(snippet);
+        if (command === "dance") {
+          if (!prefersReducedMotion()) doFlourish("dance");
+          say("command-dance");
+        } else if (command === "sleep") {
+          say("command-sleep");
+        } else if (command === "sing") {
+          chirp();
+          say("command-sing");
+        } else if (command === "stats") {
+          statsOpen = true;
+          say("command-stats");
+          invalidate();
+        } else {
+          say("name-mentioned");
+        }
       } else {
         say((snippet && classifyPromptSnippet(snippet)) || "prompt-sent");
       }
       return;
     }
     case "memory:learned": {
+      bumpStats({ memories: 1 });
+      // Watching knowledge accumulate makes the pet a little wiser.
+      driftPersonality({ wisdom: DRIFT_NUDGE_SMALL });
       grantXp(XP_MEMORY_LEARNED);
       say("memory-learned");
       return;
@@ -759,13 +937,20 @@ export function petSetAggregates(counts: {
   inputs.runningCount = counts.running;
   aggregateNeedsInput = counts.needsInput;
   aggregateInterrupted = counts.interrupted;
-  if (aggregateNeedsInput === 0 && questionTaskIds.size === 0) alert = null;
+  if (aggregateNeedsInput === 0 && questionTaskIds.size === 0) {
+    alert = null;
+    clearAlertWalk();
+  }
   if (interruptedRose) {
     petPulse("startle");
     say(noteFailure("interrupted"));
   }
   recompute();
-  if (crossedIntoFleet) say("multi-agent");
+  if (crossedIntoFleet) {
+    // Running a fleet rubs off — a little more chaos each time.
+    driftPersonality({ chaos: DRIFT_NUDGE });
+    say("multi-agent");
+  }
   invalidate();
 }
 
@@ -785,6 +970,7 @@ export function petShipResult(kind: "push-success" | "failure" | "pr-created"): 
     case "push-success": {
       const comeback = noteSuccess();
       petPulse("celebrate");
+      bumpStats({ ships: 1 }, { ships: 1 });
       // Speak before granting XP so a level-up ding can't steal the story.
       say(comeback ?? "ship-success");
       grantXp(XP_SHIP_SUCCESS);
@@ -802,6 +988,7 @@ export function petShipResult(kind: "push-success" | "failure" | "pr-created"): 
     case "pr-created":
       noteSuccess();
       petPulse("celebrate");
+      bumpStats({ prs: 1 }, { prs: 1 });
       grantXp(XP_PR_CREATED);
       say("pr-created");
       return;
@@ -840,6 +1027,19 @@ export function petAmbientSay(trigger: PetTrigger): void {
     say("hatch");
     return;
   }
+  // The recap only speaks when this week actually has history — a quiet week
+  // (or counters carried over from a stale week) falls back to plain friday.
+  if (trigger === "friday-recap") {
+    const week = persistent?.weekly;
+    if (!week || week.sessions === 0 || week.weekStart !== startOfWeek(Date.now())) return;
+  }
+  // Enduring a marathon uptime teaches a certain calm. The ambient tick
+  // repeats this trigger every minute past the threshold, so the drift keys
+  // off the once-per-boot line actually landing.
+  if (trigger === "marathon") {
+    if (say("marathon")) driftPersonality({ zen: DRIFT_NUDGE });
+    return;
+  }
   say(trigger);
 }
 
@@ -866,6 +1066,8 @@ export function petInteract(): { navigateTo: { taskId: string; projectId: string
     doFlourish("spin");
     petPulse("startle");
     chirp("dizzy");
+    // Getting spam-clicked dizzy leaves a snarky residue.
+    driftPersonality({ snark: DRIFT_NUDGE_SMALL });
     say("overpet");
     return { navigateTo: null };
   }
@@ -875,11 +1077,80 @@ export function petInteract(): { navigateTo: { taskId: string; projectId: string
   chirp();
   if (now - lastPettingXpAt > PETTING_XP_COOLDOWN_MS) {
     lastPettingXpAt = now;
+    bumpStats({ pets: 1 });
     grantXp(XP_PETTING);
   }
   say("petting");
   invalidate();
   return { navigateTo: null };
+}
+
+/** Open/close the stats card (right-click on the pet, or a "stats" command). */
+export function petSetStatsOpen(open: boolean): void {
+  if (statsOpen === open) return;
+  statsOpen = open;
+  invalidate();
+}
+
+/**
+ * The controller reports the largest cached uncommitted-file count during
+ * evening hours; a big enough pile earns a (heavily rate-limited) nudge.
+ */
+export function petNoteUncommitted(count: number): void {
+  if (!enabled) return;
+  uncommittedCount = count;
+  if (count >= UNCOMMITTED_NUDGE_THRESHOLD) say("uncommitted-pile");
+}
+
+/**
+ * Dragged and dropped by the user. The widget owns the drag + fall animation
+ * and hands over the landing spot (px left of home); the pet lands there,
+ * spins out dizzy, and — since the startle pulse routes through commitMood —
+ * walks itself home once it gathers its wits.
+ */
+/**
+ * The user picked the pet up (a drag activated). Pin it at its current
+ * *visual* position — mid-walk the store already holds the walk's target, not
+ * where the pet is — and freeze all walking until petTossed puts it down.
+ * Without this, a walk-home keeps sliding the walker underneath the drag and
+ * the combined offset carries the pet off screen.
+ */
+export function petGrabbed(visualX: number): void {
+  if (!enabled) return;
+  heldByUser = true;
+  if (arriveTimer) {
+    clearTimeout(arriveTimer);
+    arriveTimer = null;
+  }
+  wander = {
+    x: Math.max(0, Math.round(visualX)),
+    walking: false,
+    durationMs: 0,
+    facing: wander.facing,
+  };
+  invalidate();
+}
+
+export function petTossed(landingX: number): void {
+  if (!enabled) return;
+  heldByUser = false;
+  if (arriveTimer) {
+    clearTimeout(arriveTimer);
+    arriveTimer = null;
+  }
+  wander = { x: Math.max(0, Math.round(landingX)), walking: false, durationMs: 0, facing: 1 };
+  // Sit dazed where it landed — walkHome() is a no-op until the rest passes
+  // (the startle pulse below routes through commitMood, which walks home).
+  tossedRestUntil = Date.now() + TOSS_REST_MS;
+  doFlourish("spin");
+  chirp("dizzy");
+  say("tossed");
+  petPulse("startle");
+  invalidate();
+  setTimeout(() => {
+    tossedRestUntil = 0;
+    if (enabled) walkHome();
+  }, TOSS_REST_MS);
 }
 
 /**
@@ -897,6 +1168,7 @@ export function petStroke(): void {
   }
   if (now - lastPettingXpAt > PETTING_XP_COOLDOWN_MS) {
     lastPettingXpAt = now;
+    bumpStats({ pets: 1 });
     grantXp(XP_PETTING);
   }
   say("petting");
@@ -914,6 +1186,9 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
     ingest: petIngestServerEvent,
     stroke: petStroke,
     grantXp,
+    tossed: petTossed,
+    statsOpen: petSetStatsOpen,
+    noteUncommitted: petNoteUncommitted,
     walkTo: (x: number) => walkTo(x, WALK_SPEED_PX_PER_S),
     flourish: doFlourish,
     setMove: (m: number) => {

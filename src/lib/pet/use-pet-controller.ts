@@ -5,6 +5,7 @@ import { queryKeys, useProjects, useSettings } from "~/queries";
 import type { AppSettings } from "~/lib/api";
 import { playNotificationDing } from "~/lib/notification-sound";
 import { useServerEvents, type ServerEvent } from "~/lib/use-events";
+import type { GitStatus } from "~/shared/git-status";
 import { calendarTriggers } from "./pet-messages";
 import {
   getPetPersistentState,
@@ -13,6 +14,7 @@ import {
   petAmbientSay,
   petHydrate,
   petIngestServerEvent,
+  petNoteUncommitted,
   petSetAggregates,
   petSetEnabled,
   petSetShipping,
@@ -30,6 +32,12 @@ const AMBIENT_TICK_MS = 60_000;
 const POINTER_THROTTLE_MS = 1_000;
 const LONG_SESSION_MS = 60 * 60_000;
 const MARATHON_MS = 3 * 60 * 60_000;
+/** Evening hours when a big uncommitted pile earns a nudge. */
+const UNCOMMITTED_NUDGE_FROM_HOUR = 17;
+/** Friday afternoon, when the weekly recap makes sense. */
+const RECAP_FROM_HOUR = 15;
+/** A hatch-day only counts once the pet is roughly a year old. */
+const HATCH_DAY_MIN_AGE_DAYS = 330;
 
 // Ship detection rides on the stable mutationKey suffixes defined in
 // src/queries/git.ts (useGitCommit / useGitPush / useGitCreatePullRequest).
@@ -180,8 +188,24 @@ export function usePetController(): void {
   useEffect(() => {
     if (!petEnabled || typeof window === "undefined") return;
     const greetTimer = setTimeout(() => petAmbientSay("greeting"), GREETING_DELAY_MS);
-    // At most one calendar line per boot — the first that applies today.
+    // At most one calendar line per boot — the first that applies today. A
+    // hatch-day anniversary (same month/day as createdAt, pet ≥ ~1 year old)
+    // outranks the regular calendar.
     const calendarTimer = setTimeout(() => {
+      const state = getPetPersistentState();
+      if (state) {
+        const created = new Date(state.createdAt);
+        const today = new Date();
+        const ageDays = Math.floor((Date.now() - state.createdAt) / 86_400_000);
+        if (
+          ageDays >= HATCH_DAY_MIN_AGE_DAYS &&
+          created.getDate() === today.getDate() &&
+          created.getMonth() === today.getMonth()
+        ) {
+          petAmbientSay("hatch-day");
+          return;
+        }
+      }
       const [first] = calendarTriggers(new Date());
       if (first) petAmbientSay(first);
     }, CALENDAR_DELAY_MS);
@@ -195,13 +219,32 @@ export function usePetController(): void {
       } else if (snapshot.mood === "idle") {
         petAmbientSay("idle");
       }
+      const now = new Date();
+      // Friday-afternoon recap of the week's real work (store gates empty weeks).
+      if (now.getDay() === 5 && now.getHours() >= RECAP_FROM_HOUR) {
+        petAmbientSay("friday-recap");
+      }
+      // Evening sweep of every cached git status: a big enough uncommitted
+      // pile earns a nudge. Reads the query cache only — never triggers a
+      // fetch, so it sees exactly what some open view already knows.
+      if (now.getHours() >= UNCOMMITTED_NUDGE_FROM_HOUR) {
+        let maxChanged = 0;
+        for (const [key, data] of queryClient.getQueriesData<GitStatus>({
+          queryKey: ["projects"],
+        })) {
+          if (!Array.isArray(key) || !key.includes("git") || !key.includes("status")) continue;
+          const count = data?.changedCount ?? 0;
+          if (count > maxChanged) maxChanged = count;
+        }
+        petNoteUncommitted(maxChanged);
+      }
     }, AMBIENT_TICK_MS);
     return () => {
       clearTimeout(greetTimer);
       clearTimeout(calendarTimer);
       clearInterval(ambientTimer);
     };
-  }, [petEnabled]);
+  }, [petEnabled, queryClient]);
 
   // 8. Level-up chime (opt-in via pet sounds toggle).
   useEffect(() => {

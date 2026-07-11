@@ -9,9 +9,13 @@ import {
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  getPetPersistentState,
   PET_WANDER_RANGE_PX,
+  petGrabbed,
   petInteract,
+  petSetStatsOpen,
   petStroke,
+  petTossed,
   usePetSnapshot,
   type PetMood,
 } from "~/lib/pet/pet-store";
@@ -22,6 +26,7 @@ import { DEFAULT_PET_SPECIES, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
 import type { Task } from "~/db/schema";
 import { PET_SPECIES } from "./PetSprite";
+import { PetStatsCard } from "./PetStatsCard";
 
 /** Rendered sprite size per setting; "m" is the pre-setting default (84px). */
 const SIZE_PX: Record<PetSizeId, number> = { s: 64, m: 84, l: 108 };
@@ -51,6 +56,10 @@ const SPRITE_BOTTOM_WHITESPACE = 0.09;
 /** Holding the pointer down this long turns a click into stroking. */
 const HOLD_TO_STROKE_MS = 350;
 const STROKE_TICK_MS = 600;
+/** Moving the pointer this far while held turns the hold into a drag. */
+const DRAG_START_PX = 12;
+/** How long the release-drop bounce runs before the store takes over. */
+const DROP_MS = 380;
 /** Pupils track the cursor inside this radius around the pet. */
 const LOOK_RADIUS_PX = 220;
 /** Max pupil offset, in sprite user units (the eye radius is ~6). */
@@ -77,12 +86,38 @@ export function PetWidget() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const walkerRef = useRef<HTMLDivElement | null>(null);
   const holdTimer = useRef<number | null>(null);
   const strokeTimer = useRef<number | null>(null);
   // Set when a hold turned into stroking, so the pointer-up click stays quiet.
   const suppressClick = useRef(false);
   const [hovered, setHovered] = useState(false);
   const [stroking, setStroking] = useState(false);
+  // Pick-up-and-toss. All per-move bookkeeping lives in a ref and the drag
+  // offset is applied imperatively (rAF-throttled style.transform) — a React
+  // re-render per pointermove makes the whole sprite janky. Only the phase
+  // flips (held / dropping / done) go through state.
+  const dragOrigin = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    wanderX: number;
+    active: boolean;
+    /** Viewport clamp for the offset, so the pet can't leave the window. */
+    minDx: number;
+    maxDx: number;
+    minDy: number;
+    maxDy: number;
+    /** Last clamped offset — also the release position. */
+    dx: number;
+    dy: number;
+    raf: number;
+  } | null>(null);
+  const dropTimer = useRef<number | null>(null);
+  const [dragPhase, setDragPhase] = useState<"held" | "dropping" | null>(null);
+  // One render with no walker transition, so the post-toss wander.x handoff
+  // doesn't animate (the stage offset and the walker offset cancel exactly).
+  const [instantJump, setInstantJump] = useState(false);
 
   // The pet perches on the bottom terminal dock instead of covering it: track
   // how far the dock's top edge rises above the viewport bottom and lift the
@@ -172,14 +207,49 @@ export function PetWidget() {
   }, [pet.enabled, stopStroking]);
   // …and never leave the interval ticking past unmount.
   useEffect(() => stopStroking, [stopStroking]);
+  // Never leave a drop mid-flight or a drag frame queued past unmount.
+  useEffect(
+    () => () => {
+      if (dropTimer.current !== null) window.clearTimeout(dropTimer.current);
+      const origin = dragOrigin.current;
+      if (origin?.raf) cancelAnimationFrame(origin.raf);
+    },
+    [],
+  );
 
   if (!pet.enabled) return null;
 
   const { Sprite } = PET_SPECIES[pet.species] ?? PET_SPECIES[DEFAULT_PET_SPECIES];
+  // The card reads the persistent identity directly — a render-time read is
+  // fine because opening/closing (and every XP change) re-renders anyway.
+  const statsState = pet.statsOpen ? getPetPersistentState() : null;
+  const closeStats = () => petSetStatsOpen(false);
+  const hour = new Date().getHours();
+  const showCoffee =
+    (pet.mood === "idle" || pet.mood === "watching") && hour >= 6 && hour < 10 && !pet.bubble;
 
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     // While alert, the click is a jump-to-session shortcut — keep it instant.
     if (event.button !== 0 || pet.mood === "alert") return;
+    // Capture at press, not at drag activation: a walking pet can slide out
+    // from under the press, and without capture the button never receives the
+    // pointerup — the drag origin goes stale and later hover movement fakes a
+    // buttonless drag. Capture also means a moving pet stays catchable.
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragOrigin.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      wanderX: pet.wander.x,
+      active: false,
+      minDx: 0,
+      maxDx: 0,
+      minDy: 0,
+      maxDy: 0,
+      dx: 0,
+      dy: 0,
+      raf: 0,
+    };
     holdTimer.current = window.setTimeout(() => {
       holdTimer.current = null;
       suppressClick.current = true;
@@ -187,6 +257,111 @@ export function PetWidget() {
       petStroke();
       strokeTimer.current = window.setInterval(() => petStroke(), STROKE_TICK_MS);
     }, HOLD_TO_STROKE_MS);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    const origin = dragOrigin.current;
+    if (!origin || origin.pointerId !== event.pointerId) return;
+    // A drag needs a held button. If the release was missed somehow (capture
+    // lost, window switch), drop the stale origin instead of letting plain
+    // hover movement fake a drag.
+    if (event.buttons === 0) {
+      dragOrigin.current = null;
+      return;
+    }
+    const rawDx = event.clientX - origin.startX;
+    const rawDy = event.clientY - origin.startY;
+    if (!origin.active) {
+      if (Math.hypot(rawDx, rawDy) < DRAG_START_PX) return;
+      // The hold became a pick-up: no stroking, no click.
+      origin.active = true;
+      suppressClick.current = true;
+      stopStroking();
+      // Grabbed mid-walk, the store already holds the walk's *target* while
+      // the walker is visually mid-transition. Read the real interpolated
+      // offset and pin the pet there — otherwise the walk keeps sliding the
+      // walker underneath the drag and carries the pet off screen.
+      const walker = walkerRef.current;
+      if (walker) {
+        const transform = getComputedStyle(walker).transform;
+        if (transform && transform !== "none") {
+          origin.wanderX = Math.max(0, Math.round(-new DOMMatrixReadOnly(transform).m41));
+        }
+      }
+      petGrabbed(origin.wanderX);
+      // Clamp the offset to the stage's resting rect vs the viewport — the
+      // pet stays fully on screen no matter where the pointer goes.
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (rect) {
+        origin.minDx = -rect.left + 4;
+        origin.maxDx = window.innerWidth - rect.right - 4;
+        origin.minDy = -rect.top + 4;
+        origin.maxDy = Math.max(0, window.innerHeight - rect.bottom - 2);
+      }
+      // Rebase to the pointer's position *now*: with capture-at-press the
+      // pointer may have chased a walking pet a long way since pointerdown,
+      // and that chase distance must not be replayed as drag offset.
+      origin.startX = event.clientX;
+      origin.startY = event.clientY;
+      setDragPhase("held");
+      return;
+    }
+    origin.dx = Math.min(origin.maxDx, Math.max(origin.minDx, rawDx));
+    origin.dy = Math.min(origin.maxDy, Math.max(origin.minDy, rawDy));
+    // Imperative + rAF-coalesced: no React work on the pointermove firehose.
+    if (!origin.raf) {
+      origin.raf = requestAnimationFrame(() => {
+        origin.raf = 0;
+        const stage = stageRef.current;
+        if (stage) stage.style.transform = `translate(${origin.dx}px, ${origin.dy}px)`;
+      });
+    }
+  };
+
+  const endDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const origin = dragOrigin.current;
+    if (!origin || origin.pointerId !== event.pointerId) return false;
+    dragOrigin.current = null;
+    if (!origin.active) return false;
+    if (origin.raf) cancelAnimationFrame(origin.raf);
+    // wander.x counts px left of home, so dragging right (dx > 0) reduces it.
+    // Use the clamped offset — it's where the pet visually is.
+    const landing = Math.max(
+      0,
+      Math.min(window.innerWidth - 140, Math.round(origin.wanderX - origin.dx)),
+    );
+    const stage = stageRef.current;
+    const finish = () => {
+      if (stage) {
+        stage.style.transition = "";
+        stage.style.transform = "";
+      }
+      // Hand the position to the store with the walker transition suppressed:
+      // clearing the stage offset and adopting wander.x = landing cancel out.
+      setInstantJump(true);
+      setDragPhase(null);
+      petTossed(landing);
+      window.setTimeout(() => setInstantJump(false), 50);
+    };
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion || !stage) {
+      finish();
+    } else {
+      // Let go: fall straight down from where it was dropped, then hand off.
+      setDragPhase("dropping");
+      stage.style.transition = `transform ${DROP_MS - 30}ms cubic-bezier(0.34, 1.56, 0.64, 1)`;
+      stage.style.transform = `translate(${origin.dx}px, 0px)`;
+      if (dropTimer.current !== null) window.clearTimeout(dropTimer.current);
+      dropTimer.current = window.setTimeout(() => {
+        dropTimer.current = null;
+        finish();
+      }, DROP_MS);
+    }
+    return true;
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!endDrag(event)) stopStroking();
   };
 
   const handleClick = () => {
@@ -238,6 +413,7 @@ export function PetWidget() {
     >
       <div
         className="mc-pet-walker"
+        ref={walkerRef}
         data-walking={pet.wander.walking || undefined}
         style={{
           position: "absolute",
@@ -248,11 +424,14 @@ export function PetWidget() {
           alignItems: "flex-end",
           gap: 6,
           transform: `translateX(${-pet.wander.x}px)`,
-          transition: pet.wander.durationMs
-            ? `transform ${Math.round(pet.wander.durationMs)}ms linear`
-            : "transform 400ms ease",
+          transition: instantJump
+            ? "none"
+            : pet.wander.durationMs
+              ? `transform ${Math.round(pet.wander.durationMs)}ms linear`
+              : "transform 400ms ease",
         }}
       >
+        {statsState ? <PetStatsCard state={statsState} onClose={closeStats} /> : null}
         {pet.bubble ? (
           <div
             key={pet.bubble.id}
@@ -264,7 +443,24 @@ export function PetWidget() {
             {pet.bubble.text}
           </div>
         ) : null}
-        <div className="mc-pet-stage" ref={stageRef} style={{ position: "relative" }}>
+        <div
+          className="mc-pet-stage"
+          ref={stageRef}
+          data-dragging={dragPhase === "held" || undefined}
+          data-dropping={dragPhase === "dropping" || undefined}
+          // transform/transition are set imperatively during a drag (see
+          // handlePointerMove) — keep them out of React's style diffing.
+          style={{
+            position: "relative",
+            willChange: dragPhase ? "transform" : undefined,
+          }}
+        >
+          {/* Morning coffee while there's nothing urgent to watch. */}
+          {showCoffee && !dragPhase ? (
+            <div className="mc-pet-prop-coffee" aria-hidden>
+              ☕
+            </div>
+          ) : null}
           {/* Emote the pet feels above its head while your cursor rests on it. */}
           {hovered && !stroking && !pet.bubble ? (
             <div className="mc-pet-emote" aria-hidden>
@@ -298,14 +494,19 @@ export function PetWidget() {
                 type="button"
                 className="mc-pet-button"
                 onClick={handleClick}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  petSetStatsOpen(!pet.statsOpen);
+                }}
                 onPointerEnter={() => setHovered(true)}
                 onPointerLeave={() => {
                   setHovered(false);
                   stopStroking();
                 }}
                 onPointerDown={handlePointerDown}
-                onPointerUp={stopStroking}
-                onPointerCancel={stopStroking}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
                 aria-label={`${pet.name || "Pet"} — ${MOOD_DESCRIPTION[pet.mood]}`}
                 title={`${pet.name || "Pet"} · Lv ${pet.level} · ${MOOD_DESCRIPTION[pet.mood]}`}
                 data-mood={pet.mood}
