@@ -68,11 +68,17 @@ export function isGridTerminalXtermFocused(): boolean {
   return activeXtermIsWithin("[data-grid-cell]");
 }
 
+/** True when keyboard focus is inside an xterm surface in the focus-mode terminal. */
+export function isFocusTerminalXtermFocused(): boolean {
+  return activeXtermIsWithin("[data-focus-terminal-panel]");
+}
+
 export function isTerminalXtermFocused(): boolean {
   return (
     isUserTerminalXtermFocused() ||
     isSessionTerminalXtermFocused() ||
-    isGridTerminalXtermFocused()
+    isGridTerminalXtermFocused() ||
+    isFocusTerminalXtermFocused()
   );
 }
 
