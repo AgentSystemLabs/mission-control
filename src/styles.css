@@ -1170,6 +1170,25 @@ html[data-power-save] .pinned-project-logo-surface--running::after {
   opacity: 0.28;
   transform: none;
 }
+/* Mission Pet: the corner companion runs infinite ambient animations
+   (mc-pet-breathe / mc-pet-blink / mc-pet-sway / mc-pet-sparkle / ember / zzz /
+   confetti / alert) plus a per-mood + per-move loop, each repainting the sprite
+   every frame. Freeze the whole sprite subtree under battery saver — it's pure
+   decoration. (The store also parks the pet's JS behavior loop while the tab is
+   hidden; see pet-store.ts.) */
+html[data-power-save] .mc-pet,
+html[data-power-save] .mc-pet * {
+  animation: none !important;
+}
+
+/* Reduced-motion users get a static Mission Pet sprite: same freeze as battery
+   saver, mirroring the prefers-reduced-motion fallbacks above. */
+@media (prefers-reduced-motion: reduce) {
+  .mc-pet,
+  .mc-pet * {
+    animation: none !important;
+  }
+}
 
 /* Grid/list view toggle: morph the four cells between the grid and list layouts
    so a click reads as the view physically changing. The geometry attributes are

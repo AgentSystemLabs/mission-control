@@ -14,11 +14,24 @@ export function CursorGlow() {
     const el = ref.current;
     if (!el || !enabled) return;
 
+    // pointermove can fire many times per frame; batch the CSS-var writes into a
+    // single rAF so we touch style at most once per painted frame instead of on
+    // every event. Only the latest coordinates matter.
+    let nextX = 0;
+    let nextY = 0;
+    let rafId: number | null = null;
+    const flush = () => {
+      rafId = null;
+      el.style.setProperty("--x", `${nextX}px`);
+      el.style.setProperty("--y", `${nextY}px`);
+      el.dataset.active = "1";
+    };
+
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
-      el.style.setProperty("--x", `${e.clientX}px`);
-      el.style.setProperty("--y", `${e.clientY}px`);
-      el.dataset.active = "1";
+      nextX = e.clientX;
+      nextY = e.clientY;
+      if (rafId === null) rafId = requestAnimationFrame(flush);
     };
     const onLeave = () => {
       delete el.dataset.active;
@@ -28,6 +41,7 @@ export function CursorGlow() {
     window.addEventListener("pointerleave", onLeave);
     document.addEventListener("mouseleave", onLeave);
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerleave", onLeave);
       document.removeEventListener("mouseleave", onLeave);
