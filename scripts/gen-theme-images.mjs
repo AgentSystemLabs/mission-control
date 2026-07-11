@@ -16,10 +16,12 @@ const BORDERS_DIR = join(ROOT, "public", "borders");
 
 // Each source: full Color blend across the image, or masked so only saturated
 // pixels (the colored lights) get re-themed and neutral metal stays as-is.
+// edgeFade keys out the opaque black margin between the PNG edge and the
+// frame art so the app background shows through around card corners.
 const SOURCES = [
   { base: "button_filled", mask: "all" },
-  { base: "panel_focused", mask: "all" },
-  { base: "square", mask: "all", opacity: 0.15 },
+  { base: "panel_focused", mask: "all", edgeFade: true },
+  { base: "square", mask: "all", opacity: 0.15, edgeFade: true },
   { base: "shell", mask: "saturation", threshold: 0.15, ramp: 0.1 },
 ];
 
@@ -91,7 +93,65 @@ function hslToRgb(h, s, l) {
   return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
 }
 
-function tintBuffer(png, themeHex, opts) {
+// Flood-fill the near-black background connected to the image edges and
+// return a per-pixel alpha multiplier: 0 across the background margin,
+// ramping up through the antialiased fringe so the frame art keeps a soft
+// edge instead of a hard black cutout.
+const EDGE_FILL_MAX = 2; // max channel value treated as background black
+const FRINGE_RADIUS = 2; // px of soft falloff between background and art
+function computeEdgeAlpha(png) {
+  const { width: w, height: h, data } = png;
+  const maxChan = (i) => Math.max(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+  const filled = new Uint8Array(w * h);
+  const queue = [];
+  const push = (x, y) => {
+    const i = y * w + x;
+    if (!filled[i] && maxChan(i) <= EDGE_FILL_MAX) {
+      filled[i] = 1;
+      queue.push(i);
+    }
+  };
+  for (let x = 0; x < w; x++) {
+    push(x, 0);
+    push(x, h - 1);
+  }
+  for (let y = 0; y < h; y++) {
+    push(0, y);
+    push(w - 1, y);
+  }
+  while (queue.length) {
+    const i = queue.pop();
+    const x = i % w;
+    const y = (i / w) | 0;
+    if (x > 0) push(x - 1, y);
+    if (x < w - 1) push(x + 1, y);
+    if (y > 0) push(x, y - 1);
+    if (y < h - 1) push(x, y + 1);
+  }
+  const alpha = new Float32Array(w * h).fill(1);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (filled[i]) {
+        alpha[i] = 0;
+        continue;
+      }
+      let d = FRINGE_RADIUS + 1;
+      for (let dy = -FRINGE_RADIUS; dy <= FRINGE_RADIUS && d > 1; dy++) {
+        for (let dx = -FRINGE_RADIUS; dx <= FRINGE_RADIUS; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          if (filled[ny * w + nx]) d = Math.min(d, Math.max(Math.abs(dx), Math.abs(dy)));
+        }
+      }
+      if (d <= FRINGE_RADIUS) alpha[i] = d / (FRINGE_RADIUS + 1);
+    }
+  }
+  return alpha;
+}
+
+function tintBuffer(png, themeHex, opts, edgeAlpha) {
   const { r: tr, g: tg, b: tb } = hexToRgb(themeHex);
   const { h: th, s: ts } = rgbToHsl(tr, tg, tb);
   const mask = opts?.mask ?? "all";
@@ -116,7 +176,7 @@ function tintBuffer(png, themeHex, opts) {
     out.data[i] = Math.round(r * (1 - w) + tinted.r * w);
     out.data[i + 1] = Math.round(g * (1 - w) + tinted.g * w);
     out.data[i + 2] = Math.round(b * (1 - w) + tinted.b * w);
-    out.data[i + 3] = a;
+    out.data[i + 3] = edgeAlpha ? Math.round(a * edgeAlpha[i / 4]) : a;
   }
   return PNG.sync.write(out);
 }
@@ -126,9 +186,10 @@ async function processSource(source) {
   const srcPath = join(BORDERS_DIR, `${base}.png`);
   const buf = await readFile(srcPath);
   const png = PNG.sync.read(buf);
+  const edgeAlpha = opts.edgeFade ? computeEdgeAlpha(png) : null;
   for (const { id, hex } of ACCENT_COLORS) {
     const outPath = join(BORDERS_DIR, `${base}_${id}.png`);
-    const tinted = tintBuffer(png, hex, opts);
+    const tinted = tintBuffer(png, hex, opts, edgeAlpha);
     await writeFile(outPath, tinted);
     console.log(`  wrote ${base}_${id}.png`);
   }
