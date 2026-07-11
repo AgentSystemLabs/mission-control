@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ClientOnly,
   Outlet,
@@ -22,7 +22,13 @@ import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
 import { usePowerSaveController } from "~/lib/power-save";
 import { useWindowIdleController } from "~/lib/window-idle";
-import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
+import {
+  TerminalProvider,
+  useTerminals,
+  useTerminalActions,
+  useGridView,
+  useHasActiveSession,
+} from "~/lib/terminal-store";
 import { Z_INDEX } from "~/lib/z-index";
 import {
   UserTerminalProvider,
@@ -268,6 +274,39 @@ function LaunchIntroOverlayController() {
   return <LaunchOverlay active={active} onDone={finish} />;
 }
 
+// The active-session tail lives in its own leaf so the per-tick re-render from
+// subscribing to the terminal data slice (`activeFor` returns a fresh session
+// object whenever that session's task row updates) is confined here, instead of
+// re-rendering the whole Shell + TopBar + ProjectBar. Props are all stable
+// (actions + booleans) so it re-renders only on its own subscription.
+const ProjectTerminalPanel = memo(function ProjectTerminalPanel({
+  projectId,
+  onClose,
+  onHide,
+  onPtyReady,
+  expanded,
+  onToggleExpanded,
+}: {
+  projectId: string;
+  onClose: (taskId: string, opts?: { activateTaskId?: string | null }) => Promise<void>;
+  onHide: (projectId: string) => void;
+  onPtyReady: (taskId: string, ptyId: string | null, scopeKey?: string) => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}) {
+  const { activeFor } = useTerminals();
+  return (
+    <TerminalPanel
+      active={activeFor(projectId)}
+      onClose={onClose}
+      onHide={() => onHide(projectId)}
+      onPtyReady={onPtyReady}
+      expanded={expanded}
+      onToggleExpanded={onToggleExpanded}
+    />
+  );
+});
+
 function Shell() {
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"usage" | null>(null);
@@ -321,7 +360,11 @@ function Shell() {
       ? sandboxState.sandboxes.find((s) => s.id === sandboxState.activeScopeId) ?? null
       : null;
   const activeResuming = activeSandbox?.remoteStatus === "resuming";
-  const { activeFor, close, deselect, setPtyId, gridView } = useTerminals();
+  // Pure actions (stable identity) + narrow flip-only subscriptions, so a
+  // background session-status tick doesn't re-render the whole shell. The active
+  // session itself lives in the ProjectTerminalPanel leaf below.
+  const { close, deselect, setPtyId } = useTerminalActions();
+  const gridView = useGridView();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
   const {
@@ -377,6 +420,9 @@ function Shell() {
   const path = useRouterState({ select: (state) => state.location.pathname });
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const projectId = projectMatch ? projectMatch[1]! : null;
+  // Flip-only: true iff this project has a materialized active session. Gates
+  // the expanded-terminal layout without subscribing to the churning data slice.
+  const hasActiveSession = useHasActiveSession(projectId);
   // Focused Session Mode strips the whole shell: the /focus route renders the
   // only visible chrome, and the Electron window is a small floating card.
   const focusActive = isFocusPath(path);
@@ -429,7 +475,7 @@ function Shell() {
     });
   }, [expandedKey]);
   const sessionExpanded =
-    !!projectId && terminalExpanded && !!activeFor(projectId);
+    !!projectId && terminalExpanded && hasActiveSession;
   // Grid view takes over the whole workspace: the Outlet (which renders the
   // grid below the project header) spans full width and the single right-hand
   // terminal panel is hidden.
@@ -571,7 +617,7 @@ function Shell() {
         window.dispatchEvent(new Event(GRID_EXPAND_TOGGLE_EVENT));
         return;
       }
-      if (projectId && activeFor(projectId)) toggleTerminalExpanded();
+      if (projectId && hasActiveSession) toggleTerminalExpanded();
     },
     { capture: true },
   );
@@ -772,10 +818,10 @@ function Shell() {
               {activeResuming && activeSandbox && <SandboxResumingOverlay name={activeSandbox.name} />}
             </div>
             {projectMatch && !gridActive && (
-              <TerminalPanel
-                active={activeFor(projectMatch[1]!)}
+              <ProjectTerminalPanel
+                projectId={projectMatch[1]!}
                 onClose={close}
-                onHide={() => deselect(projectMatch[1]!)}
+                onHide={deselect}
                 onPtyReady={setPtyId}
                 expanded={sessionExpanded}
                 onToggleExpanded={toggleTerminalExpanded}

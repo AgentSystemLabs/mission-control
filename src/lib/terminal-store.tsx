@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { getElectron } from "./electron";
@@ -203,6 +204,18 @@ type TerminalActions = Omit<Ctx, TerminalDataKeys>;
 
 const TerminalActionsContext = createContext<TerminalActions | null>(null);
 const TerminalDataContext = createContext<TerminalData | null>(null);
+
+// Narrow subscription bridge. `useGridView` / `useHasActiveSession` read a
+// single boolean off refs via useSyncExternalStore, so shell chrome that needs
+// only those booleans re-renders when they FLIP instead of on every
+// session-status tick (which churns the whole data slice). Kept alongside — not
+// replacing — the data context.
+type TerminalStoreBridge = {
+  subscribe: (cb: () => void) => () => void;
+  getGridViewSnapshot: () => boolean;
+  getHasActiveSessionSnapshot: (projectId: string | null) => boolean;
+};
+const TerminalStoreBridgeContext = createContext<TerminalStoreBridge | null>(null);
 
 function commandFor(agent: TaskAgent): string {
   return AGENT_REGISTRY[agent].startCommand();
@@ -541,6 +554,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   // stable actions context) instead of re-creating on every gridView flip.
   const gridViewRef = useRef(gridView);
   gridViewRef.current = gridView;
+  // Mirrors for the narrow-subscription bridge below (getSnapshot reads these).
+  const activeByProjectRef = useRef(activeByProject);
+  activeByProjectRef.current = activeByProject;
+  const visibleScopeByProjectRef = useRef(visibleScopeByProject);
+  visibleScopeByProjectRef.current = visibleScopeByProject;
 
   const setGridView = useCallback((value: boolean) => {
     setGridViewState(value);
@@ -1292,6 +1310,42 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     ]
   );
 
+  // Narrow-subscription bridge (see TerminalStoreBridgeContext). getSnapshot
+  // reads refs updated in render; a change to sessions / active selection / grid
+  // state notifies listeners, and each subscriber re-renders only when its own
+  // boolean snapshot flips — so the shell doesn't re-render on every tick.
+  const bridgeListenersRef = useRef<Set<() => void>>(new Set());
+  const bridgeSubscribe = useCallback((cb: () => void) => {
+    bridgeListenersRef.current.add(cb);
+    return () => {
+      bridgeListenersRef.current.delete(cb);
+    };
+  }, []);
+  useEffect(() => {
+    for (const cb of bridgeListenersRef.current) cb();
+  }, [sessions, activeByProject, visibleScopeByProject, gridView]);
+  const getGridViewSnapshot = useCallback(() => gridViewRef.current, []);
+  const getHasActiveSessionSnapshot = useCallback((projectId: string | null) => {
+    if (!projectId) return false;
+    const { scopeKey, taskId } = resolveActiveTaskIdForProject(
+      activeByProjectRef.current,
+      projectId,
+      visibleScopeByProjectRef.current,
+    );
+    if (!scopeKey || !taskId) return false;
+    return sessionsRef.current.some(
+      (s) => s.taskId === taskId && scopeKeyForProject(s.project) === scopeKey,
+    );
+  }, []);
+  const bridge = useMemo<TerminalStoreBridge>(
+    () => ({
+      subscribe: bridgeSubscribe,
+      getGridViewSnapshot,
+      getHasActiveSessionSnapshot,
+    }),
+    [bridgeSubscribe, getGridViewSnapshot, getHasActiveSessionSnapshot],
+  );
+
   // Reactive slice: changes when sessions / active selection / grid state move.
   const data = useMemo<TerminalData>(
     () => ({
@@ -1315,9 +1369,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <TerminalActionsContext.Provider value={actions}>
-      <TerminalDataContext.Provider value={data}>{children}</TerminalDataContext.Provider>
-    </TerminalActionsContext.Provider>
+    <TerminalStoreBridgeContext.Provider value={bridge}>
+      <TerminalActionsContext.Provider value={actions}>
+        <TerminalDataContext.Provider value={data}>{children}</TerminalDataContext.Provider>
+      </TerminalActionsContext.Provider>
+    </TerminalStoreBridgeContext.Provider>
   );
 }
 
@@ -1342,4 +1398,26 @@ export function useTerminalActions(): TerminalActions {
   const actions = useContext(TerminalActionsContext);
   if (!actions) throw new Error("useTerminalActions must be used inside TerminalProvider");
   return actions;
+}
+
+/** Reactive grid-view flag that only re-renders its consumer when the boolean
+ *  flips (not on every session tick, unlike reading `gridView` off
+ *  `useTerminals()`). */
+export function useGridView(): boolean {
+  const bridge = useContext(TerminalStoreBridgeContext);
+  if (!bridge) throw new Error("useGridView must be used inside TerminalProvider");
+  return useSyncExternalStore(bridge.subscribe, bridge.getGridViewSnapshot, () => false);
+}
+
+/** Whether `projectId` currently has a materialized active session. Re-renders
+ *  its consumer only when that boolean flips — the shell reads it to gate the
+ *  expanded-terminal layout without subscribing to the churning data slice. */
+export function useHasActiveSession(projectId: string | null): boolean {
+  const bridge = useContext(TerminalStoreBridgeContext);
+  if (!bridge) throw new Error("useHasActiveSession must be used inside TerminalProvider");
+  const getSnapshot = useCallback(
+    () => bridge.getHasActiveSessionSnapshot(projectId),
+    [bridge, projectId],
+  );
+  return useSyncExternalStore(bridge.subscribe, getSnapshot, () => false);
 }
