@@ -147,6 +147,19 @@ describe("parseGitBranchHeader", () => {
     expect(r.hasUpstream).toBe(true);
     expect(r.ahead).toBe(5);
   });
+
+  it("treats a [gone] upstream as no upstream so the caller falls back to origin/main", () => {
+    // Remote branch deleted (e.g. PR merged + branch pruned). git still prints
+    // the `...upstream` form for the name but no counts; reporting hasUpstream
+    // here would falsely show the branch as in sync (0/0) instead of counting
+    // it ahead of origin/main.
+    expect(parseGitBranchHeader("## feature...origin/feature [gone]")).toEqual({
+      branch: "feature",
+      hasUpstream: false,
+      ahead: null,
+      behind: null,
+    });
+  });
 });
 
 describe("parseBranchList", () => {

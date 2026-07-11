@@ -150,6 +150,7 @@ export type GitBranchHeader = {
  *   `## main...origin/main [ahead 1, behind 1]` (diverged)
  *   `## HEAD (no branch)`                  (detached)
  *   `## No commits yet on main`            (unborn branch)
+ *   `## feat...origin/feat [gone]`         (upstream configured but deleted)
  */
 export function parseGitBranchHeader(headerLine: string): GitBranchHeader {
   let s = headerLine.replace(/^##\s?/, "").trim();
@@ -157,6 +158,7 @@ export function parseGitBranchHeader(headerLine: string): GitBranchHeader {
   // Peel off the trailing `[ahead N, behind M]` bracket, if any.
   let ahead: number | null = null;
   let behind: number | null = null;
+  let gone = false;
   const bracket = s.match(/\s*\[([^\]]*)\]\s*$/);
   if (bracket) {
     s = s.slice(0, bracket.index).trimEnd();
@@ -164,6 +166,12 @@ export function parseGitBranchHeader(headerLine: string): GitBranchHeader {
     const bm = bracket[1].match(/behind (\d+)/);
     if (am) ahead = parseInt(am[1], 10);
     if (bm) behind = parseInt(bm[1], 10);
+    // `[gone]`: the upstream is configured but no longer exists (remote branch
+    // deleted — the normal state after a PR is merged and its branch pruned).
+    // git reports neither ahead nor behind, so treat it as no upstream and let
+    // the caller fall back to counting against origin/main → main, matching the
+    // behavior before the header carried these counts.
+    gone = /\bgone\b/.test(bracket[1]);
   }
 
   // Detached HEAD — no branch, no upstream.
@@ -175,10 +183,12 @@ export function parseGitBranchHeader(headerLine: string): GitBranchHeader {
   const unborn = s.match(/^(?:No commits yet on|Initial commit on) (.+)$/);
   if (unborn) s = unborn[1].trim();
 
-  // `<branch>...<upstream>` — the `...` marks a configured upstream.
+  // `<branch>...<upstream>` — the `...` marks a configured upstream. A `[gone]`
+  // upstream still uses the `...` form for the branch name but is not usable for
+  // counts, so it does not count as an upstream here.
   const sep = s.indexOf("...");
-  const hasUpstream = sep >= 0;
-  const branch = (hasUpstream ? s.slice(0, sep) : s).trim() || "HEAD";
+  const hasUpstream = sep >= 0 && !gone;
+  const branch = (sep >= 0 ? s.slice(0, sep) : s).trim() || "HEAD";
   return {
     branch,
     hasUpstream,
