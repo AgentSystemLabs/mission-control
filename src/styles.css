@@ -5145,7 +5145,8 @@ body[data-card-glow] .cursor-glow {
   .mc-pet-button,
   .mc-pet-emote,
   .mc-pet-flourish,
-  .mc-pet-walker {
+  .mc-pet-walker,
+  .mc-pet-widget {
     animation: none !important;
     transition: none !important;
   }

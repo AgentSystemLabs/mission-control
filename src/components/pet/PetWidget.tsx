@@ -16,6 +16,7 @@ import {
   type PetMood,
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
+import { useUserTerminals } from "~/lib/user-terminal-store";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { DEFAULT_PET_SPECIES, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
@@ -36,6 +37,16 @@ const MOOD_EMOTE: Record<PetMood, string> = {
   shipping: "…",
   startled: "!",
 };
+
+/** Resting distance from the window's bottom edge when there's no dock. */
+const GROUND_GAP_PX = 18;
+/**
+ * The sprite art bottoms out at y≈91 of its 100-unit viewBox (feet paths at
+ * y=90 plus half their stroke), so ~9% of the rendered sprite is empty space
+ * under the feet. Subtract it when perching so the feet — not the invisible
+ * box edge — touch the dock.
+ */
+const SPRITE_BOTTOM_WHITESPACE = 0.09;
 
 /** Holding the pointer down this long turns a click into stroking. */
 const HOLD_TO_STROKE_MS = 350;
@@ -72,6 +83,40 @@ export function PetWidget() {
   const suppressClick = useRef(false);
   const [hovered, setHovered] = useState(false);
   const [stroking, setStroking] = useState(false);
+
+  // The pet perches on the bottom terminal dock instead of covering it: track
+  // how far the dock's top edge rises above the viewport bottom and lift the
+  // whole widget by that much. A ResizeObserver follows the dock's slide
+  // open/close and drag-resizes; the store scope re-arms the observer when the
+  // dock mounts/unmounts on project switches (it renders only on project/home
+  // scopes). The widget's own `bottom` transition turns those retargets into
+  // the fly-up / fall motion.
+  const { project: dockProject, homeActive } = useUserTerminals();
+  const dockActive = !!dockProject || homeActive;
+  const [dockLift, setDockLift] = useState(0);
+  useEffect(() => {
+    if (!pet.enabled) return;
+    const measure = () => {
+      const dock = document.querySelector("[data-user-terminal-panel]");
+      setDockLift(
+        dock
+          ? Math.max(0, window.innerHeight - dock.getBoundingClientRect().top)
+          : 0,
+      );
+    };
+    measure();
+    let observer: ResizeObserver | null = null;
+    const dock = document.querySelector("[data-user-terminal-panel]");
+    if (dock && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      observer.observe(dock);
+    }
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [pet.enabled, dockActive]);
 
   // Pupils follow the cursor when it comes near — the pet sees you coming.
   // Imperative CSS vars on the stage (no re-render); the sprite reads them
@@ -179,10 +224,16 @@ export function PetWidget() {
       style={{
         position: "fixed",
         right: 18,
-        bottom: 18,
+        bottom:
+          dockLift > 0
+            ? dockLift - SIZE_PX[pet.size] * SPRITE_BOTTOM_WHITESPACE
+            : GROUND_GAP_PX,
         width: PET_WANDER_RANGE_PX + 100,
         zIndex: Z_INDEX.pet,
         pointerEvents: "none",
+        // Overshooting ease so the pet visibly flies up onto the dock as it
+        // opens and drops back down when it closes or goes away.
+        transition: "bottom 320ms cubic-bezier(0.34, 1.56, 0.64, 1)",
       }}
     >
       <div
