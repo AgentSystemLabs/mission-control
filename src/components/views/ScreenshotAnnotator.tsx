@@ -1116,12 +1116,16 @@ export function ScreenshotAnnotator({
     if (status !== "ready" || busy) return;
     setBusy("attach");
     try {
-      const { path } = await exportPng();
+      const { path, previewDataUrl } = await exportPng();
+      // Persist the edits back to the source entry first, so the annotated
+      // image is what history keeps — attaching should never silently drop the
+      // changes it just baked into the sent PNG. Then attach the same file.
+      onSave(path, previewDataUrl, { originalPath: basePath, shapes: shapesRef.current, crop });
       onAttach(path);
     } catch {
       setBusy(null);
     }
-  }, [busy, exportPng, onAttach, status]);
+  }, [basePath, busy, crop, exportPng, onAttach, onSave, status]);
 
   const save = useCallback(async () => {
     if (status !== "ready" || busy) return;
