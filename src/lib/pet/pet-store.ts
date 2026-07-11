@@ -164,6 +164,8 @@ export type PetInputs = {
   lastKeyAt: number;
   lastActivityAt: number;
   hiddenSince: number | null;
+  /** A commanded nap ("Pixel, sleep") holds until this passes — see PET_NAP_MS. */
+  napUntil: number;
 };
 
 export const MOOD_DEBOUNCE_MS = 1_200;
@@ -172,6 +174,13 @@ const IDLE_AFTER_MS = 5 * 60_000;
 const HIDDEN_SLEEP_AFTER_MS = 60_000;
 const CELEBRATE_MS = 5_000;
 const STARTLE_MS = 3_000;
+/**
+ * How long a commanded nap ("Pixel, sleep") lasts. Long enough to be a real
+ * state — the agent answering and the session finishing must not wake it
+ * (that churn is exactly what the command escapes) — short enough that the
+ * pet is back on duty without being poked.
+ */
+export const PET_NAP_MS = 90_000;
 const LONG_RUN_MS = 20 * 60_000;
 const PETTING_XP_COOLDOWN_MS = 60_000;
 const CLOCK_TICK_MS = 30_000;
@@ -207,6 +216,19 @@ const XP_PR_CREATED = 15;
 const XP_MEMORY_LEARNED = 3;
 const XP_PETTING = 1;
 
+/**
+ * XP awards per event, grouped for the settings guide so its numbers can
+ * never drift from what the store actually grants.
+ */
+export const PET_XP_AWARDS = {
+  sessionFinished: XP_SESSION_FINISHED,
+  sessionFinishedLong: XP_SESSION_FINISHED_LONG,
+  shipSuccess: XP_SHIP_SUCCESS,
+  prCreated: XP_PR_CREATED,
+  memoryLearned: XP_MEMORY_LEARNED,
+  petting: XP_PETTING,
+} as const;
+
 /** Cached uncommitted-file count that earns the evening nudge. */
 const UNCOMMITTED_NUDGE_THRESHOLD = 10;
 /** How long a tossed pet sits dazed where it landed before trotting home. */
@@ -230,6 +252,11 @@ export function resolvePetMood(
   const intensity: 1 | 2 | 3 = inputs.runningCount >= 4 ? 3 : inputs.runningCount >= 2 ? 2 : 1;
   if (inputs.needsInputCount > 0) return { mood: "alert", intensity };
   if (now < inputs.startleUntil) return { mood: "startled", intensity };
+  // A commanded nap outranks the work chatter below it: without this the
+  // response to the very prompt that ordered the nap (running → finished →
+  // celebrating) would wake the pet within a second. Only a blocked session
+  // or a startle interrupts.
+  if (now < inputs.napUntil) return { mood: "sleeping", intensity };
   if (inputs.shippingActive) return { mood: "shipping", intensity };
   if (now < inputs.celebrateUntil) return { mood: "celebrating", intensity };
   if (inputs.runningCount > 0) return { mood: "working", intensity };
@@ -280,6 +307,7 @@ const inputs: PetInputs = {
   lastKeyAt: 0,
   lastActivityAt: Date.now(),
   hiddenSince: null,
+  napUntil: 0,
 };
 
 let mood: PetMood = "idle";
@@ -601,6 +629,9 @@ function recompute(): void {
   } else if (now - pendingSince >= MOOD_DEBOUNCE_MS) {
     pendingMood = null;
     commitMood(candidate);
+    // Timed moods that landed through the debounce path (a commanded nap)
+    // still need their expiry re-check scheduled.
+    schedulePulseExpiry(now);
     return;
   }
   if (pendingTimer) clearTimeout(pendingTimer);
@@ -630,7 +661,7 @@ function commitMood(next: { mood: PetMood; intensity: 1 | 2 | 3 }): void {
 }
 
 function schedulePulseExpiry(now: number): void {
-  const until = Math.max(inputs.startleUntil, inputs.celebrateUntil);
+  const until = Math.max(inputs.startleUntil, inputs.celebrateUntil, inputs.napUntil);
   if (until <= now || typeof window === "undefined") return;
   if (pulseTimer) clearTimeout(pulseTimer);
   pulseTimer = setTimeout(() => {
@@ -785,6 +816,7 @@ export function petSetEnabled(
     statsOpen = false;
     alertWalkX = null;
     heldByUser = false;
+    inputs.napUntil = 0;
     // A disabled pet should cost nothing: stop the ambient loops and any
     // in-flight one-shot timers. ensureClock/ensureBehaviorLoop re-arm on
     // the next enable.
@@ -957,22 +989,32 @@ export function petIngestServerEvent(event: ServerEvent): void {
       const snippet = typeof event.snippet === "string" ? event.snippet : "";
       const now = Date.now();
       if (taskId) promptStartedAt.set(taskId, now);
+      // Its own name in the prompt is addressed to the pet, not the agents —
+      // parse it up front so a "sleep" order starts the nap BEFORE the
+      // excited hop below (which it suppresses), not after.
+      const addressed = Boolean(
+        snippet && persistent && mentionsPetName(snippet, persistent.name),
+      );
+      const command = addressed ? parsePetCommand(snippet) : null;
+      // Being addressed by name wakes a napping pet — unless the order IS
+      // the nap. Un-addressed prompts leave the nap alone: it was an
+      // explicit command, and ambient work shouldn't undo it.
+      if (command === "sleep") inputs.napUntil = now + PET_NAP_MS;
+      else if (addressed) inputs.napUntil = 0;
+      const napping = now < inputs.napUntil;
       // Visibly react to the hand-off: count it as fresh activity (wakes a
       // sleeping pet, calls a wanderer home, perks it to "watching") and play
       // an excited hop — the way a companion looks up when you give it a task.
       inputs.lastActivityAt = now;
       inputs.lastKeyAt = now;
       recompute();
-      if (!prefersReducedMotion()) doFlourish(pickExcitedReaction());
-      // Its own name in the prompt is addressed to the pet, not the agents —
-      // it outranks keyword flavor and carries no cooldown. Otherwise
-      // acknowledge: a keyword-flavored line when the snippet matches, or a
-      // generic "on it". The rate limiter keeps rapid sends from each popping
-      // a bubble even though the hop plays every time.
-      if (snippet && persistent && mentionsPetName(snippet, persistent.name)) {
-        // Addressed by name — maybe with a command verb. Commands beat the
-        // plain name-answer: "Pixel, dance" gets a dance, not a "you rang?".
-        const command = parsePetCommand(snippet);
+      if (!prefersReducedMotion() && !napping) doFlourish(pickExcitedReaction());
+      // Commands beat the plain name-answer: "Pixel, dance" gets a dance,
+      // not a "you rang?". Otherwise acknowledge: a keyword-flavored line
+      // when the snippet matches, or a generic "on it". The rate limiter
+      // keeps rapid sends from each popping a bubble even though the hop
+      // plays every time.
+      if (addressed) {
         if (command === "dance") {
           if (!prefersReducedMotion()) doFlourish("dance");
           say("command-dance");
@@ -988,7 +1030,7 @@ export function petIngestServerEvent(event: ServerEvent): void {
         } else {
           say("name-mentioned");
         }
-      } else {
+      } else if (!napping) {
         say((snippet && classifyPromptSnippet(snippet)) || "prompt-sent");
       }
       return;
@@ -1195,6 +1237,11 @@ export function petInteract(): { navigateTo: { taskId: string; projectId: string
   if (!enabled) return { navigateTo: null };
   if (alert && mood === "alert") return { navigateTo: alert };
   const now = Date.now();
+  // A click wakes a commanded nap — physical affection outranks the order.
+  if (inputs.napUntil > now) {
+    inputs.napUntil = 0;
+    recompute();
+  }
   // Spam-clicking overwhelms the pet: it spins out dizzy (startled) instead
   // of endlessly lapping up affection.
   recentPetClicks = recentPetClicks.filter((t) => now - t < DIZZY_WINDOW_MS);
@@ -1262,6 +1309,8 @@ export function petNoteUncommitted(count: number): void {
 export function petGrabbed(visualX: number): void {
   if (!enabled) return;
   heldByUser = true;
+  // Being picked up ends a commanded nap.
+  inputs.napUntil = 0;
   if (arriveTimer) {
     clearTimeout(arriveTimer);
     arriveTimer = null;

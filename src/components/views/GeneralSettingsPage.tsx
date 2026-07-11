@@ -52,6 +52,7 @@ import {
 } from "~/shared/pet";
 import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
 import { PET_SPECIES } from "~/components/pet/PetSprite";
+import { PetGuideModal } from "~/components/pet/PetGuideModal";
 import { TextField } from "~/components/ui/TextField";
 
 export function GeneralSettingsPage() {
@@ -77,6 +78,7 @@ export function GeneralSettingsPage() {
   const petSoundsEnabled = settings?.petSoundsEnabled ?? false;
   const petState = settings?.petState ?? null;
   const [petNameDraft, setPetNameDraft] = useState("");
+  const [petGuideOpen, setPetGuideOpen] = useState(false);
 
   useEffect(() => {
     setPetNameDraft(petState?.name ?? "");
@@ -430,6 +432,22 @@ export function GeneralSettingsPage() {
         title="Mission Pet"
         subtitle="An ambient companion that reacts to real agent activity — no care chores, your work is its life."
       >
+        <Field label="Guide">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+            <Btn variant="frame" size="sm" icon="info" onClick={() => setPetGuideOpen(true)}>
+              How the pet works
+            </Btn>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+              XP sources, levels &amp; evolutions, molting, and personality drift — plus a tip:
+              right-click the pet anytime for its live stats card.
+            </div>
+          </div>
+        </Field>
+        <PetGuideModal
+          open={petGuideOpen}
+          onClose={() => setPetGuideOpen(false)}
+          petName={petState?.name}
+        />
         <Field label="Pet">
           <ToggleRow
             title="Show pet"
