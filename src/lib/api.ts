@@ -20,6 +20,8 @@ import type { AccentColorId } from "~/lib/accent-colors";
 import type { UsageSummary } from "~/shared/token-usage";
 import type { ClaudeUsageLimits } from "~/shared/claude-usage-limits";
 import type { ProviderUsageId, ProviderUsageResponse } from "~/shared/provider-usage";
+import type { AgentLauncherConfig } from "~/shared/agent-launcher-config";
+import type { AgentAccountStatus, AgentLatestVersion } from "~/shared/agent-launchers";
 import type { PendingQuestion } from "~/shared/agent-questions";
 import type { PromptSearchResponse } from "~/shared/prompts";
 import type { WorktreeInfo } from "~/shared/worktrees";
@@ -170,6 +172,8 @@ export type AppSettings = {
    */
   providerUsageEnabled: boolean;
   providerUsageIds: ProviderUsageId[];
+  /** New Session picker: agent display order + hidden agents (never all hidden). */
+  agentLauncherConfig: AgentLauncherConfig;
   /**
    * Recall (project memory) controls. `recallEnabled` is the experimental
    * master switch — it ships off by default (opt in from Settings). When off
@@ -661,6 +665,7 @@ export const api = {
         | "claudeUsageLimitsShowWeekly"
         | "providerUsageEnabled"
         | "providerUsageIds"
+        | "agentLauncherConfig"
         | "recallEnabled"
         | "recallAutoCaptureEnabled"
         | "recallEngineEnabled"
@@ -778,6 +783,15 @@ export const api = {
         ? `?providers=${encodeURIComponent(providerIds.join(","))}`
         : "";
     return req<ProviderUsageResponse>(`/api/provider-usage${q}`);
+  },
+  getAgentAccounts: () =>
+    req<{ accounts: AgentAccountStatus[] }>("/api/agent-launchers/accounts"),
+  getAgentLatestVersions: (agents?: readonly TaskAgent[], opts?: { refresh?: boolean }) => {
+    const params = new URLSearchParams();
+    if (agents && agents.length > 0) params.set("agents", agents.join(","));
+    if (opts?.refresh) params.set("refresh", "1");
+    const q = params.size > 0 ? `?${params.toString()}` : "";
+    return req<{ versions: AgentLatestVersion[] }>(`/api/agent-launchers/latest-versions${q}`);
   },
   searchPrompts: (query: string, limit?: number) =>
     req<PromptSearchResponse>(

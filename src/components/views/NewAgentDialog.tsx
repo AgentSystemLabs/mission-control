@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { FormErrorBox } from "~/components/ui/FormErrorBox";
 import { Btn } from "~/components/ui/Btn";
@@ -10,12 +10,16 @@ import { getElectron } from "~/lib/electron";
 import {
   agentCanLaunch,
   availabilityFor,
-  firstAvailableAgent,
   type CliAvailability,
   useCliAvailability,
 } from "~/lib/cli-availability";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
-import { AGENT_REGISTRY, UI_AGENTS, agentSupportsSkipPermissions } from "~/shared/agents";
+import { useSettings } from "~/queries";
+import { AGENT_REGISTRY, agentSupportsSkipPermissions } from "~/shared/agents";
+import {
+  DEFAULT_AGENT_LAUNCHER_CONFIG,
+  visibleLauncherAgents,
+} from "~/shared/agent-launcher-config";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import type { TaskAgent } from "~/shared/domain";
 import type { Project } from "~/db/schema";
@@ -26,8 +30,6 @@ export type RememberPatch = {
   savedSkipPermissions: boolean;
   savedBareSession: boolean;
 };
-
-const AGENT_OPTIONS = UI_AGENTS.map((id) => ({ id, ...AGENT_REGISTRY[id] }));
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement &&
@@ -68,6 +70,18 @@ export function NewAgentDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const cliAvailability = useCliAvailability();
+  const { data: settings } = useSettings();
+
+  // Order + visibility come from Settings → Providers. Hiding only affects
+  // this picker; a hidden savedAgent still launches through the skip-dialog path.
+  const launcherConfig = settings?.agentLauncherConfig ?? DEFAULT_AGENT_LAUNCHER_CONFIG;
+  const agentOptions = useMemo(
+    () =>
+      visibleLauncherAgents(launcherConfig)
+        .filter((id) => AGENT_REGISTRY[id].uiVisible)
+        .map((id) => ({ id, ...AGENT_REGISTRY[id] })),
+    [launcherConfig],
+  );
 
   const buildSessionSettingsPatch = (
     nextRememberSettings: boolean,
@@ -104,7 +118,12 @@ export function NewAgentDialog({
       setSubmitting(false);
       return;
     }
-    const seedAgent: TaskAgent = project?.savedAgent ?? "claude-code";
+    // A saved agent that has since been hidden can't be highlighted in the
+    // picker — seed the first visible option instead.
+    const seedAgent: TaskAgent =
+      project?.savedAgent && agentOptions.some((a) => a.id === project.savedAgent)
+        ? project.savedAgent
+        : agentOptions[0]?.id ?? "claude-code";
     const seedSkip = !!project?.savedSkipPermissions;
     setAgent(seedAgent);
     setDangerouslySkipPermissions(seedSkip);
@@ -172,9 +191,9 @@ export function NewAgentDialog({
   useEffect(() => {
     if (!open) return;
     if (availabilityFor(cliAvailability, agent).status !== "missing") return;
-    const next = firstAvailableAgent(cliAvailability);
+    const next = agentOptions.find((a) => agentCanLaunch(cliAvailability, a.id))?.id;
     if (next && next !== agent) setAgent(next);
-  }, [open, agent, cliAvailability]);
+  }, [open, agent, cliAvailability, agentOptions]);
 
   useEffect(() => {
     if (!open) return;
@@ -182,7 +201,7 @@ export function NewAgentDialog({
       if (isEditableTarget(e.target)) return;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
-        const ids = AGENT_OPTIONS
+        const ids = agentOptions
           .filter((a) => {
             const availability = availabilityFor(cliAvailability, a.id);
             return agentCanLaunch(cliAvailability, a.id) ||
@@ -204,7 +223,7 @@ export function NewAgentDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions, cliAvailability]);
+  }, [open, agent, submitting, project, rememberSettings, dangerouslySkipPermissions, cliAvailability, agentOptions]);
 
   const selectedAvailability = availabilityFor(cliAvailability, agent);
   const selectedAgentOutdated = selectedAvailability.status === "outdated";
@@ -253,7 +272,7 @@ export function NewAgentDialog({
             Agent
           </label>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {AGENT_OPTIONS.map((a) => {
+            {agentOptions.map((a) => {
               const meta = AGENT_META[a.id];
               const selected = agent === a.id;
               const availability = availabilityFor(cliAvailability, a.id);

@@ -1,3 +1,4 @@
+import type { AgentCliUpdateRun } from "~/shared/agent-cli-update";
 import type { GitStatus, GitDiff } from "~/shared/git-status";
 
 export const FILE_READ_ERRORS = ["invalid-path", "not-found", "binary", "too-large"] as const;
@@ -365,7 +366,12 @@ export type ElectronBridge = {
       }) => void,
     ) => () => void;
   };
-  cliCheck: (command: string, opts?: { verifyVersion?: boolean }) => Promise<CliCheckResult>;
+  cliCheck: (
+    command: string,
+    opts?: { verifyVersion?: boolean; fresh?: boolean },
+  ) => Promise<CliCheckResult>;
+  /** Run the managed CLI's update command in the main process (input is only an agent id). */
+  cliRunUpdate: (agent: PtySpawnAgent) => Promise<AgentCliUpdateRun>;
   pty: {
     spawn: (opts: PtySpawnOptions) => Promise<{ ptyId: string }>;
     write: (ptyId: string, data: string) => Promise<boolean>;

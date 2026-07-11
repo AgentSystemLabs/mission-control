@@ -46,6 +46,8 @@ export const queryKeys = {
   usage: (days: number) => ["usage", days] as const,
   claudeUsageLimits: ["claude-usage-limits"] as const,
   providerUsage: (idsKey: string) => ["provider-usage", idsKey] as const,
+  agentAccounts: ["agent-launchers", "accounts"] as const,
+  agentLatestVersions: ["agent-launchers", "latest-versions"] as const,
   promptSearch: (query: string) => ["prompt-search", query] as const,
   projectMemory: (projectId: string) => ["projects", projectId, "memory"] as const,
   archivedMemory: (projectId: string) => ["projects", projectId, "memory", "archived"] as const,
@@ -254,6 +256,28 @@ export const providerUsageQueryOptions = (
   });
 };
 
+// Local auth files rarely change while the settings page is open.
+const AGENT_ACCOUNTS_STALE_MS = 300_000;
+// Aligned with the server-side npm registry cache TTL (1h). Mounting the
+// Providers page therefore performs the "check all on open" pass at most
+// once an hour; per-row refreshes go through api.getAgentLatestVersions
+// with refresh=true.
+const AGENT_LATEST_VERSIONS_STALE_MS = 3_600_000;
+
+export const agentAccountsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.agentAccounts,
+    queryFn: async () => (await api.getAgentAccounts()).accounts,
+    staleTime: AGENT_ACCOUNTS_STALE_MS,
+  });
+
+export const agentLatestVersionsQueryOptions = () =>
+  queryOptions({
+    queryKey: queryKeys.agentLatestVersions,
+    queryFn: async () => (await api.getAgentLatestVersions()).versions,
+    staleTime: AGENT_LATEST_VERSIONS_STALE_MS,
+  });
+
 const PROMPT_SEARCH_STALE_MS = 5_000;
 
 // `enabled` is caller-controlled so the query only runs while the palette is
@@ -313,3 +337,5 @@ export const useProviderUsage = (enabled: boolean, providerIds: readonly string[
   useQuery(providerUsageQueryOptions(enabled, providerIds));
 export const usePromptSearch = (query: string, enabled: boolean) =>
   useQuery(promptSearchQueryOptions(query, enabled));
+export const useAgentAccounts = () => useQuery(agentAccountsQueryOptions());
+export const useAgentLatestVersions = () => useQuery(agentLatestVersionsQueryOptions());

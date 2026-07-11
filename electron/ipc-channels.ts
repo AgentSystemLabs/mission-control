@@ -29,6 +29,7 @@ export const IPC = {
   powerOnBatteryChange: "power:on-battery-change",
   powerSetSaverActive: "power:setSaverActive",
   cliCheck: "cli:check",
+  cliRunUpdate: "cli:runUpdate",
   ptySpawn: "pty:spawn",
   ptyWrite: "pty:write",
   ptyResize: "pty:resize",

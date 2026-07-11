@@ -51,6 +51,10 @@ import {
   type ProviderUsageId,
 } from "~/shared/provider-usage";
 import {
+  normalizeAgentLauncherConfig,
+  type AgentLauncherConfig,
+} from "~/shared/agent-launcher-config";
+import {
   DEFAULT_TERMINAL_ZOOM_LEVEL,
   TERMINAL_ZOOM_MAX,
   TERMINAL_ZOOM_MIN,
@@ -108,6 +112,7 @@ const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
 const CLAUDE_USAGE_LIMITS_SHOW_WEEKLY_KEY = "claude_usage_limits_show_weekly";
 const PROVIDER_USAGE_ENABLED_KEY = "provider_usage_enabled";
 const PROVIDER_USAGE_IDS_KEY = "provider_usage_ids";
+const AGENT_LAUNCHER_CONFIG_KEY = "agent_launcher_config";
 const PET_ENABLED_KEY = "pet_enabled";
 const PET_MESSAGES_ENABLED_KEY = "pet_messages_enabled";
 const PET_SOUNDS_ENABLED_KEY = "pet_sounds_enabled";
@@ -234,6 +239,9 @@ const updateSettingsBody = z
     claudeUsageLimitsShowWeekly: z.boolean(),
     providerUsageEnabled: z.boolean(),
     providerUsageIds: z.array(z.string()).transform((value) => normalizeProviderUsageIds(value)),
+    agentLauncherConfig: z
+      .object({ order: z.array(z.string()), hidden: z.array(z.string()) })
+      .transform((value): AgentLauncherConfig => normalizeAgentLauncherConfig(value)),
     recallEnabled: z.boolean(),
     recallAutoCaptureEnabled: z.boolean(),
     recallEngineEnabled: z.boolean(),
@@ -373,6 +381,12 @@ function getSessionHeaderButtonsSetting(): SessionHeaderButtonVisibility {
   );
 }
 
+function getAgentLauncherConfigSetting(): AgentLauncherConfig {
+  return normalizeAgentLauncherConfig(
+    safeJsonParse<unknown>(getSetting(AGENT_LAUNCHER_CONFIG_KEY), null),
+  );
+}
+
 function getVoiceCommandAliasesSetting() {
   const raw = getSetting(VOICE_COMMAND_ALIASES_KEY);
   try {
@@ -454,6 +468,7 @@ function settingsPayload() {
     // so existing users who already enabled Claude usage keep their indicator.
     providerUsageEnabled: getProviderUsageEnabledSetting(),
     providerUsageIds: getProviderUsageIdsSetting(),
+    agentLauncherConfig: getAgentLauncherConfigSetting(),
     petEnabled: getBooleanSetting(PET_ENABLED_KEY, true),
     petMessagesEnabled: getBooleanSetting(PET_MESSAGES_ENABLED_KEY, true),
     petSoundsEnabled: getBooleanSetting(PET_SOUNDS_ENABLED_KEY, false),
@@ -697,6 +712,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.providerUsageIds !== undefined) {
     setSetting(PROVIDER_USAGE_IDS_KEY, JSON.stringify(body.providerUsageIds));
+  }
+  if (body.agentLauncherConfig !== undefined) {
+    setSetting(AGENT_LAUNCHER_CONFIG_KEY, JSON.stringify(body.agentLauncherConfig));
   }
   if (body.petEnabled !== undefined) {
     setBooleanSetting(PET_ENABLED_KEY, body.petEnabled);

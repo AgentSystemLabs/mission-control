@@ -55,7 +55,8 @@ import { errMsg } from "../src/shared/err-msg";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
-import { checkAgentCliVersion } from "./agent-cli-version";
+import { checkAgentCliVersionCached } from "./agent-cli-version";
+import { runAgentCliUpdate } from "./agent-cli-update";
 import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore } from "./app-settings-store";
 import { getBinding, matchElectronInput } from "./keybindings-reader";
@@ -1578,14 +1579,19 @@ safeHandle(IPC.appReload, (event) => {
   return { ok: true as const };
 });
 
-safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean }) => {
+safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean; fresh?: boolean }) => {
   if (!command) return { ok: false, reason: "empty" };
   const env = sanitizedProcessEnv();
   const resolved = resolveAgentCommandOnPath(command, env);
   if (resolved) {
     const requirement = AGENT_CLI_CONFIG_BY_COMMAND[command];
     if (requirement && opts?.verifyVersion) {
-      const versionCheck = checkAgentCliVersion(resolved, env, requirement, os.platform());
+      // Cached: shares the app-lifetime probe cache with pty spawns, so a
+      // repeat check doesn't re-spawn `<cli> --version` (which blocks main).
+      // `fresh` forces a re-probe for explicit user-initiated checks.
+      const versionCheck = checkAgentCliVersionCached(resolved, env, requirement, os.platform(), {
+        fresh: opts.fresh,
+      });
       if (!versionCheck.ok) {
         const { output: _output, ...safeVersionCheck } = versionCheck;
         return { ...safeVersionCheck, path: resolved };
@@ -1596,6 +1602,10 @@ safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolea
   }
   return { ok: false, reason: "not-found" };
 });
+
+// The renderer only names an agent — the update command is chosen and run
+// entirely in the main process from the compiled-in CLI config.
+safeHandle(IPC.cliRunUpdate, (_evt, agent: string) => runAgentCliUpdate(agent));
 
 safeHandle(IPC.remoteVmDeploy, (_evt, input: RemoteVmDeployInput) => {
   return runRemoteVmDeploy(input);

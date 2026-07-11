@@ -173,5 +173,38 @@ describe("agent CLI version helpers", () => {
         fs.rmSync(root, { recursive: true, force: true });
       }
     });
+
+    it("re-probes past a passing cache entry when fresh is requested", () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-version-fresh-"));
+      try {
+        const counter = path.join(root, "count");
+        const binary = path.join(root, "claude");
+        fs.writeFileSync(
+          binary,
+          `#!/bin/sh\necho probe >> "${counter}"\necho "${AGENT_CLI_CONFIG["claude-code"].minimumVersion} (Claude Code)"\n`,
+          { mode: 0o755 },
+        );
+
+        clearAgentCliVersionCache();
+        const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" };
+        const requirement = AGENT_CLI_CONFIG["claude-code"];
+        const first = checkAgentCliVersionCached(binary, env, requirement, "darwin");
+        const fresh = checkAgentCliVersionCached(binary, env, requirement, "darwin", {
+          fresh: true,
+        });
+        // The fresh result replaces the cache entry for later cached reads.
+        const third = checkAgentCliVersionCached(binary, env, requirement, "darwin");
+
+        expect(first.ok).toBe(true);
+        expect(fresh.ok).toBe(true);
+        expect(fresh).not.toBe(first);
+        expect(third).toBe(fresh);
+        const probes = fs.readFileSync(counter, "utf8").trim().split("\n");
+        expect(probes).toHaveLength(2);
+      } finally {
+        clearAgentCliVersionCache();
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
   }
 });

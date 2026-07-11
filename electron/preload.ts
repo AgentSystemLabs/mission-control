@@ -376,7 +376,7 @@ const electronAPI = {
       }) => void,
     ) => subscribe(IPC.notificationsSessionFinishedClick, cb),
   },
-  cliCheck: (command: string, opts?: { verifyVersion?: boolean }): Promise<
+  cliCheck: (command: string, opts?: { verifyVersion?: boolean; fresh?: boolean }): Promise<
     | {
         ok: true;
         path: string;
@@ -398,6 +398,18 @@ const electronAPI = {
       }
   > =>
     ipcRenderer.invoke(IPC.cliCheck, command, opts),
+  cliRunUpdate: (agent: string): Promise<
+    | { ok: true; agent: string; command: string; version: string | null }
+    | {
+        ok: false;
+        agent: string;
+        command?: string;
+        reason: string;
+        exitCode?: number | null;
+        output?: string;
+      }
+  > =>
+    ipcRenderer.invoke(IPC.cliRunUpdate, agent),
   pty: {
     spawn: (opts: {
       taskId: string;

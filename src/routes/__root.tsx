@@ -22,6 +22,7 @@ import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
 import { usePowerSaveController } from "~/lib/power-save";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
+import { Z_INDEX } from "~/lib/z-index";
 import {
   UserTerminalProvider,
   useUserTerminals,
@@ -792,6 +793,7 @@ function Shell() {
           closeButton
           // Toasts stack above the Mission Pet when it occupies the corner.
           offset={settings?.petEnabled ?? true ? { bottom: 132, right: 16 } : 16}
+          style={{ zIndex: Z_INDEX.toast }}
           icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{
             unstyled: true,

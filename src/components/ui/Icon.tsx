@@ -61,7 +61,8 @@ export type IconName =
   | "highlighter"
   | "crop"
   | "undo"
-  | "redo";
+  | "redo"
+  | "info";
 
 export function Icon({ name, size = 14, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   const iconStyle: CSSProperties = { display: "block", flexShrink: 0, ...style };
@@ -427,6 +428,14 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
         <svg {...common}>
           <path d="M12 8H5.5a2.5 2.5 0 000 5H10" />
           <path d="M10 5l3 3-3 3" />
+        </svg>
+      );
+    case "info":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 7.3v3.7" />
+          <path d="M8 5.2h.01" />
         </svg>
       );
     default:

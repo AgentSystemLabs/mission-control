@@ -31,6 +31,8 @@ export type AgentCliConfig = {
   versionScheme: AgentCliVersionScheme;
   minimumVersion: string;
   packageUrl: string;
+  /** npm package published for this CLI; absent when there is no public registry to query for the latest version. */
+  npmPackage?: string;
   updateCommands: AgentCliUpdateCommands;
   /** Extra directories under the user home dir to prepend on PATH when they exist. */
   homePathSuffixes?: AgentCliPathSuffixes;
@@ -53,7 +55,8 @@ export const AGENT_CLI_CONFIG = {
     versionScheme: "semver",
     minimumVersion: "2.1.146",
     packageUrl: "https://docs.anthropic.com/en/docs/claude-code/setup",
-    updateCommands: ["npm install -g @anthropic-ai/claude-code@latest"],
+    npmPackage: "@anthropic-ai/claude-code",
+    updateCommands: ["claude update", "npm install -g @anthropic-ai/claude-code@latest"],
   }),
   codex: withResolveAs({
     agent: "codex",
@@ -62,6 +65,7 @@ export const AGENT_CLI_CONFIG = {
     versionScheme: "semver",
     minimumVersion: "0.132.0",
     packageUrl: "https://www.npmjs.com/package/@openai/codex",
+    npmPackage: "@openai/codex",
     updateCommands: {
       default: ["npm install -g @openai/codex@latest"],
       darwin: ["npm install -g @openai/codex@latest", "brew upgrade codex"],
@@ -87,6 +91,7 @@ export const AGENT_CLI_CONFIG = {
     versionScheme: "semver",
     minimumVersion: "1.0.0",
     packageUrl: "https://opencode.ai/docs/cli/",
+    npmPackage: "opencode-ai",
     updateCommands: {
       default: ["curl -fsSL https://opencode.ai/install | bash", "opencode upgrade"],
       win32: ["npm i -g opencode-ai@latest", "opencode upgrade"],
