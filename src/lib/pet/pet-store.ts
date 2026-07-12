@@ -206,7 +206,7 @@ const FLOURISH_MS = 1_400;
  * this keeps a busy grid from chaining antics. Errors bypass it — they lean on
  * the say() cooldown instead, so a genuine failure is never silently dropped.
  */
-const TOOL_REACT_THROTTLE_MS = 15_000;
+const TOOL_REACT_THROTTLE_MS = 8_000;
 
 /** Consecutive failures (ships, interruptions) before the pet calls a streak. */
 const ERROR_STREAK_THRESHOLD = 3;

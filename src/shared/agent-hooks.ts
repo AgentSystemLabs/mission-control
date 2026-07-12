@@ -93,12 +93,14 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
 // The Mission Pet's mid-run signal: a broad PostToolUse scoped to the tools
 // whose results are worth reacting to (Bash/Write/Edit). Installed ONLY when the
 // pet is enabled (see installAgentHooks `opts.petEnabled`) and throttled
-// in-command via gateSeconds so it never POSTs per tool call. Claude Code only —
+// in-command via gateSeconds so it never POSTs per tool call. Kept short so the
+// pet feels alive mid-run — the per-line cooldowns in pet-messages.ts do the
+// real spam control, this gate just caps the POST rate. Claude Code only —
 // no other supported agent exposes PostToolUse.
 const PET_TOOL_HOOK: HookEvent = {
   event: "PostToolUse",
   matcher: "Bash|Write|Edit",
-  gateSeconds: 20,
+  gateSeconds: 8,
 };
 
 // A timestamp-file gate prepended to a hook command so it exits before curl when
