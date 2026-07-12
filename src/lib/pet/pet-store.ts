@@ -1365,12 +1365,20 @@ export function petGrabbed(visualX: number): void {
   invalidate();
 }
 
-export function petTossed(landingX: number): void {
+export function petTossed(landingX: number, side?: PetHomeSide): void {
   if (!enabled) return;
   heldByUser = false;
   if (arriveTimer) {
     clearTimeout(arriveTimer);
     arriveTimer = null;
+  }
+  // Dropped across the screen's midpoint: re-home the pet to that side so it
+  // settles where you left it and walks back to the near corner, instead of
+  // trekking all the way to its old home. landingX is already the distance
+  // from the (possibly new) home edge, measured by the caller.
+  if (side && side !== homeSide) {
+    homeSide = side;
+    alertWalkX = null;
   }
   wander = {
     x: Math.max(0, Math.round(landingX)),
