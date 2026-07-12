@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import {
   ClientOnly,
   Outlet,
@@ -71,10 +71,17 @@ import {
   DEFAULT_TERMINAL_LINE_HEIGHT,
 } from "~/shared/terminal-appearance";
 import {
-  SettingsPanel,
   SETTINGS_PANEL_IDS,
   type SettingsPanelId,
-} from "~/components/views/SettingsPanel";
+} from "~/components/views/settings-panel-ids";
+// Lazy: the settings overlay is conditionally rendered (settingsOpen) inside
+// ClientOnly, so hydration never touches it — deferring its module keeps the
+// dozen settings pages (and the pet cluster they pin) out of the entry chunk.
+const SettingsPanel = lazy(() =>
+  import("~/components/views/SettingsPanel").then((m) => ({
+    default: m.SettingsPanel,
+  })),
+);
 import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 import {
   requestCloseSettings,
@@ -88,8 +95,10 @@ import { SessionNotificationsButton } from "~/components/views/SessionNotificati
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
-import { usePetController } from "~/lib/pet/use-pet-controller";
-import { PetWidget } from "~/components/pet/PetWidget";
+// Lazy: the pet controller + widget (and the pet-lines/pet-messages/PetSprite
+// payload) load off the entry chunk. Mounted as a continuously-present sibling
+// of Shell (see below) so the controller survives focus-mode transitions.
+const PetHost = lazy(() => import("~/components/pet/PetHost"));
 import {
   mergeAppNotificationLists,
   useDiagramReadyNotificationList,
@@ -235,6 +244,11 @@ function RootComponent() {
                        */}
                       <ClientOnly fallback={null}>
                         <Shell />
+                        {/* Sibling of Shell so the pet controller mounts once
+                         * and survives Shell's focus-mode early return. */}
+                        <Suspense fallback={null}>
+                          <PetHost />
+                        </Suspense>
                       </ClientOnly>
                     </DiagramDialogHost>
                   </HeaderActionsProvider>
@@ -396,9 +410,6 @@ function Shell() {
     : null;
 
   useNavigationSwipe();
-  // Above the focus-mode early return on purpose: the pet keeps folding events
-  // (and accruing XP) while focus mode hides the widget itself.
-  usePetController();
   const sessionNotifications = useSessionFinishNotifications();
   const diagramNotificationList = useDiagramReadyNotificationList();
   const appNotifications = useMemo(
@@ -832,10 +843,12 @@ function Shell() {
         </div>
         {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
         {settingsOpen && (
-          <SettingsPanel
-            initialPanel={settingsInitialPanel ?? "general"}
-            onBack={closeSettingsPanel}
-          />
+          <Suspense fallback={null}>
+            <SettingsPanel
+              initialPanel={settingsInitialPanel ?? "general"}
+              onBack={closeSettingsPanel}
+            />
+          </Suspense>
         )}
         <Toaster
           position="bottom-right"
@@ -853,7 +866,6 @@ function Shell() {
           }}
         />
         <VoiceController />
-        <PetWidget />
         <SessionFileDropZone />
       </div>
       <ConfirmDialog
