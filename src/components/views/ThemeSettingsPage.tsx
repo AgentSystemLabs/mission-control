@@ -12,6 +12,7 @@ import {
 } from "~/lib/accent-colors";
 import { api, type AppSettings } from "~/lib/api";
 import { DEFAULT_THEME_STYLE, type ThemeStyle } from "~/shared/theme-style";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   DEFAULT_SURFACE_TINT,
   SURFACE_TINTS,
@@ -45,6 +46,7 @@ import {
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
+import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
 
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
@@ -91,6 +93,7 @@ export function ThemeSettingsPage() {
     themeChosen: true,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     batterySaverEnabled: settings?.batterySaverEnabled ?? true,
+    spellcheckEnabled: settings?.spellcheckEnabled ?? true,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
@@ -124,6 +127,9 @@ export function ThemeSettingsPage() {
     shipAgent: settings?.shipAgent ?? "claude-code",
     shipModel: settings?.shipModel ?? null,
     shipPrompt: settings?.shipPrompt ?? DEFAULT_SHIP_PROMPT,
+    syncAgent: settings?.syncAgent ?? "claude-code",
+    syncModel: settings?.syncModel ?? null,
+    syncPrompt: settings?.syncPrompt ?? DEFAULT_SYNC_PROMPT,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,
@@ -146,6 +152,8 @@ export function ThemeSettingsPage() {
     petEnabled: settings?.petEnabled ?? true,
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
+    petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,

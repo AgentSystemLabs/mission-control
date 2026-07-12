@@ -28,7 +28,13 @@ import {
   hasLiveWorktreeActivity,
 } from "~/lib/worktree-live-activity";
 import { useTasks } from "~/queries";
-import { worktreeScopeKey } from "~/shared/worktrees";
+import {
+  isOptimisticWorktree,
+  worktreeScopeKey,
+  type WorktreeInfo,
+} from "~/shared/worktrees";
+import { getPinnedProjectStatusDots } from "~/components/views/project-bar-status-dots";
+import { TASK_STATUS_META } from "~/shared/domain";
 import type { GitBranch } from "~/lib/api";
 
 type BranchCheckoutError = {
@@ -86,6 +92,28 @@ function branchMatchesQuery(branch: GitBranch, query: string): boolean {
   return false;
 }
 
+const sectionLabelStyle: React.CSSProperties = {
+  padding: "4px 9px",
+  color: "var(--text-faint)",
+  fontFamily: "var(--mono)",
+  fontSize: 9.5,
+  fontWeight: 600,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+};
+
+function worktreeLabel(worktree: WorktreeInfo): string {
+  return worktree.isMain ? "main" : worktree.name;
+}
+
+function worktreeMatchesQuery(worktree: WorktreeInfo, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  if (worktreeLabel(worktree).toLowerCase().includes(needle)) return true;
+  if (worktree.branch?.toLowerCase().includes(needle)) return true;
+  return false;
+}
+
 export function BranchTypeahead({
   projectId,
   worktreeId,
@@ -99,6 +127,16 @@ export function BranchTypeahead({
   onCreateWorktree,
   createWorktreeDisabled = false,
   createWorktreeTitle,
+  /**
+   * When 2+ worktrees are open, the dropdown grows a "Worktrees" section above
+   * the branch list so this one control switches worktree *or* checks out a
+   * branch — folding the old worktree pill strip into the branch dropdown.
+   */
+  worktrees = [],
+  selectedWorktreeId,
+  onSelectWorktree,
+  onDeleteWorktree,
+  runningKeys,
 }: {
   projectId: string;
   worktreeId?: string | null;
@@ -110,6 +148,11 @@ export function BranchTypeahead({
   onCreateWorktree?: () => void;
   createWorktreeDisabled?: boolean;
   createWorktreeTitle?: string;
+  worktrees?: WorktreeInfo[];
+  selectedWorktreeId?: string;
+  onSelectWorktree?: (id: string) => void;
+  onDeleteWorktree?: (worktree: WorktreeInfo) => void;
+  runningKeys?: ReadonlySet<string>;
 }) {
   const branchLabel = branch?.trim() || "…";
   const queryClient = useQueryClient();
@@ -177,6 +220,20 @@ export function BranchTypeahead({
     () => branches.filter((item) => branchMatchesQuery(item, query)),
     [branches, query],
   );
+  // Only fold worktrees into the dropdown once there's more than one to switch
+  // between — a solo-main project keeps the plain branch typeahead it had.
+  const showWorktreeSection = worktrees.length > 1 && !!onSelectWorktree;
+  const filteredWorktrees = useMemo(
+    () =>
+      showWorktreeSection
+        ? worktrees.filter((item) => worktreeMatchesQuery(item, query))
+        : [],
+    [showWorktreeSection, worktrees, query],
+  );
+  // Branch checkout can be disabled (e.g. project path blocked) while worktree
+  // switching should still work — so the dropdown stays openable when there are
+  // worktrees to switch between, even though branch actions are gated off.
+  const triggerDisabled = checkout.isPending || (disabled && !showWorktreeSection);
   const trimmedQuery = query.trim();
   const exactMatch = branches.some(
     (item) => item.name === trimmedQuery || item.remoteRef === trimmedQuery,
@@ -213,7 +270,14 @@ export function BranchTypeahead({
       window.removeEventListener("resize", updateMenuRect);
       window.removeEventListener("scroll", updateMenuRect, true);
     };
-  }, [open, updateMenuRect, filteredBranches.length, branchesQuery.isLoading, branchesQuery.isFetching]);
+  }, [
+    open,
+    updateMenuRect,
+    filteredBranches.length,
+    filteredWorktrees.length,
+    branchesQuery.isLoading,
+    branchesQuery.isFetching,
+  ]);
 
   const closeTypeahead = () => {
     setOpen(false);
@@ -224,10 +288,12 @@ export function BranchTypeahead({
     queryClient.fetchQuery(gitBranchesQueryOptions(projectId, worktreeId, { enabled: !disabled }));
 
   const toggleOpen = () => {
-    if (disabled || checkout.isPending) return;
+    if (triggerDisabled) return;
     setOpen((current) => {
       const next = !current;
-      if (next) void refreshBranches();
+      // Only pull branches when checkout is actually available — when opened
+      // purely to switch worktrees (branch actions disabled) we skip the fetch.
+      if (next && !disabled) void refreshBranches();
       return next;
     });
   };
@@ -326,8 +392,12 @@ export function BranchTypeahead({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={onInputKeyDown}
-                placeholder="Search branches or type a new name…"
-                aria-label="Search branches"
+                placeholder={
+                  showWorktreeSection
+                    ? "Search worktrees & branches…"
+                    : "Search branches or type a new name…"
+                }
+                aria-label={showWorktreeSection ? "Search worktrees and branches" : "Search branches"}
                 style={{
                   width: "100%",
                   background: "transparent",
@@ -377,6 +447,168 @@ export function BranchTypeahead({
                   </Btn>
                 </div>
               )}
+              {!loadError && showWorktreeSection && filteredWorktrees.length > 0 && (
+                <>
+                  <div style={sectionLabelStyle}>Worktrees</div>
+                  {filteredWorktrees.map((item) => {
+                    const optimistic = isOptimisticWorktree(item);
+                    const isSelected = item.id === selectedWorktreeId;
+                    const label = worktreeLabel(item);
+                    const scope = worktreeScopeKey(projectId, item.isMain ? null : item.id);
+                    const running = runningKeys
+                      ? [...runningKeys].some(
+                          (key) => key === scope || key.startsWith(`${scope}:`),
+                        )
+                      : false;
+                    const statusDots = item.taskCounts
+                      ? getPinnedProjectStatusDots(item.taskCounts)
+                      : [];
+                    const canDelete =
+                      isSelected && !item.isMain && !optimistic && !!onDeleteWorktree;
+                    return (
+                      <div
+                        key={item.id}
+                        style={{ display: "flex", alignItems: "stretch", gap: 2 }}
+                      >
+                        <button
+                          type="button"
+                          role="option"
+                          className="mc-branch-menu-item"
+                          aria-selected={isSelected}
+                          disabled={optimistic}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            if (optimistic) return;
+                            closeTypeahead();
+                            if (!isSelected) onSelectWorktree?.(item.id);
+                          }}
+                          title={
+                            optimistic
+                              ? "Creating worktree…"
+                              : `${item.path}${item.branch ? ` · branch ${item.branch}` : ""}`
+                          }
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            minHeight: 32,
+                            border: 0,
+                            borderRadius: 6,
+                            background: isSelected ? "var(--accent-dim)" : undefined,
+                            color: isSelected ? "var(--accent)" : "var(--text)",
+                            cursor: optimistic ? "default" : "pointer",
+                            padding: "7px 9px",
+                            textAlign: "left",
+                            fontFamily: "var(--mono)",
+                            fontSize: 11.5,
+                            opacity: optimistic ? 0.65 : 1,
+                          }}
+                        >
+                          <span
+                            aria-hidden
+                            style={{
+                              width: 9,
+                              height: 9,
+                              flexShrink: 0,
+                              borderRadius: "50%",
+                              background: isSelected ? "var(--accent)" : "transparent",
+                              border: isSelected
+                                ? "none"
+                                : "1.5px solid var(--text-faint)",
+                              boxShadow: isSelected ? "0 0 6px var(--accent-glow)" : "none",
+                            }}
+                          />
+                          <span
+                            style={{
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              flex: 1,
+                            }}
+                          >
+                            {label}
+                          </span>
+                          {optimistic && (
+                            <span style={{ color: "var(--text-faint)", fontSize: 10, flexShrink: 0 }}>
+                              creating…
+                            </span>
+                          )}
+                          <span
+                            aria-hidden
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 3,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {running && (
+                              <span
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: "50%",
+                                  background: "var(--accent)",
+                                  boxShadow: "0 0 6px var(--accent-glow)",
+                                }}
+                              />
+                            )}
+                            {statusDots.map((status, dot) => (
+                              <span
+                                key={`${status}-${dot}`}
+                                style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: "50%",
+                                  background:
+                                    status === "running"
+                                      ? "var(--accent)"
+                                      : TASK_STATUS_META[status].color,
+                                  boxShadow:
+                                    status === "running" ? "0 0 5px var(--accent-glow)" : "none",
+                                }}
+                              />
+                            ))}
+                          </span>
+                        </button>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            className="mc-branch-menu-item"
+                            aria-label={`Delete worktree ${item.name}`}
+                            title={`Delete worktree ${item.name}`}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              closeTypeahead();
+                              onDeleteWorktree?.(item);
+                            }}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: 30,
+                              flexShrink: 0,
+                              border: 0,
+                              borderRadius: 6,
+                              background: "transparent",
+                              color: "var(--text-faint)",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <Icon name="trash" size={11} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {filteredBranches.length > 0 && (
+                    <div style={{ ...sectionLabelStyle, marginTop: 4 }}>Branches</div>
+                  )}
+                </>
+              )}
               {!loadError &&
                 filteredBranches.map((item) => (
                   <button
@@ -425,7 +657,7 @@ export function BranchTypeahead({
                     )}
                   </button>
                 ))}
-              {!loadError && canCreateBranch && (
+              {!loadError && !disabled && canCreateBranch && (
                 <button
                   type="button"
                   role="option"
@@ -455,7 +687,16 @@ export function BranchTypeahead({
                   {checkout.isPending ? "Creating branch…" : `Create "${trimmedQuery}"`}
                 </button>
               )}
-              {!loadError &&
+              {disabled ? (
+                // Opened purely to switch worktrees — branch checkout is off, so
+                // don't dangle a misleading "no branches" line under the list.
+                showWorktreeSection && (
+                  <div style={{ ...sectionLabelStyle, marginTop: 4 }}>
+                    Branch checkout unavailable here
+                  </div>
+                )
+              ) : (
+                !loadError &&
                 !branchesQuery.isLoading &&
                 filteredBranches.length === 0 &&
                 !canCreateBranch && (
@@ -469,7 +710,8 @@ export function BranchTypeahead({
                   >
                     No matching branches.
                   </div>
-                )}
+                )
+              )}
             </div>
             {onCreateWorktree && (
               <div style={{ borderTop: "1px solid var(--border)", padding: 6 }}>
@@ -523,7 +765,7 @@ export function BranchTypeahead({
         <Btn
           variant="ghost"
           icon="git-branch"
-          disabled={disabled || checkout.isPending}
+          disabled={triggerDisabled}
           onClick={toggleOpen}
           aria-haspopup="listbox"
           aria-expanded={open}

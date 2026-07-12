@@ -7,8 +7,10 @@ import {
   CUSTOM_SCRIPTS_MAX,
   TASK_STATUSES,
   isActiveStatus,
+  isTaskStatus,
   normalizeScriptArgs,
 } from "~/shared/domain";
+import { normalizeRepoRemote } from "~/shared/repo-key";
 import type { CustomScript, LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
@@ -22,7 +24,7 @@ import {
   updateProjectRow,
 } from "../repositories/projects.repo";
 import { findWorktreeById } from "../repositories/worktrees.repo";
-import { findAllTasks, findTasksByProjectId } from "../repositories/tasks.repo";
+import { findTasksByProjectId } from "../repositories/tasks.repo";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { reconcileProjectWorktrees } from "./worktrees";
 import { newId } from "./_ids";
@@ -103,24 +105,64 @@ export function getProjectPathStatus(
   return pathStatusFor(project.path, "project", null);
 }
 
-export function detectGithubUrl(dir: string): string | null {
+// readOriginRemoteUrl runs inside decorate() (feeding both githubUrl and the
+// multiplayer-pets repo key), which fires for every project on every
+// listProjects(); /api/projects re-lists on each project:*/task:* SSE event,
+// so a burst of agent activity re-read and re-parsed each .git/config many
+// times a minute. Cache the raw origin url per path, keyed by the config
+// file's mtime so an external remote change still refreshes. The statSync
+// itself is cheap and runs every call — only the read + regex is skipped on a
+// hit. `mtimeMs: -1` records a "no config" result (missing file, or a worktree
+// whose .git is a file) so repeated misses don't churn; it invalidates the
+// moment a real config appears with a genuine mtime.
+type OriginUrlCacheEntry = { mtimeMs: number; url: string | null };
+const originUrlCache = new Map<string, OriginUrlCacheEntry>();
+
+/** Test seam: drop cached origin-url reads so a test can force a re-read. */
+export function _resetGithubUrlCache(): void {
+  originUrlCache.clear();
+}
+
+/** Raw `origin` remote url from a repo's .git/config, or null. Cached by mtime. */
+function readOriginRemoteUrl(dir: string): string | null {
+  const cfg = path.join(dir, ".git", "config");
+  let mtimeMs: number;
   try {
-    const cfg = path.join(dir, ".git", "config");
-    if (!fs.existsSync(cfg)) return null;
-    const text = fs.readFileSync(cfg, "utf8");
-    const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
-    if (!m) return null;
-    let url = m[1].trim();
-    // git@github.com:owner/repo(.git)
-    const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (ssh) return `https://github.com/${ssh[1]}`;
-    // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
-    const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (https) return `https://github.com/${https[1]}`;
-    return null;
+    mtimeMs = fs.statSync(cfg).mtimeMs;
   } catch {
+    // Missing config, or .git is a file (worktree) — matches the pre-cache
+    // behavior of returning null for anything that isn't a readable config.
+    originUrlCache.set(dir, { mtimeMs: -1, url: null });
     return null;
   }
+  const cached = originUrlCache.get(dir);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.url;
+  let url: string | null;
+  try {
+    const text = fs.readFileSync(cfg, "utf8");
+    const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
+    url = m ? m[1].trim() : null;
+  } catch {
+    url = null;
+  }
+  originUrlCache.set(dir, { mtimeMs, url });
+  return url;
+}
+
+/** Normalize a raw origin url to https://github.com/owner/repo, or null. Pure. */
+function githubUrlFromRemote(url: string | null): string | null {
+  if (!url) return null;
+  // git@github.com:owner/repo(.git)
+  const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (ssh) return `https://github.com/${ssh[1]}`;
+  // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
+  const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (https) return `https://github.com/${https[1]}`;
+  return null;
+}
+
+export function detectGithubUrl(dir: string): string | null {
+  return githubUrlFromRemote(readOriginRemoteUrl(dir));
 }
 
 export function detectBranch(dir: string): string {
@@ -135,13 +177,82 @@ export function detectBranch(dir: string): string {
   }
 }
 
+function emptyStatusCounts(): Record<TaskStatus, number> {
+  return TASK_STATUSES.reduce(
+    (acc, s) => {
+      acc[s] = 0;
+      return acc;
+    },
+    {} as Record<TaskStatus, number>,
+  );
+}
+
 export function listProjects(): ProjectWithCounts[] {
   const rows = findAllProjects();
   // Sessions on externally-deleted worktrees cascade away with their rows, so
   // taskCounts (the pinned-icon status dots) only report reachable sessions.
+  // Runs before the aggregate queries below so cascaded deletions are reflected.
   for (const p of rows) reconcileProjectWorktrees(p);
-  const allTasks = findAllTasks();
-  return rows.map((p) => decorate(p, allTasks.filter((t) => t.projectId === p.id)));
+
+  // Aggregate non-archived task counts per (project, status) in SQLite instead
+  // of loading every task row and filtering it per project in JS (was O(P×T)).
+  type Agg = { counts: Record<TaskStatus, number>; total: number; activeNonDone: number };
+  const aggByProject = new Map<string, Agg>();
+  const statusCountRows = getSqlite()
+    .prepare(
+      `SELECT project_id AS projectId, status, COUNT(*) AS c
+         FROM tasks
+        WHERE archived = 0
+        GROUP BY project_id, status`,
+    )
+    .all() as { projectId: string; status: string; c: number }[];
+  for (const r of statusCountRows) {
+    let agg = aggByProject.get(r.projectId);
+    if (!agg) {
+      agg = { counts: emptyStatusCounts(), total: 0, activeNonDone: 0 };
+      aggByProject.set(r.projectId, agg);
+    }
+    agg.total += r.c;
+    if (isTaskStatus(r.status)) {
+      agg.counts[r.status] = r.c;
+      if (isActiveStatus(r.status) && r.status !== "finished") agg.activeNonDone += r.c;
+    }
+  }
+
+  // Preview text mirrors decorate()'s `active.find(running) ?? active.find(needs-input)`
+  // over the rowid-ordered task scan: the earliest-inserted running task wins,
+  // else the earliest needs-input task. Only active session rows qualify — a
+  // tiny set — so this narrow query stays cheap.
+  const runningPreview = new Map<string, string>();
+  const needsInputPreview = new Map<string, string>();
+  const previewRows = getSqlite()
+    .prepare(
+      `SELECT project_id AS projectId, status, preview
+         FROM tasks
+        WHERE archived = 0 AND status IN ('running', 'needs-input')
+        ORDER BY rowid`,
+    )
+    .all() as { projectId: string; status: string; preview: string }[];
+  for (const r of previewRows) {
+    const target = r.status === "running" ? runningPreview : needsInputPreview;
+    if (!target.has(r.projectId)) target.set(r.projectId, r.preview);
+  }
+
+  return rows.map((p) => {
+    const agg = aggByProject.get(p.id);
+    const counts = agg?.counts ?? emptyStatusCounts();
+    const preview = runningPreview.get(p.id) ?? needsInputPreview.get(p.id) ?? null;
+    // Same origin read as decorate() — multiplayer pets needs repoKey on the
+    // list endpoint (usePetMultiplayer reads projects from useProjects()).
+    const originRemote = readOriginRemoteUrl(p.path);
+    return {
+      ...p,
+      taskCounts: { ...counts, total: agg?.total ?? 0, activeNonDone: agg?.activeNonDone ?? 0 },
+      preview,
+      githubUrl: githubUrlFromRemote(originRemote),
+      repoKey: normalizeRepoRemote(originRemote),
+    };
+  });
 }
 
 export function getProject(id: string): ProjectWithCounts | null {
@@ -167,11 +278,15 @@ function decorate(p: Project, ts: Task[]): ProjectWithCounts {
   }
   const previewSource =
     active.find((t) => t.status === "running") ?? active.find((t) => t.status === "needs-input");
+  // Read .git/config once and derive both the GitHub url and the (any-host)
+  // repo key from it, rather than reading + parsing the file twice per project.
+  const originRemote = readOriginRemoteUrl(p.path);
   return {
     ...p,
     taskCounts: { ...counts, total: active.length, activeNonDone },
     preview: previewSource?.preview ?? null,
-    githubUrl: detectGithubUrl(p.path),
+    githubUrl: githubUrlFromRemote(originRemote),
+    repoKey: normalizeRepoRemote(originRemote),
   };
 }
 

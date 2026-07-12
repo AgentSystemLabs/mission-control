@@ -1,15 +1,26 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { z } from "zod";
-import { SETTINGS_PANEL_IDS } from "~/components/views/SettingsPanel";
+import {
+  SETTINGS_PANEL_IDS,
+  type SettingsPanelId,
+} from "~/components/views/settings-panel-ids";
 import { OPEN_SETTINGS_EVENT, type OpenSettingsEventDetail } from "~/lib/design-meta";
 
-const settingsSearchSchema = z.object({
-  panel: z.enum(SETTINGS_PANEL_IDS).optional(),
-});
+// Hand-rolled to keep zod out of the eager entry chunk: this route's
+// validateSearch was the only client-side zod import, and pulling the library in
+// for a single optional enum cost ~40 KB raw in the entry bundle.
+function validateSettingsSearch(
+  search: Record<string, unknown>,
+): { panel?: SettingsPanelId } {
+  const panel = search.panel;
+  return typeof panel === "string" &&
+    (SETTINGS_PANEL_IDS as readonly string[]).includes(panel)
+    ? { panel: panel as SettingsPanelId }
+    : {};
+}
 
 export const Route = createFileRoute("/settings")({
-  validateSearch: settingsSearchSchema,
+  validateSearch: validateSettingsSearch,
   component: SettingsRoutePage,
 });
 

@@ -107,6 +107,53 @@ describe("git fetch and pull", () => {
     expect(fs.readFileSync(path.join(local, "README.md"), "utf8")).toBe("two\n");
   });
 
+  it("counts commits behind the upstream, but only after a fetch, and clears after pull", async () => {
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), "mc-bare-behind-"));
+    const remoteWork = fs.mkdtempSync(path.join(os.tmpdir(), "mc-remote-behind-"));
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), "mc-local-behind-"));
+    tempDirs.push(bare, remoteWork, local);
+
+    git(bare, ["init", "--bare", "--initial-branch=main"]);
+    git(remoteWork, ["clone", bare, "."]);
+    writeCommit(remoteWork, "README.md", "one\n", "initial");
+    git(remoteWork, ["push", "-u", "origin", "main"]);
+
+    git(local, ["clone", bare, "."]);
+    const project = createProject({ name: "behind", path: local });
+
+    // A fresh clone is level with its upstream.
+    await expect(getGitStatus(project.id)).resolves.toMatchObject({ behindCount: 0 });
+
+    // Advance the remote by two commits the local clone doesn't have yet.
+    writeCommit(remoteWork, "README.md", "two\n", "remote update 1");
+    writeCommit(remoteWork, "README.md", "three\n", "remote update 2");
+    git(remoteWork, ["push", "origin", "main"]);
+
+    // Without a fetch the local tracking ref is stale — behindCount can't see
+    // the new commits yet. This is exactly why the app runs a background fetch.
+    await expect(getGitStatus(project.id)).resolves.toMatchObject({ behindCount: 0 });
+
+    // After a fetch the tracking ref advances and behindCount reflects it.
+    await expect(fetchRemote(project.id)).resolves.toMatchObject({ kind: "fetched" });
+    await expect(getGitStatus(project.id)).resolves.toMatchObject({ behindCount: 2 });
+
+    // Pulling brings the commits in and clears the behind count.
+    await expect(pull(project.id)).resolves.toMatchObject({ kind: "pulled" });
+    await expect(getGitStatus(project.id)).resolves.toMatchObject({ behindCount: 0 });
+  });
+
+  it("reports behindCount null when the branch has no upstream (no origin/main fallback)", async () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), "mc-local-noup-"));
+    tempDirs.push(local);
+    git(local, ["init", "--initial-branch=main"]);
+    writeCommit(local, "a.txt", "a\n", "local only");
+    const project = createProject({ name: "no-upstream", path: local });
+
+    // No tracking ref → strictly null, so a feature branch is never falsely
+    // reported "behind" just because some other ref moved.
+    await expect(getGitStatus(project.id)).resolves.toMatchObject({ behindCount: null });
+  });
+
   it("reports already-up-to-date when there is nothing to pull", async () => {
     const bare = fs.mkdtempSync(path.join(os.tmpdir(), "mc-bare-up-"));
     const local = fs.mkdtempSync(path.join(os.tmpdir(), "mc-local-up-"));

@@ -15,14 +15,16 @@ import {
   DIFF_MAX_BYTES,
   DIFF_MAX_LINES,
   parsePorcelainZ,
+  parseGitBranchHeader,
   classifyDiffPatch,
   buildAdditionsDiff,
   bufferLooksBinary,
   changedFileCount,
 } from "~/shared/git-status";
 
-// parsePorcelainZ is re-exported so existing importers (git.test.ts) keep working.
-export { parsePorcelainZ };
+// parsePorcelainZ / parseGitBranchHeader are re-exported so existing importers
+// (git.test.ts) keep working.
+export { parsePorcelainZ, parseGitBranchHeader };
 
 const GIT_TIMEOUT_MS = 15_000;
 const PUSH_TIMEOUT_MS = 30_000;
@@ -153,9 +155,26 @@ async function gitOk(cwd: string, args: string[], timeoutMs?: number): Promise<s
   return r.stdout;
 }
 
+// A directory doesn't stop being a work tree mid-session, so cache the positive
+// `rev-parse --is-inside-work-tree` result per cwd for the process lifetime —
+// this drops one spawn from every getGitStatus poll (and every branch/pull op)
+// after the first. Only successes are cached; a later git failure on the same
+// cwd invalidates it (see invalidateWorkTreeCache) so a repo that genuinely
+// went away is re-checked.
+const workTreeCache = new Map<string, boolean>();
+
+function invalidateWorkTreeCache(cwd: string): void {
+  workTreeCache.delete(cwd);
+}
+
 async function assertGitRepository(cwd: string): Promise<void> {
+  if (workTreeCache.get(cwd)) return;
   const r = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
-  if (r.code === 0 && r.stdout.trim() === "true") return;
+  if (r.code === 0 && r.stdout.trim() === "true") {
+    workTreeCache.set(cwd, true);
+    return;
+  }
+  workTreeCache.delete(cwd);
   throw new GitError(
     "Project folder is not a Git repository.",
     r.stderr.trim() || "Run git init in this folder to enable branches and worktrees.",
@@ -176,23 +195,48 @@ async function currentBranchName(cwd: string): Promise<string> {
 export async function getGitStatus(projectId: string, worktreeId?: string | null): Promise<GitStatus> {
   const cwd = projectCwd(projectId, worktreeId);
   await assertGitRepository(cwd);
-  const [statusOut, branchOut, aheadCount] = await Promise.all([
-    gitOk(cwd, ["status", "--porcelain=v1", "-uall", "-z"]),
-    currentBranchName(cwd),
-    countAhead(cwd),
-  ]);
-  const { staged, unstaged } = parsePorcelainZ(statusOut);
+  // `-b` prepends a `## <branch>...<upstream> [ahead N, behind M]` header to the
+  // same porcelain output, so one spawn yields the branch name AND the
+  // ahead/behind counts against the upstream — replacing the old symbolic-ref +
+  // two rev-list spawns. In `-z` mode the header is the first NUL-terminated
+  // token; the file entries follow and still feed parsePorcelainZ unchanged.
+  let statusOut: string;
+  try {
+    statusOut = await gitOk(cwd, ["status", "--porcelain=v1", "-b", "-z", "-uall"]);
+  } catch (e) {
+    // The dir may have stopped being a work tree (e.g. .git removed); drop the
+    // cached positive so the next call re-checks.
+    invalidateWorkTreeCache(cwd);
+    throw e;
+  }
+  const nul = statusOut.indexOf("\0");
+  const headerLine = nul >= 0 ? statusOut.slice(0, nul) : statusOut;
+  const entriesOut = nul >= 0 ? statusOut.slice(nul + 1) : "";
+  const header = parseGitBranchHeader(headerLine);
+  const { staged, unstaged } = parsePorcelainZ(entriesOut);
+  // With an upstream the header already carries both counts. Without one, the
+  // header omits them: preserve the old fallback — ahead against origin/main →
+  // main (one extra spawn, only in the no-upstream case), behind stays null (no
+  // tracking ref to measure against, exactly as before).
+  const aheadCount = header.hasUpstream ? header.ahead : await countAhead(cwd);
+  const behindCount = header.hasUpstream ? header.behind : null;
   return {
-    branch: branchOut || "HEAD",
+    branch: header.branch || "HEAD",
     staged,
     unstaged,
     changedCount: changedFileCount(staged, unstaged),
     aheadCount,
+    behindCount,
   };
 }
 
+// No-upstream fallback for the ahead count: the branch header supplies ahead/
+// behind whenever an upstream exists, so this only runs when it doesn't — and
+// `@{u}` would necessarily fail there. Mirror the old fallback order
+// (origin/main → main) so a fresh feature branch still reports commits ahead of
+// the default branch.
 async function countAhead(cwd: string): Promise<number | null> {
-  for (const target of ["@{u}", "origin/main", "main"]) {
+  for (const target of ["origin/main", "main"]) {
     const r = await runGit(cwd, ["rev-list", "--count", `${target}..HEAD`]);
     if (r.code === 0) {
       const n = parseInt(r.stdout.trim(), 10);
@@ -558,14 +602,6 @@ function runGh(
     onTimeout: () => new GitError(`gh ${args[0]} timed out`),
     enoentCode: 127,
   });
-}
-
-async function ghOk(cwd: string, args: string[], timeoutMs?: number): Promise<string> {
-  const r = await runGh(cwd, args, { timeoutMs });
-  if (r.code !== 0) {
-    throw new GitError(`gh ${args[0]} failed`, r.stderr.trim() || `exit ${r.code}`);
-  }
-  return r.stdout;
 }
 
 function parseGhUrl(stdout: string): string | null {

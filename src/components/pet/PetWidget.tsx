@@ -20,7 +20,7 @@ import {
   type PetMood,
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
-import { useUserTerminals } from "~/lib/user-terminal-store";
+import { useDockLift } from "~/lib/pet/use-dock-lift";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { DEFAULT_PET_SPECIES, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
@@ -87,6 +87,9 @@ const MOOD_DESCRIPTION: Record<PetMood, string> = {
  */
 export function PetWidget() {
   const pet = usePetSnapshot();
+  const homeSide = pet.homeSide;
+  // wander.x is px away from home; translate toward the opposite edge.
+  const awaySign = homeSide === "right" ? -1 : 1;
   const router = useRouter();
   const queryClient = useQueryClient();
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -126,43 +129,11 @@ export function PetWidget() {
   // doesn't animate (the stage offset and the walker offset cancel exactly).
   const [instantJump, setInstantJump] = useState(false);
 
-  // The pet perches on the bottom terminal dock instead of covering it: track
-  // how far the dock's top edge rises above the viewport bottom and lift the
-  // whole widget by that much. A ResizeObserver follows the dock's slide
-  // open/close and drag-resizes; the store scope re-arms the observer when the
-  // dock mounts/unmounts on project switches (it renders only on project/home
-  // scopes). The widget's own `bottom` transition turns those retargets into
-  // the fly-up / fall motion.
-  const { project: dockProject, homeActive } = useUserTerminals();
-  const dockActive = !!dockProject || homeActive;
-  const [dockLift, setDockLift] = useState(0);
-  useEffect(() => {
-    if (!pet.enabled) return;
-    const measure = () => {
-      const dock = document.querySelector("[data-user-terminal-panel]");
-      const rect = dock?.getBoundingClientRect();
-      // A hidden or collapsing dock reports a zero-size rect whose top is 0 —
-      // trusting it would set the lift to the full window height and slam the
-      // pet to the very top of the screen. No box, no perch.
-      setDockLift(
-        rect && rect.height > 0 && rect.width > 0
-          ? Math.max(0, window.innerHeight - rect.top)
-          : 0,
-      );
-    };
-    measure();
-    let observer: ResizeObserver | null = null;
-    const dock = document.querySelector("[data-user-terminal-panel]");
-    if (dock && typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(measure);
-      observer.observe(dock);
-    }
-    window.addEventListener("resize", measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [pet.enabled, dockActive]);
+  // The pet perches on the bottom terminal dock instead of covering it: lift
+  // the whole widget by how far the dock's top edge rises above the viewport
+  // bottom. The widget's own `bottom` transition turns those retargets into the
+  // fly-up / fall motion. Shared with the remote pets so both perch alike.
+  const dockLift = useDockLift(pet.enabled);
 
   // Pupils follow the cursor when it comes near — the pet sees you coming.
   // Imperative CSS vars on the stage (no re-render); the sprite reads them
@@ -303,7 +274,11 @@ export function PetWidget() {
       if (walker) {
         const transform = getComputedStyle(walker).transform;
         if (transform && transform !== "none") {
-          origin.wanderX = Math.max(0, Math.round(-new DOMMatrixReadOnly(transform).m41));
+          // transform m41 = awaySign * wander.x → recover wander.x.
+          origin.wanderX = Math.max(
+            0,
+            Math.round(awaySign * new DOMMatrixReadOnly(transform).m41),
+          );
         }
       }
       petGrabbed(origin.wanderX);
@@ -342,11 +317,11 @@ export function PetWidget() {
     dragOrigin.current = null;
     if (!origin.active) return false;
     if (origin.raf) cancelAnimationFrame(origin.raf);
-    // wander.x counts px left of home, so dragging right (dx > 0) reduces it.
-    // Use the clamped offset — it's where the pet visually is.
+    // wander.x counts px away from home. Dragging toward the opposite edge
+    // (dx with the same sign as awaySign) increases it.
     const landing = Math.max(
       0,
-      Math.min(window.innerWidth - 140, Math.round(origin.wanderX - origin.dx)),
+      Math.min(window.innerWidth - 140, Math.round(origin.wanderX + awaySign * origin.dx)),
     );
     const stage = stageRef.current;
     const finish = () => {
@@ -426,12 +401,13 @@ export function PetWidget() {
 
   return (
     // A click-through strip along the bottom edge; the pet wanders inside it
-    // (translateX left of its home corner) and only the pet itself is clickable.
+    // (translateX away from its home corner) and only the pet itself is clickable.
     <div
       className="mc-pet-widget"
+      data-home-side={homeSide}
       style={{
         position: "fixed",
-        right: 18,
+        ...(homeSide === "right" ? { right: 18 } : { left: 18 }),
         bottom:
           dockLift > 0
             ? dockLift - SIZE_PX[pet.size] * SPRITE_BOTTOM_WHITESPACE
@@ -450,13 +426,13 @@ export function PetWidget() {
         data-walking={pet.wander.walking || undefined}
         style={{
           position: "absolute",
-          right: 0,
+          ...(homeSide === "right" ? { right: 0 } : { left: 0 }),
           bottom: 0,
           display: "flex",
           flexDirection: "column",
-          alignItems: "flex-end",
+          alignItems: homeSide === "right" ? "flex-end" : "flex-start",
           gap: 6,
-          transform: `translateX(${-pet.wander.x}px)`,
+          transform: `translateX(${awaySign * pet.wander.x}px)`,
           transition: instantJump
             ? "none"
             : pet.wander.durationMs

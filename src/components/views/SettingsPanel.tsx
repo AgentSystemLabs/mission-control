@@ -5,10 +5,12 @@ import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { CLOSE_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useHotkey } from "~/lib/use-hotkey";
+import { Z_INDEX } from "~/lib/z-index";
 import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
+import { PetSettingsPage } from "./PetSettingsPage";
 import { ProvidersSettingsPage } from "./ProvidersSettingsPage";
 import { RecallSettingsPage } from "./RecallSettings";
 import { SessionButtonsSettingsPage } from "./SessionButtonsSettingsPage";
@@ -18,25 +20,12 @@ import { TermsSettingsPage } from "./TermsSettingsPage";
 import { UsageSettingsPage } from "./UsageSettingsPage";
 import { VoiceCommandsPage } from "./VoiceCommandsPage";
 
-// Single source of truth for settings panel ids. The union type and the
-// settings route's zod enum both derive from this, and __root's OPEN_SETTINGS
-// allow-list imports it — so the three can't drift apart.
-export const SETTINGS_PANEL_IDS = [
-  "general",
-  "defaults",
-  "providers",
-  "usage",
-  "terminal",
-  "session",
-  "theme",
-  "voice",
-  "recall",
-  "beta",
-  "keybindings",
-  "terms",
-] as const;
-
-export type SettingsPanelId = (typeof SETTINGS_PANEL_IDS)[number];
+// Single source of truth for settings panel ids lives in ./settings-panel-ids
+// (a dependency-free module) so eager importers don't pin this whole panel into
+// the entry chunk. Re-exported here for existing call sites.
+export { SETTINGS_PANEL_IDS } from "./settings-panel-ids";
+export type { SettingsPanelId } from "./settings-panel-ids";
+import { SETTINGS_PANEL_IDS, type SettingsPanelId } from "./settings-panel-ids";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
 function normalizeStoredPanel(stored: string | null, fallback: SettingsPanelId): SettingsPanelId {
@@ -107,6 +96,7 @@ export function SettingsPanel({
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "session", label: "Session buttons", icon: "eye" },
     { id: "theme", label: "Theme", icon: "sun" },
+    { id: "pet", label: "Pet", icon: "sparkles" },
     { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
@@ -121,7 +111,7 @@ export function SettingsPanel({
         left: "var(--mc-workspace-left, 0px)",
         right: "var(--mc-workspace-right, 0px)",
         bottom: "var(--mc-workspace-bottom, 0px)",
-        zIndex: 200,
+        zIndex: Z_INDEX.settings,
         overflow: "hidden",
         background: "transparent",
       }}
@@ -350,6 +340,8 @@ export function SettingsPanel({
             <SessionButtonsSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
+          ) : activePanel === "pet" ? (
+            <PetSettingsPage />
           ) : activePanel === "voice" ? (
             <VoiceCommandsPage />
           ) : activePanel === "recall" ? (

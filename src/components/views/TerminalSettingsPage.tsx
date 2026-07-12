@@ -6,6 +6,7 @@ import { queryKeys, useSettings } from "~/queries";
 import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import { TERMINAL_FONT_FAMILY } from "~/lib/terminal-options";
 import { terminalFontStack } from "~/lib/terminal-appearance";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   BUNDLED_TERMINAL_FONTS,
   SYSTEM_MONO_FONT_CANDIDATES,
@@ -34,6 +35,7 @@ import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SURFACE_TINT } from "~/shared/surface-tint";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
+import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
 
 type AppearancePatch = Partial<
   Pick<
@@ -169,6 +171,7 @@ export function TerminalSettingsPage() {
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     batterySaverEnabled: settings?.batterySaverEnabled ?? true,
+    spellcheckEnabled: settings?.spellcheckEnabled ?? true,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
@@ -200,6 +203,9 @@ export function TerminalSettingsPage() {
     shipAgent: settings?.shipAgent ?? "claude-code",
     shipModel: settings?.shipModel ?? null,
     shipPrompt: settings?.shipPrompt ?? DEFAULT_SHIP_PROMPT,
+    syncAgent: settings?.syncAgent ?? "claude-code",
+    syncModel: settings?.syncModel ?? null,
+    syncPrompt: settings?.syncPrompt ?? DEFAULT_SYNC_PROMPT,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,
@@ -222,6 +228,8 @@ export function TerminalSettingsPage() {
     petEnabled: settings?.petEnabled ?? true,
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
+    petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,

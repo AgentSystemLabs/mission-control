@@ -12,7 +12,11 @@ export async function fetchGitStatus(
   sandboxRepoPath?: string,
 ): Promise<GitStatus> {
   if (sandboxRepoPath && window.electronAPI && (await isSandboxRuntimeActive())) {
-    return window.electronAPI.remoteGit.status(sandboxRepoPath);
+    const status = await window.electronAPI.remoteGit.status(sandboxRepoPath);
+    // The sandbox agent's git RPC predates behindCount and doesn't compute it,
+    // so the wire object is missing the field its GitStatus type claims. Backfill
+    // null so the type matches runtime reality (Sync is local-only regardless).
+    return { ...status, behindCount: status.behindCount ?? null };
   }
   return api.getGitStatus(projectId, worktreeId);
 }

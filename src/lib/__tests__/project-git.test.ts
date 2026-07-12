@@ -48,12 +48,14 @@ describe("fetchGitStatus routing", () => {
     expect(remoteGit.status).not.toHaveBeenCalled();
   });
 
-  it("uses remoteGit under docker runtime + sandboxRepoPath", async () => {
+  it("uses remoteGit under docker runtime + sandboxRepoPath, backfilling behindCount", async () => {
+    // The sandbox agent's git RPC doesn't compute behindCount; the router
+    // normalizes the missing field to null so the GitStatus type matches runtime.
     const remoteGit = { status: vi.fn().mockResolvedValue({ branch: "sbx" }) };
     stub("docker", remoteGit);
     const r = await fetchGitStatus("p1", null, "/workspace/acme");
     expect(remoteGit.status).toHaveBeenCalledWith("/workspace/acme");
-    expect(r).toEqual({ branch: "sbx" });
+    expect(r).toEqual({ branch: "sbx", behindCount: null });
     expect(api.getGitStatus).not.toHaveBeenCalled();
   });
 

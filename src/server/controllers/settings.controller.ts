@@ -86,8 +86,16 @@ import {
 } from "~/shared/session-header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
-import { mergePetStateWrite, normalizePetState } from "~/shared/pet";
+import {
+  DEFAULT_PET_HOME_SIDE,
+  isPetHomeSide,
+  mergePetStateWrite,
+  normalizePetState,
+  PET_HOME_SIDE_IDS,
+  type PetHomeSide,
+} from "~/shared/pet";
 import { HTTP_BAD_REQUEST } from "~/shared/http-status";
+import { DEFAULT_SYNC_PROMPT, normalizeSyncPrompt } from "~/shared/sync-defaults";
 import { json, jsonError, parseJsonBody } from "./_helpers";
 
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
@@ -98,6 +106,9 @@ const ANNOTATION_MODEL_SETTING_KEY = "annotation_model";
 const SHIP_AGENT_SETTING_KEY = "ship_agent";
 const SHIP_MODEL_SETTING_KEY = "ship_model";
 const SHIP_PROMPT_SETTING_KEY = "ship_prompt";
+const SYNC_AGENT_SETTING_KEY = "sync_agent";
+const SYNC_MODEL_SETTING_KEY = "sync_model";
+const SYNC_PROMPT_SETTING_KEY = "sync_prompt";
 const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
@@ -117,6 +128,8 @@ const AGENT_LAUNCHER_CONFIG_KEY = "agent_launcher_config";
 const PET_ENABLED_KEY = "pet_enabled";
 const PET_MESSAGES_ENABLED_KEY = "pet_messages_enabled";
 const PET_SOUNDS_ENABLED_KEY = "pet_sounds_enabled";
+const PET_MULTIPLAYER_ENABLED_KEY = "pet_multiplayer_enabled";
+const PET_HOME_SIDE_KEY = "pet_home_side";
 const PET_STATE_KEY = "pet_state";
 const TERMINAL_FONT_FAMILY_KEY = "terminal_font_family";
 const TERMINAL_FONT_WEIGHT_KEY = "terminal_font_weight";
@@ -165,6 +178,7 @@ const updateSettingsBody = z
     surfaceTint: z.string().refine(isSurfaceTint, { message: "invalid surfaceTint" }),
     mouseGradientDisabled: z.boolean(),
     batterySaverEnabled: z.boolean(),
+    spellcheckEnabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
     notificationSoundEnabled: z.boolean(),
@@ -234,6 +248,9 @@ const updateSettingsBody = z
     shipAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     shipModel: aiModelBody,
     shipPrompt: z.string().transform((value) => normalizeShipPrompt(value)),
+    syncAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    syncModel: aiModelBody,
+    syncPrompt: z.string().transform((value) => normalizeSyncPrompt(value)),
     voiceCommandAliases: voiceCommandAliasesBody,
     claudeUsageLimitsEnabled: z.boolean(),
     claudeUsageLimitsShowSession: z.boolean(),
@@ -256,6 +273,8 @@ const updateSettingsBody = z
     petEnabled: z.boolean(),
     petMessagesEnabled: z.boolean(),
     petSoundsEnabled: z.boolean(),
+    petMultiplayerEnabled: z.boolean(),
+    petHomeSide: z.enum(PET_HOME_SIDE_IDS),
     // Raw on purpose: update() distinguishes an explicit null (reset the pet)
     // from a payload that fails normalization (rejected — a malformed write
     // must never erase the stored pet).
@@ -320,6 +339,21 @@ function getShipModelSetting(): AiModelId | null {
 function getShipPromptSetting(): string {
   const value = getSetting(SHIP_PROMPT_SETTING_KEY);
   return value === null ? DEFAULT_SHIP_PROMPT : normalizeShipPrompt(value);
+}
+
+function getSyncAgentSetting(): AiRuntimeHarness {
+  const value = getSetting(SYNC_AGENT_SETTING_KEY);
+  return isAiRuntimeHarness(value) ? value : "claude-code";
+}
+
+function getSyncModelSetting(): AiModelId | null {
+  const value = getSetting(SYNC_MODEL_SETTING_KEY);
+  return normalizeAiModelId(value);
+}
+
+function getSyncPromptSetting(): string {
+  const value = getSetting(SYNC_PROMPT_SETTING_KEY);
+  return value === null ? DEFAULT_SYNC_PROMPT : normalizeSyncPrompt(value);
 }
 
 function getGitDiffChangedFilesViewSetting() {
@@ -422,6 +456,9 @@ function settingsPayload() {
     // On battery, the renderer freezes decorative animations and slows idle
     // polls (see src/lib/power-save.ts). Default on.
     batterySaverEnabled: getBooleanSetting("battery_saver_enabled", true),
+    // Default on: turning spellcheck off frees the Electron spellchecker's
+    // dictionary + suggestion memory (~15-20 MB) while composing.
+    spellcheckEnabled: getBooleanSetting("spellcheck_enabled", true),
     sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
       "session_finish_os_notification_enabled",
@@ -462,6 +499,9 @@ function settingsPayload() {
     shipAgent: getShipAgentSetting(),
     shipModel: getShipModelSetting(),
     shipPrompt: getShipPromptSetting(),
+    syncAgent: getSyncAgentSetting(),
+    syncModel: getSyncModelSetting(),
+    syncPrompt: getSyncPromptSetting(),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
     // Off by default: usage reaches out to provider APIs using local logins.
     claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
@@ -475,9 +515,16 @@ function settingsPayload() {
     petEnabled: getBooleanSetting(PET_ENABLED_KEY, true),
     petMessagesEnabled: getBooleanSetting(PET_MESSAGES_ENABLED_KEY, true),
     petSoundsEnabled: getBooleanSetting(PET_SOUNDS_ENABLED_KEY, false),
+    petMultiplayerEnabled: getBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, false),
+    petHomeSide: getPetHomeSideSetting(),
     petState: normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null)),
     ...recallSettingsPayload(),
   };
+}
+
+function getPetHomeSideSetting(): PetHomeSide {
+  const value = getSetting(PET_HOME_SIDE_KEY);
+  return isPetHomeSide(value) ? value : DEFAULT_PET_HOME_SIDE;
 }
 
 function getProviderUsageEnabledSetting(): boolean {
@@ -550,6 +597,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.batterySaverEnabled !== undefined) {
     setBooleanSetting("battery_saver_enabled", body.batterySaverEnabled);
+  }
+  if (body.spellcheckEnabled !== undefined) {
+    setBooleanSetting("spellcheck_enabled", body.spellcheckEnabled);
   }
   if (body.sessionFinishToastEnabled !== undefined) {
     setBooleanSetting("session_finish_toast_enabled", body.sessionFinishToastEnabled);
@@ -691,6 +741,19 @@ export async function update(request: Request): Promise<Response> {
   if (body.shipPrompt !== undefined) {
     setSetting(SHIP_PROMPT_SETTING_KEY, body.shipPrompt);
   }
+  if (body.syncAgent !== undefined) {
+    setSetting(SYNC_AGENT_SETTING_KEY, body.syncAgent);
+  }
+  if (body.syncModel !== undefined) {
+    if (body.syncModel === null) {
+      deleteSetting(SYNC_MODEL_SETTING_KEY);
+    } else {
+      setSetting(SYNC_MODEL_SETTING_KEY, body.syncModel);
+    }
+  }
+  if (body.syncPrompt !== undefined) {
+    setSetting(SYNC_PROMPT_SETTING_KEY, body.syncPrompt);
+  }
   if (body.voiceCommandAliases !== undefined) {
     setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));
   }
@@ -727,6 +790,12 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.petSoundsEnabled !== undefined) {
     setBooleanSetting(PET_SOUNDS_ENABLED_KEY, body.petSoundsEnabled);
+  }
+  if (body.petMultiplayerEnabled !== undefined) {
+    setBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, body.petMultiplayerEnabled);
+  }
+  if (body.petHomeSide !== undefined) {
+    setSetting(PET_HOME_SIDE_KEY, body.petHomeSide);
   }
   if (body.petState !== undefined) {
     if (body.petState === null) {

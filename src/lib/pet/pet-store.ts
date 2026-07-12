@@ -5,6 +5,7 @@ import {
   bumpProjectXp,
   createDefaultPetState,
   createEmptyWeeklyStats,
+  DEFAULT_PET_HOME_SIDE,
   DEFAULT_PET_SIZE,
   DEFAULT_PET_SPECIES,
   effectivePersonality,
@@ -15,6 +16,7 @@ import {
   PET_EVOLUTION_LEVELS,
   PET_MAX_LEVEL,
   startOfWeek,
+  type PetHomeSide,
   type PetLifetimeStats,
   type PetPersistentState,
   type PetPersonality,
@@ -57,7 +59,7 @@ export type PetMood =
 
 export type PetBubble = { id: number; text: string; priority: PetMessagePriority };
 
-/** Idle wandering along the bottom strip; x is px left of the home corner. */
+/** Idle wandering along the bottom strip; x is px away from the home corner. */
 export type PetWander = {
   x: number;
   walking: boolean;
@@ -153,6 +155,8 @@ export type PetSnapshot = {
   flourish: PetFlourish | null;
   /** The stats card (right-click or "stats" command) is showing. */
   statsOpen: boolean;
+  /** Bottom corner the pet homes in. */
+  homeSide: PetHomeSide;
 };
 
 export type PetInputs = {
@@ -164,6 +168,8 @@ export type PetInputs = {
   lastKeyAt: number;
   lastActivityAt: number;
   hiddenSince: number | null;
+  /** A commanded nap ("Pixel, sleep") holds until this passes — see PET_NAP_MS. */
+  napUntil: number;
 };
 
 export const MOOD_DEBOUNCE_MS = 1_200;
@@ -172,6 +178,13 @@ const IDLE_AFTER_MS = 5 * 60_000;
 const HIDDEN_SLEEP_AFTER_MS = 60_000;
 const CELEBRATE_MS = 5_000;
 const STARTLE_MS = 3_000;
+/**
+ * How long a commanded nap ("Pixel, sleep") lasts. Long enough to be a real
+ * state — the agent answering and the session finishing must not wake it
+ * (that churn is exactly what the command escapes) — short enough that the
+ * pet is back on duty without being poked.
+ */
+export const PET_NAP_MS = 90_000;
 const LONG_RUN_MS = 20 * 60_000;
 const PETTING_XP_COOLDOWN_MS = 60_000;
 const CLOCK_TICK_MS = 30_000;
@@ -181,7 +194,7 @@ const DIZZY_WINDOW_MS = 2_500;
 /** Hold-to-pet murmurs on this throttle, not on every 600ms stroke tick. */
 const STROKE_CHIRP_MS = 1_500;
 
-/** How far left of its home corner the pet may wander, in px. */
+/** How far from its home corner the pet may wander, in px. */
 export const PET_WANDER_RANGE_PX = 300;
 const WALK_SPEED_PX_PER_S = 45;
 const HOME_SPEED_PX_PER_S = 120;
@@ -207,6 +220,19 @@ const XP_PR_CREATED = 15;
 const XP_MEMORY_LEARNED = 3;
 const XP_PETTING = 1;
 
+/**
+ * XP awards per event, grouped for the settings guide so its numbers can
+ * never drift from what the store actually grants.
+ */
+export const PET_XP_AWARDS = {
+  sessionFinished: XP_SESSION_FINISHED,
+  sessionFinishedLong: XP_SESSION_FINISHED_LONG,
+  shipSuccess: XP_SHIP_SUCCESS,
+  prCreated: XP_PR_CREATED,
+  memoryLearned: XP_MEMORY_LEARNED,
+  petting: XP_PETTING,
+} as const;
+
 /** Cached uncommitted-file count that earns the evening nudge. */
 const UNCOMMITTED_NUDGE_THRESHOLD = 10;
 /** How long a tossed pet sits dazed where it landed before trotting home. */
@@ -230,6 +256,11 @@ export function resolvePetMood(
   const intensity: 1 | 2 | 3 = inputs.runningCount >= 4 ? 3 : inputs.runningCount >= 2 ? 2 : 1;
   if (inputs.needsInputCount > 0) return { mood: "alert", intensity };
   if (now < inputs.startleUntil) return { mood: "startled", intensity };
+  // A commanded nap outranks the work chatter below it: without this the
+  // response to the very prompt that ordered the nap (running → finished →
+  // celebrating) would wake the pet within a second. Only a blocked session
+  // or a startle interrupts.
+  if (now < inputs.napUntil) return { mood: "sleeping", intensity };
   if (inputs.shippingActive) return { mood: "shipping", intensity };
   if (now < inputs.celebrateUntil) return { mood: "celebrating", intensity };
   if (inputs.runningCount > 0) return { mood: "working", intensity };
@@ -266,10 +297,16 @@ const { subscribe: subscribePersistenceListeners, notify: notifyPersistence } =
 let enabled = false;
 let messagesEnabled = true;
 let soundsEnabled = false;
+let homeSide: PetHomeSide = DEFAULT_PET_HOME_SIDE;
 let hydrated = false;
 // True when this boot rolled a brand-new pet — the greeting becomes a hatch.
 let freshlyHatched = false;
 let persistent: PetPersistentState | null = null;
+
+/** Idle facing at rest for the current home corner. */
+function homeRestFacing(): 1 | -1 {
+  return homeSide === "right" ? 1 : -1;
+}
 
 const inputs: PetInputs = {
   runningCount: 0,
@@ -280,6 +317,7 @@ const inputs: PetInputs = {
   lastKeyAt: 0,
   lastActivityAt: Date.now(),
   hiddenSince: null,
+  napUntil: 0,
 };
 
 let mood: PetMood = "idle";
@@ -403,6 +441,7 @@ function buildSnapshot(): PetSnapshot {
     wander,
     flourish,
     statsOpen,
+    homeSide,
   };
 }
 
@@ -428,6 +467,10 @@ function ensureClock(): void {
   // event: drifting into idle/sleep and the night flag flipping.
   clockTimer = setInterval(() => {
     if (!enabled) return;
+    // Hidden tab: nothing renders, so skip the recompute/invalidate churn. The
+    // controller re-syncs the mood via petSetWindowHidden(false) on the next
+    // visibilitychange, so no transition is lost.
+    if (typeof document !== "undefined" && document.hidden) return;
     recompute();
     invalidate();
   }, CLOCK_TICK_MS);
@@ -440,7 +483,7 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-/** Walk to `target` px left of home. The widget renders it as a CSS transition.
+/** Walk to `target` px away from home. The widget renders it as a CSS transition.
  * `maxX` defaults to the idle wander strip; the alert walk passes the viewport. */
 function walkTo(target: number, speedPxPerS: number, maxX: number = PET_WANDER_RANGE_PX): void {
   // In the user's hand: nothing walks the pet anywhere until it's put down.
@@ -449,12 +492,14 @@ function walkTo(target: number, speedPxPerS: number, maxX: number = PET_WANDER_R
   const dist = Math.abs(clamped - wander.x);
   if (dist < 12) return;
   const durationMs = (dist / speedPxPerS) * 1000;
+  // Increasing x = heading away from home (leftward on the right corner,
+  // rightward on the left corner). Facing follows that direction.
+  const awayFacing: 1 | -1 = homeSide === "right" ? -1 : 1;
   wander = {
     x: clamped,
     walking: true,
     durationMs,
-    // Increasing x = heading away from the home corner (leftward).
-    facing: clamped > wander.x ? -1 : 1,
+    facing: clamped > wander.x ? awayFacing : ((-awayFacing) as 1 | -1),
   };
   if (arriveTimer) clearTimeout(arriveTimer);
   arriveTimer = setTimeout(() => {
@@ -484,10 +529,17 @@ function walkToAlertCell(taskId: string): void {
   if (!cell) return;
   const rect = cell.getBoundingClientRect();
   if (rect.width === 0) return;
-  // wander.x counts px left of the home corner (right: 18); aim the pet's
-  // center (~42px half-sprite) at the cell's center, staying on screen.
-  const homeCenterX = window.innerWidth - 18 - 42;
-  const target = homeCenterX - (rect.left + rect.width / 2);
+  // wander.x counts px away from the home corner; aim the pet's center
+  // (~42px half-sprite) at the cell's center, staying on screen.
+  const homeInset = 18;
+  const halfSprite = 42;
+  const cellCenter = rect.left + rect.width / 2;
+  const homeCenterX =
+    homeSide === "right"
+      ? window.innerWidth - homeInset - halfSprite
+      : homeInset + halfSprite;
+  const target =
+    homeSide === "right" ? homeCenterX - cellCenter : cellCenter - homeCenterX;
   if (target <= 0) return;
   alertWalkX = Math.min(window.innerWidth - 140, target);
   walkTo(alertWalkX, HOME_SPEED_PX_PER_S, window.innerWidth);
@@ -550,6 +602,10 @@ function ensureBehaviorLoop(): void {
   // in the corner.
   behaviorTimer = setInterval(() => {
     if (!enabled || prefersReducedMotion()) return;
+    // Hidden tab: the widget is off-screen and its ambient animations are frozen
+    // (see styles.css power-save / reduced-motion blocks), so idle antics and
+    // wandering would just burn CPU updating nothing. Resume when visible again.
+    if (typeof document !== "undefined" && document.hidden) return;
     // Whatever the mood, occasionally switch to another of its move variants
     // so the pet doesn't loop one animation forever.
     if (Math.random() < 0.45) {
@@ -601,6 +657,9 @@ function recompute(): void {
   } else if (now - pendingSince >= MOOD_DEBOUNCE_MS) {
     pendingMood = null;
     commitMood(candidate);
+    // Timed moods that landed through the debounce path (a commanded nap)
+    // still need their expiry re-check scheduled.
+    schedulePulseExpiry(now);
     return;
   }
   if (pendingTimer) clearTimeout(pendingTimer);
@@ -630,7 +689,7 @@ function commitMood(next: { mood: PetMood; intensity: 1 | 2 | 3 }): void {
 }
 
 function schedulePulseExpiry(now: number): void {
-  const until = Math.max(inputs.startleUntil, inputs.celebrateUntil);
+  const until = Math.max(inputs.startleUntil, inputs.celebrateUntil, inputs.napUntil);
   if (until <= now || typeof window === "undefined") return;
   if (pulseTimer) clearTimeout(pulseTimer);
   pulseTimer = setTimeout(() => {
@@ -825,11 +884,12 @@ export function petSetEnabled(
       if (bubbleTimer) clearTimeout(bubbleTimer);
       bubbleTimer = null;
     }
-    wander = { x: 0, walking: false, durationMs: 0, facing: 1 };
+    wander = { x: 0, walking: false, durationMs: 0, facing: homeRestFacing() };
     flourish = null;
     statsOpen = false;
     alertWalkX = null;
     heldByUser = false;
+    inputs.napUntil = 0;
     // A disabled pet should cost nothing: stop the ambient loops and any
     // in-flight one-shot timers. ensureClock/ensureBehaviorLoop re-arm on
     // the next enable.
@@ -847,6 +907,27 @@ export function petSetEnabled(
     pendingTimer = pulseTimer = watchTimer = arriveTimer = flourishTimer = null;
     pendingMood = null;
   }
+  invalidate();
+}
+
+/**
+ * Which bottom corner the pet homes in. Flipping sides snaps it home so a
+ * mid-wander teleport doesn't leave it stranded on the wrong half of the strip.
+ */
+export function petSetHomeSide(side: PetHomeSide): void {
+  if (homeSide === side) return;
+  homeSide = side;
+  if (arriveTimer) {
+    clearTimeout(arriveTimer);
+    arriveTimer = null;
+  }
+  wander = {
+    x: 0,
+    walking: false,
+    durationMs: 0,
+    facing: homeRestFacing(),
+  };
+  alertWalkX = null;
   invalidate();
 }
 
@@ -1002,22 +1083,32 @@ export function petIngestServerEvent(event: ServerEvent): void {
       const snippet = typeof event.snippet === "string" ? event.snippet : "";
       const now = Date.now();
       if (taskId) promptStartedAt.set(taskId, now);
+      // Its own name in the prompt is addressed to the pet, not the agents —
+      // parse it up front so a "sleep" order starts the nap BEFORE the
+      // excited hop below (which it suppresses), not after.
+      const addressed = Boolean(
+        snippet && persistent && mentionsPetName(snippet, persistent.name),
+      );
+      const command = addressed ? parsePetCommand(snippet) : null;
+      // Being addressed by name wakes a napping pet — unless the order IS
+      // the nap. Un-addressed prompts leave the nap alone: it was an
+      // explicit command, and ambient work shouldn't undo it.
+      if (command === "sleep") inputs.napUntil = now + PET_NAP_MS;
+      else if (addressed) inputs.napUntil = 0;
+      const napping = now < inputs.napUntil;
       // Visibly react to the hand-off: count it as fresh activity (wakes a
       // sleeping pet, calls a wanderer home, perks it to "watching") and play
       // an excited hop — the way a companion looks up when you give it a task.
       inputs.lastActivityAt = now;
       inputs.lastKeyAt = now;
       recompute();
-      if (!prefersReducedMotion()) doFlourish(pickExcitedReaction());
-      // Its own name in the prompt is addressed to the pet, not the agents —
-      // it outranks keyword flavor and carries no cooldown. Otherwise
-      // acknowledge: a keyword-flavored line when the snippet matches, or a
-      // generic "on it". The rate limiter keeps rapid sends from each popping
-      // a bubble even though the hop plays every time.
-      if (snippet && persistent && mentionsPetName(snippet, persistent.name)) {
-        // Addressed by name — maybe with a command verb. Commands beat the
-        // plain name-answer: "Pixel, dance" gets a dance, not a "you rang?".
-        const command = parsePetCommand(snippet);
+      if (!prefersReducedMotion() && !napping) doFlourish(pickExcitedReaction());
+      // Commands beat the plain name-answer: "Pixel, dance" gets a dance,
+      // not a "you rang?". Otherwise acknowledge: a keyword-flavored line
+      // when the snippet matches, or a generic "on it". The rate limiter
+      // keeps rapid sends from each popping a bubble even though the hop
+      // plays every time.
+      if (addressed) {
         if (command === "dance") {
           if (!prefersReducedMotion()) doFlourish("dance");
           say("command-dance");
@@ -1033,7 +1124,7 @@ export function petIngestServerEvent(event: ServerEvent): void {
         } else {
           say("name-mentioned");
         }
-      } else {
+      } else if (!napping) {
         say((snippet && classifyPromptSnippet(snippet)) || "prompt-sent");
       }
       return;
@@ -1266,6 +1357,11 @@ export function petInteract(): { navigateTo: { taskId: string; projectId: string
   if (!enabled) return { navigateTo: null };
   if (alert && mood === "alert") return { navigateTo: alert };
   const now = Date.now();
+  // A click wakes a commanded nap — physical affection outranks the order.
+  if (inputs.napUntil > now) {
+    inputs.napUntil = 0;
+    recompute();
+  }
   // Spam-clicking overwhelms the pet: it spins out dizzy (startled) instead
   // of endlessly lapping up affection.
   recentPetClicks = recentPetClicks.filter((t) => now - t < DIZZY_WINDOW_MS);
@@ -1319,7 +1415,7 @@ export function petNoteUncommitted(count: number): void {
 
 /**
  * Dragged and dropped by the user. The widget owns the drag + fall animation
- * and hands over the landing spot (px left of home); the pet lands there,
+ * and hands over the landing spot (px away from home); the pet lands there,
  * spins out dizzy, and — since the startle pulse routes through commitMood —
  * walks itself home once it gathers its wits.
  */
@@ -1333,6 +1429,8 @@ export function petNoteUncommitted(count: number): void {
 export function petGrabbed(visualX: number): void {
   if (!enabled) return;
   heldByUser = true;
+  // Being picked up ends a commanded nap.
+  inputs.napUntil = 0;
   if (arriveTimer) {
     clearTimeout(arriveTimer);
     arriveTimer = null;
@@ -1353,7 +1451,12 @@ export function petTossed(landingX: number): void {
     clearTimeout(arriveTimer);
     arriveTimer = null;
   }
-  wander = { x: Math.max(0, Math.round(landingX)), walking: false, durationMs: 0, facing: 1 };
+  wander = {
+    x: Math.max(0, Math.round(landingX)),
+    walking: false,
+    durationMs: 0,
+    facing: homeRestFacing(),
+  };
   // Sit dazed where it landed — walkHome() is a no-op until the rest passes
   // (the startle pulse below routes through commitMood, which walks home).
   tossedRestUntil = Date.now() + TOSS_REST_MS;

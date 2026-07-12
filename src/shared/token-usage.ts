@@ -32,8 +32,11 @@ export type UsageSummary = {
   perSession: SessionUsage[];
   /** Last successful sync time (epoch ms), null if never synced. */
   lastSyncedAt: number | null;
-  /** Number of new usage rows ingested by the request that returned this. */
-  ingested: number;
+  /**
+   * True when a background JSONL sync is in flight, so this summary may be
+   * stale/partial. The client polls back while true until it settles false.
+   */
+  syncing: boolean;
 };
 
 export const EMPTY_TOTALS: TokenTotals = {
@@ -42,3 +45,10 @@ export const EMPTY_TOTALS: TokenTotals = {
   cacheCreationTokens: 0,
   cacheReadTokens: 0,
 };
+
+/**
+ * Maximum number of per-session rows the usage summary returns/renders, ordered
+ * by total tokens. Bounds both the query result and the DOM table on long-lived
+ * installs with thousands of sessions.
+ */
+export const PER_SESSION_LIMIT = 200;

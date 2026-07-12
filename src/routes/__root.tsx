@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import {
   ClientOnly,
   Outlet,
@@ -21,8 +21,16 @@ import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
 import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
 import { usePowerSaveController } from "~/lib/power-save";
-import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
+import { useWindowIdleController } from "~/lib/window-idle";
+import {
+  TerminalProvider,
+  useTerminals,
+  useTerminalActions,
+  useGridView,
+  useHasActiveSession,
+} from "~/lib/terminal-store";
 import { Z_INDEX } from "~/lib/z-index";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   UserTerminalProvider,
   useUserTerminals,
@@ -64,10 +72,17 @@ import {
   DEFAULT_TERMINAL_LINE_HEIGHT,
 } from "~/shared/terminal-appearance";
 import {
-  SettingsPanel,
   SETTINGS_PANEL_IDS,
   type SettingsPanelId,
-} from "~/components/views/SettingsPanel";
+} from "~/components/views/settings-panel-ids";
+// Lazy: the settings overlay is conditionally rendered (settingsOpen) inside
+// ClientOnly, so hydration never touches it — deferring its module keeps the
+// dozen settings pages (and the pet cluster they pin) out of the entry chunk.
+const SettingsPanel = lazy(() =>
+  import("~/components/views/SettingsPanel").then((m) => ({
+    default: m.SettingsPanel,
+  })),
+);
 import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 import {
   requestCloseSettings,
@@ -81,8 +96,11 @@ import { SessionNotificationsButton } from "~/components/views/SessionNotificati
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
-import { usePetController } from "~/lib/pet/use-pet-controller";
-import { PetWidget } from "~/components/pet/PetWidget";
+// Lazy: the pet controller + widget + multiplayer overlay (and the
+// pet-lines/pet-messages/PetSprite payload) load off the entry chunk. Mounted
+// as a continuously-present sibling of Shell (see below) so the controller
+// survives focus-mode transitions. RemotePets renders inside PetHost.
+const PetHost = lazy(() => import("~/components/pet/PetHost"));
 import {
   mergeAppNotificationLists,
   useDiagramReadyNotificationList,
@@ -228,6 +246,11 @@ function RootComponent() {
                        */}
                       <ClientOnly fallback={null}>
                         <Shell />
+                        {/* Sibling of Shell so the pet controller mounts once
+                         * and survives Shell's focus-mode early return. */}
+                        <Suspense fallback={null}>
+                          <PetHost />
+                        </Suspense>
                       </ClientOnly>
                     </DiagramDialogHost>
                   </HeaderActionsProvider>
@@ -266,6 +289,39 @@ function LaunchIntroOverlayController() {
 
   return <LaunchOverlay active={active} onDone={finish} />;
 }
+
+// The active-session tail lives in its own leaf so the per-tick re-render from
+// subscribing to the terminal data slice (`activeFor` returns a fresh session
+// object whenever that session's task row updates) is confined here, instead of
+// re-rendering the whole Shell + TopBar + ProjectBar. Props are all stable
+// (actions + booleans) so it re-renders only on its own subscription.
+const ProjectTerminalPanel = memo(function ProjectTerminalPanel({
+  projectId,
+  onClose,
+  onHide,
+  onPtyReady,
+  expanded,
+  onToggleExpanded,
+}: {
+  projectId: string;
+  onClose: (taskId: string, opts?: { activateTaskId?: string | null }) => Promise<void>;
+  onHide: (projectId: string) => void;
+  onPtyReady: (taskId: string, ptyId: string | null, scopeKey?: string) => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}) {
+  const { activeFor } = useTerminals();
+  return (
+    <TerminalPanel
+      active={activeFor(projectId)}
+      onClose={onClose}
+      onHide={() => onHide(projectId)}
+      onPtyReady={onPtyReady}
+      expanded={expanded}
+      onToggleExpanded={onToggleExpanded}
+    />
+  );
+});
 
 function Shell() {
   const router = useRouter();
@@ -307,6 +363,9 @@ function Shell() {
   // Battery saver: drives the data-power-save root attribute from the
   // powerMonitor signal + setting (see src/lib/power-save.ts).
   usePowerSaveController();
+  // Window idle: freezes decorative per-frame animations while the window is
+  // blurred/hidden (see src/lib/window-idle.ts).
+  useWindowIdleController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable
@@ -317,7 +376,11 @@ function Shell() {
       ? sandboxState.sandboxes.find((s) => s.id === sandboxState.activeScopeId) ?? null
       : null;
   const activeResuming = activeSandbox?.remoteStatus === "resuming";
-  const { activeFor, close, deselect, setPtyId, gridView } = useTerminals();
+  // Pure actions (stable identity) + narrow flip-only subscriptions, so a
+  // background session-status tick doesn't re-render the whole shell. The active
+  // session itself lives in the ProjectTerminalPanel leaf below.
+  const { close, deselect, setPtyId } = useTerminalActions();
+  const gridView = useGridView();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const userTerminals = useUserTerminals();
   const {
@@ -349,9 +412,6 @@ function Shell() {
     : null;
 
   useNavigationSwipe();
-  // Above the focus-mode early return on purpose: the pet keeps folding events
-  // (and accruing XP) while focus mode hides the widget itself.
-  usePetController();
   const sessionNotifications = useSessionFinishNotifications();
   const diagramNotificationList = useDiagramReadyNotificationList();
   const appNotifications = useMemo(
@@ -373,6 +433,9 @@ function Shell() {
   const path = useRouterState({ select: (state) => state.location.pathname });
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const projectId = projectMatch ? projectMatch[1]! : null;
+  // Flip-only: true iff this project has a materialized active session. Gates
+  // the expanded-terminal layout without subscribing to the churning data slice.
+  const hasActiveSession = useHasActiveSession(projectId);
   // Focused Session Mode strips the whole shell: the /focus route renders the
   // only visible chrome, and the Electron window is a small floating card.
   const focusActive = isFocusPath(path);
@@ -425,7 +488,7 @@ function Shell() {
     });
   }, [expandedKey]);
   const sessionExpanded =
-    !!projectId && terminalExpanded && !!activeFor(projectId);
+    !!projectId && terminalExpanded && hasActiveSession;
   // Grid view takes over the whole workspace: the Outlet (which renders the
   // grid below the project header) spans full width and the single right-hand
   // terminal panel is hidden.
@@ -567,7 +630,7 @@ function Shell() {
         window.dispatchEvent(new Event(GRID_EXPAND_TOGGLE_EVENT));
         return;
       }
-      if (projectId && activeFor(projectId)) toggleTerminalExpanded();
+      if (projectId && hasActiveSession) toggleTerminalExpanded();
     },
     { capture: true },
   );
@@ -712,8 +775,8 @@ function Shell() {
           dragRegion
           right={
             <>
-              <ProviderUsageIndicator />
               <UpdateAvailableButton />
+              <ProviderUsageIndicator />
               <HeaderBeforeSearchSlot />
               <PromptSearchButton />
               <VoicePushToTalkButton />
@@ -760,7 +823,7 @@ function Shell() {
                 // right; floor the left panel so dragging the terminal wider
                 // shrinks the terminal instead of wrapping the session columns.
                 // In grid view the panel is hidden, so let the Outlet go full width.
-                minWidth: projectMatch && !gridActive ? 700 : 0,
+                minWidth: projectMatch && !gridActive ? 640 : 0,
                 minHeight: 0,
               }}
             >
@@ -768,10 +831,10 @@ function Shell() {
               {activeResuming && activeSandbox && <SandboxResumingOverlay name={activeSandbox.name} />}
             </div>
             {projectMatch && !gridActive && (
-              <TerminalPanel
-                active={activeFor(projectMatch[1]!)}
+              <ProjectTerminalPanel
+                projectId={projectMatch[1]!}
                 onClose={close}
-                onHide={() => deselect(projectMatch[1]!)}
+                onHide={deselect}
                 onPtyReady={setPtyId}
                 expanded={sessionExpanded}
                 onToggleExpanded={toggleTerminalExpanded}
@@ -782,17 +845,25 @@ function Shell() {
         </div>
         {activePanel === "usage" && <UsagePanel onBack={closePanel} />}
         {settingsOpen && (
-          <SettingsPanel
-            initialPanel={settingsInitialPanel ?? "general"}
-            onBack={closeSettingsPanel}
-          />
+          <Suspense fallback={null}>
+            <SettingsPanel
+              initialPanel={settingsInitialPanel ?? "general"}
+              onBack={closeSettingsPanel}
+            />
+          </Suspense>
         )}
         <Toaster
           position="bottom-right"
           theme="dark"
           closeButton
-          // Toasts stack above the Mission Pet when it occupies the corner.
-          offset={settings?.petEnabled ?? true ? { bottom: 132, right: 16 } : 16}
+          // Toasts stack above the Mission Pet when it shares the bottom-right
+          // corner; left-home pets leave that corner free for the default offset.
+          offset={
+            (settings?.petEnabled ?? true) &&
+            (settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE) === "right"
+              ? { bottom: 132, right: 16 }
+              : 16
+          }
           style={{ zIndex: Z_INDEX.toast }}
           icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{
@@ -803,7 +874,7 @@ function Shell() {
           }}
         />
         <VoiceController />
-        <PetWidget />
+        {/* PetWidget + RemotePets render via the lazy PetHost (Shell sibling). */}
         <SessionFileDropZone />
       </div>
       <ConfirmDialog

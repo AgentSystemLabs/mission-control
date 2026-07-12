@@ -7,8 +7,10 @@
  * could change across upgrades.
  */
 export const Z_INDEX = {
+  /** Mission Pet corner companion — above in-page panels, below settings/modals. */
+  pet: 9500,
+  /** Full-workspace overlays (Settings) — above the pet, below modals (9999). */
+  settings: 9600,
   popover: 10000,
   toast: 20000,
-  /** Mission Pet corner companion — above panels, below modals (9999) and popovers. */
-  pet: 9500,
 } as const;

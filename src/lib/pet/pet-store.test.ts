@@ -14,6 +14,7 @@ import {
   petPulse,
   petSetAggregates,
   petSetEnabled,
+  petSetHomeSide,
   petSetShipping,
   petSetSpecies,
   petSetStatsOpen,
@@ -39,6 +40,7 @@ function inputs(overrides: Partial<PetInputs> = {}): PetInputs {
     lastKeyAt: 0,
     lastActivityAt: NOW,
     hiddenSince: null,
+    napUntil: 0,
     ...overrides,
   };
 }
@@ -98,6 +100,26 @@ describe("resolvePetMood priority", () => {
   it("recent keystrokes read as watching, decaying after 8s", () => {
     expect(resolvePetMood(inputs({ lastKeyAt: NOW - 3_000 }), NOW).mood).toBe("watching");
     expect(resolvePetMood(inputs({ lastKeyAt: NOW - 9_000 }), NOW).mood).toBe("idle");
+  });
+
+  it("a commanded nap sleeps through work chatter — running, celebrating, watching", () => {
+    // The exact churn that follows a "sleep" prompt: the agent responds
+    // (running), the session finishes (celebrate pulse), keys were just hit.
+    const napping = {
+      napUntil: NOW + 60_000,
+      runningCount: 2,
+      celebrateUntil: NOW + 5_000,
+      lastKeyAt: NOW,
+      shippingActive: true,
+    };
+    expect(resolvePetMood(inputs(napping), NOW).mood).toBe("sleeping");
+    // Only a blocked session or a startle interrupts the nap.
+    expect(resolvePetMood(inputs({ ...napping, needsInputCount: 1 }), NOW).mood).toBe("alert");
+    expect(resolvePetMood(inputs({ ...napping, startleUntil: NOW + 1_000 }), NOW).mood).toBe(
+      "startled",
+    );
+    // An expired nap resolves normally again.
+    expect(resolvePetMood(inputs({ ...napping, napUntil: NOW - 1 }), NOW).mood).toBe("shipping");
   });
 
   it("sleeps after 5 minutes without activity or 60s hidden", () => {
@@ -832,6 +854,7 @@ describe("work awareness + direct interactions", () => {
     petSetEnabled(true, true, false);
   });
   afterEach(() => {
+    petSetHomeSide("right");
     petSetEnabled(false, true, false);
     vi.useRealTimers();
   });
@@ -937,6 +960,18 @@ describe("work awareness + direct interactions", () => {
     const rested = getPetSnapshot();
     expect(rested.wander.x).toBe(0);
     expect(rested.wander.walking).toBe(true);
+  });
+
+  it("flipping the home corner snaps the pet home and updates the snapshot", () => {
+    petTossed(200);
+    expect(getPetSnapshot().wander.x).toBe(200);
+    petSetHomeSide("left");
+    expect(getPetSnapshot()).toMatchObject({
+      homeSide: "left",
+      wander: { x: 0, walking: false },
+    });
+    petSetHomeSide("right");
+    expect(getPetSnapshot().homeSide).toBe("right");
   });
 
   it("a grab pins the pet at its visual spot and freezes walking until put down", () => {

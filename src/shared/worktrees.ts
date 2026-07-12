@@ -18,6 +18,13 @@ export type WorktreeInfo = {
   taskCounts?: WorktreeTaskCounts;
 };
 
+/** Client-only sentinel prefix for a worktree row shown while creation is in flight. */
+export const OPTIMISTIC_WORKTREE_ID_PREFIX = "wt-optimistic-";
+
+export function isOptimisticWorktree(worktree: Pick<WorktreeInfo, "id">): boolean {
+  return worktree.id.startsWith(OPTIMISTIC_WORKTREE_ID_PREFIX);
+}
+
 export function normalizeWorktreeId(worktreeId?: string | null): string | null {
   return !worktreeId || worktreeId === MAIN_WORKTREE_ID ? null : worktreeId;
 }

@@ -57,7 +57,7 @@ describe("waitForSandboxSetupReady", () => {
     let packageReads = 0;
     const electron = {
       remoteGit: {
-        status: async () => ({ branch: "main", staged: [], unstaged: [], changedCount: 0, aheadCount: 0 }),
+        status: async () => ({ branch: "main", staged: [], unstaged: [], changedCount: 0, aheadCount: 0, behindCount: 0 }),
       },
       remoteFs: {
         read: async () => {

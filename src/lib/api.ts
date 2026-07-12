@@ -65,7 +65,7 @@ import type {
 } from "~/shared/code-graph";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
-import type { PetPersistentState } from "~/shared/pet";
+import type { PetHomeSide, PetPersistentState } from "~/shared/pet";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 import { HTTP_NO_CONTENT } from "~/shared/http-status";
 
@@ -91,6 +91,8 @@ export type AppSettings = {
   mouseGradientDisabled: boolean;
   /** Reduce energy use on battery: freeze decorative animations, slow idle polls. */
   batterySaverEnabled: boolean;
+  /** Spellcheck in text fields (Electron). Off frees ~15-20 MB while composing. */
+  spellcheckEnabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   /** Ding when a session-finish or diagram-ready notification arrives. */
@@ -155,6 +157,14 @@ export type AppSettings = {
   shipAgent: AiRuntimeHarness;
   shipModel: AiModelId | null;
   shipPrompt: string;
+  /**
+   * Harness/model/prompt for the branch Sync split-button, which opens an AI
+   * session to pull upstream changes into the current branch (stash/commit,
+   * conflict resolution, stash-pop). Mirrors the Ship trio.
+   */
+  syncAgent: AiRuntimeHarness;
+  syncModel: AiModelId | null;
+  syncPrompt: string;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
   /**
@@ -207,6 +217,13 @@ export type AppSettings = {
   petEnabled: boolean;
   petMessagesEnabled: boolean;
   petSoundsEnabled: boolean;
+  /**
+   * Opt-in (default false): broadcast this machine's pet to others working on
+   * the same git repo and show theirs. No WebSocket connects unless this is on.
+   */
+  petMultiplayerEnabled: boolean;
+  /** Bottom corner the pet homes in (default right). */
+  petHomeSide: PetHomeSide;
   petState: PetPersistentState | null;
 };
 
@@ -629,6 +646,7 @@ export const api = {
         | "minimalTheme"
         | "mouseGradientDisabled"
         | "batterySaverEnabled"
+        | "spellcheckEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -659,6 +677,9 @@ export const api = {
         | "shipAgent"
         | "shipModel"
         | "shipPrompt"
+        | "syncAgent"
+        | "syncModel"
+        | "syncPrompt"
         | "voiceCommandAliases"
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"
@@ -679,6 +700,8 @@ export const api = {
         | "petEnabled"
         | "petMessagesEnabled"
         | "petSoundsEnabled"
+        | "petMultiplayerEnabled"
+        | "petHomeSide"
         | "petState"
       >
     >,
