@@ -17,6 +17,8 @@ import {
   type PetSizeId,
 } from "~/shared/pet";
 import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
+import { usePetOverlayEnabled } from "~/lib/pet/pet-overlay";
+import { getElectron } from "~/lib/electron";
 import { PET_SPECIES } from "~/components/pet/PetSprite";
 import { PetGuideModal } from "~/components/pet/PetGuideModal";
 import { TextField } from "~/components/ui/TextField";
@@ -43,6 +45,8 @@ export function PetSettingsPage() {
   const petState = settings?.petState ?? null;
   const [petNameDraft, setPetNameDraft] = useState("");
   const [petGuideOpen, setPetGuideOpen] = useState(false);
+  const overlayEnabled = usePetOverlayEnabled();
+  const canOverlay = Boolean(getElectron()?.petOverlay);
 
   useEffect(() => {
     setPetNameDraft(petState?.name ?? "");
@@ -132,6 +136,18 @@ export function PetSettingsPage() {
           label="Enable"
         />
       </Field>
+      {canOverlay ? (
+        <Field label="Desktop">
+          <ToggleRow
+            title="Let the pet roam your desktop"
+            description="Unleash the pet out of this window onto your desktop, floating above other apps. It stays visible when you switch apps or minimize Mission Control — hover it to pet or drag it; clicks anywhere else pass through. (Experimental.)"
+            checked={overlayEnabled}
+            onChange={(enabled: boolean) => void getElectron()?.petOverlay?.setEnabled(enabled)}
+            disabled={!petEnabled}
+            label="Unleash"
+          />
+        </Field>
+      ) : null}
       {petEnabled && petState ? (
         <Field label="Species">
           <PetSpeciesPicker />

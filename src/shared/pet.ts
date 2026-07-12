@@ -92,6 +92,16 @@ export type PetWeeklyStats = {
 /** XP earned per project — the pet develops a favorite from real work. */
 export type PetProjectXp = Record<string, { name: string; xp: number }>;
 
+/**
+ * The user-editable design fields, forwarded from the main window to the pet
+ * desktop overlay so an unleashed pet reflects Settings edits live.
+ */
+export type PetOverlayDesignPatch = {
+  species: PetSpeciesId;
+  size: PetSizeId;
+  name: string;
+};
+
 export type PetPersistentState = {
   version: 1;
   name: string;

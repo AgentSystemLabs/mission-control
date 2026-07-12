@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useUserTerminals } from "~/lib/user-terminal-store";
+import { useUserTerminalsOptional } from "~/lib/user-terminal-store";
 
 /**
  * How far the bottom terminal dock's top edge rises above the viewport bottom.
@@ -14,8 +14,11 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
  * same plane — perched on the dock — instead of one floating inside the panel.
  */
 export function useDockLift(enabled = true): number {
-  const { project: dockProject, homeActive } = useUserTerminals();
-  const dockActive = !!dockProject || homeActive;
+  // Optional: the pet desktop overlay window renders outside the shell, with no
+  // UserTerminalProvider and no dock — there, ctx is null and the pet perches on
+  // the window (screen) bottom instead.
+  const ctx = useUserTerminalsOptional();
+  const dockActive = !!ctx?.project || (ctx?.homeActive ?? false);
   const [dockLift, setDockLift] = useState(0);
 
   useEffect(() => {

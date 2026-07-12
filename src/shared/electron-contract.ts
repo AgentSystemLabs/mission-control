@@ -1,5 +1,6 @@
 import type { AgentCliUpdateRun } from "~/shared/agent-cli-update";
 import type { GitStatus, GitDiff } from "~/shared/git-status";
+import type { PetOverlayDesignPatch } from "~/shared/pet";
 
 export const FILE_READ_ERRORS = ["invalid-path", "not-found", "binary", "too-large"] as const;
 export const FILE_WRITE_ERRORS = [
@@ -296,6 +297,11 @@ export type FocusModeStateBridge = {
   alwaysOnTop: boolean;
 };
 
+export type PetOverlayStateBridge = {
+  /** Whether the pet is currently unleashed onto the desktop overlay window. */
+  enabled: boolean;
+};
+
 export type ElectronBridge = {
   /** The host OS, straight from the main process (authoritative, unlike navigator.platform). */
   platform: NodeJS.Platform;
@@ -409,6 +415,21 @@ export type ElectronBridge = {
     exit: () => Promise<FocusModeStateBridge>;
     get: () => Promise<FocusModeStateBridge>;
     setAlwaysOnTop: (enabled: boolean) => Promise<FocusModeStateBridge>;
+  };
+  /**
+   * Desktop Pet Overlay: "unleash" the pet out of the app window onto the
+   * desktop as a transparent, always-on-top, click-through window.
+   */
+  petOverlay: {
+    getState: () => Promise<PetOverlayStateBridge>;
+    setEnabled: (enabled: boolean) => Promise<PetOverlayStateBridge>;
+    /** Toggle the overlay window between click-through and mouse-capturing. */
+    setInteractive: (interactive: boolean) => Promise<{ ok: boolean }>;
+    onStateChange: (cb: (state: PetOverlayStateBridge) => void) => () => void;
+    /** Main window → overlay: push a live design edit (species/size/name). */
+    applyDesign: (patch: PetOverlayDesignPatch) => Promise<{ ok: boolean }>;
+    /** Overlay window: receive design edits forwarded from the main window. */
+    onApplyDesign: (cb: (patch: PetOverlayDesignPatch) => void) => () => void;
   };
   files: {
     list: (projectRoot: string) => Promise<FileListResult>;

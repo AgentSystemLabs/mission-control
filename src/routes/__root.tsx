@@ -12,6 +12,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { getPinnedProjects } from "~/lib/pinned-project-order";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
+import { isPetOverlayWindow } from "~/lib/pet/pet-overlay";
 import { screenshotSupported } from "~/lib/screenshot";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
@@ -101,6 +102,11 @@ import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifica
 // as a continuously-present sibling of Shell (see below) so the controller
 // survives focus-mode transitions. RemotePets renders inside PetHost.
 const PetHost = lazy(() => import("~/components/pet/PetHost"));
+// The pet DESKTOP OVERLAY window (`?overlay=pet`) renders only this — no shell,
+// no terminal/keybinding providers — so it stays a lightweight second window.
+const PetOverlayApp = lazy(() =>
+  import("~/components/pet/PetOverlayApp").then((m) => ({ default: m.PetOverlayApp })),
+);
 import {
   mergeAppNotificationLists,
   useDiagramReadyNotificationList,
@@ -158,6 +164,13 @@ const useThemeLayoutEffect =
 // minimal/noir/ember styles collapse to flat here.
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
 var d=document.documentElement;
+var isPetOverlay=location.search.indexOf("overlay=pet")>-1;
+if(isPetOverlay){
+  d.setAttribute("data-pet-overlay","");
+  var ov=document.createElement("style");
+  ov.textContent="html[data-pet-overlay],html[data-pet-overlay] body{background:transparent !important;}";
+  (document.head||d).appendChild(ov);
+}
 var st=localStorage.getItem(${JSON.stringify(THEME_STYLE_CACHE_KEY)});
 if(st!=="painted"&&st!=="flat"&&st!=="minimal"&&st!=="noir"&&st!=="ember"){st=localStorage.getItem(${JSON.stringify(MINIMAL_CACHE_KEY)})==="1"?"flat":"painted";}
 var flat=(st!=="painted");
@@ -166,7 +179,7 @@ var th=localStorage.getItem(${JSON.stringify(THEME_CACHE_KEY)})==="light"?"light
 d.setAttribute("data-theme",(flat&&th==="light")?"light":"dark");
 var tt=localStorage.getItem(${JSON.stringify(SURFACE_TINT_CACHE_KEY)});
 if(tt==="subtle"||tt==="vivid"||tt==="intense"){d.setAttribute("data-tint",tt);}
-if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
+if(!isPetOverlay&&localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(
     ACCENT_COLORS.map((c) => [c.id, { v: c.value, r: c.rgb, k: c.onAccent }]),
@@ -223,6 +236,15 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body>
+        {isPetOverlayWindow() ? (
+          // Desktop overlay window: only the pet, on a transparent page.
+          <ClientOnly fallback={null}>
+            <Suspense fallback={null}>
+              <PetOverlayApp />
+            </Suspense>
+          </ClientOnly>
+        ) : (
+          <>
         <LaunchIntroOverlayController />
         <KeybindingsProvider>
           <TerminalProvider>
@@ -259,6 +281,8 @@ function RootComponent() {
             </UserTerminalProvider>
           </TerminalProvider>
         </KeybindingsProvider>
+          </>
+        )}
         <Scripts />
       </body>
     </html>

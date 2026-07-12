@@ -476,6 +476,23 @@ const electronAPI = {
     ): Promise<{ active: boolean; taskId: string | null; alwaysOnTop: boolean }> =>
       ipcRenderer.invoke(IPC.appSetFocusModeAlwaysOnTop, { enabled }),
   },
+  petOverlay: {
+    getState: (): Promise<{ enabled: boolean }> =>
+      ipcRenderer.invoke(IPC.petOverlayGetState),
+    setEnabled: (enabled: boolean): Promise<{ enabled: boolean }> =>
+      ipcRenderer.invoke(IPC.petOverlaySetEnabled, { enabled }),
+    setInteractive: (interactive: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.petOverlaySetInteractive, { interactive }),
+    onStateChange: (cb: (state: { enabled: boolean }) => void) =>
+      subscribe(IPC.petOverlayStateChange, cb),
+    applyDesign: (patch: {
+      species: string;
+      size: string;
+      name: string;
+    }): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.petOverlayApplyDesign, patch),
+    onApplyDesign: (cb: (patch: { species: string; size: string; name: string }) => void) =>
+      subscribe(IPC.petOverlayDesignEvent, cb),
+  },
   updater: {
     getState: (): Promise<UpdateStateBridge> =>
       ipcRenderer.invoke(IPC.updateGetState) as Promise<UpdateStateBridge>,

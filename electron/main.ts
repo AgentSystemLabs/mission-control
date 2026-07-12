@@ -39,6 +39,7 @@ import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
 import { registerFocusMode } from "./focus-mode";
+import { registerPetOverlay } from "./pet-overlay";
 import { registerSandboxManager, disposeSandboxManager } from "./sandbox-manager";
 import {
   disposeApiTokenStore,
@@ -208,6 +209,9 @@ augmentProcessEnv();
 let win: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 let runtimePort: number | null = null;
+// The origin the renderer is loaded from (dev server or bundled server). The
+// pet desktop overlay opens a second window against this same URL.
+let mainAppUrl: string | null = null;
 // The appIsFullScreen ipcMain handler is registered from inside createWindow but
 // closes over the module `win`, so it must register exactly once — createWindow
 // re-runs on macOS `activate`.
@@ -1246,6 +1250,8 @@ async function createWindow() {
   // compromise (XSS in markdown, agent output rendered as HTML, an added
   // webview) can't reach the IPC surface.
   configureIpcAllowedOrigins([url]);
+  // The pet desktop overlay opens a second window against this same origin.
+  mainAppUrl = url;
 
   // A file dropped outside any drop target would otherwise navigate the
   // window to its file:// URL, blowing away the app shell.
@@ -1891,7 +1897,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  // Recreate the main window when it's gone — even if the pet desktop overlay
+  // is still open (it's a window too, so an all-windows count would miss this).
+  if (!win || win.isDestroyed()) createWindow();
 });
 
 app.on("before-quit", () => {
@@ -1943,6 +1951,10 @@ app.whenReady().then(() => {
     width: MAIN_WINDOW_MIN_WIDTH,
     height: MAIN_WINDOW_MIN_HEIGHT,
   });
+  registerPetOverlay(
+    () => win,
+    () => mainAppUrl,
+  );
   registerSandboxManager(ipcMain, () => win, missionControlUserDataDir, app.getAppPath(), () =>
     runtimePort
       ? { port: runtimePort, token: getOrCreateApiToken(missionControlUserDataDir) }
