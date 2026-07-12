@@ -1022,6 +1022,23 @@ function ProjectPage() {
     if (task) rehydrateTerminal(terminalProject, task);
   }, [activeTaskId, terminalProject, tasks, rehydrateTerminal]);
 
+  // The rehydrate above re-shows the active session on a project/worktree switch,
+  // but its cached terminal surface reattaches blurred (it doesn't self-focus),
+  // so the newly-shown session drops keystrokes until a manual click. Re-assert
+  // keyboard focus once per scope switch — guarded by scope so it fires on the
+  // switch (and first mount), not on every task refetch, which would yank the
+  // caret while the user is typing. focusGridSession retries until the pane
+  // mounts and is consumed by both SessionGrid (grid view) and TerminalPanel
+  // (normal view), so a single call covers both layouts.
+  const focusedScopeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!terminalProject) return;
+    if (focusedScopeRef.current === selectedScopeKey) return;
+    if (!activeTaskId) return;
+    focusedScopeRef.current = selectedScopeKey;
+    terminals.focusGridSession(activeTaskId);
+  }, [selectedScopeKey, terminalProject, activeTaskId, terminals]);
+
   const openRequestedSession = useCallback(
     (request: PendingSessionOpen) => {
       void (async () => {
