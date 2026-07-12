@@ -19,6 +19,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as nodeNet from "node:net";
+import * as readline from "node:readline";
 import * as os from "node:os";
 import { spawn, ChildProcess, spawnSync } from "node:child_process";
 import { registerPtyHandlers, killAllPtys } from "./pty-manager";
@@ -178,7 +179,12 @@ const devUrl = process.env.MC_DEV_URL ?? `http://${devServerHost}:${devServerPor
 // HTTP readiness polling: wait up to DEV_SERVER_READY_TIMEOUT_MS for the
 // server to respond, polling every HTTP_POLL_INTERVAL_MS while waiting.
 const DEV_SERVER_READY_TIMEOUT_MS = 30_000;
-const HTTP_POLL_INTERVAL_MS = 200;
+const HTTP_POLL_INTERVAL_MS = 30;
+// The bundled server prints this exact line once its socket is accepting
+// connections (see electron/server-runner.mjs). The parent resolves boot
+// readiness on it instead of waiting for the first HTTP poll tick, and never
+// forwards the line to the app logs.
+const SERVER_LISTENING_SENTINEL = "@@MC_LISTENING@@";
 const GIT_CONFIG_PROBE_TIMEOUT_MS = 2_000;
 const REMOTE_VM_DEPLOY_TIMEOUT_MS = 30 * 60_000;
 const REMOTE_VM_OUTPUT_MAX_CHARS = 80_000;
@@ -1036,7 +1042,7 @@ async function startProductionServer(): Promise<string> {
       ELECTRON_RUN_AS_NODE: "1",
       MC_USER_DATA_DIR: missionControlUserDataDir,
     },
-    stdio: ["ignore", "inherit", "inherit"],
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   // Rejects if the server process dies before it ever answers HTTP, so the
@@ -1064,11 +1070,51 @@ async function startProductionServer(): Promise<string> {
     }
   });
 
+  // Forward the child's stdout/stderr line by line so app logs still surface
+  // (stdio is piped rather than inherited so we can intercept the readiness
+  // sentinel). The sentinel line resolves listeningSignal and is swallowed;
+  // every other line is passed through verbatim.
+  let resolveListening: (() => void) | null = null;
+  const listeningSignal = new Promise<void>((resolve) => {
+    resolveListening = resolve;
+  });
+  const forward = (stream: NodeJS.WritableStream, line: string) => {
+    // Don't write to parent stdio during shutdown — the fd may be gone (EIO).
+    if ((app as any).isQuiting) return;
+    try {
+      stream.write(line + "\n");
+    } catch {
+      /* parent stream closed */
+    }
+  };
+  if (serverProcess.stdout) {
+    readline
+      .createInterface({ input: serverProcess.stdout })
+      .on("line", (line) => {
+        if (line.includes(SERVER_LISTENING_SENTINEL)) {
+          resolveListening?.();
+          return;
+        }
+        forward(process.stdout, line);
+      });
+  }
+  if (serverProcess.stderr) {
+    readline
+      .createInterface({ input: serverProcess.stderr })
+      .on("line", (line) => forward(process.stderr, line));
+  }
+
+  // Ready the moment the socket is listening (sentinel) or the origin answers
+  // HTTP, then confirm the app actually serves with the anonymous health check.
   const httpReady = waitForHttp(origin);
   // If earlyExit wins the race, waitForHttp keeps polling until its own timeout;
   // swallow that late rejection so it can't surface as an unhandled rejection.
   httpReady.catch(() => {});
-  await Promise.race([httpReady, earlyExit]);
+  const ready = Promise.race([listeningSignal, httpReady]).then(() =>
+    waitForHttp(`${origin}/api/healthz`),
+  );
+  ready.catch(() => {});
+  await Promise.race([ready, earlyExit]);
   serverBooted = true;
   return origin;
 }
