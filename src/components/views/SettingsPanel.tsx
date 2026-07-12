@@ -5,6 +5,7 @@ import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { CLOSE_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useHotkey } from "~/lib/use-hotkey";
+import { Z_INDEX } from "~/lib/z-index";
 import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
@@ -124,7 +125,7 @@ export function SettingsPanel({
         left: "var(--mc-workspace-left, 0px)",
         right: "var(--mc-workspace-right, 0px)",
         bottom: "var(--mc-workspace-bottom, 0px)",
-        zIndex: 200,
+        zIndex: Z_INDEX.settings,
         overflow: "hidden",
         background: "transparent",
       }}
