@@ -66,6 +66,34 @@ describe("usage controller", () => {
     });
   });
 
+  it("swallows a slow sync rejection landing after the budget (no unhandledRejection)", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A cold sync that never resolves within the budget, then rejects — the
+    // controller must have kept a rejection handler on it so the late failure
+    // does not surface as an unhandledRejection.
+    let rejectSlow!: (e: unknown) => void;
+    syncMock.mockReturnValueOnce(
+      new Promise<number>((_resolve, reject) => {
+        rejectSlow = reject;
+      }),
+    );
+    const res = await usageController.read(
+      new URL("http://localhost/api/usage?days=30"),
+    );
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      syncing: true,
+    });
+    rejectSlow(new Error("boom"));
+    // Give the attached rejection handler a tick to run.
+    await new Promise((r) => setTimeout(r, 0));
+    process.off("unhandledRejection", onUnhandled);
+    errSpy.mockRestore();
+    expect(unhandled).toEqual([]);
+  });
+
   it("does not sync when sync=0 and reports it is not syncing", async () => {
     const res = await usageController.read(
       new URL("http://localhost/api/usage?days=30&sync=0"),
