@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
@@ -85,6 +86,21 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   );
   const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  // A single floating name label that slides out to the right of the hovered
+  // tile. Kept alive while the pointer sweeps between tiles (only the rail's
+  // own onMouseLeave clears it) so it glides vertically to the newly-hovered
+  // project instead of flickering out and back in.
+  const [hoverLabel, setHoverLabel] = useState<{ name: string; top: number; left: number } | null>(
+    null,
+  );
+  const showHoverLabel = useCallback(
+    (name: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      setHoverLabel({ name, top: rect.top + rect.height / 2, left: rect.right + 10 });
+    },
+    [],
+  );
+  const clearHoverLabel = useCallback(() => setHoverLabel(null), []);
   const [reorderSaving, setReorderSaving] = useState(false);
   const pointerReorderRef = useRef<PointerReorderState | null>(null);
   const cleanupPointerReorderRef = useRef<(() => void) | null>(null);
@@ -206,6 +222,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
     (projectId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
       if (reorderSavingRef.current) return;
       if (event.button !== 0) return;
+      clearHoverLabel();
       cleanupPointerReorder();
       dragOrderRef.current = null;
       setDragOrder(null);
@@ -280,7 +297,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
       window.addEventListener("pointercancel", onPointerCancel);
       cleanupPointerReorderRef.current = cleanupListeners;
     },
-    [cleanupPointerReorder, clearDragState, moveDraggedProject, persistPinnedOrder],
+    [cleanupPointerReorder, clearDragState, clearHoverLabel, moveDraggedProject, persistPinnedOrder],
   );
 
   const movePinnedProjectByKeyboard = useCallback(
@@ -332,6 +349,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
       className="mc-project-rail"
       aria-label="Pinned projects"
       aria-disabled={disabled || undefined}
+      onMouseLeave={clearHoverLabel}
       style={{
         width: BAR_WIDTH,
         flexShrink: 0,
@@ -416,6 +434,10 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
             aria-keyshortcuts="Shift+ArrowUp Shift+ArrowDown"
             onPointerDown={(e) => startPointerReorder(project.id, e)}
             onDragStart={(e) => e.preventDefault()}
+            onMouseEnter={(e) => {
+              if (disabled || draggingProjectId) return;
+              showHoverLabel(project.name, e);
+            }}
             onKeyDown={(e) => {
               if (disabled) return;
               if (!e.shiftKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
@@ -616,6 +638,17 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
         </ContextMenuPopover>
       )}
     </CardFrame>
+    {hoverLabel &&
+      !draggingProjectId &&
+      createPortal(
+        <div
+          className="mc-project-hover-label"
+          style={{ top: hoverLabel.top, left: hoverLabel.left }}
+        >
+          {hoverLabel.name}
+        </div>,
+        document.body,
+      )}
     {editingProject && (
       <ProjectDialog
         open
