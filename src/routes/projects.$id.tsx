@@ -2184,13 +2184,15 @@ function ProjectPage() {
   // sidebar (ProjectBar / ProjectPicker) owns the projects-list refresh, so
   // this route only refetches its own tasks + detail — and ignores task events
   // for other projects entirely.
+  // maxWait bounds staleness under a sustained event storm: without it a
+  // continuous <150ms stream would defer the refetch indefinitely.
   const invalidateThisProjectTasks = useDebouncedCallback(() => {
     void invalidateTasks();
     void invalidateProject();
     // Badge dots on non-selected worktrees come from the worktrees query; fold
     // it into the same debounced burst so it isn't refetched per task event.
     void invalidateWorktrees();
-  }, 150);
+  }, 150, 400);
 
   useServerEvents(
     useCallback(

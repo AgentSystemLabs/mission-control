@@ -142,9 +142,11 @@ function MissionControlPage() {
   // the (heavy) projects list. Coalesce those SSE-driven refreshes into one
   // trailing refetch per 150ms burst. Explicit user actions below still
   // invalidate immediately.
+  // maxWait bounds staleness under a sustained event storm: without it a
+  // continuous <150ms stream would defer the refetch indefinitely.
   const invalidateProjectsDebounced = useDebouncedCallback(() => {
     void invalidateProjects();
-  }, 150);
+  }, 150, 400);
 
   useServerEvents(
     useCallback(
