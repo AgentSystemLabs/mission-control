@@ -34,6 +34,11 @@ export type UsageSummary = {
   lastSyncedAt: number | null;
   /** Number of new usage rows ingested by the request that returned this. */
   ingested: number;
+  /**
+   * True when a background JSONL sync is in flight, so this summary may be
+   * stale/partial. The client polls back while true until it settles false.
+   */
+  syncing: boolean;
 };
 
 export const EMPTY_TOTALS: TokenTotals = {

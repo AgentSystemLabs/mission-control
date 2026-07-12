@@ -239,6 +239,7 @@ export function getUsageSummary(daysBack: number = DEFAULT_USAGE_DAYS): UsageSum
     perSession,
     lastSyncedAt: getTokenUsageLastSyncedAt(),
     ingested: 0,
+    syncing: false,
   };
 }
 
