@@ -142,6 +142,11 @@ function emitProgress(projectId: string, job: IndexJob, force = false): void {
 
 const yieldToLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
+// How many items the commit-region pure-JS loops process between event-loop
+// yields. Small enough to keep per-slice work well under a frame, large enough
+// that the setImmediate overhead stays negligible on big indexes.
+const COMMIT_YIELD_EVERY = 500;
+
 function hashContent(content: string): string {
   return createHash("sha1").update(content).digest("hex");
 }
@@ -311,9 +316,14 @@ async function runBuild(
     }
 
     // Build node rows + a local (relPath → { fileNodeId, symbolIds[] }) map.
+    // The commit region below holds no transaction open across these pure-JS
+    // loops (each repo write owns its own transaction), so we yield to the event
+    // loop periodically to keep /api/* responsive while a large index commits.
     const nodeRows: NewGraphNode[] = [];
     const localFile = new Map<string, { fileNodeId: string; symbolIds: string[] }>();
+    let nodeBuildCount = 0;
     for (const rel of filesToParse) {
+      if (++nodeBuildCount % COMMIT_YIELD_EVERY === 0) await yieldToLoop();
       const got = extractions.get(rel);
       if (!got) continue;
       const { language, extraction } = got;
@@ -366,7 +376,9 @@ async function runBuild(
     }
     const nameToCandidates = new Map<string, Candidate[]>();
     const fileNodeIdByPath = new Map<string, string>();
+    let candidateBuildCount = 0;
     for (const n of listNodeIndex(projectId)) {
+      if (++candidateBuildCount % COMMIT_YIELD_EVERY === 0) await yieldToLoop();
       if (n.kind === "file") {
         fileNodeIdByPath.set(n.filePath, n.id);
       } else {
@@ -424,7 +436,9 @@ async function runBuild(
       });
     };
 
+    let edgeBuildCount = 0;
     for (const rel of filesToParse) {
+      if (++edgeBuildCount % COMMIT_YIELD_EVERY === 0) await yieldToLoop();
       const got = extractions.get(rel);
       const local = localFile.get(rel);
       if (!got || !local) continue;

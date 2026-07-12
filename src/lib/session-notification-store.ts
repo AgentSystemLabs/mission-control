@@ -51,6 +51,11 @@ export const SESSION_NOTIFICATIONS_CHANGED_EVENT =
   "mc:session-notifications-changed";
 
 const NOTIFICATIONS_KEY = "mc:sessionFinishNotifications";
+// Hard cap on the in-app notification list. Every load/merge/persist path funnels
+// through sortNotifications (newest-first), so slicing there keeps the 200 most
+// recent and drops the oldest, bounding localStorage growth. Behavior-preserving
+// for anyone under the cap.
+const MAX_NOTIFICATIONS = 200;
 const PENDING_OPEN_KEY = "mc:pendingSessionOpen";
 const PENDING_DIAGRAM_OPEN_KEY = "mc:pendingDiagramOpen";
 const PENDING_OPEN_MAX_AGE_MS = 5 * 60_000;
@@ -154,9 +159,9 @@ function toPendingOpen(value: unknown): PendingNotificationOpen | null {
 }
 
 function sortNotifications(notifications: AppNotification[]): AppNotification[] {
-  return [...notifications].sort(
-    (a, b) => notificationTimestamp(b) - notificationTimestamp(a),
-  );
+  return [...notifications]
+    .sort((a, b) => notificationTimestamp(b) - notificationTimestamp(a))
+    .slice(0, MAX_NOTIFICATIONS);
 }
 
 export function loadAppNotifications(): AppNotification[] {

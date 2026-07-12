@@ -55,7 +55,20 @@ export function getDb() {
   _sqlite = new Database(dbPath, {
     nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
   });
-  _sqlite.pragma("journal_mode = WAL");
+  const journalMode = _sqlite.pragma("journal_mode = WAL", { simple: true });
+  // WAL + NORMAL is the durable-enough, low-fsync combo SQLite recommends for
+  // app databases: writers only fsync on checkpoint, not per commit, which cuts
+  // disk churn on our frequent small writes. But NORMAL is only crash-safe in
+  // WAL mode — if the WAL pragma failed and SQLite fell back to a rollback
+  // journal (e.g. a filesystem that can't support WAL), NORMAL leaves a small
+  // power-loss corruption window. So only lower synchronous when WAL actually
+  // took; otherwise keep the default (FULL).
+  if (journalMode === "wal") {
+    _sqlite.pragma("synchronous = NORMAL");
+  }
+  // busy_timeout lets a blocked writer wait (up to 5s) for a concurrent
+  // checkpoint/writer instead of throwing SQLITE_BUSY immediately.
+  _sqlite.pragma("busy_timeout = 5000");
   restrictDbFilePermissions(dbPath);
   _sqlite.pragma("foreign_keys = ON");
   _db = drizzle(_sqlite, { schema });
@@ -436,6 +449,13 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
     CREATE INDEX IF NOT EXISTS tasks_archived_idx ON tasks(archived);
     CREATE INDEX IF NOT EXISTS tasks_pinned_idx ON tasks(pinned);
+    -- listProjects() aggregates non-archived task counts with
+    -- WHERE archived = 0 GROUP BY project_id, status. This partial covering
+    -- index lets SQLite satisfy that GROUP BY by scanning the index in
+    -- (project_id, status) order, avoiding a temp B-tree that spilled the 2MB
+    -- page cache to disk at extreme scale (~2.6s -> ~25ms at 750k tasks). It's
+    -- scoped to archived = 0 to stay small and match the query's predicate.
+    CREATE INDEX IF NOT EXISTS tasks_active_project_status_idx ON tasks(project_id, status) WHERE archived = 0;
 
     CREATE TABLE IF NOT EXISTS terminal_logs (
       id TEXT PRIMARY KEY,
@@ -519,6 +539,37 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS token_usage_task_idx ON token_usage(task_id);
     CREATE INDEX IF NOT EXISTS token_usage_project_idx ON token_usage(project_id);
     CREATE INDEX IF NOT EXISTS token_usage_ts_idx ON token_usage(ts);
+    -- Covering indexes so a raw-table aggregate (backfill, or any fallback read)
+    -- can sum straight from the index without touching the heap. The rollup
+    -- below is the primary read path; these keep the raw path from cliffing.
+    CREATE INDEX IF NOT EXISTS token_usage_project_cover_idx
+      ON token_usage(project_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens);
+    CREATE INDEX IF NOT EXISTS token_usage_ts_cover_idx
+      ON token_usage(ts, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens);
+    CREATE INDEX IF NOT EXISTS token_usage_task_ts_cover_idx
+      ON token_usage(task_id, ts, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens);
+
+    -- Pre-aggregated token usage per (project, task, local day). Every summary
+    -- read (totals, per-project, per-session, per-day) sums this instead of
+    -- scanning all of token_usage, turning multi-second aggregates at ~1M rows
+    -- into sub-millisecond ones. Kept in lockstep with token_usage by the ingest
+    -- transaction (only newly-inserted rows are folded in) and by ON DELETE
+    -- CASCADE, which drops rollup rows when a task/project is removed just as it
+    -- drops the raw rows — so the rollup always equals the raw aggregate.
+    CREATE TABLE IF NOT EXISTS token_usage_rollup (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      last_ts INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (project_id, task_id, day)
+    );
+    CREATE INDEX IF NOT EXISTS token_usage_rollup_project_idx ON token_usage_rollup(project_id);
+    CREATE INDEX IF NOT EXISTS token_usage_rollup_task_idx ON token_usage_rollup(task_id);
+    CREATE INDEX IF NOT EXISTS token_usage_rollup_day_idx ON token_usage_rollup(day);
 
     CREATE TABLE IF NOT EXISTS token_usage_session_offsets (
       claude_session_id TEXT PRIMARY KEY,
@@ -655,6 +706,11 @@ function ensureSchema(sqlite: Database.Database) {
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_worktree_scope_idx ON tasks(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_scope_idx ON tasks(scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_pinned_idx ON tasks(pinned);");
+  // findTasksByProjectId filters (project_id, scope_id) and orders by created_at
+  // DESC. Without a composite covering that shape SQLite picks a single-column
+  // index and sorts separately; this lets it satisfy the filter + order in one
+  // index scan.
+  sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_scope_created_idx ON tasks(project_id, scope_id, created_at);");
   ensureColumn(sqlite, "user_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_project_worktree_scope_idx ON user_terminals(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_scope_idx ON user_terminals(scope_id);");
@@ -684,6 +740,50 @@ function ensureSchema(sqlite: Database.Database) {
   // boot. Idempotent + backfills existing rows on the upgrade path. See
   // 0020_project_memory_fts.sql.
   ensureMemoryFts(sqlite);
+
+  // One-time upgrade-path fill of the token-usage rollup from existing raw rows.
+  // Fresh DBs have no token_usage yet (no-op); the ingest transaction keeps it
+  // current from here on.
+  backfillTokenUsageRollup(sqlite);
+}
+
+/**
+ * Populate token_usage_rollup from token_usage once, when the rollup is empty
+ * but raw usage rows already exist (i.e. a DB created before the rollup shipped).
+ * Idempotent: a no-op on fresh DBs and on every subsequent boot. Transactional so
+ * a crash mid-fill leaves the rollup empty and simply retries next boot. Uses the
+ * same local-day expression the ingest upsert and read queries use, so the
+ * aggregate matches the raw table exactly.
+ */
+export function backfillTokenUsageRollup(sqlite: Database.Database): void {
+  const rollupCount = (
+    sqlite.prepare("SELECT count(*) AS n FROM token_usage_rollup").get() as { n: number }
+  ).n;
+  if (rollupCount > 0) return;
+  const rawCount = (
+    sqlite.prepare("SELECT count(*) AS n FROM token_usage").get() as { n: number }
+  ).n;
+  if (rawCount === 0) return;
+  sqlite
+    .transaction(() => {
+      sqlite.exec(`
+        INSERT INTO token_usage_rollup (
+          project_id, task_id, day,
+          input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, last_ts
+        )
+        SELECT
+          project_id,
+          task_id,
+          strftime('%Y-%m-%d', ts / 1000, 'unixepoch', 'localtime') AS day,
+          SUM(input_tokens),
+          SUM(output_tokens),
+          SUM(cache_creation_tokens),
+          SUM(cache_read_tokens),
+          MAX(ts)
+        FROM token_usage
+        GROUP BY project_id, task_id, day;
+      `);
+    })();
 }
 
 /**

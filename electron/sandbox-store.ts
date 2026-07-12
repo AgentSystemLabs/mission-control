@@ -33,6 +33,9 @@ function db(userDataDir: string): Database.Database {
     nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
   });
   d.pragma("journal_mode = WAL");
+  // Wait (up to 5s) for a concurrent checkpoint/writer instead of throwing
+  // SQLITE_BUSY the instant the server process holds the write lock.
+  d.pragma("busy_timeout = 5000");
   restrictDbFilePermissions(dbPath);
   _db = d;
   return d;

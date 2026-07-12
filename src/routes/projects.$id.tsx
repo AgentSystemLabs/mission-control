@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
@@ -22,7 +22,15 @@ import {
 import { AgentUpdateRequiredDialog } from "~/components/views/AgentUpdateRequiredDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
-import { FileEditorDialog } from "~/components/views/FileEditorDialog";
+// FileEditorDialog drags in the CodeMirror stack (~250 KB min / ~470 KB gz with
+// HtmlPreview) that nothing needs until the user opens a file. Split it into an
+// on-demand chunk; it mounts only while open (Modal renders null when closed, so
+// there's no exit animation to preserve). FileFinderDialog is left static so the
+// file-list helpers it shares with the route don't get hoisted into the eager
+// entry when the two dialogs live in separate chunks.
+const FileEditorDialog = lazy(() =>
+  import("~/components/views/FileEditorDialog").then((m) => ({ default: m.FileEditorDialog })),
+);
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
@@ -591,6 +599,44 @@ function ProjectPage() {
   const showPinned = sessionView === "pinned";
   const [pinningTaskIds, setPinningTaskIds] = useState<Set<string>>(() => new Set());
   const pinRequestSeqRef = useRef<Record<string, number>>({});
+  // Stable callback identities for the memoized TaskCard: the real handlers are
+  // defined far below (after this render's early returns), so we forward through
+  // a ref that's refreshed each render. This keeps the props TaskCard sees
+  // referentially stable so a single session update re-renders only its card,
+  // while every click still runs the latest handler closure.
+  const taskCardHandlersRef = useRef<{
+    onToggle: (taskId: string) => void;
+    onArchive: (taskId: string) => void;
+    onRestore: (taskId: string) => void;
+    onDelete: (taskId: string) => void;
+    onTogglePinned: (taskId: string) => Promise<void> | void;
+  }>({
+    onToggle: () => {},
+    onArchive: () => {},
+    onRestore: () => {},
+    onDelete: () => {},
+    onTogglePinned: () => {},
+  });
+  const stableSelectTerminal = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onToggle(taskId),
+    [],
+  );
+  const stableArchiveSession = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onArchive(taskId),
+    [],
+  );
+  const stableRestoreSession = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onRestore(taskId),
+    [],
+  );
+  const stableDeleteTask = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onDelete(taskId),
+    [],
+  );
+  const stableToggleSessionPinned = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onTogglePinned(taskId),
+    [],
+  );
   const [confirmDeleteArchived, setConfirmDeleteArchived] = useState(false);
   const [confirmArchiveAll, setConfirmArchiveAll] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
@@ -2138,10 +2184,15 @@ function ProjectPage() {
   // sidebar (ProjectBar / ProjectPicker) owns the projects-list refresh, so
   // this route only refetches its own tasks + detail — and ignores task events
   // for other projects entirely.
+  // maxWait bounds staleness under a sustained event storm: without it a
+  // continuous <150ms stream would defer the refetch indefinitely.
   const invalidateThisProjectTasks = useDebouncedCallback(() => {
     void invalidateTasks();
     void invalidateProject();
-  }, 150);
+    // Badge dots on non-selected worktrees come from the worktrees query; fold
+    // it into the same debounced burst so it isn't refetched per task event.
+    void invalidateWorktrees();
+  }, 150, 400);
 
   useServerEvents(
     useCallback(
@@ -2150,8 +2201,6 @@ function ProjectPage() {
         if (e.type.startsWith("task:")) {
           if (e.projectId === id) {
             invalidateThisProjectTasks();
-            // Badge dots on non-selected worktrees come from the worktrees query.
-            void invalidateWorktrees();
           }
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
@@ -2541,6 +2590,16 @@ function ProjectPage() {
         toast.error(e instanceof Error ? e.message : "Could not restore session");
       }
     })();
+  };
+
+  // Refresh the stable TaskCard handler wrappers with this render's closures so
+  // the memoized cards always invoke the latest logic without changing identity.
+  taskCardHandlersRef.current = {
+    onToggle: selectTerminal,
+    onArchive: archiveSession,
+    onRestore: restoreSession,
+    onDelete: deleteTask,
+    onTogglePinned: toggleSessionPinned,
   };
 
   const deleteAllArchived = () => {
@@ -3235,14 +3294,14 @@ function ProjectPage() {
             <>
               {pinnedListTasks.length > 0 && (
                 <TaskColumn
-                  key="pinned"
+                  key={`${id}:pinned`}
                   title="Pinned"
                   color="var(--accent)"
                   tasks={pinnedListTasks}
                   activeId={activeId}
-                  onToggle={selectTerminal}
-                  onArchive={archiveSession}
-                  onTogglePinned={toggleSessionPinned}
+                  onToggle={stableSelectTerminal}
+                  onArchive={stableArchiveSession}
+                  onTogglePinned={stableToggleSessionPinned}
                   pinningTaskIds={pinningTaskIds}
                 />
               )}
@@ -3259,7 +3318,7 @@ function ProjectPage() {
                     (tasksByStatus.finished.length === 0 && status === firstArchivedStatus));
                 return (
                 <TaskColumn
-                  key={status}
+                  key={`${id}:${status}`}
                   title={
                     isArchivedTitleRow
                       ? "Archived"
@@ -3268,11 +3327,11 @@ function ProjectPage() {
                   color={STATUS_META[status].color}
                   tasks={tasksByStatus[status]}
                   activeId={activeId}
-                  onToggle={selectTerminal}
-                  onArchive={showArchived ? undefined : archiveSession}
-                  onRestore={showArchived ? restoreSession : undefined}
-                  onDelete={showArchived ? deleteTask : undefined}
-                  onTogglePinned={showArchived ? undefined : toggleSessionPinned}
+                  onToggle={stableSelectTerminal}
+                  onArchive={showArchived ? undefined : stableArchiveSession}
+                  onRestore={showArchived ? stableRestoreSession : undefined}
+                  onDelete={showArchived ? stableDeleteTask : undefined}
+                  onTogglePinned={showArchived ? undefined : stableToggleSessionPinned}
                   pinningTaskIds={showArchived ? undefined : pinningTaskIds}
                   headerAction={
                     showViewActive ? (
@@ -3543,15 +3602,19 @@ function ProjectPage() {
         onPick={(rel) => setOpenFileRel(rel)}
       />
 
-      <FileEditorDialog
-        projectRoot={selectedWorktreePath || project.path}
-        relPath={openFileRel}
-        onClose={() => setOpenFileRel(null)}
-        onBack={() => {
-          setOpenFileRel(null);
-          setFileFinderOpen(true);
-        }}
-      />
+      {openFileRel !== null && (
+        <Suspense fallback={null}>
+          <FileEditorDialog
+            projectRoot={selectedWorktreePath || project.path}
+            relPath={openFileRel}
+            onClose={() => setOpenFileRel(null)}
+            onBack={() => {
+              setOpenFileRel(null);
+              setFileFinderOpen(true);
+            }}
+          />
+        </Suspense>
+      )}
 
       <CreatePullRequestDialog
         state={createPullRequest.dialog}

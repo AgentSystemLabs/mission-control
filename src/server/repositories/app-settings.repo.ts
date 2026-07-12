@@ -1,11 +1,22 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { appSettings } from "~/db/schema";
 
+// Hot path (getBooleanSetting fires on many reads). Hoist the prepared statement
+// once so drizzle/better-sqlite3 skips re-parsing/re-planning per call. Built
+// lazily on first use since getDb() must open the connection first.
+function buildGetAppSettingStmt() {
+  return getDb()
+    .select()
+    .from(appSettings)
+    .where(eq(appSettings.key, sql.placeholder("key")))
+    .prepare();
+}
+let getAppSettingStmt: ReturnType<typeof buildGetAppSettingStmt> | null = null;
+
 export function getAppSetting(key: string): string | null {
-  const db = getDb();
-  const row = db.select().from(appSettings).where(eq(appSettings.key, key)).get();
-  return row?.value ?? null;
+  if (!getAppSettingStmt) getAppSettingStmt = buildGetAppSettingStmt();
+  return getAppSettingStmt.get({ key })?.value ?? null;
 }
 
 export function setAppSetting(key: string, value: string): void {

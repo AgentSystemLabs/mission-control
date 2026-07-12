@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { Icon } from "~/components/ui/Icon";
 import type { GitDiff } from "~/server/services/git";
 
@@ -55,8 +55,31 @@ export function DiffPane({
   return <DiffText patch={diff.patch} />;
 }
 
+// Render the diff in fixed-size chunks, each an off-screen-skippable box via
+// content-visibility. This keeps mount cost and style-recalc flat on huge diffs
+// without virtualization: skipped chunks reserve HEIGHT through
+// contain-intrinsic-height (line count × row height) instead of laying out their
+// rows. Only the height axis is constrained — the shorthand contain-intrinsic-size
+// with a single `auto <length>` pair applies that length to BOTH axes, which
+// pins offscreen chunks to a fixed WIDTH and forces a spurious horizontal
+// scrollbar / scroll-range jitter on long-but-narrow diffs. The longhand leaves
+// width free so it still resolves from content. width:max-content + minWidth:100%
+// is load-bearing — under the paint containment content-visibility applies, a
+// plain block would clip long lines to the container width, so we let each chunk
+// grow to its widest line while still filling the pane. Native text selection and
+// copy span all chunks because the rows remain real DOM inside a single <pre>.
+const DIFF_CHUNK_SIZE = 100;
+const DIFF_LINE_HEIGHT = 18;
+
 function DiffText({ patch }: { patch: string }) {
-  const lines = patch.split("\n");
+  const chunks = useMemo(() => {
+    const lines = patch.split("\n");
+    const result: string[][] = [];
+    for (let i = 0; i < lines.length; i += DIFF_CHUNK_SIZE) {
+      result.push(lines.slice(i, i + DIFF_CHUNK_SIZE));
+    }
+    return result;
+  }, [patch]);
   return (
     <pre
       style={{
@@ -73,21 +96,33 @@ function DiffText({ patch }: { patch: string }) {
         tabSize: 2,
       }}
     >
-      {lines.map((line, i) => {
-        const style = lineStyle(line);
-        return (
-          <div
-            key={i}
-            style={{
-              display: "block",
-              padding: "0 12px",
-              ...style,
-            }}
-          >
-            {line || " "}
-          </div>
-        );
-      })}
+      {chunks.map((chunk, chunkIndex) => (
+        <div
+          key={chunkIndex}
+          style={{
+            contentVisibility: "auto",
+            containIntrinsicHeight: `auto ${chunk.length * DIFF_LINE_HEIGHT}px`,
+            width: "max-content",
+            minWidth: "100%",
+          }}
+        >
+          {chunk.map((line, i) => {
+            const style = lineStyle(line);
+            return (
+              <div
+                key={i}
+                style={{
+                  display: "block",
+                  padding: "0 12px",
+                  ...style,
+                }}
+              >
+                {line || " "}
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </pre>
   );
 }
