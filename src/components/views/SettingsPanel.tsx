@@ -110,7 +110,7 @@ export function SettingsPanel({
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "session", label: "Session buttons", icon: "eye" },
     { id: "theme", label: "Theme", icon: "sun" },
-    { id: "pet", label: "Pet", icon: "sparkles" },
+    { id: "pet", label: "Pet", icon: "pet" },
     { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
