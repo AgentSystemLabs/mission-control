@@ -788,10 +788,17 @@ function ProjectPage() {
       // last-focused cell reported to the store (a header-button click moved
       // focus off the grid).
       const focused = readFocusedGridTaskId() ?? terminals.getGridFocusedTaskId();
+      terminals.setGridView(false);
       if (focused && terminalProject && tasks.some((t) => t.id === focused)) {
         terminals.setActiveSession(terminalProject, focused);
+        // setActiveSession only picks which session docks in normal view; the
+        // cached terminal surface reattaches blurred, so without this the pane
+        // is shown but drops keystrokes until a click. Post the focus request
+        // in the same (batched) update that leaves grid view — SessionGrid is
+        // unmounting so it won't consume the nonce; the now-mounting
+        // TerminalPanel picks it up and retries until the pane settles.
+        terminals.focusGridSession(focused);
       }
-      terminals.setGridView(false);
       // List view no longer has the Active/Pinned/Archived scope toggle — pinned
       // is grid-only, so drop back to the active list when leaving the grid.
       setSessionView((prev) => (prev === "pinned" ? "active" : prev));
