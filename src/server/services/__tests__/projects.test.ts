@@ -14,6 +14,8 @@ const {
   deleteProject,
   updateProject,
   getProjectPathStatus,
+  detectGithubUrl,
+  _resetGithubUrlCache,
 } = await import("../projects");
 const { getDb } = await import("~/db/client");
 const { projects, tasks, groups, appSettings, worktrees, sandboxes } = await import("~/db/schema");
@@ -181,6 +183,44 @@ describe("projects service", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-named-"));
     const c = createProject({ path: dir });
     expect(c.name).toBe(path.basename(dir));
+  });
+
+  it("caches the detected github url and re-reads only when .git/config mtime changes", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-gh-cache-"));
+    fs.mkdirSync(path.join(dir, ".git"));
+    const cfg = path.join(dir, ".git", "config");
+    fs.writeFileSync(cfg, '[remote "origin"]\n\turl = git@github.com:acme/widgets.git\n');
+    // Pin mtime to a whole-second value so the later exact comparison is stable
+    // across filesystem timestamp granularities.
+    const t0 = new Date(Math.floor(Date.now() / 1000) * 1000);
+    fs.utimesSync(cfg, t0, t0);
+    _resetGithubUrlCache();
+
+    expect(detectGithubUrl(dir)).toBe("https://github.com/acme/widgets");
+
+    // Rewrite the remote but restore the original mtime: a cache hit must serve
+    // the old parse without re-reading the file.
+    fs.writeFileSync(cfg, '[remote "origin"]\n\turl = git@github.com:acme/rebranded.git\n');
+    fs.utimesSync(cfg, t0, t0);
+    expect(detectGithubUrl(dir)).toBe("https://github.com/acme/widgets");
+
+    // Advance the mtime: the cache invalidates and the new remote is parsed.
+    const t1 = new Date(t0.getTime() + 5000);
+    fs.utimesSync(cfg, t1, t1);
+    expect(detectGithubUrl(dir)).toBe("https://github.com/acme/rebranded");
+  });
+
+  it("returns null (and caches) when there is no readable .git/config", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-gh-none-"));
+    _resetGithubUrlCache();
+    expect(detectGithubUrl(dir)).toBeNull();
+    // A later-created config with a real mtime must invalidate the null cache.
+    fs.mkdirSync(path.join(dir, ".git"));
+    fs.writeFileSync(
+      path.join(dir, ".git", "config"),
+      '[remote "origin"]\n\turl = https://github.com/acme/later.git\n',
+    );
+    expect(detectGithubUrl(dir)).toBe("https://github.com/acme/later");
   });
 
 });

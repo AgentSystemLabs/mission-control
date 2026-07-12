@@ -103,24 +103,57 @@ export function getProjectPathStatus(
   return pathStatusFor(project.path, "project", null);
 }
 
+function parseGithubUrlFromConfig(text: string): string | null {
+  const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
+  if (!m) return null;
+  const url = m[1].trim();
+  // git@github.com:owner/repo(.git)
+  const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (ssh) return `https://github.com/${ssh[1]}`;
+  // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
+  const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (https) return `https://github.com/${https[1]}`;
+  return null;
+}
+
+// detectGithubUrl runs inside decorate(), which fires for every project on
+// every listProjects(); /api/projects re-lists on each project:*/task:* SSE
+// event, so a burst of agent activity re-read and re-parsed each .git/config
+// many times a minute. Cache the parse per path, keyed by the config file's
+// mtime so an external remote/branch change still refreshes. The statSync
+// itself is cheap and runs every call — only the read + regex is skipped on a
+// hit. `mtimeMs: -1` records a "no config" result (missing file, or a worktree
+// whose .git is a file) so repeated misses don't churn; it invalidates the
+// moment a real config appears with a genuine mtime.
+type GithubUrlCacheEntry = { mtimeMs: number; url: string | null };
+const githubUrlCache = new Map<string, GithubUrlCacheEntry>();
+
+/** Test seam: drop cached github-url detections so a test can force a re-read. */
+export function _resetGithubUrlCache(): void {
+  githubUrlCache.clear();
+}
+
 export function detectGithubUrl(dir: string): string | null {
+  const cfg = path.join(dir, ".git", "config");
+  let mtimeMs: number;
   try {
-    const cfg = path.join(dir, ".git", "config");
-    if (!fs.existsSync(cfg)) return null;
-    const text = fs.readFileSync(cfg, "utf8");
-    const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
-    if (!m) return null;
-    let url = m[1].trim();
-    // git@github.com:owner/repo(.git)
-    const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (ssh) return `https://github.com/${ssh[1]}`;
-    // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
-    const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (https) return `https://github.com/${https[1]}`;
-    return null;
+    mtimeMs = fs.statSync(cfg).mtimeMs;
   } catch {
+    // Missing config, or .git is a file (worktree) — matches the pre-cache
+    // behavior of returning null for anything that isn't a readable config.
+    githubUrlCache.set(dir, { mtimeMs: -1, url: null });
     return null;
   }
+  const cached = githubUrlCache.get(dir);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.url;
+  let url: string | null;
+  try {
+    url = parseGithubUrlFromConfig(fs.readFileSync(cfg, "utf8"));
+  } catch {
+    url = null;
+  }
+  githubUrlCache.set(dir, { mtimeMs, url });
+  return url;
 }
 
 export function detectBranch(dir: string): string {
