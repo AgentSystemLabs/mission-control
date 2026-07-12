@@ -37,6 +37,7 @@ function inputs(overrides: Partial<PetInputs> = {}): PetInputs {
     shippingActive: false,
     startleUntil: 0,
     celebrateUntil: 0,
+    singUntil: 0,
     lastKeyAt: 0,
     lastActivityAt: NOW,
     hiddenSince: null,
@@ -88,6 +89,22 @@ describe("resolvePetMood priority", () => {
     expect(
       resolvePetMood(inputs({ startleUntil: NOW - 1, celebrateUntil: NOW - 1 }), NOW).mood,
     ).toBe("idle");
+  });
+
+  it("a commanded serenade sings over ambient work but yields to nap/startle/alert", () => {
+    // "Pixel, sing" mid-session: agents still running, but the serenade shows.
+    const singing = { singUntil: NOW + 6_000, runningCount: 2, shippingActive: true };
+    expect(resolvePetMood(inputs(singing), NOW).mood).toBe("singing");
+    // Deliberate but not urgent — a real interrupt still wins.
+    expect(resolvePetMood(inputs({ ...singing, needsInputCount: 1 }), NOW).mood).toBe("alert");
+    expect(resolvePetMood(inputs({ ...singing, startleUntil: NOW + 1_000 }), NOW).mood).toBe(
+      "startled",
+    );
+    expect(resolvePetMood(inputs({ ...singing, napUntil: NOW + 60_000 }), NOW).mood).toBe(
+      "sleeping",
+    );
+    // Once the song is over it resolves normally again.
+    expect(resolvePetMood(inputs({ ...singing, singUntil: NOW - 1 }), NOW).mood).toBe("shipping");
   });
 
   it("working intensity scales with running count", () => {

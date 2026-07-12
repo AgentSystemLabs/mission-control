@@ -36,7 +36,7 @@ type EyeKind = "open" | "wide" | "closed" | "happy";
 
 function eyeKindFor(mood: PetMood): EyeKind {
   if (mood === "sleeping") return "closed";
-  if (mood === "celebrating") return "happy";
+  if (mood === "celebrating" || mood === "singing") return "happy";
   if (mood === "alert" || mood === "startled") return "wide";
   return "open";
 }
@@ -86,6 +86,9 @@ function Mouth({ mood, y }: { mood: PetMood; y: number }) {
       return <path className="mc-pet-mouth" d={`M 43 ${y - 2} Q 50 ${y + 7} 57 ${y - 2}`} />;
     case "alert":
       return <ellipse className="mc-pet-mouth-o" cx={50} cy={y + 1} rx={3} ry={3.6} />;
+    case "singing":
+      // Mouth open mid-note — a taller oval than the alert "o".
+      return <ellipse className="mc-pet-mouth-o mc-pet-mouth-sing" cx={50} cy={y + 1} rx={3.2} ry={4.6} />;
     case "startled":
       return (
         <path
@@ -152,6 +155,40 @@ function MoodProps({ mood, intensity }: { mood: PetMood; intensity: 1 | 2 | 3 })
           <line x1="90" y1="14" x2="90" y2="26" />
           <circle cx="90" cy="33" r="1.9" />
         </g>
+      ) : null}
+      {mood === "singing" ? (
+        <>
+          {/* A little acoustic guitar cradled across the belly, held at a jaunty
+              angle; CSS strums it. Drawn last so it sits over body and arms. */}
+          <g className="mc-pet-guitar">
+            <ellipse className="mc-pet-guitar-body" cx="62" cy="74" rx="13.5" ry="10.5" />
+            <ellipse className="mc-pet-guitar-waist" cx="62" cy="74" rx="8.5" ry="9.5" />
+            <circle className="mc-pet-guitar-hole" cx="62" cy="74" r="3.2" />
+            <line className="mc-pet-guitar-bridge" x1="66" y1="80" x2="72" y2="76" />
+            <line className="mc-pet-guitar-neck" x1="54" y1="68" x2="30" y2="51" />
+            <rect
+              className="mc-pet-guitar-head"
+              x="24"
+              y="46"
+              width="7"
+              height="9"
+              rx="1.6"
+              transform="rotate(-35 27.5 50.5)"
+            />
+          </g>
+          {/* Music notes drifting up and away; CSS floats and fades each. */}
+          <g className="mc-pet-notes">
+            <text x="78" y="34" className="mc-pet-note-glyph">
+              ♪
+            </text>
+            <text x="88" y="22" className="mc-pet-note-glyph mc-pet-note-glyph-2">
+              ♫
+            </text>
+            <text x="72" y="16" className="mc-pet-note-glyph mc-pet-note-glyph-3">
+              ♪
+            </text>
+          </g>
+        </>
       ) : null}
     </>
   );
