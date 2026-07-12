@@ -173,7 +173,11 @@ import {
 import type { Group, Project, Task, TaskStatus } from "~/db/schema";
 import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
-import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
+import {
+  MAIN_WORKTREE_ID,
+  OPTIMISTIC_WORKTREE_ID_PREFIX,
+  worktreeScopeKey,
+} from "~/shared/worktrees";
 import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 import { scopeKeyForProject } from "~/lib/scoped-project";
 import {
@@ -245,18 +249,12 @@ type ProjectPathCheck =
   | { state: "invalid"; status: Extract<ProjectPathStatus, { ok: false }> }
   | { state: "error"; message: string };
 
-const OPTIMISTIC_WORKTREE_ID_PREFIX = "wt-optimistic-";
-
 function isCurrentPathIssue(
   status: Extract<ProjectPathStatus, { ok: false }>,
   selectedWorktreeId: string | null,
 ): boolean {
   if (status.scope === "project") return selectedWorktreeId === null;
   return status.worktreeId === selectedWorktreeId;
-}
-
-function isOptimisticWorktree(worktree: WorktreeInfo): boolean {
-  return worktree.id.startsWith(OPTIMISTIC_WORKTREE_ID_PREFIX);
 }
 
 function launchUrlPort(raw: string | null): number[] {
@@ -4173,247 +4171,125 @@ function WorktreeToggleGroup({
   createWorktreeTitle?: string;
   maxWidth?: number | string;
 }) {
-  const items = worktrees.length > 0 ? worktrees : [];
-  const selectableItems = items.filter((worktree) => !isOptimisticWorktree(worktree));
-  if (items.length === 0) return null;
+  if (worktrees.length === 0) return null;
+  // The old pill strip is gone: one branch/worktree control now switches
+  // worktree *or* checks out a branch (worktrees are folded into its dropdown),
+  // so we render the controls for whichever worktree is currently selected.
+  const selectedWorktree =
+    worktrees.find((worktree) => worktree.id === selectedId) ??
+    worktrees.find((worktree) => worktree.isMain) ??
+    worktrees[0]!;
+  const selectedIsMain = selectedWorktree.isMain;
+  const selectedScopeKey = worktreeScopeKey(
+    projectId,
+    selectedIsMain ? null : selectedWorktree.id,
+  );
+  const selectedRunning = [...runningKeys].some(
+    (key) => key === selectedScopeKey || key.startsWith(`${selectedScopeKey}:`),
+  );
+  const branchLabel = selectedIsMain ? mainBranchLabel : selectedWorktree.branch;
+  // Sync stays main-only: behindCount is the main worktree's upstream delta.
+  const showSync = selectedIsMain && (behindCount ?? 0) > 0 && !!onSync;
+  // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read as two
+  // distinct controls with hierarchy, not one welded segment.
+  const shipControls = (
+    <>
+      <ProjectGitStatusButton
+        changedCount={changedCount}
+        onClick={onToggleDiffView}
+        disabled={shipDisabled}
+      />
+      <CommitPushButton
+        size="md"
+        variant={changedCount === 0 ? "gray-frame" : "primary"}
+        enabled={shipEnabled}
+        onShip={onShip}
+      />
+    </>
+  );
   return (
     <div
-      role="radiogroup"
-      aria-label="Project worktrees"
+      role="group"
+      aria-label="Worktree, branch, and ship controls"
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 4,
+        gap: 8,
         maxWidth,
-        overflowX: "auto",
-        overflowY: "visible",
-        // Horizontal scrollers clip vertical overflow, so the badge dots need
-        // to live inside the scrollport instead of relying on z-index.
+        minWidth: 0,
+        // Single compact control now (no horizontal strip), so keep overflow
+        // visible for the badge dots that sit above the branch button.
+        overflow: "visible",
         padding: "7px 2px",
         flexShrink: 1,
       }}
     >
-      {items.map((worktree) => {
-        const selected = worktree.id === selectedId;
-        const optimistic = isOptimisticWorktree(worktree);
-        const worktreeKey = worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id);
-        const running = [...runningKeys].some(
-          (key) => key === worktreeKey || key.startsWith(`${worktreeKey}:`),
-        );
-        const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
-        const label = worktree.isMain ? "main" : worktree.name;
-        // Fused split-button: the branch selector welds to a trailing Sync half
-        // (drops the shared edge) only when the branch is behind its upstream.
-        const showSync = (behindCount ?? 0) > 0 && !!onSync;
-        // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read
-        // as two distinct controls with hierarchy, not one welded segment.
-        const shipControls = () => (
-          <>
-            <ProjectGitStatusButton
-              changedCount={changedCount}
-              onClick={onToggleDiffView}
-              disabled={shipDisabled}
-            />
-            <CommitPushButton
-              size="md"
-              variant={changedCount === 0 ? "gray-frame" : "primary"}
-              enabled={shipEnabled}
-              onShip={onShip}
-            />
-          </>
-        );
-        return (
-          worktree.isMain && selected ? (
-            <div
-              key={worktree.id}
-              role="none"
-              style={{
-                position: "relative",
-                display: "inline-flex",
-                alignItems: "center",
-                flexShrink: 0,
-              }}
-            >
-              <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
-              <div
-                role="group"
-                aria-label="Branch, sync, review changes, and ship"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  minWidth: 0,
-                }}
-              >
-                {mainBranchUnavailable ? (
-                  <Btn
-                    variant="ghost"
-                    icon="git-branch"
-                    disabled
-                    title={mainBranchUnavailableTitle ?? "Git unavailable"}
-                    style={{
-                      fontFamily: "var(--mono)",
-                      maxWidth: "min(36ch, 42vw)",
-                      color: "var(--text-dim)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      No Git repo
-                    </span>
-                  </Btn>
-                ) : (
-                  // Zero-gap wrapper so the branch selector and Sync half touch
-                  // (welded split-button) while the pair keeps the group's 8px
-                  // gap from the Changes/Ship controls.
-                  <div style={{ display: "inline-flex", alignItems: "center", minWidth: 0 }}>
-                    <BranchTypeahead
-                      projectId={projectId}
-                      worktreeId={null}
-                      branch={mainBranchLabel}
-                      disabled={branchSwitchDisabled}
-                      worktreePath={worktree.path}
-                      attachedTrailing={showSync}
-                      onCreateWorktree={onCreateWorktree}
-                      createWorktreeDisabled={createWorktreeDisabled}
-                      createWorktreeTitle={createWorktreeTitle}
-                    />
-                    {showSync && onSync && (
-                      <SyncButton
-                        behindCount={behindCount ?? 0}
-                        attachedLeading
-                        enabled={syncEnabled}
-                        onSync={onSync}
-                      />
-                    )}
-                  </div>
-                )}
-                {shipControls()}
-              </div>
-            </div>
-          ) : (
-          <div
-            key={worktree.id}
-            role="none"
+      {selectedIsMain && mainBranchUnavailable ? (
+        <Btn
+          variant="ghost"
+          icon="git-branch"
+          disabled
+          title={mainBranchUnavailableTitle ?? "Git unavailable"}
+          style={{
+            fontFamily: "var(--mono)",
+            maxWidth: "min(36ch, 42vw)",
+            color: "var(--text-dim)",
+          }}
+        >
+          <span
             style={{
-              position: "relative",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: selected ? 2 : 0,
-              height: 28,
-              flexShrink: 0,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
-            <div
-              style={{
-                position: "relative",
-                display: "inline-flex",
-                alignItems: "center",
-                height: 28,
-                borderRadius: 999,
-                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                background: selected ? "var(--accent-faint)" : "var(--surface-0)",
-                color: selected ? "var(--accent)" : "var(--text-dim)",
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-            <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
-            <button
-              type="button"
-              role="radio"
-              disabled={optimistic}
-              onClick={() => onSelect(worktree.id)}
-              onKeyDown={(event) => {
-                if (optimistic) return;
-                if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;
-                event.preventDefault();
-                const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-                const currentIndex = selectableItems.findIndex((item) => item.id === worktree.id);
-                const next = selectableItems[
-                  (currentIndex + direction + selectableItems.length) % selectableItems.length
-                ];
-                if (next) onSelect(next.id);
-              }}
-              aria-label={`Switch to worktree ${worktree.isMain ? label : worktree.name}`}
-              aria-checked={selected}
-              tabIndex={selected ? 0 : -1}
-              title={
-                optimistic
-                  ? "Creating worktree..."
-                  : worktree.isMain
-                    ? `${worktree.path}${mainBranchLabel ? ` · branch ${mainBranchLabel}` : ""}`
-                    : worktree.path
-              }
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                height: "100%",
-                padding: canDelete ? "0 8px 0 10px" : "0 10px",
-                border: 0,
-                borderRadius: canDelete ? "999px 0 0 999px" : 999,
-                background: "transparent",
-                color: "inherit",
-                font: "inherit",
-                whiteSpace: "nowrap",
-                cursor: optimistic ? "default" : "pointer",
-                opacity: optimistic ? 0.68 : 1,
-              }}
-            >
-              {label}
-            </button>
-            {canDelete && (
-              <button
-                type="button"
-                onClick={() => onDeleteSelected?.(worktree)}
-                aria-label={`Delete worktree ${worktree.name}`}
-                title={`Delete worktree ${worktree.name}`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 24,
-                  alignSelf: "stretch",
-                  padding: 0,
-                  border: 0,
-                  borderLeft: "1px solid color-mix(in srgb, currentColor 22%, transparent)",
-                  borderRadius: "0 999px 999px 0",
-                  background: "transparent",
-                  color: "inherit",
-                  cursor: "pointer",
-                  opacity: 0.78,
-                }}
-              >
-                <Icon name="trash" size={10} />
-              </button>
-            )}
-            </div>
-            {selected && !worktree.isMain && !optimistic && (
-              <div
-                role="group"
-                aria-label="Review changes and ship"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  minWidth: 0,
-                }}
-              >
-                {shipControls()}
-              </div>
-            )}
-          </div>
-          )
-        );
-      })}
+            No Git repo
+          </span>
+        </Btn>
+      ) : (
+        // Zero-gap wrapper so the branch selector and Sync half touch (welded
+        // split-button); badge dots sit above it via the relative parent.
+        <div
+          style={{
+            position: "relative",
+            display: "inline-flex",
+            alignItems: "center",
+            minWidth: 0,
+          }}
+        >
+          <WorktreeBadgeDots
+            launchRunning={selectedRunning}
+            taskCounts={selectedWorktree.taskCounts}
+          />
+          <BranchTypeahead
+            projectId={projectId}
+            worktreeId={selectedIsMain ? null : selectedWorktree.id}
+            branch={branchLabel}
+            disabled={branchSwitchDisabled}
+            worktreePath={selectedWorktree.path}
+            selected={!selectedIsMain}
+            attachedTrailing={showSync}
+            onCreateWorktree={onCreateWorktree}
+            createWorktreeDisabled={createWorktreeDisabled}
+            createWorktreeTitle={createWorktreeTitle}
+            worktrees={worktrees}
+            selectedWorktreeId={selectedWorktree.id}
+            onSelectWorktree={onSelect}
+            onDeleteWorktree={onDeleteSelected}
+            runningKeys={runningKeys}
+          />
+          {showSync && onSync && (
+            <SyncButton
+              behindCount={behindCount ?? 0}
+              attachedLeading
+              enabled={syncEnabled}
+              onSync={onSync}
+            />
+          )}
+        </div>
+      )}
+      {shipControls}
     </div>
   );
 }
