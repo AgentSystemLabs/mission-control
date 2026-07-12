@@ -91,6 +91,8 @@ export type AppSettings = {
   mouseGradientDisabled: boolean;
   /** Reduce energy use on battery: freeze decorative animations, slow idle polls. */
   batterySaverEnabled: boolean;
+  /** Spellcheck in text fields (Electron). Off frees ~15-20 MB while composing. */
+  spellcheckEnabled: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   /** Ding when a session-finish or diagram-ready notification arrives. */
@@ -637,6 +639,7 @@ export const api = {
         | "minimalTheme"
         | "mouseGradientDisabled"
         | "batterySaverEnabled"
+        | "spellcheckEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"

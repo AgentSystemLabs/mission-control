@@ -664,6 +664,34 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps spellcheck enabled by default", async () => {
+    const response = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await jsonBody(response!)).toMatchObject({
+      spellcheckEnabled: true,
+    });
+  });
+
+  it("persists the spellcheck preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ spellcheckEnabled: false }),
+      }),
+    );
+    const read = await handleApiRequest(
+      authedRequest("http://localhost/api/settings"),
+    );
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ spellcheckEnabled: false });
+    expect(await jsonBody(read!)).toMatchObject({ spellcheckEnabled: false });
+  });
+
   it("keeps worktrees enabled (always on)", async () => {
     const response = await handleApiRequest(
       authedRequest("http://localhost/api/settings"),

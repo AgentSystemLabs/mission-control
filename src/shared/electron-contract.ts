@@ -397,6 +397,10 @@ export type ElectronBridge = {
     /** Report the combined battery-saver state (battery × setting) to main. */
     setSaverActive: (active: boolean) => Promise<boolean>;
   };
+  spellcheck: {
+    /** Toggle the Electron session spellchecker at runtime (frees memory when off). */
+    setEnabled: (enabled: boolean) => Promise<boolean>;
+  };
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) => () => void;
   onCloseIntent: (cb: () => void) => () => void;
   /** Focused Session Mode: transform the main window into a small floating session card. */

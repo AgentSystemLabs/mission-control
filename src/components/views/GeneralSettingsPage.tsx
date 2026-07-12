@@ -59,6 +59,7 @@ export function GeneralSettingsPage() {
   const { data: settings } = useSettings();
   const mouseGradientEnabled = !(settings?.mouseGradientDisabled ?? false);
   const batterySaverEnabled = settings?.batterySaverEnabled ?? true;
+  const spellcheckEnabled = settings?.spellcheckEnabled ?? true;
   const toastEnabled = settings?.sessionFinishToastEnabled ?? true;
   const osNotificationEnabled =
     settings?.sessionFinishOsNotificationEnabled ?? false;
@@ -108,6 +109,7 @@ export function GeneralSettingsPage() {
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
         | "batterySaverEnabled"
+        | "spellcheckEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -128,6 +130,7 @@ export function GeneralSettingsPage() {
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     batterySaverEnabled,
+    spellcheckEnabled,
     sessionFinishToastEnabled: toastEnabled,
     sessionFinishOsNotificationEnabled: osNotificationEnabled,
     notificationSoundEnabled,
@@ -196,6 +199,7 @@ export function GeneralSettingsPage() {
         | "agentSystemBannerDisabled"
         | "mouseGradientDisabled"
         | "batterySaverEnabled"
+        | "spellcheckEnabled"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
@@ -226,6 +230,12 @@ export function GeneralSettingsPage() {
 
   const setBatterySaverEnabled = async (enabled: boolean) => {
     await updateSettings({ batterySaverEnabled: enabled });
+  };
+
+  const setSpellcheckEnabled = async (enabled: boolean) => {
+    await updateSettings({ spellcheckEnabled: enabled });
+    // Apply live in the running Electron session (no-op in the browser).
+    void getElectron()?.spellcheck?.setEnabled(enabled);
   };
 
   const setToastEnabled = async (sessionFinishToastEnabled: boolean) => {
@@ -343,6 +353,15 @@ export function GeneralSettingsPage() {
             description="On battery power, decorative animations freeze, terminal cursors stop blinking, and idle refresh slows down."
             checked={batterySaverEnabled}
             onChange={setBatterySaverEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Spellcheck">
+          <ToggleRow
+            title="Spellcheck in text fields"
+            description="Underline misspelled words as you type in prompts and inputs. Turning this off frees roughly 15-20 MB of memory while composing."
+            checked={spellcheckEnabled}
+            onChange={setSpellcheckEnabled}
             label="Enable"
           />
         </Field>

@@ -58,7 +58,7 @@ import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
 import { checkAgentCliVersionCached } from "./agent-cli-version";
 import { runAgentCliUpdate } from "./agent-cli-update";
 import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
-import { disposeAppSettingsStore } from "./app-settings-store";
+import { disposeAppSettingsStore, getBooleanAppSetting } from "./app-settings-store";
 import { getBinding, matchElectronInput } from "./keybindings-reader";
 import { resolveProductionServerEntry } from "./production-server-entry";
 import {
@@ -1866,6 +1866,11 @@ app.whenReady().then(() => {
   // so it must be configured before any window can issue an IPC call.
   configureProjectRootsDb(missionControlUserDataDir);
   configurePermissionHandlers();
+  // Honor the persisted spellcheck preference before the first window paints.
+  // Default on — only disable when the user has explicitly opted out.
+  if (!getBooleanAppSetting(missionControlUserDataDir, "spellcheck_enabled", true)) {
+    session.defaultSession.setSpellCheckerEnabled(false);
+  }
   // Battery signal for the renderer's power-save mode (src/lib/power-save.ts).
   // powerMonitor is only usable after 'ready'.
   safeHandle(IPC.powerGetOnBattery, () => powerMonitor.isOnBatteryPower());
@@ -1879,6 +1884,11 @@ app.whenReady().then(() => {
   // state back so the PTY output pump can slow non-interactive terminals.
   safeHandle(IPC.powerSetSaverActive, (_evt, active: boolean) => {
     setPtyStreamPowerSave(active === true);
+    return true;
+  });
+  // Renderer owns the spellcheck setting; apply it live to the shared session.
+  safeHandle(IPC.spellcheckSetEnabled, (_evt, enabled: unknown) => {
+    session.defaultSession.setSpellCheckerEnabled(enabled === true);
     return true;
   });
   registerProjectImageProtocol();
