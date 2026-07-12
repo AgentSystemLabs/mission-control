@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
@@ -36,7 +36,10 @@ type PointerReorderState = {
   moved: boolean;
 };
 
-export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
+// Memoized: the shell re-renders on route/settings changes, but ProjectBar's
+// only prop is a stable boolean — it should re-render only when `disabled`
+// flips or its own query subscriptions move, never just because the shell did.
+export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disabled?: boolean }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: projects } = useScopedProjects();
@@ -630,4 +633,4 @@ export function ProjectBar({ disabled = false }: { disabled?: boolean }) {
     )}
     </>
   );
-}
+});

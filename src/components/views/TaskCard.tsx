@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { ShimmerBar } from "~/components/ui/ShimmerBar";
 import { Btn } from "~/components/ui/Btn";
@@ -13,16 +13,7 @@ import { formatRelativeTime } from "~/lib/format-relative-time";
 import { DEFAULT_SESSION_ICON, isSessionIcon } from "~/lib/session-icons";
 import type { Task } from "~/db/schema";
 
-export function TaskCard({
-  task,
-  selected,
-  onToggle,
-  onArchive,
-  onRestore,
-  onDelete,
-  onTogglePinned,
-  pinning = false,
-}: {
+type TaskCardProps = {
   task: Task;
   selected: boolean;
   onToggle: (taskId: string) => void;
@@ -36,7 +27,18 @@ export function TaskCard({
   onTogglePinned?: (taskId: string) => Promise<void> | void;
   /** True while the pin/unpin mutation for this session is saving. */
   pinning?: boolean;
-}) {
+};
+
+function TaskCardImpl({
+  task,
+  selected,
+  onToggle,
+  onArchive,
+  onRestore,
+  onDelete,
+  onTogglePinned,
+  pinning = false,
+}: TaskCardProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -436,3 +438,35 @@ export function TaskCard({
     </CardFrame>
   );
 }
+
+// A Task is a flat DB row (all scalar columns), so a per-field shallow compare
+// equals a deep compare — and lets an unchanged session skip re-rendering even
+// when react-query hands back a freshly-parsed object on refetch.
+function taskFieldsEqual(a: Task, b: Task): boolean {
+  if (a === b) return true;
+  const keys = Object.keys(a) as (keyof Task)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const k of keys) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+/**
+ * Memoized so a single session's update (one of potentially thousands of cards)
+ * re-renders only that card, not the whole column. Relies on the parent passing
+ * stable callback identities; task equality is compared by value above so it
+ * survives react-query returning new row objects each refetch.
+ */
+export const TaskCard = memo(
+  TaskCardImpl,
+  (prev, next) =>
+    prev.selected === next.selected &&
+    prev.pinning === next.pinning &&
+    prev.onToggle === next.onToggle &&
+    prev.onArchive === next.onArchive &&
+    prev.onRestore === next.onRestore &&
+    prev.onDelete === next.onDelete &&
+    prev.onTogglePinned === next.onTogglePinned &&
+    taskFieldsEqual(prev.task, next.task),
+);

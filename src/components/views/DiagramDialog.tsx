@@ -274,19 +274,21 @@ export function DiagramDialog({
     let cancelled = false;
     setRenderState({ status: "loading" });
 
+    const diagramId = `mc-diagram-${payload.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
     void (async () => {
       try {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize(buildMermaidInitConfig(colorScheme));
 
-        const { svg, bindFunctions } = await mermaid.render(
-          `mc-diagram-${payload.id.replace(/[^a-zA-Z0-9_-]/g, "")}`,
-          payload.source,
-        );
+        const { svg, bindFunctions } = await mermaid.render(diagramId, payload.source);
         if (!cancelled) {
           setRenderState({ status: "ready", svg, bindFunctions });
         }
       } catch (err) {
+        // A failed mermaid.render throws before it can remove the temporary
+        // measuring container it appends to document.body (id `d<renderId>`),
+        // so it accumulates one orphan node per failed/retried render. Remove it.
+        document.getElementById(`d${diagramId}`)?.remove();
         const message = err instanceof Error ? err.message : "Failed to render diagram";
         if (!cancelled) setRenderState({ status: "error", message });
       }
@@ -499,7 +501,6 @@ export function DiagramDialog({
             {renderState.status === "ready" && (
               <div
                 // Mermaid emits trusted SVG for the diagram source we control.
-                // eslint-disable-next-line react/no-danger
                 dangerouslySetInnerHTML={{ __html: renderState.svg }}
                 style={{
                   pointerEvents: "none",

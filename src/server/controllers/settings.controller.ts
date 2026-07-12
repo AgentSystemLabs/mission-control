@@ -178,6 +178,7 @@ const updateSettingsBody = z
     surfaceTint: z.string().refine(isSurfaceTint, { message: "invalid surfaceTint" }),
     mouseGradientDisabled: z.boolean(),
     batterySaverEnabled: z.boolean(),
+    spellcheckEnabled: z.boolean(),
     sessionFinishToastEnabled: z.boolean(),
     sessionFinishOsNotificationEnabled: z.boolean(),
     notificationSoundEnabled: z.boolean(),
@@ -455,6 +456,9 @@ function settingsPayload() {
     // On battery, the renderer freezes decorative animations and slows idle
     // polls (see src/lib/power-save.ts). Default on.
     batterySaverEnabled: getBooleanSetting("battery_saver_enabled", true),
+    // Default on: turning spellcheck off frees the Electron spellchecker's
+    // dictionary + suggestion memory (~15-20 MB) while composing.
+    spellcheckEnabled: getBooleanSetting("spellcheck_enabled", true),
     sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
       "session_finish_os_notification_enabled",
@@ -593,6 +597,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.batterySaverEnabled !== undefined) {
     setBooleanSetting("battery_saver_enabled", body.batterySaverEnabled);
+  }
+  if (body.spellcheckEnabled !== undefined) {
+    setBooleanSetting("spellcheck_enabled", body.spellcheckEnabled);
   }
   if (body.sessionFinishToastEnabled !== undefined) {
     setBooleanSetting("session_finish_toast_enabled", body.sessionFinishToastEnabled);

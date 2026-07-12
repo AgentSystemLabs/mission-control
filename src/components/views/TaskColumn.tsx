@@ -1,6 +1,14 @@
 import type React from "react";
+import { useState } from "react";
 import type { Task } from "~/db/schema";
+import { Btn } from "~/components/ui/Btn";
 import { TaskCard } from "./TaskCard";
+
+// Cap the number of cards a single column mounts at once. No virtualization
+// library is a dependency, so this cheap window keeps the DOM (and layout cost)
+// bounded on pathologically large columns; a "Show all" control reveals the
+// rest. Columns under the cap are unaffected.
+const WINDOW_SIZE = 200;
 
 export function TaskColumn({
   title,
@@ -27,7 +35,25 @@ export function TaskColumn({
   pinningTaskIds?: ReadonlySet<string>;
   headerAction?: React.ReactNode;
 }) {
+  const [showAll, setShowAll] = useState(false);
   if (tasks.length === 0) return null;
+
+  // Always keep the selected session mounted even if it sorts past the window,
+  // so windowing never hides the card the user is currently focused on. When
+  // the active card sorts past the window we append just that one card rather
+  // than unwindowing the whole column, keeping the mounted count bounded at
+  // WINDOW_SIZE + 1.
+  const windowedTasks = tasks.slice(0, WINDOW_SIZE);
+  const activeIndex =
+    activeId != null ? tasks.findIndex((t) => t.id === activeId) : -1;
+  const activeBeyondWindow = activeIndex >= WINDOW_SIZE;
+  const visibleTasks = showAll
+    ? tasks
+    : activeBeyondWindow
+      ? [...windowedTasks, tasks[activeIndex]]
+      : windowedTasks;
+
+  const hiddenCount = tasks.length - visibleTasks.length;
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
@@ -71,7 +97,7 @@ export function TaskColumn({
           gap: 12,
         }}
       >
-        {tasks.map((t) => (
+        {visibleTasks.map((t) => (
           <TaskCard
             key={t.id}
             task={t}
@@ -85,6 +111,13 @@ export function TaskColumn({
           />
         ))}
       </div>
+      {hiddenCount > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <Btn variant="ghost" onClick={() => setShowAll(true)}>
+            Show all {tasks.length}
+          </Btn>
+        </div>
+      )}
     </div>
   );
 }

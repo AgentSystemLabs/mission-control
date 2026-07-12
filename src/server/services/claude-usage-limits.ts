@@ -48,6 +48,9 @@ type CacheEntry = { value: ClaudeUsageLimits; expiresAt: number };
 let cache: CacheEntry | null = null;
 let inflight: Promise<ClaudeUsageLimits> | null = null;
 let consecutiveRateLimits = 0;
+// Last time we stat()'d the shared file. Used to throttle the fs check to at
+// most once per FILE_SERVE_TTL_MS while a fresh (non-rate-limited) cache serves.
+let lastFileStatAt = 0;
 let sharedLimitsFile = SHARED_LIMITS_FILE;
 
 // Indirection so tests can inject a token without touching the Keychain / fs.
@@ -306,6 +309,22 @@ async function fetchFromApi(): Promise<FetchResult> {
  */
 export function getClaudeUsageLimits(): Promise<ClaudeUsageLimits> {
   const now = Date.now();
+  // Throttle the fs stat: when we already hold a FRESH, NON-rate-limited cache
+  // entry and consulted the shared file within FILE_SERVE_TTL_MS, serve the
+  // cache without touching the filesystem — the tap file only needs re-reading
+  // that often. A rate_limited entry is deliberately excluded so a freshly
+  // written tap file can still win and recover the indicator immediately; once
+  // the window elapses (or the cache goes stale) the file is consulted again.
+  if (
+    cache &&
+    cache.expiresAt > now &&
+    cache.value.status !== "rate_limited" &&
+    now - lastFileStatAt < FILE_SERVE_TTL_MS
+  ) {
+    return Promise.resolve(cache.value);
+  }
+
+  lastFileStatAt = now;
   const fromFile = readSharedLimitsSnapshot(now);
   // A fresh statusline tap must win over a rate-limited endpoint snapshot even
   // when its mtime is a few ms behind the 429 response timestamp.
@@ -339,6 +358,7 @@ export function _resetClaudeUsageLimitsCache(): void {
   cache = null;
   inflight = null;
   consecutiveRateLimits = 0;
+  lastFileStatAt = 0;
 }
 
 /** Test seam: override the token reader (pass null to restore the real one). */

@@ -1,22 +1,6 @@
-import { eq, gte, sql } from "drizzle-orm";
 import { getDb, getSqlite } from "~/db/client";
-import {
-  projects,
-  tasks,
-  tokenUsage,
-  tokenUsageSessionOffsets,
-} from "~/db/schema";
-
-const sumCols = {
-  inputTokens: sql<number>`COALESCE(SUM(${tokenUsage.inputTokens}), 0)`.as("input_tokens"),
-  outputTokens: sql<number>`COALESCE(SUM(${tokenUsage.outputTokens}), 0)`.as("output_tokens"),
-  cacheCreationTokens: sql<number>`COALESCE(SUM(${tokenUsage.cacheCreationTokens}), 0)`.as(
-    "cache_creation_tokens"
-  ),
-  cacheReadTokens: sql<number>`COALESCE(SUM(${tokenUsage.cacheReadTokens}), 0)`.as(
-    "cache_read_tokens"
-  ),
-};
+import { tokenUsageSessionOffsets } from "~/db/schema";
+import { PER_SESSION_LIMIT } from "~/shared/token-usage";
 
 export type TotalsRow = {
   inputTokens: number;
@@ -25,8 +9,22 @@ export type TotalsRow = {
   cacheReadTokens: number;
 };
 
+// Every summary read below aggregates token_usage_rollup (pre-summed per
+// project/task/local-day) rather than scanning token_usage, which keeps these
+// sub-millisecond even at ~1M raw rows. The rollup is kept equal to the raw
+// table by the ingest transaction and ON DELETE CASCADE (see ensureSchema).
+
 export function selectTotals(): TotalsRow | null {
-  const row = getDb().select(sumCols).from(tokenUsage).get();
+  const row = getSqlite()
+    .prepare(
+      `SELECT
+         COALESCE(SUM(input_tokens), 0) AS inputTokens,
+         COALESCE(SUM(output_tokens), 0) AS outputTokens,
+         COALESCE(SUM(cache_creation_tokens), 0) AS cacheCreationTokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS cacheReadTokens
+       FROM token_usage_rollup`,
+    )
+    .get() as TotalsRow | undefined;
   if (!row) return null;
   return {
     inputTokens: Number(row.inputTokens) || 0,
@@ -44,18 +42,22 @@ export type PerProjectRow = TotalsRow & {
 };
 
 export function selectTotalsPerProject(): PerProjectRow[] {
-  const rows = getDb()
-    .select({
-      projectId: projects.id,
-      name: projects.name,
-      icon: projects.icon,
-      iconColor: projects.iconColor,
-      ...sumCols,
-    })
-    .from(tokenUsage)
-    .innerJoin(projects, eq(projects.id, tokenUsage.projectId))
-    .groupBy(projects.id)
-    .all();
+  const rows = getSqlite()
+    .prepare(
+      `SELECT
+         r.project_id AS projectId,
+         p.name AS name,
+         p.icon AS icon,
+         p.icon_color AS iconColor,
+         COALESCE(SUM(r.input_tokens), 0) AS inputTokens,
+         COALESCE(SUM(r.output_tokens), 0) AS outputTokens,
+         COALESCE(SUM(r.cache_creation_tokens), 0) AS cacheCreationTokens,
+         COALESCE(SUM(r.cache_read_tokens), 0) AS cacheReadTokens
+       FROM token_usage_rollup r
+       INNER JOIN projects p ON p.id = r.project_id
+       GROUP BY r.project_id`,
+    )
+    .all() as PerProjectRow[];
   return rows.map((r) => ({
     projectId: r.projectId,
     name: r.name,
@@ -71,18 +73,21 @@ export function selectTotalsPerProject(): PerProjectRow[] {
 export type PerDayRow = TotalsRow & { day: string };
 
 export function selectTotalsPerDaySince(sinceMs: number): PerDayRow[] {
-  const dayExpr = sql<string>`strftime('%Y-%m-%d', ${tokenUsage.ts} / 1000, 'unixepoch', 'localtime')`;
-  const rows = getDb()
-    .select({
-      day: dayExpr,
-      ...sumCols,
-    })
-    .from(tokenUsage)
-    .where(gte(tokenUsage.ts, sinceMs))
-    .groupBy(dayExpr)
-    .all();
+  const rows = getSqlite()
+    .prepare(
+      `SELECT
+         day AS day,
+         COALESCE(SUM(input_tokens), 0) AS inputTokens,
+         COALESCE(SUM(output_tokens), 0) AS outputTokens,
+         COALESCE(SUM(cache_creation_tokens), 0) AS cacheCreationTokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS cacheReadTokens
+       FROM token_usage_rollup
+       WHERE day >= strftime('%Y-%m-%d', ? / 1000, 'unixepoch', 'localtime')
+       GROUP BY day`,
+    )
+    .all(sinceMs) as PerDayRow[];
   return rows.map((r) => ({
-    day: r.day as string,
+    day: String(r.day),
     inputTokens: Number(r.inputTokens) || 0,
     outputTokens: Number(r.outputTokens) || 0,
     cacheCreationTokens: Number(r.cacheCreationTokens) || 0,
@@ -99,20 +104,32 @@ export type PerSessionRow = TotalsRow & {
 };
 
 export function selectTotalsPerSession(): PerSessionRow[] {
-  const rows = getDb()
-    .select({
-      taskId: tokenUsage.taskId,
-      title: tasks.title,
-      projectId: tasks.projectId,
-      projectName: projects.name,
-      lastTs: sql<number>`MAX(${tokenUsage.ts})`.as("last_ts"),
-      ...sumCols,
-    })
-    .from(tokenUsage)
-    .innerJoin(tasks, eq(tasks.id, tokenUsage.taskId))
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .groupBy(tokenUsage.taskId)
-    .all();
+  // Bounded to the top PER_SESSION_LIMIT sessions by total tokens: the usage
+  // panel renders one row per session, so an unbounded list would grow the DOM
+  // (and this result set) without limit on long-lived installs.
+  const rows = getSqlite()
+    .prepare(
+      `SELECT
+         r.task_id AS taskId,
+         t.title AS title,
+         t.project_id AS projectId,
+         p.name AS projectName,
+         MAX(r.last_ts) AS lastTs,
+         COALESCE(SUM(r.input_tokens), 0) AS inputTokens,
+         COALESCE(SUM(r.output_tokens), 0) AS outputTokens,
+         COALESCE(SUM(r.cache_creation_tokens), 0) AS cacheCreationTokens,
+         COALESCE(SUM(r.cache_read_tokens), 0) AS cacheReadTokens
+       FROM token_usage_rollup r
+       INNER JOIN tasks t ON t.id = r.task_id
+       INNER JOIN projects p ON p.id = t.project_id
+       GROUP BY r.task_id
+       ORDER BY (
+         SUM(r.input_tokens) + SUM(r.output_tokens)
+           + SUM(r.cache_creation_tokens) + SUM(r.cache_read_tokens)
+       ) DESC
+       LIMIT ?`,
+    )
+    .all(PER_SESSION_LIMIT) as (PerSessionRow & { lastTs: number | null })[];
   return rows.map((r) => ({
     taskId: r.taskId,
     title: r.title,
@@ -198,6 +215,23 @@ export function ingestTokenUsageTx(
        byte_offset = excluded.byte_offset,
        updated_at = excluded.updated_at`
   );
+  // Fold each newly-inserted row into its (project, task, local day) rollup
+  // bucket. The day expression and the accumulation must match the backfill and
+  // the read queries exactly so the rollup stays equal to the raw aggregate.
+  const upsertRollup = sqlite.prepare(
+    `INSERT INTO token_usage_rollup (
+       project_id, task_id, day,
+       input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, last_ts
+     ) VALUES (
+       ?, ?, strftime('%Y-%m-%d', ? / 1000, 'unixepoch', 'localtime'), ?, ?, ?, ?, ?
+     )
+     ON CONFLICT(project_id, task_id, day) DO UPDATE SET
+       input_tokens = input_tokens + excluded.input_tokens,
+       output_tokens = output_tokens + excluded.output_tokens,
+       cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+       cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+       last_ts = MAX(last_ts, excluded.last_ts)`
+  );
 
   let inserted = 0;
   const tx = sqlite.transaction(() => {
@@ -216,7 +250,22 @@ export function ingestTokenUsageTx(
           r.cacheReadTokens,
           r.ts,
         );
-        if (result.changes > 0) inserted += 1;
+        // message_uuid is UNIQUE, so changes > 0 means this row is newly counted
+        // (INSERT OR IGNORE skipped a duplicate otherwise). Only then fold it into
+        // the rollup, or a re-seen line would be double-counted.
+        if (result.changes > 0) {
+          inserted += 1;
+          upsertRollup.run(
+            r.projectId,
+            r.taskId,
+            r.ts,
+            r.inputTokens,
+            r.outputTokens,
+            r.cacheCreationTokens,
+            r.cacheReadTokens,
+            r.ts,
+          );
+        }
       }
       upsertOffset.run(
         sessionOffset.claudeSessionId,
