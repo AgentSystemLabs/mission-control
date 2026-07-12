@@ -7,6 +7,7 @@ import {
   CUSTOM_SCRIPTS_MAX,
   TASK_STATUSES,
   isActiveStatus,
+  isTaskStatus,
   normalizeScriptArgs,
 } from "~/shared/domain";
 import type { CustomScript, LaunchCommand, TaskStatus } from "~/shared/domain";
@@ -22,7 +23,7 @@ import {
   updateProjectRow,
 } from "../repositories/projects.repo";
 import { findWorktreeById } from "../repositories/worktrees.repo";
-import { findAllTasks, findTasksByProjectId } from "../repositories/tasks.repo";
+import { findTasksByProjectId } from "../repositories/tasks.repo";
 import { deleteAllProjectImagesFor } from "./project-images";
 import { reconcileProjectWorktrees } from "./worktrees";
 import { newId } from "./_ids";
@@ -168,13 +169,78 @@ export function detectBranch(dir: string): string {
   }
 }
 
+function emptyStatusCounts(): Record<TaskStatus, number> {
+  return TASK_STATUSES.reduce(
+    (acc, s) => {
+      acc[s] = 0;
+      return acc;
+    },
+    {} as Record<TaskStatus, number>,
+  );
+}
+
 export function listProjects(): ProjectWithCounts[] {
   const rows = findAllProjects();
   // Sessions on externally-deleted worktrees cascade away with their rows, so
   // taskCounts (the pinned-icon status dots) only report reachable sessions.
+  // Runs before the aggregate queries below so cascaded deletions are reflected.
   for (const p of rows) reconcileProjectWorktrees(p);
-  const allTasks = findAllTasks();
-  return rows.map((p) => decorate(p, allTasks.filter((t) => t.projectId === p.id)));
+
+  // Aggregate non-archived task counts per (project, status) in SQLite instead
+  // of loading every task row and filtering it per project in JS (was O(P×T)).
+  type Agg = { counts: Record<TaskStatus, number>; total: number; activeNonDone: number };
+  const aggByProject = new Map<string, Agg>();
+  const statusCountRows = getSqlite()
+    .prepare(
+      `SELECT project_id AS projectId, status, COUNT(*) AS c
+         FROM tasks
+        WHERE archived = 0
+        GROUP BY project_id, status`,
+    )
+    .all() as { projectId: string; status: string; c: number }[];
+  for (const r of statusCountRows) {
+    let agg = aggByProject.get(r.projectId);
+    if (!agg) {
+      agg = { counts: emptyStatusCounts(), total: 0, activeNonDone: 0 };
+      aggByProject.set(r.projectId, agg);
+    }
+    agg.total += r.c;
+    if (isTaskStatus(r.status)) {
+      agg.counts[r.status] = r.c;
+      if (isActiveStatus(r.status) && r.status !== "finished") agg.activeNonDone += r.c;
+    }
+  }
+
+  // Preview text mirrors decorate()'s `active.find(running) ?? active.find(needs-input)`
+  // over the rowid-ordered task scan: the earliest-inserted running task wins,
+  // else the earliest needs-input task. Only active session rows qualify — a
+  // tiny set — so this narrow query stays cheap.
+  const runningPreview = new Map<string, string>();
+  const needsInputPreview = new Map<string, string>();
+  const previewRows = getSqlite()
+    .prepare(
+      `SELECT project_id AS projectId, status, preview
+         FROM tasks
+        WHERE archived = 0 AND status IN ('running', 'needs-input')
+        ORDER BY rowid`,
+    )
+    .all() as { projectId: string; status: string; preview: string }[];
+  for (const r of previewRows) {
+    const target = r.status === "running" ? runningPreview : needsInputPreview;
+    if (!target.has(r.projectId)) target.set(r.projectId, r.preview);
+  }
+
+  return rows.map((p) => {
+    const agg = aggByProject.get(p.id);
+    const counts = agg?.counts ?? emptyStatusCounts();
+    const preview = runningPreview.get(p.id) ?? needsInputPreview.get(p.id) ?? null;
+    return {
+      ...p,
+      taskCounts: { ...counts, total: agg?.total ?? 0, activeNonDone: agg?.activeNonDone ?? 0 },
+      preview,
+      githubUrl: detectGithubUrl(p.path),
+    };
+  });
 }
 
 export function getProject(id: string): ProjectWithCounts | null {

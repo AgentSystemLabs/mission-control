@@ -185,6 +185,98 @@ describe("projects service", () => {
     expect(c.name).toBe(path.basename(dir));
   });
 
+  it("aggregates task counts, total, activeNonDone and preview per project", async () => {
+    const { isActiveStatus, TASK_STATUSES } = await import("~/shared/domain");
+    const db = getDb();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-counts-"));
+    const c = createProject({ name: "counts", path: dir });
+
+    // Insert in a fixed order so implicit rowid ascends with insertion; the
+    // earliest-inserted running task must supply the preview.
+    let seq = 0;
+    const addTask = (status: string, opts: { preview?: string; archived?: boolean } = {}) => {
+      const now = Date.now() + seq;
+      db.insert(tasks)
+        .values({
+          id: `t-${seq}`,
+          projectId: c.id,
+          title: `task-${seq}`,
+          agent: "claude-code",
+          status: status as never,
+          preview: opts.preview ?? "",
+          archived: opts.archived ? true : false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      seq += 1;
+    };
+
+    addTask("ready");
+    addTask("ready");
+    addTask("running", { preview: "first-running" });
+    addTask("running", { preview: "second-running" });
+    addTask("needs-input", { preview: "waiting" });
+    addTask("finished");
+    addTask("interrupted");
+    // Archived rows must be excluded entirely from counts and preview.
+    addTask("running", { preview: "archived-running", archived: true });
+
+    const listed = listProjects().find((p) => p.id === c.id);
+    expect(listed).toBeTruthy();
+    const counts = listed!.taskCounts;
+
+    expect(counts.ready).toBe(2);
+    expect(counts.running).toBe(2);
+    expect(counts["needs-input"]).toBe(1);
+    expect(counts.finished).toBe(1);
+    expect(counts.interrupted).toBe(1);
+    expect(counts.terminated).toBe(0);
+    expect(counts.disconnected).toBe(0);
+    // total = non-archived task count (the archived running row is excluded).
+    expect(counts.total).toBe(7);
+
+    const expectedActiveNonDone = TASK_STATUSES.filter(
+      (s) => isActiveStatus(s) && s !== "finished",
+    ).reduce((acc, s) => acc + counts[s], 0);
+    expect(counts.activeNonDone).toBe(expectedActiveNonDone);
+
+    // Earliest running task wins the preview over the later running + needs-input.
+    expect(listed!.preview).toBe("first-running");
+  });
+
+  it("falls back to the needs-input preview when no task is running", () => {
+    const db = getDb();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-preview-ni-"));
+    const c = createProject({ name: "ni", path: dir });
+    const now = Date.now();
+    db.insert(tasks)
+      .values({
+        id: "ni-1",
+        projectId: c.id,
+        title: "waiting",
+        agent: "claude-code",
+        status: "needs-input" as never,
+        preview: "needs you",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const listed = listProjects().find((p) => p.id === c.id);
+    expect(listed!.preview).toBe("needs you");
+  });
+
+  it("reports zeroed counts and null preview for a project with no tasks", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-empty-"));
+    const c = createProject({ name: "empty", path: dir });
+    const listed = listProjects().find((p) => p.id === c.id);
+    expect(listed!.taskCounts.total).toBe(0);
+    expect(listed!.taskCounts.activeNonDone).toBe(0);
+    expect(listed!.taskCounts.running).toBe(0);
+    expect(listed!.preview).toBeNull();
+  });
+
   it("caches the detected github url and re-reads only when .git/config mtime changes", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-gh-cache-"));
     fs.mkdirSync(path.join(dir, ".git"));
