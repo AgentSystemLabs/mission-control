@@ -17,7 +17,6 @@ import {
   type PetSizeId,
 } from "~/shared/pet";
 import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
-import { usePetOverlayEnabled } from "~/lib/pet/pet-overlay";
 import { getElectron } from "~/lib/electron";
 import { PET_SPECIES } from "~/components/pet/PetSprite";
 import { PetGuideModal } from "~/components/pet/PetGuideModal";
@@ -30,6 +29,7 @@ type PetSettingsPatch = Partial<
     | "petMessagesEnabled"
     | "petSoundsEnabled"
     | "petMultiplayerEnabled"
+    | "petOverlayEnabled"
     | "petHomeSide"
   >
 >;
@@ -41,11 +41,11 @@ export function PetSettingsPage() {
   const petMessagesEnabled = settings?.petMessagesEnabled ?? true;
   const petSoundsEnabled = settings?.petSoundsEnabled ?? false;
   const petMultiplayerEnabled = settings?.petMultiplayerEnabled ?? false;
+  const petOverlayEnabled = settings?.petOverlayEnabled ?? false;
   const petHomeSide = settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE;
   const petState = settings?.petState ?? null;
   const [petNameDraft, setPetNameDraft] = useState("");
   const [petGuideOpen, setPetGuideOpen] = useState(false);
-  const overlayEnabled = usePetOverlayEnabled();
   const canOverlay = Boolean(getElectron()?.petOverlay);
 
   useEffect(() => {
@@ -140,9 +140,9 @@ export function PetSettingsPage() {
         <Field label="Desktop">
           <ToggleRow
             title="Let the pet roam your desktop"
-            description="Unleash the pet out of this window onto your desktop, floating above other apps. It stays visible when you switch apps or minimize Mission Control — hover it to pet or drag it; clicks anywhere else pass through. (Experimental.)"
-            checked={overlayEnabled}
-            onChange={(enabled: boolean) => void getElectron()?.petOverlay?.setEnabled(enabled)}
+            description="Unleash the pet out of this window onto your desktop, floating above other apps. It stays visible when you switch apps or minimize Mission Control — hover it to pet or drag it; clicks anywhere else pass through. Roams your primary display only for now. (Experimental.)"
+            checked={petOverlayEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petOverlayEnabled: enabled })}
             disabled={!petEnabled}
             label="Unleash"
           />

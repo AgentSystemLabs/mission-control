@@ -93,14 +93,43 @@ export type PetWeeklyStats = {
 export type PetProjectXp = Record<string, { name: string; xp: number }>;
 
 /**
- * The user-editable design fields, forwarded from the main window to the pet
- * desktop overlay so an unleashed pet reflects Settings edits live.
+ * Full pet state pushed from the main window — the single source of truth for
+ * the pet — to the desktop overlay window, which only renders it. `snapshot`
+ * is the main store's PetSnapshot, opaque at the bridge (that type lives in
+ * the renderer); both windows run the same bundle, so the shape always matches.
+ *
+ * `identity` (personality, lifetime/weekly stats, project-XP map, hatch date)
+ * changes far less often than the snapshot, so the bridge omits it on the
+ * frequent snapshot-only pushes (wander, flourish, stroke) and sends it only
+ * when its reference actually changed. An omitted key means "identity
+ * unchanged" — the overlay keeps the one it already holds.
  */
-export type PetOverlayDesignPatch = {
-  species: PetSpeciesId;
-  size: PetSizeId;
-  name: string;
+export type PetOverlayMirrorPayload = {
+  snapshot: unknown;
+  identity?: PetPersistentState | null;
+  /**
+   * Monotonic sequence stamped by the main process on every relay. Electron
+   * gives no ordering guarantee between an `invoke` reply (getMirror) and `on`
+   * pushes (mirror events), so a late getMirror reply could otherwise clobber a
+   * newer live push. The overlay drops any payload whose seq is not greater than
+   * the last it applied. Absent only on payloads that never crossed the relay.
+   */
+  seq?: number;
 };
+
+/**
+ * A user interaction on the desktop pet, forwarded overlay → main window so
+ * the authoritative store reacts (and the resulting state mirrors back).
+ * `interact.alert` marks a click on an alerted pet — the jump-to-session
+ * shortcut, the one action allowed to surface the main window.
+ */
+export type PetOverlayAction =
+  | { kind: "interact"; alert: boolean }
+  | { kind: "stroke" }
+  | { kind: "grabbed"; x: number }
+  | { kind: "tossed"; x: number }
+  | { kind: "stats-open"; open: boolean }
+  | { kind: "molt" };
 
 export type PetPersistentState = {
   version: 1;

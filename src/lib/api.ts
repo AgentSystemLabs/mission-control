@@ -222,6 +222,11 @@ export type AppSettings = {
    * the same git repo and show theirs. No WebSocket connects unless this is on.
    */
   petMultiplayerEnabled: boolean;
+  /**
+   * Whether the pet is unleashed onto the desktop overlay window (default
+   * false). Persisted so the pet returns to the desktop on the next launch.
+   */
+  petOverlayEnabled: boolean;
   /** Bottom corner the pet homes in (default right). */
   petHomeSide: PetHomeSide;
   petState: PetPersistentState | null;
@@ -701,6 +706,7 @@ export const api = {
         | "petMessagesEnabled"
         | "petSoundsEnabled"
         | "petMultiplayerEnabled"
+        | "petOverlayEnabled"
         | "petHomeSide"
         | "petState"
       >

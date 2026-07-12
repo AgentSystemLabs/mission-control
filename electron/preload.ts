@@ -485,13 +485,15 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.petOverlaySetInteractive, { interactive }),
     onStateChange: (cb: (state: { enabled: boolean }) => void) =>
       subscribe(IPC.petOverlayStateChange, cb),
-    applyDesign: (patch: {
-      species: string;
-      size: string;
-      name: string;
-    }): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.petOverlayApplyDesign, patch),
-    onApplyDesign: (cb: (patch: { species: string; size: string; name: string }) => void) =>
-      subscribe(IPC.petOverlayDesignEvent, cb),
+    // The mirror payload and action shapes are owned by the renderer (both
+    // windows run the same bundle) — the bridge just relays them.
+    pushMirror: (payload: unknown): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.petOverlayPushMirror, payload),
+    getMirror: (): Promise<unknown> => ipcRenderer.invoke(IPC.petOverlayGetMirror),
+    onMirror: (cb: (payload: unknown) => void) => subscribe(IPC.petOverlayMirrorEvent, cb),
+    sendAction: (action: unknown): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.petOverlayAction, action),
+    onAction: (cb: (action: unknown) => void) => subscribe(IPC.petOverlayActionEvent, cb),
   },
   updater: {
     getState: (): Promise<UpdateStateBridge> =>

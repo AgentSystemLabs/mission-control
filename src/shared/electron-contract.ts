@@ -1,6 +1,6 @@
 import type { AgentCliUpdateRun } from "~/shared/agent-cli-update";
 import type { GitStatus, GitDiff } from "~/shared/git-status";
-import type { PetOverlayDesignPatch } from "~/shared/pet";
+import type { PetOverlayAction, PetOverlayMirrorPayload } from "~/shared/pet";
 
 export const FILE_READ_ERRORS = ["invalid-path", "not-found", "binary", "too-large"] as const;
 export const FILE_WRITE_ERRORS = [
@@ -426,10 +426,16 @@ export type ElectronBridge = {
     /** Toggle the overlay window between click-through and mouse-capturing. */
     setInteractive: (interactive: boolean) => Promise<{ ok: boolean }>;
     onStateChange: (cb: (state: PetOverlayStateBridge) => void) => () => void;
-    /** Main window → overlay: push a live design edit (species/size/name). */
-    applyDesign: (patch: PetOverlayDesignPatch) => Promise<{ ok: boolean }>;
-    /** Overlay window: receive design edits forwarded from the main window. */
-    onApplyDesign: (cb: (patch: PetOverlayDesignPatch) => void) => () => void;
+    /** Main window → overlay: push the full pet state (the overlay mirrors it). */
+    pushMirror: (payload: PetOverlayMirrorPayload) => Promise<{ ok: boolean }>;
+    /** Overlay window: the last mirrored state, for painting on mount. */
+    getMirror: () => Promise<PetOverlayMirrorPayload | null>;
+    /** Overlay window: receive state pushes from the main window. */
+    onMirror: (cb: (payload: PetOverlayMirrorPayload) => void) => () => void;
+    /** Overlay window → main window: forward a user interaction on the pet. */
+    sendAction: (action: PetOverlayAction) => Promise<{ ok: boolean }>;
+    /** Main window: receive interactions forwarded from the desktop pet. */
+    onAction: (cb: (action: PetOverlayAction) => void) => () => void;
   };
   files: {
     list: (projectRoot: string) => Promise<FileListResult>;

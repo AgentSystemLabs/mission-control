@@ -778,6 +778,26 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({ petMultiplayerEnabled: true });
   });
 
+  it("keeps the desktop overlay disabled by default (opt-in)", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({ petOverlayEnabled: false });
+  });
+
+  it("persists the desktop overlay preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ petOverlayEnabled: true }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ petOverlayEnabled: true });
+    expect(await jsonBody(read!)).toMatchObject({ petOverlayEnabled: true });
+  });
+
   it("homes the pet on the right by default", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
     expect(await jsonBody(response!)).toMatchObject({ petHomeSide: "right" });

@@ -1896,10 +1896,18 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+let recreatingMainWindow = false;
 app.on("activate", () => {
   // Recreate the main window when it's gone — even if the pet desktop overlay
   // is still open (it's a window too, so an all-windows count would miss this).
-  if (!win || win.isDestroyed()) createWindow();
+  // Latch against re-entrant `activate` events so a rapid double-activate can't
+  // race two createWindow() calls into two main windows (each arming a full
+  // preload bridge).
+  if (recreatingMainWindow || (win && !win.isDestroyed())) return;
+  recreatingMainWindow = true;
+  void createWindow().finally(() => {
+    recreatingMainWindow = false;
+  });
 });
 
 app.on("before-quit", () => {

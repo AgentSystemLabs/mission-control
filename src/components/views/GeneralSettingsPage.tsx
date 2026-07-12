@@ -165,6 +165,7 @@ export function GeneralSettingsPage() {
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
     petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
+    petOverlayEnabled: settings?.petOverlayEnabled ?? false,
     petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),

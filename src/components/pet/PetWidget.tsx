@@ -6,8 +6,6 @@ import {
   type CSSProperties,
   type PointerEvent,
 } from "react";
-import { useRouter } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   getPetPersistentState,
   PET_WANDER_RANGE_PX,
@@ -19,14 +17,12 @@ import {
   usePetSnapshot,
   type PetMood,
 } from "~/lib/pet/pet-store";
-import { requestSessionOpenById } from "~/lib/session-notification-store";
 import { useDockLift } from "~/lib/pet/use-dock-lift";
-import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { DEFAULT_PET_SPECIES, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
-import type { Task } from "~/db/schema";
 import { PET_SPECIES } from "./PetSprite";
 import { PetStatsCard } from "./PetStatsCard";
+import { usePetAlertNavigate } from "./use-pet-alert-navigate";
 
 /** Rendered sprite size per setting; "m" is the pre-setting default (84px). */
 const SIZE_PX: Record<PetSizeId, number> = { s: 64, m: 84, l: 108 };
@@ -90,8 +86,7 @@ export function PetWidget() {
   const homeSide = pet.homeSide;
   // wander.x is px away from home; translate toward the opposite edge.
   const awaySign = homeSide === "right" ? -1 : 1;
-  const router = useRouter();
-  const queryClient = useQueryClient();
+  const navigateToAlert = usePetAlertNavigate();
   const stageRef = useRef<HTMLDivElement | null>(null);
   const walkerRef = useRef<HTMLDivElement | null>(null);
   const holdTimer = useRef<number | null>(null);
@@ -378,25 +373,7 @@ export function PetWidget() {
       return;
     }
     const { navigateTo } = petInteract();
-    if (!navigateTo) return;
-    // Best effort: find the task in any cached tasks query to recover its
-    // worktree/scope; fall back to the local scope (mirrors the OS-notification
-    // click-through in use-session-finish-notifications).
-    let task: Task | undefined;
-    for (const [, data] of queryClient.getQueriesData<{ tasks?: Task[] } | Task[]>({
-      queryKey: ["projects", navigateTo.projectId, "tasks"],
-    })) {
-      const tasks = Array.isArray(data) ? data : data?.tasks;
-      task = tasks?.find((t) => t.id === navigateTo.taskId);
-      if (task) break;
-    }
-    requestSessionOpenById({
-      projectId: navigateTo.projectId,
-      worktreeId: task?.worktreeId ?? null,
-      scopeId: task?.scopeId ?? LOCAL_SCOPE_ID,
-      taskId: navigateTo.taskId,
-    });
-    void router.navigate({ to: "/projects/$id", params: { id: navigateTo.projectId } });
+    if (navigateTo) navigateToAlert(navigateTo);
   };
 
   return (

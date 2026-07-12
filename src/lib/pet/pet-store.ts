@@ -18,6 +18,8 @@ import {
   startOfWeek,
   type PetHomeSide,
   type PetLifetimeStats,
+  type PetOverlayAction,
+  type PetOverlayMirrorPayload,
   type PetPersistentState,
   type PetPersonality,
   type PetSizeId,
@@ -445,8 +447,43 @@ function buildSnapshot(): PetSnapshot {
   };
 }
 
+/**
+ * Per-field equality of two snapshots. Every object-valued field (bubble,
+ * alert, wander, flourish) is only ever reassigned to a fresh object on real
+ * change — never mutated in place — so a per-key `===` comparison is a correct
+ * no-op detector. Used to skip renders (and, while unleashed, mirror pushes)
+ * when a recompute/roll produced a snapshot identical to the current one.
+ */
+function snapshotsEqual(a: PetSnapshot, b: PetSnapshot): boolean {
+  return (
+    a.enabled === b.enabled &&
+    a.mood === b.mood &&
+    a.move === b.move &&
+    a.night === b.night &&
+    a.intensity === b.intensity &&
+    a.bubble === b.bubble &&
+    a.alert === b.alert &&
+    a.name === b.name &&
+    a.species === b.species &&
+    a.size === b.size &&
+    a.xp === b.xp &&
+    a.level === b.level &&
+    a.prestige === b.prestige &&
+    a.heartsBurstId === b.heartsBurstId &&
+    a.wander === b.wander &&
+    a.flourish === b.flourish &&
+    a.statsOpen === b.statsOpen &&
+    a.homeSide === b.homeSide
+  );
+}
+
 function invalidate(): void {
-  snapshot = buildSnapshot();
+  const next = buildSnapshot();
+  // No visible field changed (a 30s clock tick that kept the same mood, a
+  // rollMove that re-picked the same variant, a walkHome already home…): keep
+  // the old reference so useSyncExternalStore bails and no mirror push fires.
+  if (snapshotsEqual(next, snapshot)) return;
+  snapshot = next;
   notify();
 }
 
@@ -819,6 +856,82 @@ export function getPetSnapshot(): PetSnapshot {
   return snapshot;
 }
 
+// ---------------------------------------------------------------------------
+// Desktop-overlay mirroring. The MAIN window's store is the single source of
+// truth: it runs the controller, grants XP, and persists. The overlay window's
+// copy of this module never runs its own logic — it adopts full snapshots
+// pushed from the main window (petApplyMirror) and forwards every user
+// interaction back (the forwarder short-circuits the interaction setters).
+// ---------------------------------------------------------------------------
+
+let mirrorForward: ((action: PetOverlayAction) => void) | null = null;
+
+/**
+ * Overlay window only: route widget interactions to the main window instead
+ * of mutating this (mirror) store. Pass null to restore normal behavior.
+ */
+export function petSetMirrorActionForwarder(
+  forward: ((action: PetOverlayAction) => void) | null,
+): void {
+  mirrorForward = forward;
+}
+
+/** Fires on every snapshot change — the main window pushes mirrors from this. */
+export function subscribePetSnapshot(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
+/**
+ * Overlay window only: adopt the main window's full state verbatim. The
+ * identity rides along so render-time reads (the stats card) work; this
+ * mirror store never persists it.
+ */
+export function petApplyMirror(payload: PetOverlayMirrorPayload): void {
+  const next = payload.snapshot as PetSnapshot | null;
+  if (!next || typeof next !== "object") return;
+  // Drop a stale/duplicate delivery: the main process stamps a monotonic seq,
+  // so a late getMirror reply (or any out-of-order push) carrying a seq we've
+  // already passed must not revert the overlay to older state.
+  if (typeof payload.seq === "number") {
+    if (payload.seq <= lastAppliedMirrorSeq) return;
+    lastAppliedMirrorSeq = payload.seq;
+  }
+  // An omitted `identity` key means the main window's identity is unchanged
+  // since its last push (structured clone drops the key entirely), so keep the
+  // one we already hold instead of clobbering it with undefined.
+  if ("identity" in payload) persistent = payload.identity ?? null;
+  snapshot = next;
+  notify();
+}
+
+// Overlay window only: the seq of the last mirror we adopted (see the guard in
+// petApplyMirror). Resets to -1 on every fresh overlay load; the main process's
+// seq only climbs, so the first payload after a reload always wins.
+let lastAppliedMirrorSeq = -1;
+
+/**
+ * Overlay window only: patch the mirror snapshot's wander position without
+ * running any behavior logic. Grab/toss forward the interaction to the main
+ * window, but its authoritative snapshot only mirrors back a few frames later —
+ * long enough for the widget's drop handoff (which clears its drag transform
+ * expecting wander.x to already hold the landing spot) to flash the pet at its
+ * pre-drag position. Applying the position optimistically keeps the handoff
+ * seamless; the main window's snapshot then confirms (or corrects) it. Reuses
+ * the current facing so no module state that the overlay doesn't mirror leaks in.
+ */
+function applyOptimisticWanderX(x: number): void {
+  snapshot = {
+    ...snapshot,
+    wander: {
+      x: Math.max(0, Math.round(x)),
+      walking: false,
+      durationMs: 0,
+      facing: snapshot.wander.facing,
+    },
+  };
+  notify();
+}
+
 export function petSetEnabled(
   nextEnabled: boolean,
   nextMessagesEnabled: boolean,
@@ -930,6 +1043,14 @@ export function petSetSpecies(species: PetSpeciesId): void {
  * hatch date — survives. Returns false when not at the cap.
  */
 export function petMolt(): boolean {
+  if (mirrorForward) {
+    // Overlay path: the main window owns the cap check and the actual molt.
+    // This mirror store performs nothing, so it reports false ("not molted
+    // here") — the boolean is NOT authoritative on the overlay; callers on this
+    // path (the stats card) must ignore it.
+    mirrorForward({ kind: "molt" });
+    return false;
+  }
   if (!enabled || !persistent || persistent.level < PET_MAX_LEVEL) return false;
   persistent = moltPetState(persistent);
   petPulse("celebrate");
@@ -1283,6 +1404,15 @@ export function petAmbientSay(trigger: PetTrigger): void {
  * otherwise it's petting (hearts, a line, a trickle of XP).
  */
 export function petInteract(): { navigateTo: { taskId: string; projectId: string } | null } {
+  if (mirrorForward) {
+    // The alert flag lets the main process surface the main window for the
+    // jump-to-session click; navigation itself happens over there.
+    mirrorForward({
+      kind: "interact",
+      alert: snapshot.mood === "alert" && snapshot.alert !== null,
+    });
+    return { navigateTo: null };
+  }
   if (!enabled) return { navigateTo: null };
   if (alert && mood === "alert") return { navigateTo: alert };
   const now = Date.now();
@@ -1327,6 +1457,10 @@ export function petInteract(): { navigateTo: { taskId: string; projectId: string
 
 /** Open/close the stats card (right-click on the pet, or a "stats" command). */
 export function petSetStatsOpen(open: boolean): void {
+  if (mirrorForward) {
+    mirrorForward({ kind: "stats-open", open });
+    return;
+  }
   if (statsOpen === open) return;
   statsOpen = open;
   invalidate();
@@ -1356,6 +1490,11 @@ export function petNoteUncommitted(count: number): void {
  * the combined offset carries the pet off screen.
  */
 export function petGrabbed(visualX: number): void {
+  if (mirrorForward) {
+    mirrorForward({ kind: "grabbed", x: visualX });
+    applyOptimisticWanderX(visualX);
+    return;
+  }
   if (!enabled) return;
   heldByUser = true;
   // Being picked up ends a commanded nap.
@@ -1374,6 +1513,11 @@ export function petGrabbed(visualX: number): void {
 }
 
 export function petTossed(landingX: number): void {
+  if (mirrorForward) {
+    mirrorForward({ kind: "tossed", x: landingX });
+    applyOptimisticWanderX(landingX);
+    return;
+  }
   if (!enabled) return;
   heldByUser = false;
   if (arriveTimer) {
@@ -1406,6 +1550,10 @@ export function petTossed(landingX: number): void {
  * stay behind their usual limiter/cooldown so holding isn't an XP farm.
  */
 export function petStroke(): void {
+  if (mirrorForward) {
+    mirrorForward({ kind: "stroke" });
+    return;
+  }
   if (!enabled) return;
   heartsBurstId += 1;
   const now = Date.now();
