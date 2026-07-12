@@ -467,6 +467,10 @@ function ensureClock(): void {
   // event: drifting into idle/sleep and the night flag flipping.
   clockTimer = setInterval(() => {
     if (!enabled) return;
+    // Hidden tab: nothing renders, so skip the recompute/invalidate churn. The
+    // controller re-syncs the mood via petSetWindowHidden(false) on the next
+    // visibilitychange, so no transition is lost.
+    if (typeof document !== "undefined" && document.hidden) return;
     recompute();
     invalidate();
   }, CLOCK_TICK_MS);
@@ -598,6 +602,10 @@ function ensureBehaviorLoop(): void {
   // in the corner.
   behaviorTimer = setInterval(() => {
     if (!enabled || prefersReducedMotion()) return;
+    // Hidden tab: the widget is off-screen and its ambient animations are frozen
+    // (see styles.css power-save / reduced-motion blocks), so idle antics and
+    // wandering would just burn CPU updating nothing. Resume when visible again.
+    if (typeof document !== "undefined" && document.hidden) return;
     // Whatever the mood, occasionally switch to another of its move variants
     // so the pet doesn't loop one animation forever.
     if (Math.random() < 0.45) {

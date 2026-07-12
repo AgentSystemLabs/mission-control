@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Btn } from "~/components/ui/Btn";
@@ -22,7 +22,15 @@ import {
 import { AgentUpdateRequiredDialog } from "~/components/views/AgentUpdateRequiredDialog";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { FileFinderDialog } from "~/components/views/FileFinderDialog";
-import { FileEditorDialog } from "~/components/views/FileEditorDialog";
+// FileEditorDialog drags in the CodeMirror stack (~250 KB min / ~470 KB gz with
+// HtmlPreview) that nothing needs until the user opens a file. Split it into an
+// on-demand chunk; it mounts only while open (Modal renders null when closed, so
+// there's no exit animation to preserve). FileFinderDialog is left static so the
+// file-list helpers it shares with the route don't get hoisted into the eager
+// entry when the two dialogs live in separate chunks.
+const FileEditorDialog = lazy(() =>
+  import("~/components/views/FileEditorDialog").then((m) => ({ default: m.FileEditorDialog })),
+);
 import { LaunchCommandsDialog } from "~/components/views/LaunchCommandsDialog";
 import { CustomScriptsDialog } from "~/components/views/CustomScriptsDialog";
 import { CustomScriptsButton } from "~/components/views/CustomScriptsButton";
@@ -173,7 +181,11 @@ import {
 import type { Group, Project, Task, TaskStatus } from "~/db/schema";
 import type { ProjectPathStatus } from "~/shared/projects";
 import type { WorktreeInfo } from "~/shared/worktrees";
-import { MAIN_WORKTREE_ID, worktreeScopeKey } from "~/shared/worktrees";
+import {
+  MAIN_WORKTREE_ID,
+  OPTIMISTIC_WORKTREE_ID_PREFIX,
+  worktreeScopeKey,
+} from "~/shared/worktrees";
 import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 import { scopeKeyForProject } from "~/lib/scoped-project";
 import {
@@ -245,18 +257,12 @@ type ProjectPathCheck =
   | { state: "invalid"; status: Extract<ProjectPathStatus, { ok: false }> }
   | { state: "error"; message: string };
 
-const OPTIMISTIC_WORKTREE_ID_PREFIX = "wt-optimistic-";
-
 function isCurrentPathIssue(
   status: Extract<ProjectPathStatus, { ok: false }>,
   selectedWorktreeId: string | null,
 ): boolean {
   if (status.scope === "project") return selectedWorktreeId === null;
   return status.worktreeId === selectedWorktreeId;
-}
-
-function isOptimisticWorktree(worktree: WorktreeInfo): boolean {
-  return worktree.id.startsWith(OPTIMISTIC_WORKTREE_ID_PREFIX);
 }
 
 function launchUrlPort(raw: string | null): number[] {
@@ -591,6 +597,44 @@ function ProjectPage() {
   const showPinned = sessionView === "pinned";
   const [pinningTaskIds, setPinningTaskIds] = useState<Set<string>>(() => new Set());
   const pinRequestSeqRef = useRef<Record<string, number>>({});
+  // Stable callback identities for the memoized TaskCard: the real handlers are
+  // defined far below (after this render's early returns), so we forward through
+  // a ref that's refreshed each render. This keeps the props TaskCard sees
+  // referentially stable so a single session update re-renders only its card,
+  // while every click still runs the latest handler closure.
+  const taskCardHandlersRef = useRef<{
+    onToggle: (taskId: string) => void;
+    onArchive: (taskId: string) => void;
+    onRestore: (taskId: string) => void;
+    onDelete: (taskId: string) => void;
+    onTogglePinned: (taskId: string) => Promise<void> | void;
+  }>({
+    onToggle: () => {},
+    onArchive: () => {},
+    onRestore: () => {},
+    onDelete: () => {},
+    onTogglePinned: () => {},
+  });
+  const stableSelectTerminal = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onToggle(taskId),
+    [],
+  );
+  const stableArchiveSession = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onArchive(taskId),
+    [],
+  );
+  const stableRestoreSession = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onRestore(taskId),
+    [],
+  );
+  const stableDeleteTask = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onDelete(taskId),
+    [],
+  );
+  const stableToggleSessionPinned = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onTogglePinned(taskId),
+    [],
+  );
   const [confirmDeleteArchived, setConfirmDeleteArchived] = useState(false);
   const [confirmArchiveAll, setConfirmArchiveAll] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
@@ -2138,10 +2182,15 @@ function ProjectPage() {
   // sidebar (ProjectBar / ProjectPicker) owns the projects-list refresh, so
   // this route only refetches its own tasks + detail — and ignores task events
   // for other projects entirely.
+  // maxWait bounds staleness under a sustained event storm: without it a
+  // continuous <150ms stream would defer the refetch indefinitely.
   const invalidateThisProjectTasks = useDebouncedCallback(() => {
     void invalidateTasks();
     void invalidateProject();
-  }, 150);
+    // Badge dots on non-selected worktrees come from the worktrees query; fold
+    // it into the same debounced burst so it isn't refetched per task event.
+    void invalidateWorktrees();
+  }, 150, 400);
 
   useServerEvents(
     useCallback(
@@ -2150,8 +2199,6 @@ function ProjectPage() {
         if (e.type.startsWith("task:")) {
           if (e.projectId === id) {
             invalidateThisProjectTasks();
-            // Badge dots on non-selected worktrees come from the worktrees query.
-            void invalidateWorktrees();
           }
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
@@ -2227,8 +2274,8 @@ function ProjectPage() {
   const archivedTasks = tasks.filter((t) => t.archived);
   const visibleTasks = showArchived ? archivedTasks : showPinned ? pinnedTasks : activeTasks;
   // Active list peels pinned into a top "Pinned" section; Pinned tab keeps
-  // normal status grouping (already all-pinned). Archived folds ready into the
-  // Archived column so a Ready section never appears there.
+  // normal status grouping (already all-pinned). Archived folds every live
+  // status into the single Archived column (no Interrupted/Running/etc.).
   const activeListGroups =
     !showArchived && !showPinned ? groupActiveListTasksForDisplay(visibleTasks) : null;
   const tasksByStatus = activeListGroups
@@ -2541,6 +2588,16 @@ function ProjectPage() {
         toast.error(e instanceof Error ? e.message : "Could not restore session");
       }
     })();
+  };
+
+  // Refresh the stable TaskCard handler wrappers with this render's closures so
+  // the memoized cards always invoke the latest logic without changing identity.
+  taskCardHandlersRef.current = {
+    onToggle: selectTerminal,
+    onArchive: archiveSession,
+    onRestore: restoreSession,
+    onDelete: deleteTask,
+    onTogglePinned: toggleSessionPinned,
   };
 
   const deleteAllArchived = () => {
@@ -3235,14 +3292,14 @@ function ProjectPage() {
             <>
               {pinnedListTasks.length > 0 && (
                 <TaskColumn
-                  key="pinned"
+                  key={`${id}:pinned`}
                   title="Pinned"
                   color="var(--accent)"
                   tasks={pinnedListTasks}
                   activeId={activeId}
-                  onToggle={selectTerminal}
-                  onArchive={archiveSession}
-                  onTogglePinned={toggleSessionPinned}
+                  onToggle={stableSelectTerminal}
+                  onArchive={stableArchiveSession}
+                  onTogglePinned={stableToggleSessionPinned}
                   pinningTaskIds={pinningTaskIds}
                 />
               )}
@@ -3259,7 +3316,7 @@ function ProjectPage() {
                     (tasksByStatus.finished.length === 0 && status === firstArchivedStatus));
                 return (
                 <TaskColumn
-                  key={status}
+                  key={`${id}:${status}`}
                   title={
                     isArchivedTitleRow
                       ? "Archived"
@@ -3268,11 +3325,11 @@ function ProjectPage() {
                   color={STATUS_META[status].color}
                   tasks={tasksByStatus[status]}
                   activeId={activeId}
-                  onToggle={selectTerminal}
-                  onArchive={showArchived ? undefined : archiveSession}
-                  onRestore={showArchived ? restoreSession : undefined}
-                  onDelete={showArchived ? deleteTask : undefined}
-                  onTogglePinned={showArchived ? undefined : toggleSessionPinned}
+                  onToggle={stableSelectTerminal}
+                  onArchive={showArchived ? undefined : stableArchiveSession}
+                  onRestore={showArchived ? stableRestoreSession : undefined}
+                  onDelete={showArchived ? stableDeleteTask : undefined}
+                  onTogglePinned={showArchived ? undefined : stableToggleSessionPinned}
                   pinningTaskIds={showArchived ? undefined : pinningTaskIds}
                   headerAction={
                     showViewActive ? (
@@ -3543,15 +3600,19 @@ function ProjectPage() {
         onPick={(rel) => setOpenFileRel(rel)}
       />
 
-      <FileEditorDialog
-        projectRoot={selectedWorktreePath || project.path}
-        relPath={openFileRel}
-        onClose={() => setOpenFileRel(null)}
-        onBack={() => {
-          setOpenFileRel(null);
-          setFileFinderOpen(true);
-        }}
-      />
+      {openFileRel !== null && (
+        <Suspense fallback={null}>
+          <FileEditorDialog
+            projectRoot={selectedWorktreePath || project.path}
+            relPath={openFileRel}
+            onClose={() => setOpenFileRel(null)}
+            onBack={() => {
+              setOpenFileRel(null);
+              setFileFinderOpen(true);
+            }}
+          />
+        </Suspense>
+      )}
 
       <CreatePullRequestDialog
         state={createPullRequest.dialog}
@@ -4173,247 +4234,125 @@ function WorktreeToggleGroup({
   createWorktreeTitle?: string;
   maxWidth?: number | string;
 }) {
-  const items = worktrees.length > 0 ? worktrees : [];
-  const selectableItems = items.filter((worktree) => !isOptimisticWorktree(worktree));
-  if (items.length === 0) return null;
+  if (worktrees.length === 0) return null;
+  // The old pill strip is gone: one branch/worktree control now switches
+  // worktree *or* checks out a branch (worktrees are folded into its dropdown),
+  // so we render the controls for whichever worktree is currently selected.
+  const selectedWorktree =
+    worktrees.find((worktree) => worktree.id === selectedId) ??
+    worktrees.find((worktree) => worktree.isMain) ??
+    worktrees[0]!;
+  const selectedIsMain = selectedWorktree.isMain;
+  const selectedScopeKey = worktreeScopeKey(
+    projectId,
+    selectedIsMain ? null : selectedWorktree.id,
+  );
+  const selectedRunning = [...runningKeys].some(
+    (key) => key === selectedScopeKey || key.startsWith(`${selectedScopeKey}:`),
+  );
+  const branchLabel = selectedIsMain ? mainBranchLabel : selectedWorktree.branch;
+  // Sync stays main-only: behindCount is the main worktree's upstream delta.
+  const showSync = selectedIsMain && (behindCount ?? 0) > 0 && !!onSync;
+  // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read as two
+  // distinct controls with hierarchy, not one welded segment.
+  const shipControls = (
+    <>
+      <ProjectGitStatusButton
+        changedCount={changedCount}
+        onClick={onToggleDiffView}
+        disabled={shipDisabled}
+      />
+      <CommitPushButton
+        size="md"
+        variant={changedCount === 0 ? "gray-frame" : "primary"}
+        enabled={shipEnabled}
+        onShip={onShip}
+      />
+    </>
+  );
   return (
     <div
-      role="radiogroup"
-      aria-label="Project worktrees"
+      role="group"
+      aria-label="Worktree, branch, and ship controls"
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 4,
+        gap: 8,
         maxWidth,
-        overflowX: "auto",
-        overflowY: "visible",
-        // Horizontal scrollers clip vertical overflow, so the badge dots need
-        // to live inside the scrollport instead of relying on z-index.
+        minWidth: 0,
+        // Single compact control now (no horizontal strip), so keep overflow
+        // visible for the badge dots that sit above the branch button.
+        overflow: "visible",
         padding: "7px 2px",
         flexShrink: 1,
       }}
     >
-      {items.map((worktree) => {
-        const selected = worktree.id === selectedId;
-        const optimistic = isOptimisticWorktree(worktree);
-        const worktreeKey = worktreeScopeKey(projectId, worktree.isMain ? null : worktree.id);
-        const running = [...runningKeys].some(
-          (key) => key === worktreeKey || key.startsWith(`${worktreeKey}:`),
-        );
-        const canDelete = selected && !worktree.isMain && !optimistic && !!onDeleteSelected;
-        const label = worktree.isMain ? "main" : worktree.name;
-        // Fused split-button: the branch selector welds to a trailing Sync half
-        // (drops the shared edge) only when the branch is behind its upstream.
-        const showSync = (behindCount ?? 0) > 0 && !!onSync;
-        // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read
-        // as two distinct controls with hierarchy, not one welded segment.
-        const shipControls = () => (
-          <>
-            <ProjectGitStatusButton
-              changedCount={changedCount}
-              onClick={onToggleDiffView}
-              disabled={shipDisabled}
-            />
-            <CommitPushButton
-              size="md"
-              variant={changedCount === 0 ? "gray-frame" : "primary"}
-              enabled={shipEnabled}
-              onShip={onShip}
-            />
-          </>
-        );
-        return (
-          worktree.isMain && selected ? (
-            <div
-              key={worktree.id}
-              role="none"
-              style={{
-                position: "relative",
-                display: "inline-flex",
-                alignItems: "center",
-                flexShrink: 0,
-              }}
-            >
-              <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
-              <div
-                role="group"
-                aria-label="Branch, sync, review changes, and ship"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  minWidth: 0,
-                }}
-              >
-                {mainBranchUnavailable ? (
-                  <Btn
-                    variant="ghost"
-                    icon="git-branch"
-                    disabled
-                    title={mainBranchUnavailableTitle ?? "Git unavailable"}
-                    style={{
-                      fontFamily: "var(--mono)",
-                      maxWidth: "min(36ch, 42vw)",
-                      color: "var(--text-dim)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      No Git repo
-                    </span>
-                  </Btn>
-                ) : (
-                  // Zero-gap wrapper so the branch selector and Sync half touch
-                  // (welded split-button) while the pair keeps the group's 8px
-                  // gap from the Changes/Ship controls.
-                  <div style={{ display: "inline-flex", alignItems: "center", minWidth: 0 }}>
-                    <BranchTypeahead
-                      projectId={projectId}
-                      worktreeId={null}
-                      branch={mainBranchLabel}
-                      disabled={branchSwitchDisabled}
-                      worktreePath={worktree.path}
-                      attachedTrailing={showSync}
-                      onCreateWorktree={onCreateWorktree}
-                      createWorktreeDisabled={createWorktreeDisabled}
-                      createWorktreeTitle={createWorktreeTitle}
-                    />
-                    {showSync && onSync && (
-                      <SyncButton
-                        behindCount={behindCount ?? 0}
-                        attachedLeading
-                        enabled={syncEnabled}
-                        onSync={onSync}
-                      />
-                    )}
-                  </div>
-                )}
-                {shipControls()}
-              </div>
-            </div>
-          ) : (
-          <div
-            key={worktree.id}
-            role="none"
+      {selectedIsMain && mainBranchUnavailable ? (
+        <Btn
+          variant="ghost"
+          icon="git-branch"
+          disabled
+          title={mainBranchUnavailableTitle ?? "Git unavailable"}
+          style={{
+            fontFamily: "var(--mono)",
+            maxWidth: "min(36ch, 42vw)",
+            color: "var(--text-dim)",
+          }}
+        >
+          <span
             style={{
-              position: "relative",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: selected ? 2 : 0,
-              height: 28,
-              flexShrink: 0,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
-            <div
-              style={{
-                position: "relative",
-                display: "inline-flex",
-                alignItems: "center",
-                height: 28,
-                borderRadius: 999,
-                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                background: selected ? "var(--accent-faint)" : "var(--surface-0)",
-                color: selected ? "var(--accent)" : "var(--text-dim)",
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-            <WorktreeBadgeDots launchRunning={running} taskCounts={worktree.taskCounts} />
-            <button
-              type="button"
-              role="radio"
-              disabled={optimistic}
-              onClick={() => onSelect(worktree.id)}
-              onKeyDown={(event) => {
-                if (optimistic) return;
-                if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;
-                event.preventDefault();
-                const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-                const currentIndex = selectableItems.findIndex((item) => item.id === worktree.id);
-                const next = selectableItems[
-                  (currentIndex + direction + selectableItems.length) % selectableItems.length
-                ];
-                if (next) onSelect(next.id);
-              }}
-              aria-label={`Switch to worktree ${worktree.isMain ? label : worktree.name}`}
-              aria-checked={selected}
-              tabIndex={selected ? 0 : -1}
-              title={
-                optimistic
-                  ? "Creating worktree..."
-                  : worktree.isMain
-                    ? `${worktree.path}${mainBranchLabel ? ` · branch ${mainBranchLabel}` : ""}`
-                    : worktree.path
-              }
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                height: "100%",
-                padding: canDelete ? "0 8px 0 10px" : "0 10px",
-                border: 0,
-                borderRadius: canDelete ? "999px 0 0 999px" : 999,
-                background: "transparent",
-                color: "inherit",
-                font: "inherit",
-                whiteSpace: "nowrap",
-                cursor: optimistic ? "default" : "pointer",
-                opacity: optimistic ? 0.68 : 1,
-              }}
-            >
-              {label}
-            </button>
-            {canDelete && (
-              <button
-                type="button"
-                onClick={() => onDeleteSelected?.(worktree)}
-                aria-label={`Delete worktree ${worktree.name}`}
-                title={`Delete worktree ${worktree.name}`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 24,
-                  alignSelf: "stretch",
-                  padding: 0,
-                  border: 0,
-                  borderLeft: "1px solid color-mix(in srgb, currentColor 22%, transparent)",
-                  borderRadius: "0 999px 999px 0",
-                  background: "transparent",
-                  color: "inherit",
-                  cursor: "pointer",
-                  opacity: 0.78,
-                }}
-              >
-                <Icon name="trash" size={10} />
-              </button>
-            )}
-            </div>
-            {selected && !worktree.isMain && !optimistic && (
-              <div
-                role="group"
-                aria-label="Review changes and ship"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  minWidth: 0,
-                }}
-              >
-                {shipControls()}
-              </div>
-            )}
-          </div>
-          )
-        );
-      })}
+            No Git repo
+          </span>
+        </Btn>
+      ) : (
+        // Zero-gap wrapper so the branch selector and Sync half touch (welded
+        // split-button); badge dots sit above it via the relative parent.
+        <div
+          style={{
+            position: "relative",
+            display: "inline-flex",
+            alignItems: "center",
+            minWidth: 0,
+          }}
+        >
+          <WorktreeBadgeDots
+            launchRunning={selectedRunning}
+            taskCounts={selectedWorktree.taskCounts}
+          />
+          <BranchTypeahead
+            projectId={projectId}
+            worktreeId={selectedIsMain ? null : selectedWorktree.id}
+            branch={branchLabel}
+            disabled={branchSwitchDisabled}
+            worktreePath={selectedWorktree.path}
+            selected={!selectedIsMain}
+            attachedTrailing={showSync}
+            onCreateWorktree={onCreateWorktree}
+            createWorktreeDisabled={createWorktreeDisabled}
+            createWorktreeTitle={createWorktreeTitle}
+            worktrees={worktrees}
+            selectedWorktreeId={selectedWorktree.id}
+            onSelectWorktree={onSelect}
+            onDeleteWorktree={onDeleteSelected}
+            runningKeys={runningKeys}
+          />
+          {showSync && onSync && (
+            <SyncButton
+              behindCount={behindCount ?? 0}
+              attachedLeading
+              enabled={syncEnabled}
+              onSync={onSync}
+            />
+          )}
+        </div>
+      )}
+      {shipControls}
     </div>
   );
 }

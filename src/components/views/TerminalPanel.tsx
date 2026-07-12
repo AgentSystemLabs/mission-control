@@ -187,10 +187,10 @@ export function TerminalPanel({
     axis: "x",
     defaultSize: 560,
     minSize: MIN_WIDTH,
-    // Reserve room for the ProjectBar (~96px) plus the project view's 700px
+    // Reserve room for the ProjectBar (~96px) plus the project view's 640px
     // left-panel floor so dragging the terminal wider shrinks itself rather
     // than clipping/wrapping the session columns.
-    maxSize: (vw) => vw - 796,
+    maxSize: (vw) => vw - 736,
   });
 
   if (!active) return null;
@@ -206,8 +206,8 @@ export function TerminalPanel({
         minWidth: expanded ? 0 : MIN_WIDTH,
         // Hard cap relative to the actual flex-row width (not window.innerWidth)
         // so the panel can never paint past the right edge: 96px ProjectBar +
-        // the project view's 700px left-panel floor = 796px reserved.
-        maxWidth: expanded ? undefined : "calc(100% - 796px)",
+        // the project view's 640px left-panel floor = 736px reserved.
+        maxWidth: expanded ? undefined : "calc(100% - 736px)",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,

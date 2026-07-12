@@ -98,20 +98,49 @@ describe("task-display-order", () => {
     ]);
   });
 
-  it("folds ready sessions into finished for the archived list so Ready never appears", () => {
+  it("folds every non-finished status into finished for the archived list", () => {
     const grouped = groupArchivedTasksForDisplay([
       task({ id: "done", status: "finished", createdAt: 1, updatedAt: 10 }),
       task({ id: "never-started", status: "ready", createdAt: 2, updatedAt: 40 }),
       task({ id: "older-ready", status: "ready", createdAt: 3, updatedAt: 20 }),
       task({ id: "cut-off", status: "disconnected", createdAt: 4, updatedAt: 30 }),
+      task({ id: "cut-short", status: "interrupted", createdAt: 5, updatedAt: 50 }),
+      task({ id: "was-running", status: "running", createdAt: 6, updatedAt: 5 }),
+      task({ id: "awaiting", status: "needs-input", createdAt: 7, updatedAt: 25 }),
+      task({ id: "killed", status: "terminated", createdAt: 8, updatedAt: 15 }),
     ]);
 
-    expect(grouped.ready).toEqual([]);
+    for (const status of [
+      "ready",
+      "running",
+      "needs-input",
+      "interrupted",
+      "terminated",
+      "disconnected",
+    ] as const) {
+      expect(grouped[status]).toEqual([]);
+    }
     expect(grouped.finished.map((t) => t.id)).toEqual([
+      "cut-short",
       "never-started",
+      "cut-off",
+      "awaiting",
       "older-ready",
+      "killed",
       "done",
+      "was-running",
     ]);
-    expect(grouped.disconnected.map((t) => t.id)).toEqual(["cut-off"]);
+  });
+
+  it("keeps interrupted as its own column in the active list", () => {
+    const { byStatus } = groupActiveListTasksForDisplay([
+      task({ id: "cut-short", status: "interrupted", createdAt: 1, updatedAt: 10 }),
+      task({ id: "live", status: "running", createdAt: 2, updatedAt: 20 }),
+      task({ id: "done", status: "finished", createdAt: 3, updatedAt: 30 }),
+    ]);
+
+    expect(byStatus.interrupted.map((t) => t.id)).toEqual(["cut-short"]);
+    expect(byStatus.running.map((t) => t.id)).toEqual(["live"]);
+    expect(byStatus.finished.map((t) => t.id)).toEqual(["done"]);
   });
 });

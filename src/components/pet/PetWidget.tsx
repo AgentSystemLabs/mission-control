@@ -22,6 +22,7 @@ import {
   type PetMood,
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
+import { useDockLift } from "~/lib/pet/use-dock-lift";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { DEFAULT_PET_SPECIES, type PetHomeSide, type PetSizeId } from "~/shared/pet";
@@ -138,33 +139,22 @@ export function PetWidget() {
   // doesn't animate (the stage offset and the walker offset cancel exactly).
   const [instantJump, setInstantJump] = useState(false);
 
-  // The pet perches on the bottom terminal dock instead of covering it: track
-  // how far the dock's top edge rises above the viewport bottom and lift the
-  // whole widget by that much. A ResizeObserver follows the dock's slide
-  // open/close and drag-resizes; the store scope re-arms the observer when the
-  // dock mounts/unmounts on project switches (it renders only on project/home
-  // scopes). The widget's own `bottom` transition turns those retargets into
-  // the fly-up / fall motion.
-  const { project: dockProject, homeActive } = useUserTerminals();
-  const dockActive = !!dockProject || homeActive;
-  const [dockLift, setDockLift] = useState(0);
+  // The pet perches on the bottom terminal dock instead of covering it: lift
+  // the whole widget by how far the dock's top edge rises above the viewport
+  // bottom. The widget's own `bottom` transition turns those retargets into the
+  // fly-up / fall motion. Shared with the remote pets so both perch alike.
+  const dockLift = useDockLift(pet.enabled);
   // The left project rail is a wall the pet shouldn't cross: track its right
   // edge and keep both the pet's left home and its leftward drag/wander travel
-  // to the right of it, so it perches beside the rail instead of over it.
+  // to the right of it, so it perches beside the rail instead of over it. The
+  // dock's mount/unmount on project switches (dockActive) re-arms the measure,
+  // since the rail comes and goes with the same project/home scopes.
+  const { project: dockProject, homeActive } = useUserTerminals();
+  const dockActive = !!dockProject || homeActive;
   const [leftWall, setLeftWall] = useState(0);
   useEffect(() => {
     if (!pet.enabled) return;
     const measure = () => {
-      const dock = document.querySelector("[data-user-terminal-panel]");
-      const rect = dock?.getBoundingClientRect();
-      // A hidden or collapsing dock reports a zero-size rect whose top is 0 —
-      // trusting it would set the lift to the full window height and slam the
-      // pet to the very top of the screen. No box, no perch.
-      setDockLift(
-        rect && rect.height > 0 && rect.width > 0
-          ? Math.max(0, window.innerHeight - rect.top)
-          : 0,
-      );
       const rail = document.querySelector(".mc-project-rail");
       const railRect = rail?.getBoundingClientRect();
       setLeftWall(
@@ -175,12 +165,10 @@ export function PetWidget() {
     };
     measure();
     let observer: ResizeObserver | null = null;
-    const dock = document.querySelector("[data-user-terminal-panel]");
     const rail = document.querySelector(".mc-project-rail");
-    if (typeof ResizeObserver !== "undefined") {
+    if (rail && typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(measure);
-      if (dock) observer.observe(dock);
-      if (rail) observer.observe(rail);
+      observer.observe(rail);
     }
     window.addEventListener("resize", measure);
     return () => {

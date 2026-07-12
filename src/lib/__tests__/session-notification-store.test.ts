@@ -3,11 +3,13 @@ import {
   clearSessionFinishNotifications,
   loadAppNotifications,
   loadSessionFinishNotifications,
+  mergeSessionFinishNotification,
   pruneSessionFinishNotifications,
   requestDiagramNotificationOpen,
   requestSessionNotificationOpen,
   saveAppNotifications,
   saveSessionFinishNotifications,
+  type AppNotification,
   type DiagramReadyNotification,
   type SessionFinishNotification,
 } from "../session-notification-store";
@@ -139,6 +141,36 @@ describe("clearSessionFinishNotifications", () => {
     } finally {
       globalThis.window = previousWindow;
     }
+  });
+});
+
+describe("notification cap", () => {
+  it("keeps only the 200 most-recent notifications, dropping the oldest", () => {
+    // 205 notifications with ascending finishedAt (0 = oldest, 204 = newest).
+    let current: AppNotification[] = [];
+    for (let i = 0; i < 205; i += 1) {
+      current = mergeSessionFinishNotification(current, {
+        kind: "session-finished",
+        id: `task-${i}`,
+        projectId: "project-1",
+        worktreeId: null,
+        scopeId: "local",
+        projectName: "Core",
+        taskTitle: `Session ${i}`,
+        finishedAt: i,
+      });
+    }
+
+    expect(current).toHaveLength(200);
+    // Newest-first, and the 5 oldest (finishedAt 0..4) are dropped.
+    expect(current[0]?.kind === "session-finished" && current[0].id).toBe("task-204");
+    const oldest = current[current.length - 1]!;
+    expect(oldest.kind === "session-finished" && oldest.id).toBe("task-5");
+    const ids = new Set(
+      current.map((n) => (n.kind === "session-finished" ? n.id : "")),
+    );
+    expect(ids.has("task-0")).toBe(false);
+    expect(ids.has("task-4")).toBe(false);
   });
 });
 

@@ -68,12 +68,9 @@ export function applyAccentColor(id: string | null | undefined) {
   if (typeof document === "undefined") return;
   const color = getAccentColor(id);
   const root = document.documentElement;
-  root.style.setProperty("--accent", color.value);
-  root.style.setProperty("--mc-on-accent", color.onAccent);
-  root.style.setProperty("--accent-dim", `rgba(${color.rgb}, 0.18)`);
-  root.style.setProperty("--accent-faint", `rgba(${color.rgb}, 0.1)`);
-  root.style.setProperty("--accent-border", `rgba(${color.rgb}, 0.38)`);
-  root.style.setProperty("--accent-glow", `rgba(${color.rgb}, 0.48)`);
+  for (const [key, value] of Object.entries(accentCssVars(color.id))) {
+    root.style.setProperty(key, value);
+  }
   root.style.setProperty(
     "--mc-btn-filled-image",
     `url("/borders/button_filled_${color.id}.png")`,
@@ -95,4 +92,19 @@ export function applyAccentColor(id: string | null | undefined) {
   } catch {
     /* localStorage unavailable */
   }
+}
+
+/** CSS custom properties that theme pet strokes/fills (and any accent-tinted
+ *  subtree). Safe to set on a wrapper so one remote pet can use its owner's
+ *  accent without mutating the document root. */
+export function accentCssVars(id: string | null | undefined): Record<string, string> {
+  const color = getAccentColor(id);
+  return {
+    "--accent": color.value,
+    "--mc-on-accent": color.onAccent,
+    "--accent-dim": `rgba(${color.rgb}, 0.18)`,
+    "--accent-faint": `rgba(${color.rgb}, 0.1)`,
+    "--accent-border": `rgba(${color.rgb}, 0.38)`,
+    "--accent-glow": `rgba(${color.rgb}, 0.48)`,
+  };
 }

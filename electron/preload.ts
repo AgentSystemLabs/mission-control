@@ -454,6 +454,10 @@ const electronAPI = {
     setSaverActive: (active: boolean): Promise<boolean> =>
       ipcRenderer.invoke(IPC.powerSetSaverActive, active),
   },
+  spellcheck: {
+    setEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.spellcheckSetEnabled, enabled),
+  },
   onSwipe: (cb: (direction: "left" | "right" | "up" | "down") => void) =>
     subscribe(IPC.appSwipe, cb),
   isFullScreen: (): Promise<boolean> => ipcRenderer.invoke(IPC.appIsFullScreen),

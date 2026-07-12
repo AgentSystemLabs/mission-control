@@ -26,6 +26,9 @@ function openDb(userDataDir: string): Database.Database {
     nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
   });
   db.pragma("journal_mode = WAL");
+  // Wait (up to 5s) for a concurrent checkpoint/writer instead of throwing
+  // SQLITE_BUSY the instant the server process holds the write lock.
+  db.pragma("busy_timeout = 5000");
   restrictDbFilePermissions(dbPath);
   db.exec(
     `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,

@@ -215,11 +215,22 @@ export const userTerminalsQueryOptions = (
 export const DEFAULT_USAGE_DAYS = 30;
 const USAGE_STALE_MS = 30_000;
 
+// /api/usage waits a short budget for its JSONL sync, so warm responses are
+// fully fresh (usage.controller). Only the first-ever cold sync exceeds the
+// budget: the server then answers from the current DB and flags `syncing: true`
+// while it finishes in the background. We poll on a short interval while that
+// flag is set to pick up the converged numbers, then stop. No perpetual polling
+// in the steady state, where syncing is always false.
+const USAGE_SYNCING_REFETCH_MS = 2_000;
+
 export const usageQueryOptions = (days: number = DEFAULT_USAGE_DAYS) =>
   queryOptions({
     queryKey: queryKeys.usage(days),
     queryFn: async () => api.getUsage(days),
     staleTime: USAGE_STALE_MS,
+    refetchInterval: (query) =>
+      query.state.data?.syncing ? USAGE_SYNCING_REFETCH_MS : false,
+    refetchIntervalInBackground: false,
   });
 
 // Claude usage limits come from a local file the statusline tap rewrites every
