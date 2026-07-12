@@ -11,11 +11,16 @@ export const PET_WS_HEARTBEAT_MS = 15_000;
  *  on top of the server's own TTL sweep). */
 export const PET_WS_PEER_TTL_MS = 45_000;
 
-/** The only per-user data on the wire: an ephemeral id, a species, a name. */
+/** The only per-user data on the wire: an ephemeral id, a species, a name, and
+ *  the two cosmetic progression fields needed to draw the pet the way its owner
+ *  sees it — `level` (earned gear: sparkle ≥3, scarf ≥5, belt ≥8, crown ≥10)
+ *  and `prestige` (molt count; ≥1 pins the star badge). */
 export type PetPeer = {
   id: string;
   species: PetSpeciesId;
   name: string;
+  level: number;
+  prestige: number;
 };
 
 export type PetClientMessage =

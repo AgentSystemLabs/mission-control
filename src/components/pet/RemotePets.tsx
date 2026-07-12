@@ -11,11 +11,16 @@ import { usePetMultiplayer } from "~/lib/pet/use-pet-multiplayer";
 import { pickRemotePetMessage } from "~/lib/pet/pet-multiplayer-messages";
 import type { PetPeer } from "~/shared/pet-multiplayer-protocol";
 import { usePetSnapshot } from "~/lib/pet/pet-store";
+import { useDockLift } from "~/lib/pet/use-dock-lift";
 
 const SPRITE_PX = 56;
 const MAX_VISIBLE = 6;
 const BUBBLE_MS = 6_000;
 const SPEAK_EVERY_MS = 22_000;
+/** Resting distance from the window's bottom edge when there's no dock. */
+const GROUND_GAP_PX = 12;
+/** Empty space under the sprite's feet — mirrors the local pet so feet perch. */
+const SPRITE_BOTTOM_WHITESPACE = 0.09;
 
 class RemotePetsBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -36,6 +41,9 @@ function RemotePetsInner(): ReactNode {
   const overflow = peers.length - visible.length;
   // Sit on the opposite bottom corner from the local pet.
   const localHome = usePetSnapshot().homeSide;
+  // Perch on the terminal dock exactly like the local pet, so peers stand on
+  // the same line instead of floating inside the open terminal panel.
+  const dockLift = useDockLift();
 
   // peerId -> current speech line (absent = not speaking right now).
   const [bubbles, setBubbles] = useState<Record<string, string>>({});
@@ -103,7 +111,18 @@ function RemotePetsInner(): ReactNode {
     <div
       className="mc-remote-pets"
       data-local-home={localHome}
-      style={{ zIndex: Z_INDEX.pet - 1 }}
+      style={{
+        // `position` MUST be inline: `#root > * { position: relative }` (an id
+        // selector) outranks the `.mc-remote-pets` class, so a class-declared
+        // `position: fixed` loses and the container drops into #root's flex
+        // column — shoving the terminal dock up whenever a peer appears. Inline
+        // wins the cascade, exactly as the local PetWidget does.
+        position: "fixed",
+        zIndex: Z_INDEX.pet,
+        bottom:
+          dockLift > 0 ? dockLift - SPRITE_PX * SPRITE_BOTTOM_WHITESPACE : GROUND_GAP_PX,
+        transition: "bottom 320ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+      }}
       aria-hidden="true"
     >
       {visible.map((peer) => (
@@ -119,12 +138,25 @@ function RemotePet({ peer, bubble }: { peer: PetPeer; bubble?: string }): ReactN
   const Sprite = PET_SPECIES[species].Sprite;
   return (
     <div className="mc-remote-pet">
-      {bubble ? <div className="mc-remote-pet-bubble">{bubble}</div> : null}
-      <div className="mc-remote-pet-name" title={peer.name}>
-        {peer.name}
+      {/* Name + bubble float above the sprite (position: absolute) so their
+          width isn't clamped to the sprite column — otherwise a chatty line
+          wraps one word per line into a tall tower — and so they never push
+          the surrounding layout. */}
+      <div className="mc-remote-pet-labels">
+        {bubble ? <div className="mc-remote-pet-bubble">{bubble}</div> : null}
+        <div className="mc-remote-pet-name" title={peer.name}>
+          {peer.name}
+        </div>
       </div>
       <div className="mc-remote-pet-sprite">
-        <Sprite mood="working" intensity={1} night={false} level={1} size={SPRITE_PX} />
+        <Sprite
+          mood="working"
+          intensity={1}
+          night={false}
+          level={peer.level}
+          prestige={peer.prestige}
+          size={SPRITE_PX}
+        />
       </div>
     </div>
   );

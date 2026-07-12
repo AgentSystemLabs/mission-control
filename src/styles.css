@@ -4610,19 +4610,32 @@ body[data-card-glow] .cursor-glow {
 }
 .mc-remote-pet {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 64px;
+  /* Just the sprite footprint; the name + bubble float above it absolutely. */
+  width: 56px;
+  height: 56px;
   animation: mc-remote-pet-in 0.35s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 .mc-remote-pet-sprite {
   width: 56px;
   height: 56px;
 }
+/* Name + bubble stack, anchored just above the sprite and centered on it.
+   Out of flow so a long bubble grows upward without clamping to the sprite
+   width or shifting anything around it. */
+.mc-remote-pet-labels {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
 .mc-remote-pet-name {
-  max-width: 92px;
-  margin-bottom: 4px;
+  max-width: 120px;
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--surface-1);
@@ -4637,8 +4650,8 @@ body[data-card-glow] .cursor-glow {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
 }
 .mc-remote-pet-bubble {
-  max-width: 150px;
-  margin-bottom: 6px;
+  width: max-content;
+  max-width: 160px;
   padding: 6px 10px;
   border-radius: 10px;
   background: var(--surface-1);

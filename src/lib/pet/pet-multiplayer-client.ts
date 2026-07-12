@@ -21,7 +21,13 @@ import {
 /** Ephemeral, per-app-session id. Not tied to any user/account/device. */
 const PEER_ID = safeRandomId();
 
-export type LocalPet = { species: PetPeer["species"]; name: string };
+export type LocalPet = {
+  species: PetPeer["species"];
+  name: string;
+  /** Earned-gear level and molt count — the cosmetic style peers should see. */
+  level: number;
+  prestige: number;
+};
 
 export type PetMultiplayerDesired = {
   enabled: boolean;
@@ -42,12 +48,23 @@ const CONNECT_TIMEOUT_MS = 10_000;
 // Defense-in-depth against a hostile/buggy relay: bound what we hold + render.
 const MAX_PEERS_PER_ROOM = 200;
 const MAX_NAME_LEN = 40;
+// Mirror the relay's cosmetic ceilings; a malformed/absent value renders a
+// bare, gear-less pet rather than throwing off the sprite.
+const MAX_LEVEL = 100;
+const MAX_PRESTIGE = 9_999;
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(v)));
+}
 
 function clampPeer(p: PetPeer): PetPeer {
   return {
     id: String(p.id).slice(0, 64),
     species: p.species,
     name: String(p.name ?? "").slice(0, MAX_NAME_LEN),
+    level: clampInt(p.level, 1, MAX_LEVEL, 1),
+    prestige: clampInt(p.prestige, 0, MAX_PRESTIGE, 0),
   };
 }
 
@@ -89,7 +106,18 @@ function safeRandomId(): string {
 }
 
 function petKey(pet: LocalPet | null): string {
-  return pet ? `${pet.species}|${pet.name}` : "";
+  return pet ? `${pet.species}|${pet.name}|${pet.level}|${pet.prestige}` : "";
+}
+
+/** The wire peer for our local pet — the single place presence is shaped. */
+function localPeer(pet: LocalPet): PetPeer {
+  return {
+    id: PEER_ID,
+    species: pet.species,
+    name: pet.name,
+    level: pet.level,
+    prestige: pet.prestige,
+  };
 }
 
 function isActive(): boolean {
@@ -220,7 +248,7 @@ function applySubscriptions(): void {
   }
   // Announce / refresh presence where we should.
   if (desired.localPet) {
-    const peer: PetPeer = { id: PEER_ID, species: desired.localPet.species, name: desired.localPet.name };
+    const peer = localPeer(desired.localPet);
     for (const room of broadcast) {
       if (!announcedRooms.has(room) || petChanged) {
         send({ type: "presence", room, peer });
@@ -235,7 +263,7 @@ function startHeartbeat(): void {
   stopHeartbeat();
   heartbeatTimer = setInterval(() => {
     if (!desired.localPet || !ws || ws.readyState !== WebSocket.OPEN) return;
-    const peer: PetPeer = { id: PEER_ID, species: desired.localPet.species, name: desired.localPet.name };
+    const peer = localPeer(desired.localPet);
     for (const room of announcedRooms) send({ type: "presence", room, peer });
   }, PET_WS_HEARTBEAT_MS);
 }
