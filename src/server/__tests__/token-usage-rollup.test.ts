@@ -251,4 +251,49 @@ describe("token usage rollup", () => {
     expect(rollupForT1.n).toBe(0);
     assertRollupMatchesRaw();
   });
+
+  it("folds out-of-order ingests into the same day bucket with last_ts = max(ts)", () => {
+    // Two ingests into the SAME (project, task, local-day) bucket, the newer ts
+    // committed first and the older ts second, must accumulate tokens and keep
+    // last_ts at the maximum — exercising the `last_ts = MAX(...)` upsert branch.
+    const day = DAY0 + 10 * MS_PER_DAY;
+    const laterTs = day + 5 * 3_600_000;
+    const earlierTs = day + 1 * 3_600_000;
+    repo.ingestTokenUsageTx((commit) => {
+      commit({
+        rows: [
+          { id: "tu-o1", taskId: "t2", projectId: "p1", claudeSessionId: "sess-t2", messageUuid: "o1", model: "m", inputTokens: 3, outputTokens: 4, cacheCreationTokens: 5, cacheReadTokens: 6, ts: laterTs },
+        ],
+        sessionOffset: { claudeSessionId: "sess-t2", taskId: "t2", projectId: "p1", byteOffset: 30 },
+      });
+    }, Date.now());
+    repo.ingestTokenUsageTx((commit) => {
+      commit({
+        rows: [
+          { id: "tu-o2", taskId: "t2", projectId: "p1", claudeSessionId: "sess-t2", messageUuid: "o2", model: "m", inputTokens: 1, outputTokens: 1, cacheCreationTokens: 1, cacheReadTokens: 1, ts: earlierTs },
+        ],
+        sessionOffset: { claudeSessionId: "sess-t2", taskId: "t2", projectId: "p1", byteOffset: 40 },
+      });
+    }, Date.now());
+
+    const bucket = sqlite
+      .prepare(
+        "SELECT input_tokens AS i, last_ts AS lastTs FROM token_usage_rollup WHERE project_id = 'p1' AND task_id = 't2' AND day = strftime('%Y-%m-%d', ? / 1000, 'unixepoch', 'localtime')",
+      )
+      .get(laterTs) as { i: number; lastTs: number };
+    expect(bucket.i).toBe(4); // 3 + 1 accumulated regardless of ingest order
+    expect(bucket.lastTs).toBe(laterTs); // max, not the last-committed (earlier) ts
+    assertRollupMatchesRaw();
+  });
+
+  it("keeps the rollup equal to raw after a whole-project cascade delete", () => {
+    // Deleting a project cascades to its tasks, their token_usage rows, and their
+    // rollup rows (the rollup's project_id/task_id FKs are both ON DELETE CASCADE).
+    sqlite.prepare("DELETE FROM projects WHERE id = 'p2'").run();
+    const rollupForP2 = sqlite
+      .prepare("SELECT COUNT(*) AS n FROM token_usage_rollup WHERE project_id = 'p2'")
+      .get() as { n: number };
+    expect(rollupForP2.n).toBe(0);
+    assertRollupMatchesRaw();
+  });
 });
