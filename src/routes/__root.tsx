@@ -83,6 +83,7 @@ import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
 import { usePetController } from "~/lib/pet/use-pet-controller";
 import { PetWidget } from "~/components/pet/PetWidget";
+import { RemotePets } from "~/components/pet/RemotePets";
 import {
   mergeAppNotificationLists,
   useDiagramReadyNotificationList,
@@ -804,6 +805,7 @@ function Shell() {
         />
         <VoiceController />
         <PetWidget />
+        <RemotePets />
         <SessionFileDropZone />
       </div>
       <ConfirmDialog

@@ -730,6 +730,26 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({ voiceControlEnabled: true });
   });
 
+  it("keeps multiplayer pets disabled by default (opt-in)", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({ petMultiplayerEnabled: false });
+  });
+
+  it("persists the multiplayer pets preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ petMultiplayerEnabled: true }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ petMultiplayerEnabled: true });
+    expect(await jsonBody(read!)).toMatchObject({ petMultiplayerEnabled: true });
+  });
+
   it("keeps the question overlay enabled by default (beta)", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
     expect(await jsonBody(response!)).toMatchObject({ questionOverlayEnabled: true });

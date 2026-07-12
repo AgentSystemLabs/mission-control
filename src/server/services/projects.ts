@@ -9,6 +9,7 @@ import {
   isActiveStatus,
   normalizeScriptArgs,
 } from "~/shared/domain";
+import { normalizeRepoRemote } from "~/shared/repo-key";
 import type { CustomScript, LaunchCommand, TaskStatus } from "~/shared/domain";
 import type { Project, Task } from "~/db/schema";
 import type { ProjectPathStatus, ProjectWithCounts } from "~/shared/projects";
@@ -103,24 +104,33 @@ export function getProjectPathStatus(
   return pathStatusFor(project.path, "project", null);
 }
 
-export function detectGithubUrl(dir: string): string | null {
+/** Raw `origin` remote url from a repo's .git/config, or null. Single fs read. */
+function readOriginRemoteUrl(dir: string): string | null {
   try {
     const cfg = path.join(dir, ".git", "config");
     if (!fs.existsSync(cfg)) return null;
     const text = fs.readFileSync(cfg, "utf8");
     const m = text.match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
-    if (!m) return null;
-    let url = m[1].trim();
-    // git@github.com:owner/repo(.git)
-    const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (ssh) return `https://github.com/${ssh[1]}`;
-    // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
-    const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
-    if (https) return `https://github.com/${https[1]}`;
-    return null;
+    return m ? m[1].trim() : null;
   } catch {
     return null;
   }
+}
+
+/** Normalize a raw origin url to https://github.com/owner/repo, or null. Pure. */
+function githubUrlFromRemote(url: string | null): string | null {
+  if (!url) return null;
+  // git@github.com:owner/repo(.git)
+  const ssh = url.match(/^git@github\.com:([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (ssh) return `https://github.com/${ssh[1]}`;
+  // ssh://git@github.com/owner/repo(.git) or https://github.com/owner/repo(.git)
+  const https = url.match(/^(?:https?|ssh):\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/\s]+?)(?:\.git)?$/);
+  if (https) return `https://github.com/${https[1]}`;
+  return null;
+}
+
+export function detectGithubUrl(dir: string): string | null {
+  return githubUrlFromRemote(readOriginRemoteUrl(dir));
 }
 
 export function detectBranch(dir: string): string {
@@ -167,11 +177,15 @@ function decorate(p: Project, ts: Task[]): ProjectWithCounts {
   }
   const previewSource =
     active.find((t) => t.status === "running") ?? active.find((t) => t.status === "needs-input");
+  // Read .git/config once and derive both the GitHub url and the (any-host)
+  // repo key from it, rather than reading + parsing the file twice per project.
+  const originRemote = readOriginRemoteUrl(p.path);
   return {
     ...p,
     taskCounts: { ...counts, total: active.length, activeNonDone },
     preview: previewSource?.preview ?? null,
-    githubUrl: detectGithubUrl(p.path),
+    githubUrl: githubUrlFromRemote(originRemote),
+    repoKey: normalizeRepoRemote(originRemote),
   };
 }
 

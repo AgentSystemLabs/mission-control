@@ -215,6 +215,11 @@ export type AppSettings = {
   petEnabled: boolean;
   petMessagesEnabled: boolean;
   petSoundsEnabled: boolean;
+  /**
+   * Opt-in (default false): broadcast this machine's pet to others working on
+   * the same git repo and show theirs. No WebSocket connects unless this is on.
+   */
+  petMultiplayerEnabled: boolean;
   petState: PetPersistentState | null;
 };
 
@@ -690,6 +695,7 @@ export const api = {
         | "petEnabled"
         | "petMessagesEnabled"
         | "petSoundsEnabled"
+        | "petMultiplayerEnabled"
         | "petState"
       >
     >,

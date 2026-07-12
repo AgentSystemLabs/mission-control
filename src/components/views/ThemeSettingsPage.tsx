@@ -150,6 +150,7 @@ export function ThemeSettingsPage() {
     petEnabled: settings?.petEnabled ?? true,
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,

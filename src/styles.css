@@ -4585,6 +4585,90 @@ body[data-card-glow] .cursor-glow {
   border-color: var(--accent-border, var(--accent));
 }
 
+/* --- multiplayer (remote) pets: teammates on the same repo --- */
+.mc-remote-pets {
+  position: fixed;
+  left: 16px;
+  bottom: 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  /* Leave room for the local pet in the bottom-right corner. */
+  max-width: calc(100vw - 260px);
+  pointer-events: none;
+  flex-wrap: nowrap;
+  overflow: visible;
+}
+.mc-remote-pet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 64px;
+  animation: mc-remote-pet-in 0.35s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.mc-remote-pet-sprite {
+  width: 56px;
+  height: 56px;
+}
+.mc-remote-pet-name {
+  max-width: 92px;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.3;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+.mc-remote-pet-bubble {
+  max-width: 150px;
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  animation: mc-pet-bubble-in 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.mc-remote-pets-overflow {
+  align-self: flex-end;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+@keyframes mc-remote-pet-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-remote-pet,
+  .mc-remote-pet-bubble {
+    animation: none;
+  }
+}
+
 /* --- petting hearts --- */
 .mc-pet-hearts {
   position: absolute;

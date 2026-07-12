@@ -121,6 +121,7 @@ const AGENT_LAUNCHER_CONFIG_KEY = "agent_launcher_config";
 const PET_ENABLED_KEY = "pet_enabled";
 const PET_MESSAGES_ENABLED_KEY = "pet_messages_enabled";
 const PET_SOUNDS_ENABLED_KEY = "pet_sounds_enabled";
+const PET_MULTIPLAYER_ENABLED_KEY = "pet_multiplayer_enabled";
 const PET_STATE_KEY = "pet_state";
 const TERMINAL_FONT_FAMILY_KEY = "terminal_font_family";
 const TERMINAL_FONT_WEIGHT_KEY = "terminal_font_weight";
@@ -263,6 +264,7 @@ const updateSettingsBody = z
     petEnabled: z.boolean(),
     petMessagesEnabled: z.boolean(),
     petSoundsEnabled: z.boolean(),
+    petMultiplayerEnabled: z.boolean(),
     // Raw on purpose: update() distinguishes an explicit null (reset the pet)
     // from a payload that fails normalization (rejected — a malformed write
     // must never erase the stored pet).
@@ -500,6 +502,7 @@ function settingsPayload() {
     petEnabled: getBooleanSetting(PET_ENABLED_KEY, true),
     petMessagesEnabled: getBooleanSetting(PET_MESSAGES_ENABLED_KEY, true),
     petSoundsEnabled: getBooleanSetting(PET_SOUNDS_ENABLED_KEY, false),
+    petMultiplayerEnabled: getBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, false),
     petState: normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null)),
     ...recallSettingsPayload(),
   };
@@ -765,6 +768,9 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.petSoundsEnabled !== undefined) {
     setBooleanSetting(PET_SOUNDS_ENABLED_KEY, body.petSoundsEnabled);
+  }
+  if (body.petMultiplayerEnabled !== undefined) {
+    setBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, body.petMultiplayerEnabled);
   }
   if (body.petState !== undefined) {
     if (body.petState === null) {

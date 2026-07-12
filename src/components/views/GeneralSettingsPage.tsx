@@ -76,6 +76,7 @@ export function GeneralSettingsPage() {
   const petEnabled = settings?.petEnabled ?? true;
   const petMessagesEnabled = settings?.petMessagesEnabled ?? true;
   const petSoundsEnabled = settings?.petSoundsEnabled ?? false;
+  const petMultiplayerEnabled = settings?.petMultiplayerEnabled ?? false;
   const petState = settings?.petState ?? null;
   const [petNameDraft, setPetNameDraft] = useState("");
   const [petGuideOpen, setPetGuideOpen] = useState(false);
@@ -119,6 +120,7 @@ export function GeneralSettingsPage() {
         | "petEnabled"
         | "petMessagesEnabled"
         | "petSoundsEnabled"
+        | "petMultiplayerEnabled"
       >
     >,
   ): AppSettings => ({
@@ -185,6 +187,7 @@ export function GeneralSettingsPage() {
     petEnabled: settings?.petEnabled ?? true,
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,
@@ -207,6 +210,7 @@ export function GeneralSettingsPage() {
         | "petEnabled"
         | "petMessagesEnabled"
         | "petSoundsEnabled"
+        | "petMultiplayerEnabled"
       >
     >,
   ) => {
@@ -473,6 +477,16 @@ export function GeneralSettingsPage() {
             description="A soft chime when the pet levels up. XP comes only from finished sessions, ships, and PRs."
             checked={petSoundsEnabled}
             onChange={(enabled: boolean) => void updateSettings({ petSoundsEnabled: enabled })}
+            disabled={!petEnabled}
+            label="Enable"
+          />
+        </Field>
+        <Field label="Multiplayer">
+          <ToggleRow
+            title="Show teammates' pets"
+            description="When you have a running session on a repo, broadcast your pet to anyone else working on the same git repo — and see theirs along the bottom. Only your pet's name and species are ever sent, keyed by a one-way hash of the repo — the raw repo URL, project name, path, and your identity never leave your machine. Nothing connects while this is off."
+            checked={petMultiplayerEnabled}
+            onChange={(enabled: boolean) => void updateSettings({ petMultiplayerEnabled: enabled })}
             disabled={!petEnabled}
             label="Enable"
           />
