@@ -47,3 +47,10 @@ export const EMPTY_TOTALS: TokenTotals = {
   cacheCreationTokens: 0,
   cacheReadTokens: 0,
 };
+
+/**
+ * Maximum number of per-session rows the usage summary returns/renders, ordered
+ * by total tokens. Bounds both the query result and the DOM table on long-lived
+ * installs with thousands of sessions.
+ */
+export const PER_SESSION_LIMIT = 200;

@@ -1,4 +1,5 @@
 import type { UsageSummary } from "~/shared/token-usage";
+import { PER_SESSION_LIMIT } from "~/shared/token-usage";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
@@ -99,7 +100,15 @@ export function UsageView({ data }: { data: UsageSummary }) {
         </div>
       </Section>
 
-      <Section label="Per Session" count={data.perSession.length} icon="terminal">
+      <Section
+        label={
+          data.perSession.length >= PER_SESSION_LIMIT
+            ? `Per Session (top ${PER_SESSION_LIMIT})`
+            : "Per Session"
+        }
+        count={data.perSession.length}
+        icon="terminal"
+      >
         <div
           style={{
             border: "1px solid var(--border)",
