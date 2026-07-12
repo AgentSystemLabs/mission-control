@@ -9,6 +9,7 @@ import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
+import { PetSettingsPage } from "./PetSettingsPage";
 import { ProvidersSettingsPage } from "./ProvidersSettingsPage";
 import { RecallSettingsPage } from "./RecallSettings";
 import { SessionButtonsSettingsPage } from "./SessionButtonsSettingsPage";
@@ -29,6 +30,7 @@ export const SETTINGS_PANEL_IDS = [
   "terminal",
   "session",
   "theme",
+  "pet",
   "voice",
   "recall",
   "beta",
@@ -107,6 +109,7 @@ export function SettingsPanel({
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "session", label: "Session buttons", icon: "eye" },
     { id: "theme", label: "Theme", icon: "sun" },
+    { id: "pet", label: "Pet", icon: "sparkles" },
     { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
@@ -350,6 +353,8 @@ export function SettingsPanel({
             <SessionButtonsSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
+          ) : activePanel === "pet" ? (
+            <PetSettingsPage />
           ) : activePanel === "voice" ? (
             <VoiceCommandsPage />
           ) : activePanel === "recall" ? (
