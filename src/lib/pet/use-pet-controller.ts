@@ -7,6 +7,7 @@ import { playNotificationDing } from "~/lib/notification-sound";
 import { useServerEvents, type ServerEvent } from "~/lib/use-events";
 import type { GitStatus } from "~/shared/git-status";
 import { calendarTriggers } from "./pet-messages";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   getPetPersistentState,
   getPetSnapshot,
@@ -17,6 +18,7 @@ import {
   petNoteUncommitted,
   petSetAggregates,
   petSetEnabled,
+  petSetHomeSide,
   petSetShipping,
   petSetWindowHidden,
   petShipResult,
@@ -66,6 +68,7 @@ export function usePetController(): void {
   useEffect(() => {
     if (!settings) return;
     petSetEnabled(settings.petEnabled, settings.petMessagesEnabled, settings.petSoundsEnabled);
+    petSetHomeSide(settings.petHomeSide ?? DEFAULT_PET_HOME_SIDE);
     if (settings.petEnabled) petHydrate(settings.petState);
   }, [settings]);
 

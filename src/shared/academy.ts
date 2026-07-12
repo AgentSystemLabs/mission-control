@@ -18,3 +18,17 @@ export const ACADEMY_BASE_URL = isProduction()
 export function academyUrl(path: string): string {
   return `${ACADEMY_BASE_URL.replace(/\/$/, "")}${path}`;
 }
+
+// WebSocket endpoint for the standalone "multiplayer pets" relay
+// (../academy/pets-ws) — a dedicated Railway service under the agentsystem.dev
+// project. Dev and prod both target the deployed relay so multiplayer pets work
+// without running a local relay; set VITE_MC_PETS_WS_URL=ws://localhost:3031 to
+// point dev at a locally-run one (`npm run pets:ws` in ../academy).
+export function petsWebSocketUrl(): string {
+  const override =
+    typeof import.meta !== "undefined"
+      ? ((import.meta as { env?: Record<string, string | undefined> }).env
+          ?.VITE_MC_PETS_WS_URL ?? undefined)
+      : undefined;
+  return override || "wss://pets.agentsystem.dev";
+}

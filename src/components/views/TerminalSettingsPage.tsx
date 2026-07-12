@@ -6,6 +6,7 @@ import { queryKeys, useSettings } from "~/queries";
 import { DEFAULT_ACCENT_COLOR } from "~/lib/accent-colors";
 import { TERMINAL_FONT_FAMILY } from "~/lib/terminal-options";
 import { terminalFontStack } from "~/lib/terminal-appearance";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   BUNDLED_TERMINAL_FONTS,
   SYSTEM_MONO_FONT_CANDIDATES,
@@ -227,6 +228,8 @@ export function TerminalSettingsPage() {
     petEnabled: settings?.petEnabled ?? true,
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
+    petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     ...patch,

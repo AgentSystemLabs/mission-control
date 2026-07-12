@@ -54,6 +54,18 @@ export function isPetSizeId(value: unknown): value is PetSizeId {
   return typeof value === "string" && (PET_SIZE_IDS as readonly string[]).includes(value);
 }
 
+/** Which bottom corner the pet homes in — placement preference, not identity. */
+export const PET_HOME_SIDE_IDS = ["left", "right"] as const;
+
+export type PetHomeSide = (typeof PET_HOME_SIDE_IDS)[number];
+
+/** Historical default: bottom-right, matching the pre-setting layout. */
+export const DEFAULT_PET_HOME_SIDE: PetHomeSide = "right";
+
+export function isPetHomeSide(value: unknown): value is PetHomeSide {
+  return typeof value === "string" && (PET_HOME_SIDE_IDS as readonly string[]).includes(value);
+}
+
 /** Lifetime counters, only ever incremented by real work (never decremented). */
 export type PetLifetimeStats = {
   sessions: number;

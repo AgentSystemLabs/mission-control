@@ -5,10 +5,12 @@ import { Icon, type IconName } from "~/components/ui/Icon";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { CLOSE_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useHotkey } from "~/lib/use-hotkey";
+import { Z_INDEX } from "~/lib/z-index";
 import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
+import { PetSettingsPage } from "./PetSettingsPage";
 import { ProvidersSettingsPage } from "./ProvidersSettingsPage";
 import { RecallSettingsPage } from "./RecallSettings";
 import { SessionButtonsSettingsPage } from "./SessionButtonsSettingsPage";
@@ -94,6 +96,7 @@ export function SettingsPanel({
     { id: "terminal", label: "Terminal", icon: "terminal" },
     { id: "session", label: "Session buttons", icon: "eye" },
     { id: "theme", label: "Theme", icon: "sun" },
+    { id: "pet", label: "Pet", icon: "sparkles" },
     { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
@@ -108,7 +111,7 @@ export function SettingsPanel({
         left: "var(--mc-workspace-left, 0px)",
         right: "var(--mc-workspace-right, 0px)",
         bottom: "var(--mc-workspace-bottom, 0px)",
-        zIndex: 200,
+        zIndex: Z_INDEX.settings,
         overflow: "hidden",
         background: "transparent",
       }}
@@ -337,6 +340,8 @@ export function SettingsPanel({
             <SessionButtonsSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
+          ) : activePanel === "pet" ? (
+            <PetSettingsPage />
           ) : activePanel === "voice" ? (
             <VoiceCommandsPage />
           ) : activePanel === "recall" ? (

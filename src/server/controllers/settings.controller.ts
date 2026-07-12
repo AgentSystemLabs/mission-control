@@ -86,7 +86,14 @@ import {
 } from "~/shared/session-header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
-import { mergePetStateWrite, normalizePetState } from "~/shared/pet";
+import {
+  DEFAULT_PET_HOME_SIDE,
+  isPetHomeSide,
+  mergePetStateWrite,
+  normalizePetState,
+  PET_HOME_SIDE_IDS,
+  type PetHomeSide,
+} from "~/shared/pet";
 import { HTTP_BAD_REQUEST } from "~/shared/http-status";
 import { DEFAULT_SYNC_PROMPT, normalizeSyncPrompt } from "~/shared/sync-defaults";
 import { json, jsonError, parseJsonBody } from "./_helpers";
@@ -121,6 +128,8 @@ const AGENT_LAUNCHER_CONFIG_KEY = "agent_launcher_config";
 const PET_ENABLED_KEY = "pet_enabled";
 const PET_MESSAGES_ENABLED_KEY = "pet_messages_enabled";
 const PET_SOUNDS_ENABLED_KEY = "pet_sounds_enabled";
+const PET_MULTIPLAYER_ENABLED_KEY = "pet_multiplayer_enabled";
+const PET_HOME_SIDE_KEY = "pet_home_side";
 const PET_STATE_KEY = "pet_state";
 const TERMINAL_FONT_FAMILY_KEY = "terminal_font_family";
 const TERMINAL_FONT_WEIGHT_KEY = "terminal_font_weight";
@@ -264,6 +273,8 @@ const updateSettingsBody = z
     petEnabled: z.boolean(),
     petMessagesEnabled: z.boolean(),
     petSoundsEnabled: z.boolean(),
+    petMultiplayerEnabled: z.boolean(),
+    petHomeSide: z.enum(PET_HOME_SIDE_IDS),
     // Raw on purpose: update() distinguishes an explicit null (reset the pet)
     // from a payload that fails normalization (rejected — a malformed write
     // must never erase the stored pet).
@@ -504,9 +515,16 @@ function settingsPayload() {
     petEnabled: getBooleanSetting(PET_ENABLED_KEY, true),
     petMessagesEnabled: getBooleanSetting(PET_MESSAGES_ENABLED_KEY, true),
     petSoundsEnabled: getBooleanSetting(PET_SOUNDS_ENABLED_KEY, false),
+    petMultiplayerEnabled: getBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, false),
+    petHomeSide: getPetHomeSideSetting(),
     petState: normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null)),
     ...recallSettingsPayload(),
   };
+}
+
+function getPetHomeSideSetting(): PetHomeSide {
+  const value = getSetting(PET_HOME_SIDE_KEY);
+  return isPetHomeSide(value) ? value : DEFAULT_PET_HOME_SIDE;
 }
 
 function getProviderUsageEnabledSetting(): boolean {
@@ -772,6 +790,12 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.petSoundsEnabled !== undefined) {
     setBooleanSetting(PET_SOUNDS_ENABLED_KEY, body.petSoundsEnabled);
+  }
+  if (body.petMultiplayerEnabled !== undefined) {
+    setBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, body.petMultiplayerEnabled);
+  }
+  if (body.petHomeSide !== undefined) {
+    setSetting(PET_HOME_SIDE_KEY, body.petHomeSide);
   }
   if (body.petState !== undefined) {
     if (body.petState === null) {

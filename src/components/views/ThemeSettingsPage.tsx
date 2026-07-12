@@ -12,6 +12,7 @@ import {
 } from "~/lib/accent-colors";
 import { api, type AppSettings } from "~/lib/api";
 import { DEFAULT_THEME_STYLE, type ThemeStyle } from "~/shared/theme-style";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   DEFAULT_SURFACE_TINT,
   SURFACE_TINTS,
@@ -151,6 +152,8 @@ export function ThemeSettingsPage() {
     petEnabled: settings?.petEnabled ?? true,
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
+    petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
+    petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,

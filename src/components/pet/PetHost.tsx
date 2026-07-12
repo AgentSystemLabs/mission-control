@@ -2,6 +2,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { isFocusPath } from "~/lib/focus-session";
 import { usePetController } from "~/lib/pet/use-pet-controller";
 import { PetWidget } from "~/components/pet/PetWidget";
+import { RemotePets } from "~/components/pet/RemotePets";
 
 // Lazy boundary for the whole Mission Pet cluster (controller + widget + the
 // pet-lines/pet-messages/PetSprite payload it drags in). Mounted once as a
@@ -16,5 +17,10 @@ export default function PetHost() {
     select: (state) => state.location.pathname,
   });
   if (isFocusPath(pathname)) return null;
-  return <PetWidget />;
+  return (
+    <>
+      <PetWidget />
+      <RemotePets />
+    </>
+  );
 }

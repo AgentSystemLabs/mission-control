@@ -30,6 +30,7 @@ import {
   useHasActiveSession,
 } from "~/lib/terminal-store";
 import { Z_INDEX } from "~/lib/z-index";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   UserTerminalProvider,
   useUserTerminals,
@@ -95,9 +96,10 @@ import { SessionNotificationsButton } from "~/components/views/SessionNotificati
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
 import { useSessionFinishNotifications } from "~/lib/use-session-finish-notifications";
-// Lazy: the pet controller + widget (and the pet-lines/pet-messages/PetSprite
-// payload) load off the entry chunk. Mounted as a continuously-present sibling
-// of Shell (see below) so the controller survives focus-mode transitions.
+// Lazy: the pet controller + widget + multiplayer overlay (and the
+// pet-lines/pet-messages/PetSprite payload) load off the entry chunk. Mounted
+// as a continuously-present sibling of Shell (see below) so the controller
+// survives focus-mode transitions. RemotePets renders inside PetHost.
 const PetHost = lazy(() => import("~/components/pet/PetHost"));
 import {
   mergeAppNotificationLists,
@@ -854,8 +856,14 @@ function Shell() {
           position="bottom-right"
           theme="dark"
           closeButton
-          // Toasts stack above the Mission Pet when it occupies the corner.
-          offset={settings?.petEnabled ?? true ? { bottom: 132, right: 16 } : 16}
+          // Toasts stack above the Mission Pet when it shares the bottom-right
+          // corner; left-home pets leave that corner free for the default offset.
+          offset={
+            (settings?.petEnabled ?? true) &&
+            (settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE) === "right"
+              ? { bottom: 132, right: 16 }
+              : 16
+          }
           style={{ zIndex: Z_INDEX.toast }}
           icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{
@@ -866,6 +874,7 @@ function Shell() {
           }}
         />
         <VoiceController />
+        {/* PetWidget + RemotePets render via the lazy PetHost (Shell sibling). */}
         <SessionFileDropZone />
       </div>
       <ConfirmDialog

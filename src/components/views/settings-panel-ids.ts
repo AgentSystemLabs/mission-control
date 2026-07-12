@@ -11,6 +11,7 @@ export const SETTINGS_PANEL_IDS = [
   "terminal",
   "session",
   "theme",
+  "pet",
   "voice",
   "recall",
   "beta",

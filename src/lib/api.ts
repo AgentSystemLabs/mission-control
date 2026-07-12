@@ -65,7 +65,7 @@ import type {
 } from "~/shared/code-graph";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
-import type { PetPersistentState } from "~/shared/pet";
+import type { PetHomeSide, PetPersistentState } from "~/shared/pet";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 import { HTTP_NO_CONTENT } from "~/shared/http-status";
 
@@ -217,6 +217,13 @@ export type AppSettings = {
   petEnabled: boolean;
   petMessagesEnabled: boolean;
   petSoundsEnabled: boolean;
+  /**
+   * Opt-in (default false): broadcast this machine's pet to others working on
+   * the same git repo and show theirs. No WebSocket connects unless this is on.
+   */
+  petMultiplayerEnabled: boolean;
+  /** Bottom corner the pet homes in (default right). */
+  petHomeSide: PetHomeSide;
   petState: PetPersistentState | null;
 };
 
@@ -693,6 +700,8 @@ export const api = {
         | "petEnabled"
         | "petMessagesEnabled"
         | "petSoundsEnabled"
+        | "petMultiplayerEnabled"
+        | "petHomeSide"
         | "petState"
       >
     >,

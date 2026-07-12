@@ -124,9 +124,13 @@ export function ProviderUsageIndicator() {
   // inside instead of a lone dot — one provider means the number has an
   // unambiguous owner, so the chip can carry it at rest. The gauge already
   // speaks the warning through arc length + band color, so the collapsed
-  // text label is redundant and suppressed.
+  // text label is redundant and suppressed. When the provider reports both a
+  // session and a weekly window, the gauge doubles up: outer ring = weekly,
+  // inner ring = session (5h), number = session — the more immediate limit.
   const solo = providers.length > 0 && visibleProviders.length === 1 ? visibleProviders[0] : null;
   const soloPct = solo && solo.status === "ok" ? worstMeteredPct(solo) : null;
+  const soloSessionPct = soloWindowPct(solo, "session");
+  const soloWeeklyPct = soloWindowPct(solo, "weekly");
 
   return (
     <div
@@ -161,7 +165,14 @@ export function ProviderUsageIndicator() {
             fontSize: 11,
           }}
         >
-          {soloPct !== null ? <UsageRing pct={soloPct} /> : <ProviderDots dots={dots} />}
+          {soloPct !== null ? (
+            <UsageRing
+              pct={soloSessionPct ?? soloPct}
+              outerPct={soloSessionPct !== null ? soloWeeklyPct : null}
+            />
+          ) : (
+            <ProviderDots dots={dots} />
+          )}
           {soloPct === null && collapsed && (
             <span
               style={{
@@ -338,18 +349,25 @@ function ProviderDots({ dots }: { dots: DotState[] }) {
   );
 }
 
-const RING_SIZE = 18;
+// 22px (up from 18) buys the radius the second concentric ring needs while
+// still clearing the 30px mc-btn-md chip.
+const RING_SIZE = 22;
 const RING_STROKE = 2;
+const RING_GAP = 1;
 
 /**
- * Single-provider chip face: a radial gauge — track ring, band-colored arc
- * for the worst window, percent number centered inside. Only rendered for a
- * healthy metered provider; every other state falls back to dot + label.
+ * Single-provider chip face: a radial gauge — track ring, band-colored arc,
+ * percent number centered inside. With `outerPct` it becomes a double radial:
+ * the outer ring carries the weekly window, the inner ring (and the number)
+ * the session window. Without it the lone ring takes the full radius. Only
+ * rendered for a healthy metered provider; every other state falls back to
+ * dot + label.
  */
-function UsageRing({ pct }: { pct: number }) {
-  const r = (RING_SIZE - RING_STROKE) / 2;
-  const c = 2 * Math.PI * r;
+function UsageRing({ pct, outerPct }: { pct: number; outerPct?: number | null }) {
   const center = RING_SIZE / 2;
+  const outerR = (RING_SIZE - RING_STROKE) / 2;
+  const double = outerPct !== null && outerPct !== undefined;
+  const innerR = double ? outerR - RING_STROKE - RING_GAP : outerR;
   return (
     <span
       aria-hidden
@@ -367,26 +385,8 @@ function UsageRing({ pct }: { pct: number }) {
         viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
         style={{ transform: "rotate(-90deg)" }}
       >
-        <circle
-          cx={center}
-          cy={center}
-          r={r}
-          fill="none"
-          stroke="color-mix(in srgb, var(--text) 14%, transparent)"
-          strokeWidth={RING_STROKE}
-        />
-        <circle
-          className="mc-usage-ring-arc"
-          cx={center}
-          cy={center}
-          r={r}
-          fill="none"
-          stroke={usageColor(pct)}
-          strokeWidth={RING_STROKE}
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - pct / 100)}
-        />
+        {double && <RingArc pct={outerPct} r={outerR} center={center} />}
+        <RingArc pct={pct} r={innerR} center={center} />
       </svg>
       <span
         style={{
@@ -410,6 +410,44 @@ function UsageRing({ pct }: { pct: number }) {
       </span>
     </span>
   );
+}
+
+/** One gauge ring: faint full-circle track + band-colored progress arc. */
+function RingArc({ pct, r, center }: { pct: number; r: number; center: number }) {
+  const c = 2 * Math.PI * r;
+  return (
+    <>
+      <circle
+        cx={center}
+        cy={center}
+        r={r}
+        fill="none"
+        stroke="color-mix(in srgb, var(--text) 14%, transparent)"
+        strokeWidth={RING_STROKE}
+      />
+      <circle
+        className="mc-usage-ring-arc"
+        cx={center}
+        cy={center}
+        r={r}
+        fill="none"
+        stroke={usageColor(pct)}
+        strokeWidth={RING_STROKE}
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - pct / 100)}
+      />
+    </>
+  );
+}
+
+/** A specific metered window of the solo provider, clamped 0–100, or null. */
+function soloWindowPct(solo: ProviderUsageSnapshot | null, id: string): number | null {
+  if (!solo || solo.status !== "ok") return null;
+  const w = solo.windows.find((w) => w.id === id);
+  return w && w.utilization !== null
+    ? Math.max(0, Math.min(100, Math.round(w.utilization)))
+    : null;
 }
 
 /**

@@ -87,6 +87,9 @@ const MOOD_DESCRIPTION: Record<PetMood, string> = {
  */
 export function PetWidget() {
   const pet = usePetSnapshot();
+  const homeSide = pet.homeSide;
+  // wander.x is px away from home; translate toward the opposite edge.
+  const awaySign = homeSide === "right" ? -1 : 1;
   const router = useRouter();
   const queryClient = useQueryClient();
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -303,7 +306,11 @@ export function PetWidget() {
       if (walker) {
         const transform = getComputedStyle(walker).transform;
         if (transform && transform !== "none") {
-          origin.wanderX = Math.max(0, Math.round(-new DOMMatrixReadOnly(transform).m41));
+          // transform m41 = awaySign * wander.x → recover wander.x.
+          origin.wanderX = Math.max(
+            0,
+            Math.round(awaySign * new DOMMatrixReadOnly(transform).m41),
+          );
         }
       }
       petGrabbed(origin.wanderX);
@@ -342,11 +349,11 @@ export function PetWidget() {
     dragOrigin.current = null;
     if (!origin.active) return false;
     if (origin.raf) cancelAnimationFrame(origin.raf);
-    // wander.x counts px left of home, so dragging right (dx > 0) reduces it.
-    // Use the clamped offset — it's where the pet visually is.
+    // wander.x counts px away from home. Dragging toward the opposite edge
+    // (dx with the same sign as awaySign) increases it.
     const landing = Math.max(
       0,
-      Math.min(window.innerWidth - 140, Math.round(origin.wanderX - origin.dx)),
+      Math.min(window.innerWidth - 140, Math.round(origin.wanderX + awaySign * origin.dx)),
     );
     const stage = stageRef.current;
     const finish = () => {
@@ -426,12 +433,13 @@ export function PetWidget() {
 
   return (
     // A click-through strip along the bottom edge; the pet wanders inside it
-    // (translateX left of its home corner) and only the pet itself is clickable.
+    // (translateX away from its home corner) and only the pet itself is clickable.
     <div
       className="mc-pet-widget"
+      data-home-side={homeSide}
       style={{
         position: "fixed",
-        right: 18,
+        ...(homeSide === "right" ? { right: 18 } : { left: 18 }),
         bottom:
           dockLift > 0
             ? dockLift - SIZE_PX[pet.size] * SPRITE_BOTTOM_WHITESPACE
@@ -450,13 +458,13 @@ export function PetWidget() {
         data-walking={pet.wander.walking || undefined}
         style={{
           position: "absolute",
-          right: 0,
+          ...(homeSide === "right" ? { right: 0 } : { left: 0 }),
           bottom: 0,
           display: "flex",
           flexDirection: "column",
-          alignItems: "flex-end",
+          alignItems: homeSide === "right" ? "flex-end" : "flex-start",
           gap: 6,
-          transform: `translateX(${-pet.wander.x}px)`,
+          transform: `translateX(${awaySign * pet.wander.x}px)`,
           transition: instantJump
             ? "none"
             : pet.wander.durationMs

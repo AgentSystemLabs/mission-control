@@ -8,6 +8,7 @@ import {
   effectivePersonality,
   favoriteProjectOf,
   isPetSpeciesUnlocked,
+  isPetHomeSide,
   levelForXp,
   MAX_PET_XP,
   mergePetStateWrite,
@@ -49,6 +50,15 @@ describe("rollPetPersonality", () => {
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(10);
     }
+  });
+});
+
+describe("isPetHomeSide", () => {
+  it("accepts left and right only", () => {
+    expect(isPetHomeSide("left")).toBe(true);
+    expect(isPetHomeSide("right")).toBe(true);
+    expect(isPetHomeSide("top")).toBe(false);
+    expect(isPetHomeSide(null)).toBe(false);
   });
 });
 
