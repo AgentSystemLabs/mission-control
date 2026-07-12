@@ -1942,6 +1942,9 @@ function ProjectPage() {
         const firstByPriority = pickByPriority(visible);
         if (!firstByPriority) return;
         terminals.toggle(terminalProject, firstByPriority);
+        // Focus the terminal so the keyboard drives the newly-opened session
+        // instead of leaving it blurred (see selectTerminal).
+        terminals.focusGridSession(firstByPriority.id);
         return;
       }
       const idx = ordered.findIndex((t) => t.id === currentId);
@@ -1950,6 +1953,9 @@ function ProjectPage() {
       const nextTask = ordered[nextIdx];
       if (!nextTask || nextTask.id === currentId) return;
       terminals.toggle(terminalProject, nextTask);
+      // Carry keyboard focus into the session we cycled to, so successive
+      // presses keep cycling and the caret is ready to type (see selectTerminal).
+      terminals.focusGridSession(nextTask.id);
     },
     [
       project,
@@ -2258,6 +2264,12 @@ function ProjectPage() {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || !terminalProject) return;
     terminals.openSession(terminalProject, task);
+    // Move the caret into the session's terminal so the user can type right
+    // away. Switching to an already-built (cached) surface reattaches without
+    // focusing, so without this the card click selects the session but leaves
+    // the terminal blurred until a second manual click. TerminalPanel consumes
+    // this request and re-asserts focus across the pane remount.
+    terminals.focusGridSession(taskId);
   };
 
   const toggleSessionPinned = async (taskId: string) => {
