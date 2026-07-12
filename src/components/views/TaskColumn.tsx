@@ -39,11 +39,20 @@ export function TaskColumn({
   if (tasks.length === 0) return null;
 
   // Always keep the selected session mounted even if it sorts past the window,
-  // so windowing never hides the card the user is currently focused on.
-  const activeBeyondWindow =
-    activeId != null && tasks.findIndex((t) => t.id === activeId) >= WINDOW_SIZE;
-  const expanded = showAll || activeBeyondWindow;
-  const visibleTasks = expanded ? tasks : tasks.slice(0, WINDOW_SIZE);
+  // so windowing never hides the card the user is currently focused on. When
+  // the active card sorts past the window we append just that one card rather
+  // than unwindowing the whole column, keeping the mounted count bounded at
+  // WINDOW_SIZE + 1.
+  const windowedTasks = tasks.slice(0, WINDOW_SIZE);
+  const activeIndex =
+    activeId != null ? tasks.findIndex((t) => t.id === activeId) : -1;
+  const activeBeyondWindow = activeIndex >= WINDOW_SIZE;
+  const visibleTasks = showAll
+    ? tasks
+    : activeBeyondWindow
+      ? [...windowedTasks, tasks[activeIndex]]
+      : windowedTasks;
+
   const hiddenCount = tasks.length - visibleTasks.length;
   return (
     <div>

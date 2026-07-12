@@ -3292,7 +3292,7 @@ function ProjectPage() {
             <>
               {pinnedListTasks.length > 0 && (
                 <TaskColumn
-                  key="pinned"
+                  key={`${id}:pinned`}
                   title="Pinned"
                   color="var(--accent)"
                   tasks={pinnedListTasks}
@@ -3316,7 +3316,7 @@ function ProjectPage() {
                     (tasksByStatus.finished.length === 0 && status === firstArchivedStatus));
                 return (
                 <TaskColumn
-                  key={status}
+                  key={`${id}:${status}`}
                   title={
                     isArchivedTitleRow
                       ? "Archived"
