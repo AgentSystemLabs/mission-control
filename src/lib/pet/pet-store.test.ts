@@ -14,6 +14,7 @@ import {
   petPulse,
   petSetAggregates,
   petSetEnabled,
+  petSetHomeSide,
   petSetShipping,
   petSetSpecies,
   petSetStatsOpen,
@@ -735,6 +736,7 @@ describe("work awareness + direct interactions", () => {
     petSetEnabled(true, true, false);
   });
   afterEach(() => {
+    petSetHomeSide("right");
     petSetEnabled(false, true, false);
     vi.useRealTimers();
   });
@@ -840,6 +842,18 @@ describe("work awareness + direct interactions", () => {
     const rested = getPetSnapshot();
     expect(rested.wander.x).toBe(0);
     expect(rested.wander.walking).toBe(true);
+  });
+
+  it("flipping the home corner snaps the pet home and updates the snapshot", () => {
+    petTossed(200);
+    expect(getPetSnapshot().wander.x).toBe(200);
+    petSetHomeSide("left");
+    expect(getPetSnapshot()).toMatchObject({
+      homeSide: "left",
+      wander: { x: 0, walking: false },
+    });
+    petSetHomeSide("right");
+    expect(getPetSnapshot().homeSide).toBe("right");
   });
 
   it("a grab pins the pet at its visual spot and freezes walking until put down", () => {

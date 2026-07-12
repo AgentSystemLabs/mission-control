@@ -6,11 +6,14 @@ import { Field, SettingsSection, ToggleRow } from "~/components/views/SettingsPa
 import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useSettings } from "~/queries";
 import {
+  DEFAULT_PET_HOME_SIDE,
   DEFAULT_PET_NAME,
   isPetSpeciesUnlocked,
+  PET_HOME_SIDE_IDS,
   PET_MAX_LEVEL,
   PET_SIZE_IDS,
   PET_SPECIES_IDS,
+  type PetHomeSide,
   type PetSizeId,
 } from "~/shared/pet";
 import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
@@ -21,7 +24,11 @@ import { TextField } from "~/components/ui/TextField";
 type PetSettingsPatch = Partial<
   Pick<
     AppSettings,
-    "petEnabled" | "petMessagesEnabled" | "petSoundsEnabled" | "petMultiplayerEnabled"
+    | "petEnabled"
+    | "petMessagesEnabled"
+    | "petSoundsEnabled"
+    | "petMultiplayerEnabled"
+    | "petHomeSide"
   >
 >;
 
@@ -32,6 +39,7 @@ export function PetSettingsPage() {
   const petMessagesEnabled = settings?.petMessagesEnabled ?? true;
   const petSoundsEnabled = settings?.petSoundsEnabled ?? false;
   const petMultiplayerEnabled = settings?.petMultiplayerEnabled ?? false;
+  const petHomeSide = settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE;
   const petState = settings?.petState ?? null;
   const [petNameDraft, setPetNameDraft] = useState("");
   const [petGuideOpen, setPetGuideOpen] = useState(false);
@@ -80,12 +88,20 @@ export function PetSettingsPage() {
       <Field label="Pet">
         <ToggleRow
           title="Show pet"
-          description="A small companion lives in the bottom-right corner: it works when your agents work, celebrates finished sessions, and hops when one is blocked on you."
+          description="A small companion lives in a bottom corner: it works when your agents work, celebrates finished sessions, and hops when one is blocked on you."
           checked={petEnabled}
           onChange={(enabled: boolean) => void updateSettings({ petEnabled: enabled })}
           label="Enable"
         />
       </Field>
+      {petEnabled ? (
+        <Field label="Home corner">
+          <PetHomeSidePicker
+            value={petHomeSide}
+            onChange={(side) => void updateSettings({ petHomeSide: side })}
+          />
+        </Field>
+      ) : null}
       <Field label="Speech bubbles">
         <ToggleRow
           title="Commentary"
@@ -214,6 +230,66 @@ function PetSpeciesPicker() {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+const PET_HOME_SIDE_LABELS: Record<PetHomeSide, string> = {
+  left: "Bottom left",
+  right: "Bottom right",
+};
+
+/**
+ * Corner picker — keeps the pet off session inputs / toasts when they stack
+ * on the opposite side of the window.
+ */
+function PetHomeSidePicker({
+  value,
+  onChange,
+}: {
+  value: PetHomeSide;
+  onChange: (side: PetHomeSide) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div
+        style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+        role="radiogroup"
+        aria-label="Pet home corner"
+      >
+        {PET_HOME_SIDE_IDS.map((id) => {
+          const selected = value === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(id)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 2,
+                minWidth: 110,
+                padding: "8px 12px 6px",
+                borderRadius: 10,
+                cursor: "pointer",
+                background: selected
+                  ? "color-mix(in srgb, var(--accent) 14%, transparent)"
+                  : "transparent",
+                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                color: selected ? "var(--text)" : "var(--text-dim)",
+              }}
+            >
+              <span style={{ fontSize: 11 }}>{PET_HOME_SIDE_LABELS[id]}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+        Pick the corner that stays clear of session inputs and notifications.
+      </div>
     </div>
   );
 }

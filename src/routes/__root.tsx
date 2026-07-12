@@ -23,6 +23,7 @@ import { THEME_CACHE_KEY, useTheme } from "~/lib/use-theme";
 import { usePowerSaveController } from "~/lib/power-save";
 import { TerminalProvider, useTerminals } from "~/lib/terminal-store";
 import { Z_INDEX } from "~/lib/z-index";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   UserTerminalProvider,
   useUserTerminals,
@@ -792,8 +793,14 @@ function Shell() {
           position="bottom-right"
           theme="dark"
           closeButton
-          // Toasts stack above the Mission Pet when it occupies the corner.
-          offset={settings?.petEnabled ?? true ? { bottom: 132, right: 16 } : 16}
+          // Toasts stack above the Mission Pet when it shares the bottom-right
+          // corner; left-home pets leave that corner free for the default offset.
+          offset={
+            (settings?.petEnabled ?? true) &&
+            (settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE) === "right"
+              ? { bottom: 132, right: 16 }
+              : 16
+          }
           style={{ zIndex: Z_INDEX.toast }}
           icons={{ close: MC_TOAST_CLOSE_ICON }}
           toastOptions={{

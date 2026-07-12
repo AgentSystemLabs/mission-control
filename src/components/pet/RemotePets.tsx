@@ -10,6 +10,7 @@ import { Z_INDEX } from "~/lib/z-index";
 import { usePetMultiplayer } from "~/lib/pet/use-pet-multiplayer";
 import { pickRemotePetMessage } from "~/lib/pet/pet-multiplayer-messages";
 import type { PetPeer } from "~/shared/pet-multiplayer-protocol";
+import { usePetSnapshot } from "~/lib/pet/pet-store";
 
 const SPRITE_PX = 56;
 const MAX_VISIBLE = 6;
@@ -33,6 +34,8 @@ function RemotePetsInner(): ReactNode {
   const peers = usePetMultiplayer();
   const visible = peers.slice(0, MAX_VISIBLE);
   const overflow = peers.length - visible.length;
+  // Sit on the opposite bottom corner from the local pet.
+  const localHome = usePetSnapshot().homeSide;
 
   // peerId -> current speech line (absent = not speaking right now).
   const [bubbles, setBubbles] = useState<Record<string, string>>({});
@@ -97,7 +100,12 @@ function RemotePetsInner(): ReactNode {
   if (visible.length === 0) return null;
 
   return (
-    <div className="mc-remote-pets" style={{ zIndex: Z_INDEX.pet - 1 }} aria-hidden="true">
+    <div
+      className="mc-remote-pets"
+      data-local-home={localHome}
+      style={{ zIndex: Z_INDEX.pet - 1 }}
+      aria-hidden="true"
+    >
       {visible.map((peer) => (
         <RemotePet key={peer.id} peer={peer} bubble={bubbles[peer.id]} />
       ))}

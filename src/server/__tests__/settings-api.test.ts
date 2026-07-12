@@ -750,6 +750,37 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({ petMultiplayerEnabled: true });
   });
 
+  it("homes the pet on the right by default", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({ petHomeSide: "right" });
+  });
+
+  it("persists the pet home corner preference", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ petHomeSide: "left" }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ petHomeSide: "left" });
+    expect(await jsonBody(read!)).toMatchObject({ petHomeSide: "left" });
+  });
+
+  it("rejects an invalid pet home corner", async () => {
+    const rejected = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ petHomeSide: "top" }),
+      }),
+    );
+    expect(rejected?.status).toBe(400);
+  });
+
   it("keeps the question overlay enabled by default (beta)", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
     expect(await jsonBody(response!)).toMatchObject({ questionOverlayEnabled: true });
@@ -1065,6 +1096,7 @@ describe("settings API", () => {
       petEnabled: true,
       petMessagesEnabled: true,
       petSoundsEnabled: false,
+      petHomeSide: "right",
       petState: null,
     });
   });

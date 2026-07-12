@@ -4581,6 +4581,10 @@ body[data-card-glow] .cursor-glow {
   border-bottom: 1px solid var(--border);
   transform: rotate(45deg);
 }
+.mc-pet-widget[data-home-side="left"] .mc-pet-bubble::after {
+  right: auto;
+  left: 28px;
+}
 .mc-pet-bubble[data-priority="critical"]::after {
   border-color: var(--accent-border, var(--accent));
 }
@@ -4593,11 +4597,16 @@ body[data-card-glow] .cursor-glow {
   display: flex;
   align-items: flex-end;
   gap: 22px;
-  /* Leave room for the local pet in the bottom-right corner. */
+  /* Leave room for the local pet in the opposite bottom corner. */
   max-width: calc(100vw - 260px);
   pointer-events: none;
   flex-wrap: nowrap;
   overflow: visible;
+}
+.mc-remote-pets[data-local-home="left"] {
+  left: auto;
+  right: 16px;
+  flex-direction: row-reverse;
 }
 .mc-remote-pet {
   position: relative;

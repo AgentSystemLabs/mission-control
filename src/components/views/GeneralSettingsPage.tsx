@@ -24,6 +24,7 @@ import {
   writeCachedLaunchIntroEnabled,
 } from "~/lib/launch-intro";
 import { DEFAULT_TERMINAL_ZOOM_LEVEL } from "~/shared/terminal-zoom";
+import { DEFAULT_PET_HOME_SIDE } from "~/shared/pet";
 import {
   DEFAULT_INTERFACE_FONT_SCALE,
   DEFAULT_TERMINAL_FONT_WEIGHT,
@@ -161,6 +162,7 @@ export function GeneralSettingsPage() {
     petMessagesEnabled: settings?.petMessagesEnabled ?? true,
     petSoundsEnabled: settings?.petSoundsEnabled ?? false,
     petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
+    petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,

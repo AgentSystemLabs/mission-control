@@ -5,6 +5,7 @@ import {
   bumpProjectXp,
   createDefaultPetState,
   createEmptyWeeklyStats,
+  DEFAULT_PET_HOME_SIDE,
   DEFAULT_PET_SIZE,
   DEFAULT_PET_SPECIES,
   effectivePersonality,
@@ -15,6 +16,7 @@ import {
   PET_EVOLUTION_LEVELS,
   PET_MAX_LEVEL,
   startOfWeek,
+  type PetHomeSide,
   type PetLifetimeStats,
   type PetPersistentState,
   type PetPersonality,
@@ -57,7 +59,7 @@ export type PetMood =
 
 export type PetBubble = { id: number; text: string; priority: PetMessagePriority };
 
-/** Idle wandering along the bottom strip; x is px left of the home corner. */
+/** Idle wandering along the bottom strip; x is px away from the home corner. */
 export type PetWander = {
   x: number;
   walking: boolean;
@@ -153,6 +155,8 @@ export type PetSnapshot = {
   flourish: PetFlourish | null;
   /** The stats card (right-click or "stats" command) is showing. */
   statsOpen: boolean;
+  /** Bottom corner the pet homes in. */
+  homeSide: PetHomeSide;
 };
 
 export type PetInputs = {
@@ -190,7 +194,7 @@ const DIZZY_WINDOW_MS = 2_500;
 /** Hold-to-pet murmurs on this throttle, not on every 600ms stroke tick. */
 const STROKE_CHIRP_MS = 1_500;
 
-/** How far left of its home corner the pet may wander, in px. */
+/** How far from its home corner the pet may wander, in px. */
 export const PET_WANDER_RANGE_PX = 300;
 const WALK_SPEED_PX_PER_S = 45;
 const HOME_SPEED_PX_PER_S = 120;
@@ -293,10 +297,16 @@ const { subscribe: subscribePersistenceListeners, notify: notifyPersistence } =
 let enabled = false;
 let messagesEnabled = true;
 let soundsEnabled = false;
+let homeSide: PetHomeSide = DEFAULT_PET_HOME_SIDE;
 let hydrated = false;
 // True when this boot rolled a brand-new pet — the greeting becomes a hatch.
 let freshlyHatched = false;
 let persistent: PetPersistentState | null = null;
+
+/** Idle facing at rest for the current home corner. */
+function homeRestFacing(): 1 | -1 {
+  return homeSide === "right" ? 1 : -1;
+}
 
 const inputs: PetInputs = {
   runningCount: 0,
@@ -431,6 +441,7 @@ function buildSnapshot(): PetSnapshot {
     wander,
     flourish,
     statsOpen,
+    homeSide,
   };
 }
 
@@ -468,7 +479,7 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-/** Walk to `target` px left of home. The widget renders it as a CSS transition.
+/** Walk to `target` px away from home. The widget renders it as a CSS transition.
  * `maxX` defaults to the idle wander strip; the alert walk passes the viewport. */
 function walkTo(target: number, speedPxPerS: number, maxX: number = PET_WANDER_RANGE_PX): void {
   // In the user's hand: nothing walks the pet anywhere until it's put down.
@@ -477,12 +488,14 @@ function walkTo(target: number, speedPxPerS: number, maxX: number = PET_WANDER_R
   const dist = Math.abs(clamped - wander.x);
   if (dist < 12) return;
   const durationMs = (dist / speedPxPerS) * 1000;
+  // Increasing x = heading away from home (leftward on the right corner,
+  // rightward on the left corner). Facing follows that direction.
+  const awayFacing: 1 | -1 = homeSide === "right" ? -1 : 1;
   wander = {
     x: clamped,
     walking: true,
     durationMs,
-    // Increasing x = heading away from the home corner (leftward).
-    facing: clamped > wander.x ? -1 : 1,
+    facing: clamped > wander.x ? awayFacing : ((-awayFacing) as 1 | -1),
   };
   if (arriveTimer) clearTimeout(arriveTimer);
   arriveTimer = setTimeout(() => {
@@ -512,10 +525,17 @@ function walkToAlertCell(taskId: string): void {
   if (!cell) return;
   const rect = cell.getBoundingClientRect();
   if (rect.width === 0) return;
-  // wander.x counts px left of the home corner (right: 18); aim the pet's
-  // center (~42px half-sprite) at the cell's center, staying on screen.
-  const homeCenterX = window.innerWidth - 18 - 42;
-  const target = homeCenterX - (rect.left + rect.width / 2);
+  // wander.x counts px away from the home corner; aim the pet's center
+  // (~42px half-sprite) at the cell's center, staying on screen.
+  const homeInset = 18;
+  const halfSprite = 42;
+  const cellCenter = rect.left + rect.width / 2;
+  const homeCenterX =
+    homeSide === "right"
+      ? window.innerWidth - homeInset - halfSprite
+      : homeInset + halfSprite;
+  const target =
+    homeSide === "right" ? homeCenterX - cellCenter : cellCenter - homeCenterX;
   if (target <= 0) return;
   alertWalkX = Math.min(window.innerWidth - 140, target);
   walkTo(alertWalkX, HOME_SPEED_PX_PER_S, window.innerWidth);
@@ -811,7 +831,7 @@ export function petSetEnabled(
       if (bubbleTimer) clearTimeout(bubbleTimer);
       bubbleTimer = null;
     }
-    wander = { x: 0, walking: false, durationMs: 0, facing: 1 };
+    wander = { x: 0, walking: false, durationMs: 0, facing: homeRestFacing() };
     flourish = null;
     statsOpen = false;
     alertWalkX = null;
@@ -834,6 +854,27 @@ export function petSetEnabled(
     pendingTimer = pulseTimer = watchTimer = arriveTimer = flourishTimer = null;
     pendingMood = null;
   }
+  invalidate();
+}
+
+/**
+ * Which bottom corner the pet homes in. Flipping sides snaps it home so a
+ * mid-wander teleport doesn't leave it stranded on the wrong half of the strip.
+ */
+export function petSetHomeSide(side: PetHomeSide): void {
+  if (homeSide === side) return;
+  homeSide = side;
+  if (arriveTimer) {
+    clearTimeout(arriveTimer);
+    arriveTimer = null;
+  }
+  wander = {
+    x: 0,
+    walking: false,
+    durationMs: 0,
+    facing: homeRestFacing(),
+  };
+  alertWalkX = null;
   invalidate();
 }
 
@@ -1295,7 +1336,7 @@ export function petNoteUncommitted(count: number): void {
 
 /**
  * Dragged and dropped by the user. The widget owns the drag + fall animation
- * and hands over the landing spot (px left of home); the pet lands there,
+ * and hands over the landing spot (px away from home); the pet lands there,
  * spins out dizzy, and — since the startle pulse routes through commitMood —
  * walks itself home once it gathers its wits.
  */
@@ -1331,7 +1372,12 @@ export function petTossed(landingX: number): void {
     clearTimeout(arriveTimer);
     arriveTimer = null;
   }
-  wander = { x: Math.max(0, Math.round(landingX)), walking: false, durationMs: 0, facing: 1 };
+  wander = {
+    x: Math.max(0, Math.round(landingX)),
+    walking: false,
+    durationMs: 0,
+    facing: homeRestFacing(),
+  };
   // Sit dazed where it landed — walkHome() is a no-op until the rest passes
   // (the startle pulse below routes through commitMood, which walks home).
   tossedRestUntil = Date.now() + TOSS_REST_MS;
