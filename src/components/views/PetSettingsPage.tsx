@@ -144,13 +144,13 @@ export function PetSettingsPage() {
             title="Let the pet roam your desktop"
             description={
               overlaySupported
-                ? "Unleash the pet out of this window onto your desktop, floating above other apps. It stays visible when you switch apps or minimize Mission Control — hover it to pet or drag it; clicks anywhere else pass through. Roams your primary display only for now. (Experimental.)"
-                : "Available on macOS and Windows only — Linux can't make the floating desktop pet interactive. (Experimental.)"
+                ? "Let the pet leave this window and float freely on your desktop, above your other apps. It stays visible when you switch apps or minimize Mission Control — hover to pet it or drag it around; clicks anywhere else pass through as usual. Stays on your main display for now. (Experimental.)"
+                : "Available on macOS and Windows only — on Linux the floating pet can't be petted or dragged. (Experimental.)"
             }
             checked={overlaySupported && petOverlayEnabled}
             onChange={(enabled: boolean) => void updateSettings({ petOverlayEnabled: enabled })}
             disabled={!petEnabled || !overlaySupported}
-            label="Unleash"
+            label="Roam"
           />
         </Field>
       ) : null}
