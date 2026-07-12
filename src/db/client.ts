@@ -668,6 +668,11 @@ function ensureSchema(sqlite: Database.Database) {
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_worktree_scope_idx ON tasks(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_scope_idx ON tasks(scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_pinned_idx ON tasks(pinned);");
+  // findTasksByProjectId filters (project_id, scope_id) and orders by created_at
+  // DESC. Without a composite covering that shape SQLite picks a single-column
+  // index and sorts separately; this lets it satisfy the filter + order in one
+  // index scan.
+  sqlite.exec("CREATE INDEX IF NOT EXISTS tasks_project_scope_created_idx ON tasks(project_id, scope_id, created_at);");
   ensureColumn(sqlite, "user_terminals", "scope_id", `TEXT NOT NULL DEFAULT '${LOCAL_SCOPE_ID}'`);
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_project_worktree_scope_idx ON user_terminals(project_id, worktree_id, scope_id);");
   sqlite.exec("CREATE INDEX IF NOT EXISTS user_terminals_scope_idx ON user_terminals(scope_id);");
