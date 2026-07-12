@@ -5,12 +5,13 @@ import { useClaudeUsageLimits, useSettings } from "~/queries";
 
 /**
  * Top-bar indicator for Claude Code's live usage limits. Renders a compact
- * pie-chart circle showing the current session (5h) utilization — the wedge
- * grows and the color shifts green → amber → red as the limit is consumed.
- * Clicking it opens a popover with the full breakdown (session, weekly, and
- * Opus windows with reset times). Renders nothing unless the user opted in via
- * Settings → Terminal. Data comes from the server's cached fetch of Anthropic's
- * OAuth usage endpoint (src/server/services/claude-usage-limits.ts).
+ * double-radial gauge: the outer ring tracks the weekly window and the inner
+ * ring the 5-hour session window — each arc grows and shifts color green →
+ * amber → red as its limit is consumed. Clicking it opens a popover with the
+ * full breakdown (session, weekly, and Opus windows with reset times). Renders
+ * nothing unless the user opted in via Settings → Terminal. Data comes from the
+ * server's cached fetch of Anthropic's OAuth usage endpoint
+ * (src/server/services/claude-usage-limits.ts).
  */
 export function ClaudeUsageLimitsIndicator() {
   const { data: settings } = useSettings();
@@ -46,12 +47,16 @@ export function ClaudeUsageLimitsIndicator() {
   // The user turned both windows off — respect that and show nothing.
   if (!showSession && !showWeekly) return null;
 
-  // The circle tracks the session window; fall back to weekly when the
-  // session window is unavailable or hidden.
-  const primary =
-    (showSession ? data?.session : null) ?? (showWeekly ? data?.weekly : null) ?? null;
-  const pct =
-    primary !== null ? Math.max(0, Math.min(100, Math.round(primary.utilization))) : null;
+  // Two concentric rings: the outer tracks the weekly window, the inner tracks
+  // the 5-hour session window. Each is null when its data is missing or the
+  // user hid it in Settings, in which case that ring isn't drawn.
+  const sessionPct = showSession ? toPct(data?.session) : null;
+  const weeklyPct = showWeekly ? toPct(data?.weekly) : null;
+
+  const parts: string[] = [];
+  if (sessionPct !== null) parts.push(`${sessionPct}% of 5h session`);
+  if (weeklyPct !== null) parts.push(`${weeklyPct}% of weekly`);
+  const ariaLabel = parts.length ? `Claude usage: ${parts.join(", ")}` : "Claude usage limits";
 
   const tip = data && data.status === "ok" && (data.session || data.weekly)
     ? buildTooltip(data)
@@ -66,14 +71,12 @@ export function ClaudeUsageLimitsIndicator() {
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={
-          pct !== null ? `Claude usage: ${pct}% of session limit` : "Claude usage limits"
-        }
+        aria-label={ariaLabel}
         title={tip}
         style={{ width: 42, padding: 0 }}
       >
         <span className="mc-btn-content">
-          <UsagePie pct={pct} />
+          <UsagePie sessionPct={sessionPct} weeklyPct={weeklyPct} />
         </span>
       </button>
       {open && (
@@ -228,20 +231,38 @@ function UsageRow({ label, window }: { label: string; window: ClaudeUsageWindow 
   );
 }
 
+/** Clamp a usage window to a 0–100 integer percentage, or null when absent. */
+function toPct(window: ClaudeUsageWindow | null | undefined): number | null {
+  return window ? Math.max(0, Math.min(100, Math.round(window.utilization))) : null;
+}
+
 /**
- * The top-bar gauge: a donut ring whose arc sweeps clockwise from 12 o'clock
- * as usage grows, with the percentage number centered inside. A ring (rather
- * than a filled pie) keeps the number readable at this size. `pct === null`
- * (no data yet) renders a dim empty ring with a dash.
+ * The top-bar gauge: two concentric donut rings. The outer ring tracks the
+ * weekly window, the inner ring tracks the 5-hour session window, and each arc
+ * sweeps clockwise from 12 o'clock as its usage grows. The centered number
+ * mirrors the inner (session) ring — the more immediate limit — falling back to
+ * the weekly value when the session window is hidden or unavailable. When only
+ * one window is present it takes the outer radius so it reads as a single ring;
+ * when neither is available a dim empty ring with a dash is shown.
  */
-function UsagePie({ pct }: { pct: number | null }) {
-  const size = 22;
-  const strokeWidth = 2.5;
+function UsagePie({
+  sessionPct,
+  weeklyPct,
+}: {
+  sessionPct: number | null;
+  weeklyPct: number | null;
+}) {
+  const size = 24;
   const center = size / 2;
-  const r = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * r;
-  const color = pct !== null ? usageColor(pct) : "var(--text-faint)";
-  const fill = pct !== null ? (pct / 100) * circumference : 0;
+  const strokeWidth = 2.25;
+  const gap = 1.25;
+  const outerR = (size - strokeWidth) / 2;
+  const innerR = outerR - strokeWidth - gap;
+
+  const both = sessionPct !== null && weeklyPct !== null;
+  // The center number tracks the session ring; fall back to weekly.
+  const centerPct = sessionPct ?? weeklyPct;
+
   return (
     <svg
       width={size}
@@ -250,11 +271,68 @@ function UsagePie({ pct }: { pct: number | null }) {
       aria-hidden
       style={{ display: "block", flexShrink: 0 }}
     >
+      {/* Outer ring: weekly window (or the single window in view). */}
+      {weeklyPct !== null && (
+        <UsageRing pct={weeklyPct} r={outerR} center={center} strokeWidth={strokeWidth} />
+      )}
+      {/* Inner ring: 5-hour session. Promoted to the outer radius when it's the
+          only window shown, so a lone ring doesn't look shrunken. */}
+      {sessionPct !== null && (
+        <UsageRing
+          pct={sessionPct}
+          r={both ? innerR : outerR}
+          center={center}
+          strokeWidth={strokeWidth}
+        />
+      )}
+      {/* Nothing available yet — a dim empty ring to anchor the dash. */}
+      {sessionPct === null && weeklyPct === null && (
+        <UsageRing pct={null} r={outerR} center={center} strokeWidth={strokeWidth} />
+      )}
+      <text
+        x={center}
+        y={center}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontFamily="var(--mono)"
+        // Three digits (100) need a touch less size to stay inside the rings.
+        fontSize={centerPct !== null && centerPct >= 100 ? 6 : 7}
+        fontWeight={700}
+        fill={centerPct !== null ? "var(--text)" : "var(--text-faint)"}
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
+        {centerPct !== null ? centerPct : "–"}
+      </text>
+    </svg>
+  );
+}
+
+/**
+ * One ring of the usage gauge: a faint full-circle track plus a colored arc
+ * that fills clockwise from 12 o'clock in proportion to `pct`. `pct === null`
+ * draws only the dim track (empty state).
+ */
+function UsageRing({
+  pct,
+  r,
+  center,
+  strokeWidth,
+}: {
+  pct: number | null;
+  r: number;
+  center: number;
+  strokeWidth: number;
+}) {
+  const circumference = 2 * Math.PI * r;
+  const color = pct !== null ? usageColor(pct) : "var(--text-faint)";
+  const fill = pct !== null ? (pct / 100) * circumference : 0;
+  return (
+    <>
       <circle
         cx={center}
         cy={center}
         r={r}
-        fill={`color-mix(in srgb, ${color} 8%, transparent)`}
+        fill="none"
         stroke={`color-mix(in srgb, ${color} 25%, var(--border))`}
         strokeWidth={strokeWidth}
       />
@@ -271,21 +349,7 @@ function UsagePie({ pct }: { pct: number | null }) {
           transform={`rotate(-90 ${center} ${center})`}
         />
       )}
-      <text
-        x={center}
-        y={center}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontFamily="var(--mono)"
-        // Three digits (100) need a touch less size to stay inside the ring.
-        fontSize={pct !== null && pct >= 100 ? 6.5 : 7.5}
-        fontWeight={700}
-        fill={pct !== null ? "var(--text)" : "var(--text-faint)"}
-        style={{ fontVariantNumeric: "tabular-nums" }}
-      >
-        {pct !== null ? pct : "–"}
-      </text>
-    </svg>
+    </>
   );
 }
 
