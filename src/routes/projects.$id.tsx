@@ -2149,6 +2149,9 @@ function ProjectPage() {
   const invalidateThisProjectTasks = useDebouncedCallback(() => {
     void invalidateTasks();
     void invalidateProject();
+    // Badge dots on non-selected worktrees come from the worktrees query; fold
+    // it into the same debounced burst so it isn't refetched per task event.
+    void invalidateWorktrees();
   }, 150);
 
   useServerEvents(
@@ -2158,8 +2161,6 @@ function ProjectPage() {
         if (e.type.startsWith("task:")) {
           if (e.projectId === id) {
             invalidateThisProjectTasks();
-            // Badge dots on non-selected worktrees come from the worktrees query.
-            void invalidateWorktrees();
           }
         } else if (e.type.startsWith("worktree:")) {
           void invalidateWorktrees();
