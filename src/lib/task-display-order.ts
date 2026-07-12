@@ -50,19 +50,22 @@ export function groupTasksByStatusForDisplay<T extends DisplayTask>(
 }
 
 /**
- * Archived-tab list view: never surface a Ready column. Sessions that were
- * archived while still `ready` (never started, or reset) fold into the
- * Finished/"Archived" bucket so the tab reads as parked history, not a live
- * status board.
+ * Archived-tab list view: collapse every live status into the Finished/
+ * "Archived" bucket. Archived sessions keep their last runtime status in the
+ * DB (interrupted, running, …), but the archived tab is parked history — it
+ * must never re-surface Interrupted / Running / Ready / etc. columns.
  */
 export function groupArchivedTasksForDisplay<T extends DisplayTask>(
   tasks: readonly T[],
 ): Record<TaskStatus, T[]> {
-  const grouped = groupTasksByStatusForDisplay(tasks);
-  if (grouped.ready.length === 0) return grouped;
-
-  grouped.finished = [...grouped.finished, ...grouped.ready].sort(byMostRecentActivity);
-  grouped.ready = [];
+  const grouped = TASK_STATUSES.reduce(
+    (acc, status) => {
+      acc[status] = [];
+      return acc;
+    },
+    {} as Record<TaskStatus, T[]>,
+  );
+  grouped.finished = [...tasks].sort(byMostRecentActivity);
   return grouped;
 }
 

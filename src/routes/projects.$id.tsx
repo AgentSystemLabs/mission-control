@@ -2274,8 +2274,8 @@ function ProjectPage() {
   const archivedTasks = tasks.filter((t) => t.archived);
   const visibleTasks = showArchived ? archivedTasks : showPinned ? pinnedTasks : activeTasks;
   // Active list peels pinned into a top "Pinned" section; Pinned tab keeps
-  // normal status grouping (already all-pinned). Archived folds ready into the
-  // Archived column so a Ready section never appears there.
+  // normal status grouping (already all-pinned). Archived folds every live
+  // status into the single Archived column (no Interrupted/Running/etc.).
   const activeListGroups =
     !showArchived && !showPinned ? groupActiveListTasksForDisplay(visibleTasks) : null;
   const tasksByStatus = activeListGroups

@@ -823,7 +823,7 @@ function Shell() {
                 // right; floor the left panel so dragging the terminal wider
                 // shrinks the terminal instead of wrapping the session columns.
                 // In grid view the panel is hidden, so let the Outlet go full width.
-                minWidth: projectMatch && !gridActive ? 700 : 0,
+                minWidth: projectMatch && !gridActive ? 640 : 0,
                 minHeight: 0,
               }}
             >

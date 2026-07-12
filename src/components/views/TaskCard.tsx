@@ -62,8 +62,8 @@ function TaskCardImpl({
   const selectTask = () => onToggle(task.id);
 
   // Subtitle: prefer the live preview line, otherwise a status hint. On the
-  // archived tab the column is "Archived", so mirror that on the card instead
-  // of the underlying finished/disconnected status label.
+  // archived tab everything is under "Archived", so mirror that on the card
+  // instead of the underlying pre-archive status label.
   const subtitle =
     task.preview?.trim() || (archived ? "Archived" : statusMeta.label);
 
