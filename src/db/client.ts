@@ -449,6 +449,13 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
     CREATE INDEX IF NOT EXISTS tasks_archived_idx ON tasks(archived);
     CREATE INDEX IF NOT EXISTS tasks_pinned_idx ON tasks(pinned);
+    -- listProjects() aggregates non-archived task counts with
+    -- WHERE archived = 0 GROUP BY project_id, status. This partial covering
+    -- index lets SQLite satisfy that GROUP BY by scanning the index in
+    -- (project_id, status) order, avoiding a temp B-tree that spilled the 2MB
+    -- page cache to disk at extreme scale (~2.6s -> ~25ms at 750k tasks). It's
+    -- scoped to archived = 0 to stay small and match the query's predicate.
+    CREATE INDEX IF NOT EXISTS tasks_active_project_status_idx ON tasks(project_id, status) WHERE archived = 0;
 
     CREATE TABLE IF NOT EXISTS terminal_logs (
       id TEXT PRIMARY KEY,
