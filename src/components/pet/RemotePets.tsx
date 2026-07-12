@@ -19,6 +19,7 @@ import { Z_INDEX } from "~/lib/z-index";
 import { accentCssVars } from "~/lib/accent-colors";
 import { usePetMultiplayer } from "~/lib/pet/use-pet-multiplayer";
 import { pickRemotePetMessage } from "~/lib/pet/pet-multiplayer-messages";
+import { getPeerAnchorX, setPeerAnchorX } from "~/lib/pet/peer-anchors";
 import type { PetPeer } from "~/shared/pet-multiplayer-protocol";
 import { usePetSnapshot } from "~/lib/pet/pet-store";
 import { useDockLift } from "~/lib/pet/use-dock-lift";
@@ -84,9 +85,6 @@ function RemotePetsInner(): ReactNode {
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const saltRef = useRef(0);
   const seenRef = useRef(new Set<string>());
-  // Remember each peer's last drop so a re-render / list shuffle doesn't
-  // teleport them back to the default cluster.
-  const anchorsRef = useRef(new Map<string, number>());
 
   const speak = (peerId: string): void => {
     const salt = ++saltRef.current;
@@ -107,7 +105,10 @@ function RemotePetsInner(): ReactNode {
     );
   };
 
-  // Greet each newly-appeared peer; forget peers that have left.
+  // Greet each newly-appeared peer. Drop positions live in peer-anchors (module
+  // + localStorage) so leaving a project — or a brief roster gap — does not
+  // wipe them; only clear the in-session "already greeted" set when they leave
+  // so a real rejoin still gets a hello.
   const presentIds = peers.map((p) => p.id).join(",");
   useEffect(() => {
     const present = new Set(peers.map((p) => p.id));
@@ -118,13 +119,17 @@ function RemotePetsInner(): ReactNode {
       }
     }
     for (const id of [...seenRef.current]) {
-      if (!present.has(id)) {
-        seenRef.current.delete(id);
-        anchorsRef.current.delete(id);
-      }
+      if (!present.has(id)) seenRef.current.delete(id);
     }
+    // Seed a default park spot the first time we see a peer so list reshuffles
+    // don't move them (mirrors the old anchorsRef write-on-first-sight).
+    visible.forEach((peer, index) => {
+      if (getPeerAnchorX(peer.id) == null) {
+        setPeerAnchorX(peer.id, defaultPeerX(index, localHome));
+      }
+    });
     // presentIds is the stable key for "which peers exist".
-  }, [presentIds]);
+  }, [presentIds, localHome]);
 
   // Every so often, one present pet pipes up again.
   useEffect(() => {
@@ -165,17 +170,15 @@ function RemotePetsInner(): ReactNode {
       }}
     >
       {visible.map((peer, index) => {
-        if (!anchorsRef.current.has(peer.id)) {
-          anchorsRef.current.set(peer.id, defaultPeerX(index, localHome));
-        }
+        const initialX = getPeerAnchorX(peer.id) ?? defaultPeerX(index, localHome);
         return (
           <RemotePet
             key={peer.id}
             peer={peer}
             bubble={bubbles[peer.id]}
-            initialX={anchorsRef.current.get(peer.id)!}
+            initialX={initialX}
             onAnchorChange={(x) => {
-              anchorsRef.current.set(peer.id, x);
+              setPeerAnchorX(peer.id, x);
             }}
           />
         );
