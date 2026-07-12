@@ -153,4 +153,136 @@ describe("pet mid-run tool hook API", () => {
     await postBash({ stdout: "ok", stderr: "" });
     expect(getTask(taskId)?.status).toBe("running");
   });
+
+  it("classifies what the tool did and carries it as kind", async () => {
+    setBooleanSetting("pet_enabled", true);
+    await postBash({
+      stdout: "[main 3fa9c21] feat: pet hooks\n 2 files changed, 40 insertions(+)",
+      stderr: "",
+    });
+    const evt = toolUsed();
+    expect(evt?.kind).toBe("commit");
+    expect(evt?.sentiment).toBe("success");
+  });
+
+  it("classifies edited files by kind", async () => {
+    setBooleanSetting("pet_enabled", true);
+    await postHook(taskId, {
+      hook_event_name: "PostToolUse",
+      session_id: SESSION_ID,
+      tool_name: "Edit",
+      tool_input: { file_path: "src/styles.css" },
+      tool_response: {},
+    });
+    const evt = toolUsed();
+    expect(evt?.kind).toBe("edit-styles");
+    expect(evt?.sentiment).toBe("neutral");
+  });
+});
+
+describe("pet remark channel (Stop hook)", () => {
+  let taskId = "";
+  let captured: EmittedEvent[] = [];
+  let off: () => void = () => {};
+  // Transcript containment pins paths to the real ~/.claude/projects.
+  const claudeProjects = path.join(os.homedir(), ".claude", "projects");
+  const transcriptFile = path.join(claudeProjects, "mc-pet-remark-api-test.jsonl");
+
+  beforeEach(() => {
+    resetDb();
+    taskId = createHookTask().id;
+    captured = [];
+    off = events.onAny((e) => captured.push(e as EmittedEvent));
+    fs.mkdirSync(claudeProjects, { recursive: true });
+  });
+  afterEach(() => {
+    off();
+    fs.rmSync(transcriptFile, { force: true });
+  });
+
+  const writeTranscript = (assistantText: string) => {
+    fs.writeFileSync(
+      transcriptFile,
+      [
+        JSON.stringify({ type: "user", message: { content: "do the thing" } }),
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: assistantText }] },
+        }),
+      ].join("\n") + "\n",
+    );
+  };
+
+  const postStop = () =>
+    postHook(taskId, {
+      hook_event_name: "Stop",
+      session_id: SESSION_ID,
+      transcript_path: transcriptFile,
+    });
+
+  it("speaks Claude's cue before the finish event", async () => {
+    setBooleanSetting("pet_enabled", true);
+    writeTranscript("All green. <!-- pet: the suite purrs -->");
+    await postStop();
+
+    const remarkIdx = captured.findIndex((e) => e.type === "agent:remark");
+    const finishIdx = captured.findIndex((e) => e.type === "session:finished");
+    expect(remarkIdx).toBeGreaterThanOrEqual(0);
+    expect(captured[remarkIdx].text).toBe("the suite purrs");
+    expect(finishIdx).toBeGreaterThan(remarkIdx);
+  });
+
+  it("stays silent without a cue, when repeated, and when the pet is off", async () => {
+    setBooleanSetting("pet_enabled", true);
+    writeTranscript("Done, no cue here.");
+    await postStop();
+    expect(captured.some((e) => e.type === "agent:remark")).toBe(false);
+
+    // A cue is spoken once; the same turn re-firing Stop must not repeat it.
+    writeTranscript("Done. <!-- pet: once only -->");
+    await postStop();
+    await postStop();
+    expect(captured.filter((e) => e.type === "agent:remark")).toHaveLength(1);
+
+    captured.length = 0;
+    setBooleanSetting("pet_enabled", false);
+    writeTranscript("Done. <!-- pet: nobody home -->");
+    await postStop();
+    expect(captured.some((e) => e.type === "agent:remark")).toBe(false);
+  });
+});
+
+describe("pet remark intro (first-turn instruction)", () => {
+  let taskId = "";
+
+  beforeEach(() => {
+    resetDb();
+    taskId = createHookTask().id;
+  });
+
+  const postPrompt = (sessionId: string) =>
+    postHook(taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: sessionId,
+      prompt: "please fix the bug",
+    });
+
+  it("introduces the pet once per session when enabled", async () => {
+    setBooleanSetting("pet_enabled", true);
+    const sessionId = crypto.randomUUID();
+    const first = await (await postPrompt(sessionId))!.json();
+    const context = first?.hookSpecificOutput?.additionalContext ?? "";
+    expect(context).toContain("<!-- pet:");
+
+    const second = await (await postPrompt(sessionId))!.json();
+    const secondContext = second?.hookSpecificOutput?.additionalContext ?? "";
+    expect(secondContext).not.toContain("<!-- pet:");
+  });
+
+  it("does not introduce the pet when disabled", async () => {
+    setBooleanSetting("pet_enabled", false);
+    const body = await (await postPrompt(crypto.randomUUID()))!.json();
+    const context = body?.hookSpecificOutput?.additionalContext ?? "";
+    expect(context).not.toContain("<!-- pet:");
+  });
 });

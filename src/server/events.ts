@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { AgentQuestion } from "~/shared/agent-questions";
 import type { GraphIndexProgress } from "~/shared/code-graph";
+import type { PetToolKind } from "~/shared/pet-tool-classify";
 
 export type AppEvent =
   | { type: "project:created"; id: string }
@@ -41,7 +42,19 @@ export type AppEvent =
       taskId: string;
       projectId: string;
       toolName: string;
-      sentiment: "error" | "neutral";
+      sentiment: "error" | "success" | "neutral";
+      // The specific thing the tool did (commit, test-fail, edit-styles…) —
+      // the pet picks its reaction line from this; sentiment stays the coarse
+      // fallback for older payloads and mood logic.
+      kind: PetToolKind;
+    }
+  | {
+      // Claude ended a response with an invisible `<!-- pet: … -->` cue
+      // (see ~/shared/pet-remark); the pet speaks the line verbatim.
+      type: "agent:remark";
+      taskId: string;
+      projectId: string;
+      text: string;
     }
   | { type: "memory:created"; id: string; projectId: string }
   | { type: "memory:updated"; id: string; projectId: string }
