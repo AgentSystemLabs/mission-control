@@ -242,11 +242,15 @@ export function listProjects(): ProjectWithCounts[] {
     const agg = aggByProject.get(p.id);
     const counts = agg?.counts ?? emptyStatusCounts();
     const preview = runningPreview.get(p.id) ?? needsInputPreview.get(p.id) ?? null;
+    // Same origin read as decorate() — multiplayer pets needs repoKey on the
+    // list endpoint (usePetMultiplayer reads projects from useProjects()).
+    const originRemote = readOriginRemoteUrl(p.path);
     return {
       ...p,
       taskCounts: { ...counts, total: agg?.total ?? 0, activeNonDone: agg?.activeNonDone ?? 0 },
       preview,
-      githubUrl: detectGithubUrl(p.path),
+      githubUrl: githubUrlFromRemote(originRemote),
+      repoKey: normalizeRepoRemote(originRemote),
     };
   });
 }

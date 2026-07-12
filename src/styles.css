@@ -4647,32 +4647,55 @@ body[data-card-glow] .cursor-glow {
 /* --- multiplayer (remote) pets: teammates on the same repo --- */
 .mc-remote-pets {
   position: fixed;
-  left: 16px;
+  left: 0;
+  right: 0;
   bottom: 12px;
-  display: flex;
-  align-items: flex-end;
-  gap: 22px;
-  /* Leave room for the local pet in the opposite bottom corner. */
-  max-width: calc(100vw - 260px);
+  height: 56px;
+  /* Container is click-through; only each pet's button takes events. */
   pointer-events: none;
-  flex-wrap: nowrap;
   overflow: visible;
 }
-.mc-remote-pets[data-local-home="left"] {
-  left: auto;
-  right: 16px;
-  flex-direction: row-reverse;
-}
 .mc-remote-pet {
-  position: relative;
+  position: absolute;
+  bottom: 0;
   /* Just the sprite footprint; the name + bubble float above it absolutely. */
   width: 56px;
   height: 56px;
   animation: mc-remote-pet-in 0.35s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
+.mc-remote-pet-stage {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
 .mc-remote-pet-sprite {
   width: 56px;
   height: 56px;
+}
+.mc-remote-pet-button {
+  display: block;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  line-height: 0;
+}
+.mc-remote-pet-button:focus-visible {
+  outline: 2px solid var(--accent, #6cb6ff);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.mc-remote-pet-stage[data-dragging] .mc-remote-pet-button {
+  cursor: grabbing;
+  rotate: -8deg;
+  transition: rotate 0.2s ease;
+}
+.mc-remote-pet-stage[data-dropping] .mc-remote-pet-button {
+  rotate: 0deg;
+  transition: rotate 0.3s ease;
 }
 /* Name + bubble stack, anchored just above the sprite and centered on it.
    Out of flow so a long bubble grows upward without clamping to the sprite
@@ -4719,8 +4742,8 @@ body[data-card-glow] .cursor-glow {
   animation: mc-pet-bubble-in 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 .mc-remote-pets-overflow {
-  align-self: flex-end;
-  margin-bottom: 6px;
+  position: absolute;
+  bottom: 6px;
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--surface-1);

@@ -11,7 +11,11 @@ import { useRouterState } from "@tanstack/react-router";
 import { useProjects, useSettings } from "~/queries";
 import { hashRepoKey } from "~/shared/repo-key";
 import { petsWebSocketUrl } from "~/shared/academy";
-import type { PetPeer } from "~/shared/pet-multiplayer-protocol";
+import {
+  DEFAULT_PET_ACCENT,
+  isPetAccentId,
+  type PetPeer,
+} from "~/shared/pet-multiplayer-protocol";
 import {
   getPetRoster,
   setPetMultiplayerDesired,
@@ -47,6 +51,10 @@ export function usePetMultiplayer(): PetPeer[] {
   // peers render our pet the way we see it, not a bare level-1 stand-in.
   const localLevel = settings?.petState?.level;
   const localPrestige = settings?.petState?.prestige;
+  // Accent is the owner's theme color — peers paint our stroke/fill with it.
+  const localAccent = isPetAccentId(settings?.accentColor)
+    ? settings.accentColor
+    : DEFAULT_PET_ACCENT;
 
   // Repos with a running session → broadcast rooms (sorted for stable deps).
   const broadcastKeys = useMemo(() => {
@@ -90,6 +98,7 @@ export function usePetMultiplayer(): PetPeer[] {
                 name: localName,
                 level: localLevel ?? 1,
                 prestige: localPrestige ?? 0,
+                accent: localAccent,
               }
             : null,
         broadcastRooms,
@@ -103,7 +112,16 @@ export function usePetMultiplayer(): PetPeer[] {
       cancelled = true;
     };
     // broadcastDep encodes broadcastKeys; listing it keeps the array itself out of deps.
-  }, [enabled, broadcastDep, viewKey, localSpecies, localName, localLevel, localPrestige]);
+  }, [
+    enabled,
+    broadcastDep,
+    viewKey,
+    localSpecies,
+    localName,
+    localLevel,
+    localPrestige,
+    localAccent,
+  ]);
 
   // Ensure the socket is fully torn down if this hook ever unmounts.
   useEffect(() => () => setPetMultiplayerDesired(DISABLED), []);

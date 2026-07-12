@@ -8,10 +8,13 @@
 //   * No socket is EVER opened unless desired.enabled is true.
 //   * Every socket operation is wrapped so a dead/unreachable relay can only
 //     ever result in "no remote pets" — never a thrown error into React.
-//   * The only bytes sent are an ephemeral peer id, a pet species, and a pet
-//     name, addressed to opaque hashed rooms. No identity, repo, or path.
+//   * The only bytes sent are an ephemeral peer id, a pet species, a pet
+//     name, level/prestige cosmetics, and the owner's accent color id,
+//     addressed to opaque hashed rooms. No identity, repo, or path.
 
 import {
+  DEFAULT_PET_ACCENT,
+  isPetAccentId,
   PET_WS_HEARTBEAT_MS,
   type PetClientMessage,
   type PetPeer,
@@ -27,6 +30,8 @@ export type LocalPet = {
   /** Earned-gear level and molt count — the cosmetic style peers should see. */
   level: number;
   prestige: number;
+  /** Owner's accent so peers paint the sprite in the same theme color. */
+  accent: PetPeer["accent"];
 };
 
 export type PetMultiplayerDesired = {
@@ -65,6 +70,7 @@ function clampPeer(p: PetPeer): PetPeer {
     name: String(p.name ?? "").slice(0, MAX_NAME_LEN),
     level: clampInt(p.level, 1, MAX_LEVEL, 1),
     prestige: clampInt(p.prestige, 0, MAX_PRESTIGE, 0),
+    accent: isPetAccentId(p.accent) ? p.accent : DEFAULT_PET_ACCENT,
   };
 }
 
@@ -106,7 +112,7 @@ function safeRandomId(): string {
 }
 
 function petKey(pet: LocalPet | null): string {
-  return pet ? `${pet.species}|${pet.name}|${pet.level}|${pet.prestige}` : "";
+  return pet ? `${pet.species}|${pet.name}|${pet.level}|${pet.prestige}|${pet.accent}` : "";
 }
 
 /** The wire peer for our local pet — the single place presence is shaped. */
@@ -117,6 +123,7 @@ function localPeer(pet: LocalPet): PetPeer {
     name: pet.name,
     level: pet.level,
     prestige: pet.prestige,
+    accent: pet.accent,
   };
 }
 
