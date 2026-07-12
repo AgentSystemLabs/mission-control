@@ -604,14 +604,6 @@ function runGh(
   });
 }
 
-async function ghOk(cwd: string, args: string[], timeoutMs?: number): Promise<string> {
-  const r = await runGh(cwd, args, { timeoutMs });
-  if (r.code !== 0) {
-    throw new GitError(`gh ${args[0]} failed`, r.stderr.trim() || `exit ${r.code}`);
-  }
-  return r.stdout;
-}
-
 function parseGhUrl(stdout: string): string | null {
   const match = stdout.match(/https:\/\/github\.com\/[^\s]+/);
   return match?.[0]?.replace(/[)\].,]+$/, "") ?? null;

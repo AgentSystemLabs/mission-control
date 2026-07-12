@@ -501,7 +501,6 @@ export function DiagramDialog({
             {renderState.status === "ready" && (
               <div
                 // Mermaid emits trusted SVG for the diagram source we control.
-                // eslint-disable-next-line react/no-danger
                 dangerouslySetInnerHTML={{ __html: renderState.svg }}
                 style={{
                   pointerEvents: "none",
