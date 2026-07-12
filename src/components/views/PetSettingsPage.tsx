@@ -17,6 +17,7 @@ import {
   type PetSizeId,
 } from "~/shared/pet";
 import { petRename, petSetSize, petSetSpecies, usePetSnapshot } from "~/lib/pet/pet-store";
+import { petOverlaySupported } from "~/lib/pet/pet-overlay";
 import { getElectron } from "~/lib/electron";
 import { PET_SPECIES } from "~/components/pet/PetSprite";
 import { PetGuideModal } from "~/components/pet/PetGuideModal";
@@ -47,6 +48,7 @@ export function PetSettingsPage() {
   const [petNameDraft, setPetNameDraft] = useState("");
   const [petGuideOpen, setPetGuideOpen] = useState(false);
   const canOverlay = Boolean(getElectron()?.petOverlay);
+  const overlaySupported = petOverlaySupported();
 
   useEffect(() => {
     setPetNameDraft(petState?.name ?? "");
@@ -140,10 +142,14 @@ export function PetSettingsPage() {
         <Field label="Desktop">
           <ToggleRow
             title="Let the pet roam your desktop"
-            description="Unleash the pet out of this window onto your desktop, floating above other apps. It stays visible when you switch apps or minimize Mission Control — hover it to pet or drag it; clicks anywhere else pass through. Roams your primary display only for now. (Experimental.)"
-            checked={petOverlayEnabled}
+            description={
+              overlaySupported
+                ? "Unleash the pet out of this window onto your desktop, floating above other apps. It stays visible when you switch apps or minimize Mission Control — hover it to pet or drag it; clicks anywhere else pass through. Roams your primary display only for now. (Experimental.)"
+                : "Available on macOS and Windows only — Linux can't make the floating desktop pet interactive. (Experimental.)"
+            }
+            checked={overlaySupported && petOverlayEnabled}
             onChange={(enabled: boolean) => void updateSettings({ petOverlayEnabled: enabled })}
-            disabled={!petEnabled}
+            disabled={!petEnabled || !overlaySupported}
             label="Unleash"
           />
         </Field>

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import { isFocusPath } from "~/lib/focus-session";
 import { getElectron } from "~/lib/electron";
-import { usePetOverlayEnabled } from "~/lib/pet/pet-overlay";
+import { petOverlaySupported, usePetOverlayEnabled } from "~/lib/pet/pet-overlay";
 import { usePetController } from "~/lib/pet/use-pet-controller";
 import { useSettings } from "~/queries";
 import {
@@ -45,7 +45,14 @@ export default function PetHost() {
 function usePetOverlaySettingSync() {
   const settings = useSettings().data;
   const loaded = settings !== undefined;
-  const desired = loaded && (settings?.petEnabled ?? false) && (settings?.petOverlayEnabled ?? false);
+  // Never open the overlay on a platform where it can't be interactive, even if
+  // a persisted `petOverlayEnabled` (e.g. carried from a macOS/Windows machine)
+  // says on. The settings toggle is gated the same way.
+  const desired =
+    loaded &&
+    petOverlaySupported() &&
+    (settings?.petEnabled ?? false) &&
+    (settings?.petOverlayEnabled ?? false);
   useEffect(() => {
     const overlay = getElectron()?.petOverlay;
     if (!overlay || !loaded) return;
