@@ -93,11 +93,11 @@ function petKey(pet: LocalPet | null): string {
 }
 
 function isActive(): boolean {
-  return (
-    desired.enabled &&
-    !!desired.wsUrl &&
-    (desired.broadcastRooms.length > 0 || desired.viewRoom !== null)
-  );
+  // Connect whenever the feature is enabled (and there's a URL) — the socket
+  // opens as soon as the user opts in, so the connection is visible/testable
+  // immediately. It only actually subscribes/broadcasts once a room exists
+  // (a viewed project or a running session); with none it just idles.
+  return desired.enabled && !!desired.wsUrl;
 }
 
 function targetSubRooms(): Set<string> {
