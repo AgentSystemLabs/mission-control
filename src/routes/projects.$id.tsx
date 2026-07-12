@@ -599,6 +599,44 @@ function ProjectPage() {
   const showPinned = sessionView === "pinned";
   const [pinningTaskIds, setPinningTaskIds] = useState<Set<string>>(() => new Set());
   const pinRequestSeqRef = useRef<Record<string, number>>({});
+  // Stable callback identities for the memoized TaskCard: the real handlers are
+  // defined far below (after this render's early returns), so we forward through
+  // a ref that's refreshed each render. This keeps the props TaskCard sees
+  // referentially stable so a single session update re-renders only its card,
+  // while every click still runs the latest handler closure.
+  const taskCardHandlersRef = useRef<{
+    onToggle: (taskId: string) => void;
+    onArchive: (taskId: string) => void;
+    onRestore: (taskId: string) => void;
+    onDelete: (taskId: string) => void;
+    onTogglePinned: (taskId: string) => Promise<void> | void;
+  }>({
+    onToggle: () => {},
+    onArchive: () => {},
+    onRestore: () => {},
+    onDelete: () => {},
+    onTogglePinned: () => {},
+  });
+  const stableSelectTerminal = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onToggle(taskId),
+    [],
+  );
+  const stableArchiveSession = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onArchive(taskId),
+    [],
+  );
+  const stableRestoreSession = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onRestore(taskId),
+    [],
+  );
+  const stableDeleteTask = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onDelete(taskId),
+    [],
+  );
+  const stableToggleSessionPinned = useCallback(
+    (taskId: string) => taskCardHandlersRef.current.onTogglePinned(taskId),
+    [],
+  );
   const [confirmDeleteArchived, setConfirmDeleteArchived] = useState(false);
   const [confirmArchiveAll, setConfirmArchiveAll] = useState(false);
   const [archivingAll, setArchivingAll] = useState(false);
@@ -2552,6 +2590,16 @@ function ProjectPage() {
     })();
   };
 
+  // Refresh the stable TaskCard handler wrappers with this render's closures so
+  // the memoized cards always invoke the latest logic without changing identity.
+  taskCardHandlersRef.current = {
+    onToggle: selectTerminal,
+    onArchive: archiveSession,
+    onRestore: restoreSession,
+    onDelete: deleteTask,
+    onTogglePinned: toggleSessionPinned,
+  };
+
   const deleteAllArchived = () => {
     setConfirmDeleteArchived(false);
     if (!project) return;
@@ -3249,9 +3297,9 @@ function ProjectPage() {
                   color="var(--accent)"
                   tasks={pinnedListTasks}
                   activeId={activeId}
-                  onToggle={selectTerminal}
-                  onArchive={archiveSession}
-                  onTogglePinned={toggleSessionPinned}
+                  onToggle={stableSelectTerminal}
+                  onArchive={stableArchiveSession}
+                  onTogglePinned={stableToggleSessionPinned}
                   pinningTaskIds={pinningTaskIds}
                 />
               )}
@@ -3277,11 +3325,11 @@ function ProjectPage() {
                   color={STATUS_META[status].color}
                   tasks={tasksByStatus[status]}
                   activeId={activeId}
-                  onToggle={selectTerminal}
-                  onArchive={showArchived ? undefined : archiveSession}
-                  onRestore={showArchived ? restoreSession : undefined}
-                  onDelete={showArchived ? deleteTask : undefined}
-                  onTogglePinned={showArchived ? undefined : toggleSessionPinned}
+                  onToggle={stableSelectTerminal}
+                  onArchive={showArchived ? undefined : stableArchiveSession}
+                  onRestore={showArchived ? stableRestoreSession : undefined}
+                  onDelete={showArchived ? stableDeleteTask : undefined}
+                  onTogglePinned={showArchived ? undefined : stableToggleSessionPinned}
                   pinningTaskIds={showArchived ? undefined : pinningTaskIds}
                   headerAction={
                     showViewActive ? (
