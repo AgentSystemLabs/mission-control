@@ -1634,6 +1634,21 @@ html[data-window-idle] .mc-pet * {
 .mc-identity-pop {
   animation: mc-pick-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
+/* Initials + color are the tile's no-image fallback settings; they mount and
+   unmount with the image state, easing in so the row doesn't snap. */
+.mc-identity-fallback {
+  animation: mc-identity-fallback-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes mc-identity-fallback-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
 /* Project-dialog avatar tile: the identity preview doubles as the image
    upload button — hover/focus reveals a camera scrim over it. */
 .mc-avatar-tile {
@@ -1659,6 +1674,31 @@ html[data-window-idle] .mc-pet * {
 .mc-color-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+/* Always-visible camera badge on the tile's bottom corner — the resting-state
+   affordance that the tile accepts an image (the hover scrim alone is
+   undiscoverable). Non-interactive: clicks fall through to the tile button. */
+.mc-avatar-upload-badge {
+  position: absolute;
+  bottom: -5px;
+  right: -5px;
+  z-index: 1;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  pointer-events: none;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.mc-avatar-tile:not(:disabled):hover ~ .mc-avatar-upload-badge,
+.mc-avatar-tile:focus-visible ~ .mc-avatar-upload-badge {
+  color: var(--text);
+  border-color: var(--text-faint);
 }
 /* Small × badge on the tile's corner when an image is set. */
 .mc-avatar-remove {
@@ -1694,7 +1734,8 @@ html[data-window-idle] .mc-pet * {
     transform: none;
   }
   .mc-pick-pop,
-  .mc-identity-pop {
+  .mc-identity-pop,
+  .mc-identity-fallback {
     animation: none;
   }
 }

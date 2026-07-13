@@ -5,7 +5,7 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { AgentLogo } from "~/components/ui/AgentLogo";
-import { ToggleRow } from "~/components/views/SettingsParts";
+import { ToggleSwitch } from "~/components/views/SettingsParts";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META, ICON_COLORS } from "~/lib/design-meta";
@@ -88,7 +88,9 @@ function LayoutGlyph({ variant, active }: { variant: "list" | "grid"; active: bo
   const cell = active ? "var(--accent)" : "var(--text-faint)";
   const frame: CSSProperties = {
     width: 34,
-    height: 24,
+    // 26 tall to match the agent cards' icon tile, so the List/Grid cards
+    // beside the agent grid land on exactly the same row heights.
+    height: 26,
     borderRadius: 4,
     border: "1px solid var(--border)",
     background: "var(--surface-0)",
@@ -164,6 +166,7 @@ export function ProjectDialog({
   const [worktreeSetupCommand, setWorktreeSetupCommand] = useState("");
   const [agent, setAgent] = useState<TaskAgent>("claude-code");
   const [gridView, setGridView] = useState(false);
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [pendingImage, setPendingImage] = useState<
     { sourcePath: string; extension: string; previewDataUrl: string } | null
@@ -171,7 +174,6 @@ export function ProjectDialog({
   // Bumped on each in-dialog image replace so the app:// preview URL can't
   // serve a stale cached copy (the filename stays `<projectId>.<ext>`).
   const [imageVersion, setImageVersion] = useState(0);
-  const [colorMenuOpen, setColorMenuOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -461,8 +463,8 @@ export function ProjectDialog({
       : null);
 
   // One row of identity: the avatar tile IS the live sidebar preview and the
-  // image-upload button in one — initials, color, and name sit beside it, so
-  // every input that shapes the tile is within reach of it.
+  // image-upload button in one. Initials + color are its no-image fallback and
+  // only render while no image is set; name always sits at the end.
   const identityRow = (
     <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
       <div style={{ position: "relative", flex: "0 0 auto" }}>
@@ -515,6 +517,13 @@ export function ProjectDialog({
             <Icon name="camera" size={15} />
           </span>
         </button>
+        {/* At rest the tile looks like a static preview — this always-visible
+            corner badge is what says "click to add/replace an image". */}
+        {!uploading && (
+          <span aria-hidden className="mc-avatar-upload-badge">
+            <Icon name="camera" size={10} />
+          </span>
+        )}
         {hasImage && !uploading && (
           <button
             type="button"
@@ -527,136 +536,6 @@ export function ProjectDialog({
           </button>
         )}
       </div>
-      <div style={{ flex: "0 0 auto" }}>
-        <FieldLabel>Initials</FieldLabel>
-        <input
-          value={icon}
-          onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
-          maxLength={2}
-          placeholder={project ? "AB" : derivedInitials}
-          aria-label="Icon initials (used when no image is set)"
-          className="mc-initials-input"
-          style={{
-            width: 52,
-            textAlign: "center",
-            background: "var(--surface-0)",
-            borderRadius: 7,
-            color: "var(--text)",
-            padding: "9px 8px",
-            fontFamily: "var(--mono)",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        />
-      </div>
-      <div
-        style={{ flex: "0 0 auto", position: "relative" }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape" && colorMenuOpen) {
-            // Close the color menu without also dismissing the whole dialog.
-            e.stopPropagation();
-            setColorMenuOpen(false);
-          }
-        }}
-        onBlur={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node)) setColorMenuOpen(false);
-        }}
-      >
-        <FieldLabel>Color</FieldLabel>
-        <button
-          type="button"
-          onClick={() => setColorMenuOpen((o) => !o)}
-          aria-label="Icon color"
-          aria-haspopup="listbox"
-          aria-expanded={colorMenuOpen}
-          className="mc-color-trigger"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            height: 38,
-            padding: "0 8px 0 9px",
-            background: "var(--surface-0)",
-            border: `1px solid ${colorMenuOpen ? "var(--accent)" : "var(--border)"}`,
-            borderRadius: 7,
-            cursor: "pointer",
-            color: "var(--text-dim)",
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 18,
-              height: 18,
-              borderRadius: 5,
-              background: iconColor,
-              flex: "0 0 auto",
-            }}
-          />
-          <Icon name="chevron-down" size={12} />
-        </button>
-        {colorMenuOpen && (
-          <div
-            role="listbox"
-            aria-label="Icon color"
-            style={{
-              position: "absolute",
-              zIndex: 20,
-              top: "calc(100% + 6px)",
-              left: 0,
-              display: "flex",
-              gap: 6,
-              padding: 8,
-              background: "var(--surface-1)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              boxShadow: "0 14px 36px rgba(0, 0, 0, 0.32)",
-            }}
-          >
-            {ICON_COLORS.map((c) => {
-              const active = iconColor === c;
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  aria-label={`Icon color ${c}`}
-                  onClick={() => {
-                    setIconColor(c);
-                    setColorMenuOpen(false);
-                  }}
-                  className="mc-color-swatch"
-                  style={{
-                    width: 24,
-                    height: 24,
-                    flex: "0 0 auto",
-                    borderRadius: 6,
-                    background: c,
-                    border: active ? "2px solid var(--text)" : "2px solid transparent",
-                    boxShadow: active ? `0 0 0 2px ${c}` : "none",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#fff",
-                    padding: 0,
-                  }}
-                >
-                  {active && (
-                    <span
-                      aria-hidden
-                      style={{ display: "flex", filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45))" }}
-                    >
-                      <Icon name="check" size={12} />
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <TextField
           label="Name (optional)"
@@ -666,6 +545,150 @@ export function ProjectDialog({
           placeholder={basename(path.trim()) || "defaults to folder name"}
         />
       </div>
+      {/* Initials and color only shape the tile when no image covers it, so
+          an uploaded image collapses them away — removing the image (×) brings
+          them back with whatever the user had set. */}
+      {!hasImage && (
+        <div
+          className="mc-identity-fallback"
+          style={{ display: "flex", gap: 10, alignItems: "flex-end", flex: "0 0 auto" }}
+        >
+          <div style={{ flex: "0 0 auto" }}>
+            <FieldLabel>Initials</FieldLabel>
+            <input
+              value={icon}
+              onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
+              maxLength={2}
+              placeholder={project ? "AB" : derivedInitials}
+              aria-label="Icon initials (used when no image is set)"
+              className="mc-initials-input"
+              style={{
+                width: 52,
+                height: 38,
+                textAlign: "center",
+                background: "var(--surface-0)",
+                borderRadius: 7,
+                color: "var(--text)",
+                padding: "0 8px",
+                fontFamily: "var(--mono)",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            />
+          </div>
+          <div
+            style={{ flex: "0 0 auto", position: "relative" }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && colorMenuOpen) {
+                // Close the color menu without also dismissing the whole dialog.
+                e.stopPropagation();
+                setColorMenuOpen(false);
+              }
+            }}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setColorMenuOpen(false);
+            }}
+          >
+            <FieldLabel>Color</FieldLabel>
+            <button
+              type="button"
+              onClick={() => setColorMenuOpen((o) => !o)}
+              aria-label="Icon color"
+              aria-haspopup="listbox"
+              aria-expanded={colorMenuOpen}
+              className="mc-color-trigger"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 38,
+                padding: "0 8px 0 9px",
+                background: "var(--surface-0)",
+                border: `1px solid ${colorMenuOpen ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 7,
+                cursor: "pointer",
+                color: "var(--text-dim)",
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 5,
+                  background: iconColor,
+                  flex: "0 0 auto",
+                }}
+              />
+              <Icon name="chevron-down" size={12} />
+            </button>
+            {colorMenuOpen && (
+              <div
+                role="listbox"
+                aria-label="Icon color"
+                style={{
+                  position: "absolute",
+                  zIndex: 20,
+                  top: "calc(100% + 6px)",
+                  // Right-anchored: the trigger sits at the row's right edge,
+                  // so the swatch strip opens leftward into the dialog instead
+                  // of clipping against its edge.
+                  right: 0,
+                  display: "flex",
+                  gap: 6,
+                  padding: 8,
+                  background: "var(--surface-1)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  boxShadow: "0 14px 36px rgba(0, 0, 0, 0.32)",
+                }}
+              >
+                {ICON_COLORS.map((c) => {
+                  const active = iconColor === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      aria-label={`Icon color ${c}`}
+                      onClick={() => {
+                        setIconColor(c);
+                        setColorMenuOpen(false);
+                      }}
+                      className="mc-color-swatch"
+                      style={{
+                        width: 24,
+                        height: 24,
+                        flex: "0 0 auto",
+                        borderRadius: 6,
+                        background: c,
+                        border: active ? "2px solid var(--text)" : "2px solid transparent",
+                        boxShadow: active ? `0 0 0 2px ${c}` : "none",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#fff",
+                        padding: 0,
+                      }}
+                    >
+                      {active && (
+                        <span
+                          aria-hidden
+                          style={{ display: "flex", filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45))" }}
+                        >
+                          <Icon name="check" size={12} />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -801,23 +824,16 @@ export function ProjectDialog({
     </div>
   );
 
-  // A compact segmented control, not a second card grid: layout is a trivial,
-  // reversible per-session choice, so it should read lighter than the agent
-  // picker above it. The glyph still shows what each option does.
+  // Same card anatomy and spacing as the agent picker beside it — one row of
+  // options in the whole section, one selection language. List sits on the
+  // agents' first row, Grid on their second.
   const layoutField = (
     <div>
       <FieldLabel>Layout</FieldLabel>
       <div
         role="radiogroup"
         aria-label="Default layout"
-        style={{
-          display: "flex",
-          gap: 4,
-          padding: 3,
-          background: "var(--surface-0)",
-          border: "1px solid var(--border)",
-          borderRadius: 7,
-        }}
+        style={{ display: "grid", gap: 8 }}
       >
         {(
           [
@@ -834,22 +850,16 @@ export function ProjectDialog({
               aria-checked={selected}
               aria-label={`${opt.label} layout`}
               onClick={() => setGridView(opt.value)}
-              className="mc-segment"
+              className="mc-pick-card"
               style={{
-                flex: 1,
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
                 gap: 9,
-                padding: "8px 10px",
-                border: 0,
-                borderRadius: 5,
-                background: selected ? "var(--surface-2)" : "transparent",
-                // Single accent edge = selected, the same signal the agent
-                // cards use — one selection language, and a non-color cue so
-                // it doesn't rely on the glyph hue alone.
-                boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
-                color: selected ? "var(--text)" : "var(--text-dim)",
+                textAlign: "left",
+                padding: "9px 10px",
+                background: selected ? "var(--surface-2)" : "var(--surface-0)",
+                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 7,
                 cursor: "pointer",
               }}
             >
@@ -860,7 +870,9 @@ export function ProjectDialog({
               >
                 <LayoutGlyph variant={opt.variant} active={selected} />
               </span>
-              <span style={{ fontSize: 12, fontWeight: 600 }}>{opt.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
+                {opt.label}
+              </span>
             </button>
           );
         })}
@@ -902,7 +914,9 @@ export function ProjectDialog({
             border: `1px solid ${groupTypeaheadOpen ? "var(--accent)" : "var(--border)"}`,
             borderRadius: 7,
             padding: "0 8px 0 12px",
-            minHeight: 38,
+            // Exact (not min) so the inline color swatches beside it can
+            // match this row's height 1:1.
+            height: 38,
           }}
         >
           {selectedGroup && (
@@ -1167,7 +1181,7 @@ export function ProjectDialog({
           </div>
         ) : (
           <>
-            {!path.trim() && (
+            {!path.trim() ? (
               <span
                 style={{
                   marginRight: "auto",
@@ -1178,6 +1192,33 @@ export function ProjectDialog({
               >
                 Add a working directory to create.
               </span>
+            ) : (
+              // Compact footer toggle: sits next to the button it modifies
+              // ("Create & start session" ⇄ "Create project").
+              <div
+                style={{ marginRight: "auto", display: "flex", alignItems: "center", gap: 8 }}
+                title={`Launches ${selectedAgentLabel} in this project as soon as it's created.`}
+              >
+                <ToggleSwitch
+                  checked={autoStart}
+                  onChange={setAutoStart}
+                  label="Start a session now"
+                  labelledBy="project-autostart-label"
+                />
+                <span
+                  id="project-autostart-label"
+                  onClick={() => setAutoStart(!autoStart)}
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 11.5,
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  Start a session now
+                </span>
+              </div>
             )}
             <EscTooltip label="Cancel">
               <Btn variant="ghost" onClick={requestClose}>
@@ -1222,15 +1263,13 @@ export function ProjectDialog({
             title="Sessions"
             description="Defaults for the coding agents you'll run in this project."
           >
-            {startWithField}
-            {layoutField}
-            <ToggleRow
-              title="Start a session now"
-              description={`Launches ${selectedAgentLabel} in this project as soon as it's created.`}
-              checked={autoStart}
-              onChange={setAutoStart}
-              label="Start a session now"
-            />
+            {/* Agent picker and layout side-by-side — layout is the lighter
+                choice, so it sits as a slim column with a rule between them. */}
+            <div style={{ display: "flex", gap: 14, alignItems: "stretch" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>{startWithField}</div>
+              <div aria-hidden style={{ width: 1, alignSelf: "stretch", background: "var(--border)" }} />
+              <div style={{ flex: "0 0 128px" }}>{layoutField}</div>
+            </div>
           </GroupCard>
           <div ref={errorRef}>
             <FormErrorBox error={error} />
