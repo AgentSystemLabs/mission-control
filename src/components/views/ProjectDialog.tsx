@@ -6,7 +6,7 @@ import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { ToggleRow } from "~/components/views/SettingsParts";
+import { SettingsSection, ToggleRow } from "~/components/views/SettingsParts";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META, ICON_COLORS } from "~/lib/design-meta";
@@ -493,7 +493,6 @@ export function ProjectDialog({
                 background: selected ? "var(--surface-2)" : "var(--surface-0)",
                 border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
                 borderRadius: 7,
-                boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
                 cursor: disabled ? "not-allowed" : "pointer",
                 opacity: disabled ? 0.5 : 1,
               }}
@@ -605,7 +604,6 @@ export function ProjectDialog({
                 border: 0,
                 borderRadius: 5,
                 background: selected ? "var(--surface-2)" : "transparent",
-                boxShadow: selected ? "0 0 0 1px var(--accent) inset" : "none",
                 color: selected ? "var(--text)" : "var(--text-dim)",
                 cursor: "pointer",
               }}
@@ -1159,20 +1157,26 @@ export function ProjectDialog({
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {dirField}
-          {nameField}
-          {startWithField}
-          {layoutField}
-          {groupField}
-          {appearanceSection}
-          <ToggleRow
-            title="Start a session now"
-            description={`Launches ${selectedAgentLabel} in this project as soon as it's created.`}
-            checked={autoStart}
-            onChange={setAutoStart}
-            label="Start a session now"
-          />
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <SettingsSection title="Project">
+            {dirField}
+            {nameField}
+          </SettingsSection>
+          <SettingsSection title="Sessions">
+            {startWithField}
+            {layoutField}
+            <ToggleRow
+              title="Start a session now"
+              description={`Launches ${selectedAgentLabel} in this project as soon as it's created.`}
+              checked={autoStart}
+              onChange={setAutoStart}
+              label="Start a session now"
+            />
+          </SettingsSection>
+          <SettingsSection title="Organize">
+            {groupField}
+            {appearanceSection}
+          </SettingsSection>
           <div ref={errorRef}>
             <FormErrorBox error={error} />
           </div>
