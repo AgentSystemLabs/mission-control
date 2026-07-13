@@ -1634,6 +1634,58 @@ html[data-window-idle] .mc-pet * {
 .mc-identity-pop {
   animation: mc-pick-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
+/* Project-dialog avatar tile: the identity preview doubles as the image
+   upload button — hover/focus reveals a camera scrim over it. */
+.mc-avatar-tile {
+  transition: border-color 150ms ease;
+}
+.mc-avatar-tile-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.mc-avatar-tile:not(:disabled):hover .mc-avatar-tile-overlay,
+.mc-avatar-tile:focus-visible .mc-avatar-tile-overlay {
+  opacity: 1;
+}
+.mc-avatar-tile:focus-visible,
+.mc-color-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Small × badge on the tile's corner when an image is set. */
+.mc-avatar-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.mc-avatar-remove:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+.mc-avatar-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 @media (prefers-reduced-motion: reduce) {
   .mc-pick-card:not(:disabled):hover,
   .mc-pick-card:not(:disabled):active,

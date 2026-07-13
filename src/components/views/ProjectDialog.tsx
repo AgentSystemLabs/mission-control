@@ -166,8 +166,12 @@ export function ProjectDialog({
   const [gridView, setGridView] = useState(false);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [pendingImage, setPendingImage] = useState<
-    { sourcePath: string; extension: string } | null
+    { sourcePath: string; extension: string; previewDataUrl: string } | null
   >(null);
+  // Bumped on each in-dialog image replace so the app:// preview URL can't
+  // serve a stale cached copy (the filename stays `<projectId>.<ext>`).
+  const [imageVersion, setImageVersion] = useState(0);
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,6 +232,7 @@ export function ProjectDialog({
       setGridView(project?.defaultGridView ?? false);
       setImagePath(project?.imagePath ?? null);
       setPendingImage(null);
+      setColorMenuOpen(false);
       setAutoStart(true);
       setConfirmingClose(false);
       setSubmitting(false);
@@ -297,6 +302,7 @@ export function ProjectDialog({
         return;
       }
       setImagePath(result.filename);
+      setImageVersion((v) => v + 1);
     } finally {
       setUploading(false);
     }
@@ -447,14 +453,220 @@ export function ProjectDialog({
     onClose();
   };
 
-  const nameField = (
-    <TextField
-      label="Name (optional)"
-      value={name}
-      onChange={setName}
-      inputRef={nameRef}
-      placeholder={basename(path.trim()) || "defaults to folder name"}
-    />
+  const hasImage = !!pendingImage || !!imagePath;
+  const previewSrc =
+    pendingImage?.previewDataUrl ??
+    (imagePath
+      ? `app://project-image/${imagePath}?v=${project?.updatedAt ?? 0}-${imageVersion}`
+      : null);
+
+  // One row of identity: the avatar tile IS the live sidebar preview and the
+  // image-upload button in one — initials, color, and name sit beside it, so
+  // every input that shapes the tile is within reach of it.
+  const identityRow = (
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+      <div style={{ position: "relative", flex: "0 0 auto" }}>
+        <button
+          type="button"
+          onClick={chooseImage}
+          disabled={uploading}
+          aria-label={hasImage ? "Replace project image" : "Add project image"}
+          title="PNG, JPG, WebP or GIF — up to 5MB"
+          className="mc-avatar-tile"
+          style={{
+            position: "relative",
+            width: 58,
+            height: 58,
+            borderRadius: 12,
+            padding: 0,
+            overflow: "hidden",
+            border: `1px solid ${previewSrc ? "var(--border)" : `${iconColor}44`}`,
+            background: previewSrc
+              ? "var(--surface-0)"
+              : `linear-gradient(135deg, ${iconColor}22, ${iconColor}08)`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: uploading ? "wait" : "pointer",
+          }}
+        >
+          {previewSrc ? (
+            <img
+              src={previewSrc}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <span
+              key={`${icon || derivedInitials}-${iconColor}`}
+              className="mc-identity-pop"
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 20,
+                fontWeight: 600,
+                color: iconColor,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              {icon || derivedInitials}
+            </span>
+          )}
+          <span aria-hidden className="mc-avatar-tile-overlay">
+            <Icon name="camera" size={15} />
+          </span>
+        </button>
+        {hasImage && !uploading && (
+          <button
+            type="button"
+            onClick={removeImage}
+            aria-label="Remove image"
+            title="Remove image"
+            className="mc-avatar-remove"
+          >
+            <Icon name="x" size={10} />
+          </button>
+        )}
+      </div>
+      <div style={{ flex: "0 0 auto" }}>
+        <FieldLabel>Initials</FieldLabel>
+        <input
+          value={icon}
+          onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
+          maxLength={2}
+          placeholder={project ? "AB" : derivedInitials}
+          aria-label="Icon initials (used when no image is set)"
+          className="mc-initials-input"
+          style={{
+            width: 52,
+            textAlign: "center",
+            background: "var(--surface-0)",
+            borderRadius: 7,
+            color: "var(--text)",
+            padding: "9px 8px",
+            fontFamily: "var(--mono)",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        />
+      </div>
+      <div
+        style={{ flex: "0 0 auto", position: "relative" }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && colorMenuOpen) {
+            // Close the color menu without also dismissing the whole dialog.
+            e.stopPropagation();
+            setColorMenuOpen(false);
+          }
+        }}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setColorMenuOpen(false);
+        }}
+      >
+        <FieldLabel>Color</FieldLabel>
+        <button
+          type="button"
+          onClick={() => setColorMenuOpen((o) => !o)}
+          aria-label="Icon color"
+          aria-haspopup="listbox"
+          aria-expanded={colorMenuOpen}
+          className="mc-color-trigger"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            height: 38,
+            padding: "0 8px 0 9px",
+            background: "var(--surface-0)",
+            border: `1px solid ${colorMenuOpen ? "var(--accent)" : "var(--border)"}`,
+            borderRadius: 7,
+            cursor: "pointer",
+            color: "var(--text-dim)",
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: 5,
+              background: iconColor,
+              flex: "0 0 auto",
+            }}
+          />
+          <Icon name="chevron-down" size={12} />
+        </button>
+        {colorMenuOpen && (
+          <div
+            role="listbox"
+            aria-label="Icon color"
+            style={{
+              position: "absolute",
+              zIndex: 20,
+              top: "calc(100% + 6px)",
+              left: 0,
+              display: "flex",
+              gap: 6,
+              padding: 8,
+              background: "var(--surface-1)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              boxShadow: "0 14px 36px rgba(0, 0, 0, 0.32)",
+            }}
+          >
+            {ICON_COLORS.map((c) => {
+              const active = iconColor === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  aria-label={`Icon color ${c}`}
+                  onClick={() => {
+                    setIconColor(c);
+                    setColorMenuOpen(false);
+                  }}
+                  className="mc-color-swatch"
+                  style={{
+                    width: 24,
+                    height: 24,
+                    flex: "0 0 auto",
+                    borderRadius: 6,
+                    background: c,
+                    border: active ? "2px solid var(--text)" : "2px solid transparent",
+                    boxShadow: active ? `0 0 0 2px ${c}` : "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    padding: 0,
+                  }}
+                >
+                  {active && (
+                    <span
+                      aria-hidden
+                      style={{ display: "flex", filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45))" }}
+                    >
+                      <Icon name="check" size={12} />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <TextField
+          label="Name (optional)"
+          value={name}
+          onChange={setName}
+          inputRef={nameRef}
+          placeholder={basename(path.trim()) || "defaults to folder name"}
+        />
+      </div>
+    </div>
   );
 
   const dirField = (
@@ -652,108 +864,6 @@ export function ProjectDialog({
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-
-  const imageField = (
-    <div>
-      <FieldLabel>Custom image</FieldLabel>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <Btn variant="solid" icon="folder" onClick={chooseImage} disabled={uploading}>
-          {uploading
-            ? "Uploading…"
-            : imagePath || pendingImage
-              ? "Replace image…"
-              : "Choose image…"}
-        </Btn>
-        {(imagePath || pendingImage) && (
-          <Btn variant="ghost" onClick={removeImage}>
-            Remove
-          </Btn>
-        )}
-        {pendingImage && (
-          <span
-            style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}
-          >
-            {basename(pendingImage.sourcePath)} — uploads on save
-          </span>
-        )}
-        <span
-          style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--text-faint)" }}
-        >
-          PNG / JPG / WebP / GIF, ≤ 5MB
-        </span>
-      </div>
-    </div>
-  );
-
-  const iconField = (
-    <div>
-      <FieldLabel>{project ? "Icon (fallback)" : "Initials & color"}</FieldLabel>
-      <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
-        <input
-          value={icon}
-          onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
-          maxLength={2}
-          placeholder={project ? "AB" : derivedInitials}
-          aria-label="Icon initials"
-          className="mc-initials-input"
-          style={{
-            width: 56,
-            flex: "0 0 auto",
-            textAlign: "center",
-            background: "var(--surface-0)",
-            borderRadius: 7,
-            color: "var(--text)",
-            padding: "9px 8px",
-            fontFamily: "var(--mono)",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        />
-        <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 6 }}>
-          {ICON_COLORS.map((c) => {
-            const active = iconColor === c;
-            return (
-              <button
-                key={c}
-                type="button"
-                aria-label={`Icon color ${c}`}
-                aria-pressed={active}
-                onClick={() => setIconColor(c)}
-                className="mc-color-swatch"
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  borderRadius: 6,
-                  background: c,
-                  border: active ? "2px solid var(--text)" : "2px solid transparent",
-                  boxShadow: active ? `0 0 0 2px ${c}` : "none",
-                  cursor: "pointer",
-                }}
-              >
-                <span
-                  key={active ? "on" : "off"}
-                  aria-hidden
-                  className={active ? "mc-pick-pop" : undefined}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "100%",
-                    height: "100%",
-                    opacity: active ? 1 : 0,
-                    color: "#fff",
-                    filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45))",
-                  }}
-                >
-                  <Icon name="check" size={13} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </div>
     </div>
   );
@@ -1090,10 +1200,8 @@ export function ProjectDialog({
     >
       {project ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {nameField}
+          {identityRow}
           {dirField}
-          {imageField}
-          {iconField}
           {groupField}
           {worktreeField}
           <div ref={errorRef}>
@@ -1102,9 +1210,13 @@ export function ProjectDialog({
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <GroupCard title="Project" description="Where it lives on disk and what it's called.">
+          <GroupCard
+            title="Project"
+            description="Where it lives on disk and how it shows up in your sidebar."
+          >
+            {identityRow}
             {dirField}
-            {nameField}
+            {groupField}
           </GroupCard>
           <GroupCard
             title="Sessions"
@@ -1119,11 +1231,6 @@ export function ProjectDialog({
               onChange={setAutoStart}
               label="Start a session now"
             />
-          </GroupCard>
-          <GroupCard title="Organize" description="How this project appears in your sidebar.">
-            {groupField}
-            {iconField}
-            {imageField}
           </GroupCard>
           <div ref={errorRef}>
             <FormErrorBox error={error} />

@@ -1580,8 +1580,22 @@ safeHandle(IPC.dialogPickImage, async () => {
   if (!PROJECT_IMAGE_EXTENSION_SET.has(ext)) {
     return { error: `Unsupported file type: .${ext}` };
   }
-  ALLOWED_PICKED_PATHS.add(sourcePath);
-  return { sourcePath, extension: ext };
+  // Validate size and build an inline preview here, at pick time — the create
+  // flow renders the image before it's uploaded, and an oversized file should
+  // fail in the picker rather than on save.
+  try {
+    const stat = fs.statSync(sourcePath);
+    if (stat.size > MAX_PROJECT_IMAGE_BYTES) {
+      return { error: `Image exceeds ${MAX_PROJECT_IMAGE_BYTES / 1024 / 1024}MB` };
+    }
+    const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+    const previewDataUrl = `data:${mime};base64,${fs.readFileSync(sourcePath).toString("base64")}`;
+    ALLOWED_PICKED_PATHS.add(sourcePath);
+    return { sourcePath, extension: ext, previewDataUrl };
+  } catch (err) {
+    log.warn("project-image.pick-read-failed", { error: String(err) });
+    return { error: "could not read the selected image" };
+  }
 });
 
 safeHandle(

@@ -332,7 +332,9 @@ export type ElectronBridge = {
     readImage: (path: string) => Promise<{ dataUrl: string } | { error: string }>;
   };
   pickImage: () => Promise<
-    { sourcePath: string; extension: string } | { error: string } | null
+    | { sourcePath: string; extension: string; previewDataUrl: string }
+    | { error: string }
+    | null
   >;
   saveProjectImage: (opts: {
     projectId: string;

@@ -333,7 +333,9 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.screenshotReadImage, path),
   },
   pickImage: (): Promise<
-    { sourcePath: string; extension: string } | { error: string } | null
+    | { sourcePath: string; extension: string; previewDataUrl: string }
+    | { error: string }
+    | null
   > => ipcRenderer.invoke(IPC.dialogPickImage),
   saveProjectImage: (opts: {
     projectId: string;
