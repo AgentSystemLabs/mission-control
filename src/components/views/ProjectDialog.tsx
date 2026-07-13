@@ -40,6 +40,11 @@ function FieldLabel({ children }: { children: ReactNode }) {
   return <label style={fieldLabelStyle}>{children}</label>;
 }
 
+/** Last segment of a filesystem path, ignoring trailing separators. */
+function basename(p: string): string {
+  return p.split(/[\\/]/).filter(Boolean).pop() || "";
+}
+
 /** Tiny wireframe that shows what each layout does at a glance. */
 function LayoutGlyph({ variant, active }: { variant: "list" | "grid"; active: boolean }) {
   const cell = active ? "var(--accent)" : "var(--text-faint)";
@@ -163,7 +168,7 @@ export function ProjectDialog({
 
   useEffect(() => {
     if (open) {
-      const initialName = initialPath.split(/[\\/]/).filter(Boolean).pop() || "";
+      const initialName = basename(initialPath);
       const seededName = project?.name || (!project ? initialName : "");
       const seededPath = project?.path || (!project ? initialPath : "");
       const seededGroupQuery = project?.groupId
@@ -273,8 +278,8 @@ export function ProjectDialog({
     if (result) {
       setPath(result);
       if (!name.trim()) {
-        const basename = result.split(/[\\/]/).filter(Boolean).pop() || "";
-        if (basename) setName(basename);
+        const base = basename(result);
+        if (base) setName(base);
       }
     }
   };
@@ -336,8 +341,7 @@ export function ProjectDialog({
     setSubmitting(true);
     try {
       const effectiveGroupId = await resolveGroupIdForSave();
-      const effectiveName =
-        name.trim() || (path.trim().split(/[\\/]/).filter(Boolean).pop() ?? "");
+      const effectiveName = name.trim() || basename(path.trim());
       await onSave({
         name: name.trim() || undefined,
         path,
@@ -381,12 +385,10 @@ export function ProjectDialog({
   // Live identity preview: exactly what the sidebar will render for this
   // project — auto initials from the name until the user overrides them.
   const derivedInitials =
-    (name.trim() || path.trim().split(/[\\/]/).filter(Boolean).pop() || "")
-      .slice(0, 2)
-      .toUpperCase() || "AB";
+    (name.trim() || basename(path.trim())).slice(0, 2).toUpperCase() || "AB";
   const previewInitials = icon || derivedInitials;
   const appearanceSummary = pendingImage
-    ? pendingImage.sourcePath.split(/[\\/]/).pop() ?? "custom image"
+    ? basename(pendingImage.sourcePath) || "custom image"
     : icon
       ? `Initials ${icon}`
       : `Auto initials · ${derivedInitials}`;
@@ -422,7 +424,7 @@ export function ProjectDialog({
       value={name}
       onChange={setName}
       inputRef={nameRef}
-      placeholder={path.trim().split(/[\\/]/).filter(Boolean).pop() || "defaults to folder name"}
+      placeholder={basename(path.trim()) || "defaults to folder name"}
     />
   );
 
@@ -551,7 +553,7 @@ export function ProjectDialog({
           lineHeight: 1.4,
         }}
       >
-        Launches your sessions — change anytime.
+        The default for new sessions — switch agents anytime.
       </div>
     </div>
   );
@@ -645,7 +647,7 @@ export function ProjectDialog({
           <span
             style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}
           >
-            {pendingImage.sourcePath.split(/[\\/]/).pop()} — uploads on save
+            {basename(pendingImage.sourcePath)} — uploads on save
           </span>
         )}
         <span
