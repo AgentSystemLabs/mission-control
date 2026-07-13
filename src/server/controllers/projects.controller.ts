@@ -51,6 +51,10 @@ const createProjectBody = z.object({
   iconColor: z.string().optional(),
   groupId: z.string().nullable().optional(),
   sandboxId: z.string().nullable().optional(),
+  // Create-time onboarding: default agent + layout for the new project.
+  savedAgent: z.enum(TASK_AGENTS).nullable().optional(),
+  rememberAgentSettings: z.boolean().optional(),
+  defaultGridView: z.boolean().optional(),
 });
 
 const updateProjectBody = z

@@ -345,6 +345,9 @@ export const api = {
     iconColor?: string;
     groupId?: string | null;
     sandboxId?: string | null;
+    savedAgent?: Project["savedAgent"] | null;
+    rememberAgentSettings?: boolean;
+    defaultGridView?: boolean;
   }) =>
     req<{ project: Project }>("/api/projects", {
       method: "POST",

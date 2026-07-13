@@ -1,14 +1,97 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { FormErrorBox } from "~/components/ui/FormErrorBox";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
+import { AgentLogo } from "~/components/ui/AgentLogo";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
-import { ICON_COLORS } from "~/lib/design-meta";
+import { AGENT_META, ICON_COLORS } from "~/lib/design-meta";
+import {
+  agentCanLaunch,
+  availabilityFor,
+  useCliAvailability,
+} from "~/lib/cli-availability";
 import { getElectron } from "~/lib/electron";
+import { useSettings } from "~/queries";
+import { AGENT_REGISTRY } from "~/shared/agents";
+import {
+  DEFAULT_AGENT_LAUNCHER_CONFIG,
+  visibleLauncherAgents,
+} from "~/shared/agent-launcher-config";
+import type { TaskAgent } from "~/shared/domain";
 import type { Group, Project } from "~/db/schema";
+
+const fieldLabelStyle: CSSProperties = {
+  fontFamily: "var(--mono)",
+  fontSize: 10.5,
+  fontWeight: 500,
+  color: "var(--text-dim)",
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+  display: "block",
+  marginBottom: 6,
+};
+
+function FieldLabel({ children }: { children: ReactNode }) {
+  return <label style={fieldLabelStyle}>{children}</label>;
+}
+
+/** Anchors each column of the create form with a quiet titled hairline. */
+function ColumnHeading({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        fontSize: 12,
+        fontWeight: 600,
+        color: "var(--text)",
+        paddingBottom: 8,
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Tiny wireframe that shows what each layout does at a glance. */
+function LayoutGlyph({ variant, active }: { variant: "list" | "grid"; active: boolean }) {
+  const cell = active ? "var(--accent)" : "var(--text-faint)";
+  const frame: CSSProperties = {
+    width: 34,
+    height: 24,
+    borderRadius: 4,
+    border: "1px solid var(--border)",
+    background: "var(--surface-0)",
+    padding: 4,
+    flex: "0 0 auto",
+  };
+  if (variant === "list") {
+    return (
+      <div style={{ ...frame, display: "flex", flexDirection: "column", gap: 2.5 }}>
+        {[0, 1, 2].map((i) => (
+          <div key={i} style={{ height: 4, borderRadius: 1.5, background: cell, opacity: active ? 1 : 0.6 }} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        ...frame,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateRows: "1fr 1fr",
+        gap: 2.5,
+      }}
+    >
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} style={{ borderRadius: 1.5, background: cell, opacity: active ? 1 : 0.6 }} />
+      ))}
+    </div>
+  );
+}
 
 export function ProjectDialog({
   open,
@@ -33,6 +116,11 @@ export function ProjectDialog({
     imagePath?: string | null;
     pendingImage?: { sourcePath: string; extension: string } | null;
     worktreeSetupCommand?: string | null;
+    // Create-only onboarding fields (undefined when editing an existing project).
+    savedAgent?: TaskAgent | null;
+    rememberAgentSettings?: boolean;
+    defaultGridView?: boolean;
+    autoStart?: boolean;
   }) => Promise<void> | void;
   onCreateGroup?: (name: string) => Promise<Group> | Group;
 }) {
@@ -45,11 +133,14 @@ export function ProjectDialog({
   const [icon, setIcon] = useState("");
   const [iconColor, setIconColor] = useState("#ff5a1f");
   const [worktreeSetupCommand, setWorktreeSetupCommand] = useState("");
+  const [agent, setAgent] = useState<TaskAgent>("claude-code");
+  const [gridView, setGridView] = useState(false);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [pendingImage, setPendingImage] = useState<
     { sourcePath: string; extension: string } | null
   >(null);
   const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const selectedGroup = groupId ? groups.find((group) => group.id === groupId) ?? null : null;
@@ -62,6 +153,19 @@ export function ProjectDialog({
     : groups;
   const canCreateGroup =
     !!onCreateGroup && !!groupQuery.trim() && !exactGroupMatch;
+
+  const cliAvailability = useCliAvailability();
+  const { data: settings } = useSettings();
+  // Order + visibility mirror the New-session picker (Settings → Providers), so
+  // the agent chosen here reads as the same set the user launches with later.
+  const launcherConfig = settings?.agentLauncherConfig ?? DEFAULT_AGENT_LAUNCHER_CONFIG;
+  const agentOptions = useMemo(
+    () =>
+      visibleLauncherAgents(launcherConfig)
+        .filter((id) => AGENT_REGISTRY[id].uiVisible)
+        .map((id) => ({ id, ...AGENT_REGISTRY[id] })),
+    [launcherConfig],
+  );
 
   useEffect(() => {
     if (open) {
@@ -81,11 +185,29 @@ export function ProjectDialog({
       setIcon(project?.icon || "");
       setIconColor(project?.iconColor || "#ff5a1f");
       setWorktreeSetupCommand(project?.worktreeSetupCommand || "");
+      setGridView(project?.defaultGridView ?? false);
       setImagePath(project?.imagePath ?? null);
       setPendingImage(null);
+      setSubmitting(false);
       setError(null);
     }
+    // Agent is seeded in the effect below once agentOptions has settled.
   }, [initialPath, open, project?.id]);
+
+  // Seed the agent selection to the first launchable option when the dialog
+  // opens, and re-home it if the current pick turns out to be unavailable.
+  useEffect(() => {
+    if (!open || project) return;
+    const firstLaunchable =
+      agentOptions.find((a) => agentCanLaunch(cliAvailability, a.id))?.id ??
+      agentOptions[0]?.id ??
+      "claude-code";
+    setAgent((current) =>
+      agentOptions.some((a) => a.id === current) && agentCanLaunch(cliAvailability, current)
+        ? current
+        : firstLaunchable,
+    );
+  }, [open, project, agentOptions, cliAvailability]);
 
   useEffect(() => {
     if (!open || !selectedGroup || groupQuery.trim()) return;
@@ -193,8 +315,10 @@ export function ProjectDialog({
     return groupId || null;
   };
 
-  const submit = async () => {
+  const submit = async (autoStart: boolean) => {
+    if (submitting) return;
     setError(null);
+    setSubmitting(true);
     try {
       const effectiveGroupId = await resolveGroupIdForSave();
       const effectiveName =
@@ -206,429 +330,608 @@ export function ProjectDialog({
         iconColor,
         groupId: effectiveGroupId,
         ...(project ? { imagePath } : { pendingImage }),
-        ...(project ? { worktreeSetupCommand: worktreeSetupCommand.trim() || null } : {}),
+        ...(project
+          ? { worktreeSetupCommand: worktreeSetupCommand.trim() || null }
+          : {
+              savedAgent: agent,
+              rememberAgentSettings: true,
+              defaultGridView: gridView,
+              autoStart,
+            }),
       });
     } catch (e: any) {
       setError(e?.message || "Save failed");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  useHotkey("dialog.submit", () => void submit(), { enabled: open });
+  // Enter / Cmd+Enter runs the primary action: "Create & start" for a new
+  // project, "Save" when editing (autoStart is ignored on the edit path).
+  useHotkey("dialog.submit", () => void submit(!project), { enabled: open });
+
+  const nameField = (
+    <TextField
+      label="Name (optional)"
+      value={name}
+      onChange={setName}
+      inputRef={nameRef}
+      placeholder={path.trim().split(/[\\/]/).filter(Boolean).pop() || "defaults to folder name"}
+    />
+  );
+
+  const dirField = (
+    <div>
+      <FieldLabel>Working directory</FieldLabel>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <TextField
+            mono
+            value={path}
+            onChange={setPath}
+            placeholder="/Users/me/dev/my-project"
+          />
+        </div>
+        <Btn variant="solid" icon="folder" onClick={browse}>
+          Browse…
+        </Btn>
+      </div>
+    </div>
+  );
+
+  const startWithField = (
+    <div>
+      <FieldLabel>Start with</FieldLabel>
+      <div
+        role="radiogroup"
+        aria-label="Default coding agent"
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+      >
+        {agentOptions.map((a) => {
+          const meta = AGENT_META[a.id];
+          const selected = agent === a.id;
+          const availability = availabilityFor(cliAvailability, a.id);
+          const cliMissing = availability.status === "missing";
+          const cliOutdated = availability.status === "outdated";
+          const disabled = !cliOutdated && !agentCanLaunch(cliAvailability, a.id);
+          return (
+            <button
+              key={a.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={a.label}
+              disabled={disabled}
+              onClick={() => !disabled && setAgent(a.id)}
+              title={
+                cliMissing
+                  ? `${a.command} was not found on PATH`
+                  : cliOutdated
+                    ? `${a.command} must be updated before launching`
+                    : undefined
+              }
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                textAlign: "left",
+                padding: "9px 10px",
+                background: selected ? "var(--surface-2)" : "var(--surface-0)",
+                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 8,
+                boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.5 : 1,
+                transition: "border-color 150ms ease, background 150ms ease",
+              }}
+            >
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 6,
+                  background: `${meta.color}22`,
+                  border: `1px solid ${meta.color}44`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: meta.color,
+                  flex: "0 0 auto",
+                }}
+              >
+                <AgentLogo agent={a.id} size={17} title={a.label} />
+              </div>
+              <span
+                style={{
+                  minWidth: 0,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--text)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {a.label}
+              </span>
+              {(cliMissing || cliOutdated) && (
+                <span
+                  aria-hidden
+                  title={cliMissing ? "CLI not found on PATH" : "Update required"}
+                  style={{
+                    marginLeft: "auto",
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--status-failed)",
+                    flex: "0 0 auto",
+                  }}
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--mono)",
+          fontSize: 10.5,
+          color: "var(--text-faint)",
+          marginTop: 7,
+          lineHeight: 1.4,
+        }}
+      >
+        Launches your sessions — change anytime.
+      </div>
+    </div>
+  );
+
+  const layoutField = (
+    <div>
+      <FieldLabel>Layout</FieldLabel>
+      <div
+        role="radiogroup"
+        aria-label="Default layout"
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+      >
+        {(
+          [
+            { value: false, label: "List", desc: "One at a time", variant: "list" as const },
+            { value: true, label: "Grid", desc: "All at once", variant: "grid" as const },
+          ]
+        ).map((opt) => {
+          const selected = gridView === opt.value;
+          return (
+            <button
+              key={opt.label}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={`${opt.label} layout`}
+              onClick={() => setGridView(opt.value)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                textAlign: "left",
+                padding: "9px 10px",
+                background: selected ? "var(--surface-2)" : "var(--surface-0)",
+                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 8,
+                boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
+                cursor: "pointer",
+                transition: "border-color 150ms ease, background 150ms ease",
+              }}
+            >
+              <LayoutGlyph variant={opt.variant} active={selected} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
+                  {opt.label}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 10,
+                    color: "var(--text-dim)",
+                    marginTop: 2,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {opt.desc}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const imageField = (
+    <div>
+      <FieldLabel>Custom image</FieldLabel>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <Btn variant="solid" icon="folder" onClick={chooseImage} disabled={uploading}>
+          {uploading
+            ? "Uploading…"
+            : imagePath || pendingImage
+              ? "Replace image…"
+              : "Choose image…"}
+        </Btn>
+        {(imagePath || pendingImage) && (
+          <Btn variant="ghost" onClick={removeImage}>
+            Remove
+          </Btn>
+        )}
+        {pendingImage && (
+          <span
+            style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}
+          >
+            {pendingImage.sourcePath.split(/[\\/]/).pop()} — uploads on save
+          </span>
+        )}
+        <span
+          style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--text-faint)" }}
+        >
+          PNG / JPG / WebP / GIF, ≤ 5MB
+        </span>
+      </div>
+    </div>
+  );
+
+  const iconField = (
+    <div>
+      <FieldLabel>Icon (fallback)</FieldLabel>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <input
+          value={icon}
+          onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
+          maxLength={2}
+          placeholder="AB"
+          aria-label="Icon initials"
+          style={{
+            width: 56,
+            textAlign: "center",
+            background: "var(--surface-0)",
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            outline: 0,
+            color: "var(--text)",
+            padding: "9px 8px",
+            fontFamily: "var(--mono)",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {ICON_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-label={`Icon color ${c}`}
+              aria-pressed={iconColor === c}
+              onClick={() => setIconColor(c)}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 6,
+                background: c,
+                border: iconColor === c ? "2px solid var(--text)" : "2px solid transparent",
+                cursor: "pointer",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const groupField = (
+    <div>
+      <FieldLabel>Group</FieldLabel>
+      <div style={{ position: "relative" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "var(--surface-0)",
+            border: `1px solid ${groupTypeaheadOpen ? "var(--accent)" : "var(--border)"}`,
+            borderRadius: 7,
+            padding: "0 8px 0 12px",
+            minHeight: 38,
+          }}
+        >
+          {selectedGroup && (
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: selectedGroup.color,
+                flex: "0 0 auto",
+              }}
+            />
+          )}
+          <input
+            value={groupQuery}
+            onFocus={() => setGroupTypeaheadOpen(true)}
+            onBlur={() => {
+              window.setTimeout(() => setGroupTypeaheadOpen(false), 100);
+            }}
+            onChange={(e) => {
+              const next = e.target.value;
+              setGroupQuery(next);
+              setGroupTypeaheadOpen(true);
+              if (!next.trim()) setGroupId("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void commitGroupQuery();
+              } else if (e.key === "Escape") {
+                setGroupTypeaheadOpen(false);
+              }
+            }}
+            role="combobox"
+            aria-expanded={groupTypeaheadOpen}
+            aria-controls="project-group-options"
+            aria-label="Project group"
+            placeholder="Ungrouped or group name"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "transparent",
+              border: 0,
+              outline: 0,
+              color: "var(--text)",
+              padding: "9px 0",
+              fontFamily: "var(--mono)",
+              fontSize: 12.5,
+            }}
+          />
+          {(groupQuery || groupId) && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={clearGroup}
+              aria-label="Clear group"
+              title="Clear group"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 24,
+                height: 24,
+                border: 0,
+                background: "transparent",
+                color: "var(--text-faint)",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          )}
+        </div>
+        {groupTypeaheadOpen && (
+          <div
+            id="project-group-options"
+            role="listbox"
+            style={{
+              position: "absolute",
+              zIndex: 20,
+              left: 0,
+              right: 0,
+              top: "calc(100% + 6px)",
+              maxHeight: 220,
+              overflow: "auto",
+              background: "var(--surface-1)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              boxShadow: "0 14px 36px rgba(0, 0, 0, 0.32)",
+              padding: 6,
+            }}
+          >
+            <button
+              type="button"
+              role="option"
+              aria-selected={groupId === ""}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={clearGroup}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                minHeight: 32,
+                border: 0,
+                borderRadius: 6,
+                background: groupId === "" ? "var(--accent-dim)" : "transparent",
+                color: groupId === "" ? "var(--accent-ink)" : "var(--text-dim)",
+                cursor: "pointer",
+                padding: "7px 9px",
+                textAlign: "left",
+                fontFamily: "var(--mono)",
+                fontSize: 11.5,
+              }}
+            >
+              Ungrouped
+            </button>
+            {filteredGroups.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                role="option"
+                aria-selected={groupId === group.id}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => selectGroup(group)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  minHeight: 32,
+                  border: 0,
+                  borderRadius: 6,
+                  background: groupId === group.id ? "var(--accent-dim)" : "transparent",
+                  color: groupId === group.id ? "var(--accent-ink)" : "var(--text)",
+                  cursor: "pointer",
+                  padding: "7px 9px",
+                  textAlign: "left",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11.5,
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{ width: 8, height: 8, borderRadius: "50%", background: group.color }}
+                />
+                <span
+                  style={{
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {group.name}
+                </span>
+              </button>
+            ))}
+            {canCreateGroup && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                disabled={creatingGroup}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => void commitGroupQuery()}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  minHeight: 32,
+                  border: 0,
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: "var(--accent-ink)",
+                  cursor: creatingGroup ? "default" : "pointer",
+                  opacity: creatingGroup ? 0.65 : 1,
+                  padding: "7px 9px",
+                  textAlign: "left",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11.5,
+                }}
+              >
+                <Icon name="plus" size={12} />
+                {creatingGroup ? "Creating..." : `Create "${groupQuery.trim()}"`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const worktreeField = project ? (
+    <TextField
+      mono
+      label="New worktree setup command"
+      value={worktreeSetupCommand}
+      onChange={(value) => setWorktreeSetupCommand(value.slice(0, 500))}
+      placeholder="pnpm i"
+      hint="Optional. Runs once inside each newly created worktree."
+    />
+  ) : null;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={project ? "Edit project" : "Add project"}
-      width={520}
+      width={project ? 520 : 720}
       footer={
-        <>
-          <EscTooltip label="Cancel">
-            <Btn variant="ghost" onClick={onClose}>
-              Cancel
+        project ? (
+          <>
+            <EscTooltip label="Cancel">
+              <Btn variant="ghost" onClick={onClose}>
+                Cancel
+              </Btn>
+            </EscTooltip>
+            <HotkeyTooltip action="dialog.submit">
+              <Btn variant="primary" onClick={() => void submit(false)} disabled={submitting}>
+                Save
+              </Btn>
+            </HotkeyTooltip>
+          </>
+        ) : (
+          <>
+            <EscTooltip label="Cancel">
+              <Btn variant="ghost" onClick={onClose}>
+                Cancel
+              </Btn>
+            </EscTooltip>
+            <Btn variant="solid" onClick={() => void submit(false)} disabled={submitting}>
+              Create only
             </Btn>
-          </EscTooltip>
-          <HotkeyTooltip action="dialog.submit">
-            <Btn
-              variant="primary"
-              onClick={submit}
-              style={{
-                height: 36,
-                ["--mc-btn-height" as any]: "36px",
-                ["--mc-btn-padding-x" as any]: "18px",
-                ["--mc-btn-frame-border" as any]: "14px",
-                minWidth: 80,
-              }}
-            >
-              {project ? "Save" : "Add project"}
-            </Btn>
-          </HotkeyTooltip>
-        </>
+            <HotkeyTooltip action="dialog.submit">
+              <Btn
+                variant="primary"
+                icon="terminal"
+                onClick={() => void submit(true)}
+                disabled={submitting || !path.trim()}
+              >
+                Create &amp; start session
+              </Btn>
+            </HotkeyTooltip>
+          </>
+        )
       }
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-        <TextField
-          label="Name (optional — defaults to folder name)"
-          value={name}
-          onChange={setName}
-          inputRef={nameRef}
-          placeholder={path.trim().split(/[\\/]/).filter(Boolean).pop() || "my-project"}
-        />
-
-        <div>
-          <label
+      {project ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {nameField}
+          {dirField}
+          {imageField}
+          {iconField}
+          {groupField}
+          {worktreeField}
+          <FormErrorBox error={error} />
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div
             style={{
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              fontWeight: 500,
-              color: "var(--text-dim)",
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              display: "block",
-              marginBottom: 6,
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 0.8fr) minmax(0, 1.2fr)",
+              gap: 16,
+              alignItems: "end",
             }}
           >
-            Working directory
-          </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <TextField
-                mono
-                value={path}
-                onChange={setPath}
-                placeholder="/Users/me/dev/my-project"
-              />
+            {nameField}
+            {dirField}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22, alignItems: "start" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <ColumnHeading>How you'll work</ColumnHeading>
+              {startWithField}
+              {layoutField}
             </div>
-            <Btn variant="solid" icon="folder" onClick={browse}>
-              Browse…
-            </Btn>
-          </div>
-        </div>
-
-        <div>
-          <label
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              fontWeight: 500,
-              color: "var(--text-dim)",
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            Custom image
-          </label>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <Btn variant="solid" icon="folder" onClick={chooseImage} disabled={uploading}>
-              {uploading
-                ? "Uploading…"
-                : imagePath || pendingImage
-                  ? "Replace image…"
-                  : "Choose image…"}
-            </Btn>
-            {(imagePath || pendingImage) && (
-              <Btn variant="ghost" onClick={removeImage}>
-                Remove
-              </Btn>
-            )}
-            {pendingImage && (
-              <span
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                }}
-              >
-                {pendingImage.sourcePath.split(/[\\/]/).pop()} — uploads on save
-              </span>
-            )}
-            <span
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--text-faint)",
-              }}
-            >
-              PNG / JPG / WebP / GIF, ≤ 5MB
-            </span>
-          </div>
-        </div>
-
-        <div>
-          <label
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              fontWeight: 500,
-              color: "var(--text-dim)",
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            Icon (fallback)
-          </label>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input
-              value={icon}
-              onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
-              maxLength={2}
-              placeholder="AB"
-              style={{
-                width: 60,
-                textAlign: "center",
-                background: "var(--surface-0)",
-                border: "1px solid var(--border)",
-                borderRadius: 7,
-                outline: 0,
-                color: "var(--text)",
-                padding: "9px 8px",
-                fontFamily: "var(--mono)",
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            />
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {ICON_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setIconColor(c)}
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: 6,
-                    background: c,
-                    border: iconColor === c ? "2px solid var(--text)" : "2px solid transparent",
-                    cursor: "pointer",
-                  }}
-                />
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <ColumnHeading>Appearance &amp; grouping</ColumnHeading>
+              {imageField}
+              {iconField}
+              {groupField}
             </div>
           </div>
+          <FormErrorBox error={error} />
         </div>
-
-        <div>
-          <label
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              fontWeight: 500,
-              color: "var(--text-dim)",
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            Group
-          </label>
-          <div style={{ position: "relative" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                background: "var(--surface-0)",
-                border: `1px solid ${groupTypeaheadOpen ? "var(--accent)" : "var(--border)"}`,
-                borderRadius: 7,
-                padding: "0 8px 0 12px",
-                minHeight: 38,
-              }}
-            >
-              {selectedGroup && (
-                <span
-                  aria-hidden
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: selectedGroup.color,
-                    flex: "0 0 auto",
-                  }}
-                />
-              )}
-              <input
-                value={groupQuery}
-                onFocus={() => setGroupTypeaheadOpen(true)}
-                onBlur={() => {
-                  window.setTimeout(() => setGroupTypeaheadOpen(false), 100);
-                }}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setGroupQuery(next);
-                  setGroupTypeaheadOpen(true);
-                  if (!next.trim()) setGroupId("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void commitGroupQuery();
-                  } else if (e.key === "Escape") {
-                    setGroupTypeaheadOpen(false);
-                  }
-                }}
-                role="combobox"
-                aria-expanded={groupTypeaheadOpen}
-                aria-controls="project-group-options"
-                aria-label="Project group"
-                placeholder="Ungrouped or group name"
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  background: "transparent",
-                  border: 0,
-                  outline: 0,
-                  color: "var(--text)",
-                  padding: "9px 0",
-                  fontFamily: "var(--mono)",
-                  fontSize: 12.5,
-                }}
-              />
-              {(groupQuery || groupId) && (
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={clearGroup}
-                  aria-label="Clear group"
-                  title="Clear group"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 24,
-                    height: 24,
-                    border: 0,
-                    background: "transparent",
-                    color: "var(--text-faint)",
-                    cursor: "pointer",
-                    padding: 0,
-                  }}
-                >
-                  <Icon name="x" size={12} />
-                </button>
-              )}
-            </div>
-            {groupTypeaheadOpen && (
-              <div
-                id="project-group-options"
-                role="listbox"
-                style={{
-                  position: "absolute",
-                  zIndex: 20,
-                  left: 0,
-                  right: 0,
-                  top: "calc(100% + 6px)",
-                  maxHeight: 220,
-                  overflow: "auto",
-                  background: "var(--surface-1)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  boxShadow: "0 14px 36px rgba(0, 0, 0, 0.32)",
-                  padding: 6,
-                }}
-              >
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={groupId === ""}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={clearGroup}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    minHeight: 32,
-                    border: 0,
-                    borderRadius: 6,
-                    background: groupId === "" ? "var(--accent-dim)" : "transparent",
-                    color: groupId === "" ? "var(--accent-ink)" : "var(--text-dim)",
-                    cursor: "pointer",
-                    padding: "7px 9px",
-                    textAlign: "left",
-                    fontFamily: "var(--mono)",
-                    fontSize: 11.5,
-                  }}
-                >
-                  Ungrouped
-                </button>
-                {filteredGroups.map((group) => (
-                  <button
-                    key={group.id}
-                    type="button"
-                    role="option"
-                    aria-selected={groupId === group.id}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => selectGroup(group)}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      minHeight: 32,
-                      border: 0,
-                      borderRadius: 6,
-                      background: groupId === group.id ? "var(--accent-dim)" : "transparent",
-                      color: groupId === group.id ? "var(--accent-ink)" : "var(--text)",
-                      cursor: "pointer",
-                      padding: "7px 9px",
-                      textAlign: "left",
-                      fontFamily: "var(--mono)",
-                      fontSize: 11.5,
-                    }}
-                  >
-                    <span
-                      aria-hidden
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: group.color,
-                      }}
-                    />
-                    <span
-                      style={{
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {group.name}
-                    </span>
-                  </button>
-                ))}
-                {canCreateGroup && (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={false}
-                    disabled={creatingGroup}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => void commitGroupQuery()}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      minHeight: 32,
-                      border: 0,
-                      borderRadius: 6,
-                      background: "transparent",
-                      color: "var(--accent-ink)",
-                      cursor: creatingGroup ? "default" : "pointer",
-                      opacity: creatingGroup ? 0.65 : 1,
-                      padding: "7px 9px",
-                      textAlign: "left",
-                      fontFamily: "var(--mono)",
-                      fontSize: 11.5,
-                    }}
-                  >
-                    <Icon name="plus" size={12} />
-                    {creatingGroup ? "Creating..." : `Create "${groupQuery.trim()}"`}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {project && (
-          <TextField
-            mono
-            label="New worktree setup command"
-            value={worktreeSetupCommand}
-            onChange={(value) => setWorktreeSetupCommand(value.slice(0, 500))}
-            placeholder="pnpm i"
-            hint="Optional. Runs once inside each newly created worktree."
-          />
-        )}
-
-        <FormErrorBox error={error} />
-      </div>
+      )}
     </Modal>
   );
 }

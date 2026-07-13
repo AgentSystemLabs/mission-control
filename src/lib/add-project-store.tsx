@@ -4,6 +4,7 @@ import { useRouter } from "@tanstack/react-router";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import { markProjectOnboardIntent } from "~/lib/project-onboard-intent";
 import { useHotkey, isEditableTarget } from "~/lib/use-hotkey";
 import {
   groupsQueryOptions,
@@ -89,7 +90,7 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
         onClose={close}
         onCreateGroup={createGroupForSelection}
         onSave={async (data) => {
-          const { pendingImage, imagePath: _ignore, ...createBody } = data;
+          const { pendingImage, imagePath: _ignore, autoStart, ...createBody } = data;
           const { project: created } = await api.createProject(createBody);
           if (pendingImage) {
             const electron = (await import("~/lib/electron")).getElectron();
@@ -102,13 +103,18 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
               await api.updateProject(created.id, { imagePath: result.filename });
             }
           }
+          // Hand the project page a one-shot intent: open in the chosen layout
+          // and, if requested, launch the chosen agent so the user lands in a
+          // live session instead of an empty page.
+          markProjectOnboardIntent(created.id, {
+            autoStart: !!autoStart,
+            gridView: !!created.defaultGridView,
+          });
           close();
           void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-          // If the user is already viewing a project detail page, switch to the
-          // project they just opened so it becomes the selected/active one.
-          if (router.state.location.pathname.startsWith("/projects/")) {
-            void router.navigate({ to: "/projects/$id", params: { id: created.id } });
-          }
+          // Always land the user on the project they just created — the previous
+          // "stay on the dashboard" behavior is what left new projects stranded.
+          void router.navigate({ to: "/projects/$id", params: { id: created.id } });
         }}
       />
     </AddProjectContext.Provider>

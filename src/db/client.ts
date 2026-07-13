@@ -402,6 +402,7 @@ function ensureSchema(sqlite: Database.Database) {
       saved_agent TEXT,
       saved_skip_permissions INTEGER NOT NULL DEFAULT 0,
       saved_bare_session INTEGER NOT NULL DEFAULT 0,
+      default_grid_view INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
