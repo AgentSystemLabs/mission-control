@@ -1555,6 +1555,104 @@ html[data-window-idle] .mc-pet * {
     transform: none;
   }
 }
+/* ── Add-project dialog: selections register physically ───────────────────
+   Creating a project is where it gets its tools and identity. Each pick —
+   agent, layout, color — acknowledges in the same grammar as the theme
+   picker: hover lift, press settle, a small pop the moment the choice lands.
+   Choosing should feel deliberate, never like filling a form. */
+.mc-pick-card {
+  transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+.mc-pick-card:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+.mc-pick-card:not(:disabled):active {
+  transform: translateY(0) scale(0.99);
+}
+/* One-shot settle when a card's leading glyph becomes the selected one.
+   Re-fires by remount (React keys the node on selected state). */
+.mc-pick-pop {
+  animation: mc-pick-pop 0.26s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes mc-pick-pop {
+  0% {
+    transform: scale(0.72);
+  }
+  55% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.mc-color-swatch {
+  transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 150ms ease;
+}
+.mc-color-swatch:hover {
+  transform: translateY(-1px) scale(1.06);
+}
+.mc-color-swatch:active {
+  transform: translateY(0) scale(0.94);
+}
+/* The live identity tile pops each time its initials or color change — the
+   project taking shape as you type, not a static preview. */
+.mc-identity-pop {
+  animation: mc-pick-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-pick-card:not(:disabled):hover,
+  .mc-pick-card:not(:disabled):active,
+  .mc-color-swatch:hover,
+  .mc-color-swatch:active {
+    transform: none;
+  }
+  .mc-pick-pop,
+  .mc-identity-pop {
+    animation: none;
+  }
+}
+/* ── Form inputs: visible keyboard focus ───────────────────────────────────
+   TextField and the bare initials input hardcode `outline: 0`; without a
+   replacement, keyboard focus was invisible on the app's most common control.
+   The container owns the border here (not inline) so :focus can turn it accent
+   and add a ring — an inline border would otherwise win over any CSS rule. */
+.mc-text-field {
+  border: 1px solid var(--border);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.mc-text-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.mc-initials-input {
+  outline: none;
+  border: 1px solid var(--border);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.mc-initials-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+/* Group combobox option under keyboard (aria-activedescendant) highlight. */
+.mc-combo-option-active {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-text-field,
+  .mc-initials-input {
+    transition: none;
+  }
+}
 /* Newly captured screenshot card entering the bottom-right stack: slides in
    from past the screen edge. `backwards` fill (not `forwards`) so the
    animation releases its opacity/transform once done — the card hides itself

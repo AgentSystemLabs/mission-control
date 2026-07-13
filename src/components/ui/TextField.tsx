@@ -56,11 +56,11 @@ export function TextField({
         </label>
       )}
       <div
+        className="mc-text-field"
         style={{
           display: "flex",
           alignItems: "center",
           background: "var(--surface-0)",
-          border: "1px solid var(--border)",
           borderRadius: 7,
           overflow: "hidden",
         }}

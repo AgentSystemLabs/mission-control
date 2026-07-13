@@ -113,6 +113,7 @@ export function ProjectDialog({
   const [groupId, setGroupId] = useState<string>("");
   const [groupQuery, setGroupQuery] = useState("");
   const [groupTypeaheadOpen, setGroupTypeaheadOpen] = useState(false);
+  const [groupActiveIndex, setGroupActiveIndex] = useState(-1);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [icon, setIcon] = useState("");
   const [iconColor, setIconColor] = useState("#ff5a1f");
@@ -166,6 +167,7 @@ export function ProjectDialog({
           : "",
       );
       setGroupTypeaheadOpen(false);
+      setGroupActiveIndex(-1);
       setCreatingGroup(false);
       setIcon(project?.icon || "");
       setIconColor(project?.iconColor || "#ff5a1f");
@@ -366,6 +368,7 @@ export function ProjectDialog({
         <div style={{ flex: 1 }}>
           <TextField
             mono
+            ariaLabel="Working directory"
             value={path}
             onChange={setPath}
             placeholder="/Users/me/dev/my-project"
@@ -393,22 +396,24 @@ export function ProjectDialog({
           const cliMissing = availability.status === "missing";
           const cliOutdated = availability.status === "outdated";
           const disabled = !cliOutdated && !agentCanLaunch(cliAvailability, a.id);
+          const statusReason = cliMissing
+            ? `${a.command} was not found on PATH`
+            : cliOutdated
+              ? `${a.command} must be updated before launching`
+              : null;
           return (
             <button
               key={a.id}
               type="button"
               role="radio"
               aria-checked={selected}
-              aria-label={a.label}
-              disabled={disabled}
+              // Reason lives in the name (not just `title`) so keyboard/AT users
+              // hear why it's unavailable; `aria-disabled` keeps it focusable.
+              aria-label={disabled && statusReason ? `${a.label} — ${statusReason}` : a.label}
+              aria-disabled={disabled || undefined}
               onClick={() => !disabled && setAgent(a.id)}
-              title={
-                cliMissing
-                  ? `${a.command} was not found on PATH`
-                  : cliOutdated
-                    ? `${a.command} must be updated before launching`
-                    : undefined
-              }
+              className="mc-pick-card"
+              title={statusReason ?? undefined}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -421,10 +426,11 @@ export function ProjectDialog({
                 boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
                 cursor: disabled ? "not-allowed" : "pointer",
                 opacity: disabled ? 0.5 : 1,
-                transition: "border-color 150ms ease, background 150ms ease",
               }}
             >
               <div
+                key={selected ? "on" : "off"}
+                className={selected ? "mc-pick-pop" : undefined}
                 style={{
                   width: 26,
                   height: 26,
@@ -508,6 +514,7 @@ export function ProjectDialog({
               aria-checked={selected}
               aria-label={`${opt.label} layout`}
               onClick={() => setGridView(opt.value)}
+              className="mc-pick-card"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -519,10 +526,15 @@ export function ProjectDialog({
                 borderRadius: 8,
                 boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
                 cursor: "pointer",
-                transition: "border-color 150ms ease, background 150ms ease",
               }}
             >
-              <LayoutGlyph variant={opt.variant} active={selected} />
+              <span
+                key={selected ? "on" : "off"}
+                className={selected ? "mc-pick-pop" : undefined}
+                style={{ display: "inline-flex", flex: "0 0 auto" }}
+              >
+                <LayoutGlyph variant={opt.variant} active={selected} />
+              </span>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
                   {opt.label}
@@ -590,13 +602,12 @@ export function ProjectDialog({
           maxLength={2}
           placeholder={project ? "AB" : derivedInitials}
           aria-label="Icon initials"
+          className="mc-initials-input"
           style={{
             width: 56,
             textAlign: "center",
             background: "var(--surface-0)",
-            border: "1px solid var(--border)",
             borderRadius: 7,
-            outline: 0,
             color: "var(--text)",
             padding: "9px 8px",
             fontFamily: "var(--mono)",
@@ -605,27 +616,71 @@ export function ProjectDialog({
           }}
         />
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {ICON_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={`Icon color ${c}`}
-              aria-pressed={iconColor === c}
-              onClick={() => setIconColor(c)}
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                background: c,
-                border: iconColor === c ? "2px solid var(--text)" : "2px solid transparent",
-                cursor: "pointer",
-              }}
-            />
-          ))}
+          {ICON_COLORS.map((c) => {
+            const active = iconColor === c;
+            return (
+              <button
+                key={c}
+                type="button"
+                aria-label={`Icon color ${c}`}
+                aria-pressed={active}
+                onClick={() => setIconColor(c)}
+                className="mc-color-swatch"
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 6,
+                  background: c,
+                  border: active ? "2px solid var(--text)" : "2px solid transparent",
+                  boxShadow: active ? `0 0 0 2px ${c}` : "none",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  key={active ? "on" : "off"}
+                  aria-hidden
+                  className={active ? "mc-pick-pop" : undefined}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "100%",
+                    height: "100%",
+                    opacity: active ? 1 : 0,
+                    color: "#fff",
+                    filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45))",
+                  }}
+                >
+                  <Icon name="check" size={13} />
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
   );
+
+  // Flat, ordered descriptor for the combobox listbox so the keyboard handler
+  // and the rendered options share one source of truth (ids + indices align).
+  type GroupOption =
+    | { id: string; kind: "ungrouped" }
+    | { id: string; kind: "group"; group: Group }
+    | { id: string; kind: "create" };
+  const groupOptions: GroupOption[] = [
+    { id: "grp-opt-ungrouped", kind: "ungrouped" },
+    ...filteredGroups.map(
+      (group): GroupOption => ({ id: `grp-opt-${group.id}`, kind: "group", group }),
+    ),
+    ...(canCreateGroup ? [{ id: "grp-opt-create", kind: "create" } as GroupOption] : []),
+  ];
+  const activeGroupOption =
+    groupTypeaheadOpen && groupActiveIndex >= 0 ? groupOptions[groupActiveIndex] : undefined;
+  const selectGroupOption = (opt: GroupOption) => {
+    if (opt.kind === "ungrouped") clearGroup();
+    else if (opt.kind === "group") selectGroup(opt.group);
+    else void commitGroupQuery();
+  };
 
   const groupField = (
     <div>
@@ -657,7 +712,10 @@ export function ProjectDialog({
           )}
           <input
             value={groupQuery}
-            onFocus={() => setGroupTypeaheadOpen(true)}
+            onFocus={() => {
+              setGroupTypeaheadOpen(true);
+              setGroupActiveIndex(-1);
+            }}
             onBlur={() => {
               window.setTimeout(() => setGroupTypeaheadOpen(false), 100);
             }}
@@ -665,19 +723,36 @@ export function ProjectDialog({
               const next = e.target.value;
               setGroupQuery(next);
               setGroupTypeaheadOpen(true);
+              setGroupActiveIndex(-1);
               if (!next.trim()) setGroupId("");
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (e.key === "ArrowDown") {
                 e.preventDefault();
-                void commitGroupQuery();
+                setGroupTypeaheadOpen(true);
+                setGroupActiveIndex((i) => (i + 1 >= groupOptions.length ? 0 : i + 1));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setGroupTypeaheadOpen(true);
+                setGroupActiveIndex((i) => (i <= 0 ? groupOptions.length - 1 : i - 1));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (activeGroupOption) selectGroupOption(activeGroupOption);
+                else void commitGroupQuery();
               } else if (e.key === "Escape") {
-                setGroupTypeaheadOpen(false);
+                if (groupTypeaheadOpen) {
+                  // Close the list without also dismissing the whole dialog.
+                  e.stopPropagation();
+                  setGroupTypeaheadOpen(false);
+                  setGroupActiveIndex(-1);
+                }
               }
             }}
             role="combobox"
             aria-expanded={groupTypeaheadOpen}
             aria-controls="project-group-options"
+            aria-autocomplete="list"
+            aria-activedescendant={activeGroupOption?.id}
             aria-label="Project group"
             placeholder="Ungrouped or group name"
             style={{
@@ -716,6 +791,13 @@ export function ProjectDialog({
             </button>
           )}
         </div>
+        <span className="sr-only" role="status" aria-live="polite">
+          {groupTypeaheadOpen
+            ? `${filteredGroups.length} group${filteredGroups.length === 1 ? "" : "s"} available${
+                canCreateGroup ? `. Press Enter to create "${groupQuery.trim()}".` : "."
+              }`
+            : ""}
+        </span>
         {groupTypeaheadOpen && (
           <div
             id="project-group-options"
@@ -735,102 +817,88 @@ export function ProjectDialog({
               padding: 6,
             }}
           >
-            <button
-              type="button"
-              role="option"
-              aria-selected={groupId === ""}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={clearGroup}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                minHeight: 32,
-                border: 0,
-                borderRadius: 6,
-                background: groupId === "" ? "var(--accent-dim)" : "transparent",
-                color: groupId === "" ? "var(--accent-ink)" : "var(--text-dim)",
-                cursor: "pointer",
-                padding: "7px 9px",
-                textAlign: "left",
-                fontFamily: "var(--mono)",
-                fontSize: 11.5,
-              }}
-            >
-              Ungrouped
-            </button>
-            {filteredGroups.map((group) => (
-              <button
-                key={group.id}
-                type="button"
-                role="option"
-                aria-selected={groupId === group.id}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => selectGroup(group)}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  minHeight: 32,
-                  border: 0,
-                  borderRadius: 6,
-                  background: groupId === group.id ? "var(--accent-dim)" : "transparent",
-                  color: groupId === group.id ? "var(--accent-ink)" : "var(--text)",
-                  cursor: "pointer",
-                  padding: "7px 9px",
-                  textAlign: "left",
-                  fontFamily: "var(--mono)",
-                  fontSize: 11.5,
-                }}
-              >
-                <span
-                  aria-hidden
-                  style={{ width: 8, height: 8, borderRadius: "50%", background: group.color }}
-                />
-                <span
+            {groupOptions.map((opt, index) => {
+              const isActive = index === groupActiveIndex;
+              const isChosen =
+                opt.kind === "ungrouped"
+                  ? groupId === ""
+                  : opt.kind === "group"
+                    ? groupId === opt.group.id
+                    : false;
+              const isCreate = opt.kind === "create";
+              const label =
+                opt.kind === "ungrouped"
+                  ? "Ungrouped"
+                  : opt.kind === "group"
+                    ? opt.group.name
+                    : creatingGroup
+                      ? "Creating..."
+                      : `Create "${groupQuery.trim()}"`;
+              return (
+                <button
+                  key={opt.id}
+                  id={opt.id}
+                  type="button"
+                  role="option"
+                  aria-selected={isActive}
+                  disabled={isCreate && creatingGroup}
+                  className={isActive ? "mc-combo-option-active" : undefined}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setGroupActiveIndex(index)}
+                  onClick={() => selectGroupOption(opt)}
                   style={{
-                    minWidth: 0,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minHeight: 32,
+                    border: 0,
+                    borderRadius: 6,
+                    background: isChosen
+                      ? "var(--accent-dim)"
+                      : isActive
+                        ? "var(--surface-2)"
+                        : "transparent",
+                    color:
+                      isCreate || isChosen
+                        ? "var(--accent-ink)"
+                        : opt.kind === "ungrouped"
+                          ? "var(--text-dim)"
+                          : "var(--text)",
+                    cursor: isCreate && creatingGroup ? "default" : "pointer",
+                    opacity: isCreate && creatingGroup ? 0.65 : 1,
+                    padding: "7px 9px",
+                    textAlign: "left",
+                    fontFamily: "var(--mono)",
+                    fontSize: 11.5,
                   }}
                 >
-                  {group.name}
-                </span>
-              </button>
-            ))}
-            {canCreateGroup && (
-              <button
-                type="button"
-                role="option"
-                aria-selected={false}
-                disabled={creatingGroup}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => void commitGroupQuery()}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  minHeight: 32,
-                  border: 0,
-                  borderRadius: 6,
-                  background: "transparent",
-                  color: "var(--accent-ink)",
-                  cursor: creatingGroup ? "default" : "pointer",
-                  opacity: creatingGroup ? 0.65 : 1,
-                  padding: "7px 9px",
-                  textAlign: "left",
-                  fontFamily: "var(--mono)",
-                  fontSize: 11.5,
-                }}
-              >
-                <Icon name="plus" size={12} />
-                {creatingGroup ? "Creating..." : `Create "${groupQuery.trim()}"`}
-              </button>
-            )}
+                  {opt.kind === "group" && (
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: opt.group.color,
+                        flex: "0 0 auto",
+                      }}
+                    />
+                  )}
+                  {isCreate && <Icon name="plus" size={12} />}
+                  <span
+                    style={{
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -877,10 +945,16 @@ export function ProjectDialog({
             <Icon name="camera" size={14} />
           </div>
         ) : (
-          <ProjectIcon
-            project={{ icon: previewInitials, iconColor, imagePath: null }}
-            size={28}
-          />
+          <span
+            key={`${previewInitials}-${iconColor}`}
+            className="mc-identity-pop"
+            style={{ display: "inline-flex", flex: "0 0 auto" }}
+          >
+            <ProjectIcon
+              project={{ icon: previewInitials, iconColor, imagePath: null }}
+              size={28}
+            />
+          </span>
         )}
         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
           Appearance
