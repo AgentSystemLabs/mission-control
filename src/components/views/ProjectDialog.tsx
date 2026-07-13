@@ -1117,6 +1117,18 @@ export function ProjectDialog({
           </div>
         ) : (
           <>
+            {!path.trim() && (
+              <span
+                style={{
+                  marginRight: "auto",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  color: "var(--text-faint)",
+                }}
+              >
+                Add a working directory to create.
+              </span>
+            )}
             <EscTooltip label="Cancel">
               <Btn variant="ghost" onClick={requestClose}>
                 Cancel

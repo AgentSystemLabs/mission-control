@@ -686,6 +686,15 @@ select,
   filter: saturate(0.75);
 }
 
+/* A gated primary/frame must read as inert: strip the accent glow (the base
+   filter above it) and desaturate so a disabled CTA never looks clickable. */
+.mc-btn-primary:disabled,
+.mc-btn-primary[aria-disabled="true"],
+.mc-btn-frame:disabled,
+.mc-btn-frame[aria-disabled="true"] {
+  filter: grayscale(0.65);
+}
+
 .mc-input-frame {
   position: relative;
   isolation: isolate;
@@ -1572,6 +1581,15 @@ html[data-window-idle] .mc-pet * {
 }
 .mc-pick-card:not(:disabled):active {
   transform: translateY(0) scale(0.99);
+}
+/* Pick-cards and swatches carry their border/shadow inline (driven by the
+   selected state), which would beat a box-shadow focus rule — so use an
+   outline for a keyboard-focus ring that can't be overridden, matching the
+   accent ring the inputs get on focus. */
+.mc-pick-card:focus-visible,
+.mc-color-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 /* One-shot settle when a card's leading glyph becomes the selected one.
    Re-fires by remount (React keys the node on selected state). */
