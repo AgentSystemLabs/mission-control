@@ -84,6 +84,17 @@ describe("classifyPetToolUse — Write/Edit file kinds", () => {
     expect(edit("src/lib/pet/pet-store.ts")).toBe("neutral");
   });
 
+  it("classifies backslash (Windows/PowerShell) paths the same as POSIX ones", () => {
+    expect(edit("src\\components\\__tests__\\helpers.ts")).toBe("edit-test");
+    expect(edit("src\\styles.css")).toBe("edit-styles");
+    expect(edit("docs\\worktree-plan.md")).toBe("edit-docs");
+    expect(edit("C:\\repo\\package.json")).toBe("edit-config");
+    expect(edit("C:\\repo\\tsconfig.base.json")).toBe("edit-config");
+    expect(edit("C:\\repo\\pnpm-lock.yaml")).toBe("edit-lockfile");
+    expect(edit("db\\migrations\\0004_add_pets.sql")).toBe("edit-migration");
+    expect(edit("src\\lib\\pet\\pet-store.ts")).toBe("neutral");
+  });
+
   it("treats an errored Write as an error, not a file-kind", () => {
     expect(classifyPetToolUse("Write", { file_path: "src/styles.css" }, { isError: true })).toBe(
       "error",

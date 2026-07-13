@@ -43,6 +43,10 @@ const hookPayload = z
     // Absolute path to the session's JSONL transcript (Claude Code). Stashed per
     // task so auto-distill can read the full session, not just the prompts.
     transcript_path: z.string(),
+    // Stop / SubagentStop carry the turn's final assistant text directly. The
+    // transcript file can lag the in-memory conversation (and may not be flushed
+    // when Stop fires), so the pet remark prefers this over re-reading the file.
+    last_assistant_message: z.string(),
   })
   .partial();
 
@@ -102,10 +106,46 @@ function petName(): string | null {
 const MAX_TRACKED_REMARKS = 500;
 const lastRemarkByTask = new Map<string, string>();
 
+// The pet's Bash|Write|Edit PostToolUse hook now POSTs on every qualifying tool
+// call (no shell-side time gate — see PET_TOOL_HOOK). Meaningful results always
+// reach the pet, but a burst of routine neutral edits would churn its mood, so
+// the neutral "agent is working" signal is throttled here, per task — after the
+// result is classified, which the shell can't do. Bounded like lastRemarkByTask.
+const NEUTRAL_TOOL_REACT_COOLDOWN_MS = 8_000;
+const MAX_TRACKED_TOOL_REACTS = 500;
+const lastNeutralToolReactByTask = new Map<string, number>();
+
+/** True (and records now) when this task's neutral tool signal is off cooldown. */
+function allowNeutralToolReact(taskId: string): boolean {
+  const now = Date.now();
+  const last = lastNeutralToolReactByTask.get(taskId);
+  if (last !== undefined && now - last < NEUTRAL_TOOL_REACT_COOLDOWN_MS) return false;
+  lastNeutralToolReactByTask.delete(taskId);
+  lastNeutralToolReactByTask.set(taskId, now);
+  while (lastNeutralToolReactByTask.size > MAX_TRACKED_TOOL_REACTS) {
+    const oldest = lastNeutralToolReactByTask.keys().next().value;
+    if (oldest === undefined) break;
+    lastNeutralToolReactByTask.delete(oldest);
+  }
+  return true;
+}
+
 /** Extract and emit Claude's `<!-- pet: … -->` cue for this turn, if any. */
-function emitPetRemark(taskId: string, projectId: string): void {
+function emitPetRemark(
+  taskId: string,
+  projectId: string,
+  lastAssistantMessage: string | undefined,
+): void {
   try {
-    const text = readLastAssistantText(taskId);
+    // The hook payload's last_assistant_message is always THIS turn's final
+    // text; fall back to the transcript only when the field is absent (older
+    // Claude builds, or another agent). The transcript walk can lag or miss a
+    // not-yet-flushed message, so the direct field is strictly more reliable.
+    const direct =
+      typeof lastAssistantMessage === "string" && lastAssistantMessage.trim()
+        ? lastAssistantMessage
+        : null;
+    const text = direct ?? readLastAssistantText(taskId);
     if (!text) return;
     const remark = extractPetRemark(text);
     if (!remark || lastRemarkByTask.get(taskId) === remark) return;
@@ -235,13 +275,18 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     if (getBooleanSetting(PET_ENABLED_KEY, true)) {
       const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
       const kind = classifyPetToolUse(toolName, payload.tool_input, payload.tool_response);
-      events.emit("agent:tool-used", {
-        taskId,
-        projectId: task.projectId,
-        toolName,
-        sentiment: petToolSentiment(kind),
-        kind,
-      });
+      const sentiment = petToolSentiment(kind);
+      // Meaningful results (errors, passing tests, commits, pushes, deploys)
+      // always reach the pet; only the routine neutral signal is rate-capped.
+      if (sentiment !== "neutral" || allowNeutralToolReact(taskId)) {
+        events.emit("agent:tool-used", {
+          taskId,
+          projectId: task.projectId,
+          toolName,
+          sentiment,
+          kind,
+        });
+      }
     }
     return json({ ok: true, event });
   }
@@ -275,7 +320,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   // updateStatus so the remark reaches the renderer ahead of session:finished
   // — the pet then speaks Claude's line instead of a stock finish line.
   if (event === AGENT_HOOK_EVENTS.stop && getBooleanSetting(PET_ENABLED_KEY, true)) {
-    emitPetRemark(taskId, task.projectId);
+    emitPetRemark(taskId, task.projectId, payload.last_assistant_message);
   }
 
   try {

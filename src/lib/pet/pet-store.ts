@@ -777,6 +777,10 @@ let lastRemarkAt = 0;
  * pack, so it preempts an open bubble the way critical lines do. */
 function sayRemark(text: string): void {
   if (!enabled || !messagesEnabled || !persistent) return;
+  // A remark preempts an open bubble like a rare line does — but never a
+  // critical one: another session's "needs input" alert must outlast a
+  // finishing session's chatter (mirrors say()'s critical-only preemption).
+  if (bubble && bubble.priority === "critical") return;
   const now = Date.now();
   if (now - lastRemarkAt < REMARK_COOLDOWN_MS) return;
   lastRemarkAt = now;

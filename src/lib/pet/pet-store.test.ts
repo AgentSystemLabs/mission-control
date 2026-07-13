@@ -514,6 +514,42 @@ describe("agent:remark — Claude speaks through the pet", () => {
     expect(getPetSnapshot().bubble!.text).toBe("the suite purrs");
   });
 
+  it("never preempts a critical needs-input alert", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    // A session is blocked on the user — the pet raises a critical alert.
+    petIngestServerEvent({
+      type: "task:question",
+      taskId: "t9",
+      projectId: "p1",
+    } as never);
+    const alertBubble = getPetSnapshot().bubble;
+    expect(alertBubble?.priority).toBe("critical");
+
+    // Another session finishes and Claude sends a remark — it must NOT bury
+    // the critical "needs input" alert (a finish line would be lost noise; the
+    // alert is the one message the user must see).
+    petIngestServerEvent({
+      type: "agent:remark",
+      taskId: "t8",
+      projectId: "p1",
+      text: "all done over here",
+    } as never);
+    const after = getPetSnapshot().bubble;
+    expect(after!.priority).toBe("critical");
+    expect(after!.text).toBe(alertBubble!.text);
+
+    // Clear the alert so its tracked task id doesn't leak into later suites
+    // (disabling the pet doesn't drop questionTaskIds).
+    petIngestServerEvent({
+      type: "task:question-cleared",
+      taskId: "t9",
+      projectId: "p1",
+    } as never);
+  });
+
   it("stays quiet when messages are off and rate-limits rapid remarks", () => {
     petHydrate(null);
     petSetEnabled(true, false, false);

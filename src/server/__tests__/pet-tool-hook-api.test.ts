@@ -178,6 +178,31 @@ describe("pet mid-run tool hook API", () => {
     expect(evt?.kind).toBe("edit-styles");
     expect(evt?.sentiment).toBe("neutral");
   });
+
+  const toolUsedEvents = () => captured.filter((e) => e.type === "agent:tool-used");
+
+  it("throttles a burst of neutral tool signals to one per task", async () => {
+    setBooleanSetting("pet_enabled", true);
+    // Three routine neutral results back-to-back — only the first is spoken;
+    // the rest are inside the server-side neutral cooldown.
+    await postBash({ stdout: "ok", stderr: "" });
+    await postBash({ stdout: "still ok", stderr: "" });
+    await postBash({ stdout: "fine", stderr: "" });
+    expect(toolUsedEvents()).toHaveLength(1);
+  });
+
+  it("never throttles a meaningful result behind a neutral one", async () => {
+    setBooleanSetting("pet_enabled", true);
+    // A neutral edit spends the cooldown, then a passing-tests run lands inside
+    // it — the meaningful success must still reach the pet (the old shell gate
+    // dropped exactly this).
+    await postBash({ stdout: "ok", stderr: "" });
+    await postBash({ stdout: "vitest: 1636 passed", stderr: "" });
+    const events = toolUsedEvents();
+    expect(events).toHaveLength(2);
+    expect(events[1].sentiment).toBe("success");
+    expect(events[1].kind).toBe("tests-pass");
+  });
 });
 
 describe("pet remark channel (Stop hook)", () => {
@@ -220,6 +245,14 @@ describe("pet remark channel (Stop hook)", () => {
       transcript_path: transcriptFile,
     });
 
+  const postStopWithMessage = (lastAssistantMessage: string) =>
+    postHook(taskId, {
+      hook_event_name: "Stop",
+      session_id: SESSION_ID,
+      transcript_path: transcriptFile,
+      last_assistant_message: lastAssistantMessage,
+    });
+
   it("speaks Claude's cue before the finish event", async () => {
     setBooleanSetting("pet_enabled", true);
     writeTranscript("All green. <!-- pet: the suite purrs -->");
@@ -230,6 +263,24 @@ describe("pet remark channel (Stop hook)", () => {
     expect(remarkIdx).toBeGreaterThanOrEqual(0);
     expect(captured[remarkIdx].text).toBe("the suite purrs");
     expect(finishIdx).toBeGreaterThan(remarkIdx);
+  });
+
+  it("prefers the payload's last_assistant_message over the transcript", async () => {
+    setBooleanSetting("pet_enabled", true);
+    // The transcript lags with an older turn's cue; the hook payload carries
+    // THIS turn's fresh cue — the pet must speak the fresh one.
+    writeTranscript("Older turn. <!-- pet: stale line -->");
+    await postStopWithMessage("Fresh turn. <!-- pet: fresh line -->");
+
+    const remark = captured.find((e) => e.type === "agent:remark");
+    expect(remark?.text).toBe("fresh line");
+  });
+
+  it("falls back to the transcript when no last_assistant_message is present", async () => {
+    setBooleanSetting("pet_enabled", true);
+    writeTranscript("Done. <!-- pet: from transcript -->");
+    await postStop();
+    expect(captured.find((e) => e.type === "agent:remark")?.text).toBe("from transcript");
   });
 
   it("stays silent without a cue, when repeated, and when the pet is off", async () => {

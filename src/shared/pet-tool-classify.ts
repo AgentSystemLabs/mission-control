@@ -143,12 +143,17 @@ function inputString(toolInput: unknown, key: string): string {
 
 function classifyFilePath(filePath: string): PetToolKind {
   if (!filePath) return "neutral";
-  if (LOCKFILE_RE.test(filePath)) return "edit-lockfile";
-  if (TEST_FILE_RE.test(filePath)) return "edit-test";
-  if (STYLES_FILE_RE.test(filePath)) return "edit-styles";
-  if (DOCS_FILE_RE.test(filePath)) return "edit-docs";
-  if (MIGRATION_FILE_RE.test(filePath)) return "edit-migration";
-  if (CONFIG_FILE_RE.test(filePath)) return "edit-config";
+  // Claude Code's Windows/PowerShell hooks report backslash paths
+  // ("C:\repo\package.json", "src\__tests__\x.ts"). The rules below anchor on
+  // "/" (leading (?:^|/) and [^/] classes), so a raw backslash path would fall
+  // through or misclassify — normalize separators to "/" first.
+  const path = filePath.replace(/\\/g, "/");
+  if (LOCKFILE_RE.test(path)) return "edit-lockfile";
+  if (TEST_FILE_RE.test(path)) return "edit-test";
+  if (STYLES_FILE_RE.test(path)) return "edit-styles";
+  if (DOCS_FILE_RE.test(path)) return "edit-docs";
+  if (MIGRATION_FILE_RE.test(path)) return "edit-migration";
+  if (CONFIG_FILE_RE.test(path)) return "edit-config";
   return "neutral";
 }
 
