@@ -20,7 +20,7 @@ import {
   type PetMood,
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
-import { useUserTerminals } from "~/lib/user-terminal-store";
+import { useUserTerminalsOptional } from "~/lib/user-terminal-store";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { DEFAULT_PET_SPECIES, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
@@ -136,7 +136,12 @@ export function PetWidget() {
   // dock mounts/unmounts on project switches (it renders only on project/home
   // scopes). The widget's own `bottom` transition turns those retargets into
   // the fly-up / fall motion.
-  const { project: dockProject, homeActive } = useUserTerminals();
+  // Read dock state optionally: the pet also renders outside UserTerminalProvider
+  // (e.g. the desktop-overlay window), where there is no dock — the pet then
+  // perches on the window edge instead of throwing.
+  const userTerminals = useUserTerminalsOptional();
+  const dockProject = userTerminals?.project ?? null;
+  const homeActive = userTerminals?.homeActive ?? false;
   const dockActive = !!dockProject || homeActive;
   const [dockLift, setDockLift] = useState(0);
   useEffect(() => {
