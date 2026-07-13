@@ -23,7 +23,7 @@ import {
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
 import { useDockLift } from "~/lib/pet/use-dock-lift";
-import { useUserTerminals } from "~/lib/user-terminal-store";
+import { useUserTerminalsOptional } from "~/lib/user-terminal-store";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { DEFAULT_PET_SPECIES, type PetHomeSide, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
@@ -149,7 +149,12 @@ export function PetWidget() {
   // to the right of it, so it perches beside the rail instead of over it. The
   // dock's mount/unmount on project switches (dockActive) re-arms the measure,
   // since the rail comes and goes with the same project/home scopes.
-  const { project: dockProject, homeActive } = useUserTerminals();
+  // Read dock state optionally: the pet also renders outside UserTerminalProvider
+  // (e.g. the desktop-overlay window), where there is no dock — the pet then
+  // perches on the window edge instead of throwing.
+  const userTerminals = useUserTerminalsOptional();
+  const dockProject = userTerminals?.project ?? null;
+  const homeActive = userTerminals?.homeActive ?? false;
   const dockActive = !!dockProject || homeActive;
   const [leftWall, setLeftWall] = useState(0);
   useEffect(() => {
