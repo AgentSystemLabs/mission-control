@@ -5,7 +5,6 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { AgentLogo } from "~/components/ui/AgentLogo";
-import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { ToggleRow } from "~/components/views/SettingsParts";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -423,8 +422,6 @@ export function ProjectDialog({
   // project — auto initials from the name until the user overrides them.
   const derivedInitials =
     (name.trim() || basename(path.trim())).slice(0, 2).toUpperCase() || "AB";
-  const previewInitials = icon || derivedInitials;
-
   const selectedAgentLabel = AGENT_REGISTRY[agent]?.label ?? "your coding agent";
   const currentFormKey = JSON.stringify({
     name,
@@ -694,19 +691,7 @@ export function ProjectDialog({
   const iconField = (
     <div>
       <FieldLabel>{project ? "Icon (fallback)" : "Initials & color"}</FieldLabel>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        {!project && (
-          <span
-            key={`${previewInitials}-${iconColor}`}
-            className="mc-identity-pop"
-            style={{ display: "inline-flex", flex: "0 0 auto" }}
-          >
-            <ProjectIcon
-              project={{ icon: previewInitials, iconColor, imagePath: null }}
-              size={34}
-            />
-          </span>
-        )}
+      <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
         <input
           value={icon}
           onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
@@ -716,6 +701,7 @@ export function ProjectDialog({
           className="mc-initials-input"
           style={{
             width: 56,
+            flex: "0 0 auto",
             textAlign: "center",
             background: "var(--surface-0)",
             borderRadius: 7,
@@ -726,7 +712,7 @@ export function ProjectDialog({
             fontWeight: 600,
           }}
         />
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 6 }}>
           {ICON_COLORS.map((c) => {
             const active = iconColor === c;
             return (
@@ -738,8 +724,8 @@ export function ProjectDialog({
                 onClick={() => setIconColor(c)}
                 className="mc-color-swatch"
                 style={{
-                  width: 24,
-                  height: 24,
+                  flex: 1,
+                  minWidth: 0,
                   borderRadius: 6,
                   background: c,
                   border: active ? "2px solid var(--text)" : "2px solid transparent",
