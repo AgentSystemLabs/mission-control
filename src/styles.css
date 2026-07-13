@@ -1591,6 +1591,17 @@ html[data-window-idle] .mc-pet * {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* Segmented control (Layout: List | Grid) — lighter than a card grid. */
+.mc-segment {
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+.mc-segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 /* One-shot settle when a card's leading glyph becomes the selected one.
    Re-fires by remount (React keys the node on selected state). */
 .mc-pick-pop {

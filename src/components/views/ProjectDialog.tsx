@@ -430,12 +430,15 @@ export function ProjectDialog({
 
   const dirField = (
     <div>
-      <FieldLabel>Working directory</FieldLabel>
+      <FieldLabel>
+        Working directory <span style={{ color: "var(--accent)" }}>*</span>
+      </FieldLabel>
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}>
           <TextField
             mono
-            ariaLabel="Working directory"
+            required
+            ariaLabel="Working directory (required)"
             value={path}
             onChange={setPath}
             placeholder="/Users/me/dev/my-project"
@@ -489,7 +492,7 @@ export function ProjectDialog({
                 padding: "9px 10px",
                 background: selected ? "var(--surface-2)" : "var(--surface-0)",
                 border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                borderRadius: 8,
+                borderRadius: 7,
                 boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
                 cursor: disabled ? "not-allowed" : "pointer",
                 opacity: disabled ? 0.5 : 1,
@@ -558,18 +561,28 @@ export function ProjectDialog({
     </div>
   );
 
+  // A compact segmented control, not a second card grid: layout is a trivial,
+  // reversible per-session choice, so it should read lighter than the agent
+  // picker above it. The glyph still shows what each option does.
   const layoutField = (
     <div>
       <FieldLabel>Layout</FieldLabel>
       <div
         role="radiogroup"
         aria-label="Default layout"
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+        style={{
+          display: "flex",
+          gap: 4,
+          padding: 3,
+          background: "var(--surface-0)",
+          border: "1px solid var(--border)",
+          borderRadius: 7,
+        }}
       >
         {(
           [
-            { value: false, label: "List", desc: "One at a time", variant: "list" as const },
-            { value: true, label: "Grid", desc: "All at once", variant: "grid" as const },
+            { value: false, label: "List", variant: "list" as const },
+            { value: true, label: "Grid", variant: "grid" as const },
           ]
         ).map((opt) => {
           const selected = gridView === opt.value;
@@ -581,17 +594,19 @@ export function ProjectDialog({
               aria-checked={selected}
               aria-label={`${opt.label} layout`}
               onClick={() => setGridView(opt.value)}
-              className="mc-pick-card"
+              className="mc-segment"
               style={{
+                flex: 1,
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
-                textAlign: "left",
-                padding: "9px 10px",
-                background: selected ? "var(--surface-2)" : "var(--surface-0)",
-                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                borderRadius: 8,
-                boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
+                justifyContent: "center",
+                gap: 9,
+                padding: "8px 10px",
+                border: 0,
+                borderRadius: 5,
+                background: selected ? "var(--surface-2)" : "transparent",
+                boxShadow: selected ? "0 0 0 1px var(--accent) inset" : "none",
+                color: selected ? "var(--text)" : "var(--text-dim)",
                 cursor: "pointer",
               }}
             >
@@ -602,24 +617,7 @@ export function ProjectDialog({
               >
                 <LayoutGlyph variant={opt.variant} active={selected} />
               </span>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
-                  {opt.label}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "var(--mono)",
-                    fontSize: 10,
-                    color: "var(--text-dim)",
-                    marginTop: 2,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {opt.desc}
-                </div>
-              </div>
+              <span style={{ fontSize: 12, fontWeight: 600 }}>{opt.label}</span>
             </button>
           );
         })}
@@ -988,7 +986,7 @@ export function ProjectDialog({
           padding: "8px 10px",
           background: appearanceOpen ? "var(--surface-2)" : "var(--surface-0)",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: 7,
           cursor: "pointer",
           transition: "background 150ms ease",
         }}
@@ -1162,8 +1160,8 @@ export function ProjectDialog({
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {nameField}
           {dirField}
+          {nameField}
           {startWithField}
           {layoutField}
           {groupField}
