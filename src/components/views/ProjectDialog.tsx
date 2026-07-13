@@ -6,6 +6,7 @@ import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
+import { ToggleRow } from "~/components/views/SettingsParts";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META, ICON_COLORS } from "~/lib/design-meta";
@@ -128,7 +129,14 @@ export function ProjectDialog({
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoStart, setAutoStart] = useState(true);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  // Snapshot of the seeded form, captured on open, so an accidental Esc /
+  // backdrop click on a create form the user has actually touched prompts
+  // before discarding — while a pre-filled-but-untouched form closes freely.
+  const formSeedRef = useRef<string>("");
   const selectedGroup = groupId ? groups.find((group) => group.id === groupId) ?? null : null;
   const normalizedGroupQuery = groupQuery.trim().toLowerCase();
   const exactGroupMatch = normalizedGroupQuery
@@ -156,28 +164,41 @@ export function ProjectDialog({
   useEffect(() => {
     if (open) {
       const initialName = initialPath.split(/[\\/]/).filter(Boolean).pop() || "";
+      const seededName = project?.name || (!project ? initialName : "");
+      const seededPath = project?.path || (!project ? initialPath : "");
+      const seededGroupQuery = project?.groupId
+        ? groups.find((group) => group.id === project.groupId)?.name ?? ""
+        : "";
+      const seededIcon = project?.icon || "";
+      const seededIconColor = project?.iconColor || "#ff5a1f";
       nameRef.current?.focus();
       nameRef.current?.select();
-      setName(project?.name || (!project ? initialName : ""));
-      setPath(project?.path || (!project ? initialPath : ""));
+      setName(seededName);
+      setPath(seededPath);
       setGroupId(project?.groupId || "");
-      setGroupQuery(
-        project?.groupId
-          ? groups.find((group) => group.id === project.groupId)?.name ?? ""
-          : "",
-      );
+      setGroupQuery(seededGroupQuery);
       setGroupTypeaheadOpen(false);
       setGroupActiveIndex(-1);
       setCreatingGroup(false);
-      setIcon(project?.icon || "");
-      setIconColor(project?.iconColor || "#ff5a1f");
+      setIcon(seededIcon);
+      setIconColor(seededIconColor);
       setWorktreeSetupCommand(project?.worktreeSetupCommand || "");
       setGridView(project?.defaultGridView ?? false);
       setImagePath(project?.imagePath ?? null);
       setPendingImage(null);
       setAppearanceOpen(false);
+      setAutoStart(true);
+      setConfirmingClose(false);
       setSubmitting(false);
       setError(null);
+      formSeedRef.current = JSON.stringify({
+        name: seededName,
+        path: seededPath,
+        groupQuery: seededGroupQuery,
+        icon: seededIcon,
+        iconColor: seededIconColor,
+        hasImage: !!project?.imagePath,
+      });
     }
     // Agent is seeded in the effect below once agentOptions has settled.
   }, [initialPath, open, project?.id]);
@@ -196,6 +217,12 @@ export function ProjectDialog({
         : firstLaunchable,
     );
   }, [open, project, agentOptions, cliAvailability]);
+
+  // Surface save errors even when the form has scrolled: bring the error box
+  // into view (FormErrorBox is role="alert", so it also announces to AT).
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
 
   useEffect(() => {
     if (!open || !selectedGroup || groupQuery.trim()) return;
@@ -334,9 +361,22 @@ export function ProjectDialog({
     }
   };
 
-  // Enter / Cmd+Enter runs the primary action: "Create & start" for a new
-  // project, "Save" when editing (autoStart is ignored on the edit path).
-  useHotkey("dialog.submit", () => void submit(!project), { enabled: open });
+  // Enter / Cmd+Enter runs the primary action: Save when editing; for a new
+  // project it honors the "Start a session now" toggle and the same path gate
+  // as the button, so the keyboard path can't bypass what the button enforces.
+  useHotkey(
+    "dialog.submit",
+    () => {
+      if (confirmingClose) return;
+      if (project) {
+        void submit(false);
+        return;
+      }
+      if (!path.trim()) return;
+      void submit(autoStart);
+    },
+    { enabled: open },
+  );
 
   // Live identity preview: exactly what the sidebar will render for this
   // project — auto initials from the name until the user overrides them.
@@ -350,6 +390,31 @@ export function ProjectDialog({
     : icon
       ? `Initials ${icon}`
       : `Auto initials · ${derivedInitials}`;
+
+  const selectedAgentLabel = AGENT_REGISTRY[agent]?.label ?? "your coding agent";
+  const currentFormKey = JSON.stringify({
+    name,
+    path,
+    groupQuery,
+    icon,
+    iconColor,
+    hasImage: !!pendingImage || !!imagePath,
+  });
+  const isDirty = !project && currentFormKey !== formSeedRef.current;
+  // Esc / backdrop / Cancel route through here so a touched create form
+  // confirms before discarding; a second Esc (or "Keep editing") backs out.
+  const requestClose = () => {
+    if (submitting) return;
+    if (confirmingClose) {
+      setConfirmingClose(false);
+      return;
+    }
+    if (isDirty) {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
+  };
 
   const nameField = (
     <TextField
@@ -1009,7 +1074,7 @@ export function ProjectDialog({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={requestClose}
       title={project ? "Edit project" : "Add project"}
       width={project ? 520 : 540}
       footer={
@@ -1026,24 +1091,43 @@ export function ProjectDialog({
               </Btn>
             </HotkeyTooltip>
           </>
+        ) : confirmingClose ? (
+          <div
+            style={{
+              display: "flex",
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--text-dim)" }}>
+              Discard this project? Your changes will be lost.
+            </span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" onClick={() => setConfirmingClose(false)}>
+                Keep editing
+              </Btn>
+              <Btn variant="danger" onClick={onClose}>
+                Discard
+              </Btn>
+            </div>
+          </div>
         ) : (
           <>
             <EscTooltip label="Cancel">
-              <Btn variant="ghost" onClick={onClose}>
+              <Btn variant="ghost" onClick={requestClose}>
                 Cancel
               </Btn>
             </EscTooltip>
-            <Btn variant="solid" onClick={() => void submit(false)} disabled={submitting}>
-              Create only
-            </Btn>
             <HotkeyTooltip action="dialog.submit">
               <Btn
                 variant="primary"
-                icon="terminal"
-                onClick={() => void submit(true)}
+                icon={autoStart ? "terminal" : undefined}
+                onClick={() => void submit(autoStart)}
                 disabled={submitting || !path.trim()}
               >
-                Create &amp; start session
+                {autoStart ? "Create & start session" : "Create project"}
               </Btn>
             </HotkeyTooltip>
           </>
@@ -1058,7 +1142,9 @@ export function ProjectDialog({
           {iconField}
           {groupField}
           {worktreeField}
-          <FormErrorBox error={error} />
+          <div ref={errorRef}>
+            <FormErrorBox error={error} />
+          </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -1068,7 +1154,16 @@ export function ProjectDialog({
           {layoutField}
           {groupField}
           {appearanceSection}
-          <FormErrorBox error={error} />
+          <ToggleRow
+            title="Start a session now"
+            description={`Launches ${selectedAgentLabel} in this project as soon as it's created.`}
+            checked={autoStart}
+            onChange={setAutoStart}
+            label="Start a session now"
+          />
+          <div ref={errorRef}>
+            <FormErrorBox error={error} />
+          </div>
         </div>
       )}
     </Modal>
