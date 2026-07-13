@@ -6,7 +6,7 @@ import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { AgentLogo } from "~/components/ui/AgentLogo";
 import { ProjectIcon } from "~/components/ui/ProjectIcon";
-import { SettingsSection, ToggleRow } from "~/components/views/SettingsParts";
+import { ToggleRow } from "~/components/views/SettingsParts";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META, ICON_COLORS } from "~/lib/design-meta";
@@ -43,6 +43,45 @@ function FieldLabel({ children }: { children: ReactNode }) {
 /** Last segment of a filesystem path, ignoring trailing separators. */
 function basename(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() || "";
+}
+
+/**
+ * A titled group in the dialog — same title/description vocabulary as the
+ * Settings pages' SettingCard, but outlined (transparent fill) rather than
+ * filled, so the already-bordered controls inside recede instead of reading
+ * as nested cards.
+ */
+function GroupCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{title}</div>
+        <div
+          style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45, marginTop: 3 }}
+        >
+          {description}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
 }
 
 /** Tiny wireframe that shows what each layout does at a glance. */
@@ -131,7 +170,6 @@ export function ProjectDialog({
     { sourcePath: string; extension: string } | null
   >(null);
   const [uploading, setUploading] = useState(false);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoStart, setAutoStart] = useState(true);
@@ -191,7 +229,6 @@ export function ProjectDialog({
       setGridView(project?.defaultGridView ?? false);
       setImagePath(project?.imagePath ?? null);
       setPendingImage(null);
-      setAppearanceOpen(false);
       setAutoStart(true);
       setConfirmingClose(false);
       setSubmitting(false);
@@ -387,11 +424,6 @@ export function ProjectDialog({
   const derivedInitials =
     (name.trim() || basename(path.trim())).slice(0, 2).toUpperCase() || "AB";
   const previewInitials = icon || derivedInitials;
-  const appearanceSummary = pendingImage
-    ? basename(pendingImage.sourcePath) || "custom image"
-    : icon
-      ? `Initials ${icon}`
-      : `Auto initials · ${derivedInitials}`;
 
   const selectedAgentLabel = AGENT_REGISTRY[agent]?.label ?? "your coding agent";
   const currentFormKey = JSON.stringify({
@@ -604,6 +636,10 @@ export function ProjectDialog({
                 border: 0,
                 borderRadius: 5,
                 background: selected ? "var(--surface-2)" : "transparent",
+                // Single accent edge = selected, the same signal the agent
+                // cards use — one selection language, and a non-color cue so
+                // it doesn't rely on the glyph hue alone.
+                boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
                 color: selected ? "var(--text)" : "var(--text-dim)",
                 cursor: "pointer",
               }}
@@ -659,6 +695,18 @@ export function ProjectDialog({
     <div>
       <FieldLabel>{project ? "Icon (fallback)" : "Initials & color"}</FieldLabel>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        {!project && (
+          <span
+            key={`${previewInitials}-${iconColor}`}
+            className="mc-identity-pop"
+            style={{ display: "inline-flex", flex: "0 0 auto" }}
+          >
+            <ProjectIcon
+              project={{ icon: previewInitials, iconColor, imagePath: null }}
+              size={34}
+            />
+          </span>
+        )}
         <input
           value={icon}
           onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
@@ -968,96 +1016,6 @@ export function ProjectDialog({
     </div>
   );
 
-  const appearanceSection = (
-    <div>
-      <button
-        type="button"
-        aria-expanded={appearanceOpen}
-        aria-controls="project-appearance-fields"
-        onClick={() => setAppearanceOpen((v) => !v)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          textAlign: "left",
-          padding: "8px 10px",
-          background: appearanceOpen ? "var(--surface-2)" : "var(--surface-0)",
-          border: "1px solid var(--border)",
-          borderRadius: 7,
-          cursor: "pointer",
-          transition: "background 150ms ease",
-        }}
-      >
-        {pendingImage ? (
-          <div
-            aria-hidden
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 6,
-              border: `1px solid ${iconColor}44`,
-              background: `${iconColor}18`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: iconColor,
-              flex: "0 0 auto",
-            }}
-          >
-            <Icon name="camera" size={14} />
-          </div>
-        ) : (
-          <span
-            key={`${previewInitials}-${iconColor}`}
-            className="mc-identity-pop"
-            style={{ display: "inline-flex", flex: "0 0 auto" }}
-          >
-            <ProjectIcon
-              project={{ icon: previewInitials, iconColor, imagePath: null }}
-              size={28}
-            />
-          </span>
-        )}
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
-          Appearance
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--mono)",
-            fontSize: 10.5,
-            color: "var(--text-dim)",
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {appearanceSummary}
-        </span>
-        <Icon
-          name={appearanceOpen ? "chevron-up" : "chevron-down"}
-          size={13}
-          style={{ marginLeft: "auto", color: "var(--text-faint)" }}
-        />
-      </button>
-      {appearanceOpen && (
-        <div
-          id="project-appearance-fields"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-            padding: "14px 10px 4px",
-          }}
-        >
-          {iconField}
-          {imageField}
-        </div>
-      )}
-    </div>
-  );
-
   const worktreeField = project ? (
     <TextField
       mono
@@ -1157,12 +1115,15 @@ export function ProjectDialog({
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <SettingsSection title="Project">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <GroupCard title="Project" description="Where it lives on disk and what it's called.">
             {dirField}
             {nameField}
-          </SettingsSection>
-          <SettingsSection title="Sessions">
+          </GroupCard>
+          <GroupCard
+            title="Sessions"
+            description="Defaults for the coding agents you'll run in this project."
+          >
             {startWithField}
             {layoutField}
             <ToggleRow
@@ -1172,11 +1133,12 @@ export function ProjectDialog({
               onChange={setAutoStart}
               label="Start a session now"
             />
-          </SettingsSection>
-          <SettingsSection title="Organize">
+          </GroupCard>
+          <GroupCard title="Organize" description="How this project appears in your sidebar.">
             {groupField}
-            {appearanceSection}
-          </SettingsSection>
+            {iconField}
+            {imageField}
+          </GroupCard>
           <div ref={errorRef}>
             <FormErrorBox error={error} />
           </div>
