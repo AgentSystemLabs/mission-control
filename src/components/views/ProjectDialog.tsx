@@ -5,6 +5,7 @@ import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { AgentLogo } from "~/components/ui/AgentLogo";
+import { ProjectIcon } from "~/components/ui/ProjectIcon";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { AGENT_META, ICON_COLORS } from "~/lib/design-meta";
@@ -36,23 +37,6 @@ const fieldLabelStyle: CSSProperties = {
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return <label style={fieldLabelStyle}>{children}</label>;
-}
-
-/** Anchors each column of the create form with a quiet titled hairline. */
-function ColumnHeading({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        fontSize: 12,
-        fontWeight: 600,
-        color: "var(--text)",
-        paddingBottom: 8,
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
-      {children}
-    </div>
-  );
 }
 
 /** Tiny wireframe that shows what each layout does at a glance. */
@@ -140,6 +124,7 @@ export function ProjectDialog({
     { sourcePath: string; extension: string } | null
   >(null);
   const [uploading, setUploading] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -188,6 +173,7 @@ export function ProjectDialog({
       setGridView(project?.defaultGridView ?? false);
       setImagePath(project?.imagePath ?? null);
       setPendingImage(null);
+      setAppearanceOpen(false);
       setSubmitting(false);
       setError(null);
     }
@@ -349,6 +335,19 @@ export function ProjectDialog({
   // Enter / Cmd+Enter runs the primary action: "Create & start" for a new
   // project, "Save" when editing (autoStart is ignored on the edit path).
   useHotkey("dialog.submit", () => void submit(!project), { enabled: open });
+
+  // Live identity preview: exactly what the sidebar will render for this
+  // project — auto initials from the name until the user overrides them.
+  const derivedInitials =
+    (name.trim() || path.trim().split(/[\\/]/).filter(Boolean).pop() || "")
+      .slice(0, 2)
+      .toUpperCase() || "AB";
+  const previewInitials = icon || derivedInitials;
+  const appearanceSummary = pendingImage
+    ? pendingImage.sourcePath.split(/[\\/]/).pop() ?? "custom image"
+    : icon
+      ? `Initials ${icon}`
+      : `Auto initials · ${derivedInitials}`;
 
   const nameField = (
     <TextField
@@ -583,13 +582,13 @@ export function ProjectDialog({
 
   const iconField = (
     <div>
-      <FieldLabel>Icon (fallback)</FieldLabel>
+      <FieldLabel>{project ? "Icon (fallback)" : "Initials & color"}</FieldLabel>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <input
           value={icon}
           onChange={(e) => setIcon(e.target.value.slice(0, 2).toUpperCase())}
           maxLength={2}
-          placeholder="AB"
+          placeholder={project ? "AB" : derivedInitials}
           aria-label="Icon initials"
           style={{
             width: 56,
@@ -838,6 +837,90 @@ export function ProjectDialog({
     </div>
   );
 
+  const appearanceSection = (
+    <div>
+      <button
+        type="button"
+        aria-expanded={appearanceOpen}
+        aria-controls="project-appearance-fields"
+        onClick={() => setAppearanceOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          textAlign: "left",
+          padding: "8px 10px",
+          background: appearanceOpen ? "var(--surface-2)" : "var(--surface-0)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          cursor: "pointer",
+          transition: "background 150ms ease",
+        }}
+      >
+        {pendingImage ? (
+          <div
+            aria-hidden
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: `1px solid ${iconColor}44`,
+              background: `${iconColor}18`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: iconColor,
+              flex: "0 0 auto",
+            }}
+          >
+            <Icon name="camera" size={14} />
+          </div>
+        ) : (
+          <ProjectIcon
+            project={{ icon: previewInitials, iconColor, imagePath: null }}
+            size={28}
+          />
+        )}
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
+          Appearance
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            color: "var(--text-dim)",
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {appearanceSummary}
+        </span>
+        <Icon
+          name={appearanceOpen ? "chevron-up" : "chevron-down"}
+          size={13}
+          style={{ marginLeft: "auto", color: "var(--text-faint)" }}
+        />
+      </button>
+      {appearanceOpen && (
+        <div
+          id="project-appearance-fields"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+            padding: "14px 10px 4px",
+          }}
+        >
+          {iconField}
+          {imageField}
+        </div>
+      )}
+    </div>
+  );
+
   const worktreeField = project ? (
     <TextField
       mono
@@ -854,7 +937,7 @@ export function ProjectDialog({
       open={open}
       onClose={onClose}
       title={project ? "Edit project" : "Add project"}
-      width={project ? 520 : 720}
+      width={project ? 520 : 540}
       footer={
         project ? (
           <>
@@ -904,31 +987,13 @@ export function ProjectDialog({
           <FormErrorBox error={error} />
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 0.8fr) minmax(0, 1.2fr)",
-              gap: 16,
-              alignItems: "end",
-            }}
-          >
-            {nameField}
-            {dirField}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22, alignItems: "start" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <ColumnHeading>How you'll work</ColumnHeading>
-              {startWithField}
-              {layoutField}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <ColumnHeading>Appearance &amp; grouping</ColumnHeading>
-              {imageField}
-              {iconField}
-              {groupField}
-            </div>
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {nameField}
+          {dirField}
+          {startWithField}
+          {layoutField}
+          {groupField}
+          {appearanceSection}
           <FormErrorBox error={error} />
         </div>
       )}
