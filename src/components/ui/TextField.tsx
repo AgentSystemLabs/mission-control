@@ -60,6 +60,9 @@ export function TextField({
         style={{
           display: "flex",
           alignItems: "center",
+          // Explicit height (not font-derived) so fields line up when placed
+          // in a row with other 38px controls (selects, color triggers).
+          height: 38,
           background: "var(--surface-0)",
           borderRadius: 7,
           overflow: "hidden",
@@ -82,11 +85,12 @@ export function TextField({
           onBlur={onBlur}
           style={{
             flex: 1,
+            height: "100%",
             background: "transparent",
             border: 0,
             outline: 0,
             color: "var(--text)",
-            padding: "9px 12px",
+            padding: "0 12px",
             fontFamily: mono ? "var(--mono)" : "var(--sans)",
             fontSize: 13,
           }}
