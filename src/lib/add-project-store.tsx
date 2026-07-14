@@ -4,6 +4,7 @@ import { useRouter } from "@tanstack/react-router";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { api } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
+import { isGroupIdActive, useActiveGroup } from "~/lib/active-group";
 import { useHotkey, isEditableTarget } from "~/lib/use-hotkey";
 import {
   groupsQueryOptions,
@@ -27,6 +28,7 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
   const queryClient = useQueryClient();
   const router = useRouter();
   const { data: groups = [] } = useGroups();
+  const { activeGroup } = useActiveGroup();
 
   const open = useCallback(() => {
     if (browsingRef.current) return;
@@ -85,6 +87,9 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
         open={isOpen}
         project={null}
         initialPath={initialPath}
+        // New projects land in the active group by default — the dialog's
+        // Group field stays editable to override.
+        initialGroupId={isGroupIdActive(activeGroup) ? activeGroup : null}
         groups={groups}
         onClose={close}
         onCreateGroup={createGroupForSelection}

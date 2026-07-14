@@ -37,5 +37,9 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "voice.pushToTalk": makeBinding({ mod: true, shift: true, key: "v" }),
   "prompt.search": makeBinding({ mod: true, shift: true, key: "p" }),
   "screenshot.capture": makeBinding({ mod: true, shift: true, key: "s" }),
+  // Alt variants of the terminal (mod) and session (mod+shift) cycle chords —
+  // same ]/[ mnemonic, third modifier tier for the group context.
+  "group.next": makeBinding({ mod: true, alt: true, key: "]" }),
+  "group.prev": makeBinding({ mod: true, alt: true, key: "[" }),
 };
 

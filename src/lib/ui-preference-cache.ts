@@ -1,10 +1,12 @@
 import {
   normalizeActiveProjectGroup,
+  normalizeCollapsedProjectGroups,
   normalizeFileFinderView,
   normalizeGitDiffChangedFilesView,
   normalizeProjectsDashboardView,
   normalizeSelectedWorktreeByProject,
   type ActiveProjectGroup,
+  type CollapsedProjectGroups,
   type FileFinderView,
   type GitDiffChangedFilesView,
   type ProjectsDashboardView,
@@ -17,6 +19,7 @@ export const PROJECTS_DASHBOARD_VIEW_STORAGE_KEY = "mc:projectsDashboardView";
 export const FILE_FINDER_VIEW_STORAGE_KEY = "mc:fileFinderView";
 export const SELECTED_WORKTREE_BY_PROJECT_STORAGE_KEY = "mc.selectedWorktreeByProject";
 export const ACTIVE_PROJECT_GROUP_STORAGE_KEY = "mc:activeProjectGroup";
+export const COLLAPSED_PROJECT_GROUPS_STORAGE_KEY = "mc:collapsedProjectGroups";
 
 /**
  * A string-valued UI preference persisted in localStorage, normalized on read.
@@ -74,6 +77,25 @@ const fileFinderView = makeStringPreference<FileFinderView>(
 );
 export const readCachedFileFinderView = fileFinderView.read;
 export const writeCachedFileFinderView = fileFinderView.write;
+
+export function readCachedCollapsedProjectGroups(): CollapsedProjectGroups | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_PROJECT_GROUPS_STORAGE_KEY);
+    return raw ? normalizeCollapsedProjectGroups(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedCollapsedProjectGroups(collapsed: CollapsedProjectGroups): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(COLLAPSED_PROJECT_GROUPS_STORAGE_KEY, JSON.stringify(collapsed));
+  } catch {
+    /* localStorage unavailable */
+  }
+}
 
 export function readCachedSelectedWorktreeByProject(): SelectedWorktreeByProject | null {
   if (typeof window === "undefined") return null;

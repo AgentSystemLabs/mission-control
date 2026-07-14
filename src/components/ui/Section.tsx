@@ -9,6 +9,9 @@ export function Section({
   divider = true,
   marginBottom = 32,
   labelSize = 11,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapsed,
   children,
 }: {
   label: string;
@@ -18,16 +21,19 @@ export function Section({
   divider?: boolean;
   marginBottom?: number;
   labelSize?: number;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   children: ReactNode;
 }) {
   return (
-    <div style={{ marginBottom }}>
+    <div style={{ marginBottom: collapsible && collapsed ? Math.min(marginBottom, 20) : marginBottom }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 8,
-          marginBottom: 14,
+          marginBottom: collapsible && collapsed ? 0 : 14,
           paddingBottom: divider ? 8 : 0,
           borderBottom: divider ? "1px solid var(--border)" : undefined,
         }}
@@ -66,8 +72,40 @@ export function Section({
         >
           {count}
         </span>
+        {collapsible && (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+            title={collapsed ? "Expand section" : "Collapse section"}
+            style={{
+              marginLeft: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 22,
+              height: 22,
+              padding: 0,
+              background: "transparent",
+              border: 0,
+              borderRadius: 5,
+              color: "var(--text-faint)",
+              cursor: "pointer",
+            }}
+          >
+            <Icon
+              name="chevron-down"
+              size={12}
+              style={{
+                transform: collapsed ? "rotate(-90deg)" : undefined,
+                transition: "transform 120ms ease",
+              }}
+            />
+          </button>
+        )}
       </div>
-      {children}
+      {(!collapsible || !collapsed) && children}
     </div>
   );
 }

@@ -59,6 +59,10 @@ export function GroupsDialogProvider({ children }: { children: React.ReactNode }
           await api.updateGroup(id, { name });
           await invalidateGroups();
         }}
+        onRecolor={async (id, color) => {
+          await api.updateGroup(id, { color });
+          await invalidateGroups();
+        }}
         onProjectGroupChange={async (projectId, groupId) => {
           await api.updateProject(projectId, { groupId });
           await Promise.all([

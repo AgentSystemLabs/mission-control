@@ -14,6 +14,7 @@ export function ProjectDialog({
   open,
   project,
   initialPath = "",
+  initialGroupId = null,
   groups,
   onClose,
   onSave,
@@ -22,6 +23,8 @@ export function ProjectDialog({
   open: boolean;
   project: Project | null;
   initialPath?: string;
+  /** Create flow only: pre-select this group (e.g. the globally active one). */
+  initialGroupId?: string | null;
   groups: Group[];
   onClose: () => void;
   onSave: (data: {
@@ -68,12 +71,13 @@ export function ProjectDialog({
       const initialName = initialPath.split(/[\\/]/).filter(Boolean).pop() || "";
       nameRef.current?.focus();
       nameRef.current?.select();
+      const seededGroupId = project?.groupId ?? (!project ? initialGroupId : null) ?? "";
       setName(project?.name || (!project ? initialName : ""));
       setPath(project?.path || (!project ? initialPath : ""));
-      setGroupId(project?.groupId || "");
+      setGroupId(seededGroupId);
       setGroupQuery(
-        project?.groupId
-          ? groups.find((group) => group.id === project.groupId)?.name ?? ""
+        seededGroupId
+          ? groups.find((group) => group.id === seededGroupId)?.name ?? ""
           : "",
       );
       setGroupTypeaheadOpen(false);
@@ -85,7 +89,7 @@ export function ProjectDialog({
       setPendingImage(null);
       setError(null);
     }
-  }, [initialPath, open, project?.id]);
+  }, [initialGroupId, initialPath, open, project?.id]);
 
   useEffect(() => {
     if (!open || !selectedGroup || groupQuery.trim()) return;

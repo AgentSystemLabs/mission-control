@@ -6,6 +6,7 @@ import { Btn } from "~/components/ui/Btn";
 import { EscTooltip } from "~/components/ui/Tooltip";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
+import { GROUP_COLORS } from "~/lib/design-meta";
 import type { Group, Project } from "~/db/schema";
 
 type GroupsDialogProject = Pick<Project, "id" | "name" | "groupId">;
@@ -18,6 +19,7 @@ export function GroupsDialog({
   onAdd,
   onRemove,
   onRename,
+  onRecolor,
   onProjectGroupChange,
 }: {
   open: boolean;
@@ -27,6 +29,7 @@ export function GroupsDialog({
   onAdd: (name: string) => void | Promise<void>;
   onRemove: (id: string) => void | Promise<void>;
   onRename: (id: string, name: string) => void | Promise<void>;
+  onRecolor: (id: string, color: string) => void | Promise<void>;
   onProjectGroupChange: (projectId: string, groupId: string | null) => void | Promise<void>;
 }) {
   const [newName, setNewName] = useState("");
@@ -36,12 +39,14 @@ export function GroupsDialog({
   const [error, setError] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Group | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [recoloringId, setRecoloringId] = useState<string | null>(null);
   const groupNameById = new Map(groups.map((group) => [group.id, group.name]));
 
   useEffect(() => {
     if (open) {
       setError(null);
       setPendingRemove(null);
+      setRecoloringId(null);
     }
   }, [open]);
 
@@ -129,15 +134,35 @@ export function GroupsDialog({
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span
+                  <button
+                    type="button"
+                    onClick={() => setRecoloringId((current) => (current === g.id ? null : g.id))}
+                    title="Change color"
+                    aria-label={`Change color of ${g.name}`}
+                    aria-expanded={recoloringId === g.id}
                     style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: "50%",
-                      background: g.color,
-                      boxShadow: `0 0 6px ${g.color}66`,
+                      background: "transparent",
+                      border: 0,
+                      cursor: "pointer",
+                      padding: 4,
+                      margin: -4,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
-                  />
+                  >
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        background: g.color,
+                        boxShadow: `0 0 6px ${g.color}66`,
+                        outline: recoloringId === g.id ? "2px solid var(--accent-border)" : undefined,
+                        outlineOffset: 2,
+                      }}
+                    />
+                  </button>
                   {isEditing ? (
                     <>
                       <input
@@ -254,6 +279,45 @@ export function GroupsDialog({
                     </>
                   )}
                 </div>
+                {recoloringId === g.id && (
+                  <div
+                    role="group"
+                    aria-label={`Pick a color for ${g.name}`}
+                    style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 2 }}
+                  >
+                    {GROUP_COLORS.map((color) => {
+                      const selected = color.toLowerCase() === g.color.toLowerCase();
+                      return (
+                        <button
+                          key={color}
+                          type="button"
+                          aria-label={`Set color ${color}`}
+                          aria-pressed={selected}
+                          onClick={async () => {
+                            setError(null);
+                            try {
+                              await onRecolor(g.id, color);
+                              setRecoloringId(null);
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : "Could not update group color");
+                            }
+                          }}
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: 6,
+                            border: selected
+                              ? "2px solid var(--text)"
+                              : "1px solid var(--border-strong)",
+                            background: color,
+                            cursor: "pointer",
+                            padding: 0,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
                 {!isEditing && (
                   <div
                     style={{

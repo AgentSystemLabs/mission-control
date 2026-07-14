@@ -43,7 +43,7 @@ import { ProjectBar } from "~/components/views/ProjectBar";
 import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { GroupsDialogProvider } from "~/lib/groups-dialog-store";
-import { useActiveGroup } from "~/lib/active-group";
+import { ACTIVE_GROUP_ALL, ACTIVE_GROUP_UNGROUPED, useActiveGroup } from "~/lib/active-group";
 import { GroupSwitcher } from "~/components/views/GroupSwitcher";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
@@ -373,7 +373,7 @@ function Shell() {
   useWindowIdleController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
-  const { activeGroup, groups } = useActiveGroup();
+  const { activeGroup, setActiveGroup, groups } = useActiveGroup();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable
   // yet: cover the route with a spinner and disable project navigation.
   const { data: sandboxState } = useSandboxes();
@@ -621,6 +621,21 @@ function Shell() {
       document.documentElement.style.removeProperty("--mc-workspace-bottom");
     };
   }, [focusActive]);
+
+  // Cycle the active group context: All → each group → Ungrouped → All.
+  const cycleActiveGroup = useCallback(
+    (direction: 1 | -1) => {
+      const order: string[] = [ACTIVE_GROUP_ALL, ...groups.map((g) => g.id)];
+      if ((projects ?? []).some((p) => p.groupId == null)) order.push(ACTIVE_GROUP_UNGROUPED);
+      if (order.length <= 1) return;
+      const index = order.indexOf(activeGroup);
+      const next = order[(index + direction + order.length) % order.length]!;
+      setActiveGroup(next);
+    },
+    [activeGroup, groups, projects, setActiveGroup],
+  );
+  useHotkey("group.next", () => cycleActiveGroup(1));
+  useHotkey("group.prev", () => cycleActiveGroup(-1));
 
   useHotkey("terminal.toggle", () => togglePanel());
   useHotkey(

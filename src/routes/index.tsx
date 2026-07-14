@@ -25,6 +25,11 @@ import {
   useGroupScopedProjects,
 } from "~/lib/active-group";
 import { useGroupsDialog } from "~/lib/groups-dialog-store";
+import {
+  COLLAPSED_SECTION_PINNED,
+  COLLAPSED_SECTION_UNGROUPED,
+  useCollapsedGroups,
+} from "~/lib/collapsed-groups";
 import { useAddProject } from "~/lib/add-project-store";
 import { useTerminalActions } from "~/lib/terminal-store";
 import { api, type AppSettings } from "~/lib/api";
@@ -61,6 +66,7 @@ function MissionControlPage() {
   const { activeGroup, setActiveGroup } = projectsQuery;
   const groups = groupsQuery.data ?? [];
   const groupsDialog = useGroupsDialog();
+  const { isCollapsed, toggleCollapsed } = useCollapsedGroups();
   const [search, setSearch] = useState("");
   const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
   const [removingProject, setRemovingProject] = useState<ProjectWithCounts | null>(null);
@@ -232,10 +238,15 @@ function MissionControlPage() {
     <ProjectCard
       key={project.id}
       project={project}
+      groups={groups}
       onOpen={() => open(project.id)}
       onEdit={() => setEditingProject(project)}
       onRemove={() => setRemovingProject(project)}
       onTogglePin={togglePin}
+      onMoveToGroup={async (groupId) => {
+        await api.updateProject(project.id, { groupId });
+        await Promise.all([invalidateProjects(), invalidateProject(project.id)]);
+      }}
     />
   );
 
@@ -422,6 +433,9 @@ function MissionControlPage() {
               divider={false}
               marginBottom={48}
               labelSize={13}
+              collapsible
+              collapsed={isCollapsed(COLLAPSED_SECTION_PINNED)}
+              onToggleCollapsed={() => toggleCollapsed(COLLAPSED_SECTION_PINNED)}
             >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
                 {pinned.map(renderProjectCard)}
@@ -438,6 +452,9 @@ function MissionControlPage() {
               divider={false}
               marginBottom={48}
               labelSize={13}
+              collapsible
+              collapsed={isCollapsed(group.id)}
+              onToggleCollapsed={() => toggleCollapsed(group.id)}
             >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
                 {gp.map(renderProjectCard)}
@@ -452,6 +469,9 @@ function MissionControlPage() {
               divider={false}
               marginBottom={48}
               labelSize={13}
+              collapsible
+              collapsed={isCollapsed(COLLAPSED_SECTION_UNGROUPED)}
+              onToggleCollapsed={() => toggleCollapsed(COLLAPSED_SECTION_UNGROUPED)}
             >
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
                 {ungrouped.map(renderProjectCard)}

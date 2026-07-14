@@ -54,6 +54,23 @@ export function normalizeFileFinderView(value: unknown): FileFinderView | null {
   return normalizeEnumValue(value, FILE_FINDER_VIEWS);
 }
 
+/** Collapsed dashboard section keys — group ids plus "pinned" / "ungrouped". */
+export type CollapsedProjectGroups = string[];
+
+export function normalizeCollapsedProjectGroups(value: unknown): CollapsedProjectGroups | null {
+  if (!Array.isArray(value)) return null;
+  const next: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    next.push(trimmed);
+  }
+  return next;
+}
+
 export function normalizeActiveProjectGroup(value: unknown): ActiveProjectGroup | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();

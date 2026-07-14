@@ -115,6 +115,8 @@ export type AppSettings = {
    * project picker: "ungrouped", a group id, or null for "all projects".
    */
   activeProjectGroup: string | null;
+  /** Collapsed dashboard section keys — group ids plus "pinned"/"ungrouped". */
+  collapsedProjectGroups: string[] | null;
   selectedWorktreeByProject: SelectedWorktreeByProject | null;
   /**
    * Which CLI generates Ship's commit message. `null` means "not set yet" —
@@ -665,6 +667,7 @@ export const api = {
         | "gitDiffChangedFilesWidth"
         | "projectsDashboardView"
         | "activeProjectGroup"
+        | "collapsedProjectGroups"
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"

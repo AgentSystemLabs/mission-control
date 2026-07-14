@@ -11,6 +11,7 @@ import { TASK_STATUSES } from "~/shared/domain";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
+import type { Group } from "~/db/schema";
 
 type ProjectCardMenu = { x: number; y: number } | null;
 const MENU_WIDTH = 196;
@@ -25,16 +26,20 @@ function menuPosition(x: number, y: number): NonNullable<ProjectCardMenu> {
 
 export function ProjectCard({
   project,
+  groups,
   onOpen,
   onEdit,
   onRemove,
   onTogglePin,
+  onMoveToGroup,
 }: {
   project: ProjectWithCounts;
+  groups: Group[];
   onOpen: () => void;
   onEdit: () => void;
   onRemove: () => void;
   onTogglePin: (id: string) => void;
+  onMoveToGroup: (groupId: string | null) => void | Promise<void>;
 }) {
   const counts = project.taskCounts;
   const { hasRunningLaunchForProject } = useUserTerminals();
@@ -46,9 +51,13 @@ export function ProjectCard({
   const totalShown = TASK_STATUSES.reduce((a, s) => a + counts[s], 0);
   const [hovered, setHovered] = useState(false);
   const [menu, setMenu] = useState<ProjectCardMenu>(null);
+  // The bespoke ContextMenuPopover has no nested submenus — "Move to group"
+  // swaps the menu content to a group list instead.
+  const [menuMode, setMenuMode] = useState<"root" | "move">("root");
   useDismissableMenu(menu !== null, () => setMenu(null));
 
   const openMenu = (x: number, y: number) => {
+    setMenuMode("root");
     setMenu(menuPosition(x, y));
   };
 
@@ -232,28 +241,111 @@ export function ProjectCard({
       </div>
       {menu && (
         <ContextMenuPopover anchor={menu} label={`${project.name} actions`} minWidth={MENU_WIDTH}>
-            <DropdownMenuItem
-              icon="settings"
-              autoFocus
-              onClick={() => {
-                setMenu(null);
-                onEdit();
-              }}
-            >
-              Edit project
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              danger
-              icon="trash"
-              onClick={() => {
-                setMenu(null);
-                onRemove();
-              }}
-              title="Remove this project from Mission Control. The folder on disk is not touched."
-            >
-              Remove project
-            </DropdownMenuItem>
+          {menuMode === "root" ? (
+            <>
+              <DropdownMenuItem
+                icon="settings"
+                autoFocus
+                onClick={() => {
+                  setMenu(null);
+                  onEdit();
+                }}
+              >
+                Edit project
+              </DropdownMenuItem>
+              {groups.length > 0 && (
+                <DropdownMenuItem
+                  icon="group"
+                  onClick={() => setMenuMode("move")}
+                  aria-haspopup="menu"
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", width: "100%" }}>
+                    <span style={{ flex: 1 }}>Move to group</span>
+                    <span aria-hidden style={{ color: "var(--text-faint)" }}>›</span>
+                  </span>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                danger
+                icon="trash"
+                onClick={() => {
+                  setMenu(null);
+                  onRemove();
+                }}
+                title="Remove this project from Mission Control. The folder on disk is not touched."
+              >
+                Remove project
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <>
+              <DropdownMenuItem autoFocus onClick={() => setMenuMode("root")}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span aria-hidden style={{ color: "var(--text-faint)" }}>‹</span>
+                  <span>Back</span>
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {groups.map((group) => {
+                const selected = project.groupId === group.id;
+                return (
+                  <DropdownMenuItem
+                    key={group.id}
+                    leading={
+                      <span
+                        aria-hidden
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: group.color,
+                          boxShadow: `0 0 5px ${group.color}66`,
+                          flexShrink: 0,
+                        }}
+                      />
+                    }
+                    aria-current={selected ? "true" : undefined}
+                    onClick={() => {
+                      setMenu(null);
+                      if (!selected) void onMoveToGroup(group.id);
+                    }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", width: "100%" }}>
+                      <span style={{ flex: 1 }}>{group.name}</span>
+                      {selected && <span aria-hidden style={{ color: "var(--accent-ink)" }}>✓</span>}
+                    </span>
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuItem
+                leading={
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "rgba(232, 230, 223, 0.3)",
+                      flexShrink: 0,
+                    }}
+                  />
+                }
+                aria-current={project.groupId == null ? "true" : undefined}
+                onClick={() => {
+                  setMenu(null);
+                  if (project.groupId != null) void onMoveToGroup(null);
+                }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", width: "100%" }}>
+                  <span style={{ flex: 1 }}>Ungrouped</span>
+                  {project.groupId == null && (
+                    <span aria-hidden style={{ color: "var(--accent-ink)" }}>✓</span>
+                  )}
+                </span>
+              </DropdownMenuItem>
+            </>
+          )}
         </ContextMenuPopover>
       )}
     </CardFrame>

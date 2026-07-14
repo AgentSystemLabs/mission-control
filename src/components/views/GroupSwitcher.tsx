@@ -15,6 +15,8 @@ import {
 } from "~/lib/active-group";
 import { useGroupsDialog } from "~/lib/groups-dialog-store";
 import { useScopedProjects } from "~/queries";
+import { useBinding } from "~/lib/keybindings/store";
+import { formatBinding } from "~/lib/keybindings/format";
 import { Z_INDEX } from "~/lib/z-index";
 import type { ActiveProjectGroup } from "~/shared/ui-preferences";
 
@@ -46,6 +48,7 @@ export function GroupSwitcher() {
   const { data: scopedProjects } = useScopedProjects();
   const groupsDialog = useGroupsDialog();
   const [open, setOpen] = useState(false);
+  const nextGroupBinding = useBinding("group.next");
   const [menuRect, setMenuRect] = useState<{ top: number; left: number } | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLElement>(null);
@@ -134,7 +137,7 @@ export function GroupSwitcher() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Active group: ${label}. Switch group`}
-        title={`Active group: ${label}`}
+        title={`Active group: ${label} — cycle with ${formatBinding(nextGroupBinding)}`}
         onClick={() => setOpen((v) => !v)}
         style={{ paddingInline: 8 }}
       >

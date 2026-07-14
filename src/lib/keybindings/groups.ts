@@ -44,6 +44,8 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
       "project.add",
       "project.edit",
       "project.pinnedSlot",
+      "group.next",
+      "group.prev",
       "file.finder",
       "file.save",
       "git.diff",

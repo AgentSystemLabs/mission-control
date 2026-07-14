@@ -31,6 +31,7 @@ import {
   GIT_DIFF_CHANGED_FILES_WIDTH_MIN,
   PROJECTS_DASHBOARD_VIEWS,
   normalizeActiveProjectGroup,
+  normalizeCollapsedProjectGroups,
   normalizeGitDiffChangedFilesView,
   normalizeGitDiffChangedFilesWidth,
   normalizeProjectsDashboardView,
@@ -116,6 +117,7 @@ const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
 const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
 const ACTIVE_PROJECT_GROUP_KEY = "active_project_group";
+const COLLAPSED_PROJECT_GROUPS_KEY = "collapsed_project_groups";
 const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
 const SESSION_HEADER_BUTTONS_KEY = "session_header_buttons";
 const THEME_STYLE_KEY = "theme_style";
@@ -203,6 +205,7 @@ const updateSettingsBody = z
     // id (deleted group) is tolerated here — the client validates against the
     // live group list and falls back to "all".
     activeProjectGroup: z.string().trim().min(1).max(ACTIVE_PROJECT_GROUP_MAX_LENGTH).nullable(),
+    collapsedProjectGroups: z.array(z.string().trim().min(1).max(ACTIVE_PROJECT_GROUP_MAX_LENGTH)).max(500).nullable(),
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
     terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
@@ -379,6 +382,12 @@ function getActiveProjectGroupSetting() {
   return normalizeActiveProjectGroup(getSetting(ACTIVE_PROJECT_GROUP_KEY));
 }
 
+function getCollapsedProjectGroupsSetting() {
+  return normalizeCollapsedProjectGroups(
+    safeJsonParse<unknown>(getSetting(COLLAPSED_PROJECT_GROUPS_KEY), null),
+  );
+}
+
 function getSelectedWorktreeByProjectSetting() {
   const raw = getSetting(SELECTED_WORKTREE_BY_PROJECT_KEY);
   return normalizeSelectedWorktreeByProject(safeJsonParse<unknown>(raw, null));
@@ -493,6 +502,7 @@ function settingsPayload() {
     gitDiffChangedFilesWidth: getGitDiffChangedFilesWidthSetting(),
     projectsDashboardView: getProjectsDashboardViewSetting(),
     activeProjectGroup: getActiveProjectGroupSetting(),
+    collapsedProjectGroups: getCollapsedProjectGroupsSetting(),
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
     terminalZoomLevel: getTerminalZoomLevelSetting(),
@@ -673,6 +683,13 @@ export async function update(request: Request): Promise<Response> {
       deleteSetting(ACTIVE_PROJECT_GROUP_KEY);
     } else {
       setSetting(ACTIVE_PROJECT_GROUP_KEY, body.activeProjectGroup);
+    }
+  }
+  if (body.collapsedProjectGroups !== undefined) {
+    if (body.collapsedProjectGroups === null || body.collapsedProjectGroups.length === 0) {
+      deleteSetting(COLLAPSED_PROJECT_GROUPS_KEY);
+    } else {
+      setSetting(COLLAPSED_PROJECT_GROUPS_KEY, JSON.stringify(body.collapsedProjectGroups));
     }
   }
   if (body.selectedWorktreeByProject !== undefined) {
