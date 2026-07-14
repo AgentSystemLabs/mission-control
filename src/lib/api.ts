@@ -348,6 +348,7 @@ export const api = {
     savedAgent?: Project["savedAgent"] | null;
     rememberAgentSettings?: boolean;
     defaultGridView?: boolean;
+    pinned?: boolean;
   }) =>
     req<{ project: Project }>("/api/projects", {
       method: "POST",

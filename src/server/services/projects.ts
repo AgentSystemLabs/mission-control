@@ -304,6 +304,8 @@ export function createProject(input: {
   rememberAgentSettings?: boolean;
   /** Layout the project first opens in: true = grid, false = list. */
   defaultGridView?: boolean;
+  /** Pin the project to the top of the sidebar the moment it's created. */
+  pinned?: boolean;
 }): Project {
   const localPath = validateWorkingDirectory(input.path ?? "");
 
@@ -326,8 +328,8 @@ export function createProject(input: {
     groupId: input.groupId ?? null,
     // Inherits the scope the project was created in (Local when null/undefined).
     sandboxId: input.sandboxId ?? null,
-    pinned: false,
-    pinnedOrder: null,
+    pinned: !!input.pinned,
+    pinnedOrder: input.pinned ? nextPinnedOrder(findAllProjects()) : null,
     branch,
     launchCommands: null,
     customScripts: null,

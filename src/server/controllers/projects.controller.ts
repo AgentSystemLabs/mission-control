@@ -55,6 +55,7 @@ const createProjectBody = z.object({
   savedAgent: z.enum(TASK_AGENTS).nullable().optional(),
   rememberAgentSettings: z.boolean().optional(),
   defaultGridView: z.boolean().optional(),
+  pinned: z.boolean().optional(),
 });
 
 const updateProjectBody = z
