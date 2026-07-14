@@ -1,9 +1,8 @@
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { api } from "~/lib/api";
-import { getElectron } from "~/lib/electron";
 import { markProjectOnboardIntent } from "~/lib/project-onboard-intent";
 import { useHotkey, isEditableTarget } from "~/lib/use-hotkey";
 import {
@@ -24,35 +23,16 @@ const AddProjectContext = createContext<Ctx | null>(null);
 export function AddProjectProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const [initialPath, setInitialPath] = useState("");
-  const browsingRef = useRef(false);
   const queryClient = useQueryClient();
   const router = useRouter();
   const { data: groups = [] } = useGroups();
 
+  // Straight into the dialog — the working-directory field hosts an inline
+  // folder browser, so the flow no longer detours through the OS dialog.
   const open = useCallback(() => {
-    if (browsingRef.current) return;
-    const electron = getElectron();
-    if (!electron) {
-      setInitialPath("");
-      void queryClient.ensureQueryData(groupsQueryOptions());
-      setIsOpen(true);
-      return;
-    }
-
-    browsingRef.current = true;
-    void (async () => {
-      try {
-        const pickedPath = await electron.browseFolder();
-        if (!pickedPath) return;
-        void queryClient.ensureQueryData(groupsQueryOptions());
-        setInitialPath(pickedPath);
-        setIsOpen(true);
-      } catch (error) {
-        console.error("[projects] failed to browse for project folder:", error);
-      } finally {
-        browsingRef.current = false;
-      }
-    })();
+    setInitialPath("");
+    void queryClient.ensureQueryData(groupsQueryOptions());
+    setIsOpen(true);
   }, [queryClient]);
   const close = useCallback(() => {
     setIsOpen(false);

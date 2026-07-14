@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Modal } from "~/components/ui/Modal";
+import { FolderBrowser } from "~/components/ui/FolderBrowser";
 import { FormErrorBox } from "~/components/ui/FormErrorBox";
 import { Btn } from "~/components/ui/Btn";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { AgentLogo } from "~/components/ui/AgentLogo";
+import { PickCardGroup } from "~/components/ui/PickCardGroup";
 import { ToggleSwitch } from "~/components/views/SettingsParts";
 import { HotkeyTooltip, EscTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
@@ -36,7 +38,9 @@ const fieldLabelStyle: CSSProperties = {
 };
 
 function FieldLabel({ children }: { children: ReactNode }) {
-  return <label style={fieldLabelStyle}>{children}</label>;
+  // A <span>, not a <label>: nothing here wires htmlFor, and an unassociated
+  // <label> misleads AT. The controls carry their own accessible names.
+  return <span style={fieldLabelStyle}>{children}</span>;
 }
 
 /** Last segment of a filesystem path, ignoring trailing separators. */
@@ -56,7 +60,7 @@ function GroupCard({
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
 }) {
   return (
@@ -72,11 +76,13 @@ function GroupCard({
     >
       <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{title}</div>
-        <div
-          style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45, marginTop: 3 }}
-        >
-          {description}
-        </div>
+        {description && (
+          <div
+            style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.45, marginTop: 3 }}
+          >
+            {description}
+          </div>
+        )}
       </div>
       {children}
     </section>
@@ -101,7 +107,7 @@ function LayoutGlyph({ variant, active }: { variant: "list" | "grid"; active: bo
     return (
       <div style={{ ...frame, display: "flex", flexDirection: "column", gap: 2.5 }}>
         {[0, 1, 2].map((i) => (
-          <div key={i} style={{ height: 4, borderRadius: 1.5, background: cell, opacity: active ? 1 : 0.6 }} />
+          <div key={i} style={{ height: 4, borderRadius: 1.5, background: cell }} />
         ))}
       </div>
     );
@@ -117,7 +123,7 @@ function LayoutGlyph({ variant, active }: { variant: "list" | "grid"; active: bo
       }}
     >
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} style={{ borderRadius: 1.5, background: cell, opacity: active ? 1 : 0.6 }} />
+        <div key={i} style={{ borderRadius: 1.5, background: cell }} />
       ))}
     </div>
   );
@@ -151,20 +157,32 @@ export function ProjectDialog({
     rememberAgentSettings?: boolean;
     defaultGridView?: boolean;
     autoStart?: boolean;
+    pinned?: boolean;
   }) => Promise<void> | void;
   onCreateGroup?: (name: string) => Promise<Group> | Group;
 }) {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
+  // The inline folder browser live-syncs the name to the highlighted folder
+  // only until the user types a name of their own (clearing it re-enables).
+  const [nameTouched, setNameTouched] = useState(false);
+  const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
+  // Filter box gets focus when the browser is the opening step (create flow)
+  // or was opened via Browse…; the edit flow keeps focus on the name field.
+  const [folderBrowserAutoFocus, setFolderBrowserAutoFocus] = useState(false);
+  // Committed path+name snapshot so Esc in the browser reverts the preview.
+  const folderSnapshotRef = useRef<{ path: string; name: string } | null>(null);
   const [groupId, setGroupId] = useState<string>("");
   const [groupQuery, setGroupQuery] = useState("");
   const [groupTypeaheadOpen, setGroupTypeaheadOpen] = useState(false);
   const [groupActiveIndex, setGroupActiveIndex] = useState(-1);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [icon, setIcon] = useState("");
-  const [iconColor, setIconColor] = useState("#ff5a1f");
+  const [iconColor, setIconColor] = useState<string>(ICON_COLORS[0]);
   const [worktreeSetupCommand, setWorktreeSetupCommand] = useState("");
-  const [agent, setAgent] = useState<TaskAgent>("claude-code");
+  // Optional at create time: null means "just create the project", a selection
+  // means "create it and start a session with that agent".
+  const [agent, setAgent] = useState<TaskAgent | null>(null);
   const [gridView, setGridView] = useState(false);
   const [colorMenuOpen, setColorMenuOpen] = useState(false);
   const [imagePath, setImagePath] = useState<string | null>(null);
@@ -177,7 +195,7 @@ export function ProjectDialog({
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [autoStart, setAutoStart] = useState(true);
+  const [pinned, setPinned] = useState(true);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -218,9 +236,15 @@ export function ProjectDialog({
         ? groups.find((group) => group.id === project.groupId)?.name ?? ""
         : "";
       const seededIcon = project?.icon || "";
-      const seededIconColor = project?.iconColor || "#ff5a1f";
-      nameRef.current?.focus();
-      nameRef.current?.select();
+      const seededIconColor = project?.iconColor || ICON_COLORS[0];
+      const startInBrowser = !project && !!getElectron();
+      // Create flow starts in the folder browser (picking the directory IS the
+      // first step; the name auto-fills from it, and committing a folder moves
+      // focus to the name field). Editing keeps the old focus-the-name start.
+      if (!startInBrowser) {
+        nameRef.current?.focus();
+        nameRef.current?.select();
+      }
       setName(seededName);
       setPath(seededPath);
       setGroupId(project?.groupId || "");
@@ -235,10 +259,19 @@ export function ProjectDialog({
       setImagePath(project?.imagePath ?? null);
       setPendingImage(null);
       setColorMenuOpen(false);
-      setAutoStart(true);
+      setAgent(null);
+      setPinned(true);
       setConfirmingClose(false);
       setSubmitting(false);
       setError(null);
+      // Seeded names track the path, so browsing may keep overwriting them;
+      // an existing project's name is the user's and must never be touched.
+      setNameTouched(!!project);
+      // Create flow opens straight into the in-app browser (the whole point:
+      // no OS dialog); editing keeps it collapsed behind Browse….
+      setFolderBrowserOpen(startInBrowser);
+      setFolderBrowserAutoFocus(startInBrowser);
+      folderSnapshotRef.current = { path: seededPath, name: seededName };
       formSeedRef.current = JSON.stringify({
         name: seededName,
         path: seededPath,
@@ -248,23 +281,17 @@ export function ProjectDialog({
         hasImage: !!project?.imagePath,
       });
     }
-    // Agent is seeded in the effect below once agentOptions has settled.
   }, [initialPath, open, project?.id]);
 
-  // Seed the agent selection to the first launchable option when the dialog
-  // opens, and re-home it if the current pick turns out to be unavailable.
+  // If the selected agent turns out to be unavailable (its CLI probe resolves
+  // to missing after the pick), drop back to "no agent" rather than starting a
+  // session that can't launch. Optional-by-default means null is a valid rest.
   useEffect(() => {
     if (!open || project) return;
-    const firstLaunchable =
-      agentOptions.find((a) => agentCanLaunch(cliAvailability, a.id))?.id ??
-      agentOptions[0]?.id ??
-      "claude-code";
     setAgent((current) =>
-      agentOptions.some((a) => a.id === current) && agentCanLaunch(cliAvailability, current)
-        ? current
-        : firstLaunchable,
+      current && agentCanLaunch(cliAvailability, current) ? current : null,
     );
-  }, [open, project, agentOptions, cliAvailability]);
+  }, [open, project, cliAvailability]);
 
   // Surface save errors even when the form has scrolled: bring the error box
   // into view (FormErrorBox is role="alert", so it also announces to AT).
@@ -315,17 +342,43 @@ export function ProjectDialog({
     setPendingImage(null);
   };
 
-  const browse = async () => {
-    const electron = getElectron();
-    if (!electron) return;
-    const result = await electron.browseFolder();
-    if (result) {
-      setPath(result);
-      if (!name.trim()) {
-        const base = basename(result);
-        if (base) setName(base);
-      }
+  // In-app folder browsing replaces the OS dialog: the highlight live-previews
+  // into the path field and (until the user types their own) the name field.
+  const previewFolder = (p: string) => {
+    setPath(p);
+    if (!nameTouched) {
+      const base = basename(p);
+      if (base) setName(base);
     }
+  };
+
+  const commitFolder = (p: string) => {
+    previewFolder(p);
+    folderSnapshotRef.current = { path: p, name: nameTouched ? name : basename(p) };
+    setFolderBrowserOpen(false);
+    // Same directory grant an OS-dialog pick records; fire-and-forget.
+    void getElectron()?.grantFolder(p);
+    nameRef.current?.focus();
+    nameRef.current?.select();
+  };
+
+  const cancelFolderBrowse = () => {
+    const snapshot = folderSnapshotRef.current;
+    if (snapshot) {
+      setPath(snapshot.path);
+      if (!nameTouched) setName(snapshot.name);
+    }
+    setFolderBrowserOpen(false);
+  };
+
+  const toggleFolderBrowser = () => {
+    if (folderBrowserOpen) {
+      cancelFolderBrowse();
+      return;
+    }
+    folderSnapshotRef.current = { path, name };
+    setFolderBrowserAutoFocus(true);
+    setFolderBrowserOpen(true);
   };
 
   const selectGroup = (group: Group) => {
@@ -379,11 +432,19 @@ export function ProjectDialog({
     return groupId || null;
   };
 
-  const submit = async (autoStart: boolean) => {
+  // A picked agent is the opt-in to launch a session; no pick just creates the
+  // project. Drives the primary button's label and the create payload alike.
+  const willStartSession = !project && agent !== null;
+
+  const submit = async () => {
     if (submitting) return;
     setError(null);
     setSubmitting(true);
     try {
+      // The final path may have been live-previewed (or hand-typed) without
+      // passing through commitFolder — record its grant here so every saved
+      // path is granted, not just explicitly committed picks. Idempotent.
+      void getElectron()?.grantFolder(path.trim());
       const effectiveGroupId = await resolveGroupIdForSave();
       const effectiveName = name.trim() || basename(path.trim());
       await onSave({
@@ -397,9 +458,10 @@ export function ProjectDialog({
           ? { worktreeSetupCommand: worktreeSetupCommand.trim() || null }
           : {
               savedAgent: agent,
-              rememberAgentSettings: true,
+              rememberAgentSettings: agent !== null,
               defaultGridView: gridView,
-              autoStart,
+              autoStart: willStartSession,
+              pinned,
             }),
       });
     } catch (e: any) {
@@ -410,18 +472,18 @@ export function ProjectDialog({
   };
 
   // Enter / Cmd+Enter runs the primary action: Save when editing; for a new
-  // project it honors the "Start a session now" toggle and the same path gate
+  // project it honors the agent pick (willStartSession) and the same path gate
   // as the button, so the keyboard path can't bypass what the button enforces.
   useHotkey(
     "dialog.submit",
     () => {
       if (confirmingClose) return;
       if (project) {
-        void submit(false);
+        void submit();
         return;
       }
       if (!path.trim()) return;
-      void submit(autoStart);
+      void submit();
     },
     { enabled: open },
   );
@@ -430,7 +492,6 @@ export function ProjectDialog({
   // project — auto initials from the name until the user overrides them.
   const derivedInitials =
     (name.trim() || basename(path.trim())).slice(0, 2).toUpperCase() || "AB";
-  const selectedAgentLabel = AGENT_REGISTRY[agent]?.label ?? "your coding agent";
   const currentFormKey = JSON.stringify({
     name,
     path,
@@ -540,7 +601,12 @@ export function ProjectDialog({
         <TextField
           label="Name (optional)"
           value={name}
-          onChange={setName}
+          onChange={(v) => {
+            setName(v);
+            // A typed name opts out of folder-name auto-sync; clearing the
+            // field hands naming back to the browser highlight.
+            setNameTouched(v.trim().length > 0);
+          }}
           inputRef={nameRef}
           placeholder={basename(path.trim()) || "defaults to folder name"}
         />
@@ -697,130 +763,138 @@ export function ProjectDialog({
       <FieldLabel>
         Working directory <span style={{ color: "var(--accent)" }}>*</span>
       </FieldLabel>
-      <div style={{ display: "flex", gap: 8 }}>
-        <div style={{ flex: 1 }}>
-          <TextField
-            mono
-            required
-            ariaLabel="Working directory (required)"
-            value={path}
-            onChange={setPath}
-            placeholder="/Users/me/dev/my-project"
-          />
+      {/* While the browser is open it IS the working-directory control —
+          breadcrumbs + highlight show the path, so the input row would just
+          duplicate state (and invite edits the browser ignores). */}
+      {!folderBrowserOpen && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <TextField
+              mono
+              required
+              ariaLabel="Working directory (required)"
+              value={path}
+              onChange={setPath}
+              placeholder="/Users/me/dev/my-project"
+            />
+          </div>
+          {!!getElectron() && (
+            <Btn variant="solid" icon="folder" onClick={toggleFolderBrowser}>
+              Browse…
+            </Btn>
+          )}
         </div>
-        <Btn variant="solid" icon="folder" onClick={browse}>
-          Browse…
-        </Btn>
-      </div>
+      )}
+      {folderBrowserOpen && (
+        <FolderBrowser
+          initialPath={path.trim() || null}
+          autoFocus={folderBrowserAutoFocus}
+          onPreview={previewFolder}
+          onCommit={commitFolder}
+          onCancel={cancelFolderBrowse}
+        />
+      )}
     </div>
   );
 
   const startWithField = (
     <div>
       <FieldLabel>Start with</FieldLabel>
-      <div
-        role="radiogroup"
-        aria-label="Default coding agent"
+      <PickCardGroup
+        // Accessible name starts with the visible label so "Start with" is
+        // speakable (WCAG label-in-name).
+        ariaLabel="Start with — coding agent for the first session (optional)"
+        value={agent}
+        onChange={setAgent}
+        deselectable
         style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
-      >
-        {agentOptions.map((a) => {
+        options={agentOptions.map((a) => {
           const meta = AGENT_META[a.id];
-          const selected = agent === a.id;
           const availability = availabilityFor(cliAvailability, a.id);
           const cliMissing = availability.status === "missing";
           const cliOutdated = availability.status === "outdated";
-          const disabled = !cliOutdated && !agentCanLaunch(cliAvailability, a.id);
+          // In Electron an `unknown` status only exists for the beat before the
+          // probe kicks off — treat it as still checking, never as broken.
+          const cliChecking =
+            !cliMissing &&
+            !cliOutdated &&
+            !!getElectron() &&
+            (availability.status === "checking" || availability.status === "unknown");
+          const disabled =
+            submitting || (!cliOutdated && !agentCanLaunch(cliAvailability, a.id));
+          // Reason lives in the name (not just `title`) so keyboard/AT users
+          // hear why it's unavailable; `aria-disabled` keeps it focusable.
           const statusReason = cliMissing
-            ? `${a.command} was not found on PATH`
+            ? `${a.command} not found on PATH — install it to enable`
             : cliOutdated
               ? `${a.command} must be updated before launching`
-              : null;
-          return (
-            <button
-              key={a.id}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              // Reason lives in the name (not just `title`) so keyboard/AT users
-              // hear why it's unavailable; `aria-disabled` keeps it focusable.
-              aria-label={disabled && statusReason ? `${a.label} — ${statusReason}` : a.label}
-              aria-disabled={disabled || undefined}
-              onClick={() => !disabled && setAgent(a.id)}
-              className="mc-pick-card"
-              title={statusReason ?? undefined}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 9,
-                textAlign: "left",
-                padding: "9px 10px",
-                background: selected ? "var(--surface-2)" : "var(--surface-0)",
-                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                borderRadius: 7,
-                cursor: disabled ? "not-allowed" : "pointer",
-                opacity: disabled ? 0.5 : 1,
-              }}
-            >
-              <div
-                key={selected ? "on" : "off"}
-                className={selected ? "mc-pick-pop" : undefined}
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 6,
-                  background: `${meta.color}22`,
-                  border: `1px solid ${meta.color}44`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: meta.color,
-                  flex: "0 0 auto",
-                }}
-              >
-                <AgentLogo agent={a.id} size={17} title={a.label} />
-              </div>
-              <span
-                style={{
-                  minWidth: 0,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "var(--text)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {a.label}
-              </span>
-              {(cliMissing || cliOutdated) && (
-                <span
-                  aria-hidden
-                  title={cliMissing ? "CLI not found on PATH" : "Update required"}
+              : cliChecking
+                ? `checking ${a.command} availability…`
+                : null;
+          return {
+            value: a.id,
+            ariaLabel: disabled && statusReason ? `${a.label} — ${statusReason}` : a.label,
+            title: statusReason ?? undefined,
+            disabled,
+            content: (selected: boolean) => (
+              <>
+                <div
+                  key={selected ? "on" : "off"}
+                  className={selected ? "mc-pick-pop" : undefined}
                   style={{
-                    marginLeft: "auto",
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: "var(--status-failed)",
+                    width: 26,
+                    height: 26,
+                    borderRadius: 6,
+                    background: `${meta.color}22`,
+                    border: `1px solid ${meta.color}44`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: meta.color,
                     flex: "0 0 auto",
                   }}
-                />
-              )}
-            </button>
-          );
+                >
+                  <AgentLogo agent={a.id} size={17} />
+                </div>
+                <span
+                  style={{
+                    minWidth: 0,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {a.label}
+                </span>
+                {(cliMissing || cliOutdated || cliChecking) && (
+                  <span
+                    aria-hidden
+                    className={cliChecking ? "mc-availability-checking" : undefined}
+                    style={{
+                      marginLeft: "auto",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      // Severity-tiered: missing = failed (can't launch at all),
+                      // outdated = warning (launchable, but update needed),
+                      // checking = faint pulse (probe still running).
+                      background: cliChecking
+                        ? "var(--text-faint)"
+                        : cliMissing
+                          ? "var(--status-failed)"
+                          : "var(--status-warning, var(--accent))",
+                      flex: "0 0 auto",
+                    }}
+                  />
+                )}
+              </>
+            ),
+          };
         })}
-      </div>
-      <div
-        style={{
-          fontFamily: "var(--mono)",
-          fontSize: 10.5,
-          color: "var(--text-faint)",
-          marginTop: 7,
-          lineHeight: 1.4,
-        }}
-      >
-        The default for new sessions — switch agents anytime.
-      </div>
+      />
     </div>
   );
 
@@ -830,39 +904,22 @@ export function ProjectDialog({
   const layoutField = (
     <div>
       <FieldLabel>Layout</FieldLabel>
-      <div
-        role="radiogroup"
-        aria-label="Default layout"
+      <PickCardGroup
+        ariaLabel="Layout — default session layout"
+        value={gridView ? "grid" : "list"}
+        onChange={(v) => setGridView(v === "grid")}
         style={{ display: "grid", gap: 8 }}
-      >
-        {(
+        options={(
           [
-            { value: false, label: "List", variant: "list" as const },
-            { value: true, label: "Grid", variant: "grid" as const },
+            { label: "List", variant: "list" as const },
+            { label: "Grid", variant: "grid" as const },
           ]
-        ).map((opt) => {
-          const selected = gridView === opt.value;
-          return (
-            <button
-              key={opt.label}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              aria-label={`${opt.label} layout`}
-              onClick={() => setGridView(opt.value)}
-              className="mc-pick-card"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 9,
-                textAlign: "left",
-                padding: "9px 10px",
-                background: selected ? "var(--surface-2)" : "var(--surface-0)",
-                border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                borderRadius: 7,
-                cursor: "pointer",
-              }}
-            >
+        ).map((opt) => ({
+          value: opt.variant,
+          ariaLabel: `${opt.label} layout`,
+          disabled: submitting,
+          content: (selected: boolean) => (
+            <>
               <span
                 key={selected ? "on" : "off"}
                 className={selected ? "mc-pick-pop" : undefined}
@@ -873,10 +930,10 @@ export function ProjectDialog({
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
                 {opt.label}
               </span>
-            </button>
-          );
-        })}
-      </div>
+            </>
+          ),
+        }))}
+      />
     </div>
   );
 
@@ -1142,7 +1199,7 @@ export function ProjectDialog({
       open={open}
       onClose={requestClose}
       title={project ? "Edit project" : "Add project"}
-      width={project ? 520 : 540}
+      width={project ? 600 : 620}
       footer={
         project ? (
           <>
@@ -1152,7 +1209,7 @@ export function ProjectDialog({
               </Btn>
             </EscTooltip>
             <HotkeyTooltip action="dialog.submit">
-              <Btn variant="primary" onClick={() => void submit(false)} disabled={submitting}>
+              <Btn variant="primary" onClick={() => void submit()} disabled={submitting}>
                 Save
               </Btn>
             </HotkeyTooltip>
@@ -1193,21 +1250,21 @@ export function ProjectDialog({
                 Add a working directory to create.
               </span>
             ) : (
-              // Compact footer toggle: sits next to the button it modifies
-              // ("Create & start session" ⇄ "Create project").
+              // Compact footer toggle: pinning is independent of whether a
+              // session starts — that's driven by the agent pick above.
               <div
                 style={{ marginRight: "auto", display: "flex", alignItems: "center", gap: 8 }}
-                title={`Launches ${selectedAgentLabel} in this project as soon as it's created.`}
+                title="Keep this project pinned to the top of your sidebar."
               >
                 <ToggleSwitch
-                  checked={autoStart}
-                  onChange={setAutoStart}
-                  label="Start a session now"
-                  labelledBy="project-autostart-label"
+                  checked={pinned}
+                  onChange={setPinned}
+                  label="Pin project"
+                  labelledBy="project-pin-label"
                 />
                 <span
-                  id="project-autostart-label"
-                  onClick={() => setAutoStart(!autoStart)}
+                  id="project-pin-label"
+                  onClick={() => setPinned(!pinned)}
                   style={{
                     fontFamily: "var(--mono)",
                     fontSize: 11.5,
@@ -1216,7 +1273,7 @@ export function ProjectDialog({
                     userSelect: "none",
                   }}
                 >
-                  Start a session now
+                  Pin project
                 </span>
               </div>
             )}
@@ -1228,11 +1285,11 @@ export function ProjectDialog({
             <HotkeyTooltip action="dialog.submit">
               <Btn
                 variant="primary"
-                icon={autoStart ? "terminal" : undefined}
-                onClick={() => void submit(autoStart)}
+                icon={willStartSession ? "terminal" : undefined}
+                onClick={() => void submit()}
                 disabled={submitting || !path.trim()}
               >
-                {autoStart ? "Create & start session" : "Create project"}
+                {willStartSession ? "Create & start session" : "Create project"}
               </Btn>
             </HotkeyTooltip>
           </>
@@ -1251,18 +1308,12 @@ export function ProjectDialog({
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <GroupCard
-            title="Project"
-            description="Where it lives on disk and how it shows up in your sidebar."
-          >
+          <GroupCard title="Project">
             {identityRow}
             {dirField}
             {groupField}
           </GroupCard>
-          <GroupCard
-            title="Sessions"
-            description="Defaults for the coding agents you'll run in this project."
-          >
+          <GroupCard title="Sessions">
             {/* Agent picker and layout side-by-side — layout is the lighter
                 choice, so it sits as a slim column with a rule between them. */}
             <div style={{ display: "flex", gap: 14, alignItems: "stretch" }}>
