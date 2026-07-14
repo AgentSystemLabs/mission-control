@@ -5,6 +5,7 @@ export type MermaidInitConfig = {
   theme: "base";
   securityLevel: "strict";
   fontFamily: string;
+  maxEdges: number;
   themeVariables: Record<string, string | boolean>;
 };
 
@@ -80,6 +81,11 @@ export function buildMermaidInitConfig(
     theme: "base",
     securityLevel: "strict",
     fontFamily: "var(--mono, ui-monospace, monospace)",
+    // mermaid silently truncates diagrams past 500 edges by default, so large
+    // (e.g. 64KB) sources render partially with no error. Raise the ceiling to
+    // 2000 so realistically large diagrams render in full; anything beyond that
+    // still fails cleanly through the dialog's error path.
+    maxEdges: 2000,
     themeVariables: {
       darkMode: isDark,
       background: "transparent",

@@ -7,10 +7,7 @@ const MARKER = "_mcManaged";
 // injectContext: for this event, let the hook's HTTP response reach stdout so
 // Claude Code injects it as additional turn context (used by proactive recall).
 // Every other event discards stdout — the response is fire-and-forget status.
-// gateSeconds: throttle the hook IN the shell command itself — a timestamp-file
-// gate that exits before curl when fired again within the window. Keeps a
-// high-frequency hook (the pet's PostToolUse) from POSTing on every tool call.
-type HookEvent = { event: string; matcher?: string; injectContext?: boolean; gateSeconds?: number };
+type HookEvent = { event: string; matcher?: string; injectContext?: boolean };
 type HookEntry = {
   type: "command";
   command: string;
@@ -92,33 +89,23 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
 
 // The Mission Pet's mid-run signal: a broad PostToolUse scoped to the tools
 // whose results are worth reacting to (Bash/Write/Edit). Installed ONLY when the
-// pet is enabled (see installAgentHooks `opts.petEnabled`) and throttled
-// in-command via gateSeconds so it never POSTs per tool call. Claude Code only —
+// pet is enabled (see installAgentHooks `opts.petEnabled`). It POSTs on every
+// qualifying tool call: a shell-side time gate here would silently drop a
+// meaningful result (a passing test, a landed commit) whenever it lands within
+// the window of a routine neutral edit, so throttling lives server-side instead
+// (hooks.controller `allowNeutralToolReact`), where the result is classified and
+// only the neutral "agent is working" signal is rate-capped. Claude Code only —
 // no other supported agent exposes PostToolUse.
 const PET_TOOL_HOOK: HookEvent = {
   event: "PostToolUse",
   matcher: "Bash|Write|Edit",
-  gateSeconds: 20,
 };
-
-// A timestamp-file gate prepended to a hook command so it exits before curl when
-// re-fired inside the window. Fail-open: a bad/empty stamp just lets the POST
-// through. $TMPDIR is per-user on macOS; /tmp is the POSIX fallback.
-function posixCooldownGate(gateSeconds: number): string {
-  return (
-    'GATE="${TMPDIR:-/tmp}/mc-tool-react.$MC_TASK_ID"; ' +
-    'NOW=$(date +%s); LAST=$(cat "$GATE" 2>/dev/null || echo 0); ' +
-    `[ $((NOW-LAST)) -lt ${gateSeconds} ] 2>/dev/null && exit 0; ` +
-    'echo "$NOW" > "$GATE" 2>/dev/null; '
-  );
-}
 
 function buildPosixHookCommand(
   endpointSlug: string,
   event: string,
   style: "claude" | "cursor",
   injectContext: boolean,
-  gateSeconds?: number
 ): string {
   // Read stdin (the agent's hook payload JSON) and forward to Mission Control.
   // Fail-soft: never block the user's session if MC is down.
@@ -138,10 +125,8 @@ function buildPosixHookCommand(
   // others discard it. Either way stderr is dropped and a non-zero exit is
   // swallowed, so a slow/down server never blocks or faults the turn.
   const redirect = injectContext ? "2>/dev/null || true" : ">/dev/null 2>&1 || true";
-  const gate = gateSeconds ? posixCooldownGate(gateSeconds) : "";
   return (
     'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
-    gate +
     "curl -sS -m 3 -X POST " +
     '-H "Authorization: Bearer $MC_API_TOKEN" ' +
     '-H "X-Mission-Control-Runtime: electron-local" ' +
@@ -152,23 +137,11 @@ function buildPosixHookCommand(
   );
 }
 
-// PowerShell counterpart of posixCooldownGate. Same fail-open contract.
-function powershellCooldownGate(gateSeconds: number): string {
-  return (
-    '$gate = Join-Path $env:TEMP "mc-tool-react.$($env:MC_TASK_ID)"; ' +
-    "$now = [int][double]::Parse((Get-Date -UFormat %s)); " +
-    "$last = 0; if (Test-Path $gate) { try { $last = [int](Get-Content $gate -Raw -ErrorAction Stop) } catch {} }; " +
-    `if (($now - $last) -lt ${gateSeconds}) { exit 0 }; ` +
-    "try { Set-Content -Path $gate -Value $now -ErrorAction Stop } catch {}"
-  );
-}
-
 function buildPowerShellHookCommand(
   endpointSlug: string,
   event: string,
   style: "claude" | "cursor",
   injectContext: boolean,
-  gateSeconds?: number
 ): string {
   const eventParam = encodeURIComponent(event);
   const missingEnv =
@@ -186,7 +159,6 @@ function buildPowerShellHookCommand(
 
   return [
     missingEnv,
-    ...(gateSeconds ? [powershellCooldownGate(gateSeconds)] : []),
     "$payload = [Console]::In.ReadToEnd()",
     "$taskId = [System.Uri]::EscapeDataString($env:MC_TASK_ID)",
     `$url = "$($env:MC_API_URL)/api/hooks/${endpointSlug}?taskId=$taskId&hookEvent=${eventParam}"`,
@@ -201,15 +173,14 @@ function buildHookCommand(
   style: "claude" | "cursor",
   platform: NodeJS.Platform,
   injectContext: boolean,
-  gateSeconds?: number
 ): HookCommand {
   if (platform === "win32" && style === "claude") {
     return {
-      command: buildPowerShellHookCommand(endpointSlug, event, style, injectContext, gateSeconds),
+      command: buildPowerShellHookCommand(endpointSlug, event, style, injectContext),
       shell: "powershell",
     };
   }
-  return { command: buildPosixHookCommand(endpointSlug, event, style, injectContext, gateSeconds) };
+  return { command: buildPosixHookCommand(endpointSlug, event, style, injectContext) };
 }
 
 function buildManagedGroup(
@@ -301,14 +272,13 @@ export function installAgentHooks(
   // every managed group — otherwise the second entry would filter out the group
   // the first just added.
   const strippedEvents = new Set<string>();
-  for (const { event, matcher, injectContext, gateSeconds } of events) {
+  for (const { event, matcher, injectContext } of events) {
     const command = buildHookCommand(
       spec.endpointSlug,
       event,
       style,
       platform,
       injectContext ?? false,
-      gateSeconds,
     );
     const groups = (hooks[event] ??= []);
     if (!strippedEvents.has(event)) {

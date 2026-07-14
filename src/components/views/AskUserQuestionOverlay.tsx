@@ -76,6 +76,9 @@ export function AskUserQuestionOverlay({
   const [submitting, setSubmitting] = useState(false);
   const [finished, setFinished] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  // Peek: collapse the panel to its header so the terminal (Claude's actual
+  // question + the context above it) is readable without giving up the menu.
+  const [collapsed, setCollapsed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -254,7 +257,27 @@ export function AskUserQuestionOverlay({
       }
       return;
     }
+    // Tab peeks: collapse to the header so the terminal shows through, and a
+    // second Tab (or any answer key below) brings the menu back.
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (!(submitting || finished || desynced)) setCollapsed((c) => !c);
+      return;
+    }
     if (submitting || finished || desynced) return;
+    if (collapsed) {
+      // While peeking, the first actionable key re-opens the menu.
+      if (
+        e.key === "Enter" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown" ||
+        (e.key >= "1" && e.key <= "9")
+      ) {
+        e.preventDefault();
+        setCollapsed(false);
+      }
+      return;
+    }
     if (textMode) {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -313,22 +336,27 @@ export function AskUserQuestionOverlay({
           width: "100%",
           display: "flex",
           alignItems: "flex-start",
-          gap: 8,
-          padding: "6px 8px",
+          gap: 10,
+          padding: "8px 10px",
           background: highlighted ? "var(--surface-2)" : "transparent",
           border: "none",
-          borderLeft: `2px solid ${highlighted ? "var(--accent)" : "transparent"}`,
+          // Full inset ring on the active row — never a side stripe.
+          boxShadow: highlighted
+            ? "inset 0 0 0 1px var(--border-strong)"
+            : "inset 0 0 0 1px transparent",
           borderRadius: "var(--radius-sm)",
           cursor: submitting ? "default" : "pointer",
           textAlign: "left",
+          transition: "background 130ms ease, box-shadow 130ms ease",
         }}
       >
         {props.glyph}
         <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
           <span
             style={{
-              fontSize: 12,
+              fontSize: 13,
               lineHeight: 1.4,
+              fontWeight: 450,
               color: props.dim ? "var(--text-dim)" : "var(--text)",
             }}
           >
@@ -337,8 +365,8 @@ export function AskUserQuestionOverlay({
           {!narrow && props.description && (
             <span
               style={{
-                fontSize: 11,
-                lineHeight: 1.4,
+                fontSize: 11.5,
+                lineHeight: 1.45,
                 color: "var(--text-dim)",
                 display: "-webkit-box",
                 WebkitLineClamp: 2,
@@ -355,6 +383,9 @@ export function AskUserQuestionOverlay({
   };
 
   const passive = desynced || !!finished || submitting;
+  // Only truly collapse while the menu is interactive — a resolved/sending
+  // state must stay visible so its message isn't hidden behind the header.
+  const peeking = collapsed && !passive;
 
   return (
     <div
@@ -371,6 +402,7 @@ export function AskUserQuestionOverlay({
         hasFocusRef.current = !!next && !!containerRef.current?.contains(next);
       }}
       data-question-overlay
+      className="mc-aq-panel"
       style={{
         position: "absolute",
         left: 8,
@@ -379,27 +411,31 @@ export function AskUserQuestionOverlay({
         zIndex: 2,
         display: "flex",
         flexDirection: "column",
-        maxHeight: "min(75%, 340px)",
+        maxHeight: "min(75%, 360px)",
         background: "var(--surface-1)",
-        border: "1px solid var(--border)",
+        border: "1px solid var(--border-strong)",
         borderRadius: "var(--radius)",
-        boxShadow: "0 10px 28px rgba(0, 0, 0, 0.4)",
+        boxShadow:
+          "0 12px 32px -8px rgba(0, 0, 0, 0.55), 0 4px 12px -6px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04)",
         outline: "none",
         overflow: "hidden",
-        animation: "fade-up 0.12s ease-out",
+        animation: "fade-up 0.16s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
       <div
+        onClick={peeking ? () => setCollapsed(false) : undefined}
+        title={peeking ? "Show the answer menu" : undefined}
         style={{
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: "7px 10px",
-          borderBottom: "1px solid var(--border)",
-          fontFamily: "var(--mono)",
-          fontSize: 10.5,
-          color: "var(--text-dim)",
+          padding: "9px 10px 9px 12px",
+          // Peeking drops the divider so the bar reads as a floating strip.
+          borderBottom: peeking ? "1px solid transparent" : "1px solid var(--border)",
+          // Faint state wash: this pane needs input, and the header says so.
+          background: "color-mix(in srgb, var(--status-needs) 6%, transparent)",
           flexShrink: 0,
+          cursor: peeking ? "pointer" : "default",
         }}
       >
         <span
@@ -409,13 +445,17 @@ export function AskUserQuestionOverlay({
             height: 7,
             borderRadius: 999,
             background: "var(--status-needs)",
+            boxShadow: "0 0 0 3px color-mix(in srgb, var(--status-needs) 20%, transparent)",
             flexShrink: 0,
           }}
         />
         <span
           style={{
-            color: "var(--text)",
+            fontFamily: "var(--mono)",
+            fontSize: 11,
             fontWeight: 600,
+            letterSpacing: "0.01em",
+            color: "var(--text)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -424,34 +464,89 @@ export function AskUserQuestionOverlay({
           {question.header || "Question"}
         </span>
         {total > 1 && (
-          <span style={{ flexShrink: 0 }}>
+          <span
+            style={{
+              flexShrink: 0,
+              fontFamily: "var(--mono)",
+              fontSize: 10,
+              color: "var(--text-dim)",
+              padding: "1px 6px",
+              borderRadius: 999,
+              background: "var(--surface-2)",
+              border: "1px solid var(--border)",
+            }}
+          >
             {questionIdx + 1}/{total}
           </span>
         )}
         <span style={{ marginLeft: "auto", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6 }}>
-          {!narrow && <Kbd>esc</Kbd>}
-          <Btn variant="ghost" size="sm" icon="x" aria-label="Hide question" onClick={onDismiss} />
+          {peeking && !narrow && (
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-faint)" }}>
+              terminal visible
+            </span>
+          )}
+          {!narrow && !peeking && <Kbd>esc</Kbd>}
+          {!passive && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon={collapsed ? "chevron-up" : "chevron-down"}
+              aria-label={collapsed ? "Show the answer menu" : "Collapse to see the terminal"}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCollapsed((c) => !c);
+              }}
+            />
+          )}
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon="x"
+            aria-label="Hide question"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDismiss();
+            }}
+          />
         </span>
       </div>
 
-      {passive ? (
+      {!peeking && (passive ? (
         <div
           style={{
-            padding: "10px 12px",
-            fontFamily: "var(--mono)",
-            fontSize: 11.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "12px",
+            fontSize: 12.5,
+            lineHeight: 1.4,
             color: "var(--text-dim)",
           }}
         >
+          {submitting && (
+            <span
+              aria-hidden
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 999,
+                border: "1.5px solid var(--border-strong)",
+                borderTopColor: "var(--accent)",
+                animation: "spin 0.7s linear infinite",
+                flexShrink: 0,
+              }}
+            />
+          )}
           {finished ?? (submitting ? "Sending answers…" : "Answering in the terminal…")}
         </div>
       ) : (
         <>
           <div
             style={{
-              padding: "9px 12px 7px",
-              fontSize: 12.5,
-              lineHeight: 1.45,
+              padding: "12px 12px 8px",
+              fontSize: 13.5,
+              lineHeight: 1.5,
+              fontWeight: 450,
               color: "var(--text)",
               flexShrink: 0,
             }}
@@ -459,22 +554,26 @@ export function AskUserQuestionOverlay({
             {question.question}
           </div>
           {textMode ? (
-            <div style={{ padding: "2px 12px 10px" }}>
+            <div style={{ padding: "2px 12px 12px" }}>
               <input
                 ref={textInputRef}
+                className="mc-aq-input"
                 value={textDraft}
                 onChange={(e) => setTextDraft(e.target.value)}
                 placeholder="Type your answer…"
                 aria-label="Custom answer"
                 style={{
                   width: "100%",
-                  padding: "7px 10px",
+                  padding: "9px 11px",
                   background: "var(--surface-0, var(--bg))",
-                  border: "1px solid var(--border-strong, var(--border))",
+                  // The input is auto-focused whenever it's visible, so it wears
+                  // the focused ring outright rather than only on :focus.
+                  border: "1px solid var(--accent-border)",
                   borderRadius: "var(--radius-sm)",
                   outline: "none",
+                  boxShadow: "0 0 0 3px var(--accent-faint)",
                   fontFamily: "var(--mono)",
-                  fontSize: 12,
+                  fontSize: 12.5,
                   color: "var(--text)",
                 }}
               />
@@ -484,15 +583,9 @@ export function AskUserQuestionOverlay({
               {question.options.map((option, i) =>
                 optionRow({
                   index: i,
-                  glyph: multiSelect ? (
-                    <span aria-hidden style={checkboxStyle(checked.has(i))}>
-                      {checked.has(i) ? "✓" : ""}
-                    </span>
-                  ) : (
-                    <span aria-hidden style={digitStyle}>
-                      {i + 1}
-                    </span>
-                  ),
+                  glyph: multiSelect
+                    ? checkGlyph(checked.has(i), i === highlightIdx)
+                    : digitChip(i + 1, i === highlightIdx),
                   label: option.label,
                   description: option.description,
                   onClick: () => activate(i),
@@ -502,26 +595,18 @@ export function AskUserQuestionOverlay({
                 <>
                   <div
                     aria-hidden
-                    style={{ borderTop: "1px solid var(--border)", margin: "4px 8px" }}
+                    style={{ borderTop: "1px solid var(--border)", margin: "6px 8px" }}
                   />
                   {optionRow({
                     index: typeRowIdx,
-                    glyph: (
-                      <span aria-hidden style={digitStyle}>
-                        {typeRowIdx + 1}
-                      </span>
-                    ),
+                    glyph: digitChip(typeRowIdx + 1, typeRowIdx === highlightIdx),
                     label: "Type something…",
                     dim: true,
                     onClick: () => activate(typeRowIdx),
                   })}
                   {optionRow({
                     index: chatRowIdx,
-                    glyph: (
-                      <span aria-hidden style={digitStyle}>
-                        {chatRowIdx + 1}
-                      </span>
-                    ),
+                    glyph: digitChip(chatRowIdx + 1, chatRowIdx === highlightIdx),
                     label: "Chat about this",
                     dim: true,
                     onClick: () => activate(chatRowIdx),
@@ -535,10 +620,10 @@ export function AskUserQuestionOverlay({
               display: "flex",
               alignItems: "center",
               gap: 12,
-              padding: "6px 10px",
+              padding: "8px 12px",
               borderTop: "1px solid var(--border)",
               fontFamily: "var(--mono)",
-              fontSize: 10,
+              fontSize: 10.5,
               color: "var(--text-faint)",
               flexShrink: 0,
             }}
@@ -571,6 +656,7 @@ export function AskUserQuestionOverlay({
                         {hint("navigate", ["↑", "↓"])}
                         {multiSelect && hint("toggle", ["space"])}
                         {hint(multiSelect ? "submit" : "select", ["↵"])}
+                        {hint("peek", ["⇥"])}
                       </>
                     )}
               </>
@@ -604,7 +690,7 @@ export function AskUserQuestionOverlay({
             </span>
           </div>
         </>
-      )}
+      ))}
     </div>
   );
 }
@@ -624,28 +710,64 @@ function restoredHighlight(
   return 0;
 }
 
-const digitStyle: CSSProperties = {
+const glyphBase: CSSProperties = {
   flexShrink: 0,
-  width: 16,
-  height: 16,
+  width: 19,
+  height: 19,
   marginTop: 1,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   fontFamily: "var(--mono)",
-  fontSize: 10,
-  color: "var(--text-faint)",
-  border: "1px solid var(--border)",
-  borderRadius: 4,
+  lineHeight: 1,
+  borderRadius: 5,
+  transition: "color 130ms ease, background 130ms ease, border-color 130ms ease",
 };
 
-function checkboxStyle(selected: boolean): CSSProperties {
-  return {
-    ...digitStyle,
-    color: selected ? "var(--accent-ink)" : "transparent",
-    borderColor: selected ? "var(--accent-border)" : "var(--border)",
-    background: selected ? "var(--accent-faint)" : "transparent",
-  };
+/**
+ * The leading number doubles as the row's "you are here" marker and its
+ * numeric shortcut — it lights up in accent on the highlighted row.
+ */
+function digitChip(label: ReactNode, highlighted: boolean): ReactNode {
+  return (
+    <span
+      aria-hidden
+      style={{
+        ...glyphBase,
+        fontSize: 10.5,
+        fontWeight: highlighted ? 600 : 500,
+        color: highlighted ? "var(--accent-ink)" : "var(--text-faint)",
+        border: `1px solid ${highlighted ? "var(--accent-border)" : "var(--border)"}`,
+        background: highlighted ? "var(--accent-faint)" : "var(--surface-0)",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function checkGlyph(selected: boolean, highlighted: boolean): ReactNode {
+  return (
+    <span
+      aria-hidden
+      style={{
+        ...glyphBase,
+        fontSize: 11,
+        fontWeight: 600,
+        color: selected ? "var(--accent-ink)" : "transparent",
+        border: `1px solid ${
+          selected
+            ? "var(--accent-border)"
+            : highlighted
+              ? "var(--border-strong)"
+              : "var(--border)"
+        }`,
+        background: selected ? "var(--accent-faint)" : "var(--surface-0)",
+      }}
+    >
+      {selected ? "✓" : ""}
+    </span>
+  );
 }
 
 const linkStyle: CSSProperties = {

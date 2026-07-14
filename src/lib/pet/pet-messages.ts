@@ -41,6 +41,25 @@ export type PetTrigger =
   // editing files) or a tool result just looked like an error
   | "agent-working"
   | "agent-error"
+  // mid-run tool results, classified (what the agent's tool actually did —
+  // see ~/shared/pet-tool-classify): things going wrong…
+  | "tool-merge-conflict"
+  | "tool-test-fail"
+  | "tool-type-error"
+  | "tool-build-fail"
+  | "tool-lint-fail"
+  // …things going right…
+  | "tool-commit"
+  | "tool-push"
+  | "tool-tests-pass"
+  | "tool-deploy"
+  // …and what kind of file the agent is editing
+  | "edit-test"
+  | "edit-styles"
+  | "edit-docs"
+  | "edit-config"
+  | "edit-lockfile"
+  | "edit-migration"
   | "interrupted"
   | "idle"
   | "petting"
@@ -203,11 +222,31 @@ const TRIGGER_META: Record<PetTrigger, TriggerMeta> = {
   "worktree-created": { priority: "flavor", cooldownMs: 300_000 },
   "project-created": { priority: "flavor", cooldownMs: 600_000 },
   "diagram-show": { priority: "flavor", cooldownMs: 300_000 },
-  // Ambient "still on it" line during a long run — rare so it stays charming.
-  "agent-working": { priority: "flavor", cooldownMs: 180_000 },
+  // Ambient "still on it" line during a long run — chatty enough to feel like
+  // the pet is watching the AI work, but spaced so it doesn't nag.
+  "agent-working": { priority: "flavor", cooldownMs: 45_000 },
+  // Classified tool results. Failures land as info on the agent-error cadence;
+  // wins are rarer signals worth a slightly quicker turnaround; file-type
+  // observations are pure flavor and kept infrequent so a long editing run
+  // doesn't turn the pet into a commentary track.
+  "tool-merge-conflict": { priority: "info", cooldownMs: 45_000 },
+  "tool-test-fail": { priority: "info", cooldownMs: 45_000 },
+  "tool-type-error": { priority: "info", cooldownMs: 45_000 },
+  "tool-build-fail": { priority: "info", cooldownMs: 45_000 },
+  "tool-lint-fail": { priority: "info", cooldownMs: 60_000 },
+  "tool-commit": { priority: "info", cooldownMs: 30_000 },
+  "tool-push": { priority: "info", cooldownMs: 30_000 },
+  "tool-tests-pass": { priority: "info", cooldownMs: 30_000 },
+  "tool-deploy": { priority: "info", cooldownMs: 30_000 },
+  "edit-test": { priority: "flavor", cooldownMs: 120_000 },
+  "edit-styles": { priority: "flavor", cooldownMs: 120_000 },
+  "edit-docs": { priority: "flavor", cooldownMs: 120_000 },
+  "edit-config": { priority: "flavor", cooldownMs: 120_000 },
+  "edit-lockfile": { priority: "flavor", cooldownMs: 120_000 },
+  "edit-migration": { priority: "flavor", cooldownMs: 120_000 },
   // A tool result looked like an error. Gentle (not critical — agents hit and
-  // recover from errors constantly) and well-spaced so it never nags.
-  "agent-error": { priority: "info", cooldownMs: 90_000 },
+  // recover from errors constantly) but responsive enough to feel present.
+  "agent-error": { priority: "info", cooldownMs: 45_000 },
   interrupted: { priority: "info", cooldownMs: 60_000 },
   idle: { priority: "flavor", cooldownMs: 900_000 },
   petting: { priority: "info", cooldownMs: 20_000 },

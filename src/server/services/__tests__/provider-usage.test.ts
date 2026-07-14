@@ -3,6 +3,7 @@ import {
   getProviderUsage,
   _resetCodexUsageCache,
   _resetCursorUsageCache,
+  _resetProviderUsageCacheForTests,
   _setCodexCredsReaderForTests,
   _setCursorSessionReaderForTests,
 } from "../provider-usage";
@@ -32,6 +33,7 @@ describe("getProviderUsage aggregator", () => {
     _resetClaudeUsageLimitsCache();
     _resetCodexUsageCache();
     _resetCursorUsageCache();
+    _resetProviderUsageCacheForTests();
     _setSharedLimitsFileForTests(sharedFile);
     _setTokenReaderForTests(() => null);
     _setCodexCredsReaderForTests(() => null);
@@ -46,6 +48,7 @@ describe("getProviderUsage aggregator", () => {
     _resetClaudeUsageLimitsCache();
     _resetCodexUsageCache();
     _resetCursorUsageCache();
+    _resetProviderUsageCacheForTests();
     fs.rmSync(tmpDir, { recursive: true, force: true });
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -176,5 +179,31 @@ describe("getProviderUsage aggregator", () => {
     expect(result.providers).toHaveLength(1);
     expect(result.providers[0]!.status).toBe("ok");
     expect(result.providers[0]!.windows[0]).toMatchObject({ id: "plan", utilization: 55 });
+  });
+
+  it("caches a generic adapter within TTL (a second aggregate call does not re-invoke it)", async () => {
+    // openrouter routes through the generic fetchOne cache (unlike claude/codex/
+    // cursor, which are passed straight through to their own caches).
+    const prevKey = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ data: { total_credits: 100, total_usage: 25 } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const first = await getProviderUsage(["openrouter"]);
+      expect(first.providers[0]!.id).toBe("openrouter");
+      const callsAfterFirst = fetchMock.mock.calls.length;
+      // Sanity: the adapter actually hit the network on the cold call.
+      expect(callsAfterFirst).toBeGreaterThan(0);
+
+      const second = await getProviderUsage(["openrouter"]);
+      expect(second.providers[0]!.id).toBe("openrouter");
+      // Served from the TTL cache — the adapter did not run (no new fetches).
+      expect(fetchMock.mock.calls.length).toBe(callsAfterFirst);
+    } finally {
+      if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = prevKey;
+    }
   });
 });

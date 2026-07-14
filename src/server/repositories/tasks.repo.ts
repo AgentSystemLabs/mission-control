@@ -46,8 +46,22 @@ export function findTasksByProjectIdAndWorktreeId(
     .all();
 }
 
+// Hot path (every task read + status poll). Hoist the prepared statement once
+// so drizzle/better-sqlite3 skips re-parsing and re-planning the query on each
+// call. Lazily built on first use because getDb() must open the connection
+// first. `sql.placeholder` binds the id per call.
+function buildFindTaskByIdStmt() {
+  return getDb()
+    .select()
+    .from(tasks)
+    .where(eq(tasks.id, sql.placeholder("id")))
+    .prepare();
+}
+let findTaskByIdStmt: ReturnType<typeof buildFindTaskByIdStmt> | null = null;
+
 export function findTaskById(id: string): Task | null {
-  return getDb().select().from(tasks).where(eq(tasks.id, id)).get() ?? null;
+  if (!findTaskByIdStmt) findTaskByIdStmt = buildFindTaskByIdStmt();
+  return (findTaskByIdStmt.get({ id }) as Task | undefined) ?? null;
 }
 
 export function insertTask(row: Task): void {

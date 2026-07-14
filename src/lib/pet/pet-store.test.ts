@@ -425,6 +425,160 @@ describe("agent:tool-used mid-run reaction", () => {
       projectId: "p1",
     } as never);
   });
+
+  it("speaks the classified line for a specific tool kind", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    // Further than the sibling tests' 700s: their startle pulses were stamped
+    // at exactly +700s on this suite's shared clock and must have lapsed for
+    // "celebrating" to win the mood race.
+    vi.advanceTimersByTime(760_000);
+
+    const state = getPetPersistentState()!;
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t1",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "success",
+      kind: "commit",
+    } as never);
+
+    const snap = getPetSnapshot();
+    // A win celebrates rather than startles…
+    expect(snap.mood).toBe("celebrating");
+    // …and the line comes from the commit pack, not the generic one.
+    const commitLines = PET_LINES["tool-commit"]
+      .filter((line) => !line.species || line.species.includes(state.species))
+      .map((line) => line.text as string);
+    expect(commitLines).toContain(snap.bubble!.text);
+  });
+
+  it("startles on a classified failure and speaks its specific line", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    const state = getPetPersistentState()!;
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t1",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "error",
+      kind: "merge-conflict",
+    } as never);
+
+    const snap = getPetSnapshot();
+    expect(snap.mood).toBe("startled");
+    const conflictLines = PET_LINES["tool-merge-conflict"]
+      .filter((line) => !line.species || line.species.includes(state.species))
+      .map((line) => line.text as string);
+    expect(conflictLines).toContain(snap.bubble!.text);
+  });
+});
+
+describe("agent:remark — Claude speaks through the pet", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // A distinct, later clock so leaked cooldowns from other suites (and this
+    // one's own 30s remark floor) have safely lapsed between tests.
+    vi.setSystemTime(new Date(2026, 6, 12, 10, 0, 0));
+  });
+  afterEach(() => {
+    petSetEnabled(false, true, false);
+    vi.useRealTimers();
+  });
+
+  it("speaks Claude's line verbatim, preempting an open bubble", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    // Open a stock bubble first — the remark must replace it.
+    petIngestServerEvent({
+      type: "agent:tool-used",
+      taskId: "t1",
+      projectId: "p1",
+      toolName: "Bash",
+      sentiment: "neutral",
+    } as never);
+    expect(getPetSnapshot().bubble).not.toBeNull();
+
+    petIngestServerEvent({
+      type: "agent:remark",
+      taskId: "t1",
+      projectId: "p1",
+      text: "the suite purrs",
+    } as never);
+    expect(getPetSnapshot().bubble!.text).toBe("the suite purrs");
+  });
+
+  it("never preempts a critical needs-input alert", () => {
+    petHydrate(null);
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(700_000);
+
+    // A session is blocked on the user — the pet raises a critical alert.
+    petIngestServerEvent({
+      type: "task:question",
+      taskId: "t9",
+      projectId: "p1",
+    } as never);
+    const alertBubble = getPetSnapshot().bubble;
+    expect(alertBubble?.priority).toBe("critical");
+
+    // Another session finishes and Claude sends a remark — it must NOT bury
+    // the critical "needs input" alert (a finish line would be lost noise; the
+    // alert is the one message the user must see).
+    petIngestServerEvent({
+      type: "agent:remark",
+      taskId: "t8",
+      projectId: "p1",
+      text: "all done over here",
+    } as never);
+    const after = getPetSnapshot().bubble;
+    expect(after!.priority).toBe("critical");
+    expect(after!.text).toBe(alertBubble!.text);
+
+    // Clear the alert so its tracked task id doesn't leak into later suites
+    // (disabling the pet doesn't drop questionTaskIds).
+    petIngestServerEvent({
+      type: "task:question-cleared",
+      taskId: "t9",
+      projectId: "p1",
+    } as never);
+  });
+
+  it("stays quiet when messages are off and rate-limits rapid remarks", () => {
+    petHydrate(null);
+    petSetEnabled(true, false, false);
+    vi.advanceTimersByTime(700_000);
+    petIngestServerEvent({
+      type: "agent:remark",
+      taskId: "t1",
+      projectId: "p1",
+      text: "muted",
+    } as never);
+    expect(getPetSnapshot().bubble).toBeNull();
+
+    petSetEnabled(true, true, false);
+    vi.advanceTimersByTime(60_000);
+    petIngestServerEvent({
+      type: "agent:remark",
+      taskId: "t1",
+      projectId: "p1",
+      text: "first",
+    } as never);
+    petIngestServerEvent({
+      type: "agent:remark",
+      taskId: "t2",
+      projectId: "p1",
+      text: "second",
+    } as never);
+    // The second remark landed inside the 30s floor — the first keeps the stage.
+    expect(getPetSnapshot().bubble!.text).toBe("first");
+  });
 });
 
 describe("isNightHour", () => {

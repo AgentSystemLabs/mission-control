@@ -11,7 +11,11 @@ import { useRouterState } from "@tanstack/react-router";
 import { useProjects, useSettings } from "~/queries";
 import { hashRepoKey } from "~/shared/repo-key";
 import { petsWebSocketUrl } from "~/shared/academy";
-import type { PetPeer } from "~/shared/pet-multiplayer-protocol";
+import {
+  DEFAULT_PET_ACCENT,
+  isPetAccentId,
+  type PetPeer,
+} from "~/shared/pet-multiplayer-protocol";
 import {
   getPetRoster,
   setPetMultiplayerDesired,
@@ -43,6 +47,14 @@ export function usePetMultiplayer(): PetPeer[] {
     !!settings?.petMultiplayerEnabled && !!settings?.petEnabled && !!settings?.petState;
   const localSpecies = settings?.petState?.species;
   const localName = settings?.petState?.name;
+  // Progression drives the sprite's earned gear + molt star; broadcast it so
+  // peers render our pet the way we see it, not a bare level-1 stand-in.
+  const localLevel = settings?.petState?.level;
+  const localPrestige = settings?.petState?.prestige;
+  // Accent is the owner's theme color — peers paint our stroke/fill with it.
+  const localAccent = isPetAccentId(settings?.accentColor)
+    ? settings.accentColor
+    : DEFAULT_PET_ACCENT;
 
   // Repos with a running session → broadcast rooms (sorted for stable deps).
   const broadcastKeys = useMemo(() => {
@@ -79,7 +91,16 @@ export function usePetMultiplayer(): PetPeer[] {
       setPetMultiplayerDesired({
         enabled: true,
         wsUrl: petsWebSocketUrl(),
-        localPet: localSpecies && localName != null ? { species: localSpecies, name: localName } : null,
+        localPet:
+          localSpecies && localName != null
+            ? {
+                species: localSpecies,
+                name: localName,
+                level: localLevel ?? 1,
+                prestige: localPrestige ?? 0,
+                accent: localAccent,
+              }
+            : null,
         broadcastRooms,
         viewRoom: vr,
       });
@@ -91,7 +112,16 @@ export function usePetMultiplayer(): PetPeer[] {
       cancelled = true;
     };
     // broadcastDep encodes broadcastKeys; listing it keeps the array itself out of deps.
-  }, [enabled, broadcastDep, viewKey, localSpecies, localName]);
+  }, [
+    enabled,
+    broadcastDep,
+    viewKey,
+    localSpecies,
+    localName,
+    localLevel,
+    localPrestige,
+    localAccent,
+  ]);
 
   // Ensure the socket is fully torn down if this hook ever unmounts.
   useEffect(() => () => setPetMultiplayerDesired(DISABLED), []);
@@ -101,5 +131,16 @@ export function usePetMultiplayer(): PetPeer[] {
     [viewRoom],
   );
   const getSnapshot = useCallback(() => getPetRoster(viewRoom), [viewRoom]);
-  return useSyncExternalStore(subscribe, getSnapshot);
+  const roster = useSyncExternalStore(subscribe, getSnapshot);
+
+  // The client already drops our own PEER_ID, but our pet can still echo back
+  // from a second app instance or a stale presence the relay hasn't reaped —
+  // both carry a different id but our pet's name. Hide anything sharing our
+  // name so we never see ourselves in the crowd.
+  const selfName = localName?.trim().toLowerCase();
+  return useMemo(
+    () =>
+      selfName ? roster.filter((p) => p.name.trim().toLowerCase() !== selfName) : roster,
+    [roster, selfName],
+  );
 }

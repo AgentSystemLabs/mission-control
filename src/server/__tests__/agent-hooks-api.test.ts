@@ -8,7 +8,7 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-agent-hooks-api-test-"
 process.env.MC_USER_DATA_DIR = tmpRoot;
 
 const { handleApiRequest } = await import("../api-router");
-const { getOrCreateApiToken } = await import("../services/settings");
+const { getOrCreateApiToken, setBooleanSetting } = await import("../services/settings");
 const { createProject } = await import("../services/projects");
 const { createTask, getTask } = await import("../services/tasks");
 const { createMemory } = await import("../services/project-memory");
@@ -78,6 +78,9 @@ describe.each([
   });
 
   it("marks tasks running on UserPromptSubmit", async () => {
+    // The pet (on by default) injects its first-turn remark intro as
+    // additionalContext; this test pins the bare status response.
+    setBooleanSetting("pet_enabled", false);
     const res = await postHook(slug, taskId, {
       hook_event_name: "UserPromptSubmit",
       session_id: SESSION_ID,
@@ -284,6 +287,9 @@ describe("proactive per-turn recall over the hook API", () => {
 
   it("omits additionalContext when proactive recall is disabled", async () => {
     writeRecallSettings({ proactiveRecallEnabled: false });
+    // Keep the pet's own first-turn intro out of the frame — this test pins
+    // that *recall* injects nothing when disabled.
+    setBooleanSetting("pet_enabled", false);
     const res = await postHook("claude", taskId, {
       hook_event_name: "UserPromptSubmit",
       session_id: SESSION_ID,

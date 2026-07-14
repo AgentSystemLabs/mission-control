@@ -83,3 +83,92 @@ export function clearTranscriptPath(taskId: string): void {
 export function __resetTranscriptPaths(): void {
   transcriptPaths.clear();
 }
+
+// How far back from the end of the JSONL we look for the final assistant
+// message. A turn's closing message (with its tool_use blocks and text) fits
+// comfortably in this window; anything longer isn't worth scanning for a pet
+// remark anyway.
+const TAIL_READ_BYTES = 256 * 1024;
+
+/**
+ * The text of the last assistant message in a task's session transcript, or
+ * null when there is no stashed path / readable file / assistant text. Reads
+ * only the file's tail, newest lines first — this runs inside the Stop hook's
+ * request, so it must stay cheap and fail-soft.
+ */
+export function readLastAssistantText(taskId: string): string | null {
+  const transcriptPath = transcriptPaths.get(taskId);
+  if (!transcriptPath) return null;
+  let tail: string;
+  try {
+    const fd = fs.openSync(transcriptPath, "r");
+    try {
+      const { size } = fs.fstatSync(fd);
+      const start = Math.max(0, size - TAIL_READ_BYTES);
+      const buf = Buffer.alloc(size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      tail = buf.toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const lines = tail.split("\n");
+  // The first line of a mid-file tail read is almost certainly truncated;
+  // JSON.parse rejects it and we skip on — no special-casing needed.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let rec: unknown;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (rec == null || typeof rec !== "object") continue;
+    const record = rec as Record<string, unknown>;
+    const message = record.message;
+    const content =
+      message != null && typeof message === "object"
+        ? (message as Record<string, unknown>).content
+        : record.content;
+    // A real user prompt (string content, or a text block — tool_result echoes
+    // are arrays of tool_result blocks) marks the previous turn's boundary:
+    // stop rather than resurface an older response's text.
+    if (record.type === "user") {
+      if (typeof content === "string" && content.trim()) return null;
+      if (
+        Array.isArray(content) &&
+        content.some(
+          (b) =>
+            b != null &&
+            typeof b === "object" &&
+            (b as Record<string, unknown>).type === "text",
+        )
+      ) {
+        return null;
+      }
+      continue;
+    }
+    if (record.type !== "assistant") continue;
+    if (typeof content === "string") {
+      const trimmed = content.trim();
+      if (trimmed) return trimmed;
+      continue;
+    }
+    if (!Array.isArray(content)) continue;
+    const texts: string[] = [];
+    for (const block of content) {
+      if (block == null || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+      if (b.type === "text" && typeof b.text === "string" && b.text.trim()) {
+        texts.push(b.text.trim());
+      }
+    }
+    // A tool_use-only record is the middle of a turn; keep walking back to
+    // find the message that actually carried prose.
+    if (texts.length) return texts.join("\n");
+  }
+  return null;
+}

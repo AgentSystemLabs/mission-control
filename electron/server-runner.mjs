@@ -120,4 +120,9 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   console.log(`[server-runner] listening on http://${host}:${port}`);
+  // Machine-readable readiness marker. The Electron parent watches child stdout
+  // for this exact line and treats it as "socket is accepting connections",
+  // resolving boot readiness without waiting for the first HTTP poll tick. The
+  // parent swallows this line so it never reaches the app logs.
+  console.log("@@MC_LISTENING@@");
 });

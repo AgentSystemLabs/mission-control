@@ -308,6 +308,108 @@ export const PET_LINES: Record<PetTrigger, PetLine[]> = {
     { text: "*flags the error*", species: ["rivet"] },
   ],
 
+  /* ── classified tool results: things going wrong ───────────────────── */
+  "tool-merge-conflict": [
+    { text: "Merge conflict. Both sides think they're right.", weights: { wisdom: 2 } },
+    { text: "*hides behind the scrollbar* CONFLICT markers. everywhere.", weights: { chaos: 2 } },
+    { text: "Git says CONFLICT. Git is rarely wrong about that.", weights: { snark: 2 } },
+    { text: "A conflict. Breathe. Read both sides before choosing.", weights: { zen: 2 } },
+    { text: "*peers at the <<<<<<< markers* those aren't decorative." },
+    { text: "*sounds the conflict klaxon*", species: ["rivet"] },
+  ],
+  "tool-test-fail": [
+    { text: "Tests failed. The suite has opinions.", weights: { snark: 2 } },
+    { text: "Red tests. That's the suite doing its job.", weights: { wisdom: 2 } },
+    { text: "*counts the failures on tiny paws*", weights: { chaos: 2 } },
+    { text: "Some tests went red. They'll come back around.", weights: { zen: 2 } },
+    { text: "*squints at the assertion diff*" },
+    { text: "Failures logged. Fix incoming, presumably.", species: ["rivet"] },
+  ],
+  "tool-type-error": [
+    { text: "The type checker objects. It usually has a point.", weights: { wisdom: 2 } },
+    { text: "TS says no. TS says no a lot, but still.", weights: { snark: 2 } },
+    { text: "*mouths 'not assignable' in horror*", weights: { chaos: 2 } },
+    { text: "Type error. The compiler is just being thorough.", weights: { zen: 1 } },
+    { text: "*points a paw at the squiggly line*" },
+  ],
+  "tool-build-fail": [
+    { text: "Build failed. The bundle refuses to bundle.", weights: { snark: 2 } },
+    { text: "*watches the build collapse like a soufflé*", weights: { chaos: 2 } },
+    { text: "Build's down. First error first — the rest are echoes.", weights: { wisdom: 2 } },
+    { text: "It didn't compile. It will. Eventually.", weights: { zen: 2 } },
+    { text: "*taps the build light. it stays red.*" },
+  ],
+  "tool-lint-fail": [
+    { text: "The linter found problems. The linter always finds problems.", weights: { snark: 2 } },
+    { text: "Lint errors. Tedious, but they keep the floors clean.", weights: { wisdom: 2 } },
+    { text: "*sweeps up the semicolons*", weights: { chaos: 2 } },
+    { text: "A few lint gripes. Nothing structural.", weights: { zen: 1 } },
+  ],
+
+  /* ── classified tool results: things going right ───────────────────── */
+  "tool-commit": [
+    { text: "Commit landed. History grows by one.", weights: { zen: 2 } },
+    { text: "*stamps the commit with a tiny paw*", weights: { chaos: 2 } },
+    { text: "Committed. May the message age well.", weights: { wisdom: 2 } },
+    { text: "A commit! I saw the hash go by.", weights: { snark: 1 } },
+    { text: "*files it under 'progress'*" },
+    { text: "Commit recorded. Ledger updated.", species: ["rivet"] },
+  ],
+  "tool-push": [
+    { text: "Pushed. It's the remote's problem now.", weights: { snark: 2 } },
+    { text: "Off to origin. Safe travels, little commits.", weights: { zen: 2 } },
+    { text: "*waves at the departing branch*", weights: { chaos: 2 } },
+    { text: "Pushed upstream. Backups are love.", weights: { wisdom: 1 } },
+  ],
+  "tool-tests-pass": [
+    { text: "Tests green. All of them. I checked.", weights: { snark: 1 } },
+    { text: "*does the all-green dance*", weights: { chaos: 2 } },
+    { text: "Suite's green. Savor it — entropy never sleeps.", weights: { wisdom: 2 } },
+    { text: "Green across the board. Lovely.", weights: { zen: 2 } },
+    { text: "*high-fives the test runner*" },
+    { text: "*glows a little brighter*", species: ["ember"] },
+  ],
+  "tool-deploy": [
+    { text: "Deployed. It's live. No pressure.", weights: { snark: 2 } },
+    { text: "*salutes the deploy* godspeed, little build.", weights: { chaos: 2 } },
+    { text: "Shipped to the world. Watch the logs a while.", weights: { wisdom: 2 } },
+    { text: "Deploy complete. Exhale.", weights: { zen: 2 } },
+  ],
+
+  /* ── classified tool results: what kind of file got touched ───────── */
+  "edit-test": [
+    { text: "Writing tests. Future-you says thanks.", weights: { wisdom: 2 } },
+    { text: "Tests being edited. Bold. Hopefully to strengthen them.", weights: { snark: 2 } },
+    { text: "*guards the assertions*", weights: { chaos: 1 } },
+    { text: "Test files moving. Good sign.", weights: { zen: 1 } },
+  ],
+  "edit-styles": [
+    { text: "CSS time. May the cascade be with you.", weights: { chaos: 2 } },
+    { text: "Styling. It's centered until it isn't.", weights: { snark: 2 } },
+    { text: "*watches the pixels shuffle around*" },
+    { text: "A little polish never hurt.", weights: { zen: 1 } },
+  ],
+  "edit-docs": [
+    { text: "Docs getting written. A rare and noble act.", weights: { wisdom: 2 } },
+    { text: "Documentation! Someone reads those. Probably.", weights: { snark: 2 } },
+    { text: "*dog-ears the markdown*", weights: { chaos: 1 } },
+  ],
+  "edit-config": [
+    { text: "Config changes. Small file, big blast radius.", weights: { wisdom: 2 } },
+    { text: "*backs away slowly from the yaml*", weights: { chaos: 2 } },
+    { text: "Editing config. Bravery comes in many forms.", weights: { snark: 2 } },
+  ],
+  "edit-lockfile": [
+    { text: "The lockfile moved. Nobody touches that by hand… right?", weights: { snark: 2 } },
+    { text: "*averts eyes from the lockfile diff*", weights: { chaos: 2 } },
+    { text: "Lockfile churn. Dependencies shifting beneath us.", weights: { wisdom: 1 } },
+  ],
+  "edit-migration": [
+    { text: "A migration. Measure twice, migrate once.", weights: { wisdom: 2 } },
+    { text: "Schema changes. The data remembers everything.", weights: { zen: 2 } },
+    { text: "*whispers* production has rows, you know.", weights: { snark: 2 } },
+  ],
+
   /* ── ambience ──────────────────────────────────────────────────────── */
   idle: [
     { text: "All quiet. I'll be over here, existing.", weights: { zen: 2 } },

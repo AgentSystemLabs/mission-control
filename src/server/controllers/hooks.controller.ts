@@ -6,9 +6,11 @@ import { setPendingQuestion } from "../services/pending-questions";
 import { recordPrompt } from "../services/prompts";
 import { maybeAutoIndexGraph } from "../services/graph-auto-index";
 import { ensureGraphWatch } from "../services/graph-watcher";
-import { setTranscriptPath } from "../services/session-transcripts";
+import { setTranscriptPath, readLastAssistantText } from "../services/session-transcripts";
 import { readRecallSettings } from "../services/recall-settings";
-import { getBooleanSetting } from "../services/settings";
+import { getBooleanSetting, readJsonSetting } from "../services/settings";
+import { classifyPetToolUse, petToolSentiment } from "~/shared/pet-tool-classify";
+import { extractPetRemark, renderPetRemarkInstruction } from "~/shared/pet-remark";
 import { events } from "../events";
 import {
   assembleTurnContext,
@@ -41,6 +43,10 @@ const hookPayload = z
     // Absolute path to the session's JSONL transcript (Claude Code). Stashed per
     // task so auto-distill can read the full session, not just the prompts.
     transcript_path: z.string(),
+    // Stop / SubagentStop carry the turn's final assistant text directly. The
+    // transcript file can lag the in-memory conversation (and may not be flushed
+    // when Stop fires), so the pet remark prefers this over re-reading the file.
+    last_assistant_message: z.string(),
   })
   .partial();
 
@@ -78,35 +84,82 @@ function isPromptSubmitEvent(event: string): boolean {
 // (whose hook is still on disk) stops emitting the instant the pet is disabled.
 const PET_ENABLED_KEY = "pet_enabled";
 
-// How much of a tool result we scan for error markers — enough to catch a
-// stack trace's first lines without shipping huge Bash outputs through a regex.
-const TOOL_RESPONSE_SCAN_CAP = 8_000;
+// The persisted pet identity (settings.controller PET_STATE_KEY) — read only
+// for the name, so the remark instruction can address the pet properly.
+const PET_STATE_KEY = "pet_state";
 
-// Precise, low-false-positive error signatures (compiler/linter/runtime/CI).
-// Bare "failed"/"not found" are deliberately excluded — they fire on normal
-// output ("0 tests failed", "grep: not found") and would cry wolf.
-const TOOL_ERROR_MARKERS =
-  /\berror:|\bexception\b|\btraceback\b|\bpanicked at\b|\bfatal:|exit code [1-9]|Build failed|Failed to compile|ERROR in |compilation error|Command failed/i;
-
-/** Classify a PostToolUse result as an error (concerned pet) or neutral. */
-function classifyToolResponse(toolResponse: unknown): "error" | "neutral" {
-  if (toolResponse == null) return "neutral";
-  // An explicit structured error flag wins over text sniffing.
-  if (typeof toolResponse === "object") {
-    const rec = toolResponse as Record<string, unknown>;
-    if (rec.isError === true || rec.is_error === true) return "error";
+function petName(): string | null {
+  try {
+    const state = readJsonSetting<{ name?: unknown }>(PET_STATE_KEY);
+    return state && typeof state.name === "string" && state.name.trim()
+      ? state.name.trim()
+      : null;
+  } catch {
+    return null;
   }
-  let text: string;
-  if (typeof toolResponse === "string") {
-    text = toolResponse;
-  } else {
-    try {
-      text = JSON.stringify(toolResponse);
-    } catch {
-      return "neutral";
+}
+
+// Last pet remark emitted per task. The transcript walk can only resurface an
+// older response's cue when a turn ends without prose (rare, but Stop also
+// re-fires on the same turn); refusing to repeat a task's previous remark
+// keeps the pet from parroting stale lines. Bounded like the transcript map.
+const MAX_TRACKED_REMARKS = 500;
+const lastRemarkByTask = new Map<string, string>();
+
+// The pet's Bash|Write|Edit PostToolUse hook now POSTs on every qualifying tool
+// call (no shell-side time gate — see PET_TOOL_HOOK). Meaningful results always
+// reach the pet, but a burst of routine neutral edits would churn its mood, so
+// the neutral "agent is working" signal is throttled here, per task — after the
+// result is classified, which the shell can't do. Bounded like lastRemarkByTask.
+const NEUTRAL_TOOL_REACT_COOLDOWN_MS = 8_000;
+const MAX_TRACKED_TOOL_REACTS = 500;
+const lastNeutralToolReactByTask = new Map<string, number>();
+
+/** True (and records now) when this task's neutral tool signal is off cooldown. */
+function allowNeutralToolReact(taskId: string): boolean {
+  const now = Date.now();
+  const last = lastNeutralToolReactByTask.get(taskId);
+  if (last !== undefined && now - last < NEUTRAL_TOOL_REACT_COOLDOWN_MS) return false;
+  lastNeutralToolReactByTask.delete(taskId);
+  lastNeutralToolReactByTask.set(taskId, now);
+  while (lastNeutralToolReactByTask.size > MAX_TRACKED_TOOL_REACTS) {
+    const oldest = lastNeutralToolReactByTask.keys().next().value;
+    if (oldest === undefined) break;
+    lastNeutralToolReactByTask.delete(oldest);
+  }
+  return true;
+}
+
+/** Extract and emit Claude's `<!-- pet: … -->` cue for this turn, if any. */
+function emitPetRemark(
+  taskId: string,
+  projectId: string,
+  lastAssistantMessage: string | undefined,
+): void {
+  try {
+    // The hook payload's last_assistant_message is always THIS turn's final
+    // text; fall back to the transcript only when the field is absent (older
+    // Claude builds, or another agent). The transcript walk can lag or miss a
+    // not-yet-flushed message, so the direct field is strictly more reliable.
+    const direct =
+      typeof lastAssistantMessage === "string" && lastAssistantMessage.trim()
+        ? lastAssistantMessage
+        : null;
+    const text = direct ?? readLastAssistantText(taskId);
+    if (!text) return;
+    const remark = extractPetRemark(text);
+    if (!remark || lastRemarkByTask.get(taskId) === remark) return;
+    lastRemarkByTask.delete(taskId);
+    lastRemarkByTask.set(taskId, remark);
+    while (lastRemarkByTask.size > MAX_TRACKED_REMARKS) {
+      const oldest = lastRemarkByTask.keys().next().value;
+      if (oldest === undefined) break;
+      lastRemarkByTask.delete(oldest);
     }
+    events.emit("agent:remark", { taskId, projectId, text: remark });
+  } catch {
+    // Fail-soft: a torn transcript read must never fault the Stop hook.
   }
-  return TOOL_ERROR_MARKERS.test(text.slice(0, TOOL_RESPONSE_SCAN_CAP)) ? "error" : "neutral";
 }
 
 async function reconcileSessionId(
@@ -220,12 +273,20 @@ export async function receive(url: URL, request: Request): Promise<Response> {
       updateStatus(taskId, { status: "running" });
     }
     if (getBooleanSetting(PET_ENABLED_KEY, true)) {
-      events.emit("agent:tool-used", {
-        taskId,
-        projectId: task.projectId,
-        toolName: typeof payload.tool_name === "string" ? payload.tool_name : "",
-        sentiment: classifyToolResponse(payload.tool_response),
-      });
+      const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
+      const kind = classifyPetToolUse(toolName, payload.tool_input, payload.tool_response);
+      const sentiment = petToolSentiment(kind);
+      // Meaningful results (errors, passing tests, commits, pushes, deploys)
+      // always reach the pet; only the routine neutral signal is rate-capped.
+      if (sentiment !== "neutral" || allowNeutralToolReact(taskId)) {
+        events.emit("agent:tool-used", {
+          taskId,
+          projectId: task.projectId,
+          toolName,
+          sentiment,
+          kind,
+        });
+      }
     }
     return json({ ok: true, event });
   }
@@ -252,6 +313,14 @@ export async function receive(url: URL, request: Request): Promise<Response> {
 
   if (!status) {
     return json({ ok: true, ignored: event });
+  }
+
+  // Claude may have ended this turn with an invisible `<!-- pet: … -->` cue
+  // (invited by the first-turn instruction below). Surface it BEFORE
+  // updateStatus so the remark reaches the renderer ahead of session:finished
+  // — the pet then speaks Claude's line instead of a stock finish line.
+  if (event === AGENT_HOOK_EVENTS.stop && getBooleanSetting(PET_ENABLED_KEY, true)) {
+    emitPetRemark(taskId, task.projectId, payload.last_assistant_message);
   }
 
   try {
@@ -287,8 +356,9 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     // other event discards it, so returning these fields elsewhere is harmless.
     if (event === AGENT_HOOK_EVENTS.userPromptSubmit) {
       const toolLoad = buildToolLoadContext(task.agent, taskId, incomingSessionId);
+      const petIntro = buildPetRemarkIntro(task.agent, taskId, incomingSessionId);
       const turnContext = buildTurnContext(task.projectId, task.scopeId, payload.prompt);
-      const additionalContext = [toolLoad, turnContext].filter(Boolean).join("\n\n");
+      const additionalContext = [toolLoad, petIntro, turnContext].filter(Boolean).join("\n\n");
       if (additionalContext) {
         return json({
           ok: true,
@@ -354,6 +424,31 @@ function buildToolLoadContext(agent: TaskAgent, taskId: string, sessionId: strin
   toolLoadPromptedSessions.add(key);
   try {
     return renderToolLoadInstruction();
+  } catch {
+    return "";
+  }
+}
+
+// Sessions already told about the pet's remark channel. Same shape and
+// rationale as toolLoadPromptedSessions: once per session, keyed task+session
+// so a resumed session (fresh context) is re-introduced, bounded in memory.
+const petIntroSentSessions = new Set<string>();
+const PET_INTRO_SENT_CAP = 2000;
+
+/**
+ * The one-shot, first-turn instruction inviting Claude to talk to the pet via
+ * `<!-- pet: … -->` cues — or "" when it shouldn't fire (non-Claude agent, pet
+ * disabled, or already sent for this session). Fail-soft like its siblings.
+ */
+function buildPetRemarkIntro(agent: TaskAgent, taskId: string, sessionId: string): string {
+  if (agent !== "claude-code") return "";
+  if (!getBooleanSetting(PET_ENABLED_KEY, true)) return "";
+  const key = `${taskId}:${sessionId || "unknown"}`;
+  if (petIntroSentSessions.has(key)) return "";
+  if (petIntroSentSessions.size >= PET_INTRO_SENT_CAP) petIntroSentSessions.clear();
+  petIntroSentSessions.add(key);
+  try {
+    return renderPetRemarkInstruction(petName());
   } catch {
     return "";
   }

@@ -298,9 +298,14 @@ function killProcessTreeWindows(pid: number | undefined): void {
  */
 export function disposePty(proc: import("node-pty").IPty | null | undefined): void {
   if (!proc) return;
-  // Windows: SIGHUP doesn't reach the grandchild node.exe that holds the
-  // worktree's .claude/ handle; tear down the whole tree first.
-  killProcessTreeWindows(proc.pid);
+  // Capture the pid before destroy() so the tree-kill below still has it.
+  const pid = proc.pid;
+  // Close the pseudoconsole FIRST. node-pty's Windows destroy() runs the ConPTY
+  // teardown (ClosePseudoConsole + a final conout-worker dispose) that lets the
+  // kernel reap the conhost.exe ConPTY spawned. A pre-destroy `taskkill /F`
+  // (the old order) killed the shell out from under that teardown, so the
+  // dispose never fired and one conhost.exe (~8.5 MB, parented to our main
+  // process) leaked on every create→delete of a terminal.
   const closable = proc as unknown as { destroy?: () => void };
   try {
     if (typeof closable.destroy === "function") {
@@ -311,6 +316,11 @@ export function disposePty(proc: import("node-pty").IPty | null | undefined): vo
   } catch {
     /* already exited or fd already closed */
   }
+  // Then, on Windows only (no-op elsewhere), tree-kill any survivors: SIGHUP /
+  // console-close doesn't reliably reach a grandchild node.exe that re-parented
+  // its tool subprocesses and holds the worktree's .claude/ handle. This runs
+  // back-to-back with destroy(), so the shell tree is still intact here.
+  killProcessTreeWindows(pid);
 }
 
 function pidsListeningOnPort(port: number): number[] {

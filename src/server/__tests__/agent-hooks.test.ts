@@ -268,7 +268,7 @@ describe("agent hook installation", () => {
     return settings.hooks.PostToolUse ?? [];
   };
 
-  it("installs the throttled pet mid-run PostToolUse hook when the pet is enabled", () => {
+  it("installs the pet mid-run PostToolUse hook when the pet is enabled", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
 
     installAgentHooks("claude-code", cwd, undefined, { petEnabled: true });
@@ -280,8 +280,9 @@ describe("agent hook installation", () => {
     expect(pet?._mcManaged).toBe(true);
     const command = pet?.hooks?.[0]?.command ?? "";
     expect(command).toContain("hookEvent=PostToolUse");
-    // The in-command cooldown gate — no per-tool POST.
-    expect(command).toContain("mc-tool-react.$MC_TASK_ID");
+    // No shell-side time gate: it would silently drop a meaningful result that
+    // lands within a neutral edit's window. Throttling is server-side instead.
+    expect(command).not.toContain("mc-tool-react");
   });
 
   it("omits the pet hook when the pet is disabled, keeping AskUserQuestion", () => {
