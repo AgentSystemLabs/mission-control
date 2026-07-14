@@ -206,7 +206,7 @@ const FLOURISH_MS = 1_400;
  * this keeps a busy grid from chaining antics. Errors bypass it — they lean on
  * the say() cooldown instead, so a genuine failure is never silently dropped.
  */
-const TOOL_REACT_THROTTLE_MS = 15_000;
+const TOOL_REACT_THROTTLE_MS = 8_000;
 
 /** Consecutive failures (ships, interruptions) before the pet calls a streak. */
 const ERROR_STREAK_THRESHOLD = 3;
@@ -746,6 +746,55 @@ function sayWithCombo(base: PetTrigger): void {
   say(base);
 }
 
+// Which line pack answers each classified tool result. "neutral" and the
+// generic "error" kind stay unmapped on purpose — they fall through to the
+// existing agent-working / agent-error packs.
+const TOOL_KIND_TRIGGERS: Partial<Record<string, PetTrigger>> = {
+  "merge-conflict": "tool-merge-conflict",
+  "test-fail": "tool-test-fail",
+  "type-error": "tool-type-error",
+  "build-fail": "tool-build-fail",
+  "lint-fail": "tool-lint-fail",
+  commit: "tool-commit",
+  push: "tool-push",
+  "tests-pass": "tool-tests-pass",
+  deploy: "tool-deploy",
+  "edit-test": "edit-test",
+  "edit-styles": "edit-styles",
+  "edit-docs": "edit-docs",
+  "edit-config": "edit-config",
+  "edit-lockfile": "edit-lockfile",
+  "edit-migration": "edit-migration",
+};
+
+// Claude's `<!-- pet: … -->` cues arrive at most once per turn; this local
+// floor only matters when several sessions finish together — one voice at a
+// time, the rest of the chorus waits for the next turn.
+const REMARK_COOLDOWN_MS = 30_000;
+let lastRemarkAt = 0;
+
+/** Speak a line Claude wrote for the pet, verbatim. Rarer than any stock
+ * pack, so it preempts an open bubble the way critical lines do. */
+function sayRemark(text: string): void {
+  if (!enabled || !messagesEnabled || !persistent) return;
+  // A remark preempts an open bubble like a rare line does — but never a
+  // critical one: another session's "needs input" alert must outlast a
+  // finishing session's chatter (mirrors say()'s critical-only preemption).
+  if (bubble && bubble.priority === "critical") return;
+  const now = Date.now();
+  if (now - lastRemarkAt < REMARK_COOLDOWN_MS) return;
+  lastRemarkAt = now;
+  bubble = { id: ++bubbleId, text, priority: "info" };
+  if (bubbleTimer) clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => {
+    bubbleTimer = null;
+    bubble = null;
+    invalidate();
+  }, bubbleDurationMs(text));
+  chirp();
+  invalidate();
+}
+
 /** The pet's voice, in its own species' timbre; gated by the sounds setting. */
 function chirp(kind: "pet" | "dizzy" = "pet"): void {
   if (!soundsEnabled) return;
@@ -1125,24 +1174,50 @@ export function petIngestServerEvent(event: ServerEvent): void {
         alert = null;
         clearAlertWalk();
       }
-      const isError = event.sentiment === "error";
+      // The server classifies what the tool actually did (commit, test-fail,
+      // edit-styles…, see ~/shared/pet-tool-classify); sentiment is the coarse
+      // rollup and the fallback for payloads that predate `kind`.
+      const kind = typeof event.kind === "string" ? event.kind : "neutral";
+      const sentiment =
+        event.sentiment === "error" || event.sentiment === "success"
+          ? event.sentiment
+          : "neutral";
       // Visual reaction (skipped under reduced-motion, independent of the
       // messages toggle — like prompt:submitted always hops). An error always
-      // startles: it's worth registering, and the hook's own cooldown already
-      // bounds it to ~once/20s per session. A routine tool only gets an
-      // occasional low-key antic, floored so a busy grid can't chain motion.
+      // startles and a win always celebrates: both are worth registering, and
+      // the hook's own cooldown already bounds them to ~once/20s per session.
+      // A routine tool only gets an occasional low-key antic, floored so a
+      // busy grid can't chain motion.
       if (!prefersReducedMotion()) {
-        if (isError) {
+        if (sentiment === "error") {
           petPulse("startle");
+        } else if (sentiment === "success") {
+          petPulse("celebrate");
         } else if (now - lastToolReactAt >= TOOL_REACT_THROTTLE_MS) {
           lastToolReactAt = now;
           doFlourish("stretch");
         }
       }
-      // A line, on its own per-trigger cooldown (agent-error 90s / agent-working
-      // 180s) — gated by the messages toggle inside say().
-      say(isError ? "agent-error" : "agent-working");
+      // A line, on its own per-trigger cooldown — gated by the messages toggle
+      // inside say(). The specific classified line first; when its pack has no
+      // trigger (kind is neutral/error) or it's rate-limited into silence,
+      // errors still fall back to the generic concerned line.
+      const trigger = TOOL_KIND_TRIGGERS[kind];
+      if (trigger) {
+        if (!say(trigger) && sentiment === "error") say("agent-error");
+      } else {
+        say(sentiment === "error" ? "agent-error" : "agent-working");
+      }
       recompute();
+      return;
+    }
+    case "agent:remark": {
+      // Claude ended its turn with an invisible `<!-- pet: … -->` cue — the
+      // agent talking to the pet directly. Speak it verbatim: it outranks the
+      // stock finish line (this event lands just before session:finished, so
+      // the bubble it opens blocks that one).
+      const text = typeof event.text === "string" ? event.text : "";
+      if (text) sayRemark(text);
       return;
     }
   }
