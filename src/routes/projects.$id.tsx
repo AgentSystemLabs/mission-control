@@ -832,10 +832,17 @@ function ProjectPage() {
       // last-focused cell reported to the store (a header-button click moved
       // focus off the grid).
       const focused = readFocusedGridTaskId() ?? terminals.getGridFocusedTaskId();
+      terminals.setGridView(false);
       if (focused && terminalProject && tasks.some((t) => t.id === focused)) {
         terminals.setActiveSession(terminalProject, focused);
+        // setActiveSession only picks which session docks in normal view; the
+        // cached terminal surface reattaches blurred, so without this the pane
+        // is shown but drops keystrokes until a click. Post the focus request
+        // in the same (batched) update that leaves grid view — SessionGrid is
+        // unmounting so it won't consume the nonce; the now-mounting
+        // TerminalPanel picks it up and retries until the pane settles.
+        terminals.focusGridSession(focused);
       }
-      terminals.setGridView(false);
       // List view no longer has the Active/Pinned/Archived scope toggle — pinned
       // is grid-only, so drop back to the active list when leaving the grid.
       setSessionView((prev) => (prev === "pinned" ? "active" : prev));
@@ -1065,6 +1072,23 @@ function ProjectPage() {
     const task = tasks.find((t) => t.id === activeTaskId);
     if (task) rehydrateTerminal(terminalProject, task);
   }, [activeTaskId, terminalProject, tasks, rehydrateTerminal]);
+
+  // The rehydrate above re-shows the active session on a project/worktree switch,
+  // but its cached terminal surface reattaches blurred (it doesn't self-focus),
+  // so the newly-shown session drops keystrokes until a manual click. Re-assert
+  // keyboard focus once per scope switch — guarded by scope so it fires on the
+  // switch (and first mount), not on every task refetch, which would yank the
+  // caret while the user is typing. focusGridSession retries until the pane
+  // mounts and is consumed by both SessionGrid (grid view) and TerminalPanel
+  // (normal view), so a single call covers both layouts.
+  const focusedScopeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!terminalProject) return;
+    if (focusedScopeRef.current === selectedScopeKey) return;
+    if (!activeTaskId) return;
+    focusedScopeRef.current = selectedScopeKey;
+    terminals.focusGridSession(activeTaskId);
+  }, [selectedScopeKey, terminalProject, activeTaskId, terminals]);
 
   const openRequestedSession = useCallback(
     (request: PendingSessionOpen) => {
@@ -1986,6 +2010,9 @@ function ProjectPage() {
         const firstByPriority = pickByPriority(visible);
         if (!firstByPriority) return;
         terminals.toggle(terminalProject, firstByPriority);
+        // Focus the terminal so the keyboard drives the newly-opened session
+        // instead of leaving it blurred (see selectTerminal).
+        terminals.focusGridSession(firstByPriority.id);
         return;
       }
       const idx = ordered.findIndex((t) => t.id === currentId);
@@ -1994,6 +2021,9 @@ function ProjectPage() {
       const nextTask = ordered[nextIdx];
       if (!nextTask || nextTask.id === currentId) return;
       terminals.toggle(terminalProject, nextTask);
+      // Carry keyboard focus into the session we cycled to, so successive
+      // presses keep cycling and the caret is ready to type (see selectTerminal).
+      terminals.focusGridSession(nextTask.id);
     },
     [
       project,
@@ -2305,6 +2335,12 @@ function ProjectPage() {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || !terminalProject) return;
     terminals.openSession(terminalProject, task);
+    // Move the caret into the session's terminal so the user can type right
+    // away. Switching to an already-built (cached) surface reattaches without
+    // focusing, so without this the card click selects the session but leaves
+    // the terminal blurred until a second manual click. TerminalPanel consumes
+    // this request and re-asserts focus across the pane remount.
+    terminals.focusGridSession(taskId);
   };
 
   const toggleSessionPinned = async (taskId: string) => {
