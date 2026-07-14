@@ -9,7 +9,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { getRailProjects } from "~/lib/rail-projects";
+import { getRailClusters } from "~/lib/rail-projects";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
 import { screenshotSupported } from "~/lib/screenshot";
@@ -388,6 +388,9 @@ function Shell() {
   const { close, deselect, setPtyId } = useTerminalActions();
   const gridView = useGridView();
   const workspaceRef = useRef<HTMLDivElement>(null);
+  // First digit of a group→project rail chord (Cmd held, group digit pressed,
+  // awaiting the project digit or a Cmd release). Only used in "All" mode.
+  const pendingRailGroupRef = useRef<number | null>(null);
   const userTerminals = useUserTerminals();
   const {
     togglePanel,
@@ -711,21 +714,72 @@ function Shell() {
       if (!e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
         // Pinned-project nav is disabled while the active sandbox resumes.
         if (activeResuming) return;
-        // Same computed list as the rail renders — slot badges and hotkeys
-        // must agree, including in group-workspace mode.
-        const railProjects = getRailProjects(projects ?? [], groups, activeGroup);
-        const idx = Number(e.key) - 1;
-        const target = railProjects[idx];
-        if (target) {
+        if (e.repeat) {
+          // Ignore auto-repeat so a held digit doesn't re-fire the chord.
+          e.preventDefault();
+          return;
+        }
+        const digit = Number(e.key);
+        // Same clusters the rail renders — badges and hotkeys must agree.
+        const clusters = getRailClusters(projects ?? [], groups, activeGroup);
+        const navigateTo = (id: string) => {
           e.preventDefault();
           e.stopPropagation();
-          router.navigate({ to: "/projects/$id", params: { id: target.id } });
+          router.navigate({ to: "/projects/$id", params: { id } });
+        };
+
+        // A single group is active: the rail is one group's workspace, so the
+        // digit is the project number directly — no group prefix.
+        if (activeGroup !== ACTIVE_GROUP_ALL) {
+          pendingRailGroupRef.current = null;
+          const target = clusters[0]?.projects[digit - 1];
+          if (target) navigateTo(target.id);
+          else e.preventDefault();
+          return;
         }
+
+        // "All" mode: two-level chord. First digit picks the group cluster;
+        // the second digit (this handler, next press) picks the project. A
+        // Cmd release before the second digit jumps to the group's first
+        // project (see the keyup handler below).
+        e.preventDefault();
+        e.stopPropagation();
+        if (pendingRailGroupRef.current == null) {
+          // First digit — remember the group if it exists; otherwise ignore.
+          if (clusters[digit - 1]) pendingRailGroupRef.current = digit;
+          return;
+        }
+        const groupIdx = pendingRailGroupRef.current - 1;
+        pendingRailGroupRef.current = null;
+        const target = clusters[groupIdx]?.projects[digit - 1];
+        if (target) navigateTo(target.id);
         return;
       }
     };
+    // Releasing Cmd/Ctrl with a group digit still pending jumps to that
+    // group's first project (a single-digit chord).
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Meta" && e.key !== "Control") return;
+      const pending = pendingRailGroupRef.current;
+      pendingRailGroupRef.current = null;
+      if (pending == null || activeResuming || activeGroup !== ACTIVE_GROUP_ALL) return;
+      const clusters = getRailClusters(projects ?? [], groups, activeGroup);
+      const target = clusters[pending - 1]?.projects[0];
+      if (target) router.navigate({ to: "/projects/$id", params: { id: target.id } });
+    };
+    // Losing focus mid-chord (e.g. clicking away while Cmd is held) would
+    // otherwise leave a group digit pending and misread the next chord.
+    const onBlur = () => {
+      pendingRailGroupRef.current = null;
+    };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [activeGroup, activeResuming, createTerminal, cycleNext, cyclePrev, groups, projects, router]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the

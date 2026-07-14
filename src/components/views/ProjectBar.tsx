@@ -364,6 +364,10 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   const GAP = 8;
   const DIVIDER_HEIGHT = 2;
   const HEADER_HEIGHT = 16;
+  const GROUP_LABEL_HEIGHT = 16;
+  // In "All" mode each cluster is preceded by a group-number label (the first
+  // digit of the Cmd chord). Suppressed mid-drag, where the rail flattens.
+  const showClusterLabels = !groupScoped && draggingProjectId == null;
   const PAD_TOP = minimal ? 18 : 12;
   const PAD_X = minimal ? 4 : 8;
   const BAR_WIDTH = minimal ? 72 : 96;
@@ -385,7 +389,8 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
     let y = 0;
     if (groupScoped) y += HEADER_HEIGHT + GAP;
     railClusters.forEach((cluster, clusterIndex) => {
-      if (clusterIndex > 0) y += DIVIDER_HEIGHT + GAP;
+      if (showClusterLabels) y += GROUP_LABEL_HEIGHT + GAP;
+      else if (clusterIndex > 0) y += DIVIDER_HEIGHT + GAP;
       for (let i = 0; i < cluster.projects.length; i++) {
         itemOffsets.push(y);
         y += ITEM_HEIGHT + GAP;
@@ -488,26 +493,70 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
       )}
       {railClusters.map((cluster, clusterIndex) => (
         <Fragment key={cluster.key}>
-          {clusterIndex > 0 && (
+          {showClusterLabels ? (
             <div
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label={cluster.label}
-              title={cluster.label}
+              title={`${cluster.label} — group ${clusterIndex + 1} (⌘${clusterIndex + 1} then a project number)`}
               style={{
-                width: 34,
-                height: DIVIDER_HEIGHT,
-                borderRadius: 2,
-                background: cluster.color ?? "var(--border-strong)",
-                opacity: 0.55,
+                height: GROUP_LABEL_HEIGHT,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 5,
                 flexShrink: 0,
               }}
-            />
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: cluster.color ?? "var(--text-faint)",
+                  boxShadow: cluster.color ? `0 0 5px ${cluster.color}66` : undefined,
+                  flexShrink: 0,
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "var(--text-dim)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {clusterIndex + 1}
+              </span>
+            </div>
+          ) : (
+            clusterIndex > 0 && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label={cluster.label}
+                title={cluster.label}
+                style={{
+                  width: 34,
+                  height: DIVIDER_HEIGHT,
+                  borderRadius: 2,
+                  background: cluster.color ?? "var(--border-strong)",
+                  opacity: 0.55,
+                  flexShrink: 0,
+                }}
+              />
+            )
           )}
-          {cluster.projects.map((project) => {
+          {cluster.projects.map((project, projectIndex) => {
         const idx = flatIndexById.get(project.id)!;
         const isActive = idx === activeIndex;
-        const hotkey = idx < HOTKEY_LIMIT ? idx + 1 : null;
+        // Per-group project number (restarts each cluster). The group number
+        // is clusterIndex + 1, shown on the label above.
+        const projectNumber = projectIndex + 1;
+        const groupNumber = clusterIndex + 1;
+        const hotkey = projectNumber <= HOTKEY_LIMIT ? projectNumber : null;
+        const chordHint = groupScoped
+          ? pinnedSlotBinding(projectNumber)
+          : `${pinnedSlotBinding(groupNumber)} ${projectNumber}`;
         const runningCount = project.taskCounts.running;
         const launchRunning = hasRunningLaunchForProject(project.id, project.launchCommands);
         const logoShouldFlash = shouldFlashPinnedProjectLogo({
@@ -532,7 +581,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
             ? `${finishedCount} ${finishedCount === 1 ? "session" : "sessions"} finished`
             : null;
         const tooltip = [
-          hotkey ? `${project.name} (${pinnedSlotBinding(hotkey)})` : project.name,
+          hotkey ? `${project.name} (${chordHint})` : project.name,
           groupScoped ? null : "Drag or press Shift+Arrow Up/Down to reorder pinned projects",
           needsInputLabel,
           launchLabel,

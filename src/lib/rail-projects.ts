@@ -80,15 +80,3 @@ export function getRailClusters<T extends RailProject>(
   const cluster = getGroupRailCluster(projects, groups, activeGroup);
   return cluster.projects.length > 0 ? [cluster] : [];
 }
-
-/**
- * The flat, visible rail order — the single source of truth for the ⌘1–9
- * pinned-slot hotkeys AND the rail's slot badges, so they can never disagree.
- */
-export function getRailProjects<T extends RailProject>(
-  projects: readonly T[],
-  groups: readonly Group[],
-  activeGroup: ActiveProjectGroup,
-): T[] {
-  return getRailClusters(projects, groups, activeGroup).flatMap((c) => c.projects);
-}
