@@ -1470,6 +1470,19 @@ html[data-window-idle] .mc-pet * {
     transform: translateX(0);
   }
 }
+/* ── Agent question overlay (AskUserQuestion native menu) ─────────────────
+   A compact command-menu anchored to the bottom of a terminal pane for
+   answering a Claude Code AskUserQuestion without leaving the keyboard.
+   Placeholder needs the same 4.5:1 as body text — the faint ramp is too low. */
+.mc-aq-input::placeholder {
+  color: var(--text-dim);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-aq-panel {
+    animation: none !important;
+  }
+}
+
 /* ── Dialog entrance ──────────────────────────────────────────────────────
    The backdrop only fades while the panel itself rises and settles, so
    opening a dialog reads as the panel arriving — not the screen blinking. */
