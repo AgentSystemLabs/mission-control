@@ -8,9 +8,19 @@ import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { GROUP_COLORS } from "~/lib/design-meta";
 import { reorderPinnedIds } from "~/lib/pinned-project-order";
+import {
+  clampVerticalDragDelta,
+  verticalDragSettleDelta,
+  verticalDragShifts,
+  verticalDragTargetIndex,
+  type VerticalDragRow,
+} from "~/lib/vertical-reorder-drag";
 import type { Group, Project } from "~/db/schema";
 
 const DRAG_THRESHOLD_PX = 4;
+const GROUP_GAP = 6;
+const DRAG_SETTLE_MS = 200;
+const DRAG_SETTLE_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 type GroupsDialogProject = Pick<Project, "id" | "name" | "groupId">;
 
@@ -51,10 +61,20 @@ export function GroupsDialog({
   // while an optimistic reorder is in flight; it resets to follow the props
   // (server truth) once they reflect the new order.
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Keep the DOM order frozen during a pointer drag. The grabbed card follows
+  // the pointer while neighboring cards translate aside to expose its landing
+  // slot; only after the drop settles do we commit the new array order.
+  const [groupDrag, setGroupDrag] = useState<{
+    id: string;
+    delta: number;
+    shifts: Record<string, number>;
+    settling: boolean;
+  } | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const dragOrderRef = useRef<string[] | null>(null);
-  const groupIds = groups.map((group) => group.id);
+  const dragSettlingRef = useRef(false);
+  const dragSettleTimerRef = useRef<number | null>(null);
+  const groupIds = useMemo(() => groups.map((group) => group.id), [groups]);
   const orderedGroups = useMemo(() => {
     if (!dragOrder) return groups;
     const byId = new Map(groups.map((group) => [group.id, group]));
@@ -68,12 +88,12 @@ export function GroupsDialog({
   // overriding — the server list is authoritative again.
   useEffect(() => {
     if (!dragOrder) return;
-    if (draggingId) return;
+    if (groupDrag) return;
     if (dragOrder.join("\0") === groupIds.join("\0")) {
       setDragOrder(null);
       dragOrderRef.current = null;
     }
-  }, [dragOrder, draggingId, groupIds]);
+  }, [dragOrder, groupDrag, groupIds]);
 
   useEffect(() => {
     if (open) {
@@ -81,21 +101,16 @@ export function GroupsDialog({
       setPendingRemove(null);
       setRecoloringId(null);
     } else {
+      if (dragSettleTimerRef.current !== null) {
+        window.clearTimeout(dragSettleTimerRef.current);
+        dragSettleTimerRef.current = null;
+      }
       setDragOrder(null);
       dragOrderRef.current = null;
-      setDraggingId(null);
+      dragSettlingRef.current = false;
+      setGroupDrag(null);
     }
   }, [open]);
-
-  const resolveDropIndex = useCallback((clientY: number) => {
-    const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-group-row]");
-    if (!rows?.length) return 0;
-    for (let index = 0; index < rows.length; index++) {
-      const rect = rows[index]!.getBoundingClientRect();
-      if (clientY < rect.top + rect.height / 2) return index;
-    }
-    return rows.length - 1;
-  }, []);
 
   const commitReorder = useCallback(
     (next: string[]) => {
@@ -124,13 +139,28 @@ export function GroupsDialog({
   const startPointerDrag = useCallback(
     (id: string, event: ReactPointerEvent<HTMLButtonElement>) => {
       if (event.button !== 0) return;
+      if (dragSettlingRef.current) return;
       const startY = event.clientY;
       const startX = event.clientX;
-      const initialOrder = dragOrderRef.current ?? groupIds;
-      dragOrderRef.current = initialOrder;
+      const initialOrder = [...(dragOrderRef.current ?? groupIds)];
+      const rows: VerticalDragRow[] = Array.from(
+        listRef.current?.querySelectorAll<HTMLElement>("[data-group-row]") ?? [],
+      ).flatMap((element) => {
+        const rowId = element.dataset.groupId;
+        if (!rowId) return [];
+        const rect = element.getBoundingClientRect();
+        return [{ id: rowId, top: rect.top, height: rect.height }];
+      });
+      const fromIndex = rows.findIndex((row) => row.id === id);
+      if (fromIndex < 0 || rows.length < 2) return;
+      event.stopPropagation();
       const handle = event.currentTarget;
       handle.setPointerCapture(event.pointerId);
       let moved = false;
+      let targetIndex = fromIndex;
+
+      const shiftsFor = (nextTargetIndex: number) =>
+        verticalDragShifts(rows, fromIndex, nextTargetIndex, GROUP_GAP);
 
       const onMove = (moveEvent: PointerEvent) => {
         if (moveEvent.pointerId !== event.pointerId) return;
@@ -138,15 +168,14 @@ export function GroupsDialog({
           return;
         }
         moved = true;
-        setDraggingId(id);
-        const order = dragOrderRef.current ?? initialOrder;
-        const from = order.indexOf(id);
-        const to = resolveDropIndex(moveEvent.clientY);
-        if (from >= 0 && from !== to) {
-          const next = reorderPinnedIds(order, from, to);
-          dragOrderRef.current = next;
-          setDragOrder(next);
-        }
+        const delta = clampVerticalDragDelta(rows, fromIndex, moveEvent.clientY - startY);
+        targetIndex = verticalDragTargetIndex(rows, fromIndex, delta);
+        setGroupDrag({
+          id,
+          delta,
+          shifts: shiftsFor(targetIndex),
+          settling: false,
+        });
         moveEvent.preventDefault();
       };
 
@@ -157,23 +186,53 @@ export function GroupsDialog({
         if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
       };
 
-      const onUp = () => {
-        cleanup();
-        setDraggingId(null);
-        if (moved && dragOrderRef.current) commitReorder(dragOrderRef.current);
+      const settleThenCommit = (nextOrder: string[] | null) => {
+        dragSettlingRef.current = true;
+        setGroupDrag({
+          id,
+          delta: verticalDragSettleDelta(rows, fromIndex, targetIndex),
+          shifts: shiftsFor(targetIndex),
+          settling: true,
+        });
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        dragSettleTimerRef.current = window.setTimeout(() => {
+          dragSettleTimerRef.current = null;
+          dragSettlingRef.current = false;
+          setGroupDrag(null);
+          if (nextOrder) commitReorder(nextOrder);
+        }, reduceMotion ? 0 : DRAG_SETTLE_MS);
       };
-      const onCancel = () => {
+
+      const onUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== event.pointerId) return;
         cleanup();
-        setDraggingId(null);
-        setDragOrder(null);
-        dragOrderRef.current = null;
+        if (!moved) {
+          setGroupDrag(null);
+          return;
+        }
+        upEvent.preventDefault();
+        const nextOrder =
+          targetIndex === fromIndex
+            ? null
+            : reorderPinnedIds(initialOrder, fromIndex, targetIndex);
+        settleThenCommit(nextOrder);
+      };
+      const onCancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== event.pointerId) return;
+        cleanup();
+        if (!moved) {
+          setGroupDrag(null);
+          return;
+        }
+        targetIndex = fromIndex;
+        settleThenCommit(null);
       };
 
       window.addEventListener("pointermove", onMove, { passive: false });
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
     },
-    [commitReorder, groupIds, resolveDropIndex],
+    [commitReorder, groupIds],
   );
 
   const pendingRemoveCount = pendingRemove
@@ -239,28 +298,55 @@ export function GroupsDialog({
           </Btn>
         </div>
         <FormErrorBox error={error} />
-        <div ref={listRef} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div
+          ref={listRef}
+          style={{ display: "flex", flexDirection: "column", gap: GROUP_GAP, isolation: "isolate" }}
+        >
           {orderedGroups.map((g) => {
             const count = projects.filter((p) => p.groupId === g.id).length;
             const isEditing = editing?.id === g.id;
             const groupProjects = projects.filter((p) => p.groupId === g.id);
             const availableProjects = projects.filter((p) => p.groupId !== g.id);
             const selectedProjectId = selectedProjectByGroup[g.id] ?? "";
-            const isDragging = draggingId === g.id;
+            const isDragging = groupDrag?.id === g.id;
+            const dragOffset = groupDrag
+              ? isDragging
+                ? groupDrag.delta
+                : groupDrag.shifts[g.id] ?? 0
+              : 0;
+            const isLifted = isDragging && !groupDrag?.settling;
+            const shouldAnimatePosition = groupDrag !== null && !isLifted;
             return (
               <div
                 key={g.id}
                 data-group-row
+                data-group-id={g.id}
+                data-dragging={isDragging || undefined}
+                className="mc-groups-dialog-row"
                 style={{
+                  position: "relative",
                   display: "flex",
                   flexDirection: "column",
                   gap: 10,
                   padding: "10px 12px",
-                  background: "var(--surface-0)",
+                  background: isDragging ? "var(--surface-2)" : "var(--surface-0)",
                   border: `1px solid ${isDragging ? "var(--accent-border)" : "var(--border)"}`,
                   borderRadius: 8,
-                  opacity: isDragging ? 0.6 : 1,
-                  boxShadow: isDragging ? "0 6px 18px rgba(0,0,0,0.35)" : undefined,
+                  opacity: isDragging ? 0.98 : 1,
+                  boxShadow: isLifted ? "0 10px 14px -10px rgba(0, 0, 0, 0.72)" : undefined,
+                  transform: `translate3d(0, ${dragOffset}px, 0) scale(${isLifted ? 1.008 : 1})`,
+                  transformOrigin: "center",
+                  zIndex: isDragging ? 3 : 1,
+                  willChange: groupDrag ? "transform" : undefined,
+                  transition: [
+                    ...(shouldAnimatePosition
+                      ? [`transform ${DRAG_SETTLE_MS}ms ${DRAG_SETTLE_EASE}`]
+                      : []),
+                    "background 120ms cubic-bezier(0.25, 1, 0.5, 1)",
+                    "border-color 120ms cubic-bezier(0.25, 1, 0.5, 1)",
+                    "box-shadow 120ms cubic-bezier(0.25, 1, 0.5, 1)",
+                    "opacity 120ms cubic-bezier(0.25, 1, 0.5, 1)",
+                  ].join(", "),
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -271,6 +357,7 @@ export function GroupsDialog({
                       aria-keyshortcuts="ArrowUp ArrowDown"
                       title="Drag to reorder (or focus and use ↑/↓)"
                       onPointerDown={(e) => startPointerDrag(g.id, e)}
+                      onDragStart={(e) => e.preventDefault()}
                       onKeyDown={(e) => {
                         if (e.key === "ArrowUp") {
                           e.preventDefault();
@@ -280,6 +367,8 @@ export function GroupsDialog({
                           moveGroupByKeyboard(g.id, 1);
                         }
                       }}
+                      className="mc-groups-dialog-drag-handle"
+                      data-active={isDragging || undefined}
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(2, 3px)",
@@ -289,13 +378,13 @@ export function GroupsDialog({
                         width: 18,
                         height: 22,
                         padding: 0,
-                        background: "transparent",
                         border: 0,
                         borderRadius: 4,
                         cursor: isDragging ? "grabbing" : "grab",
                         touchAction: "none",
-                        color: "var(--text-faint)",
                         flexShrink: 0,
+                        userSelect: "none",
+                        ["WebkitUserDrag" as any]: "none",
                       }}
                     >
                       {Array.from({ length: 6 }).map((_, dot) => (

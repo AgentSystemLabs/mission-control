@@ -2672,6 +2672,24 @@ body[data-card-glow] .cursor-glow {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 1px;
 }
+/* Manage-groups drag affordance: the card motion itself is pointer-driven in
+   GroupsDialog; CSS supplies quiet pickup feedback and keyboard focus. */
+.mc-groups-dialog-drag-handle {
+  background: transparent;
+  color: var(--text-faint);
+  transition:
+    background 120ms cubic-bezier(0.25, 1, 0.5, 1),
+    color 120ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.mc-groups-dialog-drag-handle:hover,
+.mc-groups-dialog-drag-handle[data-active="true"] {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text-dim);
+}
+.mc-groups-dialog-drag-handle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 2px;
+}
 .mc-group-header__grip {
   opacity: 0;
   transition: opacity 140ms ease;
@@ -2681,6 +2699,10 @@ body[data-card-glow] .cursor-glow {
   opacity: 0.85;
 }
 @media (prefers-reduced-motion: reduce) {
+  .mc-groups-dialog-row,
+  .mc-groups-dialog-drag-handle {
+    transition: none !important;
+  }
   .mc-group-header__grip {
     transition: none;
   }
