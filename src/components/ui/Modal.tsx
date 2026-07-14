@@ -178,6 +178,7 @@ export function Modal({
           className="mc-modal-footer"
           style={{
             display: "flex",
+            alignItems: "center",
             justifyContent: "flex-end",
             gap: 8,
             padding: "12px 18px",
