@@ -44,6 +44,9 @@ function ensureConnection(): Database.Database | null {
     });
     try {
       conn.pragma("journal_mode = WAL");
+      // Let a reader wait (up to 5s) for a concurrent checkpoint instead of
+      // throwing SQLITE_BUSY immediately.
+      conn.pragma("busy_timeout = 5000");
     } catch (pragmaErr) {
       // Read-only handles can reject the pragma if WAL wasn't already on; that's
       // expected on a fresh DB the server hasn't initialized yet. Anything else

@@ -170,6 +170,39 @@ function saveHiddenTaskIds(scopeKey: string, ids: ReadonlySet<string>): void {
   }
 }
 
+// The expanded (spotlighted) cell is stored per scope alongside the layout, so
+// an expansion survives switching to another project and back. A stale id
+// (archived/closed session) is pruned against the live session list by the
+// reconcile effect after load.
+const GRID_EXPANDED_PREFIX = "mc.gridExpanded";
+
+function expandedStorageKey(scopeKey: string): string {
+  return `${GRID_EXPANDED_PREFIX}:${scopeKey}`;
+}
+
+function loadExpandedTaskId(scopeKey: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(expandedStorageKey(scopeKey));
+    return raw && raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveExpandedTaskId(scopeKey: string, taskId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (taskId === null) {
+      window.localStorage.removeItem(expandedStorageKey(scopeKey));
+    } else {
+      window.localStorage.setItem(expandedStorageKey(scopeKey), taskId);
+    }
+  } catch {
+    /* quota or disabled */
+  }
+}
+
 function cloneLayout(layout: GridLayout): GridLayout {
   return {
     rows: layout.rows.map((r) => ({ cells: r.cells.slice(), colSizes: r.colSizes.slice() })),
@@ -798,7 +831,11 @@ export function SessionGrid({
     (settings?.themeStyle ?? readCachedThemeStyle()) === "flat";
   const gridGap = flushLayout ? 0 : GRID_GAP;
   const gridPad = flushLayout ? 0 : GRID_PADDING;
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  // Persisted per scope so an expansion survives switching projects and back
+  // (the scope-swap block reloads it; the reconcile effect prunes a stale id).
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(() =>
+    loadExpandedTaskId(scopeKey),
+  );
   // Task whose cell is momentarily spotlighted after a notification "Open".
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   // Cell pulsing the "image landed here" flash after a screenshot attach. The
@@ -922,6 +959,12 @@ export function SessionGrid({
     saveHiddenTaskIds(scopeKey, hiddenTaskIds);
   }, [scopeKey, hiddenTaskIds]);
 
+  // Persist the expanded cell whenever it changes, so an expansion survives
+  // switching projects and back (the scope-swap block reloads it per scope).
+  useEffect(() => {
+    saveExpandedTaskId(scopeKey, expandedTaskId);
+  }, [scopeKey, expandedTaskId]);
+
   // The authored layout for the current scope. Reconciled against live sessions:
   // new sessions land in the current/new row, closed ones (and empty rows) are
   // pruned. Seeded from this scope's persisted layout.
@@ -961,9 +1004,11 @@ export function SessionGrid({
 
   // Switch scopes during render (React's "adjust state when a prop changes"
   // pattern) so the previous project's rows never paint for the new one — which
-  // would flash the wrong layout and, worse, keep a stale expandedTaskId that
-  // matches no new cell and hides every cell for a frame. The reconcile effect
-  // below then prunes/places against the new scope's live sessions.
+  // would flash the wrong layout and, worse, carry the previous scope's
+  // expandedTaskId over, matching no new cell and hiding every cell for a frame.
+  // Each per-scope slice (layout, hidden set, column lock, expanded cell) is
+  // reloaded from that scope's storage here; the reconcile effect below then
+  // prunes/places against the new scope's live sessions.
   const scopeSwapRef = useRef(scopeKey);
   if (scopeSwapRef.current !== scopeKey) {
     scopeSwapRef.current = scopeKey;
@@ -972,7 +1017,7 @@ export function SessionGrid({
     setColumnLimit(loadGridColumnLimit(scopeKey));
     setQuickPickerOpen(false);
     lastHiddenTaskIdRef.current = null;
-    setExpandedTaskId(null);
+    setExpandedTaskId(loadExpandedTaskId(scopeKey));
     setNavTaskId(null);
     setDragLayout(null);
     setDraggingId(null);

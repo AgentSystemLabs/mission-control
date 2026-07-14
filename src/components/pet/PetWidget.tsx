@@ -8,6 +8,8 @@ import {
 } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { api, type AppSettings } from "~/lib/api";
+import { queryKeys } from "~/queries";
 import {
   getPetPersistentState,
   PET_WANDER_RANGE_PX,
@@ -20,9 +22,10 @@ import {
   type PetMood,
 } from "~/lib/pet/pet-store";
 import { requestSessionOpenById } from "~/lib/session-notification-store";
+import { useDockLift } from "~/lib/pet/use-dock-lift";
 import { useUserTerminalsOptional } from "~/lib/user-terminal-store";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
-import { DEFAULT_PET_SPECIES, type PetSizeId } from "~/shared/pet";
+import { DEFAULT_PET_SPECIES, type PetHomeSide, type PetSizeId } from "~/shared/pet";
 import { Z_INDEX } from "~/lib/z-index";
 import type { Task } from "~/db/schema";
 import { PET_SPECIES } from "./PetSprite";
@@ -46,6 +49,10 @@ const MOOD_EMOTE: Record<PetMood, string> = {
 
 /** Resting distance from the window's bottom edge when there's no dock. */
 const GROUND_GAP_PX = 18;
+/** Inset of the pet's home corner from the left/right window edge. */
+const EDGE_MARGIN_PX = 18;
+/** Tighter inset from the left project rail than from the bare window edge. */
+const LEFT_WALL_GAP_PX = 8;
 /**
  * The sprite art bottoms out at y≈91 of its 100-unit viewBox (feet paths at
  * y=90 plus half their stroke), so ~9% of the rendered sprite is empty space
@@ -117,6 +124,9 @@ export function PetWidget() {
     maxDx: number;
     minDy: number;
     maxDy: number;
+    /** Resting stage edges (no drag transform), for the release position. */
+    restLeft: number;
+    restRight: number;
     /** Last clamped offset — also the release position. */
     dx: number;
     dy: number;
@@ -131,13 +141,16 @@ export function PetWidget() {
   // doesn't animate (the stage offset and the walker offset cancel exactly).
   const [instantJump, setInstantJump] = useState(false);
 
-  // The pet perches on the bottom terminal dock instead of covering it: track
-  // how far the dock's top edge rises above the viewport bottom and lift the
-  // whole widget by that much. A ResizeObserver follows the dock's slide
-  // open/close and drag-resizes; the store scope re-arms the observer when the
-  // dock mounts/unmounts on project switches (it renders only on project/home
-  // scopes). The widget's own `bottom` transition turns those retargets into
-  // the fly-up / fall motion.
+  // The pet perches on the bottom terminal dock instead of covering it: lift
+  // the whole widget by how far the dock's top edge rises above the viewport
+  // bottom. The widget's own `bottom` transition turns those retargets into the
+  // fly-up / fall motion. Shared with the remote pets so both perch alike.
+  const dockLift = useDockLift(pet.enabled);
+  // The left project rail is a wall the pet shouldn't cross: track its right
+  // edge and keep both the pet's left home and its leftward drag/wander travel
+  // to the right of it, so it perches beside the rail instead of over it. The
+  // dock's mount/unmount on project switches (dockActive) re-arms the measure,
+  // since the rail comes and goes with the same project/home scopes.
   // Read dock state optionally: the pet also renders outside UserTerminalProvider
   // (e.g. the desktop-overlay window), where there is no dock — the pet then
   // perches on the window edge instead of throwing.
@@ -145,27 +158,24 @@ export function PetWidget() {
   const dockProject = userTerminals?.project ?? null;
   const homeActive = userTerminals?.homeActive ?? false;
   const dockActive = !!dockProject || homeActive;
-  const [dockLift, setDockLift] = useState(0);
+  const [leftWall, setLeftWall] = useState(0);
   useEffect(() => {
     if (!pet.enabled) return;
     const measure = () => {
-      const dock = document.querySelector("[data-user-terminal-panel]");
-      const rect = dock?.getBoundingClientRect();
-      // A hidden or collapsing dock reports a zero-size rect whose top is 0 —
-      // trusting it would set the lift to the full window height and slam the
-      // pet to the very top of the screen. No box, no perch.
-      setDockLift(
-        rect && rect.height > 0 && rect.width > 0
-          ? Math.max(0, window.innerHeight - rect.top)
+      const rail = document.querySelector(".mc-project-rail");
+      const railRect = rail?.getBoundingClientRect();
+      setLeftWall(
+        railRect && railRect.width > 0 && railRect.height > 0
+          ? Math.max(0, railRect.right)
           : 0,
       );
     };
     measure();
     let observer: ResizeObserver | null = null;
-    const dock = document.querySelector("[data-user-terminal-panel]");
-    if (dock && typeof ResizeObserver !== "undefined") {
+    const rail = document.querySelector(".mc-project-rail");
+    if (rail && typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(measure);
-      observer.observe(dock);
+      observer.observe(rail);
     }
     window.addEventListener("resize", measure);
     return () => {
@@ -173,6 +183,10 @@ export function PetWidget() {
       window.removeEventListener("resize", measure);
     };
   }, [pet.enabled, dockActive]);
+
+  // Resting x of a left-homed pet: snug against the rail when there is one,
+  // otherwise the usual inset from the bare window edge.
+  const leftHome = leftWall > 0 ? leftWall + LEFT_WALL_GAP_PX : EDGE_MARGIN_PX;
 
   // Pupils follow the cursor when it comes near — the pet sees you coming.
   // Imperative CSS vars on the stage (no re-render); the sprite reads them
@@ -221,6 +235,25 @@ export function PetWidget() {
     }
     setStroking(false);
   }, []);
+
+  // Re-homing a tossed pet writes the new corner back to settings so it sticks
+  // across reloads and the controller's settings→store sync doesn't snap it
+  // back. Optimistic, reverting the cache if the save fails.
+  const persistHomeSide = useCallback(
+    async (side: PetHomeSide) => {
+      const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+      queryClient.setQueryData<AppSettings>(queryKeys.settings, (prev) =>
+        prev ? { ...prev, petHomeSide: side } : prev,
+      );
+      try {
+        const next = await api.updateSettings({ petHomeSide: side });
+        queryClient.setQueryData(queryKeys.settings, next);
+      } catch {
+        if (previous) queryClient.setQueryData(queryKeys.settings, previous);
+      }
+    },
+    [queryClient],
+  );
 
   // Stop any in-flight hold/stroke when the pet is disabled…
   useEffect(() => {
@@ -274,6 +307,8 @@ export function PetWidget() {
       maxDx: 0,
       minDy: 0,
       maxDy: 0,
+      restLeft: 0,
+      restRight: 0,
       dx: 0,
       dy: 0,
       raf: 0,
@@ -291,10 +326,11 @@ export function PetWidget() {
     const origin = dragOrigin.current;
     if (!origin || origin.pointerId !== event.pointerId) return;
     // A drag needs a held button. If the release was missed somehow (capture
-    // lost, window switch), drop the stale origin instead of letting plain
-    // hover movement fake a drag.
+    // lost, window switch), settle the pet where it is instead of leaving the
+    // imperative stage transform stuck on screen — then let plain hover
+    // movement stop faking a drag.
     if (event.buttons === 0) {
-      dragOrigin.current = null;
+      if (!endDrag(event)) stopStroking();
       return;
     }
     const rawDx = event.clientX - origin.startX;
@@ -325,10 +361,14 @@ export function PetWidget() {
       // pet stays fully on screen no matter where the pointer goes.
       const rect = stageRef.current?.getBoundingClientRect();
       if (rect) {
-        origin.minDx = -rect.left + 4;
+        origin.minDx = -rect.left + leftWall + 4;
         origin.maxDx = window.innerWidth - rect.right - 4;
         origin.minDy = -rect.top + 4;
         origin.maxDy = Math.max(0, window.innerHeight - rect.bottom - 2);
+        // Resting edges (no drag transform yet): the release position is these
+        // plus the horizontal drag offset, used to re-home the pet on drop.
+        origin.restLeft = rect.left;
+        origin.restRight = rect.right;
       }
       // Rebase to the pointer's position *now*: with capture-at-press the
       // pointer may have chased a walking pet a long way since pointerdown,
@@ -356,12 +396,22 @@ export function PetWidget() {
     dragOrigin.current = null;
     if (!origin.active) return false;
     if (origin.raf) cancelAnimationFrame(origin.raf);
-    // wander.x counts px away from home. Dragging toward the opposite edge
-    // (dx with the same sign as awaySign) increases it.
-    const landing = Math.max(
-      0,
-      Math.min(window.innerWidth - 140, Math.round(origin.wanderX + awaySign * origin.dx)),
-    );
+    // Absolute horizontal edges of the release (resting edges + the horizontal
+    // drag offset; dy doesn't move them). The pet re-homes to whichever half of
+    // the window its center lands in — drop it past the midpoint and it lives
+    // on that side instead of walking all the way back to the old corner.
+    const releaseLeft = origin.restLeft + origin.dx;
+    const releaseRight = origin.restRight + origin.dx;
+    const landingCenterX = (releaseLeft + releaseRight) / 2;
+    const droppedSide: PetHomeSide = landingCenterX < window.innerWidth / 2 ? "left" : "right";
+    const sideChanged = droppedSide !== homeSide;
+    // Distance from the (possibly new) home edge to the release position, so the
+    // pet stays put visually before ambling back to that near corner.
+    const rawWanderX =
+      droppedSide === "left"
+        ? releaseLeft - leftHome
+        : window.innerWidth - EDGE_MARGIN_PX - releaseRight;
+    const landing = Math.max(0, Math.min(window.innerWidth - 140, Math.round(rawWanderX)));
     const stage = stageRef.current;
     const finish = () => {
       dropFinish.current = null;
@@ -371,9 +421,12 @@ export function PetWidget() {
       }
       // Hand the position to the store with the walker transition suppressed:
       // clearing the stage offset and adopting wander.x = landing cancel out.
+      // A re-home flips the home corner in the same render — landing is measured
+      // from the new edge, so the pet doesn't jump.
       setInstantJump(true);
       setDragPhase(null);
-      petTossed(landing);
+      petTossed(landing, droppedSide);
+      if (sideChanged) void persistHomeSide(droppedSide);
       window.setTimeout(() => setInstantJump(false), 50);
     };
     dropFinish.current = finish;
@@ -446,7 +499,7 @@ export function PetWidget() {
       data-home-side={homeSide}
       style={{
         position: "fixed",
-        ...(homeSide === "right" ? { right: 18 } : { left: 18 }),
+        ...(homeSide === "right" ? { right: EDGE_MARGIN_PX } : { left: leftHome }),
         bottom:
           dockLift > 0
             ? dockLift - SIZE_PX[pet.size] * SPRITE_BOTTOM_WHITESPACE
@@ -555,6 +608,10 @@ export function PetWidget() {
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
+                // A fast drag can make Chromium drop the implicit pointer
+                // capture and fire lostpointercapture *instead of* pointerup —
+                // without this the drag never ends and the pet stays stuck.
+                onLostPointerCapture={handlePointerUp}
                 aria-label={`${pet.name || "Pet"} — ${MOOD_DESCRIPTION[pet.mood]}`}
                 title={`${pet.name || "Pet"} · Lv ${pet.level}${pet.prestige > 0 ? ` ★${pet.prestige}` : ""} · ${MOOD_DESCRIPTION[pet.mood]}`}
                 data-mood={pet.mood}

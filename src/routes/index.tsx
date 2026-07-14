@@ -8,6 +8,7 @@ import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConf
 import { Icon } from "~/components/ui/Icon";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
+import { useDebouncedCallback } from "~/lib/use-debounced-callback";
 import { groupProjects } from "~/lib/group-projects";
 import { Section } from "~/components/ui/Section";
 import { EmptyState } from "~/components/ui/EmptyState";
@@ -137,17 +138,27 @@ function MissionControlPage() {
     [invalidateGroups, queryClient],
   );
 
+  // A running agent emits many task:* events per second; each used to refetch
+  // the (heavy) projects list. Coalesce those SSE-driven refreshes into one
+  // trailing refetch per 150ms burst. Explicit user actions below still
+  // invalidate immediately.
+  // maxWait bounds staleness under a sustained event storm: without it a
+  // continuous <150ms stream would defer the refetch indefinitely.
+  const invalidateProjectsDebounced = useDebouncedCallback(() => {
+    void invalidateProjects();
+  }, 150, 400);
+
   useServerEvents(
     useCallback(
       (e) => {
         if (e.type.startsWith("project:") || e.type.startsWith("task:")) {
-          void invalidateProjects();
+          invalidateProjectsDebounced();
         }
         if (e.type.startsWith("group:")) {
           void invalidateGroups();
         }
       },
-      [invalidateProjects, invalidateGroups]
+      [invalidateProjectsDebounced, invalidateGroups]
     )
   );
 
@@ -288,11 +299,27 @@ function MissionControlPage() {
                 onChange={persistDashboardView}
               />
 
-              <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
+              <Btn
+                variant="ghost"
+                icon="group"
+                onClick={() => setShowGroups(true)}
+                style={{
+                  height: 36,
+                  ["--mc-btn-height" as string]: "36px",
+                }}
+              >
                 Groups
               </Btn>
               <HotkeyTooltip action="project.add">
-                <Btn variant="primary" icon="plus" onClick={openAddProject}>
+                <Btn
+                  variant="primary"
+                  icon="plus"
+                  onClick={openAddProject}
+                  style={{
+                    height: 36,
+                    ["--mc-btn-height" as string]: "36px",
+                  }}
+                >
                   Add project
                 </Btn>
               </HotkeyTooltip>

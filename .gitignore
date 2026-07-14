@@ -42,3 +42,6 @@ CLAUDE.local.md
 # Grok goal scratch dirs (local agent workspaces)
 Temp/
 **/grok-goal-*/
+
+# Local git worktrees created by Mission Control
+.worktree/

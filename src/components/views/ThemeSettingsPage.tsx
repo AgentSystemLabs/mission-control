@@ -93,6 +93,7 @@ export function ThemeSettingsPage() {
     themeChosen: true,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,
     batterySaverEnabled: settings?.batterySaverEnabled ?? true,
+    spellcheckEnabled: settings?.spellcheckEnabled ?? true,
     sessionFinishToastEnabled: settings?.sessionFinishToastEnabled ?? true,
     sessionFinishOsNotificationEnabled:
       settings?.sessionFinishOsNotificationEnabled ?? false,
