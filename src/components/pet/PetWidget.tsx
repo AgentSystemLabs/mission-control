@@ -324,10 +324,11 @@ export function PetWidget() {
     const origin = dragOrigin.current;
     if (!origin || origin.pointerId !== event.pointerId) return;
     // A drag needs a held button. If the release was missed somehow (capture
-    // lost, window switch), drop the stale origin instead of letting plain
-    // hover movement fake a drag.
+    // lost, window switch), settle the pet where it is instead of leaving the
+    // imperative stage transform stuck on screen — then let plain hover
+    // movement stop faking a drag.
     if (event.buttons === 0) {
-      dragOrigin.current = null;
+      if (!endDrag(event)) stopStroking();
       return;
     }
     const rawDx = event.clientX - origin.startX;
@@ -605,6 +606,10 @@ export function PetWidget() {
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
+                // A fast drag can make Chromium drop the implicit pointer
+                // capture and fire lostpointercapture *instead of* pointerup —
+                // without this the drag never ends and the pet stays stuck.
+                onLostPointerCapture={handlePointerUp}
                 aria-label={`${pet.name || "Pet"} — ${MOOD_DESCRIPTION[pet.mood]}`}
                 title={`${pet.name || "Pet"} · Lv ${pet.level}${pet.prestige > 0 ? ` ★${pet.prestige}` : ""} · ${MOOD_DESCRIPTION[pet.mood]}`}
                 data-mood={pet.mood}
