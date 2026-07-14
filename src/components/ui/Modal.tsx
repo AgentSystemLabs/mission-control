@@ -175,6 +175,7 @@ export function Modal({
       <div style={{ padding: 18, overflowY: "auto", flex: 1, ...contentStyle }}>{children}</div>
       {footer && (
         <div
+          className="mc-modal-footer"
           style={{
             display: "flex",
             justifyContent: "flex-end",
