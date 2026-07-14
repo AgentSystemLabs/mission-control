@@ -13,9 +13,9 @@ import { useUserTerminalsOptional } from "~/lib/user-terminal-store";
  * Shared by the local Mission Pet and the remote (peer) pets so both sit on the
  * same plane — perched on the dock — instead of one floating inside the panel.
  *
- * Reads dock state optionally: the pet also renders outside UserTerminalProvider
- * (e.g. the desktop-overlay window), where there is no dock — return 0 there
- * instead of throwing.
+ * Reads the terminal store optionally: pets also render outside
+ * UserTerminalProvider (the desktop-overlay window), where there is no dock —
+ * the pet then perches on the window edge instead of throwing.
  */
 export function useDockLift(enabled = true): number {
   const userTerminals = useUserTerminalsOptional();
