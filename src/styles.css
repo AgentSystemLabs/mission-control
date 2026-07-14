@@ -2657,6 +2657,35 @@ body[data-card-glow] .cursor-glow {
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
+/* Group-cluster header in the pinned rail (ProjectBar.tsx). The keycap + name
+   read as a labeled, keyboard-addressable section marker; the drag grip stays
+   hidden until hover/focus so the header quietly announces it can be picked up
+   and reordered. The picked-up lift (fill + glow) is applied inline while a
+   drag is live. */
+.mc-group-header {
+  background: transparent;
+}
+.mc-group-header:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.mc-group-header:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.mc-group-header__grip {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.mc-group-header:hover .mc-group-header__grip,
+.mc-group-header:focus-visible .mc-group-header__grip {
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-group-header__grip {
+    transition: none;
+  }
+}
+
 /* Floating name label for the pinned-project rail (ProjectBar.tsx). A single
    element slides out to the right of the hovered tile; while the pointer sweeps
    between tiles it stays mounted and its `top` transition glides it vertically
