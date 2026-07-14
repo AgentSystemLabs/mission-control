@@ -88,21 +88,30 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   // in the group (pinned first), not just pinned ones. With "all" active it
   // stays the pinned rail, clustered by group with color divider lines.
   const groupScoped = activeGroup !== ACTIVE_GROUP_ALL;
-  const railClusters = useMemo(() => {
-    if (!groupScoped) return clusterPinnedByGroup(pinned, groups);
-    const cluster = getGroupRailCluster(projects ?? [], groups, activeGroup);
-    return cluster.projects.length > 0 ? [cluster] : [];
-  }, [activeGroup, groupScoped, groups, pinned, projects]);
-  const visible = useMemo(() => railClusters.flatMap((c) => c.projects), [railClusters]);
-  const visibleById = useMemo(
-    () => new Map(visible.map((project) => [project.id, project])),
-    [visible],
-  );
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
     null
   );
   const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  // While a drag is live the rail renders the FLAT drag order (no clusters/
+  // dividers): the drag handlers index into the same list the DOM shows, so
+  // from/to indexes can never disagree. The drop is persisted as pinnedOrder,
+  // and re-clustering (stable within each group) resumes after the drag.
+  const railClusters = useMemo(() => {
+    if (!groupScoped) {
+      if (draggingProjectId) {
+        return [{ key: "dragging", label: "Pinned", color: null, projects: pinned }];
+      }
+      return clusterPinnedByGroup(pinned, groups);
+    }
+    const cluster = getGroupRailCluster(projects ?? [], groups, activeGroup);
+    return cluster.projects.length > 0 ? [cluster] : [];
+  }, [activeGroup, draggingProjectId, groupScoped, groups, pinned, projects]);
+  const visible = useMemo(() => railClusters.flatMap((c) => c.projects), [railClusters]);
+  const visibleById = useMemo(
+    () => new Map(visible.map((project) => [project.id, project])),
+    [visible],
+  );
   // A single floating name label that slides out to the right of the hovered
   // tile. Kept alive while the pointer sweeps between tiles (only the rail's
   // own onMouseLeave clears it) so it glides vertically to the newly-hovered
@@ -127,7 +136,13 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   const reorderSaveSeqRef = useRef(0);
   const barRef = useRef<HTMLElement | null>(null);
   const suppressClickRef = useRef(false);
-  pinnedIdsRef.current = pinned.map((project) => project.id);
+  // Reorder operates on the VISIBLE order (the clustered rail), so a drag
+  // starting from the clustered layout has no jump when the flat drag render
+  // takes over. Group-workspace mode keeps the plain pinned order (reorder is
+  // disabled there and `visible` contains unpinned projects).
+  pinnedIdsRef.current = groupScoped
+    ? pinned.map((project) => project.id)
+    : visible.map((project) => project.id);
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
 
