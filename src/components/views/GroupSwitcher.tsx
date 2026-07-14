@@ -41,7 +41,8 @@ const UNGROUPED_DOT = "rgba(232, 230, 223, 0.3)";
 /**
  * Header switcher for the globally active project group — the workspace-like
  * context that scopes the dashboard, the left rail, and the project picker.
- * Sits next to the sandbox ScopeDropdown; hidden while no groups exist.
+ * Leads the TopBar breadcrumb (Group › Project › Scope) as the broadest
+ * context; hidden while no groups exist and on Settings/Usage screens.
  */
 export function GroupSwitcher() {
   const { activeGroup, setActiveGroup, groups } = useActiveGroup();

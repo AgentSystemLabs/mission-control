@@ -499,13 +499,22 @@ function Shell() {
   // grid below the project header) spans full width and the single right-hand
   // terminal panel is hidden.
   const gridActive = !!projectMatch && gridView;
+  // The group is the broadest context, so it leads the breadcrumb:
+  // Group › Project › Scope. Omitted (not just null-rendered) when no groups
+  // exist so no dangling separator renders, and absent on the app-global
+  // Settings/Usage screens where a group scope is meaningless.
+  const groupCrumb: Crumb[] =
+    groups.length > 0 ? [{ label: "Group", node: <GroupSwitcher /> }] : [];
   const crumbs: Crumb[] = settingsOpen
     ? [{ label: "Settings" }]
     : projectMatch
-    ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> }]
+    ? [
+        ...groupCrumb,
+        { label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> },
+      ]
       : activePanel === "usage"
         ? [{ label: "Usage" }]
-      : [{ label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
+      : [...groupCrumb, { label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
 
   const closePanel = () => setActivePanel(null);
 
@@ -786,7 +795,6 @@ function Shell() {
                * context→actions divider is the project route's leading action
                * so it only appears when there are actions to separate. */}
               <ScopeDropdown />
-              <GroupSwitcher />
               <HeaderActionsSlot />
             </>
           }
