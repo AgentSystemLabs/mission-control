@@ -24,7 +24,11 @@ import { PINNED_SLOT_COUNT } from "~/lib/keybindings/match";
 import { api } from "~/lib/api";
 import { getPinnedProjects, reorderPinnedIds } from "~/lib/pinned-project-order";
 import { ACTIVE_GROUP_ALL, useActiveGroup } from "~/lib/active-group";
-import { clusterPinnedByGroup, getGroupRailCluster } from "~/lib/rail-projects";
+import {
+  clusterPinnedByGroup,
+  getGroupRailCluster,
+  usesDirectRailProjectShortcuts,
+} from "~/lib/rail-projects";
 import { shouldFlashPinnedProjectLogo } from "./project-bar-activity";
 import { getPinnedProjectStatusDots } from "./project-bar-status-dots";
 
@@ -336,6 +340,17 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
       const slots: Slot[] = [];
       {
         let tileCount = 0;
+        // A flat rail has no cluster header, so create the equivalent leading
+        // slot before its first tile. This keeps first-item drag/reorder working
+        // when the synthetic Ungrouped header is intentionally hidden.
+        if (rows[0]?.kind === "tile") {
+          slots.push({
+            afterRow: -1,
+            top: rows[0].top,
+            cluster: rows[0].cluster,
+            flatIndex: 0,
+          });
+        }
         for (let i = 0; i < rows.length; i++) {
           if (i === fromRow) continue;
           const row = rows[i]!;
@@ -671,10 +686,12 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   const activeId = router.state.location.pathname.match(/^\/projects\/([^/]+)/)?.[1];
   const activeIndex = visible.findIndex((p) => p.id === activeId);
 
-  // In "All" mode each cluster is preceded by a group-number label (the first
-  // digit of the Cmd chord). Labels stay up during drags — a project drag
-  // moves tiles between the visible groups.
-  const showClusterLabels = !groupScoped;
+  // Group-number labels only earn their space when a real group exists. With
+  // no groups, the lone synthetic Ungrouped cluster becomes a flat rail and
+  // project digits are direct Cmd/Ctrl shortcuts.
+  const directProjectShortcuts = usesDirectRailProjectShortcuts(groups, activeGroup);
+  const showClusterLabels = !directProjectShortcuts;
+  const showScopedLabel = groupScoped && groups.length > 0;
   const PAD_TOP = minimal ? 18 : 12;
   const PAD_X = minimal ? 4 : 8;
   const BAR_WIDTH = minimal ? 72 : 96;
@@ -713,7 +730,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   const itemOffsets: number[] = [];
   {
     let y = 0;
-    if (groupScoped) y += HEADER_HEIGHT + GAP;
+    if (showScopedLabel) y += HEADER_HEIGHT + GAP;
     railClusters.forEach((cluster, clusterIndex) => {
       if (showClusterLabels) y += GROUP_LABEL_HEIGHT + GAP;
       else if (clusterIndex > 0) y += DIVIDER_HEIGHT + GAP;
@@ -780,7 +797,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
           }}
         />
       )}
-      {groupScoped && (
+      {showScopedLabel && (
         <div
           title={`Rail scoped to ${railLabel}`}
           style={{
@@ -1056,12 +1073,12 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
           {cluster.projects.map((project, projectIndex) => {
         const idx = flatIndexById.get(project.id)!;
         const isActive = idx === activeIndex;
-        // Per-group project number (restarts each cluster). The group number
-        // is clusterIndex + 1, shown on the label above.
+        // Project numbers restart per cluster when group chords are visible;
+        // the no-groups rail has one flat cluster, so these are direct slots.
         const projectNumber = projectIndex + 1;
         const groupNumber = clusterIndex + 1;
         const hotkey = projectNumber <= HOTKEY_LIMIT ? projectNumber : null;
-        const chordHint = groupScoped
+        const chordHint = directProjectShortcuts
           ? pinnedSlotBinding(projectNumber)
           : `${pinnedSlotBinding(groupNumber)} ${projectNumber}`;
         const runningCount = project.taskCounts.running;

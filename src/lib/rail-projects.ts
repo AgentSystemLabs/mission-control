@@ -20,6 +20,18 @@ export type RailCluster<T extends RailProject> = {
 };
 
 /**
+ * Project digits need a group prefix only while browsing All with at least one
+ * real group. With no groups, the synthetic Ungrouped cluster is presentation
+ * noise and the rail behaves as one flat directly-addressable project list.
+ */
+export function usesDirectRailProjectShortcuts(
+  groups: readonly Group[],
+  activeGroup: ActiveProjectGroup,
+): boolean {
+  return activeGroup !== ACTIVE_GROUP_ALL || groups.length === 0;
+}
+
+/**
  * Cluster an already-ordered pinned list by group (group order first, then
  * ungrouped) without disturbing the relative pinned order inside a cluster.
  * Real groups stay in the result even when they have no pinned projects so the

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Group } from "~/db/schema";
 import {
   clusterPinnedByGroup,
+  usesDirectRailProjectShortcuts,
   type RailProject,
 } from "~/lib/rail-projects";
+import { ACTIVE_GROUP_ALL, ACTIVE_GROUP_UNGROUPED } from "~/shared/ui-preferences";
 
 function group(id: string, name: string): Group {
   return {
@@ -49,5 +51,22 @@ describe("clusterPinnedByGroup", () => {
     const clusters = clusterPinnedByGroup([], [group("empty", "Empty")]);
 
     expect(clusters.map((cluster) => cluster.key)).toEqual(["empty"]);
+  });
+});
+
+describe("usesDirectRailProjectShortcuts", () => {
+  it("uses direct project digits when no real groups exist", () => {
+    expect(usesDirectRailProjectShortcuts([], ACTIVE_GROUP_ALL)).toBe(true);
+  });
+
+  it("uses group→project chords in All mode when groups exist", () => {
+    expect(usesDirectRailProjectShortcuts([group("dev", "Dev")], ACTIVE_GROUP_ALL)).toBe(false);
+  });
+
+  it("uses direct project digits inside a selected group workspace", () => {
+    expect(usesDirectRailProjectShortcuts([group("dev", "Dev")], "dev")).toBe(true);
+    expect(
+      usesDirectRailProjectShortcuts([group("dev", "Dev")], ACTIVE_GROUP_UNGROUPED),
+    ).toBe(true);
   });
 });

@@ -9,7 +9,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { getRailClusters } from "~/lib/rail-projects";
+import { getRailClusters, usesDirectRailProjectShortcuts } from "~/lib/rail-projects";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
 import { screenshotSupported } from "~/lib/screenshot";
@@ -389,7 +389,8 @@ function Shell() {
   const gridView = useGridView();
   const workspaceRef = useRef<HTMLDivElement>(null);
   // First digit of a group→project rail chord (Cmd held, group digit pressed,
-  // awaiting the project digit or a Cmd release). Only used in "All" mode.
+  // awaiting the project digit or a Cmd release). Only used in "All" mode
+  // when at least one real group exists.
   const pendingRailGroupRef = useRef<number | null>(null);
   const userTerminals = useUserTerminals();
   const {
@@ -728,9 +729,9 @@ function Shell() {
           router.navigate({ to: "/projects/$id", params: { id } });
         };
 
-        // A single group is active: the rail is one group's workspace, so the
-        // digit is the project number directly — no group prefix.
-        if (activeGroup !== ACTIVE_GROUP_ALL) {
+        // A single group is active, or no real groups exist: the rail is one
+        // flat project list, so the digit addresses a project directly.
+        if (usesDirectRailProjectShortcuts(groups, activeGroup)) {
           pendingRailGroupRef.current = null;
           const target = clusters[0]?.projects[digit - 1];
           if (target) navigateTo(target.id);
@@ -762,7 +763,11 @@ function Shell() {
       if (e.key !== "Meta" && e.key !== "Control") return;
       const pending = pendingRailGroupRef.current;
       pendingRailGroupRef.current = null;
-      if (pending == null || activeResuming || activeGroup !== ACTIVE_GROUP_ALL) return;
+      if (
+        pending == null ||
+        activeResuming ||
+        usesDirectRailProjectShortcuts(groups, activeGroup)
+      ) return;
       const clusters = getRailClusters(projects ?? [], groups, activeGroup);
       const target = clusters[pending - 1]?.projects[0];
       if (target) router.navigate({ to: "/projects/$id", params: { id: target.id } });
