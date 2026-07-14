@@ -18,6 +18,17 @@ export const GIT_DIFF_CHANGED_FILES_WIDTH_MAX = 520;
 
 export type SelectedWorktreeByProject = Record<string, string>;
 
+/**
+ * The globally active project group — a workspace-like context that scopes
+ * the dashboard, the left project rail, and the project picker.
+ * Either the sentinel "all" / "ungrouped" or a group id.
+ */
+export const ACTIVE_GROUP_ALL = "all" as const;
+export const ACTIVE_GROUP_UNGROUPED = "ungrouped" as const;
+export type ActiveProjectGroup = string;
+export const DEFAULT_ACTIVE_PROJECT_GROUP: ActiveProjectGroup = ACTIVE_GROUP_ALL;
+export const ACTIVE_PROJECT_GROUP_MAX_LENGTH = 200;
+
 function normalizeEnumValue<T extends string>(
   value: unknown,
   values: readonly T[],
@@ -41,6 +52,13 @@ export function normalizeProjectsDashboardView(
 
 export function normalizeFileFinderView(value: unknown): FileFinderView | null {
   return normalizeEnumValue(value, FILE_FINDER_VIEWS);
+}
+
+export function normalizeActiveProjectGroup(value: unknown): ActiveProjectGroup | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > ACTIVE_PROJECT_GROUP_MAX_LENGTH) return null;
+  return trimmed;
 }
 
 export function normalizeGitDiffChangedFilesWidth(value: unknown): number | null {

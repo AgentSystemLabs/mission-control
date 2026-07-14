@@ -1,8 +1,10 @@
 import {
+  normalizeActiveProjectGroup,
   normalizeFileFinderView,
   normalizeGitDiffChangedFilesView,
   normalizeProjectsDashboardView,
   normalizeSelectedWorktreeByProject,
+  type ActiveProjectGroup,
   type FileFinderView,
   type GitDiffChangedFilesView,
   type ProjectsDashboardView,
@@ -14,6 +16,7 @@ export const GIT_DIFF_CHANGED_FILES_WIDTH_STORAGE_KEY = "mc:gitDiffChangedFilesW
 export const PROJECTS_DASHBOARD_VIEW_STORAGE_KEY = "mc:projectsDashboardView";
 export const FILE_FINDER_VIEW_STORAGE_KEY = "mc:fileFinderView";
 export const SELECTED_WORKTREE_BY_PROJECT_STORAGE_KEY = "mc.selectedWorktreeByProject";
+export const ACTIVE_PROJECT_GROUP_STORAGE_KEY = "mc:activeProjectGroup";
 
 /**
  * A string-valued UI preference persisted in localStorage, normalized on read.
@@ -57,6 +60,13 @@ const projectsDashboardView = makeStringPreference<ProjectsDashboardView>(
 );
 export const readCachedProjectsDashboardView = projectsDashboardView.read;
 export const writeCachedProjectsDashboardView = projectsDashboardView.write;
+
+const activeProjectGroup = makeStringPreference<ActiveProjectGroup>(
+  ACTIVE_PROJECT_GROUP_STORAGE_KEY,
+  normalizeActiveProjectGroup,
+);
+export const readCachedActiveProjectGroup = activeProjectGroup.read;
+export const writeCachedActiveProjectGroup = activeProjectGroup.write;
 
 const fileFinderView = makeStringPreference<FileFinderView>(
   FILE_FINDER_VIEW_STORAGE_KEY,

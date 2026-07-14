@@ -118,6 +118,7 @@ export function GeneralSettingsPage() {
     gitDiffChangedFilesView: settings?.gitDiffChangedFilesView ?? null,
     gitDiffChangedFilesWidth: settings?.gitDiffChangedFilesWidth ?? null,
     projectsDashboardView: settings?.projectsDashboardView ?? null,
+    activeProjectGroup: settings?.activeProjectGroup ?? null,
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,

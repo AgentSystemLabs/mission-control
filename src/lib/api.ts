@@ -110,6 +110,11 @@ export type AppSettings = {
   gitDiffChangedFilesWidth: number | null;
   /** Projects dashboard layout — cards (default) or table. */
   projectsDashboardView: ProjectsDashboardView | null;
+  /**
+   * Globally active project group scoping the dashboard, left rail, and
+   * project picker: "ungrouped", a group id, or null for "all projects".
+   */
+  activeProjectGroup: string | null;
   selectedWorktreeByProject: SelectedWorktreeByProject | null;
   /**
    * Which CLI generates Ship's commit message. `null` means "not set yet" —
@@ -659,6 +664,7 @@ export const api = {
         | "gitDiffChangedFilesView"
         | "gitDiffChangedFilesWidth"
         | "projectsDashboardView"
+        | "activeProjectGroup"
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"
