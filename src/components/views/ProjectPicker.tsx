@@ -10,6 +10,8 @@ import { StatusDot } from "~/components/ui/StatusDot";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { STATUS_META } from "~/lib/design-meta";
 import { projectPickerSections } from "~/lib/group-projects";
+import { ACTIVE_GROUP_ALL, useActiveGroup } from "~/lib/active-group";
+import { getGroupRailCluster } from "~/lib/rail-projects";
 import type { TaskStatus } from "~/shared/domain";
 import { useServerEvents } from "~/lib/use-events";
 import { useDebouncedCallback } from "~/lib/use-debounced-callback";
@@ -74,7 +76,12 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
 
   const current = allProjects?.find((p) => p.id === projectId) ?? null;
   const label = current?.name ?? "Project";
+  const { activeGroup, setActiveGroup } = useActiveGroup();
+  const groupScoped = activeGroup !== ACTIVE_GROUP_ALL;
+  const searching = query.trim().length > 0;
 
+  // Searching always sweeps ALL scoped projects — the group filter narrows
+  // the browse list, never the search, so the picker can't trap the user.
   const filtered = useMemo<ProjectWithCounts[]>(() => {
     if (!projects) return [];
     const q = query.trim().toLowerCase();
@@ -82,8 +89,16 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
     return projects.filter((p) => p.name.toLowerCase().includes(q));
   }, [projects, query]);
 
-  // Mirrors the landing page layout so the affordance is consistent.
-  const sections = useMemo(() => projectPickerSections(filtered, groups), [filtered, groups]);
+  // Mirrors the landing page layout so the affordance is consistent. With a
+  // group active (and no search) the browse list is that group's workspace:
+  // pinned first, then alphabetical.
+  const sections = useMemo(() => {
+    if (groupScoped && !searching) {
+      const cluster = getGroupRailCluster(projects ?? [], groups, activeGroup);
+      return [{ key: cluster.key, label: cluster.label, color: cluster.color, projects: cluster.projects }];
+    }
+    return projectPickerSections(filtered, groups);
+  }, [activeGroup, filtered, groups, groupScoped, projects, searching]);
   const launchRunningProjectIds = useMemo(
     () =>
       new Set(
@@ -242,7 +257,7 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onInputKeyDown}
-              placeholder="Search projects…"
+              placeholder={groupScoped ? "Search all projects…" : "Search projects…"}
               style={{
                 width: "100%",
                 background: "transparent",
@@ -262,7 +277,7 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
               </div>
             ) : flatItems.length === 0 ? (
               <div style={{ padding: 10, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-faint)" }}>
-                No matches.
+                {groupScoped && !searching ? "No projects in this group." : "No matches."}
               </div>
             ) : (
               (() => {
@@ -345,6 +360,35 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
               })()
             )}
           </div>
+          {groupScoped && !searching && (
+            <div style={{ borderTop: "1px solid var(--border)", padding: 4 }}>
+              <button
+                type="button"
+                onClick={() => setActiveGroup(ACTIVE_GROUP_ALL)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 8px",
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontFamily: "var(--mono)",
+                  fontSize: 12,
+                  color: "var(--text-dim)",
+                }}
+              >
+                <Icon name="chevron-down" size={11} style={{ transform: "rotate(90deg)", color: "var(--text-faint)" }} />
+                <span style={{ flex: 1 }}>All projects</span>
+                <span style={{ fontSize: 11, color: "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>
+                  {projects?.length ?? 0}
+                </span>
+              </button>
+            </div>
+          )}
         </CardFrame>
       )}
     </div>
