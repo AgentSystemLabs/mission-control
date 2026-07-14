@@ -299,11 +299,27 @@ function MissionControlPage() {
                 onChange={persistDashboardView}
               />
 
-              <Btn variant="ghost" icon="group" onClick={() => setShowGroups(true)}>
+              <Btn
+                variant="ghost"
+                icon="group"
+                onClick={() => setShowGroups(true)}
+                style={{
+                  height: 36,
+                  ["--mc-btn-height" as string]: "36px",
+                }}
+              >
                 Groups
               </Btn>
               <HotkeyTooltip action="project.add">
-                <Btn variant="primary" icon="plus" onClick={openAddProject}>
+                <Btn
+                  variant="primary"
+                  icon="plus"
+                  onClick={openAddProject}
+                  style={{
+                    height: 36,
+                    ["--mc-btn-height" as string]: "36px",
+                  }}
+                >
                   Add project
                 </Btn>
               </HotkeyTooltip>
