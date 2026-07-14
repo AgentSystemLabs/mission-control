@@ -298,6 +298,27 @@ const electronAPI = {
   },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   browseFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogBrowseFolder),
+  listFolders: (
+    dir: string | null,
+  ): Promise<
+    | {
+        ok: true;
+        path: string;
+        parent: string | null;
+        home: string;
+        roots: Array<{ label: string; path: string }>;
+        entries: Array<{ name: string; childCount: number }>;
+        truncated: boolean;
+      }
+    | { ok: false; error: string }
+  > => ipcRenderer.invoke(IPC.dialogListFolders, dir),
+  grantFolder: (dir: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IPC.dialogGrantFolder, dir),
+  createFolder: (
+    parent: string,
+    name: string,
+  ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IPC.dialogCreateFolder, parent, name),
   openPath: (path: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IPC.shellOpenPath, path),
   openExternal: (url: string): Promise<{ ok: true } | { ok: false; error: string }> =>

@@ -1,5 +1,8 @@
 export const IPC = {
   dialogBrowseFolder: "dialog:browseFolder",
+  dialogListFolders: "dialog:listFolders",
+  dialogGrantFolder: "dialog:grantFolder",
+  dialogCreateFolder: "dialog:createFolder",
   dialogPickImage: "dialog:pickImage",
   fileSaveProjectImage: "file:saveProjectImage",
   shellOpenPath: "shell:openPath",
