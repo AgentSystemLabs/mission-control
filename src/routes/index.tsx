@@ -17,7 +17,14 @@ import { ProjectCard } from "~/components/views/ProjectCard";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { ProjectsDashboardViewToggle } from "~/components/views/ProjectsDashboardViewToggle";
 import { ProjectsTable } from "~/components/views/ProjectsTable";
-import { GroupsDialog } from "~/components/views/GroupsDialog";
+import { GroupFilterChips } from "~/components/views/GroupFilterChips";
+import {
+  ACTIVE_GROUP_ALL,
+  ACTIVE_GROUP_UNGROUPED,
+  activeGroupLabel,
+  useGroupScopedProjects,
+} from "~/lib/active-group";
+import { useGroupsDialog } from "~/lib/groups-dialog-store";
 import { useAddProject } from "~/lib/add-project-store";
 import { useTerminalActions } from "~/lib/terminal-store";
 import { api, type AppSettings } from "~/lib/api";
@@ -30,7 +37,6 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
 import {
   queryKeys,
   useGroups,
-  useScopedProjects,
   useSettings,
 } from "~/queries";
 import type { ProjectWithCounts } from "~/shared/projects";
@@ -47,12 +53,15 @@ export const Route = createFileRoute("/")({
 function MissionControlPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const projectsQuery = useScopedProjects();
+  const projectsQuery = useGroupScopedProjects();
   const groupsQuery = useGroups();
   const projects = projectsQuery.data ?? [];
+  // Sandbox-scoped but group-UNscoped — chip counts must ignore the group filter.
+  const allScopedProjects = projectsQuery.unscopedData ?? [];
+  const { activeGroup, setActiveGroup } = projectsQuery;
   const groups = groupsQuery.data ?? [];
+  const groupsDialog = useGroupsDialog();
   const [search, setSearch] = useState("");
-  const [showGroups, setShowGroups] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
   const [removingProject, setRemovingProject] = useState<ProjectWithCounts | null>(null);
   const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
@@ -170,15 +179,27 @@ function MissionControlPage() {
   const filteredProjects = projects.filter(filter);
   const { pinned, byGroup, ungrouped } = groupProjects(filteredProjects, groups);
   const visibleProjectCount = filteredProjects.length;
+  const groupScoped = activeGroup !== ACTIVE_GROUP_ALL;
+  const activeLabel = activeGroupLabel(activeGroup, groups);
+  const activeGroupColor =
+    groupScoped && activeGroup !== ACTIVE_GROUP_UNGROUPED
+      ? groups.find((g) => g.id === activeGroup)?.color
+      : undefined;
+  // Group-scoped cards view renders a single section, pinned projects first.
+  const scopedOrdered = groupScoped
+    ? [...filteredProjects.filter((p) => p.pinned), ...filteredProjects.filter((p) => !p.pinned)]
+    : filteredProjects;
   const dashboardSummary = search
     ? `${visibleProjectCount} of ${projects.length} ${projects.length === 1 ? "project" : "projects"} shown`
-    : projects.length === 0
-      ? "Add a project to start local sessions and agents."
-      : [
-          `${projects.length} ${projects.length === 1 ? "project" : "projects"}`,
-          `${groups.length} ${groups.length === 1 ? "group" : "groups"}`,
-          `${pinned.length} pinned`,
-        ].join(", ");
+    : groupScoped
+      ? `${projects.length} ${projects.length === 1 ? "project" : "projects"} in ${activeLabel}, ${allScopedProjects.length} total`
+      : projects.length === 0
+        ? "Add a project to start local sessions and agents."
+        : [
+            `${projects.length} ${projects.length === 1 ? "project" : "projects"}`,
+            `${groups.length} ${groups.length === 1 ? "group" : "groups"}`,
+            `${pinned.length} pinned`,
+          ].join(", ");
 
   const gridCols = "repeat(auto-fill, minmax(300px, 1fr))";
   const showProjectContent =
@@ -302,7 +323,7 @@ function MissionControlPage() {
               <Btn
                 variant="ghost"
                 icon="group"
-                onClick={() => setShowGroups(true)}
+                onClick={groupsDialog.open}
                 style={{
                   height: 36,
                   ["--mc-btn-height" as string]: "36px",
@@ -325,6 +346,13 @@ function MissionControlPage() {
               </HotkeyTooltip>
             </div>
           </div>
+
+          <GroupFilterChips
+            groups={groups}
+            projects={allScopedProjects}
+            activeGroup={activeGroup}
+            onChange={setActiveGroup}
+          />
 
           {(projectsQuery.isLoading || groupsQuery.isLoading) && (
             <EmptyState
@@ -371,7 +399,22 @@ function MissionControlPage() {
             </Section>
           )}
 
-          {showProjectContent && dashboardView === "cards" && pinned.length > 0 && (
+          {showProjectContent && dashboardView === "cards" && groupScoped && scopedOrdered.length > 0 && (
+            <Section
+              label={activeLabel}
+              count={scopedOrdered.length}
+              dot={activeGroupColor}
+              divider={false}
+              marginBottom={48}
+              labelSize={13}
+            >
+              <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 14 }}>
+                {scopedOrdered.map(renderProjectCard)}
+              </div>
+            </Section>
+          )}
+
+          {showProjectContent && dashboardView === "cards" && !groupScoped && pinned.length > 0 && (
             <Section
               label="Pinned"
               count={pinned.length}
@@ -386,7 +429,7 @@ function MissionControlPage() {
             </Section>
           )}
 
-          {showProjectContent && dashboardView === "cards" && byGroup.map(({ group, projects: gp }) => (
+          {showProjectContent && dashboardView === "cards" && !groupScoped && byGroup.map(({ group, projects: gp }) => (
             <Section
               key={group.id}
               label={group.name}
@@ -402,7 +445,7 @@ function MissionControlPage() {
             </Section>
           ))}
 
-          {showProjectContent && dashboardView === "cards" && ungrouped.length > 0 && (
+          {showProjectContent && dashboardView === "cards" && !groupScoped && ungrouped.length > 0 && (
             <Section
               label="Ungrouped"
               count={ungrouped.length}
@@ -418,17 +461,27 @@ function MissionControlPage() {
 
           {showProjectContent && filteredProjects.length === 0 && (
             <EmptyState
-              title={search ? "No matches" : "No projects yet"}
+              title={
+                search
+                  ? "No matches"
+                  : groupScoped
+                    ? `No projects in ${activeLabel}`
+                    : "No projects yet"
+              }
               subtitle={
                 search
                   ? "Try a different search."
-                  : "Add your first project to start running sessions."
+                  : groupScoped
+                    ? "Move a project into this group, or add a new one — it will land here."
+                    : "Add your first project to start running sessions."
               }
               action={
                 !search && (
                   <HotkeyTooltip action="project.add">
                     <Btn variant="primary" icon="plus" onClick={openAddProject}>
-                      Add project
+                      {groupScoped && activeGroup !== ACTIVE_GROUP_UNGROUPED
+                        ? `Add project to ${activeLabel}`
+                        : "Add project"}
                     </Btn>
                   </HotkeyTooltip>
                 )
@@ -438,27 +491,6 @@ function MissionControlPage() {
         </CardFrame>
       </div>
 
-      <GroupsDialog
-        open={showGroups}
-        groups={groups}
-        projects={projects}
-        onClose={() => setShowGroups(false)}
-        onAdd={async (name) => {
-          await createGroupForSelection(name);
-        }}
-        onRemove={async (id) => {
-          await api.deleteGroup(id);
-          await Promise.all([invalidateGroups(), invalidateProjects()]);
-        }}
-        onRename={async (id, name) => {
-          await api.updateGroup(id, { name });
-          await invalidateGroups();
-        }}
-        onProjectGroupChange={async (projectId, groupId) => {
-          await api.updateProject(projectId, { groupId });
-          await Promise.all([invalidateProjects(), invalidateProject(projectId)]);
-        }}
-      />
       {editingProject && (
         <ProjectDialog
           open

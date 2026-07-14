@@ -42,6 +42,8 @@ import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { AddProjectProvider } from "~/lib/add-project-store";
+import { GroupsDialogProvider } from "~/lib/groups-dialog-store";
+import { GroupSwitcher } from "~/components/views/GroupSwitcher";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
 import {
@@ -228,6 +230,7 @@ function RootComponent() {
           <TerminalProvider>
             <UserTerminalProvider>
               <AddProjectProvider>
+                <GroupsDialogProvider>
                 <PromptSearchProvider>
                   <HeaderActionsProvider>
                     <DiagramDialogHost>
@@ -255,6 +258,7 @@ function RootComponent() {
                     </DiagramDialogHost>
                   </HeaderActionsProvider>
                 </PromptSearchProvider>
+                </GroupsDialogProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
           </TerminalProvider>
@@ -763,6 +767,7 @@ function Shell() {
                * context→actions divider is the project route's leading action
                * so it only appears when there are actions to separate. */}
               <ScopeDropdown />
+              <GroupSwitcher />
               <HeaderActionsSlot />
             </>
           }
