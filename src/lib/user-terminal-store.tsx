@@ -744,3 +744,12 @@ export function useUserTerminals() {
   if (!ctx) throw new Error("useUserTerminals must be used inside UserTerminalProvider");
   return ctx;
 }
+
+/**
+ * Like {@link useUserTerminals} but returns null instead of throwing when
+ * there's no provider — for surfaces that render outside the main shell (e.g.
+ * the pet desktop overlay window), where there's no terminal dock at all.
+ */
+export function useUserTerminalsOptional() {
+  return useContext(UserTerminalContext);
+}
