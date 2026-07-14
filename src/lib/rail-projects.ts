@@ -22,7 +22,9 @@ export type RailCluster<T extends RailProject> = {
 /**
  * Cluster an already-ordered pinned list by group (group order first, then
  * ungrouped) without disturbing the relative pinned order inside a cluster.
- * Drives the "all projects" rail: clusters render with color divider lines.
+ * Real groups stay in the result even when they have no pinned projects so the
+ * rail keeps a stable group list and each header remains a project drop target.
+ * Ungrouped is synthetic, so it only renders when it has projects.
  */
 export function clusterPinnedByGroup<T extends RailProject>(
   orderedPinned: readonly T[],
@@ -31,7 +33,6 @@ export function clusterPinnedByGroup<T extends RailProject>(
   const clusters: RailCluster<T>[] = [];
   for (const group of groups) {
     const members = orderedPinned.filter((p) => p.groupId === group.id);
-    if (members.length === 0) continue;
     clusters.push({ key: group.id, label: group.name, color: group.color, projects: members });
   }
   const groupIds = new Set(groups.map((g) => g.id));

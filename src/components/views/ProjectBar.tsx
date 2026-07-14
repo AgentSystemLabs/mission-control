@@ -628,8 +628,9 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
           settleThenCommit(null);
           return;
         }
-        // Map the visible slot back onto the full group order (groups without
-        // pinned projects have no cluster): drop into the target group's spot.
+        // Map the visible slot back onto the persisted group order and drop the
+        // cluster into the target group's spot. Empty groups are visible here,
+        // so they can be reordered just like groups with pinned projects.
         const fullOrder = groupDragOrderRef.current ?? groups.map((group) => group.id);
         const from = fullOrder.indexOf(groupId);
         const to = fullOrder.indexOf(rects[toVis]!.id);
@@ -661,7 +662,11 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
     [groups, persistGroupOrder],
   );
 
-  if (visible.length === 0) return null;
+  // In All mode, real groups remain useful even without pinned projects: their
+  // headers are stable project drop targets. The scoped rail still disappears
+  // when the selected group has no projects because there is nothing to move
+  // into it from that isolated view.
+  if (railClusters.length === 0) return null;
 
   const activeId = router.state.location.pathname.match(/^\/projects\/([^/]+)/)?.[1];
   const activeIndex = visible.findIndex((p) => p.id === activeId);
@@ -851,11 +856,12 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
           {showClusterLabels ? (
             (() => {
               const isUngrouped = cluster.key === "ungrouped";
+              const isEmpty = cluster.projects.length === 0;
               const isDraggingGroup = isDragCluster;
               const c = cluster.color;
               const headerTitle = isUngrouped
                 ? `${cluster.label} — group ${clusterIndex + 1} (⌘${clusterIndex + 1} then a project number)`
-                : `${cluster.label} — group ${clusterIndex + 1} (⌘${clusterIndex + 1} then a project number) — drag or press Shift+Arrow Up/Down to reorder groups`;
+                : `${cluster.label} — group ${clusterIndex + 1} (⌘${clusterIndex + 1} then a project number)${isEmpty ? " — empty; drag a project here" : ""} — drag or press Shift+Arrow Up/Down to reorder groups`;
               // The group number is the ⌘-chord key, so it wears a keycap: a
               // group-tinted chip that reads as a shortcut and stays role-distinct
               // from the neutral hotkey badges on the tiles below.
