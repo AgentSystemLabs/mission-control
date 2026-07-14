@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,6 +23,8 @@ import { formatBinding } from "~/lib/keybindings/format";
 import { PINNED_SLOT_COUNT } from "~/lib/keybindings/match";
 import { api } from "~/lib/api";
 import { getPinnedProjects, reorderPinnedIds } from "~/lib/pinned-project-order";
+import { ACTIVE_GROUP_ALL, useActiveGroup } from "~/lib/active-group";
+import { clusterPinnedByGroup, getGroupRailCluster } from "~/lib/rail-projects";
 import { shouldFlashPinnedProjectLogo } from "./project-bar-activity";
 import { getPinnedProjectStatusDots } from "./project-bar-status-dots";
 
@@ -81,6 +83,21 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
       return project ? [project] : [];
     });
   }, [dragOrder, pinnedById, sortedPinned]);
+  const { activeGroup } = useActiveGroup();
+  // With a group active the rail becomes that group's workspace: every project
+  // in the group (pinned first), not just pinned ones. With "all" active it
+  // stays the pinned rail, clustered by group with color divider lines.
+  const groupScoped = activeGroup !== ACTIVE_GROUP_ALL;
+  const railClusters = useMemo(() => {
+    if (!groupScoped) return clusterPinnedByGroup(pinned, groups);
+    const cluster = getGroupRailCluster(projects ?? [], groups, activeGroup);
+    return cluster.projects.length > 0 ? [cluster] : [];
+  }, [activeGroup, groupScoped, groups, pinned, projects]);
+  const visible = useMemo(() => railClusters.flatMap((c) => c.projects), [railClusters]);
+  const visibleById = useMemo(
+    () => new Map(visible.map((project) => [project.id, project])),
+    [visible],
+  );
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(
     null
   );
@@ -130,8 +147,13 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
         if (e.type.startsWith("project:") || e.type.startsWith("task:")) {
           debouncedInvalidateProjects();
         }
+        // The rail renders group colors/labels (cluster dividers, workspace
+        // header) — keep them live when groups change elsewhere.
+        if (e.type.startsWith("group:")) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+        }
       },
-      [debouncedInvalidateProjects]
+      [debouncedInvalidateProjects, queryClient]
     )
   );
   const pinnedSlotBase = useBinding("project.pinnedSlot");
@@ -316,29 +338,50 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
     [persistPinnedOrder],
   );
 
-  if (pinned.length === 0) return null;
+  if (visible.length === 0) return null;
 
   const activeId = router.state.location.pathname.match(/^\/projects\/([^/]+)/)?.[1];
-  const activeIndex = pinned.findIndex((p) => p.id === activeId);
+  const activeIndex = visible.findIndex((p) => p.id === activeId);
 
   const ITEM_WIDTH = 58;
   const ITEM_HEIGHT = 48;
   const ICON_SIZE = 40;
   const GAP = 8;
+  const DIVIDER_HEIGHT = 2;
+  const HEADER_HEIGHT = 16;
   const PAD_TOP = minimal ? 18 : 12;
   const PAD_X = minimal ? 4 : 8;
   const BAR_WIDTH = minimal ? 72 : 96;
   const IDLE_ITEM_WIDTH = ITEM_HEIGHT;
   const ITEM_RADIUS = minimal ? 9 : 10;
   const HOTKEY_BADGE_RADIUS = minimal ? 0 : 4;
-  const activeProject = activeIndex >= 0 ? pinned[activeIndex] : null;
+  const activeProject = activeIndex >= 0 ? visible[activeIndex] : null;
   const activeStatusDots = activeProject
     ? getPinnedProjectStatusDots(activeProject.taskCounts)
     : [];
   const activeItemWidth =
     activeProject && activeStatusDots.length > 0 ? ITEM_WIDTH : IDLE_ITEM_WIDTH;
 
-  const menuProject = menu ? pinnedById.get(menu.id) ?? null : null;
+  // Y offset of each tile inside the rail — dividers and the group header
+  // shift everything below them, so the active-highlight overlay can't just
+  // multiply by index anymore.
+  const itemOffsets: number[] = [];
+  {
+    let y = 0;
+    if (groupScoped) y += HEADER_HEIGHT + GAP;
+    railClusters.forEach((cluster, clusterIndex) => {
+      if (clusterIndex > 0) y += DIVIDER_HEIGHT + GAP;
+      for (let i = 0; i < cluster.projects.length; i++) {
+        itemOffsets.push(y);
+        y += ITEM_HEIGHT + GAP;
+      }
+    });
+  }
+  const flatIndexById = new Map(visible.map((project, index) => [project.id, index]));
+  const railLabel = groupScoped ? (railClusters[0]?.label ?? "Group") : "Pinned projects";
+  const railColor = groupScoped ? railClusters[0]?.color : null;
+
+  const menuProject = menu ? visibleById.get(menu.id) ?? null : null;
 
   return (
     <>
@@ -347,7 +390,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
       glow
       role="navigation"
       className="mc-project-rail"
-      aria-label="Pinned projects"
+      aria-label={groupScoped ? `${railLabel} projects` : "Pinned projects"}
       aria-disabled={disabled || undefined}
       onMouseLeave={clearHoverLabel}
       style={{
@@ -380,14 +423,74 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
             borderRadius: ITEM_RADIUS,
             border: "2px solid color-mix(in srgb, var(--accent) 88%, black)",
             background: "transparent",
-            transform: `translateY(${activeIndex * (ITEM_HEIGHT + GAP)}px)`,
+            transform: `translateY(${itemOffsets[activeIndex] ?? 0}px)`,
             transition: "transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
             pointerEvents: "none",
             zIndex: 2,
           }}
         />
       )}
-      {pinned.map((project, idx) => {
+      {groupScoped && (
+        <div
+          title={`Rail scoped to ${railLabel}`}
+          style={{
+            height: HEADER_HEIGHT,
+            maxWidth: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 4,
+            flexShrink: 0,
+            padding: "0 2px",
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: railColor ?? "var(--text-faint)",
+              boxShadow: railColor ? `0 0 6px ${railColor}66` : undefined,
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: 8.5,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--text-faint)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {railLabel}
+          </span>
+        </div>
+      )}
+      {railClusters.map((cluster, clusterIndex) => (
+        <Fragment key={cluster.key}>
+          {clusterIndex > 0 && (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label={cluster.label}
+              title={cluster.label}
+              style={{
+                width: 34,
+                height: DIVIDER_HEIGHT,
+                borderRadius: 2,
+                background: cluster.color ?? "var(--border-strong)",
+                opacity: 0.55,
+                flexShrink: 0,
+              }}
+            />
+          )}
+          {cluster.projects.map((project) => {
+        const idx = flatIndexById.get(project.id)!;
         const isActive = idx === activeIndex;
         const hotkey = idx < HOTKEY_LIMIT ? idx + 1 : null;
         const runningCount = project.taskCounts.running;
@@ -415,7 +518,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
             : null;
         const tooltip = [
           hotkey ? `${project.name} (${pinnedSlotBinding(hotkey)})` : project.name,
-          "Drag or press Shift+Arrow Up/Down to reorder pinned projects",
+          groupScoped ? null : "Drag or press Shift+Arrow Up/Down to reorder pinned projects",
           needsInputLabel,
           launchLabel,
           runningLabel,
@@ -428,18 +531,22 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
           <button
             key={project.id}
             type="button"
-            data-pinned-item
+            data-pinned-item={groupScoped ? undefined : true}
             title={tooltip}
             aria-label={tooltip}
-            aria-keyshortcuts="Shift+ArrowUp Shift+ArrowDown"
-            onPointerDown={(e) => startPointerReorder(project.id, e)}
+            aria-keyshortcuts={groupScoped ? undefined : "Shift+ArrowUp Shift+ArrowDown"}
+            onPointerDown={(e) => {
+              // Group-workspace mode has a computed order (pinned first, then
+              // alphabetical) — manual reorder only applies to the pinned rail.
+              if (!groupScoped) startPointerReorder(project.id, e);
+            }}
             onDragStart={(e) => e.preventDefault()}
             onMouseEnter={(e) => {
               if (disabled || draggingProjectId) return;
               showHoverLabel(project.name, e);
             }}
             onKeyDown={(e) => {
-              if (disabled) return;
+              if (disabled || groupScoped) return;
               if (!e.shiftKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
               e.preventDefault();
               movePinnedProjectByKeyboard(project.id, e.key === "ArrowUp" ? -1 : 1);
@@ -465,7 +572,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
               padding: hasStatusDots ? "4px 6px 4px 14px" : 4,
               borderRadius: ITEM_RADIUS,
               zIndex: isActive ? 3 : 1,
-              cursor: reorderSaving ? "default" : isDragging ? "grabbing" : "grab",
+              cursor: groupScoped ? "pointer" : reorderSaving ? "default" : isDragging ? "grabbing" : "grab",
               opacity: isDragging ? 0.55 : 1,
               boxShadow: isDragging ? "0 0 0 2px color-mix(in srgb, var(--accent) 70%, white)" : undefined,
               touchAction: "none",
@@ -610,7 +717,9 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
             )}
           </button>
         );
-      })}
+          })}
+        </Fragment>
+      ))}
       {menu && (
         <ContextMenuPopover anchor={menu} label={`${menu.name} actions`} minWidth={196}>
             <DropdownMenuItem
@@ -633,7 +742,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
                 await Promise.all([invalidateProjects(), invalidateProject(id)]);
               }}
             >
-              Unpin project
+              {menuProject?.pinned === false ? "Pin project" : "Unpin project"}
             </DropdownMenuItem>
         </ContextMenuPopover>
       )}

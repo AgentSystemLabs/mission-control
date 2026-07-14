@@ -9,7 +9,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { getPinnedProjects } from "~/lib/pinned-project-order";
+import { getRailProjects } from "~/lib/rail-projects";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
 import { screenshotSupported } from "~/lib/screenshot";
@@ -43,6 +43,7 @@ import { ProjectBar } from "~/components/views/ProjectBar";
 import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { AddProjectProvider } from "~/lib/add-project-store";
 import { GroupsDialogProvider } from "~/lib/groups-dialog-store";
+import { useActiveGroup } from "~/lib/active-group";
 import { GroupSwitcher } from "~/components/views/GroupSwitcher";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
@@ -372,6 +373,7 @@ function Shell() {
   useWindowIdleController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
+  const { activeGroup, groups } = useActiveGroup();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable
   // yet: cover the route with a spinner and disable project navigation.
   const { data: sandboxState } = useSandboxes();
@@ -685,9 +687,11 @@ function Shell() {
       if (!e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
         // Pinned-project nav is disabled while the active sandbox resumes.
         if (activeResuming) return;
-        const pinned = getPinnedProjects(projects ?? []);
+        // Same computed list as the rail renders — slot badges and hotkeys
+        // must agree, including in group-workspace mode.
+        const railProjects = getRailProjects(projects ?? [], groups, activeGroup);
         const idx = Number(e.key) - 1;
-        const target = pinned[idx];
+        const target = railProjects[idx];
         if (target) {
           e.preventDefault();
           e.stopPropagation();
@@ -698,7 +702,7 @@ function Shell() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [activeResuming, createTerminal, cycleNext, cyclePrev, projects, router]);
+  }, [activeGroup, activeResuming, createTerminal, cycleNext, cyclePrev, groups, projects, router]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
   // default app menu's "Close Window" item closes the BrowserWindow before any
