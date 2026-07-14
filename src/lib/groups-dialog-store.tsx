@@ -63,6 +63,21 @@ export function GroupsDialogProvider({ children }: { children: React.ReactNode }
           await api.updateGroup(id, { color });
           await invalidateGroups();
         }}
+        onReorder={async (orderedIds) => {
+          // Optimistically reorder the cached list so every group surface
+          // (chips, switcher, rail, dashboard sections) reflects the drag
+          // immediately; the server response then confirms the sort_order.
+          queryClient.setQueryData<Group[]>(queryKeys.groups, (current) => {
+            if (!current) return current;
+            const byId = new Map(current.map((group) => [group.id, group]));
+            return orderedIds.flatMap((gid) => {
+              const group = byId.get(gid);
+              return group ? [group] : [];
+            });
+          });
+          const { groups: updated } = await api.reorderGroups(orderedIds);
+          queryClient.setQueryData<Group[]>(queryKeys.groups, updated);
+        }}
         onProjectGroupChange={async (projectId, groupId) => {
           await api.updateProject(projectId, { groupId });
           await Promise.all([

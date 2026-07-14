@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createGroup, deleteGroup, listGroups, updateGroup } from "../services/groups";
+import { createGroup, deleteGroup, listGroups, reorderGroups, updateGroup } from "../services/groups";
 import { rethrowUnlessDomain, idParam, json, noContent, notFound, parseJsonBody } from "./_helpers";
 import { HTTP_CREATED } from "~/shared/http-status";
 
@@ -14,6 +14,10 @@ const updateGroupBody = z
     color: z.string(),
   })
   .partial();
+
+const reorderGroupsBody = z.object({
+  order: z.array(z.string().min(1)),
+});
 
 export async function list(request: Request): Promise<Response> {
   return json({ groups: listGroups() });
@@ -38,6 +42,16 @@ export async function update(rawId: string, request: Request): Promise<Response>
   const g = updateGroup(idParsed.data, parsed.data);
   if (!g) return notFound();
   return json({ group: g });
+}
+
+export async function reorder(request: Request): Promise<Response> {
+  const parsed = await parseJsonBody(request, reorderGroupsBody);
+  if (!parsed.ok) return parsed.response;
+  try {
+    return json({ groups: reorderGroups(parsed.data.order) });
+  } catch (e) {
+    return rethrowUnlessDomain(e);
+  }
 }
 
 export async function remove(rawId: string, request: Request): Promise<Response> {

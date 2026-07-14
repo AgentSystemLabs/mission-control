@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { FormErrorBox } from "~/components/ui/FormErrorBox";
@@ -7,7 +7,10 @@ import { EscTooltip } from "~/components/ui/Tooltip";
 import { TextField } from "~/components/ui/TextField";
 import { Icon } from "~/components/ui/Icon";
 import { GROUP_COLORS } from "~/lib/design-meta";
+import { reorderPinnedIds } from "~/lib/pinned-project-order";
 import type { Group, Project } from "~/db/schema";
+
+const DRAG_THRESHOLD_PX = 4;
 
 type GroupsDialogProject = Pick<Project, "id" | "name" | "groupId">;
 
@@ -20,6 +23,7 @@ export function GroupsDialog({
   onRemove,
   onRename,
   onRecolor,
+  onReorder,
   onProjectGroupChange,
 }: {
   open: boolean;
@@ -30,6 +34,7 @@ export function GroupsDialog({
   onRemove: (id: string) => void | Promise<void>;
   onRename: (id: string, name: string) => void | Promise<void>;
   onRecolor: (id: string, color: string) => void | Promise<void>;
+  onReorder: (orderedIds: string[]) => void | Promise<void>;
   onProjectGroupChange: (projectId: string, groupId: string | null) => void | Promise<void>;
 }) {
   const [newName, setNewName] = useState("");
@@ -42,13 +47,134 @@ export function GroupsDialog({
   const [recoloringId, setRecoloringId] = useState<string | null>(null);
   const groupNameById = new Map(groups.map((group) => [group.id, group.name]));
 
+  // Manual reorder. `dragOrder` overrides the prop order while dragging or
+  // while an optimistic reorder is in flight; it resets to follow the props
+  // (server truth) once they reflect the new order.
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const dragOrderRef = useRef<string[] | null>(null);
+  const groupIds = groups.map((group) => group.id);
+  const orderedGroups = useMemo(() => {
+    if (!dragOrder) return groups;
+    const byId = new Map(groups.map((group) => [group.id, group]));
+    return dragOrder.flatMap((id) => {
+      const group = byId.get(id);
+      return group ? [group] : [];
+    });
+  }, [dragOrder, groups]);
+
+  // Once the props catch up to (or diverge from) the optimistic order, stop
+  // overriding — the server list is authoritative again.
+  useEffect(() => {
+    if (!dragOrder) return;
+    if (draggingId) return;
+    if (dragOrder.join("\0") === groupIds.join("\0")) {
+      setDragOrder(null);
+      dragOrderRef.current = null;
+    }
+  }, [dragOrder, draggingId, groupIds]);
+
   useEffect(() => {
     if (open) {
       setError(null);
       setPendingRemove(null);
       setRecoloringId(null);
+    } else {
+      setDragOrder(null);
+      dragOrderRef.current = null;
+      setDraggingId(null);
     }
   }, [open]);
+
+  const resolveDropIndex = useCallback((clientY: number) => {
+    const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-group-row]");
+    if (!rows?.length) return 0;
+    for (let index = 0; index < rows.length; index++) {
+      const rect = rows[index]!.getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return index;
+    }
+    return rows.length - 1;
+  }, []);
+
+  const commitReorder = useCallback(
+    (next: string[]) => {
+      if (next.join("\0") === groupIds.join("\0")) return;
+      setDragOrder(next);
+      dragOrderRef.current = next;
+      Promise.resolve(onReorder(next)).catch((e) => {
+        setError(e instanceof Error ? e.message : "Could not reorder groups");
+      });
+    },
+    [groupIds, onReorder],
+  );
+
+  const moveGroupByKeyboard = useCallback(
+    (id: string, direction: -1 | 1) => {
+      const current = dragOrderRef.current ?? groupIds;
+      const from = current.indexOf(id);
+      if (from < 0) return;
+      const to = Math.max(0, Math.min(current.length - 1, from + direction));
+      if (from === to) return;
+      commitReorder(reorderPinnedIds(current, from, to));
+    },
+    [commitReorder, groupIds],
+  );
+
+  const startPointerDrag = useCallback(
+    (id: string, event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+      const startY = event.clientY;
+      const startX = event.clientX;
+      const initialOrder = dragOrderRef.current ?? groupIds;
+      dragOrderRef.current = initialOrder;
+      const handle = event.currentTarget;
+      handle.setPointerCapture(event.pointerId);
+      let moved = false;
+
+      const onMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== event.pointerId) return;
+        if (!moved && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < DRAG_THRESHOLD_PX) {
+          return;
+        }
+        moved = true;
+        setDraggingId(id);
+        const order = dragOrderRef.current ?? initialOrder;
+        const from = order.indexOf(id);
+        const to = resolveDropIndex(moveEvent.clientY);
+        if (from >= 0 && from !== to) {
+          const next = reorderPinnedIds(order, from, to);
+          dragOrderRef.current = next;
+          setDragOrder(next);
+        }
+        moveEvent.preventDefault();
+      };
+
+      const cleanup = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      };
+
+      const onUp = () => {
+        cleanup();
+        setDraggingId(null);
+        if (moved && dragOrderRef.current) commitReorder(dragOrderRef.current);
+      };
+      const onCancel = () => {
+        cleanup();
+        setDraggingId(null);
+        setDragOrder(null);
+        dragOrderRef.current = null;
+      };
+
+      window.addEventListener("pointermove", onMove, { passive: false });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+    },
+    [commitReorder, groupIds, resolveDropIndex],
+  );
 
   const pendingRemoveCount = pendingRemove
     ? projects.filter((p) => p.groupId === pendingRemove.id).length
@@ -113,27 +239,74 @@ export function GroupsDialog({
           </Btn>
         </div>
         <FormErrorBox error={error} />
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {groups.map((g) => {
+        <div ref={listRef} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {orderedGroups.map((g) => {
             const count = projects.filter((p) => p.groupId === g.id).length;
             const isEditing = editing?.id === g.id;
             const groupProjects = projects.filter((p) => p.groupId === g.id);
             const availableProjects = projects.filter((p) => p.groupId !== g.id);
             const selectedProjectId = selectedProjectByGroup[g.id] ?? "";
+            const isDragging = draggingId === g.id;
             return (
               <div
                 key={g.id}
+                data-group-row
                 style={{
                   display: "flex",
                   flexDirection: "column",
                   gap: 10,
                   padding: "10px 12px",
                   background: "var(--surface-0)",
-                  border: "1px solid var(--border)",
+                  border: `1px solid ${isDragging ? "var(--accent-border)" : "var(--border)"}`,
                   borderRadius: 8,
+                  opacity: isDragging ? 0.6 : 1,
+                  boxShadow: isDragging ? "0 6px 18px rgba(0,0,0,0.35)" : undefined,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {orderedGroups.length > 1 && (
+                    <button
+                      type="button"
+                      aria-label={`Reorder ${g.name}. Use arrow up and down keys, or drag`}
+                      aria-keyshortcuts="ArrowUp ArrowDown"
+                      title="Drag to reorder (or focus and use ↑/↓)"
+                      onPointerDown={(e) => startPointerDrag(g.id, e)}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          moveGroupByKeyboard(g.id, -1);
+                        } else if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          moveGroupByKeyboard(g.id, 1);
+                        }
+                      }}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(2, 3px)",
+                        gap: 3,
+                        justifyContent: "center",
+                        alignContent: "center",
+                        width: 18,
+                        height: 22,
+                        padding: 0,
+                        background: "transparent",
+                        border: 0,
+                        borderRadius: 4,
+                        cursor: isDragging ? "grabbing" : "grab",
+                        touchAction: "none",
+                        color: "var(--text-faint)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {Array.from({ length: 6 }).map((_, dot) => (
+                        <span
+                          key={dot}
+                          aria-hidden
+                          style={{ width: 3, height: 3, borderRadius: "50%", background: "currentColor" }}
+                        />
+                      ))}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setRecoloringId((current) => (current === g.id ? null : g.id))}

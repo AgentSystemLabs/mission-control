@@ -346,6 +346,10 @@ async function dispatch(
     if (method === "GET") return groupsController.list(request);
     if (method === "POST") return groupsController.create(request);
   }
+  // Must precede GROUP_PATH — otherwise "order" is captured as a group id.
+  if (pathname === "/api/groups/order" && method === "PATCH") {
+    return groupsController.reorder(request);
+  }
   m = pathname.match(GROUP_PATH);
   if (m) {
     const id = decode(m[1]);

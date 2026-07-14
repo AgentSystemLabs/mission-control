@@ -519,6 +519,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  reorderGroups: (order: string[]) =>
+    req<{ groups: Group[] }>("/api/groups/order", {
+      method: "PATCH",
+      body: JSON.stringify({ order }),
+    }),
   deleteGroup: (id: string) =>
     req<void>(`/api/groups/${id}`, { method: "DELETE" }),
 
