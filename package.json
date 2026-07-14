@@ -73,6 +73,7 @@
     "release:local": "node scripts/release-local.mjs",
     "remote-vm": "pnpm native:node && node scripts/remote-vm.mjs",
     "gen:theme-images": "node scripts/gen-theme-images.mjs",
+    "gen:icons": "node scripts/generate-icons.mjs",
     "postinstall": "pnpm native:electron || true",
     "doctor": "npx react-doctor@latest"
   },
@@ -214,6 +215,7 @@
       }
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -230,11 +232,13 @@
       "notarize": true
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage"
       ]
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ],
