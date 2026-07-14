@@ -199,10 +199,21 @@ export function ProjectDialog({
   const [confirmingClose, setConfirmingClose] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const colorTriggerRef = useRef<HTMLButtonElement>(null);
+  const swatchRefs = useRef<(HTMLButtonElement | null)[]>([]);
   // Snapshot of the seeded form, captured on open, so an accidental Esc /
   // backdrop click on a create form the user has actually touched prompts
   // before discarding — while a pre-filled-but-untouched form closes freely.
   const formSeedRef = useRef<string>("");
+  // When the color menu opens, move focus onto the current swatch so arrow
+  // keys walk the strip immediately (the trigger opens it on ArrowDown).
+  const iconColorRef = useRef(iconColor);
+  iconColorRef.current = iconColor;
+  useEffect(() => {
+    if (!colorMenuOpen) return;
+    const idx = Math.max(0, ICON_COLORS.indexOf(iconColorRef.current));
+    swatchRefs.current[idx]?.focus();
+  }, [colorMenuOpen]);
   const selectedGroup = groupId ? groups.find((group) => group.id === groupId) ?? null : null;
   const normalizedGroupQuery = groupQuery.trim().toLowerCase();
   const exactGroupMatch = normalizedGroupQuery
@@ -649,6 +660,7 @@ export function ProjectDialog({
                 // Close the color menu without also dismissing the whole dialog.
                 e.stopPropagation();
                 setColorMenuOpen(false);
+                colorTriggerRef.current?.focus();
               }
             }}
             onBlur={(e) => {
@@ -657,8 +669,17 @@ export function ProjectDialog({
           >
             <FieldLabel>Color</FieldLabel>
             <button
+              ref={colorTriggerRef}
               type="button"
               onClick={() => setColorMenuOpen((o) => !o)}
+              onKeyDown={(e) => {
+                // Native-select feel: ArrowDown/ArrowUp on the closed trigger
+                // opens the strip (the open-effect then focuses the swatch).
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setColorMenuOpen(true);
+                }
+              }}
               aria-label="Icon color"
               aria-haspopup="listbox"
               aria-expanded={colorMenuOpen}
@@ -692,15 +713,31 @@ export function ProjectDialog({
               <div
                 role="listbox"
                 aria-label="Icon color"
+                onKeyDown={(e) => {
+                  // Roving focus over the vertical column: Down/Right advance,
+                  // Up/Left go back (wrapping), and the selection follows focus
+                  // so the avatar previews each color as the user arrows along.
+                  const count = ICON_COLORS.length;
+                  const idx = Math.max(0, ICON_COLORS.indexOf(iconColor));
+                  let next = -1;
+                  if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (idx + 1) % count;
+                  else if (e.key === "ArrowUp" || e.key === "ArrowLeft") next = (idx - 1 + count) % count;
+                  else if (e.key === "Home") next = 0;
+                  else if (e.key === "End") next = count - 1;
+                  if (next === -1) return;
+                  e.preventDefault();
+                  setIconColor(ICON_COLORS[next]);
+                  swatchRefs.current[next]?.focus();
+                }}
                 style={{
                   position: "absolute",
                   zIndex: 20,
                   top: "calc(100% + 6px)",
-                  // Right-anchored: the trigger sits at the row's right edge,
-                  // so the swatch strip opens leftward into the dialog instead
-                  // of clipping against its edge.
-                  right: 0,
+                  // Centered under the trigger button.
+                  left: "50%",
+                  transform: "translateX(-50%)",
                   display: "flex",
+                  flexDirection: "column",
                   gap: 6,
                   padding: 8,
                   background: "var(--surface-1)",
@@ -709,11 +746,14 @@ export function ProjectDialog({
                   boxShadow: "0 14px 36px rgba(0, 0, 0, 0.32)",
                 }}
               >
-                {ICON_COLORS.map((c) => {
+                {ICON_COLORS.map((c, i) => {
                   const active = iconColor === c;
                   return (
                     <button
                       key={c}
+                      ref={(el) => {
+                        swatchRefs.current[i] = el;
+                      }}
                       type="button"
                       role="option"
                       aria-selected={active}
@@ -721,6 +761,7 @@ export function ProjectDialog({
                       onClick={() => {
                         setIconColor(c);
                         setColorMenuOpen(false);
+                        colorTriggerRef.current?.focus();
                       }}
                       className="mc-color-swatch"
                       style={{
