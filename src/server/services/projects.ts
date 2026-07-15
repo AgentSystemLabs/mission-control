@@ -298,6 +298,14 @@ export function createProject(input: {
   groupId?: string | null;
   /** Scope to create the project in: a sandbox id, or null/undefined = Local. */
   sandboxId?: string | null;
+  /** Default agent to launch for this project's sessions (create-time onboarding). */
+  savedAgent?: Project["savedAgent"] | null;
+  /** When true, "New session" launches savedAgent directly instead of prompting. */
+  rememberAgentSettings?: boolean;
+  /** Layout the project first opens in: true = grid, false = list. */
+  defaultGridView?: boolean;
+  /** Pin the project to the top of the sidebar the moment it's created. */
+  pinned?: boolean;
 }): Project {
   const localPath = validateWorkingDirectory(input.path ?? "");
 
@@ -306,6 +314,10 @@ export function createProject(input: {
   const now = Date.now();
   const id = newId("p");
   const branch = detectBranch(localPath);
+  // Only remember an agent when one was actually chosen at create time — a bare
+  // "remember" with no agent would make "New session" a no-op.
+  const savedAgent = input.savedAgent ?? null;
+  const rememberAgentSettings = !!input.rememberAgentSettings && !!savedAgent;
   const row = {
     id,
     name,
@@ -316,17 +328,18 @@ export function createProject(input: {
     groupId: input.groupId ?? null,
     // Inherits the scope the project was created in (Local when null/undefined).
     sandboxId: input.sandboxId ?? null,
-    pinned: false,
-    pinnedOrder: null,
+    pinned: !!input.pinned,
+    pinnedOrder: input.pinned ? nextPinnedOrder(findAllProjects()) : null,
     branch,
     launchCommands: null,
     customScripts: null,
     launchUrl: null,
     worktreeSetupCommand: null,
-    rememberAgentSettings: false,
-    savedAgent: null,
+    rememberAgentSettings,
+    savedAgent,
     savedSkipPermissions: false,
     savedBareSession: false,
+    defaultGridView: !!input.defaultGridView,
     createdAt: now,
     updatedAt: now,
   };

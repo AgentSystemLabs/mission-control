@@ -296,6 +296,28 @@ export type FocusModeStateBridge = {
   alwaysOnTop: boolean;
 };
 
+export type FolderEntry = {
+  name: string;
+  /** Visible (non-hidden) subfolder count — 0 renders as a leaf. */
+  childCount: number;
+};
+
+export type ListFoldersResult =
+  | {
+      ok: true;
+      /** Resolved absolute path of the listed directory. */
+      path: string;
+      /** null when `path` is the filesystem root. */
+      parent: string | null;
+      home: string;
+      /** Shortcut chips: home plus standard dirs that exist on this machine. */
+      roots: Array<{ label: string; path: string }>;
+      entries: FolderEntry[];
+      /** True when the listing was capped and some folders are not shown. */
+      truncated: boolean;
+    }
+  | { ok: false; error: string };
+
 export type ElectronBridge = {
   /** The host OS, straight from the main process (authoritative, unlike navigator.platform). */
   platform: NodeJS.Platform;
@@ -311,6 +333,15 @@ export type ElectronBridge = {
   };
   getPathForFile: (file: File) => string;
   browseFolder: () => Promise<string | null>;
+  /** In-app folder browser: subdirectories of `dir` (null → home). */
+  listFolders: (dir: string | null) => Promise<ListFoldersResult>;
+  /** Record a directory grant for a folder committed via the in-app browser. */
+  grantFolder: (dir: string) => Promise<{ ok: boolean }>;
+  /** Create a single new folder inside `parent` (in-app browser's ＋ row). */
+  createFolder: (
+    parent: string,
+    name: string,
+  ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
   openPath: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   openExternal: (url: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   clipboard: {
@@ -332,7 +363,9 @@ export type ElectronBridge = {
     readImage: (path: string) => Promise<{ dataUrl: string } | { error: string }>;
   };
   pickImage: () => Promise<
-    { sourcePath: string; extension: string } | { error: string } | null
+    | { sourcePath: string; extension: string; previewDataUrl: string }
+    | { error: string }
+    | null
   >;
   saveProjectImage: (opts: {
     projectId: string;

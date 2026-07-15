@@ -82,6 +82,7 @@ function makeProject(id: string, sandboxId: string | null) {
     savedAgent: null,
     savedSkipPermissions: false,
     savedBareSession: false,
+    defaultGridView: false,
     createdAt: now,
     updatedAt: now,
   });

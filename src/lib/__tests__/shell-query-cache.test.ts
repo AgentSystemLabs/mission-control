@@ -52,6 +52,7 @@ function makeProject(overrides: Partial<ProjectWithCounts> = {}): ProjectWithCou
     savedAgent: null,
     savedSkipPermissions: false,
     savedBareSession: false,
+    defaultGridView: false,
     createdAt: 1,
     updatedAt: 1,
     taskCounts: {

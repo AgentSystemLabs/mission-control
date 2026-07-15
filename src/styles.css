@@ -686,6 +686,15 @@ select,
   filter: saturate(0.75);
 }
 
+/* A gated primary/frame must read as inert: strip the accent glow (the base
+   filter above it) and desaturate so a disabled CTA never looks clickable. */
+.mc-btn-primary:disabled,
+.mc-btn-primary[aria-disabled="true"],
+.mc-btn-frame:disabled,
+.mc-btn-frame[aria-disabled="true"] {
+  filter: grayscale(0.65);
+}
+
 .mc-input-frame {
   position: relative;
   isolation: isolate;
@@ -1566,6 +1575,238 @@ html[data-window-idle] .mc-pet * {
   .mc-swatch-card:active,
   .mc-mode-option:active {
     transform: none;
+  }
+}
+/* ── Add-project dialog: selections register physically ───────────────────
+   Creating a project is where it gets its tools and identity. Each pick —
+   agent, layout, color — acknowledges in the same grammar as the theme
+   picker: hover lift, press settle, a small pop the moment the choice lands.
+   Choosing should feel deliberate, never like filling a form. */
+.mc-pick-card {
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+/* No shadow, no lift: hover just fades a translucent tint over the card (warm
+   when selected, neutral otherwise) and press darkens it a touch. The tint is
+   a pointer-inert overlay under the text (z-index:-1), so nothing floats off
+   the surface and the text never rasterizes to that "pixelated" shimmer. */
+.mc-pick-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.mc-pick-card[data-selected="true"]::before {
+  background: rgba(255, 90, 31, 0.07);
+}
+.mc-pick-card:not(:disabled):hover::before {
+  opacity: 1;
+}
+.mc-pick-card:not(:disabled):active::before {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.12);
+}
+/* Pick-cards and swatches carry their border/shadow inline (driven by the
+   selected state), which would beat a box-shadow focus rule — so use an
+   outline for a keyboard-focus ring that can't be overridden, matching the
+   accent ring the inputs get on focus. */
+.mc-pick-card:focus-visible,
+.mc-color-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* One-shot settle when a card's leading glyph becomes the selected one.
+   Re-fires by remount (React keys the node on selected state). */
+.mc-pick-pop {
+  animation: mc-pick-pop 0.26s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes mc-pick-pop {
+  0% {
+    transform: scale(0.72);
+  }
+  55% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+/* Availability probe still running — the agent tile's status dot breathes
+   instead of alarming, so "checking" never reads as "broken". */
+.mc-availability-checking {
+  animation: mc-availability-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mc-availability-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+.mc-color-swatch {
+  transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 150ms ease;
+}
+.mc-color-swatch:hover {
+  transform: translateY(-1px) scale(1.06);
+}
+.mc-color-swatch:active {
+  transform: translateY(0) scale(0.94);
+}
+/* The live identity tile pops each time its initials or color change — the
+   project taking shape as you type, not a static preview. */
+.mc-identity-pop {
+  animation: mc-pick-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+/* Initials + color are the tile's no-image fallback settings; they mount and
+   unmount with the image state, easing in so the row doesn't snap. */
+.mc-identity-fallback {
+  animation: mc-identity-fallback-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes mc-identity-fallback-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+/* Project-dialog avatar tile: the identity preview doubles as the image
+   upload button — hover/focus reveals a camera scrim over it. */
+.mc-avatar-tile {
+  transition: border-color 150ms ease;
+}
+.mc-avatar-tile-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.mc-avatar-tile:not(:disabled):hover .mc-avatar-tile-overlay,
+.mc-avatar-tile:focus-visible .mc-avatar-tile-overlay {
+  opacity: 1;
+}
+.mc-avatar-tile:focus-visible,
+.mc-color-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Always-visible camera badge on the tile's bottom corner — the resting-state
+   affordance that the tile accepts an image (the hover scrim alone is
+   undiscoverable). Non-interactive: clicks fall through to the tile button. */
+.mc-avatar-upload-badge {
+  position: absolute;
+  bottom: -5px;
+  right: -5px;
+  z-index: 1;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  pointer-events: none;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.mc-avatar-tile:not(:disabled):hover ~ .mc-avatar-upload-badge,
+.mc-avatar-tile:focus-visible ~ .mc-avatar-upload-badge {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+/* Small × badge on the tile's corner when an image is set. */
+.mc-avatar-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.mc-avatar-remove:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+.mc-avatar-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-pick-card:not(:disabled):hover,
+  .mc-pick-card:not(:disabled):active,
+  .mc-color-swatch:hover,
+  .mc-color-swatch:active {
+    transform: none;
+  }
+  .mc-pick-pop,
+  .mc-identity-pop,
+  .mc-identity-fallback,
+  .mc-availability-checking {
+    animation: none;
+  }
+}
+/* ── Form inputs: visible keyboard focus ───────────────────────────────────
+   TextField and the bare initials input hardcode `outline: 0`; without a
+   replacement, keyboard focus was invisible on the app's most common control.
+   The container owns the border here (not inline) so :focus can turn it accent
+   and add a ring — an inline border would otherwise win over any CSS rule. */
+.mc-text-field {
+  border: 1px solid var(--border);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.mc-text-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.mc-initials-input {
+  outline: none;
+  border: 1px solid var(--border);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.mc-initials-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+/* Group combobox option under keyboard (aria-activedescendant) highlight. */
+.mc-combo-option-active {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-text-field,
+  .mc-initials-input {
+    transition: none;
   }
 }
 /* Newly captured screenshot card entering the bottom-right stack: slides in
@@ -3109,6 +3350,29 @@ body[data-card-glow] .cursor-glow {
   background: transparent;
   border-color: transparent;
   color: var(--status-failed);
+}
+
+/* Modal footers are decision points, not chrome: a borderless-tonal ghost or
+   danger reads as plain text there, so a confirm dialog (ghost "Cancel" +
+   danger "Discard") shows no buttons at all on flat. Give footer buttons a
+   resting hairline + fill so both choices read as buttons; toolbar/menu ghost
+   and danger stay borderless. */
+[data-minimal="true"] .mc-modal-footer .mc-btn-ghost {
+  background: var(--surface-1);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+[data-minimal="true"] .mc-modal-footer .mc-btn-danger {
+  background: color-mix(in srgb, var(--status-failed) 12%, transparent);
+  border-color: color-mix(in srgb, var(--status-failed) 42%, transparent);
+  color: var(--status-failed);
+}
+[data-minimal="true"] .mc-modal-footer .mc-btn-ghost:hover {
+  background: var(--surface-2);
+}
+[data-minimal="true"] .mc-modal-footer .mc-btn-danger:hover {
+  background: color-mix(in srgb, var(--status-failed) 20%, transparent);
+  border-color: color-mix(in srgb, var(--status-failed) 58%, transparent);
 }
 
 /* Hover */

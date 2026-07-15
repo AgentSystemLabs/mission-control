@@ -34,6 +34,7 @@ function makeProject(
     savedAgent: null,
     savedSkipPermissions: false,
     savedBareSession: false,
+    defaultGridView: false,
     createdAt: 1_000,
     updatedAt: 1_000,
     taskCounts: {
