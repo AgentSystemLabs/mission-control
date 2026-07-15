@@ -799,6 +799,12 @@ function ProjectPage() {
   // between Active and Pinned (SessionGrid handles the empty-Pinned state).
   const showGrid =
     gridViewActive && sessionView !== "archived" && gridScopeSessionCount > 0;
+  // The Active/Pinned/Archived scope toggle must stay mounted even while the
+  // archived list is showing. Archived is a list-only view, so selecting it drops
+  // showGrid to false — gating the toggle on showGrid would unmount the very
+  // control the user needs to get back to Active/Pinned, stranding them in the
+  // archived list. Keep it visible whenever grid mode is engaged for this scope.
+  const showSessionScopeToggle = gridViewActive && gridScopeSessionCount > 0;
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -3108,7 +3114,7 @@ function ProjectPage() {
             onRun={runScript}
             disabled={!projectPathUsable}
           />
-          {showGrid && (
+          {showSessionScopeToggle && (
             <SessionScopeToggle
               view={sessionView}
               activeCount={activeTasks.length}
