@@ -38,6 +38,10 @@ export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   color: text("color").notNull(),
+  // Manual display order (0-based). Null on legacy rows created before
+  // reordering existed; those sort last by createdAt until the user reorders,
+  // which assigns every group a concrete index. See groups.repo findAllGroups.
+  sortOrder: integer("sort_order"),
   createdAt: integer("created_at").notNull(),
 });
 

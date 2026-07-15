@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
 import { api } from "~/lib/api";
+import { isGroupIdActive, useActiveGroup } from "~/lib/active-group";
 import { markProjectOnboardIntent } from "~/lib/project-onboard-intent";
 import { useHotkey, isEditableTarget } from "~/lib/use-hotkey";
 import {
@@ -26,6 +27,7 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
   const queryClient = useQueryClient();
   const router = useRouter();
   const { data: groups = [] } = useGroups();
+  const { activeGroup } = useActiveGroup();
 
   // Straight into the dialog — the working-directory field hosts an inline
   // folder browser, so the flow no longer detours through the OS dialog.
@@ -66,6 +68,9 @@ export function AddProjectProvider({ children }: { children: React.ReactNode }) 
         open={isOpen}
         project={null}
         initialPath={initialPath}
+        // New projects land in the active group by default — the dialog's
+        // Group field stays editable to override.
+        initialGroupId={isGroupIdActive(activeGroup) ? activeGroup : null}
         groups={groups}
         onClose={close}
         onCreateGroup={createGroupForSelection}

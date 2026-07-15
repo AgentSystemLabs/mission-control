@@ -29,6 +29,8 @@ export const HOTKEY_ACTIONS = [
   "voice.pushToTalk",
   "prompt.search",
   "screenshot.capture",
+  "group.next",
+  "group.prev",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -111,5 +113,13 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
     label: "Capture screenshot",
     description:
       "Start a native region capture (macOS only) — drag a region, then drop the thumbnail on a session to attach it.",
+  },
+  "group.next": {
+    label: "Next group",
+    description: "Cycle the active project group forward (All → each group → Ungrouped).",
+  },
+  "group.prev": {
+    label: "Previous group",
+    description: "Cycle the active project group backward (Ungrouped → each group → All).",
   },
 };

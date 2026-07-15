@@ -110,6 +110,13 @@ export type AppSettings = {
   gitDiffChangedFilesWidth: number | null;
   /** Projects dashboard layout — cards (default) or table. */
   projectsDashboardView: ProjectsDashboardView | null;
+  /**
+   * Globally active project group scoping the dashboard, left rail, and
+   * project picker: "ungrouped", a group id, or null for "all projects".
+   */
+  activeProjectGroup: string | null;
+  /** Collapsed dashboard section keys — group ids plus "pinned"/"ungrouped". */
+  collapsedProjectGroups: string[] | null;
   selectedWorktreeByProject: SelectedWorktreeByProject | null;
   /**
    * Which CLI generates Ship's commit message. `null` means "not set yet" —
@@ -516,6 +523,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  reorderGroups: (order: string[]) =>
+    req<{ groups: Group[] }>("/api/groups/order", {
+      method: "PATCH",
+      body: JSON.stringify({ order }),
+    }),
   deleteGroup: (id: string) =>
     req<void>(`/api/groups/${id}`, { method: "DELETE" }),
 
@@ -663,6 +675,8 @@ export const api = {
         | "gitDiffChangedFilesView"
         | "gitDiffChangedFilesWidth"
         | "projectsDashboardView"
+        | "activeProjectGroup"
+        | "collapsedProjectGroups"
         | "selectedWorktreeByProject"
         | "commitCli"
         | "terminalZoomLevel"

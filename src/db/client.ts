@@ -359,6 +359,7 @@ function ensureSchema(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       color TEXT NOT NULL,
+      sort_order INTEGER,
       created_at INTEGER NOT NULL
     );
 
@@ -673,6 +674,10 @@ function ensureSchema(sqlite: Database.Database) {
   // created only after the column is guaranteed present. See docs/multi-sandbox-plan.md.
   ensureColumn(sqlite, "projects", "sandbox_id", "TEXT REFERENCES sandboxes(id) ON DELETE CASCADE");
   ensureProjectSandboxIndex(sqlite);
+
+  // Manual group ordering. Legacy rows keep NULL until the user reorders (they
+  // sort last by created_at meanwhile) — see groups.repo findAllGroups.
+  ensureColumn(sqlite, "groups", "sort_order", "INTEGER");
 
   // Per-project custom scripts (JSON array of {id,name,command}). Tolerate a
   // pre-existing column: a fresh bootstrap marks migrations applied-only, so

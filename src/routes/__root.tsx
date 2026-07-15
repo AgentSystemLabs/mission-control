@@ -9,7 +9,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { getPinnedProjects } from "~/lib/pinned-project-order";
+import { getRailClusters, usesDirectRailProjectShortcuts } from "~/lib/rail-projects";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
 import { screenshotSupported } from "~/lib/screenshot";
@@ -42,6 +42,9 @@ import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { AddProjectProvider } from "~/lib/add-project-store";
+import { GroupsDialogProvider } from "~/lib/groups-dialog-store";
+import { ACTIVE_GROUP_ALL, ACTIVE_GROUP_UNGROUPED, useActiveGroup } from "~/lib/active-group";
+import { GroupSwitcher } from "~/components/views/GroupSwitcher";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
 import {
@@ -228,6 +231,7 @@ function RootComponent() {
           <TerminalProvider>
             <UserTerminalProvider>
               <AddProjectProvider>
+                <GroupsDialogProvider>
                 <PromptSearchProvider>
                   <HeaderActionsProvider>
                     <DiagramDialogHost>
@@ -255,6 +259,7 @@ function RootComponent() {
                     </DiagramDialogHost>
                   </HeaderActionsProvider>
                 </PromptSearchProvider>
+                </GroupsDialogProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
           </TerminalProvider>
@@ -368,6 +373,7 @@ function Shell() {
   useWindowIdleController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
+  const { activeGroup, setActiveGroup, groups } = useActiveGroup();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable
   // yet: cover the route with a spinner and disable project navigation.
   const { data: sandboxState } = useSandboxes();
@@ -382,6 +388,10 @@ function Shell() {
   const { close, deselect, setPtyId } = useTerminalActions();
   const gridView = useGridView();
   const workspaceRef = useRef<HTMLDivElement>(null);
+  // First digit of a group→project rail chord (Cmd held, group digit pressed,
+  // awaiting the project digit or a Cmd release). Only used in "All" mode
+  // when at least one real group exists.
+  const pendingRailGroupRef = useRef<number | null>(null);
   const userTerminals = useUserTerminals();
   const {
     togglePanel,
@@ -493,13 +503,22 @@ function Shell() {
   // grid below the project header) spans full width and the single right-hand
   // terminal panel is hidden.
   const gridActive = !!projectMatch && gridView;
+  // The group is the broadest context, so it leads the breadcrumb:
+  // Group › Project › Scope. Omitted (not just null-rendered) when no groups
+  // exist so no dangling separator renders, and absent on the app-global
+  // Settings/Usage screens where a group scope is meaningless.
+  const groupCrumb: Crumb[] =
+    groups.length > 0 ? [{ label: "Group", node: <GroupSwitcher /> }] : [];
   const crumbs: Crumb[] = settingsOpen
     ? [{ label: "Settings" }]
     : projectMatch
-    ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> }]
+    ? [
+        ...groupCrumb,
+        { label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> },
+      ]
       : activePanel === "usage"
         ? [{ label: "Usage" }]
-      : [{ label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
+      : [...groupCrumb, { label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
 
   const closePanel = () => setActivePanel(null);
 
@@ -616,6 +635,21 @@ function Shell() {
     };
   }, [focusActive]);
 
+  // Cycle the active group context: All → each group → Ungrouped → All.
+  const cycleActiveGroup = useCallback(
+    (direction: 1 | -1) => {
+      const order: string[] = [ACTIVE_GROUP_ALL, ...groups.map((g) => g.id)];
+      if ((projects ?? []).some((p) => p.groupId == null)) order.push(ACTIVE_GROUP_UNGROUPED);
+      if (order.length <= 1) return;
+      const index = order.indexOf(activeGroup);
+      const next = order[(index + direction + order.length) % order.length]!;
+      setActiveGroup(next);
+    },
+    [activeGroup, groups, projects, setActiveGroup],
+  );
+  useHotkey("group.next", () => cycleActiveGroup(1));
+  useHotkey("group.prev", () => cycleActiveGroup(-1));
+
   useHotkey("terminal.toggle", () => togglePanel());
   useHotkey(
     "terminal.expandToggle",
@@ -681,20 +715,77 @@ function Shell() {
       if (!e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
         // Pinned-project nav is disabled while the active sandbox resumes.
         if (activeResuming) return;
-        const pinned = getPinnedProjects(projects ?? []);
-        const idx = Number(e.key) - 1;
-        const target = pinned[idx];
-        if (target) {
+        if (e.repeat) {
+          // Ignore auto-repeat so a held digit doesn't re-fire the chord.
+          e.preventDefault();
+          return;
+        }
+        const digit = Number(e.key);
+        // Same clusters the rail renders — badges and hotkeys must agree.
+        const clusters = getRailClusters(projects ?? [], groups, activeGroup);
+        const navigateTo = (id: string) => {
           e.preventDefault();
           e.stopPropagation();
-          router.navigate({ to: "/projects/$id", params: { id: target.id } });
+          router.navigate({ to: "/projects/$id", params: { id } });
+        };
+
+        // A single group is active, or no real groups exist: the rail is one
+        // flat project list, so the digit addresses a project directly.
+        if (usesDirectRailProjectShortcuts(groups, activeGroup)) {
+          pendingRailGroupRef.current = null;
+          const target = clusters[0]?.projects[digit - 1];
+          if (target) navigateTo(target.id);
+          else e.preventDefault();
+          return;
         }
+
+        // "All" mode: two-level chord. First digit picks the group cluster;
+        // the second digit (this handler, next press) picks the project. A
+        // Cmd release before the second digit jumps to the group's first
+        // project (see the keyup handler below).
+        e.preventDefault();
+        e.stopPropagation();
+        if (pendingRailGroupRef.current == null) {
+          // First digit — remember the group if it exists; otherwise ignore.
+          if (clusters[digit - 1]) pendingRailGroupRef.current = digit;
+          return;
+        }
+        const groupIdx = pendingRailGroupRef.current - 1;
+        pendingRailGroupRef.current = null;
+        const target = clusters[groupIdx]?.projects[digit - 1];
+        if (target) navigateTo(target.id);
         return;
       }
     };
+    // Releasing Cmd/Ctrl with a group digit still pending jumps to that
+    // group's first project (a single-digit chord).
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Meta" && e.key !== "Control") return;
+      const pending = pendingRailGroupRef.current;
+      pendingRailGroupRef.current = null;
+      if (
+        pending == null ||
+        activeResuming ||
+        usesDirectRailProjectShortcuts(groups, activeGroup)
+      ) return;
+      const clusters = getRailClusters(projects ?? [], groups, activeGroup);
+      const target = clusters[pending - 1]?.projects[0];
+      if (target) router.navigate({ to: "/projects/$id", params: { id: target.id } });
+    };
+    // Losing focus mid-chord (e.g. clicking away while Cmd is held) would
+    // otherwise leave a group digit pending and misread the next chord.
+    const onBlur = () => {
+      pendingRailGroupRef.current = null;
+    };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [activeResuming, createTerminal, cycleNext, cyclePrev, projects, router]);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [activeGroup, activeResuming, createTerminal, cycleNext, cyclePrev, groups, projects, router]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
   // default app menu's "Close Window" item closes the BrowserWindow before any

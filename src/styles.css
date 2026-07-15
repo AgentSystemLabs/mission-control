@@ -2898,6 +2898,57 @@ body[data-card-glow] .cursor-glow {
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
+/* Group-cluster header in the pinned rail (ProjectBar.tsx). The keycap + name
+   read as a labeled, keyboard-addressable section marker; the drag grip stays
+   hidden until hover/focus so the header quietly announces it can be picked up
+   and reordered. The picked-up lift (fill + glow) is applied inline while a
+   drag is live. */
+.mc-group-header {
+  background: transparent;
+}
+.mc-group-header:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.mc-group-header:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+/* Manage-groups drag affordance: the card motion itself is pointer-driven in
+   GroupsDialog; CSS supplies quiet pickup feedback and keyboard focus. */
+.mc-groups-dialog-drag-handle {
+  background: transparent;
+  color: var(--text-faint);
+  transition:
+    background 120ms cubic-bezier(0.25, 1, 0.5, 1),
+    color 120ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.mc-groups-dialog-drag-handle:hover,
+.mc-groups-dialog-drag-handle[data-active="true"] {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text-dim);
+}
+.mc-groups-dialog-drag-handle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 2px;
+}
+.mc-group-header__grip {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.mc-group-header:hover .mc-group-header__grip,
+.mc-group-header:focus-visible .mc-group-header__grip {
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-groups-dialog-row,
+  .mc-groups-dialog-drag-handle {
+    transition: none !important;
+  }
+  .mc-group-header__grip {
+    transition: none;
+  }
+}
+
 /* Floating name label for the pinned-project rail (ProjectBar.tsx). A single
    element slides out to the right of the hovered tile; while the pointer sweeps
    between tiles it stays mounted and its `top` transition glides it vertically

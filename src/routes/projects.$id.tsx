@@ -142,6 +142,7 @@ import {
   useWorktrees,
 } from "~/queries";
 import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
+import { useActiveGroup } from "~/lib/active-group";
 import { useGitStatus, useUpstreamFetchPoll } from "~/queries/git";
 import { GitDiffModal } from "~/components/views/GitDiffView/GitDiffModal";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
@@ -387,6 +388,7 @@ function ProjectPage() {
     worktreeSelectionHydrated,
   ]);
   const projectQuery = useProject(id);
+  const { setActiveGroup } = useActiveGroup();
   const { data: sandboxState } = useSandboxes();
   useSyncProjectDiagrams(id);
   const worktreesQuery = useWorktrees(id);
@@ -3134,6 +3136,53 @@ function ProjectPage() {
               document.body,
             )}
           </div>
+          {(() => {
+            const projectGroup = project.groupId
+              ? groups.find((g) => g.id === project.groupId)
+              : undefined;
+            if (!projectGroup) return null;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveGroup(projectGroup.id);
+                  void router.navigate({ to: "/" });
+                }}
+                title={`Group: ${projectGroup.name} — open dashboard scoped to this group`}
+                aria-label={`Group ${projectGroup.name} — open dashboard scoped to this group`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "4px 11px",
+                  borderRadius: 999,
+                  border: "1px solid var(--border-strong)",
+                  background: "var(--surface-1)",
+                  color: "var(--text-dim)",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  maxWidth: 160,
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: projectGroup.color,
+                    boxShadow: `0 0 6px ${projectGroup.color}66`,
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {projectGroup.name}
+                </span>
+              </button>
+            );
+          })()}
           <CustomScriptsButton
             scripts={customScripts}
             onRun={runScript}

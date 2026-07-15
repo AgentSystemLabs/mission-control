@@ -133,6 +133,7 @@ export function ProjectDialog({
   open,
   project,
   initialPath = "",
+  initialGroupId = null,
   groups,
   onClose,
   onSave,
@@ -141,6 +142,8 @@ export function ProjectDialog({
   open: boolean;
   project: Project | null;
   initialPath?: string;
+  /** Create flow only: pre-select this group (e.g. the globally active one). */
+  initialGroupId?: string | null;
   groups: Group[];
   onClose: () => void;
   onSave: (data: {
@@ -243,8 +246,9 @@ export function ProjectDialog({
       const initialName = basename(initialPath);
       const seededName = project?.name || (!project ? initialName : "");
       const seededPath = project?.path || (!project ? initialPath : "");
-      const seededGroupQuery = project?.groupId
-        ? groups.find((group) => group.id === project.groupId)?.name ?? ""
+      const seededGroupId = project?.groupId ?? (!project ? initialGroupId : null) ?? "";
+      const seededGroupQuery = seededGroupId
+        ? groups.find((group) => group.id === seededGroupId)?.name ?? ""
         : "";
       const seededIcon = project?.icon || "";
       const seededIconColor = project?.iconColor || ICON_COLORS[0];
@@ -258,7 +262,7 @@ export function ProjectDialog({
       }
       setName(seededName);
       setPath(seededPath);
-      setGroupId(project?.groupId || "");
+      setGroupId(seededGroupId);
       setGroupQuery(seededGroupQuery);
       setGroupTypeaheadOpen(false);
       setGroupActiveIndex(-1);
@@ -292,7 +296,7 @@ export function ProjectDialog({
         hasImage: !!project?.imagePath,
       });
     }
-  }, [initialPath, open, project?.id]);
+  }, [initialGroupId, initialPath, open, project?.id]);
 
   // If the selected agent turns out to be unavailable (its CLI probe resolves
   // to missing after the pick), drop back to "no agent" rather than starting a
