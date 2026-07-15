@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useUserTerminals } from "~/lib/user-terminal-store";
+import { useUserTerminalsOptional } from "~/lib/user-terminal-store";
 
 /**
  * How far the bottom terminal dock's top edge rises above the viewport bottom.
@@ -12,9 +12,15 @@ import { useUserTerminals } from "~/lib/user-terminal-store";
  *
  * Shared by the local Mission Pet and the remote (peer) pets so both sit on the
  * same plane — perched on the dock — instead of one floating inside the panel.
+ *
+ * Reads the terminal store optionally: pets also render outside
+ * UserTerminalProvider (the desktop-overlay window), where there is no dock —
+ * the pet then perches on the window edge instead of throwing.
  */
 export function useDockLift(enabled = true): number {
-  const { project: dockProject, homeActive } = useUserTerminals();
+  const userTerminals = useUserTerminalsOptional();
+  const dockProject = userTerminals?.project ?? null;
+  const homeActive = userTerminals?.homeActive ?? false;
   const dockActive = !!dockProject || homeActive;
   const [dockLift, setDockLift] = useState(0);
 
