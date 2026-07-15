@@ -38,6 +38,7 @@ import { GridLayoutButton } from "~/components/views/GridLayoutButton";
 import { SessionGrid } from "~/components/views/SessionGrid";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { enterFocusSession } from "~/lib/focus-session";
+import { consumeProjectOnboardIntent, type ProjectOnboardIntent } from "~/lib/project-onboard-intent";
 import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
@@ -801,6 +802,12 @@ function ProjectPage() {
   // between Active and Pinned (SessionGrid handles the empty-Pinned state).
   const showGrid =
     gridViewActive && sessionView !== "archived" && gridScopeSessionCount > 0;
+  // The Active/Pinned/Archived scope toggle must stay mounted even while the
+  // archived list is showing. Archived is a list-only view, so selecting it drops
+  // showGrid to false — gating the toggle on showGrid would unmount the very
+  // control the user needs to get back to Active/Pinned, stranding them in the
+  // archived list. Keep it visible whenever grid mode is engaged for this scope.
+  const showSessionScopeToggle = gridViewActive && gridScopeSessionCount > 0;
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -1728,6 +1735,30 @@ function ProjectPage() {
   }, [project, projectPathReady, showNewAgent, showEdit, startWithSaved]);
 
   useHotkey("agent.new", onNewAgentPrimary, { ignoreEditable: true });
+
+  // Create-then-start onboarding: the Add-project flow hands off a one-shot
+  // intent (see project-onboard-intent). On first render for the new project we
+  // consume it, apply the chosen layout immediately, and — once the working
+  // directory is ready — launch the saved agent so the user lands in a live
+  // session instead of a dead empty page.
+  const onboardConsumedForRef = useRef<string | null>(null);
+  const onboardIntentRef = useRef<ProjectOnboardIntent | null>(null);
+  const onboardStartedRef = useRef(false);
+  useEffect(() => {
+    if (onboardConsumedForRef.current === id) return;
+    onboardConsumedForRef.current = id;
+    onboardStartedRef.current = false;
+    const intent = consumeProjectOnboardIntent(id);
+    onboardIntentRef.current = intent;
+    if (intent) terminals.setGridView(intent.gridView);
+  }, [id, terminals]);
+  useEffect(() => {
+    const intent = onboardIntentRef.current;
+    if (!intent?.autoStart || onboardStartedRef.current) return;
+    if (!project || !projectPathReady) return;
+    onboardStartedRef.current = true;
+    onNewAgentPrimary();
+  }, [project, projectPathReady, onNewAgentPrimary]);
 
   // New-row variant of agent.new: the session lands in a fresh grid row at the
   // bottom instead of beside the active one. Grid-only — rows don't exist
@@ -3157,7 +3188,7 @@ function ProjectPage() {
             onRun={runScript}
             disabled={!projectPathUsable}
           />
-          {showGrid && (
+          {showSessionScopeToggle && (
             <SessionScopeToggle
               view={sessionView}
               activeCount={activeTasks.length}

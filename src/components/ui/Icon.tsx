@@ -35,6 +35,7 @@ export type IconName =
   | "group"
   | "refresh"
   | "sparkles"
+  | "pet"
   | "copy"
   | "pencil"
   | "eye"
@@ -253,6 +254,22 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
       return (
         <svg {...common}>
           <path d="M8 2l1.2 3.3L12.5 6.5 9.2 7.7 8 11 6.8 7.7 3.5 6.5l3.3-1.2L8 2zM12.5 11l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4L10.5 13l1.4-.6.6-1.4z" />
+        </svg>
+      );
+    case "pet":
+      // Mochi, the default Mission Pet species: blob body + heart-tipped
+      // antenna, scaled down from MochiSprite's 100-grid body path.
+      return (
+        <svg {...common}>
+          <path d="M8 14.8c-3.75 0-5.55-1.95-5.25-4.65C3.2 7 5.6 5.2 8 5.2s4.8 1.8 5.25 4.95c.3 2.7-1.5 4.65-5.25 4.65z" />
+          <path d="M8 5.2V4.3" />
+          <path
+            d="M8 2.1c-.65-1-2.15-.75-2.15.4 0 .85 1.1 1.6 2.15 2.25 1.05-.65 2.15-1.4 2.15-2.25 0-1.15-1.5-1.4-2.15-.4z"
+            fill="currentColor"
+            stroke="none"
+          />
+          <circle cx="5.9" cy="10" r="1" fill="currentColor" stroke="none" />
+          <circle cx="10.1" cy="10" r="1" fill="currentColor" stroke="none" />
         </svg>
       );
     case "copy":

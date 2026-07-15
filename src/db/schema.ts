@@ -106,6 +106,12 @@ export const projects = sqliteTable(
     savedBareSession: integer("saved_bare_session", { mode: "boolean" })
       .notNull()
       .default(false),
+    // Which layout this project opens in: true = grid (all sessions tiled),
+    // false = list (sessions stacked in a column). Chosen at create time; the
+    // in-session toggle still lets the user switch on the fly.
+    defaultGridView: integer("default_grid_view", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
