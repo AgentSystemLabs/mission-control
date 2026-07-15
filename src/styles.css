@@ -4208,6 +4208,104 @@ body[data-card-glow] .cursor-glow {
   stroke-linecap: round;
   animation: mc-pet-alert-blink 1s ease-in-out infinite;
 }
+/* Singing — the little guitar and the notes drifting off it. The guitar rocks
+   on the beat, the pick sweeps the strings at double-time (0.7s alternate =
+   one 1.4s round trip, in step with the body sway), and the strings shimmer
+   on the same half-beat; notes float up and fade on staggered loops. */
+.mc-pet-guitar {
+  transform-box: fill-box;
+  transform-origin: 70% 50%;
+  animation: mc-pet-strum 1.4s ease-in-out infinite;
+}
+/* Both paws are on the guitar, so the species' stub arms hide and the
+   reach-arms drawn with the prop take over as the visible limbs. */
+.mc-pet[data-mood="singing"] .mc-pet-arms {
+  display: none;
+}
+.mc-pet-sing-arms path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.mc-pet-guitar-body {
+  fill: color-mix(in srgb, var(--accent) 24%, var(--surface-2));
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.mc-pet-guitar-rosette {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 0.9;
+  opacity: 0.5;
+}
+.mc-pet-guitar-hole {
+  fill: color-mix(in srgb, var(--accent) 55%, #000);
+  stroke: var(--accent);
+  stroke-width: 1.2;
+}
+.mc-pet-guitar-bridge {
+  fill: var(--accent);
+}
+.mc-pet-guitar-neck {
+  fill: color-mix(in srgb, var(--accent) 34%, var(--surface-2));
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.mc-pet-guitar-frets line {
+  stroke: var(--accent);
+  stroke-width: 0.8;
+  opacity: 0.55;
+}
+.mc-pet-guitar-nut {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.mc-pet-guitar-head {
+  fill: color-mix(in srgb, var(--accent) 45%, var(--surface-2));
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.mc-pet-guitar-peg {
+  fill: var(--accent);
+}
+.mc-pet-guitar-strings line {
+  stroke: var(--accent);
+  stroke-width: 0.7;
+  stroke-linecap: round;
+}
+.mc-pet-guitar-strings {
+  animation: mc-pet-string-buzz 0.7s ease-in-out infinite;
+}
+.mc-pet-guitar-paw {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.mc-pet-guitar-pick {
+  fill: var(--accent);
+}
+.mc-pet-strum-hand {
+  animation: mc-pet-strum-pluck 0.7s ease-in-out infinite alternate;
+}
+.mc-pet-note-glyph {
+  fill: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+  animation: mc-pet-note-float 1.8s ease-in-out infinite;
+}
+.mc-pet-note-glyph-2 {
+  font-size: 11px;
+  animation-delay: 0.6s;
+}
+.mc-pet-note-glyph-3 {
+  font-size: 10px;
+  animation-delay: 1.2s;
+}
 .mc-pet[data-night] {
   opacity: 0.82;
 }
@@ -4235,6 +4333,10 @@ body[data-card-glow] .cursor-glow {
 }
 .mc-pet[data-mood="startled"] {
   animation: mc-pet-wobble 0.45s ease-in-out infinite;
+}
+.mc-pet[data-mood="singing"] {
+  transform-origin: 50% 100%;
+  animation: mc-pet-sing-sway 1.4s ease-in-out infinite;
 }
 
 /* --- move variants ---
@@ -5059,6 +5161,65 @@ body[data-card-glow] .cursor-glow {
   }
   50% {
     opacity: 0.35;
+  }
+}
+/* Singing: a swaying, foot-tapping bob to the beat. */
+@keyframes mc-pet-sing-sway {
+  0%,
+  100% {
+    transform: rotate(-3deg) translateY(0);
+  }
+  25% {
+    transform: rotate(0deg) translateY(-2px);
+  }
+  50% {
+    transform: rotate(3deg) translateY(0);
+  }
+  75% {
+    transform: rotate(0deg) translateY(-2px);
+  }
+}
+/* The guitar rocks a little as it's strummed. */
+@keyframes mc-pet-strum {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+/* The strumming paw's pick sweeps across the three strings. */
+@keyframes mc-pet-strum-pluck {
+  from {
+    transform: translateY(-1.6px);
+  }
+  to {
+    transform: translateY(2.4px);
+  }
+}
+/* Strings shimmer as the pick passes, like they're vibrating. */
+@keyframes mc-pet-string-buzz {
+  0%,
+  100% {
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+/* Notes rise off the guitar and fade, then respawn at the source. */
+@keyframes mc-pet-note-float {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(7px, -16px) rotate(12deg);
   }
 }
 @keyframes mc-pet-sway {
@@ -5966,5 +6127,10 @@ body[data-card-glow] .cursor-glow {
   }
   .mc-pet-heart {
     opacity: 0;
+  }
+  /* The float animation owns the notes' opacity; with it off, keep one
+     drawn so the singing pose still reads. */
+  .mc-pet-note-glyph {
+    opacity: 0.85;
   }
 }
