@@ -35,7 +35,7 @@ import {
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { startPreviewServer, disposeAllPreviewServers } from "./preview-server";
 import { IPC } from "./ipc-channels";
-import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
+import { resolveAgentCommandMeetingVersion, resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
 import { registerFocusMode } from "./focus-mode";
@@ -56,7 +56,6 @@ import { errMsg } from "../src/shared/err-msg";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
-import { checkAgentCliVersionCached } from "./agent-cli-version";
 import { runAgentCliUpdate } from "./agent-cli-update";
 import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore, getBooleanAppSetting } from "./app-settings-store";
@@ -1896,24 +1895,22 @@ safeHandle(IPC.appReload, (event) => {
 safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean; fresh?: boolean }) => {
   if (!command) return { ok: false, reason: "empty" };
   const env = sanitizedProcessEnv();
-  const resolved = resolveAgentCommandOnPath(command, env);
-  if (resolved) {
-    const requirement = AGENT_CLI_CONFIG_BY_COMMAND[command];
-    if (requirement && opts?.verifyVersion) {
-      // Cached: shares the app-lifetime probe cache with pty spawns, so a
-      // repeat check doesn't re-spawn `<cli> --version` (which blocks main).
-      // `fresh` forces a re-probe for explicit user-initiated checks.
-      const versionCheck = checkAgentCliVersionCached(resolved, env, requirement, os.platform(), {
-        fresh: opts.fresh,
-      });
-      if (!versionCheck.ok) {
-        const { output: _output, ...safeVersionCheck } = versionCheck;
-        return { ...safeVersionCheck, path: resolved };
-      }
-      return { ok: true, path: resolved, version: versionCheck.version };
+  const requirement = AGENT_CLI_CONFIG_BY_COMMAND[command];
+  if (requirement && opts?.verifyVersion) {
+    // Prefer a PATH match that meets the minimum version when several installs
+    // coexist (stale Homebrew/Codex.app ahead of a newer npm/Herd binary).
+    const meeting = resolveAgentCommandMeetingVersion(command, requirement, env, os.platform(), {
+      fresh: opts.fresh,
+    });
+    if (!meeting) return { ok: false, reason: "not-found" };
+    if (!meeting.check.ok) {
+      const { output: _output, ...safeVersionCheck } = meeting.check;
+      return { ...safeVersionCheck, path: meeting.binary };
     }
-    return { ok: true, path: resolved };
+    return { ok: true, path: meeting.binary, version: meeting.check.version };
   }
+  const resolved = resolveAgentCommandOnPath(command, env);
+  if (resolved) return { ok: true, path: resolved };
   return { ok: false, reason: "not-found" };
 });
 

@@ -134,6 +134,14 @@ function posixNvmPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] 
   return existingChildDirs(path.join(nvmDir, "versions", "node"), ["bin"]);
 }
 
+function posixHerdNvmPathCandidates(home: string): string[] {
+  // Laravel Herd keeps its own nvm tree under Application Support. GUI apps
+  // often miss Herd's shell hook, so discover these bins explicitly — otherwise
+  // a stale Homebrew `codex` wins over the user's newer Herd install.
+  const herdNvm = path.join(home, "Library", "Application Support", "Herd", "config", "nvm");
+  return existingChildDirs(path.join(herdNvm, "versions", "node"), ["bin"]);
+}
+
 function posixFnmPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
   const fnmDir = env.FNM_DIR ?? path.join(home, ".fnm");
   return [
@@ -212,6 +220,7 @@ function posixPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
     path.join(home, ".yarn", "bin"),
     path.join(home, ".config", "yarn", "global", "node_modules", ".bin"),
     ...posixNvmPathCandidates(home, env),
+    ...posixHerdNvmPathCandidates(home),
     ...posixFnmPathCandidates(home, env),
     "/opt/homebrew/bin",
     "/opt/homebrew/sbin",
@@ -307,21 +316,30 @@ function isExecutableFile(file: string, platform: NodeJS.Platform): boolean {
   }
 }
 
-export function resolveCommandOnPath(
+export function resolveAllCommandsOnPath(
   command: string,
   env: NodeJS.ProcessEnv = sanitizedProcessEnv(),
   platform: NodeJS.Platform = os.platform()
-): string | null {
+): string[] {
   const trimmed = command.trim();
-  if (!trimmed) return null;
+  if (!trimmed) return [];
   const hasPathSeparator = trimmed.includes("/") || trimmed.includes("\\");
   const names = commandNames(trimmed, env, platform);
+  const matches: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (file: string) => {
+    const key = platform === "win32" ? file.toLowerCase() : file;
+    if (seen.has(key)) return;
+    seen.add(key);
+    matches.push(file);
+  };
 
   if (hasPathSeparator || path.isAbsolute(trimmed)) {
     for (const name of names) {
-      if (isExecutableFile(name, platform)) return name;
+      if (isExecutableFile(name, platform)) push(name);
     }
-    return null;
+    return matches;
   }
 
   const pathValue = envPathValue(env, platform);
@@ -329,10 +347,18 @@ export function resolveCommandOnPath(
   for (const dir of pathValue.split(delimiter).filter(Boolean)) {
     for (const name of names) {
       const candidate = path.join(dir, name);
-      if (isExecutableFile(candidate, platform)) return candidate;
+      if (isExecutableFile(candidate, platform)) push(candidate);
     }
   }
-  return null;
+  return matches;
+}
+
+export function resolveCommandOnPath(
+  command: string,
+  env: NodeJS.ProcessEnv = sanitizedProcessEnv(),
+  platform: NodeJS.Platform = os.platform()
+): string | null {
+  return resolveAllCommandsOnPath(command, env, platform)[0] ?? null;
 }
 
 function shellBasename(shell: string): string {

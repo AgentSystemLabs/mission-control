@@ -16,7 +16,10 @@ import { fetchRecallEnabled } from "./recall-enabled";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 import { PtyOutputBatcher } from "./pty-output-batch";
-import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
+import {
+  resolveAgentCommandMeetingVersion,
+  resolveAgentCommandOnPath,
+} from "./agent-cli-resolution";
 import {
   resolveShell,
   sanitizedProcessEnv,
@@ -32,7 +35,10 @@ import {
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
 import { checkAgentCliVersionCached, agentVersionErrorMessage } from "./agent-cli-version";
-import { AGENT_CLI_CONFIG } from "./agent-cli-version-requirements";
+import {
+  AGENT_CLI_CONFIG,
+  AGENT_CLI_CONFIG_BY_COMMAND,
+} from "./agent-cli-version-requirements";
 import { applyAgentPtyEnv } from "../src/shared/agent-pty-env";
 
 function sanitizeEnv(): Record<string, string> {
@@ -472,7 +478,14 @@ export function registerPtyHandlers(
         plan = resolveSpawnPlan(spawnReq, {
           projectRoots: loadProjectRoots,
           homeShellRoots: () => [os.homedir()],
-          resolveCommand: (name) => resolveAgentCommandOnPath(name, sanitizedProcessEnv()),
+          resolveCommand: (name) => {
+            const env = sanitizedProcessEnv();
+            const requirement = AGENT_CLI_CONFIG_BY_COMMAND[name];
+            if (requirement) {
+              return resolveAgentCommandMeetingVersion(name, requirement, env, platform)?.binary ?? null;
+            }
+            return resolveAgentCommandOnPath(name, env, platform);
+          },
           resolveShell: () => ({
             shell: resolveShell(),
             shellArgs: (cmd) => shellArgsForCommand(resolveShell(), cmd, platform),

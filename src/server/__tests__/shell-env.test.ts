@@ -5,6 +5,7 @@ import * as path from "node:path";
 import {
   buildUserPath,
   parseShellEnvOutput,
+  resolveAllCommandsOnPath,
   resolveCommandOnPath,
   setCanonicalPathEnv,
   shellArgsForCommand,
@@ -117,6 +118,48 @@ describe("Electron shell environment helpers", () => {
       path.join(localAppData, "Programs", "Cursor", "resources", "app", "bin")
     );
     expect(entries.indexOf(path.join(appData, "npm"))).toBeLessThan(entries.indexOf(packagedPath));
+  });
+
+  it("adds Laravel Herd nvm bin directories on macOS", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-herd-path-"));
+    const home = path.join(root, "home");
+    const herdBin = path.join(
+      home,
+      "Library",
+      "Application Support",
+      "Herd",
+      "config",
+      "nvm",
+      "versions",
+      "node",
+      "v24.15.0",
+      "bin",
+    );
+    const olderHerdBin = path.join(
+      home,
+      "Library",
+      "Application Support",
+      "Herd",
+      "config",
+      "nvm",
+      "versions",
+      "node",
+      "v22.22.2",
+      "bin",
+    );
+
+    fs.mkdirSync(olderHerdBin, { recursive: true });
+    fs.mkdirSync(herdBin, { recursive: true });
+
+    const entries = buildUserPath("", {
+      platform: "darwin",
+      homeDir: home,
+    }).split(path.delimiter);
+
+    expect(entries).toContain(herdBin);
+    expect(entries).toContain(olderHerdBin);
+    expect(entries.indexOf(herdBin)).toBeLessThan(entries.indexOf(olderHerdBin));
+    expect(entries.indexOf(herdBin)).toBeLessThan(entries.indexOf("/opt/homebrew/bin"));
   });
 
   it("adds POSIX Node manager and package-manager bin directories", () => {
@@ -243,6 +286,21 @@ describe("Electron shell environment helpers", () => {
     });
 
     expect(resolveCommandOnPath("codex", { PATH: pathValue }, "darwin")).toBe(codexPath);
+  });
+
+  it("lists every PATH match for a command in order", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-all-commands-"));
+    const firstDir = path.join(root, "first");
+    const secondDir = path.join(root, "second");
+    const first = path.join(firstDir, "codex");
+    const second = path.join(secondDir, "codex");
+
+    touchExecutable(first);
+    touchExecutable(second);
+
+    expect(
+      resolveAllCommandsOnPath("codex", { PATH: `${firstDir}${path.delimiter}${secondDir}` }, "darwin"),
+    ).toEqual([first, second]);
   });
 
   it("adds agent-specific home bin directories from CLI config", () => {
