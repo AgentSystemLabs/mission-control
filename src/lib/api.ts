@@ -63,6 +63,7 @@ import type {
   GraphStatus,
   GraphSummary,
 } from "~/shared/code-graph";
+import type { ScratchPadView } from "~/shared/scratch-pads";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
 import type { PetHomeSide, PetPersistentState } from "~/shared/pet";
@@ -484,6 +485,22 @@ export const api = {
   // Preview the brief a new session in this project would get (no usage bump).
   getProjectBrief: (projectId: string) =>
     req<{ brief: string; memoryIds: string[] }>(`/api/projects/${projectId}/brief`),
+
+  // Scratch pads — per-project temporary text buffers.
+  listScratchPads: (projectId: string) =>
+    req<{ scratchPads: ScratchPadView[] }>(`/api/projects/${projectId}/scratch-pads`),
+  createScratchPad: (projectId: string, body: { content?: string } = {}) =>
+    req<{ scratchPad: ScratchPadView }>(`/api/projects/${projectId}/scratch-pads`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateScratchPad: (projectId: string, padId: string, body: { content: string }) =>
+    req<{ scratchPad: ScratchPadView }>(`/api/projects/${projectId}/scratch-pads/${padId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteScratchPad: (projectId: string, padId: string) =>
+    req<void>(`/api/projects/${projectId}/scratch-pads/${padId}`, { method: "DELETE" }),
 
   // Recall — code graph.
   getGraphStatus: (projectId: string) =>

@@ -36,6 +36,8 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "project.runToggle": makeBinding({ mod: true, key: "." }),
   "voice.pushToTalk": makeBinding({ mod: true, shift: true, key: "v" }),
   "prompt.search": makeBinding({ mod: true, shift: true, key: "p" }),
+  // "J for jot" — mod+J is one of the few free single-modifier chords left.
+  "scratch.toggle": makeBinding({ mod: true, key: "j" }),
   "screenshot.capture": makeBinding({ mod: true, shift: true, key: "s" }),
   // Alt variants of the terminal (mod) and session (mod+shift) cycle chords —
   // same ]/[ mnemonic, third modifier tier for the group context.

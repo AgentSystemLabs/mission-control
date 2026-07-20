@@ -4,6 +4,7 @@ import { Btn } from "~/components/ui/Btn";
 import { CardFrame } from "~/components/ui/CardFrame";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/DropdownMenuItem";
 import { GridLayoutIcon } from "~/components/ui/GridLayoutIcon";
+import { MenuLabel } from "~/components/ui/MenuLabel";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { AGENT_META } from "~/lib/design-meta";
 import {
@@ -23,24 +24,6 @@ import { scopeKeyFor } from "./SessionGrid";
 // Fixed menu width: the width chips lay out as one 7-column row (Auto + 1–6),
 // and the viewport clamp in updateMenuRect needs the real width to be exact.
 const MENU_WIDTH = 288;
-
-/** Small section caption inside the dropdown ("Sessions per row", "Sort"). */
-function MenuLabel({ children }: { children: string }) {
-  return (
-    <div
-      style={{
-        padding: "8px 12px 4px",
-        fontFamily: "var(--mono)",
-        fontSize: 10,
-        letterSpacing: 0.6,
-        textTransform: "uppercase",
-        color: "var(--text-dim)",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
 
 /**
  * Grid-view layout control in the project header: pick how many sessions a row

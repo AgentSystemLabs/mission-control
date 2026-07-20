@@ -59,6 +59,7 @@ export type IconName =
   | "square"
   | "circle"
   | "text"
+  | "notepad"
   | "highlighter"
   | "crop"
   | "undo"
@@ -417,6 +418,15 @@ export function Icon({ name, size = 14, style }: { name: IconName; size?: number
           <path d="M3.5 4V3h9v1" />
           <path d="M8 3.5v9" />
           <path d="M6 12.5h4" />
+        </svg>
+      );
+    case "notepad":
+      return (
+        <svg {...common}>
+          <rect x="3" y="2.5" width="10" height="11.5" rx="1.2" />
+          <path d="M5.5 5.5h5" />
+          <path d="M5.5 8h5" />
+          <path d="M5.5 10.5h3" />
         </svg>
       );
     case "crop":

@@ -53,6 +53,7 @@ export const queryKeys = {
   archivedMemory: (projectId: string) => ["projects", projectId, "memory", "archived"] as const,
   memorySearch: (projectId: string, query: string) =>
     ["projects", projectId, "memory", "search", query] as const,
+  scratchPads: (projectId: string) => ["projects", projectId, "scratch-pads"] as const,
   graphStatus: (projectId: string) => ["projects", projectId, "graph", "status"] as const,
   graphSummary: (projectId: string) => ["projects", projectId, "graph", "summary"] as const,
 };
@@ -141,6 +142,17 @@ export const memorySearchQueryOptions = (projectId: string, query: string) =>
 
 export const useMemorySearch = (projectId: string, query: string) =>
   useQuery(memorySearchQueryOptions(projectId, query));
+
+// Scratch pads — the top-bar dropdown's list for the current project, newest
+// first. Mutations call api.* imperatively and invalidate this key.
+export const scratchPadsQueryOptions = (projectId: string) =>
+  queryOptions({
+    queryKey: queryKeys.scratchPads(projectId),
+    queryFn: async () => (await api.listScratchPads(projectId)).scratchPads,
+  });
+
+export const useScratchPads = (projectId: string | null) =>
+  useQuery({ ...scratchPadsQueryOptions(projectId ?? ""), enabled: projectId !== null });
 
 // Recall — code graph status (drives the panel's Code Graph section). Invalidate
 // on `graph:indexed` and refresh from `graph:index-progress` SSE (see the panel).

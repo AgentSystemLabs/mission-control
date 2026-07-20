@@ -47,6 +47,9 @@ import { ACTIVE_GROUP_ALL, ACTIVE_GROUP_UNGROUPED, useActiveGroup } from "~/lib/
 import { GroupSwitcher } from "~/components/views/GroupSwitcher";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
 import { PromptSearchButton } from "~/components/views/PromptSearchButton";
+import { ScratchPadProvider } from "~/lib/scratch-pad-store";
+import { ScratchPadButton } from "~/components/views/ScratchPadButton";
+import { projectIdFromPath } from "~/lib/project-id-from-path";
 import {
   HeaderActionsProvider,
   HeaderActionsSlot,
@@ -233,6 +236,7 @@ function RootComponent() {
               <AddProjectProvider>
                 <GroupsDialogProvider>
                 <PromptSearchProvider>
+                <ScratchPadProvider>
                   <HeaderActionsProvider>
                     <DiagramDialogHost>
                       {/*
@@ -258,6 +262,7 @@ function RootComponent() {
                       </ClientOnly>
                     </DiagramDialogHost>
                   </HeaderActionsProvider>
+                </ScratchPadProvider>
                 </PromptSearchProvider>
                 </GroupsDialogProvider>
               </AddProjectProvider>
@@ -441,8 +446,7 @@ function Shell() {
   useWarmCliAvailability();
 
   const path = useRouterState({ select: (state) => state.location.pathname });
-  const projectMatch = path.match(/^\/projects\/([^/]+)/);
-  const projectId = projectMatch ? projectMatch[1]! : null;
+  const projectId = projectIdFromPath(path);
   // Flip-only: true iff this project has a materialized active session. Gates
   // the expanded-terminal layout without subscribing to the churning data slice.
   const hasActiveSession = useHasActiveSession(projectId);
@@ -502,7 +506,7 @@ function Shell() {
   // Grid view takes over the whole workspace: the Outlet (which renders the
   // grid below the project header) spans full width and the single right-hand
   // terminal panel is hidden.
-  const gridActive = !!projectMatch && gridView;
+  const gridActive = !!projectId && gridView;
   // The group is the broadest context, so it leads the breadcrumb:
   // Group › Project › Scope. Omitted (not just null-rendered) when no groups
   // exist so no dangling separator renders, and absent on the app-global
@@ -511,10 +515,10 @@ function Shell() {
     groups.length > 0 ? [{ label: "Group", node: <GroupSwitcher /> }] : [];
   const crumbs: Crumb[] = settingsOpen
     ? [{ label: "Settings" }]
-    : projectMatch
+    : projectId
     ? [
         ...groupCrumb,
-        { label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> },
+        { label: "Project", node: <ProjectPicker projectId={projectId} disabled={activeResuming} /> },
       ]
       : activePanel === "usage"
         ? [{ label: "Usage" }]
@@ -869,6 +873,7 @@ function Shell() {
               <UpdateAvailableButton />
               <ProviderUsageIndicator />
               <HeaderBeforeSearchSlot />
+              <ScratchPadButton />
               <PromptSearchButton />
               <VoicePushToTalkButton />
               <SessionNotificationsButton
@@ -914,16 +919,16 @@ function Shell() {
                 // right; floor the left panel so dragging the terminal wider
                 // shrinks the terminal instead of wrapping the session columns.
                 // In grid view the panel is hidden, so let the Outlet go full width.
-                minWidth: projectMatch && !gridActive ? 640 : 0,
+                minWidth: projectId && !gridActive ? 640 : 0,
                 minHeight: 0,
               }}
             >
               <Outlet />
               {activeResuming && activeSandbox && <SandboxResumingOverlay name={activeSandbox.name} />}
             </div>
-            {projectMatch && !gridActive && (
+            {projectId && !gridActive && (
               <ProjectTerminalPanel
-                projectId={projectMatch[1]!}
+                projectId={projectId}
                 onClose={close}
                 onHide={deselect}
                 onPtyReady={setPtyId}

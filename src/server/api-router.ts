@@ -22,6 +22,7 @@ import * as skillsController from "./controllers/skills.controller";
 import * as hooksController from "./controllers/hooks.controller";
 import * as promptsController from "./controllers/prompts.controller";
 import * as projectMemoryController from "./controllers/project-memory.controller";
+import * as scratchPadsController from "./controllers/scratch-pads.controller";
 import * as codeGraphController from "./controllers/code-graph.controller";
 import * as usageController from "./controllers/usage.controller";
 import * as claudeUsageLimitsController from "./controllers/claude-usage-limits.controller";
@@ -49,6 +50,8 @@ const PROJECT_MEMORY_PATH = /^\/api\/projects\/([^/]+)\/memory$/;
 const PROJECT_BRIEF_PATH = /^\/api\/projects\/([^/]+)\/brief$/;
 const PROJECT_MEMORY_SEARCH_PATH = /^\/api\/projects\/([^/]+)\/memory\/search$/;
 const MEMORY_PATH = /^\/api\/memory\/([^/]+)$/;
+const PROJECT_SCRATCH_PADS_PATH = /^\/api\/projects\/([^/]+)\/scratch-pads$/;
+const PROJECT_SCRATCH_PAD_PATH = /^\/api\/projects\/([^/]+)\/scratch-pads\/([^/]+)$/;
 const MEMORY_VERIFY_PATH = /^\/api\/memory\/([^/]+)\/verify$/;
 const PROJECT_GRAPH_STATUS_PATH = /^\/api\/projects\/([^/]+)\/graph\/status$/;
 const PROJECT_GRAPH_SUMMARY_PATH = /^\/api\/projects\/([^/]+)\/graph\/summary$/;
@@ -319,6 +322,22 @@ async function dispatch(
     const id = decode(m[1]);
     if (method === "PATCH") return projectMemoryController.update(id, request);
     if (method === "DELETE") return projectMemoryController.remove(id, url);
+  }
+
+  // Scratch pads — per-project temporary text buffers. Item routes stay nested
+  // under the project so ownership is checked against the addressed project.
+  m = pathname.match(PROJECT_SCRATCH_PADS_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return scratchPadsController.list(id);
+    if (method === "POST") return scratchPadsController.create(id, request);
+  }
+  m = pathname.match(PROJECT_SCRATCH_PAD_PATH);
+  if (m) {
+    const projectId = decode(m[1]);
+    const padId = decode(m[2]);
+    if (method === "PATCH") return scratchPadsController.update(projectId, padId, request);
+    if (method === "DELETE") return scratchPadsController.remove(projectId, padId);
   }
 
   // Recall — code graph. Literal `/graph/index/cancel` before `/graph/index`.

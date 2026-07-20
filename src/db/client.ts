@@ -622,6 +622,16 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS project_memory_status_idx ON project_memory(status);
     CREATE INDEX IF NOT EXISTS project_memory_pinned_idx ON project_memory(pinned);
 
+    CREATE TABLE IF NOT EXISTS scratch_pads (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      content TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS scratch_pads_project_idx ON scratch_pads(project_id);
+    CREATE INDEX IF NOT EXISTS scratch_pads_project_updated_idx ON scratch_pads(project_id, updated_at);
+
     CREATE TABLE IF NOT EXISTS graph_nodes (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
