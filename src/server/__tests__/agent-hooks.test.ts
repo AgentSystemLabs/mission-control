@@ -107,6 +107,54 @@ describe("agent hook installation", () => {
     expect(stop).toContain(">/dev/null 2>&1 || true");
   });
 
+  it("registers subagent lifecycle hooks for Claude", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd);
+
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude", "settings.local.json"), "utf8"),
+    ) as {
+      hooks: Record<string, Array<{ hooks?: Array<{ command?: string }>; _mcManaged?: boolean }>>;
+    };
+
+    // Background subagents outlive the foreground turn's Stop; the server
+    // counts these to hold the session on "running" until the last one is done.
+    const start = settings.hooks.SubagentStart?.[0];
+    expect(start?._mcManaged).toBe(true);
+    expect(start?.hooks?.[0]?.command).toContain("hookEvent=SubagentStart");
+    const stop = settings.hooks.SubagentStop?.[0];
+    expect(stop?._mcManaged).toBe(true);
+    expect(stop?.hooks?.[0]?.command).toContain("hookEvent=SubagentStop");
+    // Status-only events: output is discarded.
+    expect(stop?.hooks?.[0]?.command).toContain(">/dev/null 2>&1 || true");
+  });
+
+  it("replaces a legacy managed SubagentStop entry instead of stripping it", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+    const file = path.join(cwd, ".claude", "settings.local.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        hooks: {
+          SubagentStop: [{ hooks: [], _mcManaged: true }],
+        },
+      }),
+      "utf8",
+    );
+
+    installAgentHooks("claude-code", cwd);
+
+    const settings = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      hooks: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
+    };
+    expect(settings.hooks.SubagentStop).toHaveLength(1);
+    expect(settings.hooks.SubagentStop?.[0]?.hooks?.[0]?.command).toContain(
+      "hookEvent=SubagentStop",
+    );
+  });
+
   it("removes legacy marker-less Mission Control hook groups but keeps user hooks", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
     const file = path.join(cwd, ".claude", "settings.local.json");

@@ -10,7 +10,7 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken, setBooleanSetting } = await import("../services/settings");
 const { createProject } = await import("../services/projects");
-const { createTask, getTask } = await import("../services/tasks");
+const { createTask, getTask, updateStatus } = await import("../services/tasks");
 const { createMemory } = await import("../services/project-memory");
 const { writeRecallSettings } = await import("../services/recall-settings");
 const { resetBriefDeliveries } = await import("../services/brief-delivery");
@@ -249,6 +249,171 @@ describe("cursor-cli hook API", () => {
       claudeSessionId: SESSION_ID,
       status: "finished",
     });
+  });
+});
+
+describe("background subagents over the claude hook API", () => {
+  let taskId = "";
+
+  beforeEach(() => {
+    resetDb();
+    setBooleanSetting("pet_enabled", false);
+    taskId = createHookTask("claude-code").id;
+  });
+
+  async function prompt(sessionId = SESSION_ID) {
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: sessionId,
+      prompt: "run the sweep with background agents",
+    });
+    expect(res?.status).toBe(200);
+  }
+
+  async function subagent(event: "SubagentStart" | "SubagentStop", agentId?: string) {
+    const res = await postHook("claude", taskId, {
+      hook_event_name: event,
+      session_id: SESSION_ID,
+      ...(agentId ? { agent_id: agentId } : {}),
+    });
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, event });
+    return res;
+  }
+
+  async function stop(sessionId = SESSION_ID) {
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "Stop",
+      session_id: sessionId,
+    });
+    expect(res?.status).toBe(200);
+    return (await res?.json()) as { status?: string };
+  }
+
+  it("holds the session on running while a background subagent is active", async () => {
+    await prompt();
+    await subagent("SubagentStart", "sub-1");
+
+    // Foreground turn ends while the background subagent still runs.
+    const held = await stop();
+    expect(held.status).toBe("running");
+    expect(getTask(taskId)?.status).toBe("running");
+
+    // Subagent completes; the re-invoked main agent's own Stop is the real finish.
+    await subagent("SubagentStop", "sub-1");
+    const finished = await stop();
+    expect(finished.status).toBe("finished");
+    expect(getTask(taskId)?.status).toBe("finished");
+  });
+
+  it("finishes on Stop when subagents already completed within the turn", async () => {
+    await prompt();
+    await subagent("SubagentStart", "sub-1");
+    await subagent("SubagentStart", "sub-2");
+    await subagent("SubagentStop", "sub-1");
+    await subagent("SubagentStop", "sub-2");
+
+    const finished = await stop();
+    expect(finished.status).toBe("finished");
+    expect(getTask(taskId)?.status).toBe("finished");
+  });
+
+  it("holds until the LAST of several background subagents reports in", async () => {
+    await prompt();
+    await subagent("SubagentStart", "sub-1");
+    await subagent("SubagentStart", "sub-2");
+    await subagent("SubagentStop", "sub-1");
+
+    const held = await stop();
+    expect(held.status).toBe("running");
+
+    await subagent("SubagentStop", "sub-2");
+    const finished = await stop();
+    expect(finished.status).toBe("finished");
+  });
+
+  it("counts subagents without agent_id via the anonymous fallback", async () => {
+    await prompt();
+    await subagent("SubagentStart");
+    expect((await stop()).status).toBe("running");
+
+    await subagent("SubagentStop");
+    expect((await stop()).status).toBe("finished");
+  });
+
+  it("does not change task status on subagent lifecycle events themselves", async () => {
+    await prompt();
+    expect(getTask(taskId)?.status).toBe("running");
+    await subagent("SubagentStart", "sub-1");
+    expect(getTask(taskId)?.status).toBe("running");
+    await subagent("SubagentStop", "sub-1");
+    expect(getTask(taskId)?.status).toBe("running");
+  });
+
+  it("drops tracked subagents when a new session id is captured", async () => {
+    await prompt();
+    await subagent("SubagentStart", "sub-1");
+
+    // A new Claude process (fresh session id) means the old session's
+    // subagents are gone — its Stop must finish normally.
+    const nextSession = "11111111-1111-4111-8111-111111111111";
+    await prompt(nextSession);
+    const finished = await stop(nextSession);
+    expect(finished.status).toBe("finished");
+  });
+
+  it("ignores subagent events from a foreign session", async () => {
+    await prompt();
+    const foreign = "22222222-2222-4222-8222-222222222222";
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "SubagentStart",
+      session_id: foreign,
+      agent_id: "foreign-sub",
+    });
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, ignored: "foreign-session" });
+
+    const finished = await stop();
+    expect(finished.status).toBe("finished");
+  });
+
+  it("heals a finished task when a late subagent event loses the race to Stop", async () => {
+    await prompt();
+    // Stop wins the race against the just-launched subagent's SubagentStart.
+    expect((await stop()).status).toBe("finished");
+
+    await subagent("SubagentStart", "late-sub");
+    expect(getTask(taskId)?.status).toBe("running");
+
+    await subagent("SubagentStop", "late-sub");
+    expect((await stop()).status).toBe("finished");
+  });
+
+  it("drops tracked subagents on /clear (same session id, background work killed)", async () => {
+    await prompt();
+    await subagent("SubagentStart", "sub-1");
+
+    const cleared = await postHook("claude", taskId, {
+      hook_event_name: "SessionStart",
+      session_id: SESSION_ID,
+      source: "clear",
+    });
+    expect(cleared?.status).toBe(200);
+
+    const finished = await stop();
+    expect(finished.status).toBe("finished");
+  });
+
+  it("drops tracked subagents when the terminal is terminated", async () => {
+    await prompt();
+    await subagent("SubagentStart", "sub-1");
+    updateStatus(taskId, { status: "terminated" });
+
+    // A later session of the same task must not be held by the dead
+    // session's never-stopped subagent.
+    await prompt();
+    const finished = await stop();
+    expect(finished.status).toBe("finished");
   });
 });
 

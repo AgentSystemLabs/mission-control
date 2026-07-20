@@ -5,6 +5,7 @@ import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { events } from "../events";
 import { deleteDiagramsForTask } from "./diagram-store";
 import { clearPendingQuestion } from "./pending-questions";
+import { clearSubagentActivity } from "./subagent-activity";
 import {
   deleteTaskRow,
   findTaskById,
@@ -120,6 +121,11 @@ export function updateStatus(
   // whatever question was pending is stale (answered, cancelled, interrupted).
   if (patch.status && patch.status !== "needs-input") {
     clearPendingQuestion(id);
+  }
+  // A dead or detached terminal takes its session's subagents with it; their
+  // tracked entries must not hold a future session of this task on "running".
+  if (patch.status === "terminated" || patch.status === "disconnected") {
+    clearSubagentActivity(id);
   }
   if (
     patch.status === "finished" &&

@@ -15,13 +15,35 @@ hook flips it.
 | ---------------------------------- | --------------- | ---------------------------------------- |
 | _(spawn)_                          | `ready`         | Terminal up, user hasn't typed yet       |
 | `UserPromptSubmit`                 | `running`       | User just submitted a prompt; work began |
-| `Stop`                             | `finished`      | Agent finished its turn                  |
+| `Stop`                             | `finished`\*    | Foreground turn ended (see below)        |
+| `SubagentStart` / `SubagentStop`   | _(bookkeeping)_ | Tracks still-active subagents            |
 | `PermissionRequest`                | `needs-input`   | Permission / tool approval requested     |
 | `Notification` `permission_prompt` | `needs-input`   | Claude permission notification fallback  |
 
-`SubagentStop` is intentionally ignored. It means a child agent finished, not
-that the top-level Claude turn is done. A top-level `Stop` follows when the
-whole turn is actually finished.
+\* `Stop` fires when the **foreground** turn ends — including while background
+subagents (Task tool agents) the turn launched are still running. Treating it
+as `finished` unconditionally dinged the user mid-work. So the server counts
+`SubagentStart`/`SubagentStop` per task (`src/server/services/subagent-activity.ts`,
+paired by the payload's `agent_id`, whose `session_id` is the parent session's)
+and downgrades a `Stop` to `running` while any subagent is still active. A
+background subagent's completion re-invokes the main agent, and *that* turn's
+`Stop` — arriving with no active subagents left — lands as the real `finished`.
+Neither subagent event maps to a status on its own, but either one arriving
+for a task already marked `finished` heals it back to `running` (a `Stop` won
+the race against the subagent's lifecycle POST).
+
+Backstops, so a `SubagentStop` that never arrives (lost POST, killed process)
+cannot hold a task on `running` forever:
+
+- Tracked entries expire after 2 hours (kept long on purpose — a short TTL
+  would prematurely finish sessions whose subagents legitimately run long).
+- A held `Stop` arms a once-a-minute recheck that promotes the task to
+  `finished` only when the remaining entries emptied by **expiring**. Entries
+  emptied by real `SubagentStop`s disarm it silently — the re-invoked main
+  agent's own `Stop` lands that finish. A new `UserPromptSubmit` also disarms.
+- Tracking is dropped outright when a new session id is captured, on
+  `SessionStart` with `source: "clear"` (same session id, but `/clear` kills
+  background work), and when the task goes `terminated` / `disconnected`.
 
 `Notification` is also intentionally narrowed to `permission_prompt`. Claude
 Code also sends idle input reminders through the same hook event, so treating
