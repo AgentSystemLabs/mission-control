@@ -301,6 +301,14 @@ function killProcessTreeWindows(pid: number | undefined): void {
  * on its own. It isn't on the public `IPty` type but exists on both the Unix and
  * Windows terminals at runtime — fall back to `kill()` if a future version drops
  * it. This is the single teardown path; never call `proc.kill()` directly.
+ *
+ * NOTE: destroy() alone did not stop ptmx exhaustion. node-pty <= 1.1.0 ALSO
+ * leaked two fds inside every macOS spawn (a never-closed posix_openpt guard
+ * fd and the parent's copy of the slave fd), plus the master on failed spawns
+ * — so churn (warm pools) still crept toward the cap, and once near it every
+ * failed retry leaked 2-3 more fds until the whole machine couldn't allocate
+ * PTYs. Fixed by node-pty 1.2.0-beta.14 (closes slave + guard fds on all
+ * paths, master on error). Don't downgrade node-pty below that.
  */
 export function disposePty(proc: import("node-pty").IPty | null | undefined): void {
   if (!proc) return;

@@ -125,7 +125,7 @@
     "ignore": "7.0.5",
     "lucide-react": "1.16.0",
     "mermaid": "11.12.0",
-    "node-pty": "1.1.0",
+    "node-pty": "1.2.0-beta.14",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-icons": "5.6.0",
