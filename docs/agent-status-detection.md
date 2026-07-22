@@ -28,19 +28,32 @@ paired by the payload's `agent_id`, whose `session_id` is the parent session's)
 and downgrades a `Stop` to `running` while any subagent is still active. A
 background subagent's completion re-invokes the main agent, and *that* turn's
 `Stop` — arriving with no active subagents left — lands as the real `finished`.
-Neither subagent event maps to a status on its own, but either one arriving
-for a task already marked `finished` heals it back to `running` (a `Stop` won
-the race against the subagent's lifecycle POST).
+Neither subagent event maps to a status on its own, but one arriving **moments
+after** a task finished heals it back to `running` (a `Stop` won the race
+against the turn's own subagent lifecycle POST).
+
+That heal is scoped to a 30-second recent-finish window because Claude Code
+also runs **post-turn internal helpers** whose subagent events carry the
+parent session id: refocusing a finished session generates an *away summary*,
+firing `SubagentStart`/`SubagentStop` minutes after the finish, with no `Stop`
+to follow. Healing on those wedges tasks on `running` forever (the original
+stuck-on-running bug). Beyond the window, helper events are ignored for status
+and their starts are not tracked — a lost helper stop would otherwise hold the
+next turn's `Stop` for the whole TTL.
 
 Backstops, so a `SubagentStop` that never arrives (lost POST, killed process)
-cannot hold a task on `running` forever:
+— or a healed `running` that no `Stop` will ever follow — cannot hold a task
+on `running` forever:
 
 - Tracked entries expire after 2 hours (kept long on purpose — a short TTL
   would prematurely finish sessions whose subagents legitimately run long).
-- A held `Stop` arms a once-a-minute recheck that promotes the task to
-  `finished` only when the remaining entries emptied by **expiring**. Entries
-  emptied by real `SubagentStop`s disarm it silently — the re-invoked main
-  agent's own `Stop` lands that finish. A new `UserPromptSubmit` also disarms.
+- A held `Stop` (and a recent-finish heal) arms a once-a-minute recheck. Once
+  the tracked set is idle — drained by real `SubagentStop`s or by expiry — a
+  3-minute drain grace starts: if the re-invoked main agent's own `Stop` lands
+  the finish within it (the normal flow), the backstop's promotion is a no-op
+  (it only fires on tasks still `running`); if nothing follows, the backstop
+  promotes to `finished`. New subagent activity resets the grace; a new
+  `UserPromptSubmit` disarms it.
 - Tracking is dropped outright when a new session id is captured, on
   `SessionStart` with `source: "clear"` (same session id, but `/clear` kills
   background work), and when the task goes `terminated` / `disconnected`.
@@ -93,6 +106,30 @@ turn idle reminders into `needs-input`.
 
 The hook is fail-soft (`|| true`) — if Mission Control is down or the
 endpoint is slow it never blocks the user's session.
+
+## Dead-process fallbacks
+
+Hooks only fire while the agent process lives, so two out-of-band signals
+settle tasks whose process is gone:
+
+- **PTY exit** — `electron/pty-manager.ts` posts a synthetic
+  `MissionControlSessionEnded` event (with the exit code) whenever a session's
+  PTY process exits, for any reason: the user closed the pane, a scope switch
+  closed the project's sessions, the process crashed, or it was killed. The
+  renderer's own exit handler only runs while the pane is mounted — and skips
+  intentional closes entirely — so this is the reliable path. The server moves
+  tasks still in an **active** status (`running` / `needs-input`) to `finished`
+  (exit 0) or `terminated`, drops their tracked subagents, and leaves settled
+  tasks untouched, which keeps respawn flows and finished sessions unaffected.
+- **Boot sweep** — Electron main calls `POST /api/tasks/sweep-disconnected`
+  once per app boot, before the first window loads. At that moment no local
+  PTYs exist, so any local-scope task still `running` / `needs-input` is an
+  orphan of the previous run (app quit or crash outran the exit event) and is
+  marked `disconnected`. Sandbox-scoped tasks are excluded — their sessions
+  run remotely and survive app restarts. The sweep deliberately does NOT run
+  at server boot: in dev the API server (Vite) can restart while Electron's
+  PTYs live on, and on macOS `activate` re-runs window creation while this
+  run's PTYs are alive.
 
 ## Interrupt fallback
 

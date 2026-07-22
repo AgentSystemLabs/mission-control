@@ -34,6 +34,7 @@ import {
   type SpawnRequest,
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
+import { AGENT_HOOK_EVENTS } from "../src/shared/agent-hook-events";
 import { checkAgentCliVersionCached, agentVersionErrorMessage } from "./agent-cli-version";
 import {
   AGENT_CLI_CONFIG,
@@ -165,7 +166,7 @@ function scanForCodexHookReview(p: Pty, haystack: string) {
   void postSyntheticHook(p, "PermissionRequest");
 }
 
-async function postSyntheticHook(p: Pty, event: string) {
+async function postSyntheticHook(p: Pty, event: string, extra?: Record<string, unknown>) {
   try {
     const url = buildSyntheticHookUrl(p.mcEnv!, p.agent, p.taskId);
     if (!url) return;
@@ -175,7 +176,7 @@ async function postSyntheticHook(p: Pty, event: string) {
         "content-type": "application/json",
         authorization: `Bearer ${p.mcEnv!.token}`,
       },
-      body: JSON.stringify({ hook_event_name: event }),
+      body: JSON.stringify({ hook_event_name: event, ...extra }),
     });
   } catch {
     /* swallow — best-effort status sync */
@@ -698,6 +699,16 @@ export function registerPtyHandlers(
         if (initialInputFallback) clearTimeout(initialInputFallback);
         // Final output must land before the exit event or it's lost.
         outputBatcher.flush(id);
+        // Settle the task's status server-side no matter WHY the process died
+        // (user closed the pane, scope switch, crash, kill) — the renderer's
+        // own exit handler only runs while the pane is mounted, and skips
+        // intentional closes entirely. The server only moves tasks still in an
+        // active status, so respawn flows and settled tasks are unaffected.
+        if (p.mcEnv?.apiUrl && p.mcEnv?.token) {
+          void postSyntheticHook(p, AGENT_HOOK_EVENTS.sessionProcessExited, {
+            exit_code: exitCode,
+          });
+        }
         send(getWin, IPC.ptyExit, { ptyId: id, exitCode, signal });
         ptys.delete(id);
       });

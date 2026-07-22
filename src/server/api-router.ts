@@ -65,6 +65,8 @@ const PROJECT_GRAPH_IMPACT_PATH = /^\/api\/projects\/([^/]+)\/graph\/impact$/;
 const SANDBOX_PATH = /^\/api\/sandboxes\/([^/]+)$/;
 const SANDBOX_API_KEY_PATH = /^\/api\/sandboxes\/([^/]+)\/api-key$/;
 const GROUP_PATH = /^\/api\/groups\/([^/]+)$/;
+// Literal path — checked before TASK_PATH so the id patterns never see it.
+const TASK_SWEEP_DISCONNECTED_PATH = "/api/tasks/sweep-disconnected";
 const TASK_PATH = /^\/api\/tasks\/([^/]+)$/;
 const TASK_STATUS_PATH = /^\/api\/tasks\/([^/]+)\/status$/;
 const TASK_QUESTION_PATH = /^\/api\/tasks\/([^/]+)\/question$/;
@@ -377,6 +379,9 @@ async function dispatch(
   }
 
   // Tasks
+  if (pathname === TASK_SWEEP_DISCONNECTED_PATH && method === "POST") {
+    return tasksController.sweepDisconnected();
+  }
   m = pathname.match(TASK_PATH);
   if (m) {
     const id = decode(m[1]);

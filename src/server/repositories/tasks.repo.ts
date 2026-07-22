@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "~/db/client";
 import { tasks } from "~/db/schema";
 import type { Task } from "~/db/schema";
@@ -10,6 +10,23 @@ export function findAllTasks(): Task[] {
 
 export function findTasksByProjectIdAllScopes(projectId: string): Task[] {
   return getDb().select().from(tasks).where(eq(tasks.projectId, projectId)).all();
+}
+
+// Local-scope tasks whose status claims a live agent process. Used by the
+// startup sweep: at Electron boot no local PTYs exist yet, so any such task is
+// an orphan of a previous run. Sandbox-scoped tasks are excluded — their
+// sessions run remotely and survive app restarts.
+export function findActiveLocalTasks(): Task[] {
+  return getDb()
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.scopeId, LOCAL_SCOPE_ID),
+        inArray(tasks.status, ["running", "needs-input"]),
+      ),
+    )
+    .all();
 }
 
 export function findTasksByProjectId(

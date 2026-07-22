@@ -5,10 +5,13 @@ import { getTask, updateStatus, updateTask } from "../services/tasks";
 import {
   armDeferredFinish,
   clearSubagentActivity,
+  clearTaskFinished,
   disarmDeferredFinish,
   hasActiveSubagents,
   noteSubagentStart,
   noteSubagentStop,
+  noteTaskFinished,
+  taskFinishedRecently,
 } from "../services/subagent-activity";
 import { setPendingQuestion } from "../services/pending-questions";
 import { recordPrompt } from "../services/prompts";
@@ -58,6 +61,9 @@ const hookPayload = z
     // transcript file can lag the in-memory conversation (and may not be flushed
     // when Stop fires), so the pet remark prefers this over re-reading the file.
     last_assistant_message: z.string(),
+    // Synthetic MissionControlSessionEnded (electron/pty-manager): the PTY
+    // process's exit code, used to pick finished vs terminated.
+    exit_code: z.number(),
   })
   .partial();
 
@@ -96,13 +102,15 @@ function isSubagentLifecycleEvent(event: string): boolean {
   );
 }
 
-// Deferred-finish backstop callback: fires only when a held Stop's remaining
-// subagents expired (their SubagentStop never arrived). Guarded so it can't
-// stomp a state the user or a later event moved the task into.
+// Deferred-finish backstop callback: fires when a held or healed "running"
+// drained its subagents and no main-agent Stop landed within the grace.
+// Guarded so it can't stomp a state the user or a later event moved the task
+// into.
 function finishQuietTask(taskId: string): void {
   const task = getTask(taskId);
   if (task?.status === "running") {
     updateStatus(taskId, { status: "finished" });
+    noteTaskFinished(taskId);
   }
 }
 
@@ -283,17 +291,45 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   // completion re-invokes the main agent, whose own Stop follows. Track which
   // subagents are active so the Stop mapping below can hold the session on
   // "running" until the last one is done. These events carry no status, but a
-  // subagent event on an already-"finished" task means a Stop won the race
-  // against the subagent's lifecycle POST — work is provably still happening,
-  // so heal to running (the eventual quiet Stop restores the real finish).
+  // subagent event arriving MOMENTS after a task finished means the Stop won
+  // the race against the turn's own subagent lifecycle POST — work is still
+  // happening, so heal to running, and arm the drain backstop in case no
+  // further Stop follows.
+  //
+  // Beyond that window, a subagent event on a finished task is one of Claude
+  // Code's post-turn internal helpers (away-summary generation fires
+  // SubagentStart/Stop when the user refocuses a finished session, with no
+  // Stop after). Healing on those wedges tasks on "running" forever; ignore
+  // them for status, and don't record their starts either — a lost helper
+  // SubagentStop would otherwise hold the NEXT turn's Stop for the whole TTL.
   if (isSubagentLifecycleEvent(event)) {
+    const staleFinished = task.status === "finished" && !taskFinishedRecently(taskId);
     if (event === AGENT_HOOK_EVENTS.subagentStart) {
-      noteSubagentStart(taskId, payload.agent_id);
+      if (!staleFinished) noteSubagentStart(taskId, payload.agent_id);
     } else {
       noteSubagentStop(taskId, payload.agent_id);
     }
-    if (task.status === "finished") {
+    if (task.status === "finished" && !staleFinished) {
       updateStatus(taskId, { status: "running" });
+      armDeferredFinish(taskId, finishQuietTask);
+    }
+    return json({ ok: true, event });
+  }
+
+  // Synthetic PTY-exit event (electron/pty-manager): the session process is
+  // gone, so a task still showing active work is wrong — settle it by exit
+  // code. Tasks already in a settled state (finished, interrupted, ...) keep
+  // it: the exit of an idle session isn't news. Dead process ⇒ its subagents
+  // died with it.
+  if (event === AGENT_HOOK_EVENTS.sessionProcessExited) {
+    clearSubagentActivity(taskId);
+    // No re-invocation can follow a dead process: laggard subagent POSTs
+    // still in flight must be ignored as stale, never heal to "running".
+    clearTaskFinished(taskId);
+    if (task.status === "running" || task.status === "needs-input") {
+      updateStatus(taskId, {
+        status: payload.exit_code === 0 ? "finished" : "terminated",
+      });
     }
     return json({ ok: true, event });
   }
@@ -404,6 +440,9 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   try {
     const t = updateStatus(taskId, { status });
     if (!t) return jsonError(HTTP_NOT_FOUND, "task not found");
+    // Timestamp real finishes so the subagent branch above can tell a raced
+    // lifecycle POST (heal) from a post-turn helper event (ignore).
+    if (status === "finished") noteTaskFinished(taskId);
     if (
       isSessionCaptureEvent(event) &&
       typeof payload.prompt === "string" &&

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -20,6 +20,12 @@ const { TITLE_WAITING } = await import("~/lib/task-sentinels");
 
 const LOOPBACK_HEADERS = { origin: "http://127.0.0.1:5173" };
 const SESSION_ID = "00000000-0000-4000-8000-000000000000";
+
+// Some cases shift Date.now past the recent-finish heal window; always restore.
+const realNow = Date.now;
+afterEach(() => {
+  Date.now = realNow;
+});
 
 function authed(input: string, init: RequestInit = {}): Request {
   return new Request(`http://127.0.0.1:5173${input}`, {
@@ -414,6 +420,123 @@ describe("background subagents over the claude hook API", () => {
     await prompt();
     const finished = await stop();
     expect(finished.status).toBe("finished");
+  });
+
+  it("ignores post-turn helper subagent events on a long-finished task", async () => {
+    await prompt();
+    expect((await stop()).status).toBe("finished");
+
+    // Minutes later the user refocuses the pane and Claude Code's internal
+    // away-summary helper fires SubagentStart/Stop — with no Stop to follow.
+    // The finished status must hold (this was the stuck-on-running bug).
+    Date.now = () => realNow() + 31_000;
+    await subagent("SubagentStart", "away-helper");
+    expect(getTask(taskId)?.status).toBe("finished");
+    await subagent("SubagentStop", "away-helper");
+    expect(getTask(taskId)?.status).toBe("finished");
+    Date.now = realNow;
+
+    // The helper's start must not count as active work either — a lost helper
+    // stop would otherwise hold the next turn's Stop on running.
+    await prompt();
+    expect((await stop()).status).toBe("finished");
+  });
+});
+
+describe("synthetic session-process-exit over the claude hook API", () => {
+  let taskId = "";
+
+  beforeEach(() => {
+    resetDb();
+    setBooleanSetting("pet_enabled", false);
+    taskId = createHookTask("claude-code").id;
+  });
+
+  async function processExited(exitCode: number) {
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "MissionControlSessionEnded",
+      exit_code: exitCode,
+    });
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({
+      ok: true,
+      event: "MissionControlSessionEnded",
+    });
+  }
+
+  it("terminates a running task whose process died", async () => {
+    updateStatus(taskId, { status: "running" });
+    await processExited(137);
+    expect(getTask(taskId)?.status).toBe("terminated");
+  });
+
+  it("finishes a running task whose process exited cleanly", async () => {
+    updateStatus(taskId, { status: "running" });
+    await processExited(0);
+    expect(getTask(taskId)?.status).toBe("finished");
+  });
+
+  it("terminates a needs-input task whose process died", async () => {
+    updateStatus(taskId, { status: "needs-input" });
+    await processExited(1);
+    expect(getTask(taskId)?.status).toBe("terminated");
+  });
+
+  it("leaves settled tasks alone", async () => {
+    updateStatus(taskId, { status: "finished" });
+    await processExited(1);
+    expect(getTask(taskId)?.status).toBe("finished");
+
+    updateStatus(taskId, { status: "interrupted" });
+    await processExited(0);
+    expect(getTask(taskId)?.status).toBe("interrupted");
+  });
+
+  it("never heals on laggard subagent events after the process died", async () => {
+    updateStatus(taskId, { status: "running" });
+    // A real Stop lands the finish moments before the process exits…
+    const stopped = await postHook("claude", taskId, {
+      hook_event_name: "Stop",
+      session_id: SESSION_ID,
+    });
+    expect(stopped?.status).toBe(200);
+    await processExited(0);
+
+    // …then an in-flight SubagentStart from the dying session arrives inside
+    // what would be the heal window. A dead process can't be re-invoked, so
+    // healing here would wedge the task on "running" for the whole TTL.
+    const laggard = await postHook("claude", taskId, {
+      hook_event_name: "SubagentStart",
+      session_id: SESSION_ID,
+      agent_id: "laggard",
+    });
+    expect(laggard?.status).toBe(200);
+    expect(getTask(taskId)?.status).toBe("finished");
+  });
+
+  it("drops tracked subagents with the dead process", async () => {
+    updateStatus(taskId, { status: "running" });
+    const started = await postHook("claude", taskId, {
+      hook_event_name: "SubagentStart",
+      session_id: SESSION_ID,
+      agent_id: "orphan",
+    });
+    expect(started?.status).toBe(200);
+    await processExited(1);
+
+    // A later session of the same task must not be held by the dead
+    // session's never-stopped subagent.
+    const prompted = await postHook("claude", taskId, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: SESSION_ID,
+      prompt: "start again",
+    });
+    expect(prompted?.status).toBe(200);
+    const res = await postHook("claude", taskId, {
+      hook_event_name: "Stop",
+      session_id: SESSION_ID,
+    });
+    await expect(res?.json()).resolves.toMatchObject({ status: "finished" });
   });
 });
 

@@ -7,6 +7,10 @@ export const AGENT_HOOK_EVENTS = {
   subagentStart: "SubagentStart",
   subagentStop: "SubagentStop",
   userInterrupt: "UserInterrupt",
+  // Synthetic (posted by electron/pty-manager, not the agent): the session's
+  // PTY process exited. Named to never collide with Claude Code's real
+  // SessionEnd hook, which also fires on /clear while the process lives on.
+  sessionProcessExited: "MissionControlSessionEnded",
   permissionRequest: "PermissionRequest",
   questionRequest: "QuestionRequest",
   notification: "Notification",
@@ -56,6 +60,10 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
     // (background subagents outlive the foreground turn's Stop).
     case AGENT_HOOK_EVENTS.subagentStart:
     case AGENT_HOOK_EVENTS.subagentStop:
+      return null;
+    // Synthetic PTY-exit event: the hooks controller maps it conditionally
+    // (only tasks still in an active status move to terminated/finished).
+    case AGENT_HOOK_EVENTS.sessionProcessExited:
       return null;
     default:
       return null;

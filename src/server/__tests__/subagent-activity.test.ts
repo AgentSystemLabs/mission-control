@@ -6,10 +6,14 @@ import {
   hasActiveSubagents,
   noteSubagentStart,
   noteSubagentStop,
+  noteTaskFinished,
+  taskFinishedRecently,
 } from "../services/subagent-activity";
 
 const TTL_MS = 2 * 60 * 60 * 1000;
 const RECHECK_MS = 60 * 1000;
+const DRAIN_GRACE_MS = 3 * 60 * 1000;
+const RECENT_FINISH_MS = 30 * 1000;
 
 const realNow = Date.now;
 
@@ -107,8 +111,9 @@ describe("deferred finish backstop", () => {
     vi.advanceTimersByTime(RECHECK_MS * 3);
     expect(finished).toEqual([]);
 
-    // Once the entry outlives the TTL with no SubagentStop, promote.
-    vi.advanceTimersByTime(TTL_MS);
+    // Once the entry outlives the TTL with no SubagentStop, the set is idle;
+    // after the drain grace passes with nothing new, promote.
+    vi.advanceTimersByTime(TTL_MS + DRAIN_GRACE_MS + RECHECK_MS);
     expect(finished).toEqual([taskId]);
     expect(hasActiveSubagents(taskId)).toBe(false);
 
@@ -117,18 +122,45 @@ describe("deferred finish backstop", () => {
     expect(finished).toEqual([taskId]);
   });
 
-  it("disarms silently when real SubagentStops empty the set", () => {
+  it("waits out the drain grace after real SubagentStops, then finishes", () => {
     vi.useFakeTimers();
     const taskId = "task-real-stops";
     const finished: string[] = [];
     noteSubagentStart(taskId, "a");
     armDeferredFinish(taskId, (id) => finished.push(id));
 
-    // The real stop means the main agent gets re-invoked and its own Stop
-    // lands the finish — the backstop must NOT fire a premature one.
+    // A real stop usually means the main agent gets re-invoked and its own
+    // Stop lands the finish — so the backstop must hold through the grace…
     noteSubagentStop(taskId, "a");
-    vi.advanceTimersByTime(TTL_MS + RECHECK_MS * 2);
+    vi.advanceTimersByTime(RECHECK_MS * 2);
     expect(finished).toEqual([]);
+
+    // …but when nothing follows (a post-turn helper's paired events, or a
+    // re-invocation that never came), it must promote rather than leave the
+    // task wedged on "running". The caller's finish guard makes this a no-op
+    // whenever a real Stop already landed.
+    vi.advanceTimersByTime(DRAIN_GRACE_MS + RECHECK_MS);
+    expect(finished).toEqual([taskId]);
+  });
+
+  it("resets the drain grace when a new subagent starts mid-grace", () => {
+    vi.useFakeTimers();
+    const taskId = "task-grace-reset";
+    const finished: string[] = [];
+    noteSubagentStart(taskId, "a");
+    armDeferredFinish(taskId, (id) => finished.push(id));
+    noteSubagentStop(taskId, "a");
+
+    // Part-way into the grace, new work appears — the countdown must restart
+    // around the live subagent instead of finishing under it.
+    vi.advanceTimersByTime(RECHECK_MS * 2);
+    noteSubagentStart(taskId, "b");
+    vi.advanceTimersByTime(DRAIN_GRACE_MS);
+    expect(finished).toEqual([]);
+
+    noteSubagentStop(taskId, "b");
+    vi.advanceTimersByTime(DRAIN_GRACE_MS + RECHECK_MS * 2);
+    expect(finished).toEqual([taskId]);
   });
 
   it("can be disarmed explicitly and by clearSubagentActivity", () => {
@@ -143,7 +175,22 @@ describe("deferred finish backstop", () => {
 
     disarmDeferredFinish(taskA);
     clearSubagentActivity(taskB);
-    vi.advanceTimersByTime(TTL_MS + RECHECK_MS * 2);
+    vi.advanceTimersByTime(TTL_MS + DRAIN_GRACE_MS + RECHECK_MS * 2);
     expect(finished).toEqual([]);
+  });
+});
+
+describe("recent-finish window", () => {
+  it("reports a finish as recent only within the window", () => {
+    const taskId = "task-finish-window";
+    expect(taskFinishedRecently(taskId)).toBe(false);
+
+    noteTaskFinished(taskId);
+    expect(taskFinishedRecently(taskId)).toBe(true);
+
+    // Beyond the window, a subagent event is a post-turn helper, not a raced
+    // lifecycle POST from the finished turn.
+    Date.now = () => realNow() + RECENT_FINISH_MS + 1;
+    expect(taskFinishedRecently(taskId)).toBe(false);
   });
 });

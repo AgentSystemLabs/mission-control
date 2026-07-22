@@ -8,6 +8,7 @@ import {
   listTasksForProject,
   listTasksForProjectWorktree,
   restoreTask,
+  sweepOrphanedActiveTasks,
   updateStatus,
   updateTask,
 } from "../services/tasks";
@@ -158,6 +159,15 @@ export async function setStatus(rawId: string, request: Request): Promise<Respon
   } catch (e) {
     return rethrowUnlessDomain(e);
   }
+}
+
+/**
+ * POST /api/tasks/sweep-disconnected — Electron main calls this once per app
+ * boot (before the first window) to settle statuses orphaned by the previous
+ * run. See sweepOrphanedActiveTasks for the invariant that makes this safe.
+ */
+export async function sweepDisconnected(): Promise<Response> {
+  return json({ swept: sweepOrphanedActiveTasks() });
 }
 
 export async function archive(rawId: string, request: Request): Promise<Response> {

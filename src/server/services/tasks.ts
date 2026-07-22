@@ -8,6 +8,7 @@ import { clearPendingQuestion } from "./pending-questions";
 import { clearSubagentActivity } from "./subagent-activity";
 import {
   deleteTaskRow,
+  findActiveLocalTasks,
   findTaskById,
   findTasksByProjectId,
   findTasksByProjectIdAndWorktreeId,
@@ -142,6 +143,22 @@ export function updateStatus(
     });
   }
   return next;
+}
+
+/**
+ * Startup sweep: mark every local-scope task still claiming a live agent
+ * process (running / needs-input) as disconnected. Called by Electron main
+ * once per app boot, before the first window loads — at that point no local
+ * PTYs exist, so any such status is an orphan of a previous run (app quit or
+ * crash killed the process before any hook could report). Goes through
+ * updateStatus so events fire and stale subagent tracking is dropped.
+ */
+export function sweepOrphanedActiveTasks(): number {
+  const orphans = findActiveLocalTasks();
+  for (const t of orphans) {
+    updateStatus(t.id, { status: "disconnected" });
+  }
+  return orphans.length;
 }
 
 export function updateTask(

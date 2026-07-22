@@ -1128,6 +1128,35 @@ async function bootDevServer(): Promise<string> {
   return devUrl;
 }
 
+// One-shot per process: `activate` re-runs createWindow while this run's PTYs
+// are alive, and a second sweep would wrongly disconnect their tasks.
+let taskStatusSweepDone = false;
+
+/**
+ * Ask the server to mark tasks orphaned by the previous run (still
+ * running/needs-input with no possible PTY) as disconnected. Fail-soft: a
+ * miss just leaves stale statuses until their session is next interacted with.
+ */
+async function sweepOrphanedTaskStatuses(apiOrigin: string): Promise<void> {
+  if (taskStatusSweepDone) return;
+  taskStatusSweepDone = true;
+  try {
+    const res = await fetch(`${apiOrigin}/api/tasks/sweep-disconnected`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${getOrCreateApiToken(missionControlUserDataDir)}`,
+      },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (res.ok) {
+      const body = (await res.json().catch(() => null)) as { swept?: number } | null;
+      if (body?.swept) log.info("main.task-status-sweep", { swept: body.swept });
+    }
+  } catch (err) {
+    log.warn("main.task-status-sweep-failed", { error: errMsg(err) });
+  }
+}
+
 async function createWindow() {
   // macOS wires horizontal two-finger swipes (trackpad and Magic Mouse) to
   // session-history back/forward. Opt this window's app domain out so a swipe
@@ -1239,6 +1268,13 @@ async function createWindow() {
     }
     return;
   }
+
+  // Settle statuses orphaned by the previous run BEFORE the renderer loads:
+  // this process owns every local PTY, and none exist yet, so a task still
+  // marked running/needs-input died without its exit ever being reported (app
+  // quit or crash). Once per process — macOS `activate` re-runs createWindow
+  // while PTYs from this run are alive, and those must not be swept.
+  await sweepOrphanedTaskStatuses(url);
 
   // The renderer is only ever loaded from this URL — pin the IPC allow-list to
   // that origin (MUST be before the real loadURL) so a future renderer

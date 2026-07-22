@@ -7,6 +7,13 @@
 // records SubagentStart/SubagentStop here and downgrades a Stop to "running"
 // while any subagent remains active, so the finish ding doesn't fire mid-work.
 //
+// Claude Code also runs internal helper agents AFTER a session finishes
+// (away-summary generation on refocus, title helpers) whose subagent events
+// carry the parent session id but precede no further Stop. The recent-finish
+// window (taskFinishedRecently) keeps those from healing a finished task back
+// to "running", and the drain grace in armDeferredFinish un-wedges any that
+// slip through.
+//
 // In-memory and bounded like the controller's other per-task maps: losing
 // state (app restart) merely restores the legacy finish-on-Stop behavior.
 
@@ -20,10 +27,25 @@ const MAX_IDS_PER_TASK = 512;
 // subagents legitimately run long (deep-research fan-outs).
 const ACTIVE_SUBAGENT_TTL_MS = 2 * 60 * 60 * 1000;
 
-// Cadence of the deferred-finish recheck armed when a Stop is held. Each tick
-// only acts once every remaining entry has EXPIRED (see armDeferredFinish);
-// entries emptied by real SubagentStops disarm it without finishing.
+// Cadence of the deferred-finish recheck armed when a Stop is held or a
+// finished task was healed back to running by a subagent event.
 const DEFERRED_FINISH_RECHECK_MS = 60 * 1000;
+
+// Once a held/healed task's tracked subagents have all drained (real stops or
+// expiry), wait this long for a main-agent Stop to land the finish itself
+// before the backstop promotes the task. Long enough for a re-invoked main
+// agent to compose its follow-up turn in the common case; short enough that a
+// subagent event with no follow-up turn (Claude Code's internal helpers —
+// away-summary generation and friends — fire SubagentStart/Stop with no Stop
+// after) can't leave the task wedged on "running".
+const DRAIN_FINISH_GRACE_MS = 3 * 60 * 1000;
+
+// How long after a task finishes a subagent event can still plausibly belong
+// to the finished turn (a Stop that won the race against the turn's own
+// SubagentStart POST — a sub-second race in practice). Beyond this window a
+// subagent event on a finished task is a post-turn internal helper, not
+// resumed work, and must not heal the task back to "running".
+const RECENT_FINISH_WINDOW_MS = 30 * 1000;
 
 type TaskSubagents = {
   /** agent_id → start time, for payloads that identify the subagent. */
@@ -34,8 +56,52 @@ type TaskSubagents = {
   anonTouchedAt: number;
 };
 
+type RecheckState = {
+  timer: ReturnType<typeof setInterval>;
+  /** When the tracked set was first seen idle; null while work is active. */
+  idleSince: number | null;
+};
+
 const activeByTask = new Map<string, TaskSubagents>();
-const recheckTimers = new Map<string, ReturnType<typeof setInterval>>();
+const recheckTimers = new Map<string, RecheckState>();
+
+// Last hook-driven "finished" per task, for the recent-finish heal window.
+// In-memory and bounded like activeByTask; losing it (app restart) just means
+// subagent events on finished tasks stop healing until the next real finish —
+// the safe direction for the away-summary class of post-turn helper events.
+const finishedAtByTask = new Map<string, number>();
+
+/** Record that a hook just landed this task on "finished". */
+export function noteTaskFinished(taskId: string): void {
+  finishedAtByTask.delete(taskId);
+  finishedAtByTask.set(taskId, Date.now());
+  while (finishedAtByTask.size > MAX_TRACKED_TASKS) {
+    const oldest = finishedAtByTask.keys().next().value;
+    if (oldest === undefined) break;
+    finishedAtByTask.delete(oldest);
+  }
+}
+
+/**
+ * True while a subagent event can still mean "the finished Stop raced the
+ * turn's own subagent lifecycle POSTs". Unknown tasks report false — after a
+ * restart the heal stays off until a real finish is observed again.
+ */
+export function taskFinishedRecently(taskId: string): boolean {
+  const finishedAt = finishedAtByTask.get(taskId);
+  if (finishedAt === undefined) return false;
+  return Date.now() - finishedAt <= RECENT_FINISH_WINDOW_MS;
+}
+
+/**
+ * Drop a task's recent-finish mark. Used when its session PROCESS died: no
+ * re-invocation can follow a dead process, so a laggard subagent POST still in
+ * flight must read as stale (ignored) rather than heal the task to "running"
+ * — a heal there would wedge until the TTL, since its stop can never arrive.
+ */
+export function clearTaskFinished(taskId: string): void {
+  finishedAtByTask.delete(taskId);
+}
 
 function touch(taskId: string): TaskSubagents {
   let entry = activeByTask.get(taskId);
@@ -57,6 +123,9 @@ function touch(taskId: string): TaskSubagents {
 export function noteSubagentStart(taskId: string, agentId: string | undefined): void {
   const entry = touch(taskId);
   const now = Date.now();
+  // Fresh activity ends any drain grace in progress — the set is live again.
+  const recheck = recheckTimers.get(taskId);
+  if (recheck) recheck.idleSince = null;
   if (agentId) {
     entry.ids.delete(agentId);
     entry.ids.set(agentId, now);
@@ -104,37 +173,52 @@ export function hasActiveSubagents(taskId: string): boolean {
 }
 
 /**
- * Arm the lost-SubagentStop backstop after a Stop was held on "running".
+ * Arm the "running with no Stop coming" backstop after a Stop was held on
+ * "running", or after a finished task was healed back to "running" by a
+ * subagent event.
  *
- * Normally the last SubagentStop re-invokes the main agent and ITS Stop lands
- * the real finish — the tick then finds no entry and silently disarms. The
- * `finish` callback fires only when entries emptied by EXPIRING (a stop that
- * never arrived), so the task can't stay wedged on "running" forever, and the
- * normal path never gets a premature finish from this timer.
+ * Each tick waits while tracked subagents are active. Once the set is idle —
+ * emptied by real SubagentStops OR by expiry — a drain grace starts: if a
+ * main-agent Stop lands the finish within it (the normal background-subagent
+ * flow), the `finish` callback is a no-op for the caller (it guards on status
+ * still being "running"). If nothing follows — a lost SubagentStop, or a
+ * post-turn helper's subagent events that never precede another Stop — the
+ * grace expires and `finish` promotes the task, so it can't stay wedged on
+ * "running" forever.
  */
 export function armDeferredFinish(taskId: string, finish: (taskId: string) => void): void {
   if (recheckTimers.has(taskId)) return;
-  const timer = setInterval(() => {
-    const entry = activeByTask.get(taskId);
-    if (!entry) {
+  const state: RecheckState = {
+    timer: setInterval(() => {
+      const entry = activeByTask.get(taskId);
+      if (entry) {
+        prune(entry);
+        if (!isIdle(entry)) {
+          state.idleSince = null;
+          return;
+        }
+        activeByTask.delete(taskId);
+      }
+      const now = Date.now();
+      if (state.idleSince === null) {
+        state.idleSince = now;
+        return;
+      }
+      if (now - state.idleSince < DRAIN_FINISH_GRACE_MS) return;
       disarmDeferredFinish(taskId);
-      return;
-    }
-    prune(entry);
-    if (!isIdle(entry)) return;
-    activeByTask.delete(taskId);
-    disarmDeferredFinish(taskId);
-    finish(taskId);
-  }, DEFERRED_FINISH_RECHECK_MS);
-  timer.unref?.();
-  recheckTimers.set(taskId, timer);
+      finish(taskId);
+    }, DEFERRED_FINISH_RECHECK_MS),
+    idleSince: null,
+  };
+  state.timer.unref?.();
+  recheckTimers.set(taskId, state);
 }
 
 /** Cancel a pending deferred finish (new user turn supersedes the held Stop). */
 export function disarmDeferredFinish(taskId: string): void {
-  const timer = recheckTimers.get(taskId);
-  if (timer === undefined) return;
-  clearInterval(timer);
+  const state = recheckTimers.get(taskId);
+  if (state === undefined) return;
+  clearInterval(state.timer);
   recheckTimers.delete(taskId);
 }
 
