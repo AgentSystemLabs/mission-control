@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { scopedSandboxesForProject } from "../project-scoped-sandboxes";
+import {
+  isManualRemoteSandbox,
+  sandboxUsableForProject,
+  scopedSandboxesForProject,
+} from "../project-scoped-sandboxes";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 
 const sandbox = (id: string) => ({ id, kind: "remote-vm", remoteProvider: "aws" });
@@ -71,16 +75,42 @@ describe("scopedSandboxesForProject", () => {
     expect(result.map((s) => s.id).sort()).toEqual(["sb-1", "sb-3"]);
   });
 
-  it("excludes non-AWS sandboxes even when they reference the project", () => {
+  it("includes manually connected (provider-less) sandboxes on every project", () => {
     const result = scopedSandboxesForProject(
       [
-        { id: "sb-other", kind: "remote-vm", remoteProvider: null, projectId: "p-local" },
-        { id: "sb-aws", kind: "remote-vm", remoteProvider: "aws", projectId: "p-local" },
+        { id: "sb-manual", kind: "remote-vm", remoteProvider: null },
+        { id: "sb-aws", kind: "remote-vm", remoteProvider: "aws", projectId: "p-other" },
       ],
       [],
       project("p-local"),
       LOCAL_SCOPE_ID,
     );
-    expect(result.map((s) => s.id)).toEqual(["sb-aws"]);
+    expect(result.map((s) => s.id)).toEqual(["sb-manual"]);
+  });
+
+  it("excludes sandboxes persisted under removed managed providers", () => {
+    const result = scopedSandboxesForProject(
+      [{ id: "sb-legacy", kind: "remote-vm", remoteProvider: "docker", projectId: "p-local" }],
+      [],
+      project("p-local"),
+      LOCAL_SCOPE_ID,
+    );
+    expect(result).toEqual([]);
+  });
+});
+
+describe("sandboxUsableForProject", () => {
+  it("allows a manual sandbox from any project", () => {
+    const manual = { id: "sb-manual", kind: "remote-vm", remoteProvider: null };
+    expect(sandboxUsableForProject(manual, "p-a")).toBe(true);
+    expect(sandboxUsableForProject(manual, "p-b")).toBe(true);
+    expect(isManualRemoteSandbox(manual)).toBe(true);
+  });
+
+  it("allows an AWS sandbox only for its owning project", () => {
+    const aws = { id: "sb-aws", kind: "remote-vm", remoteProvider: "aws", projectId: "p-a" };
+    expect(sandboxUsableForProject(aws, "p-a")).toBe(true);
+    expect(sandboxUsableForProject(aws, "p-b")).toBe(false);
+    expect(isManualRemoteSandbox(aws)).toBe(false);
   });
 });

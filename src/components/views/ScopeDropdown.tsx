@@ -10,6 +10,7 @@ import { Modal } from "~/components/ui/Modal";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { SandboxConfigModal } from "~/components/views/SandboxConfigModal";
 import { api } from "~/lib/api";
+import { OPEN_SCOPE_SWITCHER_EVENT } from "~/lib/design-meta";
 import { getElectron, isElectron } from "~/lib/electron";
 import { mcToastLoading } from "~/lib/mc-toast";
 import {
@@ -26,8 +27,11 @@ import {
 import { isMissingRemoteInstanceError, remoteVmDeployJobForSandbox } from "~/lib/remote-vm-deploy";
 import { setSandboxBusyState, type SandboxBusyMap, type SandboxBusyState } from "~/lib/sandbox-busy";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
-import { scopedSandboxesForProject } from "~/lib/project-scoped-sandboxes";
-import { useProjectSandboxFlow } from "~/lib/use-project-sandbox-flow";
+import {
+  sandboxUsableForProject,
+  scopedSandboxesForProject,
+} from "~/lib/project-scoped-sandboxes";
+import { useConnectSandboxFlow } from "~/lib/use-connect-sandbox-flow";
 import { useHotkey } from "~/lib/use-hotkey";
 import { useTerminalActions } from "~/lib/terminal-store";
 import { useUserTerminals } from "~/lib/user-terminal-store";
@@ -353,7 +357,10 @@ export function ScopeDropdown() {
     ? allProjects.find((p) => p.id === currentProjectId) ?? null
     : null;
   const routeProjectScope = currentProject ?? (currentProjectId ? { id: currentProjectId } : null);
-  const projectSandbox = useProjectSandboxFlow(currentProject);
+  // AWS sandbox creation is hidden for now — users connect to a sandbox they
+  // provisioned themselves instead. Restore useProjectSandboxFlow to bring the
+  // managed create flow back.
+  const connectSandbox = useConnectSandboxFlow();
   const rawActiveScopeId = data?.activeScopeId ?? LOCAL_SCOPE_ID;
   const rawActiveSandbox =
     data?.sandboxes.find((sandbox) => sandbox.id === rawActiveScopeId) ?? null;
@@ -361,9 +368,7 @@ export function ScopeDropdown() {
     !data?.enabled ||
     rawActiveScopeId === LOCAL_SCOPE_ID ||
     !routeProjectScope ||
-    (!!rawActiveSandbox &&
-      isManagedAwsRemote(rawActiveSandbox) &&
-      rawActiveSandbox.projectId === routeProjectScope.id);
+    (!!rawActiveSandbox && sandboxUsableForProject(rawActiveSandbox, routeProjectScope.id));
   const effectiveActiveScopeId = activeScopeAllowed ? rawActiveScopeId : LOCAL_SCOPE_ID;
 
   // Refetch the server state but re-apply any still-pending deploy rows on top,
@@ -660,6 +665,14 @@ export function ScopeDropdown() {
     void api.setActiveScope(LOCAL_SCOPE_ID).catch(() => undefined);
     void getElectron()?.sandbox.setActive(null).catch(() => undefined);
   }, [activeScopeAllowed, data?.activeScopeId, data?.enabled, qc]);
+
+  // The trigger chip hides while Local is active, so the project actions menu
+  // ("Manage sandboxes") re-opens the switcher through this event.
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener(OPEN_SCOPE_SWITCHER_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SCOPE_SWITCHER_EVENT, onOpen);
+  }, []);
 
   // Desktop-only, and only on project routes — scope switching is a
   // project-screen affordance.
@@ -997,32 +1010,43 @@ export function ScopeDropdown() {
         ref={wrapRef}
         role="group"
         aria-label="Sandbox scope"
-        style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 0 }}
+        style={{
+          position: "relative",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0,
+          // Local is the default state, so the chip hides to keep the bar
+          // quiet — the wrap stays mounted (stretched to the row height) as
+          // the anchor for the popover opened via OPEN_SCOPE_SWITCHER_EVENT.
+          ...(isLocal ? { alignSelf: "stretch" } : null),
+        }}
       >
-        <Btn
-          variant="gray-frame"
-          className={showConfig ? attachedBtnClass(false, true) : undefined}
-          onClick={() => setOpen((o) => !o)}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          title="Switch sandbox"
-        >
-          <span
-            aria-hidden
-            style={{ width: 8, height: 8, borderRadius: "50%", background: activeColor, flexShrink: 0 }}
-          />
-          <span>{label}</span>
-          <Icon
-            name="chevron-down"
-            size={11}
-            style={{
-              color: "var(--text-faint)",
-              flexShrink: 0,
-              transform: open ? "rotate(180deg)" : undefined,
-              transition: "transform 120ms ease",
-            }}
-          />
-        </Btn>
+        {!isLocal && (
+          <Btn
+            variant="gray-frame"
+            className={showConfig ? attachedBtnClass(false, true) : undefined}
+            onClick={() => setOpen((o) => !o)}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            title="Switch sandbox"
+          >
+            <span
+              aria-hidden
+              style={{ width: 8, height: 8, borderRadius: "50%", background: activeColor, flexShrink: 0 }}
+            />
+            <span>{label}</span>
+            <Icon
+              name="chevron-down"
+              size={11}
+              style={{
+                color: "var(--text-faint)",
+                flexShrink: 0,
+                transform: open ? "rotate(180deg)" : undefined,
+                transition: "transform 120ms ease",
+              }}
+            />
+          </Btn>
+        )}
 
         {showConfig && (
           <Btn
@@ -1112,7 +1136,7 @@ export function ScopeDropdown() {
                 !stopping &&
                 !resuming &&
                 isResumableStatus(s.remoteStatus);
-              let subtitle = "AWS VM";
+              let subtitle = s.remoteProvider === "aws" ? "AWS VM" : "Remote agent";
               if (s.remoteStatus === "provisioning") subtitle = "Provisioning…";
               if (paused) subtitle = "Paused";
               if (resuming) subtitle = "Resuming…";
@@ -1131,50 +1155,42 @@ export function ScopeDropdown() {
                 />
               );
             })}
-            {projectSandbox.canCreate && (
-              <>
-                <div
-                  aria-hidden
-                  style={{
-                    height: 1,
-                    margin: "4px 8px",
-                    background: "var(--border)",
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    void projectSandbox.openDialog();
-                  }}
-                  disabled={projectSandbox.checking}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    width: "100%",
-                    textAlign: "left",
-                    padding: "7px 8px",
-                    borderRadius: 6,
-                    border: "none",
-                    cursor: projectSandbox.checking ? "default" : "pointer",
-                    background: "transparent",
-                    color: projectSandbox.checking ? "var(--text-faint)" : "var(--text)",
-                    opacity: projectSandbox.checking ? 0.7 : 1,
-                  }}
-                >
-                  <Icon name="plus" size={12} style={{ color: "var(--accent-ink)", flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
-                    {projectSandbox.checking ? "Checking…" : "Create sandbox"}
-                  </span>
-                </button>
-              </>
-            )}
+            <div
+              aria-hidden
+              style={{
+                height: 1,
+                margin: "4px 8px",
+                background: "var(--border)",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                connectSandbox.openDialog();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                textAlign: "left",
+                padding: "7px 8px",
+                borderRadius: 6,
+                border: "none",
+                cursor: "pointer",
+                background: "transparent",
+                color: "var(--text)",
+              }}
+            >
+              <Icon name="plus" size={12} style={{ color: "var(--accent-ink)", flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>Connect sandbox</span>
+            </button>
           </CardFrame>
         )}
       </div>
 
-      {projectSandbox.dialogs}
+      {connectSandbox.dialogs}
 
       <SandboxConfigModal
         open={configOpen}

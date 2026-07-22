@@ -33,6 +33,13 @@ const sandboxState = {
       remoteProvider: "aws",
       projectId: "project-1",
     }),
+    {
+      ...buildOptimisticRemoteVmSandbox({ id: "sb-manual", name: "Home server" }),
+      remoteProvider: null,
+      remoteProviderName: null,
+      remoteStatus: null,
+      projectId: null,
+    },
   ],
   enabled: true,
   activeScopeId: LOCAL_SCOPE_ID,
@@ -45,6 +52,11 @@ describe("projectRuntimeScopeId", () => {
 
   it("falls back to local for sandboxes owned by another project", () => {
     expect(projectRuntimeScopeId(sandboxState, "project-2", "sb-1")).toBe(LOCAL_SCOPE_ID);
+  });
+
+  it("maps a manually connected sandbox to its runtime scope from any project", () => {
+    expect(projectRuntimeScopeId(sandboxState, "project-1", "sb-manual")).toBe("sb-manual");
+    expect(projectRuntimeScopeId(sandboxState, "project-2", "sb-manual")).toBe("sb-manual");
   });
 });
 

@@ -30,7 +30,9 @@ let sbCounter = 0;
 /**
  * Seed a remote-VM sandbox row directly. AWS sandboxes are provisioned by the
  * Electron deploy CLI (which writes the row to SQLite), so the HTTP API has no
- * create route — tests seed the row the same way the CLI would.
+ * managed-create route — tests seed the row the same way the CLI would.
+ * (Manually connected sandboxes register via POST /api/sandboxes/connect,
+ * covered below.)
  */
 function seedRemoteSandbox(
   name: string,
@@ -245,6 +247,212 @@ describe("sandboxes API", () => {
       getDb().select().from(homeTerminals).where(eq(homeTerminals.id, "ht-scoped")).get(),
     ).toBeUndefined();
     expect((await body(await handleApiRequest(electronRequest("/api/sandboxes")))).activeScopeId).toBe("local");
+  });
+
+  it("registers a manually connected sandbox and enables the scope switcher", async () => {
+    const res = await handleApiRequest(
+      electronRequest("/api/sandboxes/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Home server",
+          agentUrl: "wss://agent.example.com:443/",
+          apiKey: "manual-key-123",
+        }),
+      }),
+    );
+    expect(res?.status).toBe(200);
+    const { sandbox } = await body(res);
+    expect(sandbox).toMatchObject({
+      name: "Home server",
+      kind: "remote-vm",
+      remoteAgentUrl: "wss://agent.example.com/",
+      remoteProvider: null,
+      remoteStatus: null,
+      hasPairingToken: true,
+      hasApiKey: true,
+    });
+    expect(sandbox.pairingToken).toBeUndefined();
+
+    const list = await body(await handleApiRequest(electronRequest("/api/sandboxes")));
+    expect(list.enabled).toBe(true);
+    expect(list.sandboxes.map((s: any) => s.id)).toContain(sandbox.id);
+
+    const revealed = await body(
+      await handleApiRequest(electronRequest(`/api/sandboxes/${sandbox.id}/api-key`)),
+    );
+    expect(revealed).toEqual({ apiKey: "manual-key-123" });
+  });
+
+  it("accepts a plaintext agent URL only for loopback hosts", async () => {
+    const loopback = await handleApiRequest(
+      electronRequest("/api/sandboxes/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Local tunnel",
+          agentUrl: "ws://localhost:9333/",
+          apiKey: "k",
+        }),
+      }),
+    );
+    expect(loopback?.status).toBe(200);
+    expect((await body(loopback)).sandbox.remoteAgentUrl).toBe("ws://localhost:9333/");
+
+    const publicPlaintext = await handleApiRequest(
+      electronRequest("/api/sandboxes/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Insecure",
+          agentUrl: "ws://agent.example.com:9333/",
+          apiKey: "k",
+        }),
+      }),
+    );
+    expect(publicPlaintext?.status).toBe(400);
+    expect((await body(publicPlaintext)).error).toMatch(/wss/);
+  });
+
+  // A real (long-lived) self-signed cert — connect validates the CA is exactly
+  // one self-signed certificate before persisting it as a TLS pin.
+  const SELF_SIGNED_PEM = `-----BEGIN CERTIFICATE-----
+MIIBlzCCAT2gAwIBAgIUd8RjeQHJeRz8C81DrPegq+m2+84wCgYIKoZIzj0EAwIw
+IDEeMBwGA1UEAwwVbWlzc2lvbi1jb250cm9sLWFnZW50MCAXDTI2MDcyMjE1MjAw
+NloYDzIxMjYwNjI4MTUyMDA2WjAgMR4wHAYDVQQDDBVtaXNzaW9uLWNvbnRyb2wt
+YWdlbnQwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATRlcKWhhVLns6e104EQA+A
+fhHfGBN2G9zPKxBZdwiRt7Gz4AOV11y1SzlBYYcJzSHCunV09VCr87JiypkGLTUs
+o1MwUTAdBgNVHQ4EFgQU9N/7kcy7t+2fBnfm8yE07G7p3uMwHwYDVR0jBBgwFoAU
+9N/7kcy7t+2fBnfm8yE07G7p3uMwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQD
+AgNIADBFAiEA8JINJO8wccPca0e6vs6iv3Jmax5Tc0RmcCNS0zs2Z0cCIDEcqzvM
+pAj8zbdZs8sSaRUrjO6n4giKgtb9xDEbh5bi
+-----END CERTIFICATE-----`;
+
+  // A well-formed leaf certificate signed by a separate CA (issuer ≠ subject) —
+  // must be rejected by the self-signed check specifically.
+  const CA_SIGNED_LEAF_PEM = `-----BEGIN CERTIFICATE-----
+MIIBbjCCAROgAwIBAgIURSUvOVrkL/eELO5NgPM4izY8OsYwCgYIKoZIzj0EAwIw
+EjEQMA4GA1UEAwwHdGVzdC1jYTAgFw0yNjA3MjIxNTI0MDlaGA8yMTI2MDYyODE1
+MjQwOVowFTETMBEGA1UEAwwKYWdlbnQtbGVhZjBZMBMGByqGSM49AgEGCCqGSM49
+AwEHA0IABLzDdN9b+zJf88AsBESMujq6sQ4pMkjU0ZGRT1qyJGq+FZe/4ocqId81
+zOewz4wBFxONNX1mx5cL+EPTmd0bHJWjQjBAMB0GA1UdDgQWBBRlRzcsnw6QonVs
+XzkYGGm/O41HUDAfBgNVHSMEGDAWgBRXKtiIHS1XyTTlA4oa6CP3//bW/DAKBggq
+hkjOPQQDAgNJADBGAiEAgT+MjNC067+87hBZj/E3CUb/v7/24vsN+iUjsJyWN4QC
+IQDKgylx1t9VnHbg07id7TJtpRnwoMskXtbR9ffY6+5lqA==
+-----END CERTIFICATE-----`;
+
+  it("rejects a connect body whose CA is not a single self-signed certificate", async () => {
+    const post = (agentCa: string) =>
+      handleApiRequest(
+        electronRequest("/api/sandboxes/connect", {
+          method: "POST",
+          body: JSON.stringify({
+            name: "Bad CA",
+            agentUrl: "wss://agent.example.com/",
+            apiKey: "k",
+            agentCa,
+          }),
+        }),
+      );
+
+    expect((await post("not a certificate"))?.status).toBe(400);
+    expect((await post("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----"))?.status).toBe(400);
+    expect((await post(`${SELF_SIGNED_PEM}\n${SELF_SIGNED_PEM}`))?.status).toBe(400);
+    const withKey = await post(`${SELF_SIGNED_PEM}\n-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----`);
+    expect(withKey?.status).toBe(400);
+    expect((await body(withKey)).error).toMatch(/private key/i);
+    // The verify branch itself: a parseable single cert that is CA-signed.
+    const caSigned = await post(CA_SIGNED_LEAF_PEM);
+    expect(caSigned?.status).toBe(400);
+    expect((await body(caSigned)).error).toMatch(/self-signed/);
+  });
+
+  it("trims the sandbox name and rejects whitespace-only names", async () => {
+    const whitespace = await handleApiRequest(
+      electronRequest("/api/sandboxes/connect", {
+        method: "POST",
+        body: JSON.stringify({ name: "   ", agentUrl: "wss://agent.example.com/", apiKey: "k" }),
+      }),
+    );
+    expect(whitespace?.status).toBe(400);
+
+    const padded = await body(
+      await handleApiRequest(
+        electronRequest("/api/sandboxes/connect", {
+          method: "POST",
+          body: JSON.stringify({
+            name: "  Home server  ",
+            agentUrl: "wss://agent.example.com/",
+            apiKey: "k",
+          }),
+        }),
+      ),
+    );
+    expect(padded.sandbox.name).toBe("Home server");
+  });
+
+  it("persists the CA certificate into remote_config for TLS pinning", async () => {
+    const res = await handleApiRequest(
+      electronRequest("/api/sandboxes/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Pinned",
+          agentUrl: "wss://agent.example.com/",
+          apiKey: "k",
+          agentCa: SELF_SIGNED_PEM,
+        }),
+      }),
+    );
+    expect(res?.status).toBe(200);
+    const { sandbox } = await body(res);
+    const row = getDb().select().from(sandboxes).where(eq(sandboxes.id, sandbox.id)).get();
+    expect(JSON.parse(row!.remoteConfig!)).toMatchObject({
+      agentUrl: "wss://agent.example.com/",
+      agentCa: SELF_SIGNED_PEM,
+    });
+    expect(JSON.parse(row!.remoteConfig!).provider).toBeUndefined();
+  });
+
+  it("re-connecting the same agent URL updates the existing row instead of duplicating", async () => {
+    const first = await body(
+      await handleApiRequest(
+        electronRequest("/api/sandboxes/connect", {
+          method: "POST",
+          body: JSON.stringify({
+            name: "Home server",
+            agentUrl: "wss://agent.example.com/",
+            apiKey: "old-key",
+            agentCa: SELF_SIGNED_PEM,
+          }),
+        }),
+      ),
+    );
+    const firstConfig = JSON.parse(
+      getDb().select().from(sandboxes).where(eq(sandboxes.id, first.sandbox.id)).get()!
+        .remoteConfig!,
+    );
+
+    const second = await body(
+      await handleApiRequest(
+        electronRequest("/api/sandboxes/connect", {
+          method: "POST",
+          body: JSON.stringify({
+            name: "Home server (renamed)",
+            agentUrl: "https://agent.example.com/", // normalizes to the same wss URL
+            apiKey: "rotated-key",
+          }),
+        }),
+      ),
+    );
+    expect(second.sandbox.id).toBe(first.sandbox.id);
+    expect(second.sandbox.name).toBe("Home server (renamed)");
+
+    const rows = getDb().select().from(sandboxes).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.pairingToken).toBe("rotated-key");
+
+    // The rebuilt config keeps the original createdAt; each submission fully
+    // states its TLS intent, so omitting agentCa on reconnect drops the pin.
+    const secondConfig = JSON.parse(rows[0]!.remoteConfig!);
+    expect(secondConfig.createdAt).toBe(firstConfig.createdAt);
+    expect(secondConfig.agentCa).toBeUndefined();
   });
 
   it("ignores an active scope pointing at a missing sandbox (self-heals to Local)", async () => {

@@ -391,6 +391,16 @@ export const api = {
   // disabled, empty state.
   listSandboxes: () =>
     req<{ sandboxes: SandboxPublicView[]; enabled: boolean; activeScopeId: string }>("/api/sandboxes"),
+  connectSandbox: (input: {
+    name: string;
+    agentUrl: string;
+    apiKey: string;
+    agentCa?: string | null;
+  }) =>
+    req<{ sandbox: SandboxPublicView }>("/api/sandboxes/connect", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   updateSandbox: (id: string, body: Record<string, unknown>) =>
     req<{ sandbox: SandboxPublicView }>(`/api/sandboxes/${id}`, {
       method: "PATCH",

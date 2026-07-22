@@ -39,6 +39,7 @@ import { SessionGrid } from "~/components/views/SessionGrid";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { enterFocusSession } from "~/lib/focus-session";
 import { consumeProjectOnboardIntent, type ProjectOnboardIntent } from "~/lib/project-onboard-intent";
+import { sandboxUsableForProject } from "~/lib/project-scoped-sandboxes";
 import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
@@ -148,13 +149,12 @@ import { GitDiffModal } from "~/components/views/GitDiffView/GitDiffModal";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { RecallModal } from "~/components/views/RecallModal";
 import { BranchTypeahead } from "~/components/views/BranchTypeahead";
-import { SyncButton } from "~/components/views/SyncButton";
 import {
   CreatePullRequestDialog,
   CreatePullRequestMenuItem,
   useCreatePullRequestAction,
 } from "~/components/views/CreatePullRequestButton";
-import { HeaderActions, HeaderBeforeSearch } from "~/components/ui/HeaderActionsSlot";
+import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
 import { InstallShipSkillMenuItem } from "~/components/views/InstallShipSkillMenuItem";
@@ -201,6 +201,7 @@ import {
 import {
   ARCHIVE_ACTIVE_SESSION_EVENT,
   DUPLICATE_ACTIVE_SESSION_EVENT,
+  OPEN_SCOPE_SWITCHER_EVENT,
   pickByPriority,
   STATUS_META,
   type ArchiveActiveSessionEventDetail,
@@ -417,9 +418,9 @@ function ProjectPage() {
       : null;
   const activeRuntimeScopeId =
     sandboxState?.enabled &&
-    activeRuntimeSandbox?.kind === "remote-vm" &&
-    activeRuntimeSandbox.remoteProvider === "aws" &&
-    activeRuntimeSandbox.projectId === project?.id
+    activeRuntimeSandbox &&
+    project &&
+    sandboxUsableForProject(activeRuntimeSandbox, project.id)
       ? sandboxState.activeScopeId
       : LOCAL_SCOPE_ID;
   const deploySandboxId = activeRuntimeSandbox?.id ?? null;
@@ -2806,28 +2807,29 @@ function ProjectPage() {
     </HeaderActions>
   );
 
-  // Grid-view toggle sits in the top bar beside prompt history (the
-  // before-search slot), a session view mode kept out of the run/git actions.
-  const headerBeforeSearch = (
-    <HeaderBeforeSearch>
-      <HotkeyTooltip
-        action="session.gridView"
-        label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+  // Grid-view toggle lives in the project header beside the other session
+  // controls — a session view mode, not app chrome, so it left the top bar.
+  const gridViewToggle = (
+    <HotkeyTooltip
+      action="session.gridView"
+      label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+    >
+      <Btn
+        variant="ghost"
+        onClick={toggleGridViewShowingAll}
+        aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+        aria-pressed={terminals.gridView}
+        style={{
+          width: 40,
+          minWidth: 40,
+          paddingInline: 0,
+          background: terminals.gridView ? "var(--surface-2)" : undefined,
+          color: terminals.gridView ? "var(--text)" : undefined,
+        }}
       >
-        <Btn
-          variant="ghost"
-          onClick={toggleGridViewShowingAll}
-          aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
-          aria-pressed={terminals.gridView}
-          style={{
-            background: terminals.gridView ? "var(--surface-2)" : undefined,
-            color: terminals.gridView ? "var(--text)" : undefined,
-          }}
-        >
-          <GridViewToggleIcon gridView={terminals.gridView} />
-        </Btn>
-      </HotkeyTooltip>
-    </HeaderBeforeSearch>
+        <GridViewToggleIcon gridView={terminals.gridView} />
+      </Btn>
+    </HotkeyTooltip>
   );
 
   return (
@@ -3061,6 +3063,20 @@ function ProjectPage() {
                     Worktree init
                   </DropdownMenuItem>
                 ) : null}
+                {sandboxState?.enabled ? (
+                  <DropdownMenuItem
+                    icon="globe"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      // The header scope chip hides while Local is active, so
+                      // this is the way into the sandbox switcher/manager.
+                      window.dispatchEvent(new Event(OPEN_SCOPE_SWITCHER_EVENT));
+                    }}
+                    title="Switch scope or create a sandbox for this project"
+                  >
+                    Manage sandboxes
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
                 <InstallDiagramSkillMenuItem
                   onSelect={() => {
@@ -3230,7 +3246,7 @@ function ProjectPage() {
               </HotkeyTooltip>
             )}
             {headerActions}
-            {headerBeforeSearch}
+            {gridViewToggle}
             <HotkeyTooltip action="file.finder" label="Find file">
               <Btn
                 variant="ghost"
@@ -4368,7 +4384,9 @@ function WorktreeToggleGroup({
   );
   const branchLabel = selectedIsMain ? mainBranchLabel : selectedWorktree.branch;
   // Sync stays main-only: behindCount is the main worktree's upstream delta.
-  const showSync = selectedIsMain && (behindCount ?? 0) > 0 && !!onSync;
+  // The action lives inside the branch dropdown now (with a ↓N badge on the
+  // trigger) — no standalone Sync split-button.
+  const syncBehindCount = selectedIsMain ? behindCount ?? 0 : 0;
   // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read as two
   // distinct controls with hierarchy, not one welded segment.
   const shipControls = (
@@ -4427,8 +4445,7 @@ function WorktreeToggleGroup({
           </span>
         </Btn>
       ) : (
-        // Zero-gap wrapper so the branch selector and Sync half touch (welded
-        // split-button); badge dots sit above it via the relative parent.
+        // Badge dots sit above the branch button via the relative parent.
         <div
           style={{
             position: "relative",
@@ -4448,7 +4465,9 @@ function WorktreeToggleGroup({
             disabled={branchSwitchDisabled}
             worktreePath={selectedWorktree.path}
             selected={!selectedIsMain}
-            attachedTrailing={showSync}
+            behindCount={syncBehindCount}
+            syncEnabled={syncEnabled}
+            onSync={onSync}
             onCreateWorktree={onCreateWorktree}
             createWorktreeDisabled={createWorktreeDisabled}
             createWorktreeTitle={createWorktreeTitle}
@@ -4458,14 +4477,6 @@ function WorktreeToggleGroup({
             onDeleteWorktree={onDeleteSelected}
             runningKeys={runningKeys}
           />
-          {showSync && onSync && (
-            <SyncButton
-              behindCount={behindCount ?? 0}
-              attachedLeading
-              enabled={syncEnabled}
-              onSync={onSync}
-            />
-          )}
         </div>
       )}
       {shipControls}

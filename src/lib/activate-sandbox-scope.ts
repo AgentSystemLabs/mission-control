@@ -6,6 +6,7 @@ import {
   restoreSandboxesCache,
   type SandboxesQueryData,
 } from "~/lib/optimistic-sandbox";
+import { sandboxUsableForProject } from "~/lib/project-scoped-sandboxes";
 import { queryKeys } from "~/queries";
 import { LOCAL_SCOPE_ID, normalizeScopeId } from "~/shared/sandbox";
 
@@ -19,11 +20,7 @@ export function projectRuntimeScopeId(
   if (!sandboxState?.enabled) return LOCAL_SCOPE_ID;
 
   const sandbox = sandboxState.sandboxes.find((entry) => entry.id === normalized);
-  if (
-    sandbox?.kind === "remote-vm" &&
-    sandbox.remoteProvider === "aws" &&
-    sandbox.projectId === projectId
-  ) {
+  if (sandbox && sandboxUsableForProject(sandbox, projectId)) {
     return normalized;
   }
 

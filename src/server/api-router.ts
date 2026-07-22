@@ -242,6 +242,9 @@ async function dispatch(
   if (pathname === "/api/sandboxes") {
     if (method === "GET") return sandboxesController.list(request);
   }
+  if (pathname === "/api/sandboxes/connect" && method === "POST") {
+    return sandboxesController.connect(request);
+  }
   if (pathname === "/api/sandboxes/active" && method === "PUT") {
     return sandboxesController.setActive(request);
   }

@@ -46,14 +46,12 @@ import { GroupsDialogProvider } from "~/lib/groups-dialog-store";
 import { ACTIVE_GROUP_ALL, ACTIVE_GROUP_UNGROUPED, useActiveGroup } from "~/lib/active-group";
 import { GroupSwitcher } from "~/components/views/GroupSwitcher";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
-import { PromptSearchButton } from "~/components/views/PromptSearchButton";
 import { ScratchPadProvider } from "~/lib/scratch-pad-store";
-import { ScratchPadButton } from "~/components/views/ScratchPadButton";
+import { HeaderToolsCluster } from "~/components/views/HeaderToolsCluster";
 import { projectIdFromPath } from "~/lib/project-id-from-path";
 import {
   HeaderActionsProvider,
   HeaderActionsSlot,
-  HeaderBeforeSearchSlot,
 } from "~/components/ui/HeaderActionsSlot";
 import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } from "~/queries";
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
@@ -97,7 +95,6 @@ import {
 
 import { UsagePanel } from "~/components/views/UsagePanel";
 import { VoiceController } from "~/components/views/VoiceController";
-import { VoicePushToTalkButton } from "~/components/views/VoicePushToTalkButton";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
@@ -872,10 +869,10 @@ function Shell() {
             <>
               <UpdateAvailableButton />
               <ProviderUsageIndicator />
-              <HeaderBeforeSearchSlot />
-              <ScratchPadButton />
-              <PromptSearchButton />
-              <VoicePushToTalkButton />
+              {/* Scratch pads / prompt search / voice collapse behind "…" so
+               * the rail stays at status + settings; grid view moved into the
+               * project header beside the session controls it acts on. */}
+              <HeaderToolsCluster />
               <SessionNotificationsButton
                 notifications={appNotifications}
                 onClearNotification={clearAppNotificationItem}

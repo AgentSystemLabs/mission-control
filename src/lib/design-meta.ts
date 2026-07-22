@@ -63,6 +63,11 @@ export type OpenSettingsEventDetail = { panel?: string };
  * before navigating away. Listened to by SettingsPanel. */
 export const CLOSE_SETTINGS_EVENT = "mc:close-settings";
 
+/** Dispatched to open the header sandbox-scope switcher (ScopeDropdown). Used
+ * by the project actions menu: the scope chip hides while Local is active, so
+ * this event is the way back into sandbox management. */
+export const OPEN_SCOPE_SWITCHER_EVENT = "mc:open-scope-switcher";
+
 export const ICON_COLORS = ["#ff5a1f", "#8ab4ff", "#c792ea", "#ff9466", "#f472b6", "#34d399", "#fb923c"];
 export const GROUP_COLORS = ["#ff5a1f", "#8ab4ff", "#c792ea", "#ff9466", "#f472b6", "#34d399", "#fb923c"];
 

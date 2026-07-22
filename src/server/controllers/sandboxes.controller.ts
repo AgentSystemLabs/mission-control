@@ -1,5 +1,7 @@
+import { X509Certificate } from "node:crypto";
 import { z } from "zod";
 import {
+  connectRemoteSandbox,
   deleteSandbox,
   getSandboxState,
   revealSandboxApiKey,
@@ -38,6 +40,13 @@ const updateBody = z
 const activeBody = z.object({ scopeId: z.string().min(1) });
 const enabledBody = z.object({ enabled: z.boolean() });
 
+const connectBody = z.object({
+  name: z.string().trim().min(1).max(60),
+  agentUrl: z.string().min(1).max(2048),
+  apiKey: z.string().min(1).max(512),
+  agentCa: z.string().max(20_000).nullable().optional(),
+});
+
 function localOnly(request: Request): Response | null {
   return isElectronLocalApiRequest(request)
     ? null
@@ -47,6 +56,52 @@ function localOnly(request: Request): Response | null {
 export async function list(request: Request): Promise<Response> {
   if (!isElectronLocalApiRequest(request)) return json(DISABLED_STATE);
   return json(getSandboxState());
+}
+
+/**
+ * The pasted CA is pinned as the sole trust anchor for that sandbox's TLS
+ * connection with hostname checks relaxed (electron/sandbox-agent-client.ts),
+ * so only the shape that pinning is designed for is accepted: exactly one
+ * self-signed certificate — the agent's own cert. Chains, intermediates, and
+ * stray private keys are rejected rather than silently weakening verification.
+ */
+function agentCaError(pem: string): string | null {
+  if (pem.includes("PRIVATE KEY")) {
+    return "CA certificate must not contain a private key — paste only the certificate.";
+  }
+  if ((pem.match(/-----BEGIN CERTIFICATE-----/g)?.length ?? 0) !== 1) {
+    return "CA certificate must be a single PEM certificate (the agent's self-signed cert, not a chain).";
+  }
+  try {
+    const cert = new X509Certificate(pem);
+    if (!cert.verify(cert.publicKey)) {
+      return "CA certificate must be the agent's self-signed certificate.";
+    }
+  } catch {
+    return "CA certificate must be a valid PEM certificate.";
+  }
+  return null;
+}
+
+/** Register an externally-provisioned remote sandbox (manual agent URL + key). */
+export async function connect(request: Request): Promise<Response> {
+  const blocked = localOnly(request);
+  if (blocked) return blocked;
+  const parsed = await parseJsonBody(request, connectBody);
+  if (!parsed.ok) return parsed.response;
+  const agentCa = parsed.data.agentCa?.trim();
+  if (agentCa) {
+    const caError = agentCaError(agentCa);
+    if (caError) return jsonError(HTTP_BAD_REQUEST, caError);
+  }
+  const sandbox = connectRemoteSandbox(parsed.data);
+  if (!sandbox) {
+    return jsonError(
+      HTTP_BAD_REQUEST,
+      "Agent URL must be wss:// — plain ws:// is only allowed for localhost, and the URL cannot carry credentials or a query string.",
+    );
+  }
+  return json({ sandbox });
 }
 
 export async function update(rawId: string, request: Request): Promise<Response> {
