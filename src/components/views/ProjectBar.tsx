@@ -22,7 +22,7 @@ import { useBinding } from "~/lib/keybindings/store";
 import { formatBinding } from "~/lib/keybindings/format";
 import { PINNED_SLOT_COUNT } from "~/lib/keybindings/match";
 import { api } from "~/lib/api";
-import { getPinnedProjects, reorderPinnedIds } from "~/lib/pinned-project-order";
+import { getPinnedProjects, mergeSubsetOrder, reorderPinnedIds } from "~/lib/pinned-project-order";
 import { ACTIVE_GROUP_ALL, useActiveGroup } from "~/lib/active-group";
 import {
   clusterPinnedByGroup,
@@ -190,13 +190,13 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   const reorderSaveSeqRef = useRef(0);
   const barRef = useRef<HTMLElement | null>(null);
   const suppressClickRef = useRef(false);
-  // Keyboard reorder operates on the VISIBLE order (the clustered rail), which
-  // is also the order persisted on drop. Group-workspace mode keeps the plain
-  // pinned order (reorder is disabled there and `visible` contains unpinned
-  // projects).
-  pinnedIdsRef.current = groupScoped
-    ? sortedPinned.map((project) => project.id)
-    : visible.map((project) => project.id);
+  // Keyboard reorder operates on the VISIBLE pinned order (the clustered
+  // rail). In group-workspace mode that's the group's pinned subset — the
+  // alphabetical unpinned tail is not reorderable — and persistProjectOrder
+  // splices the subset back into the global pinned order.
+  pinnedIdsRef.current = visible
+    .filter((project) => project.pinned)
+    .map((project) => project.id);
   const closeMenu = useCallback(() => setMenu(null), []);
   useDismissableMenu(menu !== null, closeMenu);
 
@@ -240,7 +240,8 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   const pinnedSlotBinding = (slot: number) =>
     formatBinding({ ...pinnedSlotBase, key: String(slot) });
 
-  // Persist a project drop: the new global pinned order, plus the group
+  // Persist a project drop: the new pinned order (the full rail in All mode,
+  // or one group's pinned subset in group-workspace mode), plus the group
   // reassignment when the tile was dropped into a different cluster. The
   // optimistic update applies both, so the rail re-clusters instantly.
   const persistProjectOrder = useCallback(
@@ -249,11 +250,16 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
       groupChange: { projectId: string; groupId: string | null } | null,
     ) => {
       const originalOrder = sortedPinned.map((project) => project.id);
-      if (!groupChange && nextOrder.join("\0") === originalOrder.join("\0")) return;
+      // Group-workspace drags reorder only that group's pinned subset; splice
+      // it back into the global pinned order so the server always receives the
+      // full list (its validator rejects partial orders). Identity in All mode,
+      // where nextOrder already covers every pinned project.
+      const fullOrder = mergeSubsetOrder(originalOrder, nextOrder);
+      if (!groupChange && fullOrder.join("\0") === originalOrder.join("\0")) return;
       const saveSeq = ++reorderSaveSeqRef.current;
       reorderSavingRef.current = true;
       setReorderSaving(true);
-      const nextOrders = new Map(nextOrder.map((id, index) => [id, index]));
+      const nextOrders = new Map(fullOrder.map((id, index) => [id, index]));
       const previous = queryClient.getQueryData<ProjectWithCounts[]>(queryKeys.projects);
       queryClient.setQueryData<ProjectWithCounts[]>(
         queryKeys.projects,
@@ -273,7 +279,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
         if (groupChange) {
           await api.updateProject(groupChange.projectId, { groupId: groupChange.groupId });
         }
-        const { projects: updated } = await api.reorderPinnedProjects(nextOrder);
+        const { projects: updated } = await api.reorderPinnedProjects(fullOrder);
         if (saveSeq === reorderSaveSeqRef.current) {
           queryClient.setQueryData(queryKeys.projects, updated);
         }
@@ -1106,7 +1112,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
             : null;
         const tooltip = [
           hotkey ? `${project.name} (${chordHint})` : project.name,
-          groupScoped ? null : "Drag or press Shift+Arrow Up/Down to reorder pinned projects",
+          project.pinned ? "Drag or press Shift+Arrow Up/Down to reorder pinned projects" : null,
           needsInputLabel,
           launchLabel,
           runningLabel,
@@ -1135,16 +1141,16 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
           <button
             key={project.id}
             type="button"
-            data-pinned-item={groupScoped ? undefined : true}
+            data-pinned-item={project.pinned ? true : undefined}
             data-cluster-id={cluster.key}
             data-project-id={project.id}
             title={tooltip}
             aria-label={tooltip}
-            aria-keyshortcuts={groupScoped ? undefined : "Shift+ArrowUp Shift+ArrowDown"}
+            aria-keyshortcuts={project.pinned ? "Shift+ArrowUp Shift+ArrowDown" : undefined}
             onPointerDown={(e) => {
-              // Group-workspace mode has a computed order (pinned first, then
-              // alphabetical) — manual reorder only applies to the pinned rail.
-              if (!groupScoped) startProjectPointerDrag(project.id, e);
+              // Only pinned tiles reorder — the group workspace's alphabetical
+              // unpinned tail has a computed order with nothing to drag.
+              if (project.pinned) startProjectPointerDrag(project.id, e);
             }}
             onDragStart={(e) => e.preventDefault()}
             onMouseEnter={(e) => {
@@ -1152,7 +1158,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
               showHoverLabel(project.name, e);
             }}
             onKeyDown={(e) => {
-              if (disabled || groupScoped) return;
+              if (disabled || !project.pinned) return;
               if (!e.shiftKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
               e.preventDefault();
               movePinnedProjectByKeyboard(project.id, e.key === "ArrowUp" ? -1 : 1);
@@ -1180,7 +1186,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
               zIndex: isDragging ? 6 : isActive ? 3 : clusterDragging ? 5 : 1,
               cursor: clusterDragging
                 ? "grabbing"
-                : groupScoped
+                : !project.pinned
                   ? "pointer"
                   : reorderSaving
                     ? "default"

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getPinnedProjects,
+  mergeSubsetOrder,
   nextPinnedOrder,
   reorderPinnedIds,
   validatePinnedReorder,
@@ -49,6 +50,34 @@ describe("pinned-project-order", () => {
   it("reorders ids within the pinned list", () => {
     expect(reorderPinnedIds(["a", "b", "c"], 0, 2)).toEqual(["b", "c", "a"]);
     expect(reorderPinnedIds(["a", "b", "c"], 2, 0)).toEqual(["c", "a", "b"]);
+  });
+
+  // Regression: with a group active, drags reorder only that group's pinned
+  // subset — the merged result must stay a full-order permutation or the
+  // server's validatePinnedReorder rejects the save.
+  it("splices a reordered group subset back into the full pinned order", () => {
+    // Global order interleaves two groups: g1 = [a, c], g2 = [b, d].
+    expect(mergeSubsetOrder(["a", "b", "c", "d"], ["c", "a"])).toEqual(["c", "b", "a", "d"]);
+    // Moving a tile to the end of its group's subset.
+    expect(mergeSubsetOrder(["a", "b", "c", "d"], ["b", "d"])).toEqual(["a", "b", "c", "d"]);
+    expect(mergeSubsetOrder(["a", "b", "c", "d"], ["d", "b"])).toEqual(["a", "d", "c", "b"]);
+  });
+
+  it("mergeSubsetOrder is identity for a full-order subset and ignores unknown ids", () => {
+    expect(mergeSubsetOrder(["a", "b", "c"], ["c", "a", "b"])).toEqual(["c", "a", "b"]);
+    expect(mergeSubsetOrder(["a", "b", "c"], [])).toEqual(["a", "b", "c"]);
+    // A project unpinned mid-drag drops out instead of corrupting the order.
+    expect(mergeSubsetOrder(["a", "b", "c"], ["gone", "c", "a"])).toEqual(["c", "b", "a"]);
+  });
+
+  it("mergeSubsetOrder output always validates as a complete reorder", () => {
+    const pinned = [
+      project({ id: "a", pinned: true, pinnedOrder: 0 }),
+      project({ id: "b", pinned: true, pinnedOrder: 1 }),
+      project({ id: "c", pinned: true, pinnedOrder: 2 }),
+    ];
+    const merged = mergeSubsetOrder(["a", "b", "c"], ["c", "a"]);
+    expect(() => validatePinnedReorder(merged, pinned)).not.toThrow();
   });
 
   it("validates a complete pinned reorder payload", () => {

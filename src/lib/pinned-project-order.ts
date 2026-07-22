@@ -35,6 +35,24 @@ export function reorderPinnedIds(currentOrder: readonly string[], fromIndex: num
   return next;
 }
 
+/**
+ * Splice a reordered subset (e.g. one group's pinned projects) back into the
+ * full pinned order: subset members take the new relative order while keeping
+ * the slots their group occupied globally; everything else stays put. Identity
+ * when the subset covers the whole order. Subset ids missing from the full
+ * order are ignored.
+ */
+export function mergeSubsetOrder(
+  fullOrder: readonly string[],
+  subsetOrder: readonly string[],
+): string[] {
+  const fullIds = new Set(fullOrder);
+  const subset = subsetOrder.filter((id) => fullIds.has(id));
+  const subsetIds = new Set(subset);
+  let next = 0;
+  return fullOrder.map((id) => (subsetIds.has(id) ? subset[next++]! : id));
+}
+
 export function validatePinnedReorder(
   order: readonly string[],
   pinnedProjects: readonly PinnedOrderable[],
