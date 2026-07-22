@@ -154,6 +154,7 @@ describe("Electron shell environment helpers", () => {
     const entries = buildUserPath("", {
       platform: "darwin",
       homeDir: home,
+      pathExists: (entry) => fs.existsSync(entry) || entry === "/opt/homebrew/bin",
     }).split(path.delimiter);
 
     expect(entries).toContain(herdBin);
