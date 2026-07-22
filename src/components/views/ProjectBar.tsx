@@ -13,7 +13,6 @@ import { CardFrame } from "~/components/ui/CardFrame";
 import { ContextMenuPopover } from "~/components/ui/ContextMenuPopover";
 import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { ProjectDialog } from "~/components/views/ProjectDialog";
-import { TASK_STATUS_META } from "~/shared/domain";
 import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { useServerEvents } from "~/lib/use-events";
 import { useDebouncedCallback } from "~/lib/use-debounced-callback";
@@ -1233,8 +1232,11 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
                 }}
               >
                 {statusDots.map((status, dot) => {
+                  // Finished dots stay neutral gray, not --status-done: on
+                  // accent-green themes that green matches the running accent
+                  // and the two states become indistinguishable at 5px.
                   const color =
-                    status === "running" ? "var(--accent)" : TASK_STATUS_META[status].color;
+                    status === "running" ? "var(--accent)" : "var(--status-idle)";
                   return (
                     <span
                       key={`${status}-${dot}`}
