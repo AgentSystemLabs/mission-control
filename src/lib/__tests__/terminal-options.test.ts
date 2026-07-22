@@ -23,6 +23,12 @@ describe("terminal options", () => {
     });
   });
 
+  it("treats Option as Meta so Claude Code's ESC-prefixed bindings arrive on macOS", () => {
+    // Without macOptionIsMeta, macOS composes Option+P into "π" and the
+    // Option+P model picker (and every other meta binding) never fires.
+    expect(createTerminalOptions().macOptionIsMeta).toBe(true);
+  });
+
   it("uses a readable light terminal theme", () => {
     expect(createTerminalTheme({ colorScheme: "light" })).toMatchObject({
       background: "#ffffff",

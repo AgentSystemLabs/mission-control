@@ -287,6 +287,12 @@ export function createTerminalOptions({
     // rebuilds its char atlas on any option change, so it applies in place.
     allowTransparency: terminalNeedsTransparency(colorScheme),
     allowProposedApi: true,
+    // Option must act as Meta on macOS or Claude Code's meta bindings
+    // (Option+P model picker, etc.) never arrive: xterm's default composes
+    // "π" instead of emitting ESC+p. Tradeoff: Option no longer composes
+    // special characters inside terminal panes. Alt+Arrow word-movement is
+    // unaffected — attachTerminalKeyHandler intercepts it before xterm.
+    macOptionIsMeta: true,
     scrollback: 5000,
   };
 }
