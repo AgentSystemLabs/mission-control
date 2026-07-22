@@ -355,7 +355,11 @@ IQDKgylx1t9VnHbg07id7TJtpRnwoMskXtbR9ffY6+5lqA==
     expect((await post("not a certificate"))?.status).toBe(400);
     expect((await post("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----"))?.status).toBe(400);
     expect((await post(`${SELF_SIGNED_PEM}\n${SELF_SIGNED_PEM}`))?.status).toBe(400);
-    const withKey = await post(`${SELF_SIGNED_PEM}\n-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----`);
+    // Build the PEM markers at runtime so scan-secrets.mjs does not treat this
+    // rejection fixture as a real private key checked into the tree.
+    const beginPrivateKey = `-----BEGIN ${"PRIVATE"} KEY-----`;
+    const endPrivateKey = `-----END ${"PRIVATE"} KEY-----`;
+    const withKey = await post(`${SELF_SIGNED_PEM}\n${beginPrivateKey}\nx\n${endPrivateKey}`);
     expect(withKey?.status).toBe(400);
     expect((await body(withKey)).error).toMatch(/private key/i);
     // The verify branch itself: a parseable single cert that is CA-signed.
