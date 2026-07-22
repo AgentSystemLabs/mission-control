@@ -178,26 +178,15 @@ export function ThemeSettingsPage() {
 
   const setThemeStyle = async (next: ThemeStyle) => {
     const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
-    // The flat theme is built around its warm terracotta accent (sampled from
-    // the reference) — default it out of the box; the user can still pick any
-    // accent afterward and it sticks.
-    const nextAccent =
-      next === "flat" && accentColor !== "terracotta"
-        ? ("terracotta" as AccentColorId)
-        : accentColor;
-    if (nextAccent !== accentColor) applyAccentColor(nextAccent);
+    // The accent is a separate choice and survives style switches — only the
+    // first-run onboarding overlay defaults flat to terracotta.
     const optimistic = optimisticSettings({
       themeStyle: next,
       minimalTheme: next !== "painted",
-      accentColor: nextAccent,
     });
     queryClient.setQueryData(queryKeys.settings, optimistic);
     try {
-      const updated = await api.updateSettings(
-        nextAccent !== accentColor
-          ? { themeStyle: next, accentColor: nextAccent }
-          : { themeStyle: next },
-      );
+      const updated = await api.updateSettings({ themeStyle: next });
       queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
     } catch (error) {
       if (previous) queryClient.setQueryData(queryKeys.settings, previous);

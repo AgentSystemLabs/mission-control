@@ -897,6 +897,31 @@ describe("settings API", () => {
     });
   });
 
+  it("keeps the stored accent color when only the theme style changes", async () => {
+    // Regression: switching painted → flat used to reset the accent to
+    // terracotta. The accent is an independent choice and must survive a
+    // style-only update.
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accentColor: "teal" }),
+      }),
+    );
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "flat" }),
+      }),
+    );
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "flat",
+      accentColor: "teal",
+    });
+  });
+
   it("rejects a legacy theme style (noir / ember) on write", async () => {
     for (const legacy of ["noir", "ember", "minimal"]) {
       const response = await handleApiRequest(
