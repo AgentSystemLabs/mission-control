@@ -2116,8 +2116,12 @@ function ProjectPage() {
   // listener — a focused xterm textarea would otherwise swallow the chord first.
   // The shifted-bracket combos (Cmd+Shift+] → e.key "}") are resolved by
   // matchBinding's e.code fallback, so no manual e.code handling is needed.
-  useHotkey("session.cycleNext", () => cycleSession(1), { capture: true });
-  useHotkey("session.cyclePrev", () => cycleSession(-1), { capture: true });
+  // List view only (cycleSession bails when the grid is on screen, which owns
+  // these chords via SessionGrid): the chords are intentionally inverted here —
+  // in the list the status-ordered cycle runs opposite to the visual direction
+  // users expect, so "next" walks the order backwards. Grid view is unaffected.
+  useHotkey("session.cycleNext", () => cycleSession(-1), { capture: true });
+  useHotkey("session.cyclePrev", () => cycleSession(1), { capture: true });
   useHotkey("session.clone", () => duplicateActiveSession(), { capture: true });
   useHotkey("screenshot.capture", () => void captureScreenshot(), {
     capture: true,
