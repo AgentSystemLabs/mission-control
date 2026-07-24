@@ -170,6 +170,7 @@ export function ThemeSettingsPage() {
     petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
     petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
+    showGroupBadge: settings?.showGroupBadge ?? false,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,
     ...patch,

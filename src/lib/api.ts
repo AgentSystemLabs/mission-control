@@ -707,6 +707,7 @@ export const api = {
         | "mouseGradientDisabled"
         | "batterySaverEnabled"
         | "spellcheckEnabled"
+        | "showGroupBadge"
         | "sessionFinishToastEnabled"
         | "sessionFinishOsNotificationEnabled"
         | "notificationSoundEnabled"
