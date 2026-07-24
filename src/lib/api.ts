@@ -82,6 +82,12 @@ export type AppSettings = {
   themeStyle: ThemeStyle;
   /** How much accent to mix into surface tokens (off / subtle / vivid). */
   surfaceTint: SurfaceTint;
+  /**
+   * Wallpaper for the flat theme: an image data URL that replaces the subtle
+   * `--bg` ground, or null for none. Only rendered under the flat theme;
+   * painted ignores it even while one is stored.
+   */
+  backgroundImage: string | null;
   /** Derived server-side: true when themeStyle renders clean CSS chrome. */
   minimalTheme: boolean;
   /**
@@ -688,6 +694,7 @@ export const api = {
         | "accentColor"
         | "themeStyle"
         | "surfaceTint"
+        | "backgroundImage"
         | "minimalTheme"
         | "mouseGradientDisabled"
         | "batterySaverEnabled"

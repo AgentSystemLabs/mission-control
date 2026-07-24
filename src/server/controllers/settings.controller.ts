@@ -49,6 +49,10 @@ import {
   type SurfaceTint,
 } from "~/shared/surface-tint";
 import {
+  BACKGROUND_IMAGE_MAX_LENGTH,
+  isBackgroundImage,
+} from "~/shared/background-image";
+import {
   DEFAULT_PROVIDER_USAGE_IDS,
   normalizeProviderUsageIds,
   type ProviderUsageId,
@@ -123,6 +127,7 @@ const SESSION_HEADER_BUTTONS_KEY = "session_header_buttons";
 const THEME_STYLE_KEY = "theme_style";
 const MINIMAL_THEME_KEY = "minimal_theme";
 const SURFACE_TINT_KEY = "surface_tint";
+const BACKGROUND_IMAGE_KEY = "background_image";
 const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
 const CLAUDE_USAGE_LIMITS_ENABLED_KEY = "claude_usage_limits_enabled";
 const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
@@ -182,6 +187,14 @@ const updateSettingsBody = z
     minimalTheme: z.boolean(),
     themeStyle: z.string().refine(isThemeStyle, { message: "invalid themeStyle" }),
     surfaceTint: z.string().refine(isSurfaceTint, { message: "invalid surfaceTint" }),
+    // Wallpaper for the flat theme: an image data URL, or null to clear. Capped
+    // so a runaway payload can't bloat the settings blob; the renderer
+    // downscales/compresses well under this before sending.
+    backgroundImage: z
+      .string()
+      .max(BACKGROUND_IMAGE_MAX_LENGTH)
+      .nullable()
+      .refine(isBackgroundImage, { message: "invalid backgroundImage" }),
     mouseGradientDisabled: z.boolean(),
     batterySaverEnabled: z.boolean(),
     spellcheckEnabled: z.boolean(),
@@ -311,6 +324,11 @@ function getThemeStyleSetting(): ThemeStyle {
 function getSurfaceTintSetting(): SurfaceTint {
   const value = getSetting(SURFACE_TINT_KEY);
   return isSurfaceTint(value) ? value : DEFAULT_SURFACE_TINT;
+}
+
+function getBackgroundImageSetting(): string | null {
+  const value = getSetting(BACKGROUND_IMAGE_KEY);
+  return isBackgroundImage(value) ? value : null;
 }
 
 function getCommitCliSetting(): CommitCli | null {
@@ -466,6 +484,7 @@ function settingsPayload() {
     accentColor: getAccentColorSetting(),
     themeStyle,
     surfaceTint: getSurfaceTintSetting(),
+    backgroundImage: getBackgroundImageSetting(),
     // Derived: true whenever the style renders clean CSS chrome (the flat
     // theme). Layout consumers key off this; the style picker reads themeStyle.
     minimalTheme: themeStyle !== "painted",
@@ -620,6 +639,13 @@ export async function update(request: Request): Promise<Response> {
   }
   if (body.surfaceTint !== undefined) {
     setSetting(SURFACE_TINT_KEY, body.surfaceTint);
+  }
+  if (body.backgroundImage !== undefined) {
+    if (body.backgroundImage === null) {
+      deleteSetting(BACKGROUND_IMAGE_KEY);
+    } else {
+      setSetting(BACKGROUND_IMAGE_KEY, body.backgroundImage);
+    }
   }
   if (body.mouseGradientDisabled !== undefined) {
     setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);

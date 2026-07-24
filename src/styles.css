@@ -3186,6 +3186,28 @@ body[data-card-glow] .cursor-glow {
   display: none !important;
 }
 
+/* User wallpaper (flat theme only). Painted keeps its pixel-art shell frame, so
+   the image is gated to minimal via the compound selector — a stored image is
+   simply ignored under painted. The flat theme's surfaces are glass over the
+   page ground, so the image shows through the gutters and session grounds; a
+   --bg scrim over the top keeps text readable on busy photos. `--mc-bg-image`
+   and `data-bg-image` are set by applyBackgroundImage (src/lib/background-image.ts)
+   and the pre-hydration script (__root.tsx). background-attachment: fixed pins
+   it to the viewport so it doesn't scroll or repaint per pane. */
+[data-minimal="true"][data-bg-image="true"] body {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--bg) 58%, transparent),
+      color-mix(in srgb, var(--bg) 58%, transparent)
+    ),
+    var(--mc-bg-image);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
 /* Cards: flat, gently rounded panels — no card.png texture, no accent tint,
    no elevation. A flat card is its warm surface color and a hairline. */
 [data-minimal="true"] .mc-card-frame {

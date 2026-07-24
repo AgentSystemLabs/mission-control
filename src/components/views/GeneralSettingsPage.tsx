@@ -104,6 +104,7 @@ export function GeneralSettingsPage() {
     accentColor: settings?.accentColor ?? DEFAULT_ACCENT_COLOR,
     themeStyle: settings?.themeStyle ?? "painted",
     surfaceTint: settings?.surfaceTint ?? DEFAULT_SURFACE_TINT,
+    backgroundImage: settings?.backgroundImage ?? null,
     minimalTheme: settings?.minimalTheme ?? false,
     themeChosen: settings?.themeChosen ?? false,
     mouseGradientDisabled: settings?.mouseGradientDisabled ?? false,

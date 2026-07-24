@@ -140,6 +140,10 @@ import {
   SURFACE_TINT_CACHE_KEY,
   applySurfaceTint,
 } from "~/lib/surface-tint";
+import {
+  BACKGROUND_IMAGE_CACHE_KEY,
+  applyBackgroundImage,
+} from "~/lib/background-image";
 import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
@@ -169,6 +173,8 @@ var th=localStorage.getItem(${JSON.stringify(THEME_CACHE_KEY)})==="light"?"light
 d.setAttribute("data-theme",(flat&&th==="light")?"light":"dark");
 var tt=localStorage.getItem(${JSON.stringify(SURFACE_TINT_CACHE_KEY)});
 if(tt==="subtle"||tt==="vivid"||tt==="intense"){d.setAttribute("data-tint",tt);}
+var bg=localStorage.getItem(${JSON.stringify(BACKGROUND_IMAGE_CACHE_KEY)});
+if(bg&&bg.indexOf("data:image/")===0){d.setAttribute("data-bg-image","true");d.style.setProperty("--mc-bg-image",'url("'+bg+'")');}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(
@@ -595,6 +601,14 @@ function Shell() {
     if (!surfaceTint) return;
     applySurfaceTint(surfaceTint);
   }, [surfaceTint]);
+
+  // Wallpaper is null far more often than set; only reconcile once settings
+  // have loaded so a transient `undefined` doesn't clear a pre-hydrated image.
+  const backgroundImage = settings?.backgroundImage ?? null;
+  useThemeLayoutEffect(() => {
+    if (!settings) return;
+    applyBackgroundImage(backgroundImage);
+  }, [settings, backgroundImage]);
 
   // Recompute + re-observe the workspace bounds whenever the workspace div is
   // (un)mounted. Focus mode early-returns above and tears down the whole #root

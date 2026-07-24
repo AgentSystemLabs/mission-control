@@ -1,10 +1,11 @@
 import { DEFAULT_AGENT_LAUNCHER_CONFIG } from "~/shared/agent-launcher-config";
-import { useId, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Field, SettingCard, SettingsSection } from "~/components/views/SettingsParts";
 import { AccentColorGrid } from "~/components/views/AccentColorPicker";
 import { ThemeStylePreview } from "~/components/views/ThemeStylePreview";
 import { Icon } from "~/components/ui/Icon";
+import { Btn } from "~/components/ui/Btn";
 import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
@@ -19,6 +20,11 @@ import {
   type SurfaceTint,
 } from "~/shared/surface-tint";
 import { applySurfaceTint } from "~/lib/surface-tint";
+import {
+  applyBackgroundImage,
+  compressImageFile,
+  BackgroundImageError,
+} from "~/lib/background-image";
 import { useTheme, type Theme } from "~/lib/use-theme";
 import { queryKeys, useSettings } from "~/queries";
 import {
@@ -55,6 +61,7 @@ export function ThemeSettingsPage() {
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
   const themeStyle = settings?.themeStyle ?? DEFAULT_THEME_STYLE;
   const surfaceTint = settings?.surfaceTint ?? DEFAULT_SURFACE_TINT;
+  const backgroundImage = settings?.backgroundImage ?? null;
   const minimalTheme = settings?.minimalTheme ?? false;
   const interfaceFontFamily = settings?.interfaceFontFamily ?? null;
   const interfaceFontScale =
@@ -78,6 +85,7 @@ export function ThemeSettingsPage() {
         | "accentColor"
         | "themeStyle"
         | "surfaceTint"
+        | "backgroundImage"
         | "minimalTheme"
         | "interfaceFontFamily"
         | "interfaceFontScale"
@@ -88,6 +96,7 @@ export function ThemeSettingsPage() {
     accentColor,
     themeStyle,
     surfaceTint,
+    backgroundImage,
     minimalTheme,
     // Every patch through here writes a theme setting, which marks it chosen.
     themeChosen: true,
@@ -211,6 +220,23 @@ export function ThemeSettingsPage() {
     }
   };
 
+  const setBackgroundImage = async (next: string | null) => {
+    applyBackgroundImage(next);
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    const optimistic = optimisticSettings({ backgroundImage: next });
+    queryClient.setQueryData(queryKeys.settings, optimistic);
+    try {
+      const updated = await api.updateSettings({ backgroundImage: next });
+      queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(queryKeys.settings, previous);
+        applyBackgroundImage(previous.backgroundImage ?? null);
+      }
+      throw error;
+    }
+  };
+
   const setInterfaceFontFamily = async (next: string | null) => {
     applyInterfaceFontFamily(next);
     const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
@@ -277,6 +303,12 @@ export function ThemeSettingsPage() {
       <Field label="Surface tint">
         <SurfaceTintToggle tint={surfaceTint} onChange={setSurfaceTint} />
       </Field>
+      {themeStyle === "flat" && (
+        <BackgroundImageCard
+          image={backgroundImage}
+          onChange={setBackgroundImage}
+        />
+      )}
       <SettingCard
         title="Interface font family"
         description="Used for the application UI. Pulls from fonts installed on your system; terminal text is configured on the Terminal tab."
@@ -611,6 +643,122 @@ function DarkLightToggle({
         ))}
       </div>
     </div>
+  );
+}
+
+/** Upload / preview / remove a wallpaper for the flat theme. The picked file is
+ *  downscaled and re-encoded client-side (compressImageFile) before it's handed
+ *  up to the optimistic setter, which persists it and paints it immediately. */
+function BackgroundImageCard({
+  image,
+  onChange,
+}: {
+  image: string | null;
+  onChange: (next: string | null) => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pickFile = () => {
+    setError(null);
+    inputRef.current?.click();
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    // Reset the input so re-picking the same file still fires onChange.
+    if (inputRef.current) inputRef.current.value = "";
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const dataUrl = await compressImageFile(file);
+      await onChange(dataUrl);
+    } catch (err) {
+      setError(
+        err instanceof BackgroundImageError
+          ? err.message
+          : "Couldn't set that background. Try a different image.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await onChange(null);
+    } catch {
+      setError("Couldn't remove the background. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingCard
+      title="Background image"
+      description="Use your own image as the app background instead of the flat ground. It shows through the app's surfaces; a scrim keeps text readable. Flat theme only."
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        aria-hidden
+        tabIndex={-1}
+        style={{ display: "none" }}
+        onChange={(event) => void handleFile(event.target.files?.[0])}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {image && (
+          <div
+            aria-hidden
+            style={{
+              width: 96,
+              height: 60,
+              flexShrink: 0,
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              backgroundImage: `url("${image}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          />
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Btn
+            variant="frame"
+            size="sm"
+            icon="upload"
+            disabled={busy}
+            onClick={pickFile}
+          >
+            {busy ? "Processing…" : image ? "Replace image" : "Upload image"}
+          </Btn>
+          {image && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="trash"
+              disabled={busy}
+              onClick={() => void remove()}
+            >
+              Remove
+            </Btn>
+          )}
+        </div>
+      </div>
+      {error && (
+        <div
+          role="alert"
+          style={{ marginTop: 10, fontSize: 12, color: "var(--status-failed)" }}
+        >
+          {error}
+        </div>
+      )}
+    </SettingCard>
   );
 }
 
