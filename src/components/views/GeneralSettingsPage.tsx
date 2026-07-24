@@ -43,6 +43,7 @@ import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
+import { DEFAULT_PULL_REQUEST_PROMPT } from "~/shared/pull-request-defaults";
 
 export function GeneralSettingsPage() {
   const queryClient = useQueryClient();
@@ -145,6 +146,9 @@ export function GeneralSettingsPage() {
     syncAgent: settings?.syncAgent ?? "claude-code",
     syncModel: settings?.syncModel ?? null,
     syncPrompt: settings?.syncPrompt ?? DEFAULT_SYNC_PROMPT,
+    pullRequestAgent: settings?.pullRequestAgent ?? "claude-code",
+    pullRequestModel: settings?.pullRequestModel ?? null,
+    pullRequestPrompt: settings?.pullRequestPrompt ?? DEFAULT_PULL_REQUEST_PROMPT,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
     voiceControlEnabled: settings?.voiceControlEnabled ?? false,
     questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,

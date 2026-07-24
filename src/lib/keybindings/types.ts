@@ -25,7 +25,9 @@ export const HOTKEY_ACTIONS = [
   "file.finder",
   "file.save",
   "git.diff",
+  "project.ship",
   "project.runToggle",
+  "project.openBrowser",
   "voice.pushToTalk",
   "prompt.search",
   "scratch.toggle",
@@ -99,7 +101,15 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "file.finder": { label: "Open file finder", description: "Open the fuzzy file finder for the current project." },
   "file.save": { label: "Save file", description: "Save the file currently open in the editor." },
   "git.diff": { label: "Toggle Review Changes", description: "Open or close the change review view for the current project." },
+  "project.ship": {
+    label: "Ship",
+    description: "Open an AI session that commits, pushes, and syncs the current project with its remote.",
+  },
   "project.runToggle": { label: "Run / Stop project", description: "Run the project's launch commands, or stop them if already running." },
+  "project.openBrowser": {
+    label: "Open in browser",
+    description: "Open the running project's launch URL in your default browser.",
+  },
   "voice.pushToTalk": {
     label: "Push to talk",
     description:

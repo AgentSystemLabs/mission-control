@@ -27,8 +27,9 @@ import {
 } from "~/shared/ai-runtime-defaults";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
+import { DEFAULT_PULL_REQUEST_PROMPT } from "~/shared/pull-request-defaults";
 
-type DefaultsFeatureId = "commit" | "voice" | "markdown" | "ship" | "sync";
+type DefaultsFeatureId = "commit" | "voice" | "markdown" | "ship" | "sync" | "pull-request";
 
 const DEFAULTS_FEATURES: Array<{
   id: DefaultsFeatureId;
@@ -60,6 +61,11 @@ const DEFAULTS_FEATURES: Array<{
     label: "Sync",
     description: "Harness, model, and prompt for the branch Sync button.",
   },
+  {
+    id: "pull-request",
+    label: "Create PR",
+    description: "Harness, model, and prompt for the Ship → Create PR action.",
+  },
 ];
 
 export function DefaultsSettingsPage() {
@@ -76,6 +82,10 @@ export function DefaultsSettingsPage() {
   const currentSyncAgent = settings?.syncAgent ?? "claude-code";
   const currentSyncModel = settings?.syncModel ?? null;
   const currentSyncPrompt = settings?.syncPrompt ?? DEFAULT_SYNC_PROMPT;
+  const currentPullRequestAgent = settings?.pullRequestAgent ?? "claude-code";
+  const currentPullRequestModel = settings?.pullRequestModel ?? null;
+  const currentPullRequestPrompt =
+    settings?.pullRequestPrompt ?? DEFAULT_PULL_REQUEST_PROMPT;
 
   const [detection, setDetection] = useState<CommitCliDetection | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
@@ -88,6 +98,10 @@ export function DefaultsSettingsPage() {
   const [shipPromptSaving, setShipPromptSaving] = useState(false);
   const [syncPromptDraft, setSyncPromptDraft] = useState(currentSyncPrompt);
   const [syncPromptSaving, setSyncPromptSaving] = useState(false);
+  const [pullRequestPromptDraft, setPullRequestPromptDraft] = useState(
+    currentPullRequestPrompt,
+  );
+  const [pullRequestPromptSaving, setPullRequestPromptSaving] = useState(false);
 
   useEffect(() => {
     setShipPromptDraft(currentShipPrompt);
@@ -96,6 +110,10 @@ export function DefaultsSettingsPage() {
   useEffect(() => {
     setSyncPromptDraft(currentSyncPrompt);
   }, [currentSyncPrompt]);
+
+  useEffect(() => {
+    setPullRequestPromptDraft(currentPullRequestPrompt);
+  }, [currentPullRequestPrompt]);
 
   const runDetect = async () => {
     setDetecting(true);
@@ -152,6 +170,9 @@ export function DefaultsSettingsPage() {
         | "syncAgent"
         | "syncModel"
         | "syncPrompt"
+        | "pullRequestAgent"
+        | "pullRequestModel"
+        | "pullRequestPrompt"
       >
     >,
   ) => {
@@ -547,6 +568,105 @@ export function DefaultsSettingsPage() {
                 </Field>
               </FeaturePanel>
             )}
+            {activeFeature === "pull-request" && (
+              <FeaturePanel
+                featureId="pull-request"
+                title="Create PR"
+                description={
+                  <>
+                    When you press <strong>Create PR</strong> from the Ship
+                    button&rsquo;s dropdown, Mission Control opens an AI session
+                    with this harness and injects the prompt below so the agent
+                    can commit and push local work, sync with upstream, then
+                    open a pull request in your browser.
+                  </>
+                }
+              >
+                <RuntimeDefaultControl
+                  agent={currentPullRequestAgent}
+                  model={currentPullRequestModel}
+                  disabled={runtimeUpdating}
+                  onAgentSelect={(agent) =>
+                    void updateRuntimeDefaults({
+                      pullRequestAgent: agent,
+                      pullRequestModel: modelForSelectedHarness(
+                        agent,
+                        currentPullRequestModel,
+                      ),
+                    })
+                  }
+                  onModelSelect={(model) =>
+                    void updateRuntimeDefaults({ pullRequestModel: model })
+                  }
+                />
+                <Field label="Create PR prompt">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <textarea
+                      value={pullRequestPromptDraft}
+                      onChange={(e) => setPullRequestPromptDraft(e.target.value)}
+                      rows={4}
+                      disabled={pullRequestPromptSaving || runtimeUpdating}
+                      style={{
+                        width: "100%",
+                        resize: "vertical",
+                        minHeight: 88,
+                        padding: "10px 12px",
+                        borderRadius: 7,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface-0)",
+                        color: "var(--text)",
+                        fontFamily: "var(--mono)",
+                        fontSize: 12,
+                        lineHeight: 1.45,
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Btn
+                        variant="primary"
+                        size="sm"
+                        disabled={
+                          pullRequestPromptSaving ||
+                          runtimeUpdating ||
+                          pullRequestPromptDraft.trim() === currentPullRequestPrompt
+                        }
+                        onClick={() => {
+                          const next =
+                            pullRequestPromptDraft.trim() || DEFAULT_PULL_REQUEST_PROMPT;
+                          setPullRequestPromptSaving(true);
+                          void updateRuntimeDefaults({ pullRequestPrompt: next }).finally(
+                            () => {
+                              setPullRequestPromptSaving(false);
+                            },
+                          );
+                        }}
+                      >
+                        {pullRequestPromptSaving ? "Saving…" : "Save prompt"}
+                      </Btn>
+                      <Btn
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          pullRequestPromptSaving ||
+                          runtimeUpdating ||
+                          pullRequestPromptDraft === DEFAULT_PULL_REQUEST_PROMPT
+                        }
+                        onClick={() => {
+                          setPullRequestPromptDraft(DEFAULT_PULL_REQUEST_PROMPT);
+                          setPullRequestPromptSaving(true);
+                          void updateRuntimeDefaults({
+                            pullRequestPrompt: DEFAULT_PULL_REQUEST_PROMPT,
+                          }).finally(() => {
+                            setPullRequestPromptSaving(false);
+                          });
+                        }}
+                      >
+                        Reset to default
+                      </Btn>
+                    </div>
+                  </div>
+                </Field>
+              </FeaturePanel>
+            )}
           </div>
         </div>
       </SettingsSection>
@@ -564,7 +684,10 @@ export function modelForSelectedHarness(
 function isStaleSettingsSchemaError(
   error: unknown,
   patch: Partial<
-    Pick<AppSettings, "defaultAgent" | "annotationAgent" | "shipAgent" | "syncAgent">
+    Pick<
+      AppSettings,
+      "defaultAgent" | "annotationAgent" | "shipAgent" | "syncAgent" | "pullRequestAgent"
+    >
   >,
 ): boolean {
   if (!(error instanceof ApiError) || error.status !== 400) return false;
@@ -573,7 +696,9 @@ function isStaleSettingsSchemaError(
     ("defaultAgent" in patch && message.includes('Unrecognized key: "defaultAgent"')) ||
     ("annotationAgent" in patch && message.includes('Unrecognized key: "annotationAgent"')) ||
     ("shipAgent" in patch && message.includes('Unrecognized key: "shipAgent"')) ||
-    ("syncAgent" in patch && message.includes('Unrecognized key: "syncAgent"'))
+    ("syncAgent" in patch && message.includes('Unrecognized key: "syncAgent"')) ||
+    ("pullRequestAgent" in patch &&
+      message.includes('Unrecognized key: "pullRequestAgent"'))
   );
 }
 

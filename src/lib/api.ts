@@ -181,6 +181,14 @@ export type AppSettings = {
   syncAgent: AiRuntimeHarness;
   syncModel: AiModelId | null;
   syncPrompt: string;
+  /**
+   * Harness/model/prompt for the Ship split-button's Create PR action, which
+   * opens an AI session to commit/push, sync with upstream, then open a pull
+   * request in the browser. Mirrors the Ship trio.
+   */
+  pullRequestAgent: AiRuntimeHarness;
+  pullRequestModel: AiModelId | null;
+  pullRequestPrompt: string;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
   /**
@@ -734,6 +742,9 @@ export const api = {
         | "syncAgent"
         | "syncModel"
         | "syncPrompt"
+        | "pullRequestAgent"
+        | "pullRequestModel"
+        | "pullRequestPrompt"
         | "voiceCommandAliases"
         | "claudeUsageLimitsEnabled"
         | "claudeUsageLimitsShowSession"

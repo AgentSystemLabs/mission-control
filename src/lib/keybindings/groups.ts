@@ -40,6 +40,7 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
     description: "Run projects, switch between them, and work with files.",
     actions: [
       "project.runToggle",
+      "project.openBrowser",
       "project.picker",
       "project.add",
       "project.edit",
@@ -49,6 +50,7 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
       "file.finder",
       "file.save",
       "git.diff",
+      "project.ship",
       "prompt.search",
       "scratch.toggle",
     ],

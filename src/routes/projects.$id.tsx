@@ -49,7 +49,7 @@ import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
 import { TextField } from "~/components/ui/TextField";
-import { useHotkey } from "~/lib/use-hotkey";
+import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import {
@@ -99,6 +99,7 @@ import {
 } from "~/lib/session-model-overrides";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
+import { DEFAULT_PULL_REQUEST_PROMPT } from "~/shared/pull-request-defaults";
 import type { AiModelId } from "~/shared/ai-runtime-defaults";
 import {
   VOICE_NEW_AGENT_EVENT,
@@ -149,11 +150,6 @@ import { GitDiffModal } from "~/components/views/GitDiffView/GitDiffModal";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { RecallModal } from "~/components/views/RecallModal";
 import { BranchTypeahead } from "~/components/views/BranchTypeahead";
-import {
-  CreatePullRequestDialog,
-  CreatePullRequestMenuItem,
-  useCreatePullRequestAction,
-} from "~/components/views/CreatePullRequestButton";
 import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
@@ -578,12 +574,6 @@ function ProjectPage() {
   });
   const gitUnavailable = projectPathReady && gitStatusIsError;
   const gitUnavailableMessage = gitUnavailable ? gitUnavailableTitle(gitStatusError) : null;
-  const createPullRequest = useCreatePullRequestAction({
-    projectId: id,
-    worktreeId: selectedWorktreeId,
-    branch: gitStatus?.branch,
-    projectPathUsable,
-  });
   // onToggleDiffView is defined lower down (after `terminals`) because opening
   // the diff must also drop out of the grid view — see the comment there.
   useEffect(() => {
@@ -916,7 +906,10 @@ function ProjectPage() {
         ports: launchPorts,
       });
       for (const c of launchCommands) {
-        await createTerminal({ name: c.name, startCommand: c.command });
+        // Don't steal keyboard focus: users commonly run (Cmd+.) then
+        // immediately hit another hotkey (e.g. open browser), and a focused
+        // terminal would swallow those keystrokes.
+        await createTerminal({ name: c.name, startCommand: c.command, focusOnCreate: false });
       }
       setPanelOpen(true);
     } finally {
@@ -1793,6 +1786,22 @@ function ProjectPage() {
     { ignoreEditable: true },
   );
 
+  // Open the running project's launch URL in the browser — mirrors the globe
+  // button that appears beside Stop while the project is running.
+  useHotkey(
+    "project.openBrowser",
+    () => {
+      if (showNewAgent || showEdit || confirmRemove || projectPathIssue || projectPathCheck.state === "error") return;
+      if (!hasRunningLaunch) return;
+      if (!project?.launchUrl) {
+        toast.error("No launch URL configured for this project.");
+        return;
+      }
+      void openExternal(project.launchUrl);
+    },
+    { ignoreEditable: true },
+  );
+
   useHotkey(
     "file.finder",
     () => {
@@ -1863,6 +1872,42 @@ function ProjectPage() {
     settings?.shipAgent,
     settings?.shipModel,
     settings?.shipPrompt,
+    anchorSessionId,
+    terminals,
+  ]);
+
+  // Create PR: like Ship, but the injected prompt (Settings → Defaults →
+  // Create PR) has the agent commit/push local work, sync with upstream, then
+  // open a pull request in the browser.
+  const startCreatePullRequestSession = useCallback(() => {
+    if (!project || !projectPathReady) return;
+    if (activeRuntimeScopeId !== LOCAL_SCOPE_ID) {
+      toast.error("Create PR isn't supported in sandbox sessions yet.");
+      return;
+    }
+    const payload = defaultSessionPayload(project);
+    const anchor = anchorSessionId();
+    if (anchor) terminals.requestCloneInsertAfter(anchor);
+    void createSession(
+      {
+        ...payload,
+        agent: settings?.pullRequestAgent ?? "claude-code",
+        bareSession: false,
+      },
+      {
+        initialInput: settings?.pullRequestPrompt ?? DEFAULT_PULL_REQUEST_PROMPT,
+        focusOnCreate: true,
+        model: settings?.pullRequestModel ?? null,
+      },
+    );
+  }, [
+    project,
+    projectPathReady,
+    activeRuntimeScopeId,
+    createSession,
+    settings?.pullRequestAgent,
+    settings?.pullRequestModel,
+    settings?.pullRequestPrompt,
     anchorSessionId,
     terminals,
   ]);
@@ -2161,6 +2206,18 @@ function ProjectPage() {
     { capture: true },
   );
 
+  // Ship: open the commit/push/sync AI session. Capture phase mirrors git.diff so
+  // a focused session terminal can't swallow the chord first; startShipSession
+  // itself guards project/path-ready and the local-scope requirement.
+  useHotkey(
+    "project.ship",
+    () => {
+      if (anyBlockingDialogOpen || !projectPathReady) return;
+      startShipSession();
+    },
+    { capture: true },
+  );
+
   // Capture phase so a focused session terminal can't swallow the key first —
   // this must flip in/out of the grid even while typing in a session.
   useHotkey(
@@ -2302,6 +2359,35 @@ function ProjectPage() {
       [id, invalidateThisProjectTasks, invalidateProject, invalidateProjects, invalidateWorktrees, queryClient, settings?.recallLearnedToastEnabled]
     )
   );
+
+  // Auto-focus the board when a project's board first loads (and on every Cmd+U
+  // project switch). Without this, focus can land on / remain inside a session
+  // terminal's xterm <textarea> after the switch — which swallows bubble-phase
+  // hotkeys and trips useHotkey's ignoreEditable guard — so shortcuts do nothing
+  // until the user clicks the board background to blur the terminal. Moving focus
+  // to the (non-editable) board container restores every shortcut immediately.
+  const boardRef = useRef<HTMLDivElement>(null);
+  const lastAutoFocusedProjectIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project) return; // board not mounted yet (loading / error state)
+    if (anyBlockingDialogOpen) return; // a dialog/overlay owns focus — don't fight it
+    if (lastAutoFocusedProjectIdRef.current === id) return; // already handled this project
+    const board = boardRef.current;
+    if (!board) return;
+    lastAutoFocusedProjectIdRef.current = id;
+    // rAF so we win the parked-terminal reattach that happens on the same commit.
+    const raf = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      // Claim focus only from the states that actually eat shortcuts: a focused
+      // session terminal (xterm) or a loose body/null focus. Never yank focus out
+      // of a real form field the user may be typing in (search box, rename input,
+      // the bottom user terminal).
+      const onXterm = active instanceof HTMLElement && !!active.closest(".xterm");
+      if (isEditableTarget(active) && !onXterm) return;
+      board.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [id, project, anyBlockingDialogOpen]);
 
   if (projectQuery.isError) {
     return (
@@ -2794,6 +2880,7 @@ function ProjectPage() {
           shipDisabled={projectPathBlocked}
           shipEnabled={projectPathUsable}
           onShip={startShipSession}
+          onCreatePullRequest={startCreatePullRequestSession}
           behindCount={gitStatus?.behindCount ?? null}
           syncEnabled={projectPathUsable && activeRuntimeScopeId === LOCAL_SCOPE_ID}
           onSync={startSyncSession}
@@ -2840,6 +2927,8 @@ function ProjectPage() {
     <>
       <CursorGlow />
       <div
+        ref={boardRef}
+        tabIndex={-1}
         style={{
           flex: 1,
           minHeight: 0,
@@ -2847,6 +2936,7 @@ function ProjectPage() {
           padding: 0,
           display: "flex",
           flexDirection: "column",
+          outline: "none",
         }}
         className="dot-grid-bg"
       >
@@ -3049,13 +3139,6 @@ function ProjectPage() {
                     )}
                   </DropdownMenuItem>
                 </HotkeyTooltip>
-                <CreatePullRequestMenuItem
-                  onSelect={() => {
-                    setOverflowOpen(false);
-                    void createPullRequest.onCreate();
-                  }}
-                  busy={createPullRequest.busy}
-                />
                 {worktreesEnabled ? (
                   <DropdownMenuItem
                     icon="terminal"
@@ -3290,6 +3373,7 @@ function ProjectPage() {
                   splitTrailing
                   enabled={projectPathUsable}
                   onShip={startShipSession}
+                  onCreatePullRequest={startCreatePullRequestSession}
                 />
               </div>
             )}
@@ -3749,11 +3833,6 @@ function ProjectPage() {
           />
         </Suspense>
       )}
-
-      <CreatePullRequestDialog
-        state={createPullRequest.dialog}
-        onClose={createPullRequest.closeDialog}
-      />
 
       <InstallDiagramSkillModal
         open={showInstallDiagramSkill}
@@ -4337,6 +4416,7 @@ function WorktreeToggleGroup({
   shipDisabled = false,
   shipEnabled = true,
   onShip,
+  onCreatePullRequest,
   behindCount = null,
   syncEnabled = true,
   onSync,
@@ -4361,6 +4441,8 @@ function WorktreeToggleGroup({
   shipDisabled?: boolean;
   shipEnabled?: boolean;
   onShip: () => void;
+  /** Opens the Create PR AI session from the Ship split-button's dropdown. */
+  onCreatePullRequest?: () => void;
   /** Commits the current branch is behind its upstream; > 0 reveals Sync. */
   behindCount?: number | null;
   syncEnabled?: boolean;
@@ -4405,6 +4487,7 @@ function WorktreeToggleGroup({
         variant={changedCount === 0 ? "gray-frame" : "primary"}
         enabled={shipEnabled}
         onShip={onShip}
+        onCreatePullRequest={onCreatePullRequest}
       />
     </>
   );
@@ -4646,14 +4729,15 @@ function RunStatusPill({
           />
         </HotkeyTooltip>
         {launchUrl ? (
-          <Btn
-            variant="ghost"
-            icon="globe"
-            onClick={onOpenUrl}
-            title={`Open ${launchUrl} in browser`}
-            aria-label={`Open ${launchUrl} in browser`}
-            style={activeFrameIconStyle}
-          />
+          <HotkeyTooltip action="project.openBrowser" label="Open in browser">
+            <Btn
+              variant="ghost"
+              icon="globe"
+              onClick={onOpenUrl}
+              aria-label={`Open ${launchUrl} in browser`}
+              style={activeFrameIconStyle}
+            />
+          </HotkeyTooltip>
         ) : null}
       </div>
     );
