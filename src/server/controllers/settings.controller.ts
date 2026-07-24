@@ -143,6 +143,7 @@ const TERMINAL_LINE_HEIGHT_KEY = "terminal_line_height";
 const TERMINAL_LETTER_SPACING_KEY = "terminal_letter_spacing";
 const INTERFACE_FONT_FAMILY_KEY = "interface_font_family";
 const INTERFACE_FONT_SCALE_KEY = "interface_font_scale";
+const SHOW_GROUP_BADGE_KEY = "show_group_badge";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
   try {
@@ -289,6 +290,7 @@ const updateSettingsBody = z
     // from a payload that fails normalization (rejected — a malformed write
     // must never erase the stored pet).
     petState: z.unknown(),
+    showGroupBadge: z.boolean(),
   })
   .partial();
 
@@ -453,6 +455,10 @@ function getVoiceCommandAliasesSetting() {
   }
 }
 
+function getShowGroupBadgeSetting(): boolean {
+  return getBooleanSetting(SHOW_GROUP_BADGE_KEY, false);
+}
+
 function settingsPayload() {
   const themeStyle = getThemeStyleSetting();
   return {
@@ -540,6 +546,7 @@ function settingsPayload() {
     petMultiplayerEnabled: getBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, false),
     petHomeSide: getPetHomeSideSetting(),
     petState: normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null)),
+    showGroupBadge: getShowGroupBadgeSetting(),
     ...recallSettingsPayload(),
   };
 }
@@ -845,6 +852,9 @@ export async function update(request: Request): Promise<Response> {
       const stored = normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null));
       setSetting(PET_STATE_KEY, JSON.stringify(mergePetStateWrite(stored, incoming)));
     }
+  }
+  if (body.showGroupBadge !== undefined) {
+    setBooleanSetting(SHOW_GROUP_BADGE_KEY, body.showGroupBadge);
   }
   writeRecallSettings({
     enabled: body.recallEnabled,

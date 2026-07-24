@@ -696,7 +696,7 @@ export const ProjectBar = memo(function ProjectBar({ disabled = false }: { disab
   // project digits are direct Cmd/Ctrl shortcuts.
   const directProjectShortcuts = usesDirectRailProjectShortcuts(groups, activeGroup);
   const showClusterLabels = !directProjectShortcuts;
-  const showScopedLabel = groupScoped && groups.length > 0;
+  const showScopedLabel = groupScoped && groups.length > 0 && (settings?.showGroupBadge ?? false);
   const PAD_TOP = minimal ? 18 : 12;
   const PAD_X = minimal ? 4 : 8;
   const BAR_WIDTH = minimal ? 72 : 96;

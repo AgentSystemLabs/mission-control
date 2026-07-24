@@ -94,6 +94,8 @@ export type AppSettings = {
   batterySaverEnabled: boolean;
   /** Spellcheck in text fields (Electron). Off frees ~15-20 MB while composing. */
   spellcheckEnabled: boolean;
+  /** Show the active group name badge in the project rail header. */
+  showGroupBadge: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   /** Ding when a session-finish or diagram-ready notification arrives. */

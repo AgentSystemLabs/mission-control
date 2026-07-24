@@ -45,6 +45,24 @@ export function BetaSettingsPage() {
       });
   };
 
+  const setShowGroupBadge = (enabled: boolean) => {
+    queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+      current ? { ...current, showGroupBadge: enabled } : current,
+    );
+    void api
+      .updateSettings({ showGroupBadge: enabled })
+      .then((next) => {
+        queryClient.setQueryData<AppSettings>(queryKeys.settings, (current) =>
+          current
+            ? { ...current, ...next, showGroupBadge: enabled }
+            : { ...next, showGroupBadge: enabled },
+        );
+      })
+      .catch((error) => {
+        console.error("[settings] failed to sync group badge preference:", error);
+      });
+  };
+
   return (
     <SettingsSection
       title="Beta"
@@ -87,6 +105,15 @@ export function BetaSettingsPage() {
           />
         </Field>
       )}
+      <Field label="Project rail">
+        <ToggleRow
+          title="Show group badge"
+          description="Display the active group name and status indicator at the top of the project rail when a group is selected."
+          checked={settings?.showGroupBadge ?? false}
+          onChange={setShowGroupBadge}
+          label="Enable"
+        />
+      </Field>
     </SettingsSection>
   );
 }
