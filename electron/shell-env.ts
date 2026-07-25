@@ -57,9 +57,16 @@ function userShellFromDirectoryService(): string | null {
   }
 }
 
-export function resolveShell(): string {
-  const envShell = process.env.SHELL;
+export function resolveShell(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = os.platform(),
+): string {
+  const envShell = env.SHELL;
   if (envShell && fs.existsSync(envShell)) return envShell;
+
+  if (platform === "win32") {
+    return resolveCommandOnPath("pwsh", env, platform) ?? "powershell.exe";
+  }
 
   const infoShell = (os.userInfo() as { shell?: string }).shell;
   if (infoShell && fs.existsSync(infoShell)) return infoShell;
@@ -67,7 +74,6 @@ export function resolveShell(): string {
   const dsclShell = userShellFromDirectoryService();
   if (dsclShell && fs.existsSync(dsclShell)) return dsclShell;
 
-  if (os.platform() === "win32") return "powershell.exe";
   for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -421,7 +427,7 @@ function shellEnvCaptureArgs(
 function captureUserShellEnv(
   platform: NodeJS.Platform = os.platform(),
 ): Record<string, string> | null {
-  const shell = resolveShell();
+  const shell = resolveShell(process.env, platform);
   const args = shellEnvCaptureArgs(shell, platform);
   if (!args) return null;
 

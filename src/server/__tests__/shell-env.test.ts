@@ -7,6 +7,7 @@ import {
   parseShellEnvOutput,
   resolveAllCommandsOnPath,
   resolveCommandOnPath,
+  resolveShell,
   setCanonicalPathEnv,
   shellArgsForCommand,
 } from "../../../electron/shell-env";
@@ -352,6 +353,27 @@ describe("Electron shell environment helpers", () => {
 
     expect(resolveCommandOnPath("claude", env, "win32")).toBe(path.join(nativeBin, "claude.exe"));
     expect(resolveCommandOnPath("codex", env, "win32")).toBe(path.join(npmBin, "codex.cmd"));
+  });
+
+  it("prefers PowerShell 7 on the Windows PATH", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-shell-"));
+    const bin = path.join(root, "PowerShell", "7");
+    const pwsh = path.join(bin, "pwsh.exe");
+    touch(pwsh);
+
+    expect(
+      resolveShell(
+        {
+          Path: bin,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        },
+        "win32",
+      ),
+    ).toBe(pwsh);
+  });
+
+  it("falls back to Windows PowerShell when PowerShell 7 is not on PATH", () => {
+    expect(resolveShell({ Path: "" }, "win32")).toBe("powershell.exe");
   });
 
   it("canonicalizes Windows PATH casing before passing env to child shells", () => {
