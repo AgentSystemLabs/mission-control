@@ -65,7 +65,7 @@ export const KEYBINDING_GROUPS: KeybindingGroup[] = [
     id: "general",
     label: "General",
     description: "Shared shortcuts that apply across dialogs and forms.",
-    actions: ["dialog.submit", "voice.pushToTalk"],
+    actions: ["dialog.submit", "voice.pushToTalk", "settings.open"],
   },
 ];
 

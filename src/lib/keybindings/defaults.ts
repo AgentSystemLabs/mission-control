@@ -48,5 +48,7 @@ export const DEFAULT_BINDINGS: BindingMap = {
   // same ]/[ mnemonic, third modifier tier for the group context.
   "group.next": makeBinding({ mod: true, alt: true, key: "]" }),
   "group.prev": makeBinding({ mod: true, alt: true, key: "[" }),
+  // macOS / Windows / Linux app convention: Cmd/Ctrl+, opens Preferences.
+  "settings.open": makeBinding({ mod: true, key: "," }),
 };
 
