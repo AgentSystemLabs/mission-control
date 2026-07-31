@@ -1,6 +1,6 @@
 # MissionControl
 
-Desktop control surface for managing agentic coding work (Claude Code / Codex / Cursor CLI) across many projects. Built as an Electron app that wraps a TanStack Start server, with SQLite + Drizzle for local persistence and real PTYs (via `node-pty` + `xterm.js`) so you can run real interactive CLI agents inside the app.
+Desktop control surface for managing agentic coding work across many projects. It launches Claude Code, Codex, Grok Build, Cursor CLI, and OpenCode in real PTYs backed by `node-pty` and `xterm.js`, with an Electron shell, TanStack Start server, and local SQLite persistence.
 
 ## Why this exists
 
@@ -13,7 +13,7 @@ Cursor and Codex bury your projects in a collapsable left rail. MissionControl f
 - Project grouping with colored dots
 - Project detail view: tasks split into Needs-input / Running / Done columns
 - Multi-select tasks → split-pane terminals (cap of 4)
-- New-agent launcher for Claude Code / Codex / Cursor CLI / plain shell
+- Managed-session launcher for Claude Code, Codex, Grok Build, Cursor CLI, and OpenCode, plus plain shell terminals
 - External REST API + Server-Sent Events for live UI updates
 - Bearer-token auth for the writable endpoints
 - Bound to `127.0.0.1` only — never exposed to LAN
@@ -196,9 +196,9 @@ In dev (`pnpm dev`) the same lines are written to stdout/stderr.
 
 When investigating "the update never installed," start with `rg 'event: "update\.' ~/Library/Logs/MissionControl/main.log`. electron-updater's own internal log stream (URL resolution, signature verification, retries) is also routed into the same file.
 
-## Skill file for external CLIs
+## Lifecycle integration
 
-A drop-in skill for Claude Code / Codex / Cursor CLI lives in `docs/skills/missioncontrol-notify.md`. Paste it into the CLI's instructions or memory so the agent knows to POST its lifecycle events back to MissionControl.
+Mission Control installs each managed provider's lifecycle integration when it starts a session. A drop-in skill for manually launched external CLIs lives in `docs/skills/missioncontrol-notify.md`; install it in the CLI's supported skill or instruction location when Mission Control does not manage that process.
 
 ## License
 

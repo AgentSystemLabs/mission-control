@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAskUserQuestionInput } from "../agent-questions";
+import { isAskUserQuestionTool, parseAskUserQuestionInput } from "../agent-questions";
 
 describe("parseAskUserQuestionInput", () => {
   it("parses a realistic AskUserQuestion tool_input", () => {
@@ -42,6 +42,23 @@ describe("parseAskUserQuestionInput", () => {
     });
     expect(parsed?.[0]?.multiSelect).toBe(true);
     expect(parsed?.[0]?.header).toBeUndefined();
+  });
+
+  it("accepts Grok Build's native tool name and multi_select field", () => {
+    expect(isAskUserQuestionTool("ask_user_question")).toBe(true);
+    expect(isAskUserQuestionTool("AskUserQuestion")).toBe(true);
+    expect(isAskUserQuestionTool("run_terminal_command")).toBe(false);
+
+    const parsed = parseAskUserQuestionInput({
+      questions: [
+        {
+          question: "Pick features",
+          multi_select: true,
+          options: [{ label: "A" }, { label: "B" }],
+        },
+      ],
+    });
+    expect(parsed?.[0]?.multiSelect).toBe(true);
   });
 
   it("drops malformed questions and options", () => {

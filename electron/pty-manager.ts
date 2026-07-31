@@ -135,6 +135,23 @@ export function hasClaudeInterruptPrompt(text: string): boolean {
   );
 }
 
+// CSI / OSC / DCS / lone escapes. Grok's ratatui renderer can split the
+// cancelled-turn marker with styling sequences, so compare the visible text.
+const ANSI_CONTROL_RE =
+  /\x1b\[[0-9:;<=>?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bP[\s\S]*?\x1b\\|\x1b[@-_]/g;
+
+export function hasGrokInterruptPrompt(text: string): boolean {
+  const visible = text.replace(ANSI_CONTROL_RE, "").replace(/\s+/g, " ");
+  return visible.includes("Turn cancelled by user in ");
+}
+
+export function isGrokInterruptInput(data: string): boolean {
+  // A raw Ctrl+C always cancels an active Grok turn. Do not infer cancellation
+  // from Esc: Grok also uses standalone Esc to close search, edits, modals, and
+  // subagent views. Genuine Esc cancellation is caught by the output marker.
+  return data.includes("\x03");
+}
+
 export function hasCodexHookReviewPrompt(text: string): boolean {
   const normalized = text.replace(/\s+/g, " ").toLowerCase();
   return (
@@ -150,9 +167,11 @@ function scanTail(p: Pty, chunk: string): string {
 }
 
 function scanForInterrupt(p: Pty, haystack: string) {
-  if (p.agent !== "claude-code") return;
+  const detected =
+    (p.agent === "claude-code" && hasClaudeInterruptPrompt(haystack)) ||
+    (p.agent === "grok" && hasGrokInterruptPrompt(haystack));
+  if (!detected) return;
   if (!p.mcEnv?.apiUrl || !p.mcEnv?.token) return;
-  if (!hasClaudeInterruptPrompt(haystack)) return;
   const now = Date.now();
   if (now - p.lastInterruptAt < INTERRUPT_COOLDOWN_MS) return;
   p.lastInterruptAt = now;
@@ -537,7 +556,10 @@ export function registerPtyHandlers(
       // off, the hook is omitted (and any previously-installed one is stripped
       // by the rebuild inside installAgentHooks). Default true = pet-on default.
       const petEnabled = getBooleanAppSetting(app.getPath("userData"), "pet_enabled", true);
-      installAgentHooks(opts.agent, plan.cwd, undefined, { petEnabled });
+      installAgentHooks(opts.agent, plan.cwd, undefined, {
+        petEnabled,
+        grokHome: env.GROK_HOME,
+      });
       const mcEnv = plan.mode === "agent" ? getHookEnv() : null;
       if (plan.mode === "agent") {
         ensureDiagramSkillForAgent(app.getAppPath(), plan.cwd, plan.agent);
@@ -722,6 +744,14 @@ export function registerPtyHandlers(
     const p = ptys.get(ptyId);
     if (!p) return false;
     p.lastInputAt = Date.now();
+    if (
+      p.agent === "grok" &&
+      p.mcEnv?.apiUrl &&
+      p.mcEnv?.token &&
+      isGrokInterruptInput(data)
+    ) {
+      void postSyntheticHook(p, AGENT_HOOK_EVENTS.userInterrupt);
+    }
     p.proc.write(data);
     return true;
   }, ipcMain);

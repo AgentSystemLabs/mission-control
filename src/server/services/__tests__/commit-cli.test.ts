@@ -3,7 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { buildCliSpawnInvocation } from "../claude-cli";
-import { detectInstalledCommitClisFromEnv } from "../commit-cli";
+import {
+  commitCliInvocation,
+  detectInstalledCommitClisFromEnv,
+} from "../commit-cli";
 
 function touch(file: string) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -21,6 +24,7 @@ describe("commit CLI detection", () => {
     const binDir = path.join(root, "npm shims");
     touch(path.join(binDir, "claude.exe"));
     touch(path.join(binDir, "codex.cmd"));
+    touch(path.join(binDir, "grok.exe"));
     touch(path.join(binDir, "agent.exe"));
     touch(path.join(binDir, "opencode.cmd"));
 
@@ -35,8 +39,16 @@ describe("commit CLI detection", () => {
     expect(detected).toEqual({
       claude: true,
       codex: true,
+      grok: true,
       "cursor-agent": true,
       opencode: true,
+    });
+  });
+
+  it("builds Grok Build's native headless invocation", () => {
+    expect(commitCliInvocation("grok", "write a commit message")).toEqual({
+      cmd: "grok",
+      args: ["-p", "write a commit message"],
     });
   });
 });

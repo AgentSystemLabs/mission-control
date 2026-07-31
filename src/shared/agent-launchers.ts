@@ -10,7 +10,7 @@ export type AgentAccountStatus = {
 /** Wire type for GET /api/agent-launchers/latest-versions. */
 export type AgentLatestVersion = {
   agent: TaskAgent;
-  /** False when the CLI has no public registry to query (Cursor). */
+  /** False when the CLI has no native or registry-backed latest-version source. */
   supported: boolean;
   latestVersion: string | null;
   checkedAt: string;

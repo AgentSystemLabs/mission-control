@@ -17,6 +17,12 @@ describe("terminal status sync", () => {
     expect(terminalInputStartsTurn("opencode", "\r")).toBe(false);
   });
 
+  it("lets Grok Build report status through native lifecycle hooks", () => {
+    expect(agentHasLifecycleHooks("grok")).toBe(true);
+    expect(agentUsesTerminalPromptFallback("grok")).toBe(false);
+    expect(terminalInputStartsTurn("grok", "implement this\r")).toBe(false);
+  });
+
   it("marks input-driven agents as running when the user submits input", () => {
     expect(agentHasLifecycleHooks("cursor-cli")).toBe(false);
     expect(agentUsesTerminalPromptFallback("cursor-cli")).toBe(true);

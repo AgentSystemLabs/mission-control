@@ -1,13 +1,15 @@
 /**
- * Latest published version lookup for the managed agent CLIs via the npm
- * registry. Agents without an npm package (Cursor) are reported as
- * unsupported instead of guessing. Cached per agent; never throws.
+ * Latest published version lookup for managed agent CLIs. Prefer a provider's
+ * native read-only JSON check when one is declared; otherwise use its npm
+ * package. Agents with neither source are reported as unsupported. Cached per
+ * agent; never throws.
  */
 
 import type { TaskAgent } from "~/shared/domain";
 import { AGENT_CLI_CONFIG } from "~/shared/agent-cli-config";
 import { extractCliVersion } from "~/shared/agent-cli-version-compare";
 import type { AgentLatestVersion } from "~/shared/agent-launchers";
+import { runCli } from "./claude-cli";
 
 export type { AgentLatestVersion } from "~/shared/agent-launchers";
 
@@ -19,9 +21,56 @@ type CacheEntry = { value: AgentLatestVersion; expiresAt: number };
 const cache = new Map<TaskAgent, CacheEntry>();
 const inflight = new Map<TaskAgent, Promise<AgentLatestVersion>>();
 
-async function fetchLatestVersion(agent: TaskAgent): Promise<{ value: AgentLatestVersion; ttlMs: number }> {
-  const npmPackage = AGENT_CLI_CONFIG[agent].npmPackage;
+type LatestVersionResult = { value: AgentLatestVersion; ttlMs: number };
+
+function failure(
+  agent: TaskAgent,
+  checkedAt: string,
+  error: string,
+): LatestVersionResult {
+  return {
+    value: { agent, supported: true, latestVersion: null, checkedAt, error },
+    ttlMs: FAILURE_TTL_MS,
+  };
+}
+
+async function fetchLatestVersionFromCli(
+  agent: TaskAgent,
+  checkedAt: string,
+): Promise<LatestVersionResult | null> {
+  const config = AGENT_CLI_CONFIG[agent];
+  const invocation = config.latestVersionCommand;
+  if (!invocation) return null;
+
+  try {
+    const raw = await runCli(config.command, [...invocation.args], {
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+    const body = JSON.parse(raw) as Record<string, unknown>;
+    const providerError = invocation.errorField
+      ? body[invocation.errorField]
+      : undefined;
+    if (typeof providerError === "string" && providerError.trim()) {
+      return failure(agent, checkedAt, providerError.trim());
+    }
+    const candidate = body[invocation.versionField];
+    const version = typeof candidate === "string" ? extractCliVersion(candidate) : null;
+    if (!version) return failure(agent, checkedAt, "no version in response");
+    return {
+      value: { agent, supported: true, latestVersion: version, checkedAt },
+      ttlMs: SUCCESS_TTL_MS,
+    };
+  } catch {
+    return failure(agent, checkedAt, "version check failed");
+  }
+}
+
+async function fetchLatestVersion(agent: TaskAgent): Promise<LatestVersionResult> {
   const checkedAt = new Date().toISOString();
+  const cliResult = await fetchLatestVersionFromCli(agent, checkedAt);
+  if (cliResult) return cliResult;
+
+  const npmPackage = AGENT_CLI_CONFIG[agent].npmPackage;
   if (!npmPackage) {
     return {
       value: { agent, supported: false, latestVersion: null, checkedAt },
@@ -38,40 +87,23 @@ async function fetchLatestVersion(agent: TaskAgent): Promise<{ value: AgentLates
       signal: controller.signal,
     });
     if (!res.ok) {
-      return {
-        value: {
-          agent,
-          supported: true,
-          latestVersion: null,
-          checkedAt,
-          error: `unexpected status ${res.status}`,
-        },
-        ttlMs: FAILURE_TTL_MS,
-      };
+      return failure(agent, checkedAt, `unexpected status ${res.status}`);
     }
     const body = (await res.json()) as Record<string, unknown>;
     const version = typeof body.version === "string" ? extractCliVersion(body.version) : null;
     if (!version) {
-      return {
-        value: { agent, supported: true, latestVersion: null, checkedAt, error: "no version in response" },
-        ttlMs: FAILURE_TTL_MS,
-      };
+      return failure(agent, checkedAt, "no version in response");
     }
     return {
       value: { agent, supported: true, latestVersion: version, checkedAt },
       ttlMs: SUCCESS_TTL_MS,
     };
   } catch (err) {
-    return {
-      value: {
-        agent,
-        supported: true,
-        latestVersion: null,
-        checkedAt,
-        error: err instanceof Error ? err.message : "request failed",
-      },
-      ttlMs: FAILURE_TTL_MS,
-    };
+    return failure(
+      agent,
+      checkedAt,
+      err instanceof Error ? err.message : "request failed",
+    );
   } finally {
     clearTimeout(timer);
   }

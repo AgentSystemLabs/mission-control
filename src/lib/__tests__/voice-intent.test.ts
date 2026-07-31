@@ -93,10 +93,12 @@ describe('workflow: "open <project name>" (+ switch variations)', () => {
   });
 });
 
-describe('workflow: "create new <claude|codex|cursor|opencode> agent to do <prompt>"', () => {
+describe('workflow: "create new <claude|codex|grok|cursor|opencode> agent to do <prompt>"', () => {
   it.each([
     ["create new claude agent to do improve the seo", "claude-code", "improve the seo"],
     ["create a codex agent to do add tests", "codex", "add tests"],
+    ["create a grok agent to do add tests", "grok", "add tests"],
+    ["use grok build agent to do audit the release", "grok", "audit the release"],
     ["create new cursor agent to do fix the bug", "cursor-cli", "fix the bug"],
     ["spawn an opencode agent to do refactor auth", "opencode", "refactor auth"],
     ["make a new claude code agent to do write the docs", "claude-code", "write the docs"],
@@ -115,6 +117,7 @@ describe('workflow: "create new <claude|codex|cursor|opencode> agent to do <prom
   it.each([
     ["start a claude agent", "claude-code"],
     ["start a codex agent", "codex"],
+    ["start a grok build agent", "grok"],
     ["create a cursor agent", "cursor-cli"],
     ["spin up an opencode agent", "opencode"],
   ])("%j just starts the agent (empty prompt)", (phrase, agent) => {

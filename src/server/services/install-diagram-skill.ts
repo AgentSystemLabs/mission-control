@@ -21,7 +21,12 @@ export type InstallDiagramSkillArgs = {
 export type InstallDiagramSkillResult = DiagramSkillInstallResult;
 
 function emptyInstallResult(): InstallDiagramSkillResult {
-  return { claudeInstalled: false, codexInstalled: false, cursorInstalled: false };
+  return {
+    claudeInstalled: false,
+    codexInstalled: false,
+    grokInstalled: false,
+    cursorInstalled: false,
+  };
 }
 
 export function readDiagramSkillInstallStatus(projectPath: string): InstallDiagramSkillResult {
@@ -34,6 +39,7 @@ export function readDiagramSkillInstallStatus(projectPath: string): InstallDiagr
     return {
       claudeInstalled: installed.claude,
       codexInstalled: installed.codex,
+      grokInstalled: installed.grok,
       cursorInstalled: installed.cursor,
     };
   } catch {

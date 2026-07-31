@@ -83,7 +83,7 @@ describe("sortIdsByAgentFirst", () => {
     { id: "s4", agent: "claude-code" },
     { id: "s5", agent: "codex" },
   ];
-  const order = ["claude-code", "codex", "cursor-cli", "opencode"];
+  const order = ["claude-code", "codex", "grok", "cursor-cli", "opencode"];
 
   it("puts the chosen agent first, then registry order, stably", () => {
     expect(sortIdsByAgentFirst(cells, "codex", order)).toEqual([

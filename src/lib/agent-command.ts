@@ -15,9 +15,21 @@ export function agentUsesPersistedSession(agent: TaskAgent): boolean {
   return (
     agent === "claude-code" ||
     agent === "codex" ||
+    agent === "grok" ||
     agent === "cursor-cli" ||
     agent === "opencode"
   );
+}
+
+export function agentRequiresPreassignedSessionId(agent: TaskAgent): boolean {
+  return agent === "claude-code" || agent === "grok" || agent === "cursor-cli";
+}
+
+/** Whether the task row must exist before its first managed PTY is spawned. */
+export function agentRequiresPersistedTaskBeforeSpawn(agent: TaskAgent): boolean {
+  // Grok consumes its create-only UUID at TUI startup. Its native SessionStart
+  // hook must be able to persist that fact before any relaunch can occur.
+  return agent === "grok";
 }
 
 export function agentLaunchMode(task: Task): AgentLaunchMode {
@@ -37,11 +49,14 @@ export function agentLaunchMode(task: Task): AgentLaunchMode {
   if (task.agent === "codex") {
     return task.claudeSessionId && task.status !== "ready" ? "resume" : "new";
   }
+  if (task.agent === "grok") {
+    return task.claudeSessionId && task.status !== "ready" ? "resume" : "new";
+  }
   return "new";
 }
 
 export function isAgentResumeCommand(agent: TaskAgent, command: string): boolean {
-  if (agent === "claude-code" || agent === "cursor-cli") {
+  if (agent === "claude-code" || agent === "cursor-cli" || agent === "grok") {
     return command.includes("--resume");
   }
   if (agent === "opencode") {
@@ -105,6 +120,19 @@ export function buildCodexCommand(opts: {
   return parts.join(" ");
 }
 
+export function buildGrokCommand(opts: {
+  mode: AgentLaunchMode;
+  sessionId: string;
+  skipPermissions: boolean;
+  model?: AiModelId | null;
+}): string {
+  const sessionFlag = opts.mode === "resume" ? "--resume" : "--session-id";
+  const parts = ["grok", sessionFlag, opts.sessionId];
+  if (opts.model) parts.push("--model", opts.model);
+  if (opts.skipPermissions) parts.push("--always-approve");
+  return parts.join(" ");
+}
+
 export function buildAgentLaunchCommand(
   task: Task,
   sessionId: string,
@@ -128,6 +156,13 @@ export function buildAgentLaunchCommand(
       return buildOpencodeCommand({ mode, sessionId, model });
     case "codex":
       return buildCodexCommand({
+        mode,
+        sessionId,
+        skipPermissions,
+        model,
+      });
+    case "grok":
+      return buildGrokCommand({
         mode,
         sessionId,
         skipPermissions,
@@ -158,6 +193,13 @@ export function buildFreshAgentLaunchCommand(
     case "codex":
       return buildCodexCommand({
         mode: "new",
+        skipPermissions: !!task.claudeSkipPermissions,
+        model,
+      });
+    case "grok":
+      return buildGrokCommand({
+        mode: "new",
+        sessionId,
         skipPermissions: !!task.claudeSkipPermissions,
         model,
       });

@@ -29,6 +29,24 @@ describe("agent CLI config", () => {
     expect(AGENT_CLI_CONFIG.codex.npmPackage).toBe("@openai/codex");
     expect(AGENT_CLI_CONFIG.opencode.npmPackage).toBe("opencode-ai");
     expect(AGENT_CLI_CONFIG["cursor-cli"].npmPackage).toBeUndefined();
+    expect(AGENT_CLI_CONFIG.grok.npmPackage).toBeUndefined();
+    expect(AGENT_CLI_CONFIG.grok.latestVersionCommand).toEqual({
+      args: ["update", "--check", "--json"],
+      versionField: "latestVersion",
+      errorField: "error",
+    });
+  });
+
+  it("uses Grok Build's native installer and PATH conventions", () => {
+    expect(AGENT_CLI_CONFIG.grok).toMatchObject({
+      command: "grok",
+      versionScheme: "semver",
+      minimumVersion: "0.2.117",
+      updateCommands: ["grok update"],
+      homePathSuffixes: [".grok/bin"],
+      envHomePath: { variable: "GROK_HOME", pathSuffixes: ["bin"] },
+    });
+    expect(pathLookupCandidates("grok")).toEqual(["grok"]);
   });
 
   it("returns platform-specific install commands", () => {

@@ -69,6 +69,7 @@ export function buildSandboxHookRelayUrl(
 
 export function hookEndpointSlug(agent: string | undefined): string {
   if (agent === "codex") return "codex";
+  if (agent === "grok") return "grok";
   if (agent === "cursor-cli") return "cursor";
   if (agent === "opencode") return "opencode";
   return "claude";

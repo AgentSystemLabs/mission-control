@@ -320,6 +320,23 @@ describe("Electron shell environment helpers", () => {
     expect(entries).toContain(opencodeBin);
   });
 
+  it("adds the native Grok bin from an absolute GROK_HOME override", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-grok-path-"));
+    const home = path.join(root, "home");
+    const grokHome = path.join(root, "managed-grok-home");
+    const grokBin = path.join(grokHome, "bin");
+    fs.mkdirSync(grokBin, { recursive: true });
+
+    const entries = buildUserPath("", {
+      platform: "darwin",
+      homeDir: home,
+      env: { GROK_HOME: grokHome },
+      pathExists: (entry) => entry === grokBin,
+    }).split(path.delimiter);
+
+    expect(entries).toContain(grokBin);
+  });
+
   it("resolves Windows .exe and .cmd agent shims without spawning PowerShell", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-cli-"));
     const nativeBin = path.join(root, "User", ".local", "bin");

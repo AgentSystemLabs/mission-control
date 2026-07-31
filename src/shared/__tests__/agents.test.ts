@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { AGENT_REGISTRY, UI_AGENTS } from "../agents";
 
 describe("agent registry", () => {
+  it("exposes Grok Build as a native selectable agent", () => {
+    expect(UI_AGENTS).toContain("grok");
+    expect(Object.fromEntries(Object.entries(AGENT_REGISTRY)).grok).toMatchObject({
+      label: "Grok Build",
+      command: "grok",
+      uiVisible: true,
+      supportsSkipPermissions: true,
+      skipPermissionsFlag: "--always-approve",
+    });
+  });
+
   it("launches Codex with current hook support enabled", () => {
     expect(AGENT_REGISTRY.codex.startCommand()).toBe("codex --enable hooks");
     expect(AGENT_REGISTRY.codex.startCommand({ skipPermissions: true })).toBe(

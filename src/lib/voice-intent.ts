@@ -62,13 +62,13 @@ const DIFF_RE =
   /^(?:open|show|view|toggle|go to)\s+(?:the\s+)?(?:diff(?:\s+view)?|changes|review(?:\s+changes)?)\s*$|^review\s+changes\s*$/i;
 // Leading verb to ignore when matching a spoken phrase against custom-script names.
 const SCRIPT_VERB_PREFIX = /^(?:run|execute|exec|do|start)\s+/i;
-// Group 1 = agent type (optional: claude|codex|cursor|opencode), group 2 = task.
+// Group 1 = agent type (optional: claude|codex|grok|cursor|opencode), group 2 = task.
 // The connector consumes "to do"/"that does" (with \b so "download" isn't eaten).
 // Group 1 = agent type, group 2 = task. The optional `(?!agent…)\w+` tolerates a
 // stray/misheard word before "agent" (e.g. whisper hears "claude" as "cloud") so
 // "start a <something> agent" still creates a session — defaulting the agent type.
 const NEW_AGENT_RE =
-  /^(?:create|spawn|make|start|new|launch|fire up|kick off|spin up|boot up|use|open|add|build)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:(claude(?:\s+code)?|codex|cursor(?:\s+cli)?|opencode)\s+)?(?:(?!agent\b|session\b|task\b)\w+\s+)?(?:agent|session|task)\b\s*(?:to(?:\s+do\b)?|that(?:\s+does\b)?|which|who|for|:)?\s*(.*)$/i;
+  /^(?:create|spawn|make|start|new|launch|fire up|kick off|spin up|boot up|use|open|add|build)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:(claude(?:\s+code)?|codex|grok(?:\s+build)?|cursor(?:\s+cli)?|opencode)\s+)?(?:(?!agent\b|session\b|task\b)\w+\s+)?(?:agent|session|task)\b\s*(?:to(?:\s+do\b)?|that(?:\s+does\b)?|which|who|for|:)?\s*(.*)$/i;
 const HAVE_CLAUDE_RE =
   /^(?:have|tell|ask|get|let)\s+(?:claude|the agent|an? agent)\s+(?:to\s+)?(.+)$/i;
 // "remember that X", "remember X", "note that X", "make/take a note that X",
@@ -89,6 +89,7 @@ function mapAgent(raw: string | undefined): TaskAgent | undefined {
   const a = raw.toLowerCase().replace(/\s+/g, " ").trim();
   if (a.startsWith("claude")) return "claude-code";
   if (a === "codex") return "codex";
+  if (a.startsWith("grok")) return "grok";
   if (a.startsWith("cursor")) return "cursor-cli";
   if (a === "opencode") return "opencode";
   return undefined;
@@ -368,7 +369,7 @@ export const VOICE_COMMANDS: VoiceCommandDoc[] = [
     id: "new-agent",
     title: "Start an agent",
     description:
-      "Spin up an agent on a task. Name the agent (claude, codex, cursor, opencode) or omit it to use your default. You can also just say the task.",
+      "Spin up an agent on a task. Name the agent (claude, codex, grok, cursor, opencode) or omit it to use your default. You can also just say the task.",
     examples: [
       "create a claude agent to do add tests",
       "use a codex agent fix the login bug",

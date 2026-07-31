@@ -57,6 +57,20 @@ export function parsePlainModelList(raw: string): AiModelOption[] {
   );
 }
 
+export function parseGrokModelList(raw: string): AiModelOption[] {
+  const lines = raw.split("\n");
+  const listStart = lines.findIndex((line) => line.trim() === "Available models:");
+  if (listStart < 0) return [];
+
+  return dedupeModels(
+    lines
+      .slice(listStart + 1)
+      .map((line) => line.trim().match(/^[*-]\s+(\S+?)(?:\s+\(default\))?$/)?.[1] ?? null)
+      .filter((id): id is string => !!id && isAiModelId(id))
+      .map((id) => ({ id, label: id })),
+  );
+}
+
 function redactDiscoveryError(value: string): string {
   return value
     .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "sk-<redacted>")
@@ -81,6 +95,13 @@ async function liveModelOptions(
         timeoutMs: MODEL_LIST_TIMEOUT_MS,
       });
       return parsePlainModelList(raw);
+    }
+    case "grok": {
+      const raw = await runCli("grok", ["models"], {
+        cwd: os.tmpdir(),
+        timeoutMs: MODEL_LIST_TIMEOUT_MS,
+      });
+      return parseGrokModelList(raw);
     }
     case "claude-code":
     case "codex":

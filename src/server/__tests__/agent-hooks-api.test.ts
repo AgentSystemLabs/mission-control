@@ -10,7 +10,7 @@ process.env.MC_USER_DATA_DIR = tmpRoot;
 const { handleApiRequest } = await import("../api-router");
 const { getOrCreateApiToken, setBooleanSetting } = await import("../services/settings");
 const { createProject } = await import("../services/projects");
-const { createTask, getTask, updateStatus } = await import("../services/tasks");
+const { createTask, getTask, updateStatus, updateTask } = await import("../services/tasks");
 const { createMemory } = await import("../services/project-memory");
 const { writeRecallSettings } = await import("../services/recall-settings");
 const { resetBriefDeliveries } = await import("../services/brief-delivery");
@@ -152,6 +152,172 @@ describe.each([
       claudeSessionId: SESSION_ID,
       status: "finished",
     });
+  });
+});
+
+describe("grok hook API", () => {
+  let taskId = "";
+
+  beforeEach(() => {
+    resetDb();
+    setBooleanSetting("pet_enabled", false);
+    taskId = createHookTask("grok").id;
+  });
+
+  it("normalizes native Grok Build prompt and session fields", async () => {
+    const res = await postHook("grok", taskId, {
+      hookEventName: "user_prompt_submit",
+      sessionId: SESSION_ID,
+      transcriptPath: "/tmp/grok-session.jsonl",
+      prompt: "add native Grok Build support",
+    });
+
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toMatchObject({ ok: true, status: "running" });
+    expect(getTask(taskId)).toMatchObject({
+      claudeSessionId: SESSION_ID,
+      status: "running",
+    });
+  });
+
+  it("records native session startup so an idle launch can only resume later", async () => {
+    const started = await postHook("grok", taskId, {
+      hookEventName: "session_start",
+      sessionId: SESSION_ID,
+      source: "startup",
+    });
+
+    expect(started?.status).toBe(200);
+    await expect(started?.json()).resolves.toEqual({ ok: true, status: "running" });
+    expect(getTask(taskId)).toMatchObject({
+      claudeSessionId: SESSION_ID,
+      status: "running",
+    });
+
+    const exited = await postHook("grok", taskId, {
+      hook_event_name: "MissionControlSessionEnded",
+      exit_code: 0,
+    });
+    expect(exited?.status).toBe(200);
+    expect(getTask(taskId)?.status).toBe("finished");
+  });
+
+  it("settles an idle preassigned session from Grok's native SessionEnd", async () => {
+    updateTask(taskId, { claudeSessionId: SESSION_ID });
+
+    const ended = await postHook("grok", taskId, {
+      hookEventName: "session_end",
+      sessionId: SESSION_ID,
+      reason: "shutdown",
+    });
+
+    expect(ended?.status).toBe(200);
+    await expect(ended?.json()).resolves.toEqual({ ok: true, event: "SessionEnd" });
+    expect(getTask(taskId)).toMatchObject({
+      claudeSessionId: SESSION_ID,
+      status: "finished",
+    });
+  });
+
+  it("rejects top-level events from a different Grok session", async () => {
+    updateTask(taskId, { claudeSessionId: SESSION_ID });
+    const foreignSessionId = "11111111-1111-4111-8111-111111111111";
+
+    const res = await postHook("grok", taskId, {
+      hookEventName: "session_start",
+      sessionId: foreignSessionId,
+      source: "startup",
+    });
+
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, ignored: "foreign-session" });
+    expect(getTask(taskId)).toMatchObject({
+      claudeSessionId: SESSION_ID,
+      status: "ready",
+    });
+  });
+
+  it("marks permission notifications as needs-input", async () => {
+    const res = await postHook("grok", taskId, {
+      hookEventName: "notification",
+      sessionId: SESSION_ID,
+      notificationType: "permission_prompt",
+      message: "Approval required",
+    });
+
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, status: "needs-input" });
+    expect(getTask(taskId)?.status).toBe("needs-input");
+  });
+
+  it("marks a native Grok Build stop as finished", async () => {
+    const res = await postHook("grok", taskId, {
+      hookEventName: "stop",
+      sessionId: SESSION_ID,
+      lastAssistantMessage: "Done",
+    });
+
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, status: "finished" });
+    expect(getTask(taskId)?.status).toBe("finished");
+  });
+
+  it("marks a native Grok Build failure as interrupted", async () => {
+    updateStatus(taskId, { status: "running" });
+
+    const res = await postHook("grok", taskId, {
+      hookEventName: "stop_failure",
+      sessionId: SESSION_ID,
+      errorType: "server_error",
+      errorMessage: "request failed",
+    });
+
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, status: "interrupted" });
+    expect(getTask(taskId)?.status).toBe("interrupted");
+  });
+
+  it("pairs native subagent events without adopting the child session id", async () => {
+    const prompt = await postHook("grok", taskId, {
+      hookEventName: "user_prompt_submit",
+      sessionId: SESSION_ID,
+      prompt: "delegate the investigation",
+    });
+    expect(prompt?.status).toBe(200);
+
+    const started = await postHook("grok", taskId, {
+      hookEventName: "subagent_start",
+      sessionId: SESSION_ID,
+      subagentId: "subagent-1",
+    });
+    await expect(started?.json()).resolves.toEqual({ ok: true, event: "SubagentStart" });
+
+    const childSessionId = "11111111-1111-4111-8111-111111111111";
+    const stopped = await postHook("grok", taskId, {
+      hookEventName: "subagent_stop",
+      sessionId: childSessionId,
+      subagentId: "subagent-1",
+    });
+    await expect(stopped?.json()).resolves.toEqual({ ok: true, event: "SubagentStop" });
+    expect(getTask(taskId)?.claudeSessionId).toBe(SESSION_ID);
+
+    const finished = await postHook("grok", taskId, {
+      hookEventName: "stop",
+      sessionId: SESSION_ID,
+    });
+    await expect(finished?.json()).resolves.toMatchObject({ status: "finished" });
+  });
+
+  it("ignores a synthetic interrupt after the task already settled", async () => {
+    updateStatus(taskId, { status: "finished" });
+
+    const res = await postHook("grok", taskId, {
+      hook_event_name: "UserInterrupt",
+    });
+
+    expect(res?.status).toBe(200);
+    await expect(res?.json()).resolves.toEqual({ ok: true, ignored: "inactive-session" });
+    expect(getTask(taskId)?.status).toBe("finished");
   });
 });
 

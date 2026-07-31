@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { Task } from "~/db/schema";
 import {
   agentLaunchMode,
+  agentRequiresPersistedTaskBeforeSpawn,
+  agentRequiresPreassignedSessionId,
   buildAgentLaunchCommand,
   buildCodexCommand,
   buildCursorCommand,
   buildFreshAgentLaunchCommand,
+  buildGrokCommand,
   buildOpencodeCommand,
   isAgentResumeCommand,
   isOpencodeSessionId,
@@ -34,6 +37,51 @@ const baseTask = {
 } satisfies Omit<Task, "agent">;
 
 const OPENCODE_SESSION_ID = "ses_3cf7dd8d4ffeUPfENpVxfFojZ2";
+
+describe("buildGrokCommand", () => {
+  it("starts a new persisted Grok Build session with Mission Control's UUID", () => {
+    expect(
+      buildGrokCommand({
+        mode: "new",
+        sessionId: "00000000-0000-4000-8000-000000000000",
+        skipPermissions: false,
+      }),
+    ).toBe("grok --session-id 00000000-0000-4000-8000-000000000000");
+  });
+
+  it("resumes the exact Grok Build session", () => {
+    expect(
+      buildGrokCommand({
+        mode: "resume",
+        sessionId: "00000000-0000-4000-8000-000000000000",
+        skipPermissions: false,
+      }),
+    ).toBe("grok --resume 00000000-0000-4000-8000-000000000000");
+  });
+
+  it("selects a model for a new Grok Build session", () => {
+    expect(
+      buildGrokCommand({
+        mode: "new",
+        sessionId: "00000000-0000-4000-8000-000000000000",
+        skipPermissions: false,
+        model: "grok-code-fast-1",
+      }),
+    ).toBe(
+      "grok --session-id 00000000-0000-4000-8000-000000000000 --model grok-code-fast-1",
+    );
+  });
+
+  it("enables native always-approve mode only when requested", () => {
+    expect(
+      buildGrokCommand({
+        mode: "resume",
+        sessionId: "00000000-0000-4000-8000-000000000000",
+        skipPermissions: true,
+      }),
+    ).toBe("grok --resume 00000000-0000-4000-8000-000000000000 --always-approve");
+  });
+});
 
 describe("isOpencodeSessionId", () => {
   it("accepts OpenCode session ids", () => {
@@ -150,6 +198,21 @@ describe("buildCodexCommand", () => {
 });
 
 describe("buildAgentLaunchCommand", () => {
+  it("uses Grok Build's native persisted-session command", () => {
+    const task = {
+      ...baseTask,
+      agent: "grok",
+      claudeSkipPermissions: true,
+    } satisfies Task;
+    expect(
+      buildAgentLaunchCommand(task, task.claudeSessionId!, "new", {
+        model: "grok-code-fast-1",
+      }),
+    ).toBe(
+      "grok --session-id 00000000-0000-4000-8000-000000000000 --model grok-code-fast-1 --always-approve",
+    );
+  });
+
   it("uses Claude session-id for ready tasks", () => {
     const task = { ...baseTask, agent: "claude-code" } satisfies Task;
     expect(buildAgentLaunchCommand(task, task.claudeSessionId!, "new")).toBe(
@@ -194,6 +257,26 @@ describe("buildAgentLaunchCommand", () => {
 });
 
 describe("agentLaunchMode", () => {
+  it("creates a preassigned Grok session once, then always resumes it", () => {
+    expect(agentLaunchMode({ ...baseTask, agent: "grok", status: "ready" } satisfies Task)).toBe(
+      "new",
+    );
+    expect(
+      agentLaunchMode({ ...baseTask, agent: "grok", status: "running" } satisfies Task),
+    ).toBe("resume");
+    expect(
+      agentLaunchMode({ ...baseTask, agent: "grok", status: "finished" } satisfies Task),
+    ).toBe("resume");
+    expect(
+      agentLaunchMode({
+        ...baseTask,
+        agent: "grok",
+        status: "ready",
+        claudeSessionId: null,
+      } satisfies Task),
+    ).toBe("new");
+  });
+
   it("resumes Codex only after a session id is known and the task has started", () => {
     expect(
       agentLaunchMode({ ...baseTask, agent: "codex", status: "ready" } satisfies Task),
@@ -243,6 +326,17 @@ describe("agentLaunchMode", () => {
   });
 });
 
+describe("agentRequiresPreassignedSessionId", () => {
+  it("preassigns stable IDs for Grok Build managed sessions", () => {
+    expect(agentRequiresPreassignedSessionId("grok")).toBe(true);
+  });
+
+  it("waits for the task row before Grok consumes its first session ID", () => {
+    expect(agentRequiresPersistedTaskBeforeSpawn("grok")).toBe(true);
+    expect(agentRequiresPersistedTaskBeforeSpawn("claude-code")).toBe(false);
+  });
+});
+
 describe("isAgentResumeCommand", () => {
   it("detects resume launches for each supported agent", () => {
     expect(
@@ -263,6 +357,18 @@ describe("isAgentResumeCommand", () => {
       ),
     ).toBe(true);
     expect(isAgentResumeCommand("codex", "codex --enable hooks")).toBe(false);
+    expect(
+      isAgentResumeCommand(
+        "grok",
+        "grok --resume 00000000-0000-4000-8000-000000000000 --always-approve",
+      ),
+    ).toBe(true);
+    expect(
+      isAgentResumeCommand(
+        "grok",
+        "grok --session-id 00000000-0000-4000-8000-000000000000",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -285,6 +391,18 @@ describe("shouldInjectInitialInput", () => {
 });
 
 describe("buildFreshAgentLaunchCommand", () => {
+  it("falls back to a fresh Grok Build session with a new fixed UUID", () => {
+    const task = {
+      ...baseTask,
+      agent: "grok",
+      status: "running",
+      claudeSkipPermissions: true,
+    } satisfies Task;
+    expect(buildFreshAgentLaunchCommand(task, "11111111-1111-4111-8111-111111111111")).toBe(
+      "grok --session-id 11111111-1111-4111-8111-111111111111 --always-approve",
+    );
+  });
+
   it("falls back to a fresh Codex session without resume", () => {
     const task = {
       ...baseTask,

@@ -4,7 +4,11 @@ import type { ScopedProject } from "~/lib/scoped-project";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import { agentSupportsSkipPermissions } from "~/shared/agents";
 import { newClientId } from "~/shared/client-id";
-import { newSessionId } from "~/lib/agent-command";
+import {
+  agentRequiresPersistedTaskBeforeSpawn,
+  agentRequiresPreassignedSessionId,
+  newSessionId,
+} from "~/lib/agent-command";
 import { buildOptimisticTask } from "~/lib/optimistic-task";
 import { commandForTask } from "~/lib/terminal-store";
 import { getElectron } from "~/lib/electron";
@@ -146,6 +150,15 @@ export async function prepareSessionWarmSlot(input: {
 }): Promise<SessionWarmSlot | null> {
   const electron = getElectron();
   if (!electron || !input.project.path) return null;
+  // Grok consumes --session-id and emits SessionStart while its TUI boots. A
+  // warm PTY starts before the task row exists, so the hook cannot durably mark
+  // that UUID as launched; claiming the slot later could then retry the
+  // create-only ID. Keep Grok on the cold path until warm slots persist their
+  // task identity before spawning.
+  if (agentRequiresPersistedTaskBeforeSpawn(input.payload.agent)) {
+    await discardSessionWarmSlotQuiet();
+    return null;
+  }
   if (await isDockerSandboxRuntime(electron)) {
     await discardSessionWarmSlotQuiet();
     return null;
@@ -160,8 +173,7 @@ export async function prepareSessionWarmSlot(input: {
     await discardSessionWarmSlotQuiet();
     if (generation !== warmGeneration) return null;
 
-    const usesPersistedSession =
-      input.payload.agent === "claude-code" || input.payload.agent === "cursor-cli";
+    const usesPersistedSession = agentRequiresPreassignedSessionId(input.payload.agent);
     const claudeSessionId = usesPersistedSession ? newSessionId() : null;
     const clientTaskId = newClientId("t");
     const draftTask = buildDraftTask(

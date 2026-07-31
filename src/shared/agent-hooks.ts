@@ -1,4 +1,6 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import { writeOpencodeMissionControlPlugin } from "./opencode-mission-control-plugin";
 import { readJsonSettingsFile, writeJsonSettingsFile } from "./json-settings-file";
 
@@ -23,9 +25,10 @@ type HooksFile = {
 
 type AgentHookSpec = {
   configPath: string[];
+  configRoot?: "project" | "grok-home";
   endpointSlug: string;
   events: HookEvent[];
-  style?: "claude" | "cursor";
+  style?: "claude" | "cursor" | "grok";
   removeManagedEvents?: string[];
 };
 
@@ -33,6 +36,32 @@ type HookCommand = {
   command: string;
   shell?: "powershell";
 };
+
+const GROK_POWERSHELL_BRIDGE = `param(
+  [Parameter(Mandatory = $true, Position = 0)][string]$EndpointSlug,
+  [Parameter(Mandatory = $true, Position = 1)][string]$HookEvent
+)
+
+$ErrorActionPreference = "SilentlyContinue"
+if ([string]::IsNullOrWhiteSpace($env:MC_TASK_ID) -or [string]::IsNullOrWhiteSpace($env:MC_API_URL)) {
+  exit 0
+}
+
+try {
+  $payload = [Console]::In.ReadToEnd()
+  $taskId = [System.Uri]::EscapeDataString($env:MC_TASK_ID)
+  $eventName = [System.Uri]::EscapeDataString($HookEvent)
+  $baseUrl = $env:MC_API_URL.TrimEnd("/")
+  $url = "{0}/api/hooks/{1}?taskId={2}&hookEvent={3}" -f $baseUrl, $EndpointSlug, $taskId, $eventName
+  $headers = @{
+    Authorization = "Bearer $($env:MC_API_TOKEN)"
+    "X-Mission-Control-Runtime" = "electron-local"
+  }
+  Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop | Out-Null
+} catch {}
+
+exit 0
+`;
 
 const AGENT_HOOKS: Record<string, AgentHookSpec> = {
   "claude-code": {
@@ -75,6 +104,24 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
       { event: "PermissionRequest" },
     ],
   },
+  grok: {
+    configPath: ["hooks", "mission-control.json"],
+    configRoot: "grok-home",
+    endpointSlug: "grok",
+    style: "grok",
+    events: [
+      { event: "UserPromptSubmit" },
+      { event: "Stop" },
+      { event: "StopFailure" },
+      { event: "SessionStart" },
+      { event: "SessionEnd" },
+      { event: "Notification", matcher: "permission_prompt" },
+      { event: "PreToolUse", matcher: "ask_user_question" },
+      { event: "PostToolUse", matcher: "ask_user_question" },
+      { event: "SubagentStart" },
+      { event: "SubagentStop" },
+    ],
+  },
   "cursor-cli": {
     configPath: [".cursor", "hooks.json"],
     endpointSlug: "cursor",
@@ -99,8 +146,9 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
 // meaningful result (a passing test, a landed commit) whenever it lands within
 // the window of a routine neutral edit, so throttling lives server-side instead
 // (hooks.controller `allowNeutralToolReact`), where the result is classified and
-// only the neutral "agent is working" signal is rate-capped. Claude Code only —
-// no other supported agent exposes PostToolUse.
+// only the neutral "agent is working" signal is rate-capped. This remains
+// Claude-only because the pet's current tool classification is tuned to
+// Claude's tool and result vocabulary.
 const PET_TOOL_HOOK: HookEvent = {
   event: "PostToolUse",
   matcher: "Bash|Write|Edit",
@@ -109,17 +157,19 @@ const PET_TOOL_HOOK: HookEvent = {
 function buildPosixHookCommand(
   endpointSlug: string,
   event: string,
-  style: "claude" | "cursor",
+  style: "claude" | "cursor" | "grok",
   injectContext: boolean,
 ): string {
   // Read stdin (the agent's hook payload JSON) and forward to Mission Control.
   // Fail-soft: never block the user's session if MC is down.
-  const url = `"$MC_API_URL/api/hooks/${endpointSlug}?taskId=$MC_TASK_ID&hookEvent=${encodeURIComponent(event)}"`;
+  const apiUrl = "${MC_API_URL:-}";
+  const taskId = "${MC_TASK_ID:-}";
+  const url = `"${apiUrl}/api/hooks/${endpointSlug}?taskId=${taskId}&hookEvent=${encodeURIComponent(event)}"`;
   if (style === "cursor") {
     return (
-      'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then printf \'{"continue":true}\\n\'; exit 0; fi; ' +
+      'if [ -z "${MC_TASK_ID:-}" ] || [ -z "${MC_API_URL:-}" ]; then printf \'{"continue":true}\\n\'; exit 0; fi; ' +
       "cat | curl -sS -m 3 -X POST " +
-      '-H "Authorization: Bearer $MC_API_TOKEN" ' +
+      '-H "Authorization: Bearer ${MC_API_TOKEN:-}" ' +
       '-H "X-Mission-Control-Runtime: electron-local" ' +
       '-H "Content-Type: application/json" ' +
       `--data-binary @- ${url} >/dev/null 2>&1 || true; ` +
@@ -131,9 +181,9 @@ function buildPosixHookCommand(
   // swallowed, so a slow/down server never blocks or faults the turn.
   const redirect = injectContext ? "2>/dev/null || true" : ">/dev/null 2>&1 || true";
   return (
-    'if [ -z "$MC_TASK_ID" ] || [ -z "$MC_API_URL" ]; then exit 0; fi; ' +
+    'if [ -z "${MC_TASK_ID:-}" ] || [ -z "${MC_API_URL:-}" ]; then exit 0; fi; ' +
     "curl -sS -m 3 -X POST " +
-    '-H "Authorization: Bearer $MC_API_TOKEN" ' +
+    '-H "Authorization: Bearer ${MC_API_TOKEN:-}" ' +
     '-H "X-Mission-Control-Runtime: electron-local" ' +
     '-H "Content-Type: application/json" ' +
     "--data-binary @- " +
@@ -145,7 +195,7 @@ function buildPosixHookCommand(
 function buildPowerShellHookCommand(
   endpointSlug: string,
   event: string,
-  style: "claude" | "cursor",
+  style: "claude" | "cursor" | "grok",
   injectContext: boolean,
 ): string {
   const eventParam = encodeURIComponent(event);
@@ -175,11 +225,17 @@ function buildPowerShellHookCommand(
 function buildHookCommand(
   endpointSlug: string,
   event: string,
-  style: "claude" | "cursor",
+  style: "claude" | "cursor" | "grok",
   platform: NodeJS.Platform,
   injectContext: boolean,
+  grokPowerShellBridge?: string,
 ): HookCommand {
-  if (platform === "win32" && style === "claude") {
+  if (platform === "win32" && style === "grok" && grokPowerShellBridge) {
+    return {
+      command: `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${grokPowerShellBridge}" ${endpointSlug} ${event}`,
+    };
+  }
+  if (platform === "win32" && style !== "cursor") {
     return {
       command: buildPowerShellHookCommand(endpointSlug, event, style, injectContext),
       shell: "powershell",
@@ -188,9 +244,20 @@ function buildHookCommand(
   return { command: buildPosixHookCommand(endpointSlug, event, style, injectContext) };
 }
 
+function writeGrokPowerShellBridge(hooksDir: string): string | null {
+  const file = path.join(hooksDir, "mission-control-hook.ps1");
+  try {
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(file, GROK_POWERSHELL_BRIDGE, "utf8");
+    return file;
+  } catch {
+    return null;
+  }
+}
+
 function buildManagedGroup(
   hookCommand: HookCommand,
-  style: "claude" | "cursor",
+  style: "claude" | "cursor" | "grok",
   matcher?: string
 ): HookGroup {
   if (style === "cursor") {
@@ -245,7 +312,7 @@ export function installAgentHooks(
   agent: string | undefined,
   cwd: string,
   platform: NodeJS.Platform = process.platform,
-  opts?: { petEnabled?: boolean }
+  opts?: { petEnabled?: boolean; grokHome?: string }
 ): void {
   if (!agent) return;
   if (agent === "opencode") {
@@ -255,12 +322,24 @@ export function installAgentHooks(
   const spec = AGENT_HOOKS[agent];
   if (!spec) return;
 
-  const file = path.join(cwd, ...spec.configPath);
+  const configuredGrokHome = opts?.grokHome?.trim() || process.env.GROK_HOME?.trim();
+  const root =
+    spec.configRoot === "grok-home"
+      ? configuredGrokHome
+        ? path.resolve(cwd, configuredGrokHome)
+        : path.join(os.homedir(), ".grok")
+      : cwd;
+  const file = path.join(root, ...spec.configPath);
 
   const settings = readJsonSettingsFile<HooksFile>(file);
   if (settings === null) return; // read failed (not just missing) — don't clobber
 
   const style = spec.style ?? "claude";
+  const grokPowerShellBridge =
+    platform === "win32" && style === "grok"
+      ? writeGrokPowerShellBridge(path.dirname(file))
+      : undefined;
+  if (platform === "win32" && style === "grok" && !grokPowerShellBridge) return;
   if (style === "cursor") {
     settings.version = 1;
   }
@@ -284,6 +363,7 @@ export function installAgentHooks(
       style,
       platform,
       injectContext ?? false,
+      grokPowerShellBridge ?? undefined,
     );
     const groups = (hooks[event] ??= []);
     if (!strippedEvents.has(event)) {

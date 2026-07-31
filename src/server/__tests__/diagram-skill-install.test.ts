@@ -48,7 +48,7 @@ describe("diagram skill install API", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           projectPath,
-          harnesses: { claude: true, codex: true, cursor: true },
+          harnesses: { claude: true, codex: true, grok: true, cursor: true },
         }),
       }),
     );
@@ -58,16 +58,18 @@ describe("diagram skill install API", () => {
       result: {
         claudeInstalled: boolean;
         codexInstalled: boolean;
+        grokInstalled: boolean;
         cursorInstalled: boolean;
       };
     };
     expect(body.result).toEqual({
       claudeInstalled: true,
       codexInstalled: true,
+      grokInstalled: true,
       cursorInstalled: true,
     });
 
-    for (const harness of ["claude", "codex", "cursor"] as const) {
+    for (const harness of ["claude", "codex", "grok", "cursor"] as const) {
       const segments = DIAGRAM_SKILL_INSTALL_TARGETS[harness].segments;
       const skillFile = path.join(projectPath, ...segments, "SKILL.md");
       expect(fs.existsSync(skillFile)).toBe(true);
@@ -89,7 +91,7 @@ describe("diagram skill install API", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           projectPath,
-          harnesses: { claude: true, codex: false, cursor: false },
+          harnesses: { claude: true, codex: false, grok: false, cursor: false },
         }),
       }),
     );
@@ -101,7 +103,12 @@ describe("diagram skill install API", () => {
     );
     expect(res?.status).toBe(200);
     await expect(res?.json()).resolves.toEqual({
-      installed: { claudeInstalled: true, codexInstalled: false, cursorInstalled: false },
+      installed: {
+        claudeInstalled: true,
+        codexInstalled: false,
+        grokInstalled: false,
+        cursorInstalled: false,
+      },
     });
   });
 });

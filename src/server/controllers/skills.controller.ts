@@ -10,7 +10,17 @@ import {
 import { handleDomainError, json, jsonError, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST } from "~/shared/http-status";
 
-const harnessSelectionBody = z
+const diagramHarnessSelectionBody = z
+  .object({
+    claude: z.boolean().optional(),
+    codex: z.boolean().optional(),
+    grok: z.boolean().optional(),
+    cursor: z.boolean().optional(),
+  })
+  .optional()
+  .default({});
+
+const shipHarnessSelectionBody = z
   .object({
     claude: z.boolean().optional(),
     codex: z.boolean().optional(),
@@ -21,12 +31,12 @@ const harnessSelectionBody = z
 
 const diagramInstallBody = z.object({
   projectPath: z.string().min(1, "projectPath is required"),
-  harnesses: harnessSelectionBody,
+  harnesses: diagramHarnessSelectionBody,
 });
 
 const shipInstallBody = z.object({
   projectPath: z.string().min(1, "projectPath is required"),
-  harnesses: harnessSelectionBody,
+  harnesses: shipHarnessSelectionBody,
 });
 
 export function diagramInstalled(url: URL): Response {
@@ -43,6 +53,7 @@ export async function installDiagram(request: Request): Promise<Response> {
       harnesses: {
         claude: !!parsed.data.harnesses?.claude,
         codex: !!parsed.data.harnesses?.codex,
+        grok: !!parsed.data.harnesses?.grok,
         cursor: !!parsed.data.harnesses?.cursor,
       },
     });

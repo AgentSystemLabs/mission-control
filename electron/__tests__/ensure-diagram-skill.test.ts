@@ -29,4 +29,15 @@ describe("ensureDiagramSkillForAgent", () => {
 
     expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8")).toBe("custom skill marker");
   });
+
+  it("installs the bundled diagram skill in Grok Build's native project folder", () => {
+    const appPath = process.cwd();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-ensure-diagram-grok-"));
+
+    ensureDiagramSkillForAgent(appPath, cwd, "grok");
+
+    const skill = path.join(cwd, ".grok", "skills", "diagram", "SKILL.md");
+    expect(fs.existsSync(skill)).toBe(true);
+    expect(fs.readFileSync(skill, "utf8")).toContain("POST $MC_API_URL/api/diagram");
+  });
 });

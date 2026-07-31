@@ -1,14 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../claude-cli", () => ({
+  runCli: vi.fn(),
+}));
+
 import {
   _resetAgentLatestVersionsCacheForTests,
   getAgentLatestVersions,
 } from "../agent-latest-versions";
+import { runCli } from "../claude-cli";
 
 const fetchMock = vi.fn();
 
 beforeEach(() => {
   _resetAgentLatestVersionsCacheForTests();
   fetchMock.mockReset();
+  vi.mocked(runCli).mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -46,6 +53,68 @@ describe("getAgentLatestVersions", () => {
       latestVersion: null,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(runCli).not.toHaveBeenCalled();
+  });
+
+  it("uses Grok Build's native JSON update check", async () => {
+    vi.mocked(runCli).mockResolvedValueOnce(
+      JSON.stringify({
+        currentVersion: "0.2.117",
+        latestVersion: "0.2.120",
+        updateAvailable: true,
+        error: null,
+      }),
+    );
+
+    const [result] = await getAgentLatestVersions(["grok"]);
+
+    expect(result).toMatchObject({
+      agent: "grok",
+      supported: true,
+      latestVersion: "0.2.120",
+    });
+    expect(runCli).toHaveBeenCalledWith(
+      "grok",
+      ["update", "--check", "--json"],
+      { timeoutMs: 8_000 },
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports Grok Build native-check failures without leaking CLI output", async () => {
+    vi.mocked(runCli)
+      .mockResolvedValueOnce(
+        JSON.stringify({ latestVersion: null, error: "update service unavailable" }),
+      )
+      .mockRejectedValueOnce(new Error("stderr included secret-token-value"));
+
+    const [reported] = await getAgentLatestVersions(["grok"]);
+    const [spawnFailure] = await getAgentLatestVersions(["grok"], { refresh: true });
+
+    expect(reported).toMatchObject({
+      agent: "grok",
+      latestVersion: null,
+      error: "update service unavailable",
+    });
+    expect(spawnFailure).toMatchObject({
+      agent: "grok",
+      latestVersion: null,
+      error: "version check failed",
+    });
+    expect(JSON.stringify(spawnFailure)).not.toContain("secret-token-value");
+  });
+
+  it("rejects malformed Grok Build version-check JSON", async () => {
+    vi.mocked(runCli).mockResolvedValueOnce("not-json");
+
+    const [result] = await getAgentLatestVersions(["grok"]);
+
+    expect(result).toMatchObject({
+      agent: "grok",
+      supported: true,
+      latestVersion: null,
+      error: "version check failed",
+    });
   });
 
   it("serves the cached result on subsequent calls", async () => {

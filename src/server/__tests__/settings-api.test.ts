@@ -132,7 +132,7 @@ describe("settings API", () => {
     expect(response?.status).toBe(200);
     expect(await jsonBody(response!)).toMatchObject({
       agentLauncherConfig: {
-        order: ["claude-code", "codex", "cursor-cli", "opencode"],
+        order: ["claude-code", "codex", "grok", "cursor-cli", "opencode"],
         hidden: [],
       },
     });
@@ -155,7 +155,7 @@ describe("settings API", () => {
 
     expect(update?.status).toBe(200);
     const expected = {
-      order: ["codex", "claude-code", "cursor-cli", "opencode"],
+      order: ["codex", "claude-code", "grok", "cursor-cli", "opencode"],
       hidden: ["opencode"],
     };
     expect(await jsonBody(update!)).toMatchObject({ agentLauncherConfig: expected });
@@ -169,8 +169,8 @@ describe("settings API", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           agentLauncherConfig: {
-            order: ["cursor-cli", "codex", "claude-code", "opencode"],
-            hidden: ["claude-code", "codex", "cursor-cli", "opencode"],
+            order: ["cursor-cli", "codex", "grok", "claude-code", "opencode"],
+            hidden: ["claude-code", "codex", "grok", "cursor-cli", "opencode"],
           },
         }),
       }),

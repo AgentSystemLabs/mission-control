@@ -1,4 +1,9 @@
 export const ASK_USER_QUESTION_TOOL = "AskUserQuestion";
+export const GROK_ASK_USER_QUESTION_TOOL = "ask_user_question";
+
+export function isAskUserQuestionTool(toolName: unknown): boolean {
+  return toolName === ASK_USER_QUESTION_TOOL || toolName === GROK_ASK_USER_QUESTION_TOOL;
+}
 
 // Claude Code's AskUserQuestion accepts at most 4 questions of 4 options each;
 // anything beyond that in a hook payload is malformed and gets dropped.
@@ -53,7 +58,7 @@ function parseQuestion(raw: unknown): AgentQuestion | null {
   return {
     question,
     ...(header ? { header } : {}),
-    multiSelect: q.multiSelect === true,
+    multiSelect: q.multiSelect === true || q.multi_select === true,
     options: options.slice(0, MAX_OPTIONS),
   };
 }

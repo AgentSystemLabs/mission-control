@@ -43,6 +43,18 @@ export const AGENT_REGISTRY: Record<TaskAgent, AgentRegistryEntry> = {
         : "codex --enable hooks",
     titleInvocation: (input) => ({ cmd: "codex", args: ["exec", input] }),
   },
+  grok: {
+    label: "Grok Build",
+    description: "xAI's native coding agent with persisted sessions and lifecycle hooks.",
+    color: "#a3a3a3",
+    glyph: "◎",
+    command: AGENT_CLI_CONFIG.grok.command,
+    uiVisible: true,
+    supportsSkipPermissions: true,
+    skipPermissionsFlag: "--always-approve",
+    startCommand: (opts) => (opts?.skipPermissions ? "grok --always-approve" : "grok"),
+    titleInvocation: (input) => ({ cmd: "grok", args: ["-p", input] }),
+  },
   "cursor-cli": {
     label: "Cursor CLI",
     description: "Cursor's terminal agent. Best for quick inline edits.",

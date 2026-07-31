@@ -18,18 +18,18 @@ describe("normalizeAgentLauncherConfig", () => {
       order: ["codex", "not-an-agent", "codex", "claude-code"],
       hidden: ["nope", "opencode", "opencode"],
     });
-    expect(result.order).toEqual(["codex", "claude-code", "cursor-cli", "opencode"]);
+    expect(result.order).toEqual(["codex", "claude-code", "grok", "cursor-cli", "opencode"]);
     expect(result.hidden).toEqual(["opencode"]);
   });
 
   it("appends agents missing from order in default order", () => {
     const result = normalizeAgentLauncherConfig({ order: ["opencode"], hidden: [] });
-    expect(result.order).toEqual(["opencode", "claude-code", "codex", "cursor-cli"]);
+    expect(result.order).toEqual(["opencode", "claude-code", "codex", "grok", "cursor-cli"]);
   });
 
   it("keeps at least one agent visible when everything is hidden", () => {
     const result = normalizeAgentLauncherConfig({
-      order: ["cursor-cli", "codex", "claude-code", "opencode"],
+      order: ["cursor-cli", "codex", "grok", "claude-code", "opencode"],
       hidden: [...TASK_AGENTS],
     });
     expect(result.hidden).not.toContain("cursor-cli");
@@ -47,10 +47,10 @@ describe("visibleLauncherAgents", () => {
   it("filters hidden agents preserving order", () => {
     expect(
       visibleLauncherAgents({
-        order: ["codex", "claude-code", "cursor-cli", "opencode"],
+        order: ["codex", "claude-code", "grok", "cursor-cli", "opencode"],
         hidden: ["claude-code", "opencode"],
       }),
-    ).toEqual(["codex", "cursor-cli"]);
+    ).toEqual(["codex", "grok", "cursor-cli"]);
   });
 
   it("returns everything when nothing is hidden", () => {

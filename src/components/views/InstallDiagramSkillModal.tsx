@@ -40,6 +40,7 @@ export function InstallDiagramSkillModal({
   const [installed, setInstalled] = useState<DiagramSkillInstallResult>({
     claudeInstalled: false,
     codexInstalled: false,
+    grokInstalled: false,
     cursorInstalled: false,
   });
 
@@ -59,6 +60,7 @@ export function InstallDiagramSkillModal({
           setInstalled({
             claudeInstalled: false,
             codexInstalled: false,
+            grokInstalled: false,
             cursorInstalled: false,
           });
         }

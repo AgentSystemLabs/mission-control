@@ -10,6 +10,7 @@ import * as path from "node:path";
 import type { TaskAgent } from "~/shared/domain";
 import { MANAGED_AGENTS } from "~/shared/agent-cli-config";
 import type { AgentAccountStatus } from "~/shared/agent-launchers";
+import { sanitizedProcessEnv } from "../../../electron/shell-env";
 import { readCodexOAuthCredentials } from "./provider-usage/codex-usage";
 import { readCursorUserId } from "./provider-usage/cursor-usage";
 
@@ -18,6 +19,7 @@ export type { AgentAccountStatus } from "~/shared/agent-launchers";
 let homeDir: () => string = os.homedir;
 let codexReader: () => { accountId: string | null } | null = readCodexOAuthCredentials;
 let cursorReader: () => string | null = readCursorUserId;
+let environmentReader: () => NodeJS.ProcessEnv = sanitizedProcessEnv;
 
 function readClaudeAccount(): AgentAccountStatus {
   // ~/.claude.json also holds per-project caches and can be several MB, so no
@@ -59,9 +61,68 @@ function readCursorAccount(): AgentAccountStatus {
   }
 }
 
+function grokAuthPath(env: NodeJS.ProcessEnv): string {
+  const override = env.GROK_AUTH_PATH?.trim();
+  if (override) return override;
+  const grokHome = env.GROK_HOME?.trim() || path.join(homeDir(), ".grok");
+  return path.join(grokHome, "auth.json");
+}
+
+function parseGrokCredential(raw: string): Record<string, unknown> | null {
+  try {
+    const json = JSON.parse(raw) as Record<string, unknown>;
+    const candidates =
+      typeof json.key === "string" || typeof json.refresh_token === "string"
+        ? [json]
+        : Object.values(json).filter(
+            (value): value is Record<string, unknown> => !!value && typeof value === "object",
+          );
+    return (
+      candidates.find(
+        (candidate) =>
+          (typeof candidate.key === "string" && !!candidate.key.trim()) ||
+          (typeof candidate.refresh_token === "string" && !!candidate.refresh_token.trim()),
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function hasGrokApiKey(env: NodeJS.ProcessEnv): boolean {
+  return [env.XAI_API_KEY, env.GROK_CODE_XAI_API_KEY].some(
+    (value) => typeof value === "string" && !!value.trim(),
+  );
+}
+
+function readGrokAccount(): AgentAccountStatus {
+  const env = environmentReader();
+  const inline = env.GROK_AUTH?.trim();
+  let credential = inline ? parseGrokCredential(inline) : null;
+  if (!credential) {
+    try {
+      credential = parseGrokCredential(fs.readFileSync(grokAuthPath(env), "utf8"));
+    } catch {
+      credential = null;
+    }
+  }
+  if (credential) {
+    const identifier = [credential.email, credential.user_id, credential.principal_id].find(
+      (value): value is string => typeof value === "string" && !!value.trim(),
+    );
+    return {
+      agent: "grok",
+      connected: true,
+      identifier: identifier?.trim() ?? null,
+    };
+  }
+  return { agent: "grok", connected: hasGrokApiKey(env), identifier: null };
+}
+
 function readOpenCodeAccount(): AgentAccountStatus {
   try {
-    const dataHome = process.env.XDG_DATA_HOME?.trim() || path.join(homeDir(), ".local", "share");
+    const env = environmentReader();
+    const dataHome = env.XDG_DATA_HOME?.trim() || path.join(homeDir(), ".local", "share");
     const connected = fs.existsSync(path.join(dataHome, "opencode", "auth.json"));
     return { agent: "opencode", connected, identifier: null };
   } catch {
@@ -73,6 +134,7 @@ export function readAgentAccounts(): AgentAccountStatus[] {
   const byAgent: Record<TaskAgent, () => AgentAccountStatus> = {
     "claude-code": readClaudeAccount,
     codex: readCodexAccount,
+    grok: readGrokAccount,
     "cursor-cli": readCursorAccount,
     opencode: readOpenCodeAccount,
   };
@@ -83,8 +145,12 @@ export function _setAgentAccountsDepsForTests(deps: {
   homeDir?: (() => string) | null;
   codexReader?: (() => { accountId: string | null } | null) | null;
   cursorReader?: (() => string | null) | null;
+  environmentReader?: (() => NodeJS.ProcessEnv) | null;
 }): void {
   if (deps.homeDir !== undefined) homeDir = deps.homeDir ?? os.homedir;
   if (deps.codexReader !== undefined) codexReader = deps.codexReader ?? readCodexOAuthCredentials;
   if (deps.cursorReader !== undefined) cursorReader = deps.cursorReader ?? readCursorUserId;
+  if (deps.environmentReader !== undefined) {
+    environmentReader = deps.environmentReader ?? sanitizedProcessEnv;
+  }
 }

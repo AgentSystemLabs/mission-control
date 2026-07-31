@@ -58,7 +58,7 @@ function buildBiasPrompt(
     .slice(0, 30);
   const namePart = names.length ? `Project names: ${names.join(", ")}.` : "";
   const aliasPart = customPhrases.length ? `Custom command phrases: ${customPhrases.join(", ")}.` : "";
-  return `${namePart} ${aliasPart} Agents: claude, codex, cursor, opencode. Commands: open a project, run the project, ship it, open the diff, start a claude or codex agent to do a task.`.trim();
+  return `${namePart} ${aliasPart} Agents: claude, codex, grok, cursor, opencode. Commands: open a project, run the project, ship it, open the diff, or start a named agent to do a task.`.trim();
 }
 
 export function VoiceController() {

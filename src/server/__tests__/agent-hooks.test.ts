@@ -253,12 +253,149 @@ describe("agent hook installation", () => {
       ],
     });
     expect(settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.command).toContain(
-      "/api/hooks/codex?taskId=$MC_TASK_ID&hookEvent=UserPromptSubmit"
+      "/api/hooks/codex?taskId=${MC_TASK_ID:-}&hookEvent=UserPromptSubmit"
     );
     expect(settings.hooks.Stop?.[0]?.hooks?.[0]?.command).toContain("hookEvent=Stop");
     expect(settings.hooks.PermissionRequest?.[0]?.hooks?.[0]?.command).toContain(
       "hookEvent=PermissionRequest"
     );
+  });
+
+  it("registers native Grok Build hooks without enabling Claude compatibility", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+    const grokHome = path.join(cwd, "grok-home");
+    const claudeFile = path.join(cwd, ".claude", "settings.local.json");
+
+    installAgentHooks("grok", cwd, undefined, { grokHome });
+
+    const file = path.join(grokHome, "hooks", "mission-control.json");
+    const settings = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      hooks: Record<
+        string,
+        Array<{
+          matcher?: string;
+          hooks?: Array<{ type?: string; command?: string }>;
+          _mcManaged?: boolean;
+        }>
+      >;
+    };
+
+    expect(fs.existsSync(claudeFile)).toBe(false);
+    expect(fs.existsSync(path.join(cwd, ".grok"))).toBe(false);
+    expect(settings.hooks.UserPromptSubmit?.[0]).toMatchObject({
+      _mcManaged: true,
+      hooks: [{ type: "command" }],
+    });
+    expect(settings.hooks.Notification?.[0]?.matcher).toBe("permission_prompt");
+    expect(settings.hooks.PreToolUse?.[0]?.matcher).toBe("ask_user_question");
+    expect(settings.hooks.PostToolUse?.[0]?.matcher).toBe("ask_user_question");
+    expect(settings.hooks.SubagentStart?.[0]?._mcManaged).toBe(true);
+    expect(settings.hooks.SubagentStop?.[0]?._mcManaged).toBe(true);
+    expect(settings.hooks.StopFailure?.[0]?._mcManaged).toBe(true);
+    expect(settings.hooks.SessionEnd?.[0]?._mcManaged).toBe(true);
+
+    const command = settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.command ?? "";
+    expect(command).toContain("/api/hooks/grok");
+    expect(command).toContain("${MC_TASK_ID:-}");
+    expect(command).toContain("${MC_API_URL:-}");
+    expect(command).toContain("${MC_API_TOKEN:-}");
+  });
+
+  it("leaves Grok user config and sibling native hook files byte-for-byte intact", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+    const grokHome = path.join(cwd, "grok-home");
+    const hooksDir = path.join(grokHome, "hooks");
+    const siblingHook = path.join(hooksDir, "cmux-session.json");
+    const configFile = path.join(grokHome, "config.toml");
+    const siblingContents =
+      '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cmux hooks grok stop"}]}]}}\n';
+    const configContents = "[compat.claude]\nhooks = false\n";
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(siblingHook, siblingContents, "utf8");
+    fs.writeFileSync(configFile, configContents, "utf8");
+
+    installAgentHooks("grok", cwd, undefined, { grokHome });
+
+    expect(fs.readFileSync(siblingHook, "utf8")).toBe(siblingContents);
+    expect(fs.readFileSync(configFile, "utf8")).toBe(configContents);
+  });
+
+  it("resolves a relative GROK_HOME against the session working directory", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-grok-relative-home-"));
+
+    installAgentHooks("grok", cwd, undefined, { grokHome: "state/grok" });
+
+    expect(
+      fs.existsSync(
+        path.join(cwd, "state", "grok", "hooks", "mission-control.json"),
+      ),
+    ).toBe(true);
+  });
+
+  it("uses an owned PowerShell bridge for native Grok hooks on Windows", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+    const grokHome = path.join(cwd, "Grok Build Home");
+
+    installAgentHooks("grok", cwd, "win32", { grokHome });
+
+    const hooksDir = path.join(grokHome, "hooks");
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(hooksDir, "mission-control.json"), "utf8"),
+    ) as {
+      hooks: Record<
+        string,
+        Array<{ hooks?: Array<{ command?: string; shell?: string }> }>
+      >;
+    };
+    const command = settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.command ?? "";
+    const bridge = fs.readFileSync(
+      path.join(hooksDir, "mission-control-hook.ps1"),
+      "utf8",
+    );
+
+    expect(command).toContain("powershell.exe");
+    expect(command).toContain("-File");
+    expect(command).toContain("mission-control-hook.ps1");
+    expect(command).toContain("grok UserPromptSubmit");
+    expect(command).not.toContain("$env:");
+    expect(command).not.toContain("MC_TASK_ID");
+    expect(settings.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.shell).toBeUndefined();
+
+    expect(bridge).toContain("$env:MC_TASK_ID");
+    expect(bridge).toContain("$env:MC_API_URL");
+    expect(bridge).toContain("$env:MC_API_TOKEN");
+    expect(bridge).toContain("/api/hooks/");
+    expect(bridge).toContain("Invoke-RestMethod");
+    expect(bridge).toContain("Out-Null");
+  });
+
+  it("preserves user-authored native Grok Build hooks across reinstalls", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+    const grokHome = path.join(cwd, "grok-home");
+    const file = path.join(grokHome, "hooks", "mission-control.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        hooks: {
+          Stop: [{ hooks: [{ type: "command", command: "bin/user-stop-hook" }] }],
+        },
+      }),
+      "utf8",
+    );
+
+    installAgentHooks("grok", cwd, undefined, { grokHome });
+    installAgentHooks("grok", cwd, undefined, { grokHome });
+
+    const settings = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      hooks: Record<
+        string,
+        Array<{ hooks?: Array<{ command?: string }>; _mcManaged?: boolean }>
+      >;
+    };
+    expect(settings.hooks.Stop).toHaveLength(2);
+    expect(settings.hooks.Stop?.[0]?.hooks?.[0]?.command).toBe("bin/user-stop-hook");
+    expect(settings.hooks.Stop?.[1]?._mcManaged).toBe(true);
   });
 
   it("registers Cursor CLI hooks in Cursor's direct command format", () => {
@@ -277,7 +414,7 @@ describe("agent hook installation", () => {
       _mcManaged: true,
     });
     expect(settings.hooks.beforeSubmitPrompt?.[0]?.command).toContain(
-      "/api/hooks/cursor?taskId=$MC_TASK_ID&hookEvent=beforeSubmitPrompt"
+      "/api/hooks/cursor?taskId=${MC_TASK_ID:-}&hookEvent=beforeSubmitPrompt"
     );
     expect(settings.hooks.beforeSubmitPrompt?.[0]?.command).toContain(
       '{"continue":true}'

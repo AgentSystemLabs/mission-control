@@ -20,6 +20,15 @@ export type AgentCliPathSuffixes =
       linux?: readonly string[];
     };
 
+export type AgentCliLatestVersionCommand = {
+  /** Fixed arguments for the CLI's read-only latest-version check. */
+  args: readonly string[];
+  /** Top-level JSON field containing the latest version string. */
+  versionField: string;
+  /** Optional top-level JSON field containing a provider-reported error. */
+  errorField?: string;
+};
+
 /** Single source of truth for managed agent CLI binaries, versions, and install guidance. */
 export type AgentCliConfig = {
   agent: TaskAgent;
@@ -33,9 +42,16 @@ export type AgentCliConfig = {
   packageUrl: string;
   /** npm package published for this CLI; absent when there is no public registry to query for the latest version. */
   npmPackage?: string;
+  /** Native read-only version check for CLIs that do not publish through npm. */
+  latestVersionCommand?: AgentCliLatestVersionCommand;
   updateCommands: AgentCliUpdateCommands;
   /** Extra directories under the user home dir to prepend on PATH when they exist. */
   homePathSuffixes?: AgentCliPathSuffixes;
+  /** CLI-home environment override and its executable directories. */
+  envHomePath?: {
+    variable: string;
+    pathSuffixes: AgentCliPathSuffixes;
+  };
 };
 
 export const MANAGED_AGENTS = TASK_AGENTS;
@@ -70,6 +86,22 @@ export const AGENT_CLI_CONFIG = {
       default: ["npm install -g @openai/codex@latest"],
       darwin: ["npm install -g @openai/codex@latest", "brew upgrade codex"],
     },
+  }),
+  grok: withResolveAs({
+    agent: "grok",
+    command: "grok",
+    label: "Grok Build",
+    versionScheme: "semver",
+    minimumVersion: "0.2.117",
+    packageUrl: "https://docs.x.ai/build/overview",
+    latestVersionCommand: {
+      args: ["update", "--check", "--json"],
+      versionField: "latestVersion",
+      errorField: "error",
+    },
+    updateCommands: ["grok update"],
+    homePathSuffixes: [".grok/bin"],
+    envHomePath: { variable: "GROK_HOME", pathSuffixes: ["bin"] },
   }),
   "cursor-cli": withResolveAs({
     agent: "cursor-cli",
@@ -172,6 +204,19 @@ export function agentHomePathSuffixes(platform: NodeJS.Platform): readonly strin
     }
   }
   return ordered;
+}
+
+export function agentEnvHomePathSpecs(
+  platform: NodeJS.Platform,
+): readonly { variable: string; suffix: string }[] {
+  const specs: Array<{ variable: string; suffix: string }> = [];
+  for (const config of Object.values(AGENT_CLI_CONFIG) as AgentCliConfig[]) {
+    if (!config.envHomePath) continue;
+    for (const suffix of pathSuffixesForPlatform(config.envHomePath.pathSuffixes, platform)) {
+      specs.push({ variable: config.envHomePath.variable, suffix });
+    }
+  }
+  return specs;
 }
 
 export function resolveAgentCliUpdateCommands(

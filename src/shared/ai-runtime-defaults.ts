@@ -44,6 +44,13 @@ export const AI_RUNTIME_MODEL_OPTIONS: Record<
       description: "Fast iteration model where available",
     },
   ],
+  grok: [
+    {
+      id: "grok-4.5",
+      label: "Grok 4.5",
+      description: "Grok Build's current default coding model",
+    },
+  ],
   "cursor-cli": [
     { id: "auto", label: "Auto", description: "Let Cursor pick the model" },
     { id: "composer-2.5-fast", label: "Composer 2.5 Fast", description: "Cursor default" },
@@ -127,6 +134,11 @@ export function buildAiPrintInvocation(
       return {
         cmd: "codex",
         args: model ? ["exec", "--model", model, prompt] : ["exec", prompt],
+      };
+    case "grok":
+      return {
+        cmd: "grok",
+        args: model ? ["-p", prompt, "--model", model] : ["-p", prompt],
       };
     case "cursor-cli":
       return {

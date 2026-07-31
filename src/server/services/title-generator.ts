@@ -19,7 +19,7 @@ export function isTitleGenerationPrompt(text: string): boolean {
 }
 
 /**
- * Print-mode CLI invocations (claude -p, cursor-agent -p, codex exec) are
+ * Print-mode CLI invocations (claude -p, codex exec, grok -p, cursor-agent -p) are
  * unreliable about emitting strict JSON when the surrounding prompt is large.
  * Asking for a two-line key:value format ("TITLE: …" / "ICON: …") is far more
  * compliant: the model produces it almost verbatim, the parser is trivial, and

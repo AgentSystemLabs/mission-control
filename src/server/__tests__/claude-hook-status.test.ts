@@ -5,6 +5,7 @@ describe("agent hook status mapping", () => {
   it("maps turn lifecycle events", () => {
     expect(mapHookEventToStatus({ hook_event_name: "UserPromptSubmit" })).toBe("running");
     expect(mapHookEventToStatus({ hook_event_name: "Stop" })).toBe("finished");
+    expect(mapHookEventToStatus({ hook_event_name: "StopFailure" })).toBe("interrupted");
     expect(mapHookEventToStatus({ hook_event_name: "UserInterrupt" })).toBe("interrupted");
   });
 
@@ -41,6 +42,15 @@ describe("agent hook status mapping", () => {
       mapHookEventToStatus({ hook_event_name: "PostToolUse", tool_name: "Bash" })
     ).toBeNull();
     expect(mapHookEventToStatus({ hook_event_name: "PreToolUse" })).toBeNull();
+  });
+
+  it("maps Grok Build's native ask-user tool", () => {
+    expect(
+      mapHookEventToStatus({ hook_event_name: "PreToolUse", tool_name: "ask_user_question" }),
+    ).toBe("needs-input");
+    expect(
+      mapHookEventToStatus({ hook_event_name: "PostToolUse", tool_name: "ask_user_question" }),
+    ).toBe("running");
   });
 
   it("only maps permission notifications to needs-input", () => {

@@ -95,6 +95,7 @@ describe("buildSyntheticHookUrl — accepts both hosts", () => {
 describe("hookEndpointSlug", () => {
   it("maps agents to their hook endpoint slug", () => {
     expect(hookEndpointSlug("codex")).toBe("codex");
+    expect(hookEndpointSlug("grok")).toBe("grok");
     expect(hookEndpointSlug("cursor-cli")).toBe("cursor");
     expect(hookEndpointSlug("opencode")).toBe("opencode");
     expect(hookEndpointSlug("claude-code")).toBe("claude");

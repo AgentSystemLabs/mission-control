@@ -257,12 +257,17 @@ function baseCommandForTask(task: Task, model: string | null): string {
   }
 
   let sessionId = task.claudeSessionId;
+  let generatedSessionId = false;
   if (!sessionId && task.agent !== "codex" && task.agent !== "opencode") {
     sessionId = newSessionId();
+    generatedSessionId = true;
     void api.updateTask(task.id, { claudeSessionId: sessionId }).catch(() => undefined);
   }
 
-  const mode = agentLaunchMode({ ...task, claudeSessionId: sessionId });
+  const mode =
+    task.agent === "grok" && generatedSessionId
+      ? "new"
+      : agentLaunchMode({ ...task, claudeSessionId: sessionId });
   if ((task.agent === "codex" || task.agent === "opencode") && mode === "new") {
     return buildAgentLaunchCommand(task, sessionId ?? "", mode, { model });
   }

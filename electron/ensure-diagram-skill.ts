@@ -9,6 +9,7 @@ import {
 const AGENT_HARNESS: Partial<Record<TaskAgent, DiagramSkillHarness>> = {
   "claude-code": "claude",
   codex: "codex",
+  grok: "grok",
   "cursor-cli": "cursor",
 };
 

@@ -89,4 +89,26 @@ describe("session-warm-pool", () => {
     ).resolves.toBeNull();
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  it("does not pre-spawn Grok before its task row can receive SessionStart", async () => {
+    const spawn = vi.fn();
+    vi.stubGlobal("window", {
+      electronAPI: {
+        pty: { spawn, kill: vi.fn() },
+      },
+    });
+
+    await expect(
+      prepareSessionWarmSlot({
+        project: { id: "p1", path: "/Users/dev/project", activeWorktreeId: null } as never,
+        payload: {
+          agent: "grok",
+          branch: "main",
+          skipPermissions: false,
+          bareSession: false,
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(spawn).not.toHaveBeenCalled();
+  });
 });

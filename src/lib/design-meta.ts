@@ -6,6 +6,7 @@ export { STATUS_SELECTION_PRIORITY } from "~/shared/domain";
 export const AGENT_META: Record<TaskAgent, { label: string; color: string; glyph: string; cmd: string }> = {
   "claude-code": metaFor("claude-code"),
   codex: metaFor("codex"),
+  grok: metaFor("grok"),
   "cursor-cli": metaFor("cursor-cli"),
   opencode: metaFor("opencode"),
 };

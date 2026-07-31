@@ -82,7 +82,7 @@ export type SpawnPolicyDeps = {
   // terminals (req.home === true). Agent spawns ignore this list and stay
   // confined to project roots. Resolved through realpath like project roots.
   homeShellRoots?: () => string[];
-  // Resolve a command name (claude/codex/cursor-agent) to an absolute path on PATH.
+  // Resolve a managed agent command name to an absolute path on PATH.
   resolveCommand: (name: string) => string | null;
   // Returns the user's login shell and its argv for the given command.
   resolveShell: () => { shell: string; shellArgs: (cmd: string | undefined) => string[] };
@@ -118,7 +118,10 @@ type AgentArgRule = {
   requiresDangerouslySkipPermissions?: boolean;
   /** When set, string arg values must start with this prefix (OpenCode session ids). */
   valuePrefix?: string;
+  valuePattern?: RegExp;
 };
+
+const SESSION_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, AgentArgRule>>>> = {
   "claude-code": {
@@ -135,6 +138,15 @@ const AGENT_ARG_RULES: Readonly<Record<TaskAgentSpawn, Readonly<Record<string, A
     "--model": { value: {} },
     "--enable": { value: { allowed: ["hooks"] } },
     "--yolo": { value: false, requiresDangerouslySkipPermissions: true },
+  },
+  grok: {
+    "--session-id": { value: {}, valuePattern: SESSION_UUID_PATTERN },
+    "--resume": { value: {}, valuePattern: SESSION_UUID_PATTERN },
+    "--model": { value: {} },
+    "--always-approve": {
+      value: false,
+      requiresDangerouslySkipPermissions: true,
+    },
   },
   "cursor-cli": {
     "--resume": { value: {} },
@@ -249,7 +261,8 @@ function validateAgentArgv(
       value.startsWith("-") ||
       !isAiModelId(value) ||
       (rule.value.allowed && !rule.value.allowed.includes(value)) ||
-      (rule.valuePrefix && !value.startsWith(rule.valuePrefix))
+      (rule.valuePrefix && !value.startsWith(rule.valuePrefix)) ||
+      (rule.valuePattern && !rule.valuePattern.test(value))
     ) {
       throw new SpawnPolicyError(
         "agent-arg-not-allowed",

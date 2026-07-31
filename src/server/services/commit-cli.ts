@@ -104,16 +104,22 @@ export async function resolveCommitCli(): Promise<{
  * has its own non-interactive flag convention:
  *   - claude:        `claude -p <prompt>`
  *   - codex:         `codex exec <prompt>` (non-interactive single-shot)
+ *   - grok:          `grok -p <prompt>`
  *   - cursor-agent:  `cursor-agent -p <prompt>`
  *   - opencode:      `opencode run <prompt>` (non-interactive single-shot)
  * Returns the (cmd, args) tuple that `runCli` then spawns through the login shell.
  */
-function commandFor(cli: CommitCli, prompt: string): { cmd: string; args: string[] } {
+export function commitCliInvocation(
+  cli: CommitCli,
+  prompt: string,
+): { cmd: string; args: string[] } {
   switch (cli) {
     case "claude":
       return { cmd: "claude", args: ["-p", prompt] };
     case "codex":
       return { cmd: "codex", args: ["exec", prompt] };
+    case "grok":
+      return { cmd: "grok", args: ["-p", prompt] };
     case "cursor-agent":
       return { cmd: "cursor-agent", args: ["-p", prompt] };
     case "opencode":
@@ -166,7 +172,7 @@ export async function runCommitCli(
   prompt: string,
   options: { cwd: string },
 ): Promise<string> {
-  const { cmd, args } = commandFor(cli, prompt);
+  const { cmd, args } = commitCliInvocation(cli, prompt);
   const startedAt = Date.now();
   try {
     const out = await runCli(cmd, args, {

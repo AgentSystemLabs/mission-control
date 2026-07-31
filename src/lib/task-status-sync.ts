@@ -3,7 +3,7 @@ import type { TaskAgent } from "~/shared/domain";
 // Codex has lifecycle hooks, but keep an input fallback because older or
 // partially configured Codex builds may not invoke project-local hooks.
 // Hook events can still upgrade later transitions when they arrive.
-const AGENTS_WITH_LIFECYCLE_HOOKS = new Set<TaskAgent>(["claude-code", "opencode"]);
+const AGENTS_WITH_LIFECYCLE_HOOKS = new Set<TaskAgent>(["claude-code", "grok", "opencode"]);
 
 // Cursor CLI installs .cursor/hooks.json (beforeSubmitPrompt/stop/sessionStart),
 // but beforeSubmitPrompt still does not fire in cursor-agent — only stop /

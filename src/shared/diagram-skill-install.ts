@@ -7,6 +7,10 @@ export const DIAGRAM_SKILL_INSTALL_TARGETS = {
     label: "Codex",
     segments: [".codex", "skills", "diagram"] as const,
   },
+  grok: {
+    label: "Grok Build",
+    segments: [".grok", "skills", "diagram"] as const,
+  },
   cursor: {
     label: "Cursor CLI",
     segments: [".cursor", "skills", "diagram"] as const,
@@ -30,11 +34,11 @@ export function diagramSkillInstallPath(harness: DiagramSkillHarness): string {
 }
 
 export function emptyDiagramSkillHarnessSelection(): DiagramSkillHarnessSelection {
-  return { claude: false, codex: false, cursor: false };
+  return { claude: false, codex: false, grok: false, cursor: false };
 }
 
 export function allDiagramSkillHarnessesSelected(): DiagramSkillHarnessSelection {
-  return { claude: true, codex: true, cursor: true };
+  return { claude: true, codex: true, grok: true, cursor: true };
 }
 
 export function hasDiagramSkillHarnessSelection(

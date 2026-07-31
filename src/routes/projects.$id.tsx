@@ -61,7 +61,11 @@ import {
 } from "~/lib/screenshot";
 import { playScreenshotCapture } from "~/lib/screenshot-sound";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
-import { newSessionId } from "~/lib/claude-command";
+import {
+  agentRequiresPersistedTaskBeforeSpawn,
+  agentRequiresPreassignedSessionId,
+  newSessionId,
+} from "~/lib/agent-command";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
 import {
   appendOptimisticTask,
@@ -1542,9 +1546,7 @@ function ProjectPage() {
       }
 
       const isLocal = !!getElectron();
-      const usesPersistedSession =
-        payload.agent === "claude-code" ||
-        payload.agent === "cursor-cli";
+      const usesPersistedSession = agentRequiresPreassignedSessionId(payload.agent);
       const claudeSessionId = usesPersistedSession ? newSessionId() : null;
       const clientTaskId = isLocal ? newClientId("t") : undefined;
       const optimisticTask = buildOptimisticTask({
@@ -1569,7 +1571,10 @@ function ProjectPage() {
       if (opts?.model) {
         setPendingSessionModel(optimisticTask.id, opts.model);
       }
-      terminals.toggle(terminalProject, optimisticTask, { awaitCreate: !isLocal });
+      terminals.toggle(terminalProject, optimisticTask, {
+        awaitCreate:
+          !isLocal || agentRequiresPersistedTaskBeforeSpawn(optimisticTask.agent),
+      });
       // Clone/new-session focus: put the caret in the just-added grid cell so the
       // user can type immediately. focusGridSession retries until the pane mounts
       // (and re-asserts across the awaitingCreate→persisted rebuild), so calling

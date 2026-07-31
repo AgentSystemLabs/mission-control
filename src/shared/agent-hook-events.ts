@@ -1,11 +1,13 @@
 import type { TaskStatus } from "./domain";
-import { ASK_USER_QUESTION_TOOL } from "./agent-questions";
+import { isAskUserQuestionTool } from "./agent-questions";
 
 export const AGENT_HOOK_EVENTS = {
   userPromptSubmit: "UserPromptSubmit",
   stop: "Stop",
+  stopFailure: "StopFailure",
   subagentStart: "SubagentStart",
   subagentStop: "SubagentStop",
+  sessionEnd: "SessionEnd",
   userInterrupt: "UserInterrupt",
   // Synthetic (posted by electron/pty-manager, not the agent): the session's
   // PTY process exited. Named to never collide with Claude Code's real
@@ -41,6 +43,7 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
     case AGENT_HOOK_EVENTS.cursorStop:
     case AGENT_HOOK_EVENTS.cursorAfterAgentResponse:
       return "finished";
+    case AGENT_HOOK_EVENTS.stopFailure:
     case AGENT_HOOK_EVENTS.userInterrupt:
       return "interrupted";
     case AGENT_HOOK_EVENTS.permissionRequest:
@@ -52,14 +55,15 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
     // guard keeps the mapping precise if a user points their own broader
     // PreToolUse/PostToolUse hooks at Mission Control.
     case AGENT_HOOK_EVENTS.preToolUse:
-      return payload.tool_name === ASK_USER_QUESTION_TOOL ? "needs-input" : null;
+      return isAskUserQuestionTool(payload.tool_name) ? "needs-input" : null;
     case AGENT_HOOK_EVENTS.postToolUse:
-      return payload.tool_name === ASK_USER_QUESTION_TOOL ? "running" : null;
+      return isAskUserQuestionTool(payload.tool_name) ? "running" : null;
     // Subagent lifecycle events carry no status of their own — the hooks
     // controller counts them to decide whether a Stop really ends the session
     // (background subagents outlive the foreground turn's Stop).
     case AGENT_HOOK_EVENTS.subagentStart:
     case AGENT_HOOK_EVENTS.subagentStop:
+    case AGENT_HOOK_EVENTS.sessionEnd:
       return null;
     // Synthetic PTY-exit event: the hooks controller maps it conditionally
     // (only tasks still in an active status move to terminated/finished).
@@ -68,6 +72,25 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
     default:
       return null;
   }
+}
+
+const NATIVE_GROK_EVENT_NAMES: Readonly<Record<string, string>> = {
+  session_start: AGENT_HOOK_EVENTS.sessionStart,
+  user_prompt_submit: AGENT_HOOK_EVENTS.userPromptSubmit,
+  pre_tool_use: AGENT_HOOK_EVENTS.preToolUse,
+  post_tool_use: AGENT_HOOK_EVENTS.postToolUse,
+  notification: AGENT_HOOK_EVENTS.notification,
+  subagent_start: AGENT_HOOK_EVENTS.subagentStart,
+  subagent_stop: AGENT_HOOK_EVENTS.subagentStop,
+  stop: AGENT_HOOK_EVENTS.stop,
+  stop_failure: AGENT_HOOK_EVENTS.stopFailure,
+  session_end: AGENT_HOOK_EVENTS.sessionEnd,
+};
+
+/** Translate a native Grok hook event to Mission Control's canonical event vocabulary. */
+export function normalizeNativeGrokHookEvent(event: string | undefined): string {
+  if (!event) return "";
+  return NATIVE_GROK_EVENT_NAMES[event] ?? event;
 }
 
 function isPermissionNotification(payload: AgentHookPayload): boolean {

@@ -130,6 +130,31 @@ describe("commandForTask", () => {
       "codex resume 019d7a0f-432a-7fa1-a821-b7841f983967 --enable hooks",
     );
   });
+
+  it("assigns a UUID when starting a new Grok Build session", () => {
+    const task = {
+      ...baseTask,
+      agent: "grok",
+      claudeSessionId: null,
+    } satisfies Task;
+
+    expect(commandForTask(task)).toMatch(
+      /^grok --session-id [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("resumes a known Grok Build session after its idle process exited", () => {
+    const task = {
+      ...baseTask,
+      agent: "grok",
+      status: "finished",
+      claudeSessionId: "00000000-0000-4000-8000-000000000000",
+    } satisfies Task;
+
+    expect(commandForTask(task)).toBe(
+      "grok --resume 00000000-0000-4000-8000-000000000000",
+    );
+  });
 });
 
 describe("nextActiveTaskId", () => {

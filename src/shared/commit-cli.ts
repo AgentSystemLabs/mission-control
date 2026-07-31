@@ -3,7 +3,7 @@
  * Order in COMMIT_CLI_VALUES doubles as the auto-detection priority used
  * the first time a user clicks Ship and has no preference saved.
  */
-export const COMMIT_CLI_VALUES = ["claude", "codex", "cursor-agent", "opencode"] as const;
+export const COMMIT_CLI_VALUES = ["claude", "codex", "grok", "cursor-agent", "opencode"] as const;
 export type CommitCli = (typeof COMMIT_CLI_VALUES)[number];
 
 export function isCommitCli(value: unknown): value is CommitCli {
@@ -16,6 +16,7 @@ export function isCommitCli(value: unknown): value is CommitCli {
 export const COMMIT_CLI_LABEL: Record<CommitCli, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  grok: "Grok Build",
   "cursor-agent": "Cursor Agent",
   opencode: "OpenCode",
 };
@@ -24,6 +25,7 @@ export const COMMIT_CLI_LABEL: Record<CommitCli, string> = {
 export const COMMIT_CLI_DESCRIPTION: Record<CommitCli, string> = {
   claude: "Spawns `claude -p <prompt>` (Anthropic Claude Code CLI).",
   codex: "Spawns `codex exec <prompt>` (OpenAI Codex CLI, non-interactive).",
+  grok: "Spawns `grok -p <prompt>` (xAI Grok Build CLI).",
   "cursor-agent": "Spawns `cursor-agent -p <prompt>` (Cursor Agent CLI).",
   opencode: "Spawns `opencode run <prompt>` (OpenCode CLI, non-interactive).",
 };

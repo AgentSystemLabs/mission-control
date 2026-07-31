@@ -2,7 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { agentHomePathSuffixes } from "../src/shared/agent-cli-config";
+import {
+  agentEnvHomePathSpecs,
+  agentHomePathSuffixes,
+} from "../src/shared/agent-cli-config";
 
 const SHELL_ENV_START = "__MISSION_CONTROL_ENV_START__";
 const SHELL_ENV_END = "__MISSION_CONTROL_ENV_END__";
@@ -154,6 +157,18 @@ function agentSpecificHomePathCandidates(home: string, platform: NodeJS.Platform
   return agentHomePathSuffixes(platform).map((suffix) => path.join(home, ...suffix.split("/")));
 }
 
+function agentSpecificEnvHomePathCandidates(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): string[] {
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+  return agentEnvHomePathSpecs(platform).flatMap(({ variable, suffix }) => {
+    const root = env[variable]?.trim();
+    if (!root || !pathApi.isAbsolute(root)) return [];
+    return [pathApi.join(root, ...suffix.split("/"))];
+  });
+}
+
 function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<string | undefined> {
   const systemRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
   const localAppData = env.LOCALAPPDATA ?? path.join(home, "AppData", "Local");
@@ -164,6 +179,7 @@ function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<stri
   const pnpmHome = env.PNPM_HOME ?? path.join(localAppData, "pnpm");
 
   return [
+    ...agentSpecificEnvHomePathCandidates(env, "win32"),
     ...agentSpecificHomePathCandidates(home, "win32"),
     path.join(home, ".local", "bin"),
     path.join(home, "bin"),
@@ -202,12 +218,17 @@ function windowsPathCandidates(home: string, env: NodeJS.ProcessEnv): Array<stri
   ];
 }
 
-function posixPathCandidates(home: string, env: NodeJS.ProcessEnv): string[] {
+function posixPathCandidates(
+  home: string,
+  env: NodeJS.ProcessEnv,
+  platform: "darwin" | "linux",
+): string[] {
   const pnpmHome = env.PNPM_HOME ?? path.join(home, ".local", "share", "pnpm");
   const voltaHome = env.VOLTA_HOME ?? path.join(home, ".volta");
 
   return [
-    ...agentSpecificHomePathCandidates(home, os.platform() === "darwin" ? "darwin" : "linux"),
+    ...agentSpecificEnvHomePathCandidates(env, platform),
+    ...agentSpecificHomePathCandidates(home, platform),
     path.join(home, ".local", "bin"),
     path.join(home, "bin"),
     path.join(home, ".cargo", "bin"),
@@ -248,7 +269,9 @@ export function buildUserPath(
   const pathExists = options.pathExists ?? fs.existsSync;
   const delimiter = platform === "win32" ? ";" : path.delimiter;
   const candidates = existingPathEntries(
-    platform === "win32" ? windowsPathCandidates(home, env) : posixPathCandidates(home, env),
+    platform === "win32"
+      ? windowsPathCandidates(home, env)
+      : posixPathCandidates(home, env, platform === "darwin" ? "darwin" : "linux"),
     pathExists
   );
 

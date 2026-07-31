@@ -38,7 +38,7 @@ export function ApiSettingsPage() {
     <>
       <SettingsSection
         title="External API"
-        subtitle="External CLIs (Claude Code / Codex / Cursor CLI) post status updates here."
+        subtitle="Managed and external agent CLIs post lifecycle updates here."
         headingLevel="h1"
       >
         <Field label="Endpoint">

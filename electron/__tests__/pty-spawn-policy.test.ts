@@ -65,6 +65,30 @@ function expectRejected(
 }
 
 describe("resolveSpawnPlan — agent allow-list", () => {
+  it("includes an absolute GROK_HOME bin directory in the GUI PATH", () => {
+    const grokHome = "/opt/custom-grok";
+    const grokBin = path.join(grokHome, "bin");
+    const userPath = buildUserPath("/usr/bin", {
+      platform: "darwin",
+      homeDir: "/Users/me",
+      env: { GROK_HOME: grokHome },
+      pathExists: (entry) => entry === grokBin,
+    });
+
+    expect(userPath.split(":")).toContain(grokBin);
+  });
+
+  it("ignores a relative GROK_HOME when constructing the GUI PATH", () => {
+    const userPath = buildUserPath("/usr/bin", {
+      platform: "darwin",
+      homeDir: "/Users/me",
+      env: { GROK_HOME: "relative/grok-home" },
+      pathExists: () => true,
+    });
+
+    expect(userPath).not.toContain("relative/grok-home");
+  });
+
   it("accepts a claude-code spawn at the project root and returns argv directly", () => {
     const plan = resolveSpawnPlan(spawnReq(), depsFor());
     expect(plan.mode).toBe("agent");
@@ -156,6 +180,51 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     expect(plan.argv).toEqual([]);
   });
 
+  it("passes Grok Build persisted-session and model flags as direct argv", () => {
+    const plan = resolveSpawnPlan(
+      spawnReq({
+        agent: "grok",
+        command:
+          "grok --session-id 00000000-0000-4000-8000-000000000000 --model grok-code-fast-1",
+      }),
+      depsFor(),
+    );
+    if (plan.mode !== "agent") throw new Error("wrong mode");
+    expect(plan.binary).toBe("/usr/local/bin/grok");
+    expect(plan.argv).toEqual([
+      "--session-id",
+      "00000000-0000-4000-8000-000000000000",
+      "--model",
+      "grok-code-fast-1",
+    ]);
+  });
+
+  it("rejects malformed or missing Grok Build session ids", () => {
+    for (const command of [
+      "grok --session-id not-a-uuid",
+      "grok --resume 00000000-0000-0000-0000-00000000000",
+      "grok --session-id",
+      "grok --resume",
+    ]) {
+      expectRejected(
+        spawnReq({ agent: "grok", command }),
+        depsFor(),
+        "agent-arg-not-allowed",
+      );
+    }
+  });
+
+  it("rejects unsupported Grok Build flags and invalid model values", () => {
+    for (const request of [
+      spawnReq({ agent: "grok", command: "grok --config /tmp/other.toml" }),
+      spawnReq({ agent: "grok", command: "grok --trust" }),
+      spawnReq({ agent: "grok", command: "grok", args: ["--model", "invalid model"] }),
+      spawnReq({ agent: "grok", command: "grok --model" }),
+    ]) {
+      expectRejected(request, depsFor(), "agent-arg-not-allowed");
+    }
+  });
+
   it("rejects OpenCode session ids that are not ses_* values", () => {
     expectRejected(
       spawnReq({
@@ -222,6 +291,7 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     for (const req of [
       spawnReq({ agent: "claude-code", command: "claude --dangerously-skip-permissions" }),
       spawnReq({ agent: "codex", command: "codex --yolo" }),
+      spawnReq({ agent: "grok", command: "grok --always-approve" }),
       spawnReq({ agent: "cursor-cli", command: "cursor-agent --force" }),
     ]) {
       expectRejected(req, depsFor(), "agent-arg-not-allowed");
@@ -264,6 +334,19 @@ describe("resolveSpawnPlan — agent allow-list", () => {
           "--enable",
           "hooks",
           "--yolo",
+        ],
+      },
+      {
+        req: spawnReq({
+          agent: "grok",
+          command:
+            "grok --resume 00000000-0000-4000-8000-000000000000 --always-approve",
+          dangerouslySkipPermissions: true,
+        }),
+        argv: [
+          "--resume",
+          "00000000-0000-4000-8000-000000000000",
+          "--always-approve",
         ],
       },
       {
@@ -340,6 +423,7 @@ describe("resolveSpawnPlan — agent allow-list", () => {
     const cases = [
       { agent: "claude-code" as const, command: "claude", model: "sonnet" },
       { agent: "codex" as const, command: "codex", model: "gpt-5.3-codex" },
+      { agent: "grok" as const, command: "grok", model: "grok-4.5" },
       { agent: "cursor-cli" as const, command: "cursor-agent", model: "gpt-5.3-codex" },
       {
         agent: "opencode" as const,

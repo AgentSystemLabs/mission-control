@@ -1,6 +1,10 @@
 import { z } from "zod";
-import { AGENT_HOOK_EVENTS, mapHookEventToStatus } from "~/shared/agent-hook-events";
-import { ASK_USER_QUESTION_TOOL, parseAskUserQuestionInput } from "~/shared/agent-questions";
+import {
+  AGENT_HOOK_EVENTS,
+  mapHookEventToStatus,
+  normalizeNativeGrokHookEvent,
+} from "~/shared/agent-hook-events";
+import { isAskUserQuestionTool, parseAskUserQuestionInput } from "~/shared/agent-questions";
 import { getTask, updateStatus, updateTask } from "../services/tasks";
 import {
   armDeferredFinish,
@@ -35,37 +39,72 @@ import { generateTitleForTask, isTitleGenerationPrompt } from "../services/title
 import { rethrowUnlessDomain, json, jsonError, parseJsonBody } from "./_helpers";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND } from "~/shared/http-status";
 
-const hookPayload = z
+const hookWirePayload = z
   .object({
     hook_event_name: z.string(),
+    hookEventName: z.string(),
     prompt: z.string(),
     notification_type: z.string(),
+    notificationType: z.string(),
     message: z.string(),
     title: z.string(),
     session_id: z.string(),
+    sessionId: z.string(),
     conversation_id: z.string(),
+    conversationId: z.string(),
     tool_name: z.string(),
+    toolName: z.string(),
     tool_use_id: z.string(),
+    toolUseId: z.string(),
     // SubagentStart/SubagentStop: unique id of the subagent instance, used to
     // pair a stop with its start when counting still-active subagents.
     agent_id: z.string(),
+    agentId: z.string(),
+    subagentId: z.string(),
     tool_input: z.unknown(),
+    toolInput: z.unknown(),
     // PostToolUse carries the tool's result; the pet sniffs it for errors.
     tool_response: z.unknown(),
+    toolResponse: z.unknown(),
+    toolResult: z.unknown(),
     // SessionStart's trigger: "startup" | "resume" | "clear" | "compact".
     source: z.string(),
     // Absolute path to the session's JSONL transcript (Claude Code). Stashed per
     // task so auto-distill can read the full session, not just the prompts.
     transcript_path: z.string(),
+    transcriptPath: z.string(),
     // Stop / SubagentStop carry the turn's final assistant text directly. The
     // transcript file can lag the in-memory conversation (and may not be flushed
     // when Stop fires), so the pet remark prefers this over re-reading the file.
     last_assistant_message: z.string(),
+    lastAssistantMessage: z.string(),
     // Synthetic MissionControlSessionEnded (electron/pty-manager): the PTY
     // process's exit code, used to pick finished vs terminated.
     exit_code: z.number(),
+    exitCode: z.number(),
   })
   .partial();
+
+const hookPayload = hookWirePayload.transform((payload) => ({
+  hook_event_name:
+    payload.hook_event_name ?? normalizeNativeGrokHookEvent(payload.hookEventName),
+  prompt: payload.prompt,
+  notification_type: payload.notification_type ?? payload.notificationType,
+  message: payload.message,
+  title: payload.title,
+  session_id: payload.session_id ?? payload.sessionId,
+  conversation_id: payload.conversation_id ?? payload.conversationId,
+  tool_name: payload.tool_name ?? payload.toolName,
+  tool_use_id: payload.tool_use_id ?? payload.toolUseId,
+  agent_id: payload.agent_id ?? payload.agentId ?? payload.subagentId,
+  tool_input: payload.tool_input ?? payload.toolInput,
+  tool_response: payload.tool_response ?? payload.toolResponse ?? payload.toolResult,
+  source: payload.source,
+  transcript_path: payload.transcript_path ?? payload.transcriptPath,
+  last_assistant_message:
+    payload.last_assistant_message ?? payload.lastAssistantMessage,
+  exit_code: payload.exit_code ?? payload.exitCode,
+}));
 
 function hookSessionId(payload: z.infer<typeof hookPayload>): string {
   if (typeof payload.session_id === "string" && payload.session_id.trim()) {
@@ -239,6 +278,41 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   const task = getTask(taskId);
   if (!task) return jsonError(HTTP_NOT_FOUND, "task not found");
 
+  // Grok persists its preassigned UUID during startup, before the first prompt.
+  // Moving the task out of `ready` here records that the create-only
+  // `--session-id` has been consumed; every later launch must use `--resume`.
+  if (task.agent === "grok" && event === AGENT_HOOK_EVENTS.sessionStart) {
+    status = "running";
+  }
+
+  // Grok has no native interrupt hook, so Electron posts a best-effort
+  // UserInterrupt after observing its cancelled-turn marker. Ignore a delayed
+  // marker once the task has already settled instead of rewriting history.
+  if (
+    task.agent === "grok" &&
+    event === AGENT_HOOK_EVENTS.userInterrupt &&
+    task.status !== "running" &&
+    task.status !== "needs-input"
+  ) {
+    return json({ ok: true, ignored: "inactive-session" });
+  }
+
+  // Every managed Grok task starts with a Mission Control-assigned UUID. A
+  // different top-level UUID therefore belongs to another Grok process (for
+  // example, a nested CLI that inherited MC_*). Never let a global hook from
+  // that process replace the task's persisted resume identity. Child subagent
+  // events are intentionally exempt because their own session IDs are paired
+  // through subagentId below.
+  if (
+    task.agent === "grok" &&
+    !isSubagentLifecycleEvent(event) &&
+    incomingSessionId &&
+    task.claudeSessionId &&
+    incomingSessionId !== task.claudeSessionId
+  ) {
+    return json({ ok: true, ignored: "foreign-session" });
+  }
+
   // Stash the transcript path (present on most Claude hooks incl. Stop) so the
   // auto-distill pass can read the full session. Latest wins; stable per
   // session. Subagent lifecycle hooks are excluded: they carry the SUBAGENT's
@@ -270,18 +344,25 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     ensureGraphWatch(task.projectId);
   }
 
-  const sessionResult = await reconcileSessionId(
-    task,
-    taskId,
-    incomingSessionId,
-    event,
-    (id, sessionId) => {
-      updateTask(id, { claudeSessionId: sessionId });
-      // A new session id means a new Claude process; the old session's
-      // subagents died with it, so they must not hold this task on "running".
-      clearSubagentActivity(id);
-    },
-  );
+  // Grok emits SubagentStop from the child actor, so that event carries the
+  // child's session ID. The task URL and subagentId already identify the
+  // parent; reconciling the child ID would reject the stop as foreign and
+  // leave the parent permanently holding an active subagent.
+  const sessionResult =
+    task.agent === "grok" && isSubagentLifecycleEvent(event)
+      ? "ok"
+      : await reconcileSessionId(
+          task,
+          taskId,
+          incomingSessionId,
+          event,
+          (id, sessionId) => {
+            updateTask(id, { claudeSessionId: sessionId });
+            // A new session id means a new agent process; the old session's
+            // subagents died with it, so they must not hold this task on "running".
+            clearSubagentActivity(id);
+          },
+        );
   if (sessionResult === "foreign-session") {
     return json({ ok: true, ignored: "foreign-session" });
   }
@@ -312,6 +393,23 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     if (task.status === "finished" && !staleFinished) {
       updateStatus(taskId, { status: "running" });
       armDeferredFinish(taskId, finishQuietTask);
+    }
+    return json({ ok: true, event });
+  }
+
+  // SessionEnd is Grok's native process-teardown signal. It can arrive even
+  // when SessionStart failed to reach Mission Control, so `ready` also settles:
+  // the create-only UUID has been consumed and the next launch must resume.
+  // Preserve already-settled outcomes such as interrupted or terminated.
+  if (task.agent === "grok" && event === AGENT_HOOK_EVENTS.sessionEnd) {
+    clearSubagentActivity(taskId);
+    if (
+      task.status === "ready" ||
+      task.status === "running" ||
+      task.status === "needs-input"
+    ) {
+      updateStatus(taskId, { status: "finished" });
+      noteTaskFinished(taskId);
     }
     return json({ ok: true, event });
   }
@@ -352,7 +450,8 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   // tool_input is fail-soft: status still flips, just no native overlay.
   if (
     event === AGENT_HOOK_EVENTS.preToolUse &&
-    payload.tool_name === ASK_USER_QUESTION_TOOL
+    isAskUserQuestionTool(payload.tool_name) &&
+    task.agent !== "grok"
   ) {
     const questions = parseAskUserQuestionInput(payload.tool_input);
     if (questions) {
@@ -372,7 +471,7 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   // toggled-off pet stops reacting even for sessions whose hook is still on disk.
   if (
     event === AGENT_HOOK_EVENTS.postToolUse &&
-    payload.tool_name !== ASK_USER_QUESTION_TOOL
+    !isAskUserQuestionTool(payload.tool_name)
   ) {
     // A tool just ran, so the agent is provably working — not blocked on the
     // user. If the task is still parked in needs-input (e.g. an AskUserQuestion
