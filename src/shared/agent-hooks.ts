@@ -174,7 +174,9 @@ function buildPowerShellHookCommand(
     "Invoke-WebRequest -UseBasicParsing -Method Post -Uri $url -Headers $headers " +
     '-Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 3 -ErrorAction Stop';
   // injectContext: stream the response bytes to stdout untouched so Claude can
-  // inject them; otherwise discard the response. Both swallow errors (fail-soft).
+  // inject them; otherwise discard the response. Both swallow errors (fail-soft)
+  // — but `catch {}` leaves `$?` false, which `-Command` reports as exit code 1,
+  // so the script ends in an explicit `exit 0` (the POSIX hook's `|| true`).
   const invoke = injectContext
     ? `try { $r = ${request}; $bytes = $r.RawContentStream.ToArray(); ` +
       "if ($bytes.Length -gt 0) { $stdout = [Console]::OpenStandardOutput(); " +
@@ -190,6 +192,7 @@ function buildPowerShellHookCommand(
     `$url = "$($env:MC_API_URL)/api/hooks/${endpointSlug}?taskId=$taskId&hookEvent=${eventParam}"`,
     '$headers = @{ Authorization = "Bearer $($env:MC_API_TOKEN)"; "X-Mission-Control-Runtime" = "electron-local" }',
     invoke + continueOutput,
+    "exit 0",
   ].join("; ");
 }
 
