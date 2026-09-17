@@ -1,4 +1,5 @@
 import type { ITerminalOptions } from "@xterm/xterm";
+import { isFlatThemeActive } from "~/lib/use-theme";
 import {
   getCurrentTerminalAppearanceOptions,
   terminalAppearanceKey,
@@ -90,12 +91,6 @@ const EMBER_TERMINAL_THEME: TerminalTheme = {
 // The flat theme (data-minimal) carries the warm sepia terminal ramp + bundled
 // JetBrains Mono face and fills the terminal to the pane edge. (In light mode
 // the flat theme uses the standard light ramp — see createTerminalTheme.)
-function isFlatActive(): boolean {
-  return (
-    typeof document !== "undefined" &&
-    document.documentElement.getAttribute("data-minimal") === "true"
-  );
-}
 
 // Transparency is scoped to flat DARK — the glass theme, the only mode whose
 // canvas clear color actually carries alpha. It must stay off everywhere else:
@@ -108,7 +103,7 @@ function isFlatActive(): boolean {
 export function terminalNeedsTransparency(
   colorScheme: TerminalColorScheme = getTerminalColorScheme()
 ): boolean {
-  return colorScheme === "dark" && isFlatActive();
+  return colorScheme === "dark" && isFlatThemeActive();
 }
 
 export function getTerminalColorScheme(): TerminalColorScheme {
@@ -360,7 +355,7 @@ function fitFillingScrollbarGutter(
   term: { cols: number; rows: number } & ScrollPreservingTerminal,
   fit: { fit: () => void },
 ): void {
-  if (!isFlatActive()) {
+  if (!isFlatThemeActive()) {
     fit.fit();
     return;
   }

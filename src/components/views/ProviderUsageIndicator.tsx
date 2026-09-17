@@ -9,6 +9,12 @@ import { OPEN_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useHideableMenu } from "~/lib/hideable-elements";
 import { useProviderUsage, useSettings } from "~/queries";
 import { useSuspendAppDragRegion } from "~/lib/use-dismissable-menu";
+import {
+  USAGE_WARN_PCT,
+  formatClockTime,
+  formatReset,
+  usageColor,
+} from "~/lib/usage-indicator-format";
 
 /**
  * Compact multi-provider usage control.
@@ -104,7 +110,7 @@ export function ProviderUsageIndicator() {
         label: `${rateLimited.displayName.toLowerCase()} rate-limited`,
         color: "var(--status-failed)",
       }
-    : worst && worst.pct >= WARN_PCT
+    : worst && worst.pct >= USAGE_WARN_PCT
       ? {
           label: `${worst.providerName.toLowerCase()} ${worst.pct}%`,
           color: usageColor(worst.pct),
@@ -245,7 +251,7 @@ export function ProviderUsageIndicator() {
                 >
                   {isFetching
                     ? "refreshing…"
-                    : `updated ${timeFmt.format(new Date(data.fetchedAt))}`}
+                    : `updated ${formatClockTime(new Date(data.fetchedAt))}`}
                 </div>
               )}
             </div>
@@ -806,30 +812,6 @@ function WindowRow({ window }: { window: ProviderUsageWindow }) {
       </span>
     </div>
   );
-}
-
-/** Utilization at which a provider is worth naming in the collapsed chip. */
-const WARN_PCT = 70;
-const HOT_PCT = 90;
-
-function usageColor(pct: number): string {
-  if (pct >= HOT_PCT) return "var(--status-failed)";
-  if (pct >= WARN_PCT) return "var(--status-warning)";
-  return "var(--status-done)";
-}
-
-const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: "short" });
-const timeFmt = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-function formatReset(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${weekdayFmt.format(d)} ${timeFmt.format(d)}`;
 }
 
 function buildTooltip(providers: ProviderUsageSnapshot[]): string {

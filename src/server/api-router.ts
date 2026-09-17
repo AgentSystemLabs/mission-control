@@ -9,6 +9,7 @@ import {
   HTTP_INTERNAL_SERVER_ERROR,
   HTTP_NOT_FOUND,
 } from "~/shared/http-status";
+import { getSetCookieHeaders } from "~/shared/set-cookie-headers";
 import * as projectsController from "./controllers/projects.controller";
 import * as sandboxesController from "./controllers/sandboxes.controller";
 import * as worktreesController from "./controllers/worktrees.controller";
@@ -106,14 +107,6 @@ function applyRequestHeaders(
     statusText: response.statusText,
     headers,
   });
-}
-
-function getSetCookieHeaders(headers: Headers): string[] {
-  const withGetSetCookie = headers as Headers & { getSetCookie?: () => string[] };
-  const values = withGetSetCookie.getSetCookie?.();
-  if (values?.length) return values;
-  const value = headers.get("set-cookie");
-  return value ? value.split(/,(?=\s*[^;,]+=)/) : [];
 }
 
 // Routes that intentionally accept anonymous requests after the same-origin

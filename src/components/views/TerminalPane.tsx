@@ -60,7 +60,8 @@ import {
 import { useHotkey } from "~/lib/use-hotkey";
 import { SandboxCloneOfferBanner } from "~/components/views/SandboxCloneOfferBanner";
 import { TerminalZoomControls } from "~/components/views/TerminalZoomControls";
-import { api, resolveApiToken } from "~/lib/api";
+import { api } from "~/lib/api";
+import { resolveMcEnv } from "~/lib/mission-control-env";
 import { remoteStartErrorMessage } from "~/lib/remote-runtime-errors";
 import { useSandboxCloneConfirm } from "~/lib/use-sandbox-clone-confirm";
 import {
@@ -142,19 +143,6 @@ import { AGENT_REGISTRY } from "~/shared/agents";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
 import { toast } from "sonner";
 import { useSuspendAppDragRegion } from "~/lib/use-dismissable-menu";
-
-async function resolveMcEnv(electron: NonNullable<ReturnType<typeof getElectron>>) {
-  try {
-    const [port, token] = await Promise.all([
-      electron.getRuntimePort(),
-      resolveApiToken(),
-    ]);
-    if (!port || !token) return undefined;
-    return { apiUrl: `http://127.0.0.1:${port}`, token };
-  } catch {
-    return undefined;
-  }
-}
 
 export type TerminalDescriptor = {
   taskId: string;

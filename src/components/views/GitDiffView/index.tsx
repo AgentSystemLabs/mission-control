@@ -10,11 +10,8 @@ import {
   useStageFiles,
   useUnstageFiles,
 } from "~/queries/git";
-import {
-  ChangedFilesList,
-  displayPath,
-  type FileSelection,
-} from "./ChangedFilesList";
+import { ChangedFilesList, type FileSelection } from "./ChangedFilesList";
+import { displayFilePath } from "~/lib/file-tree";
 import { DiffPane } from "./DiffPane";
 import { sandboxContainerRoot } from "~/lib/project-fs";
 
@@ -123,7 +120,7 @@ export function GitDiffView({
     selection?.staged ?? false,
     { enabled, sandboxRepoPath },
   );
-  const selectedDisplay = selection ? displayPath(selection.path) : null;
+  const selectedDisplay = selection ? displayFilePath(selection.path) : null;
 
   return (
     <div

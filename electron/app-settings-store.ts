@@ -1,38 +1,14 @@
-import * as path from "node:path";
 import * as fs from "node:fs";
-import Database from "better-sqlite3";
-import { resolveElectronBetterSqlite3NativeBinding } from "./better-sqlite3-native-binding";
+import type Database from "better-sqlite3";
+import { closeQuietly, ensureAppSettingsTable, openMissionControlDb } from "./mission-control-db";
 
 let _db: Database.Database | null = null;
-
-// missioncontrol.db holds the API bearer + sandbox pairing tokens in cleartext;
-// with default perms it is world-readable. Lock it (and WAL/SHM sidecars) to
-// owner-only. Best-effort — a no-op on non-POSIX filesystems.
-function restrictDbFilePermissions(dbPath: string): void {
-  for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    try {
-      if (fs.existsSync(p)) fs.chmodSync(p, 0o600);
-    } catch {
-      /* best effort */
-    }
-  }
-}
 
 function openDb(userDataDir: string): Database.Database {
   if (_db) return _db;
   fs.mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
-  const dbPath = path.join(userDataDir, "missioncontrol.db");
-  const db = new Database(dbPath, {
-    nativeBinding: resolveElectronBetterSqlite3NativeBinding(),
-  });
-  db.pragma("journal_mode = WAL");
-  // Wait (up to 5s) for a concurrent checkpoint/writer instead of throwing
-  // SQLITE_BUSY the instant the server process holds the write lock.
-  db.pragma("busy_timeout = 5000");
-  restrictDbFilePermissions(dbPath);
-  db.exec(
-    `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
-  );
+  const db = openMissionControlDb(userDataDir);
+  ensureAppSettingsTable(db);
   _db = db;
   return db;
 }
@@ -69,12 +45,6 @@ export function deleteAppSetting(userDataDir: string, key: string): void {
 }
 
 export function disposeAppSettingsStore(): void {
-  if (_db) {
-    try {
-      _db.close();
-    } catch {
-      /* best effort */
-    }
-    _db = null;
-  }
+  closeQuietly(_db);
+  _db = null;
 }

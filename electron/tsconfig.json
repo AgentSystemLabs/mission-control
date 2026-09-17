@@ -25,7 +25,10 @@
     "../src/shared/file-read-limits.ts",
     "../src/shared/opencode-mission-control-plugin.ts",
     "../src/lib/keybindings/types.ts",
-    "../src/lib/keybindings/defaults.ts"
+    "../src/lib/keybindings/defaults.ts",
+    "../src/lib/keybindings/key-match.ts",
+    "../src/lib/keybindings/overrides.ts",
+    "../src/shared/sqlite-file-permissions.ts"
   ],
   "exclude": ["../node_modules", "../dist", "../dist-electron"]
 }
