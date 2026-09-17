@@ -142,6 +142,20 @@ function buildPosixHookCommand(
   );
 }
 
+// Windows PowerShell 5.1 (what Claude Code's `shell: "powershell"` may run
+// when pwsh isn't installed) is not UTF-8 by default at either end of this
+// script:
+//   - `[Console]::In` decodes stdin with the console code page (OEM/ANSI), so
+//     the UTF-8 hook payload Claude writes is mis-decoded before we even POST;
+//   - a STRING `-Body` is encoded as ISO-8859-1, which replaces every code
+//     point outside Latin-1 (Cyrillic, CJK, emoji, "–") with `?`.
+// Together they turned a Cyrillic AskUserQuestion into a wall of `?` in the
+// native overlay (issue #130). So: read stdin as raw UTF-8 bytes, POST the
+// body as bytes (sent verbatim on both 5.1 and 7), and for injectContext
+// events pass the server's response bytes straight to stdout instead of
+// decoding them (also ISO-8859-1 on 5.1) and re-serializing via
+// ConvertTo-Json — the same verbatim passthrough `curl --data-binary @-`
+// gives the POSIX hook.
 function buildPowerShellHookCommand(
   endpointSlug: string,
   event: string,
@@ -156,19 +170,29 @@ function buildPowerShellHookCommand(
   const continueOutput =
     style === "cursor" ? '; Write-Output \'{"continue":true}\'' : "";
 
-  // injectContext: emit the JSON response to stdout (re-serialized) so Claude can
-  // inject it; otherwise pipe to Out-Null. Both swallow errors (fail-soft).
+  const request =
+    "Invoke-WebRequest -UseBasicParsing -Method Post -Uri $url -Headers $headers " +
+    '-Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 3 -ErrorAction Stop';
+  // injectContext: stream the response bytes to stdout untouched so Claude can
+  // inject them; otherwise discard the response. Both swallow errors (fail-soft)
+  // — but `catch {}` leaves `$?` false, which `-Command` reports as exit code 1,
+  // so the script ends in an explicit `exit 0` (the POSIX hook's `|| true`).
   const invoke = injectContext
-    ? 'try { $resp = Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop; if ($resp) { $resp | ConvertTo-Json -Depth 10 -Compress } } catch {}'
-    : 'try { Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType "application/json" -TimeoutSec 3 -ErrorAction Stop | Out-Null } catch {}';
+    ? `try { $r = ${request}; $bytes = $r.RawContentStream.ToArray(); ` +
+      "if ($bytes.Length -gt 0) { $stdout = [Console]::OpenStandardOutput(); " +
+      "$stdout.Write($bytes, 0, $bytes.Length); $stdout.Flush() } } catch {}"
+    : `try { ${request} | Out-Null } catch {}`;
 
   return [
     missingEnv,
-    "$payload = [Console]::In.ReadToEnd()",
+    "$ProgressPreference = 'SilentlyContinue'",
+    "$payload = [System.IO.StreamReader]::new([Console]::OpenStandardInput(), [System.Text.UTF8Encoding]::new($false)).ReadToEnd()",
+    "$body = [System.Text.Encoding]::UTF8.GetBytes($payload)",
     "$taskId = [System.Uri]::EscapeDataString($env:MC_TASK_ID)",
     `$url = "$($env:MC_API_URL)/api/hooks/${endpointSlug}?taskId=$taskId&hookEvent=${eventParam}"`,
     '$headers = @{ Authorization = "Bearer $($env:MC_API_TOKEN)"; "X-Mission-Control-Runtime" = "electron-local" }',
     invoke + continueOutput,
+    "exit 0",
   ].join("; ");
 }
 

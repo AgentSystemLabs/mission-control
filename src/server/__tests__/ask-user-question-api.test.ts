@@ -122,6 +122,47 @@ describe("AskUserQuestion hook API", () => {
     expect(stored?.questions[0]?.options).toHaveLength(3);
   });
 
+  it("keeps Cyrillic question text intact from the raw UTF-8 body to the read endpoint", async () => {
+    // Regression for issue #130: the overlay showed every Cyrillic character as
+    // "?". The POSIX hook POSTs the payload verbatim (curl --data-binary), so
+    // the server must decode the raw bytes as UTF-8 end to end.
+    const question = "Какой вариант выбрать?";
+    const header = "Следующий шаг";
+    const label = "Завершить текущую задачу";
+    const description = "Доделать изменённый файл — u1d1–5";
+    const payload = {
+      hook_event_name: "PreToolUse",
+      session_id: SESSION_ID,
+      tool_name: "AskUserQuestion",
+      tool_use_id: TOOL_USE_ID,
+      tool_input: {
+        questions: [
+          { question, header, multiSelect: false, options: [{ label, description }] },
+        ],
+      },
+    };
+
+    const res = await handleApiRequest(
+      authed(`/api/hooks/claude?taskId=${encodeURIComponent(taskId)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: new TextEncoder().encode(JSON.stringify(payload)),
+      }),
+    );
+    expect(res?.status).toBe(200);
+
+    expect(getPendingQuestion(taskId)?.questions).toEqual([
+      { question, header, multiSelect: false, options: [{ label, description }] },
+    ]);
+
+    const read = await getQuestion(taskId);
+    const body = (await read?.json()) as {
+      question: { questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }> }> } | null;
+    };
+    expect(body.question?.questions[0]).toMatchObject({ question, header });
+    expect(body.question?.questions[0]?.options[0]).toEqual({ label, description });
+  });
+
   it("serves the pending question over the read endpoint", async () => {
     await postAskUserQuestion(taskId);
 

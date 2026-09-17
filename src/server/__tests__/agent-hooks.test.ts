@@ -1,8 +1,53 @@
 import { describe, expect, it } from "vitest";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { installAgentHooks } from "../../../electron/agent-hooks";
+
+// Every PowerShell on PATH: pwsh (preinstalled on the CI runners) and, on
+// Windows, Windows PowerShell 5.1 — the host issue #130 was reported against.
+const POWERSHELLS = (process.platform === "win32" ? ["pwsh", "powershell"] : ["pwsh"]).filter(
+  (bin) =>
+    spawnSync(bin, ["-NoProfile", "-NonInteractive", "-Command", "exit 0"], { stdio: "ignore" })
+      .status === 0,
+);
+
+/** Install the Windows Claude hooks into a temp project and look commands up by event. */
+function windowsClaudeHookCommands(): (event: string, matcher?: string) => string {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+  installAgentHooks("claude-code", cwd, "win32");
+  const settings = JSON.parse(
+    fs.readFileSync(path.join(cwd, ".claude", "settings.local.json"), "utf8"),
+  ) as {
+    hooks: Record<string, Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>>;
+  };
+  return (event, matcher) =>
+    settings.hooks[event]?.find((g) => matcher === undefined || g.matcher === matcher)
+      ?.hooks?.[0]?.command ?? "";
+}
+
+function runHook(
+  bin: string,
+  command: string,
+  stdin: Buffer,
+  env: NodeJS.ProcessEnv,
+): Promise<{ code: number | null; stdout: Buffer; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, ["-NoProfile", "-NonInteractive", "-Command", command], { env });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => out.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => err.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      resolve({ code, stdout: Buffer.concat(out), stderr: Buffer.concat(err).toString("utf8") }),
+    );
+    child.stdin.end(stdin);
+  });
+}
 
 describe("agent hook installation", () => {
   it("does not register Claude interrupt hooks", () => {
@@ -223,10 +268,158 @@ describe("agent hook installation", () => {
       type: "command",
       shell: "powershell",
     });
-    expect(hook?.command).toContain("Invoke-RestMethod");
+    expect(hook?.command).toContain("Invoke-WebRequest");
     expect(hook?.command).toContain("$env:MC_API_URL");
     expect(hook?.command).not.toContain("if [");
   });
+
+  it("keeps non-Latin-1 payloads intact through the Windows PowerShell hooks", () => {
+    const commandFor = windowsClaudeHookCommands();
+    const askQuestion = commandFor("PreToolUse", "AskUserQuestion");
+    const userPrompt = commandFor("UserPromptSubmit");
+    expect(askQuestion).not.toBe("");
+    expect(userPrompt).not.toBe("");
+
+    // Windows PowerShell 5.1 decodes stdin with the console code page and sends
+    // a string -Body as ISO-8859-1, so a Cyrillic AskUserQuestion reached the
+    // overlay as "?????" (issue #130). Stdin must be read as UTF-8 bytes and the
+    // body posted as bytes, which both 5.1 and pwsh send verbatim.
+    for (const command of [askQuestion, userPrompt]) {
+      expect(command).toContain(
+        "[System.IO.StreamReader]::new([Console]::OpenStandardInput(), [System.Text.UTF8Encoding]::new($false))",
+      );
+      expect(command).toContain("[System.Text.Encoding]::UTF8.GetBytes($payload)");
+      expect(command).toContain("-Body $body");
+      expect(command).toContain('-ContentType "application/json; charset=utf-8"');
+      expect(command).not.toContain("[Console]::In.ReadToEnd()");
+      expect(command).not.toContain("-Body $payload");
+    }
+
+    // injectContext events hand Claude the server's response bytes untouched
+    // (no ISO-8859-1 decode + ConvertTo-Json round trip); status-only events
+    // discard the response.
+    expect(userPrompt).toContain("$r.RawContentStream.ToArray()");
+    expect(userPrompt).toContain("[Console]::OpenStandardOutput()");
+    expect(userPrompt).not.toContain("ConvertTo-Json");
+    expect(userPrompt).not.toContain("Out-Null");
+    expect(askQuestion).toContain("| Out-Null");
+    expect(askQuestion).not.toContain("OpenStandardOutput");
+  });
+
+  // The substring assertions above can't tell a script that parses from one
+  // that doesn't, so run the generated commands for real against a local server
+  // and compare what crosses the wire in both directions.
+  it.skipIf(POWERSHELLS.length === 0)(
+    "round-trips UTF-8 through the generated PowerShell hooks when executed",
+    async () => {
+      const commandFor = windowsClaudeHookCommands();
+      const payload = Buffer.from(
+        JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_input: { questions: [{ question: "Какой вариант выбрать? — 日本語 🚀" }] },
+        }),
+        "utf8",
+      );
+      const injected = Buffer.from(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "UserPromptSubmit",
+            additionalContext: "Память проекта — 記憶 🧠",
+          },
+        }),
+        "utf8",
+      );
+
+      const received: Array<{ url: URL; headers: http.IncomingHttpHeaders; body: string }> = [];
+      const server = http.createServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", () => {
+          received.push({
+            url: new URL(req.url ?? "", "http://127.0.0.1"),
+            headers: req.headers,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(injected);
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const env = {
+        ...process.env,
+        MC_TASK_ID: "task 1/a",
+        MC_API_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+        MC_API_TOKEN: "test-token",
+      };
+
+      try {
+        for (const bin of POWERSHELLS) {
+          received.length = 0;
+
+          // Status-only event: the payload arrives intact, stdout stays empty.
+          const ask = await runHook(bin, commandFor("PreToolUse", "AskUserQuestion"), payload, env);
+          expect(ask.stderr, bin).toBe("");
+          expect(ask.code, bin).toBe(0);
+          expect(ask.stdout.toString("utf8"), bin).toBe("");
+
+          // injectContext event: the response reaches stdout byte for byte.
+          const prompt = await runHook(bin, commandFor("UserPromptSubmit"), payload, env);
+          expect(prompt.stderr, bin).toBe("");
+          expect(prompt.code, bin).toBe(0);
+          expect(prompt.stdout.toString("utf8"), bin).toBe(injected.toString("utf8"));
+
+          expect(received.map((r) => r.url.searchParams.get("hookEvent")), bin).toEqual([
+            "PreToolUse",
+            "UserPromptSubmit",
+          ]);
+          for (const request of received) {
+            expect(request.url.pathname, bin).toBe("/api/hooks/claude");
+            expect(request.url.searchParams.get("taskId"), bin).toBe("task 1/a");
+            expect(request.headers.authorization, bin).toBe("Bearer test-token");
+            expect(request.headers["content-type"], bin).toBe("application/json; charset=utf-8");
+            expect(request.body, bin).toBe(payload.toString("utf8"));
+          }
+        }
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+    60_000,
+  );
+
+  // `catch {}` swallows the error but leaves `$?` false, which `-Command` turns
+  // into exit code 1 — and Claude reports any non-zero hook exit as a hook
+  // error. The POSIX hook ends in `|| true`; this one must exit 0 as well.
+  it.skipIf(POWERSHELLS.length === 0)(
+    "exits 0 and stays silent when Mission Control is unreachable",
+    async () => {
+      const commandFor = windowsClaudeHookCommands();
+      const server = http.createServer();
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const { port } = server.address() as AddressInfo;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      const env = {
+        ...process.env,
+        MC_TASK_ID: "task-1",
+        MC_API_URL: `http://127.0.0.1:${port}`,
+        MC_API_TOKEN: "test-token",
+      };
+
+      for (const bin of POWERSHELLS) {
+        for (const command of [
+          commandFor("PreToolUse", "AskUserQuestion"),
+          commandFor("UserPromptSubmit"),
+        ]) {
+          const down = await runHook(bin, command, Buffer.from("{}", "utf8"), env);
+          expect(down.stderr, bin).toBe("");
+          expect(down.stdout.toString("utf8"), bin).toBe("");
+          expect(down.code, bin).toBe(0);
+        }
+      }
+    },
+    60_000,
+  );
 
   it("registers Codex lifecycle hooks in Codex's matcher-group format", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
