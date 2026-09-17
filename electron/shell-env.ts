@@ -57,6 +57,31 @@ function userShellFromDirectoryService(): string | null {
   }
 }
 
+// The result becomes SHELL for every child process, so only a real `pwsh.exe`
+// at an absolute location qualifies. A bare `pwsh` lookup would expand through
+// PATHEXT and hand back npm's `pwsh.cmd`/extensionless shims — which lead the
+// augmented PATH, can't be spawned as a PTY shell, and fail isPowerShell() —
+// and a relative PATH entry (`.`, `bin`) would be re-resolved against whatever
+// cwd the eventual spawn uses, i.e. an untrusted repo.
+function resolveWindowsShell(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
+  const pwsh = resolveAllCommandsOnPath("pwsh.exe", env, platform).find((candidate) =>
+    path.isAbsolute(candidate)
+  );
+  if (pwsh) return pwsh;
+
+  // Pin Windows PowerShell to its system location: a bare `powershell.exe` is
+  // searched for in the app and current directories before System32.
+  const systemRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
+  const windowsPowerShell = path.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe"
+  );
+  return isExecutableFile(windowsPowerShell, platform) ? windowsPowerShell : "powershell.exe";
+}
+
 export function resolveShell(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = os.platform(),
@@ -64,9 +89,7 @@ export function resolveShell(
   const envShell = env.SHELL;
   if (envShell && fs.existsSync(envShell)) return envShell;
 
-  if (platform === "win32") {
-    return resolveCommandOnPath("pwsh", env, platform) ?? "powershell.exe";
-  }
+  if (platform === "win32") return resolveWindowsShell(env, platform);
 
   const infoShell = (os.userInfo() as { shell?: string }).shell;
   if (infoShell && fs.existsSync(infoShell)) return infoShell;

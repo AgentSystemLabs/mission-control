@@ -373,7 +373,52 @@ describe("Electron shell environment helpers", () => {
   });
 
   it("falls back to Windows PowerShell when PowerShell 7 is not on PATH", () => {
-    expect(resolveShell({ Path: "" }, "win32")).toBe("powershell.exe");
+    const systemRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-sysroot-"));
+    const windowsPowerShell = path.join(
+      systemRoot,
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    );
+
+    expect(resolveShell({ Path: "", SystemRoot: systemRoot }, "win32")).toBe("powershell.exe");
+
+    touch(windowsPowerShell);
+    expect(resolveShell({ Path: "", SystemRoot: systemRoot }, "win32")).toBe(windowsPowerShell);
+  });
+
+  it("skips pwsh script shims that lead the Windows PATH", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-shell-shim-"));
+    const npmBin = path.join(root, "npm");
+    const pwsh = path.join(root, "PowerShell", "7", "pwsh.exe");
+    touch(path.join(npmBin, "pwsh.cmd"));
+    touch(path.join(npmBin, "pwsh"));
+    touch(pwsh);
+    const env = { PATHEXT: ".COM;.EXE;.BAT;.CMD", SystemRoot: path.join(root, "Windows") };
+
+    expect(
+      resolveShell({ ...env, Path: [npmBin, path.dirname(pwsh)].join(";") }, "win32"),
+    ).toBe(pwsh);
+    expect(resolveShell({ ...env, Path: npmBin }, "win32")).toBe("powershell.exe");
+  });
+
+  it("ignores relative Windows PATH entries when selecting the shell", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mc-win-shell-rel-"));
+    touch(path.join(root, "pwsh.exe"));
+    touch(path.join(root, "bin", "pwsh.exe"));
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    try {
+      expect(
+        resolveShell(
+          { Path: [".", "bin"].join(";"), SystemRoot: path.join(root, "Windows") },
+          "win32",
+        ),
+      ).toBe("powershell.exe");
+    } finally {
+      process.chdir(previousCwd);
+    }
   });
 
   it("canonicalizes Windows PATH casing before passing env to child shells", () => {
