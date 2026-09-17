@@ -1,6 +1,7 @@
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { HTTP_INTERNAL_SERVER_ERROR } from "../shared/http-status";
+import { getSetCookieHeaders } from "../shared/set-cookie-headers";
 
 const LOOPBACK_HOST_FALLBACK = "127.0.0.1";
 const TOKEN_QUERY_REDACT_URL = /([?&])token=[^&#]+/gi;
@@ -106,12 +107,4 @@ async function writeFetchResponse(response: Response, res: ServerResponse) {
     if (value) await flush(value);
   }
   res.end();
-}
-
-function getSetCookieHeaders(headers: Headers): string[] {
-  const withGetSetCookie = headers as Headers & { getSetCookie?: () => string[] };
-  const values = withGetSetCookie.getSetCookie?.();
-  if (values?.length) return values;
-  const value = headers.get("set-cookie");
-  return value ? value.split(/,(?=\s*[^;,]+=)/) : [];
 }

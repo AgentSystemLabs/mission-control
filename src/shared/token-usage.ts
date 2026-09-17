@@ -52,3 +52,13 @@ export const EMPTY_TOTALS: TokenTotals = {
  * installs with thousands of sessions.
  */
 export const PER_SESSION_LIMIT = 200;
+
+/** Every token bucket summed — the single "how much did this cost" number. */
+export function totalTokens(totals: TokenTotals): number {
+  return (
+    totals.inputTokens +
+    totals.outputTokens +
+    totals.cacheCreationTokens +
+    totals.cacheReadTokens
+  );
+}

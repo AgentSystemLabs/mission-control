@@ -10,14 +10,10 @@ import { Icon } from "~/components/ui/Icon";
 import { Kbd } from "~/components/ui/Kbd";
 import { Btn } from "~/components/ui/Btn";
 import { getElectron } from "~/lib/electron";
+import { pathBasename } from "~/lib/path-basename";
 import type { ListFoldersResult } from "~/shared/electron-contract";
 
 type Listing = Extract<ListFoldersResult, { ok: true }>;
-
-/** Last segment of a filesystem path, ignoring trailing separators. */
-function basename(p: string): string {
-  return p.split(/[\\/]/).filter(Boolean).pop() || "";
-}
 
 /** Parent of an absolute path, computed client-side only to seed the first load. */
 function naiveDirname(p: string): string {
@@ -93,7 +89,7 @@ export function FolderBrowser({
   const listRef = useRef<HTMLUListElement>(null);
   const requestSeq = useRef(0);
   // Highlight the just-committed folder on the first listing only.
-  const seedHighlightRef = useRef(initialPath ? basename(initialPath) : null);
+  const seedHighlightRef = useRef(initialPath ? pathBasename(initialPath) : null);
 
   // Mirrors `listing` for the async load closure, which would otherwise read
   // a stale snapshot when deciding whether a failed load leaves us stranded.
@@ -203,7 +199,7 @@ export function FolderBrowser({
   const goUp = () => {
     if (!listing?.parent) return;
     activatedRef.current = true;
-    seedHighlightRef.current = basename(listing.path);
+    seedHighlightRef.current = pathBasename(listing.path);
     void load(listing.parent);
   };
   const creatingRef = useRef(false);

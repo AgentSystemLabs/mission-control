@@ -44,7 +44,7 @@ export function readCachedTheme(): Theme {
 /** The flat theme is the only one that supports light; it's marked by
  *  `data-minimal` on <html> (set by applyThemeStyle / the pre-hydration
  *  script). Painted has no such attribute and stays dark. */
-function isFlatActive(): boolean {
+export function isFlatThemeActive(): boolean {
   return (
     typeof document !== "undefined" &&
     document.documentElement.getAttribute("data-minimal") === "true"
@@ -57,7 +57,7 @@ function applyTheme(theme: Theme): void {
   if (typeof document === "undefined") return;
   document.documentElement.setAttribute(
     "data-theme",
-    isFlatActive() ? theme : "dark",
+    isFlatThemeActive() ? theme : "dark",
   );
   syncWindowBackground();
 }

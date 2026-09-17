@@ -21,13 +21,20 @@ import {
   verifyMemory,
 } from "../services/project-memory";
 import { getTask } from "../services/tasks";
-import { readRecallSettings } from "../services/recall-settings";
 import { markBriefDelivered } from "../services/brief-delivery";
 import { findProjectById } from "../repositories/projects.repo";
-import { forbidden, rethrowUnlessDomain, json, noContent, notFound, parseJsonBody, parseSearchParams } from "./_helpers";
-
-const enumOf = <T extends string>(values: readonly T[]) =>
-  z.enum(values as unknown as [T, ...T[]]);
+import { readRecallSettings } from "../services/recall-settings";
+import {
+  enumOf,
+  forbidden,
+  rethrowUnlessDomain,
+  json,
+  noContent,
+  notFound,
+  parseJsonBody,
+  parseSearchParams,
+} from "./_helpers";
+import { requireRecallOn } from "./_recall";
 
 const tagsSchema = z.array(z.string().trim().min(1).max(MEMORY_TAG_MAX)).max(MEMORY_TAGS_MAX);
 
@@ -81,15 +88,6 @@ const deleteQuery = z.object({
     .optional()
     .transform((v) => v === "true" || v === "1"),
 });
-
-// Refuse the memory API when the Recall master switch is off, so agent-facing
-// MCP tools keep working sessions honest — including sessions provisioned
-// before the toggle flipped, whose MCP config can't be hot-swapped. The task
-// `brief` endpoint stays open: it must hand back an EMPTY brief when disabled
-// so the spawn path strips any stale managed block from disk.
-function requireRecallOn(): Response | null {
-  return readRecallSettings().enabled ? null : forbidden("Recall is disabled");
-}
 
 export async function list(projectId: string, url: URL): Promise<Response> {
   const off = requireRecallOn();

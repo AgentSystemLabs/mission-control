@@ -17,6 +17,7 @@ import {
   useCliAvailability,
 } from "~/lib/cli-availability";
 import { getElectron } from "~/lib/electron";
+import { pathBasename } from "~/lib/path-basename";
 import { useSettings } from "~/queries";
 import { AGENT_REGISTRY } from "~/shared/agents";
 import {
@@ -41,11 +42,6 @@ function FieldLabel({ children }: { children: ReactNode }) {
   // A <span>, not a <label>: nothing here wires htmlFor, and an unassociated
   // <label> misleads AT. The controls carry their own accessible names.
   return <span style={fieldLabelStyle}>{children}</span>;
-}
-
-/** Last segment of a filesystem path, ignoring trailing separators. */
-function basename(p: string): string {
-  return p.split(/[\\/]/).filter(Boolean).pop() || "";
 }
 
 /**
@@ -243,7 +239,7 @@ export function ProjectDialog({
 
   useEffect(() => {
     if (open) {
-      const initialName = basename(initialPath);
+      const initialName = pathBasename(initialPath);
       const seededName = project?.name || (!project ? initialName : "");
       const seededPath = project?.path || (!project ? initialPath : "");
       const seededGroupId = project?.groupId ?? (!project ? initialGroupId : null) ?? "";
@@ -362,14 +358,14 @@ export function ProjectDialog({
   const previewFolder = (p: string) => {
     setPath(p);
     if (!nameTouched) {
-      const base = basename(p);
+      const base = pathBasename(p);
       if (base) setName(base);
     }
   };
 
   const commitFolder = (p: string) => {
     previewFolder(p);
-    folderSnapshotRef.current = { path: p, name: nameTouched ? name : basename(p) };
+    folderSnapshotRef.current = { path: p, name: nameTouched ? name : pathBasename(p) };
     setFolderBrowserOpen(false);
     // Same directory grant an OS-dialog pick records; fire-and-forget.
     void getElectron()?.grantFolder(p);
@@ -461,7 +457,7 @@ export function ProjectDialog({
       // path is granted, not just explicitly committed picks. Idempotent.
       void getElectron()?.grantFolder(path.trim());
       const effectiveGroupId = await resolveGroupIdForSave();
-      const effectiveName = name.trim() || basename(path.trim());
+      const effectiveName = name.trim() || pathBasename(path.trim());
       await onSave({
         name: name.trim() || undefined,
         path,
@@ -506,7 +502,7 @@ export function ProjectDialog({
   // Live identity preview: exactly what the sidebar will render for this
   // project — auto initials from the name until the user overrides them.
   const derivedInitials =
-    (name.trim() || basename(path.trim())).slice(0, 2).toUpperCase() || "AB";
+    (name.trim() || pathBasename(path.trim())).slice(0, 2).toUpperCase() || "AB";
   const currentFormKey = JSON.stringify({
     name,
     path,
@@ -623,7 +619,7 @@ export function ProjectDialog({
             setNameTouched(v.trim().length > 0);
           }}
           inputRef={nameRef}
-          placeholder={basename(path.trim()) || "defaults to folder name"}
+          placeholder={pathBasename(path.trim()) || "defaults to folder name"}
         />
       </div>
       {/* Initials and color only shape the tile when no image covers it, so

@@ -12,6 +12,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "~/components/ui/Icon";
 import { openExternal } from "~/lib/open-external";
+import { rangesOverlap } from "~/lib/markdown-annotations";
 
 const remarkPlugins = [remarkGfm];
 
@@ -231,10 +232,6 @@ function rangeIntersectsNode(range: Range, node: Node): boolean {
   } catch {
     return false;
   }
-}
-
-function rangesOverlap(a: MarkdownLineRange, b: MarkdownLineRange): boolean {
-  return a.lineStart <= b.lineEnd && b.lineStart <= a.lineEnd;
 }
 
 function SelectionCommentButton({

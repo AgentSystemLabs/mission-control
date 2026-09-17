@@ -113,6 +113,19 @@ import {
 } from "~/shared/pull-request-defaults";
 import { json, jsonError, parseJsonBody } from "./_helpers";
 
+const DEFAULT_AI_RUNTIME_HARNESS: AiRuntimeHarness = "claude-code";
+
+const AGENT_SYSTEM_BANNER_DISABLED_KEY = "agent_system_banner_disabled";
+const ACCENT_COLOR_KEY = "accent_color";
+const MOUSE_GRADIENT_DISABLED_KEY = "mouse_gradient_disabled";
+const BATTERY_SAVER_ENABLED_KEY = "battery_saver_enabled";
+const SPELLCHECK_ENABLED_KEY = "spellcheck_enabled";
+const SESSION_FINISH_TOAST_ENABLED_KEY = "session_finish_toast_enabled";
+const SESSION_FINISH_OS_NOTIFICATION_ENABLED_KEY = "session_finish_os_notification_enabled";
+const NOTIFICATION_SOUND_ENABLED_KEY = "notification_sound_enabled";
+const LAUNCH_OVERLAY_ENABLED_KEY = "launch_overlay_enabled";
+const AUTOMATIC_UPDATE_DOWNLOADS_ENABLED_KEY = "automatic_update_downloads_enabled";
+const AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED_KEY = "automatic_update_install_on_quit_enabled";
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
 const DEFAULT_AGENT_SETTING_KEY = "default_agent";
 const DEFAULT_MODEL_SETTING_KEY = "default_model";
@@ -332,7 +345,7 @@ const updateSettingsBody = z
   .partial();
 
 function getAccentColorSetting(): AccentColorId {
-  const value = getSetting("accent_color");
+  const value = getSetting(ACCENT_COLOR_KEY);
   return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
 }
 
@@ -360,71 +373,25 @@ function getCommitCliSetting(): CommitCli | null {
   return isCommitCli(value) ? value : null;
 }
 
-function getDefaultAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(DEFAULT_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
+/** Harness selection stored under `key`, defaulting to Claude Code when unset/unknown. */
+function readHarnessSetting(key: string): AiRuntimeHarness {
+  const value = getSetting(key);
+  return isAiRuntimeHarness(value) ? value : DEFAULT_AI_RUNTIME_HARNESS;
 }
 
-function getDefaultModelSetting(): AiModelId | null {
-  const value = getSetting(DEFAULT_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
+/** Model id stored under `key`; null when unset or not a valid id. */
+function readModelSetting(key: string): AiModelId | null {
+  return normalizeAiModelId(getSetting(key));
 }
 
-function getAnnotationAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(ANNOTATION_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
-}
-
-function getAnnotationModelSetting(): AiModelId | null {
-  const value = getSetting(ANNOTATION_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
-}
-
-function getShipAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(SHIP_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
-}
-
-function getShipModelSetting(): AiModelId | null {
-  const value = getSetting(SHIP_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
-}
-
-function getShipPromptSetting(): string {
-  const value = getSetting(SHIP_PROMPT_SETTING_KEY);
-  return value === null ? DEFAULT_SHIP_PROMPT : normalizeShipPrompt(value);
-}
-
-function getSyncAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(SYNC_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
-}
-
-function getSyncModelSetting(): AiModelId | null {
-  const value = getSetting(SYNC_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
-}
-
-function getSyncPromptSetting(): string {
-  const value = getSetting(SYNC_PROMPT_SETTING_KEY);
-  return value === null ? DEFAULT_SYNC_PROMPT : normalizeSyncPrompt(value);
-}
-
-function getPullRequestAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(PULL_REQUEST_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
-}
-
-function getPullRequestModelSetting(): AiModelId | null {
-  const value = getSetting(PULL_REQUEST_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
-}
-
-function getPullRequestPromptSetting(): string {
-  const value = getSetting(PULL_REQUEST_PROMPT_SETTING_KEY);
-  return value === null
-    ? DEFAULT_PULL_REQUEST_PROMPT
-    : normalizePullRequestPrompt(value);
+/** Prompt text stored under `key`, or `defaultPrompt` when the row was never written. */
+function readPromptSetting(
+  key: string,
+  defaultPrompt: string,
+  normalize: (value: string) => string,
+): string {
+  const value = getSetting(key);
+  return value === null ? defaultPrompt : normalize(value);
 }
 
 function getGitDiffChangedFilesViewSetting() {
@@ -535,7 +502,7 @@ function getShowBackgroundGridSetting(): boolean {
 function settingsPayload() {
   const themeStyle = getThemeStyleSetting();
   return {
-    agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
+    agentSystemBannerDisabled: getBooleanSetting(AGENT_SYSTEM_BANNER_DISABLED_KEY),
     accentColor: getAccentColorSetting(),
     themeStyle,
     surfaceTint: getSurfaceTintSetting(),
@@ -549,29 +516,29 @@ function settingsPayload() {
     // theme picker; localStorage can't, because the renderer's localhost port
     // (and thus its storage origin) can change between launches.
     themeChosen:
-      getSetting("accent_color") !== null ||
+      getSetting(ACCENT_COLOR_KEY) !== null ||
       getSetting(THEME_STYLE_KEY) !== null ||
       getSetting(MINIMAL_THEME_KEY) !== null,
-    mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
+    mouseGradientDisabled: getBooleanSetting(MOUSE_GRADIENT_DISABLED_KEY),
     // On battery, the renderer freezes decorative animations and slows idle
     // polls (see src/lib/power-save.ts). Default on.
-    batterySaverEnabled: getBooleanSetting("battery_saver_enabled", true),
+    batterySaverEnabled: getBooleanSetting(BATTERY_SAVER_ENABLED_KEY, true),
     // Default on: turning spellcheck off frees the Electron spellchecker's
     // dictionary + suggestion memory (~15-20 MB) while composing.
-    spellcheckEnabled: getBooleanSetting("spellcheck_enabled", true),
-    sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
+    spellcheckEnabled: getBooleanSetting(SPELLCHECK_ENABLED_KEY, true),
+    sessionFinishToastEnabled: getBooleanSetting(SESSION_FINISH_TOAST_ENABLED_KEY, true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
-      "session_finish_os_notification_enabled",
+      SESSION_FINISH_OS_NOTIFICATION_ENABLED_KEY,
       false,
     ),
-    notificationSoundEnabled: getBooleanSetting("notification_sound_enabled", true),
-    launchOverlayEnabled: getBooleanSetting("launch_overlay_enabled", false),
+    notificationSoundEnabled: getBooleanSetting(NOTIFICATION_SOUND_ENABLED_KEY, true),
+    launchOverlayEnabled: getBooleanSetting(LAUNCH_OVERLAY_ENABLED_KEY, false),
     automaticUpdateDownloadsEnabled: getBooleanSetting(
-      "automatic_update_downloads_enabled",
+      AUTOMATIC_UPDATE_DOWNLOADS_ENABLED_KEY,
       false,
     ),
     automaticUpdateInstallOnQuitEnabled: getBooleanSetting(
-      "automatic_update_install_on_quit_enabled",
+      AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED_KEY,
       false,
     ),
     // Always on — worktrees graduated from experimental; ignore any stored preference.
@@ -597,19 +564,23 @@ function settingsPayload() {
     interfaceFontScale: getInterfaceFontScaleSetting(),
     sessionHeaderButtons: getSessionHeaderButtonsSetting(),
     headerButtons: getHeaderButtonsSetting(),
-    defaultAgent: getDefaultAgentSetting(),
-    defaultModel: getDefaultModelSetting(),
-    annotationAgent: getAnnotationAgentSetting(),
-    annotationModel: getAnnotationModelSetting(),
-    shipAgent: getShipAgentSetting(),
-    shipModel: getShipModelSetting(),
-    shipPrompt: getShipPromptSetting(),
-    syncAgent: getSyncAgentSetting(),
-    syncModel: getSyncModelSetting(),
-    syncPrompt: getSyncPromptSetting(),
-    pullRequestAgent: getPullRequestAgentSetting(),
-    pullRequestModel: getPullRequestModelSetting(),
-    pullRequestPrompt: getPullRequestPromptSetting(),
+    defaultAgent: readHarnessSetting(DEFAULT_AGENT_SETTING_KEY),
+    defaultModel: readModelSetting(DEFAULT_MODEL_SETTING_KEY),
+    annotationAgent: readHarnessSetting(ANNOTATION_AGENT_SETTING_KEY),
+    annotationModel: readModelSetting(ANNOTATION_MODEL_SETTING_KEY),
+    shipAgent: readHarnessSetting(SHIP_AGENT_SETTING_KEY),
+    shipModel: readModelSetting(SHIP_MODEL_SETTING_KEY),
+    shipPrompt: readPromptSetting(SHIP_PROMPT_SETTING_KEY, DEFAULT_SHIP_PROMPT, normalizeShipPrompt),
+    syncAgent: readHarnessSetting(SYNC_AGENT_SETTING_KEY),
+    syncModel: readModelSetting(SYNC_MODEL_SETTING_KEY),
+    syncPrompt: readPromptSetting(SYNC_PROMPT_SETTING_KEY, DEFAULT_SYNC_PROMPT, normalizeSyncPrompt),
+    pullRequestAgent: readHarnessSetting(PULL_REQUEST_AGENT_SETTING_KEY),
+    pullRequestModel: readModelSetting(PULL_REQUEST_MODEL_SETTING_KEY),
+    pullRequestPrompt: readPromptSetting(
+      PULL_REQUEST_PROMPT_SETTING_KEY,
+      DEFAULT_PULL_REQUEST_PROMPT,
+      normalizePullRequestPrompt,
+    ),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
     // Off by default: usage reaches out to provider APIs using local logins.
     claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
@@ -679,16 +650,22 @@ export function read(): Response {
   return json(settingsPayload());
 }
 
-export async function update(request: Request): Promise<Response> {
-  const parsed = await parseJsonBody(request, updateSettingsBody);
-  if (!parsed.ok) return parsed.response;
-  const body = parsed.data;
-  if (body.agentSystemBannerDisabled !== undefined) {
-    setBooleanSetting("agent_system_banner_disabled", body.agentSystemBannerDisabled);
-  }
-  if (body.accentColor !== undefined) {
-    setSetting("accent_color", body.accentColor);
-  }
+/** Store `value` under `key`, or clear the row when the client sends null. */
+function setOrClearSetting(key: string, value: string | number | null): void {
+  if (value === null) deleteSetting(key);
+  else setSetting(key, String(value));
+}
+
+/** Store `value` as JSON under `key`, or clear the row when the client sends null. */
+function setOrClearJsonSetting(key: string, value: unknown): void {
+  if (value === null) deleteSetting(key);
+  else setSetting(key, JSON.stringify(value));
+}
+
+type UpdateSettingsBody = z.infer<typeof updateSettingsBody>;
+
+function writeThemeSettings(body: UpdateSettingsBody): void {
+  if (body.accentColor !== undefined) setSetting(ACCENT_COLOR_KEY, body.accentColor);
   if (body.minimalTheme !== undefined) {
     // Legacy toggle: on means the flat theme, off means painted. (getThemeStyle
     // -Setting already migrates any stored legacy style to "flat".)
@@ -700,116 +677,103 @@ export async function update(request: Request): Promise<Response> {
     // Keep the legacy boolean in sync so a downgraded build restores the choice.
     setBooleanSetting(MINIMAL_THEME_KEY, body.themeStyle !== "painted");
   }
-  if (body.surfaceTint !== undefined) {
-    setSetting(SURFACE_TINT_KEY, body.surfaceTint);
-  }
+  if (body.surfaceTint !== undefined) setSetting(SURFACE_TINT_KEY, body.surfaceTint);
   if (body.backgroundImage !== undefined) {
-    if (body.backgroundImage === null) {
-      deleteSetting(BACKGROUND_IMAGE_KEY);
-    } else {
-      setSetting(BACKGROUND_IMAGE_KEY, body.backgroundImage);
-    }
+    setOrClearSetting(BACKGROUND_IMAGE_KEY, body.backgroundImage);
+  }
+}
+
+function writeGeneralToggles(body: UpdateSettingsBody): void {
+  if (body.agentSystemBannerDisabled !== undefined) {
+    setBooleanSetting(AGENT_SYSTEM_BANNER_DISABLED_KEY, body.agentSystemBannerDisabled);
   }
   if (body.mouseGradientDisabled !== undefined) {
-    setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
+    setBooleanSetting(MOUSE_GRADIENT_DISABLED_KEY, body.mouseGradientDisabled);
   }
   if (body.batterySaverEnabled !== undefined) {
-    setBooleanSetting("battery_saver_enabled", body.batterySaverEnabled);
+    setBooleanSetting(BATTERY_SAVER_ENABLED_KEY, body.batterySaverEnabled);
   }
   if (body.spellcheckEnabled !== undefined) {
-    setBooleanSetting("spellcheck_enabled", body.spellcheckEnabled);
+    setBooleanSetting(SPELLCHECK_ENABLED_KEY, body.spellcheckEnabled);
   }
   if (body.sessionFinishToastEnabled !== undefined) {
-    setBooleanSetting("session_finish_toast_enabled", body.sessionFinishToastEnabled);
+    setBooleanSetting(SESSION_FINISH_TOAST_ENABLED_KEY, body.sessionFinishToastEnabled);
   }
   if (body.sessionFinishOsNotificationEnabled !== undefined) {
     setBooleanSetting(
-      "session_finish_os_notification_enabled",
+      SESSION_FINISH_OS_NOTIFICATION_ENABLED_KEY,
       body.sessionFinishOsNotificationEnabled,
     );
   }
   if (body.notificationSoundEnabled !== undefined) {
-    setBooleanSetting("notification_sound_enabled", body.notificationSoundEnabled);
+    setBooleanSetting(NOTIFICATION_SOUND_ENABLED_KEY, body.notificationSoundEnabled);
   }
   if (body.launchOverlayEnabled !== undefined) {
-    setBooleanSetting("launch_overlay_enabled", body.launchOverlayEnabled);
+    setBooleanSetting(LAUNCH_OVERLAY_ENABLED_KEY, body.launchOverlayEnabled);
   }
   if (body.automaticUpdateDownloadsEnabled !== undefined) {
-    setBooleanSetting(
-      "automatic_update_downloads_enabled",
-      body.automaticUpdateDownloadsEnabled,
-    );
+    setBooleanSetting(AUTOMATIC_UPDATE_DOWNLOADS_ENABLED_KEY, body.automaticUpdateDownloadsEnabled);
   }
   if (body.automaticUpdateInstallOnQuitEnabled !== undefined) {
     setBooleanSetting(
-      "automatic_update_install_on_quit_enabled",
+      AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED_KEY,
       body.automaticUpdateInstallOnQuitEnabled,
     );
   }
   // worktreesEnabled is always on; ignore writes so old clients can't turn it off.
   // Voice control and native question popups are also always on; their legacy
   // fields remain accepted so older clients can update other settings safely.
+}
+
+function writeChromeVisibility(body: UpdateSettingsBody): void {
+  if (body.showGroupSwitcher !== undefined) {
+    setBooleanSetting(SHOW_GROUP_SWITCHER_KEY, body.showGroupSwitcher);
+  }
+  if (body.showProjectHeaderGroup !== undefined) {
+    setBooleanSetting(SHOW_PROJECT_HEADER_GROUP_KEY, body.showProjectHeaderGroup);
+  }
+  if (body.showBackgroundGrid !== undefined) {
+    setBooleanSetting(SHOW_BACKGROUND_GRID_KEY, body.showBackgroundGrid);
+  }
+}
+
+function writeLayoutPreferences(body: UpdateSettingsBody): void {
   if (body.gitDiffChangedFilesView !== undefined) {
-    if (body.gitDiffChangedFilesView === null) {
-      deleteSetting(GIT_DIFF_CHANGED_FILES_VIEW_KEY);
-    } else {
-      setSetting(GIT_DIFF_CHANGED_FILES_VIEW_KEY, body.gitDiffChangedFilesView);
-    }
+    setOrClearSetting(GIT_DIFF_CHANGED_FILES_VIEW_KEY, body.gitDiffChangedFilesView);
   }
   if (body.gitDiffChangedFilesWidth !== undefined) {
-    if (body.gitDiffChangedFilesWidth === null) {
-      deleteSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY);
-    } else {
-      setSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY, String(body.gitDiffChangedFilesWidth));
-    }
+    setOrClearSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY, body.gitDiffChangedFilesWidth);
   }
   if (body.projectsDashboardView !== undefined) {
-    if (body.projectsDashboardView === null) {
-      deleteSetting(PROJECTS_DASHBOARD_VIEW_KEY);
-    } else {
-      setSetting(PROJECTS_DASHBOARD_VIEW_KEY, body.projectsDashboardView);
-    }
+    setOrClearSetting(PROJECTS_DASHBOARD_VIEW_KEY, body.projectsDashboardView);
   }
   if (body.activeProjectGroup !== undefined) {
-    if (body.activeProjectGroup === null) {
-      deleteSetting(ACTIVE_PROJECT_GROUP_KEY);
-    } else {
-      setSetting(ACTIVE_PROJECT_GROUP_KEY, body.activeProjectGroup);
-    }
+    setOrClearSetting(ACTIVE_PROJECT_GROUP_KEY, body.activeProjectGroup);
   }
   if (body.collapsedProjectGroups !== undefined) {
-    if (body.collapsedProjectGroups === null || body.collapsedProjectGroups.length === 0) {
-      deleteSetting(COLLAPSED_PROJECT_GROUPS_KEY);
-    } else {
-      setSetting(COLLAPSED_PROJECT_GROUPS_KEY, JSON.stringify(body.collapsedProjectGroups));
-    }
+    // An empty list means "nothing collapsed", which is the same as no row.
+    setOrClearJsonSetting(
+      COLLAPSED_PROJECT_GROUPS_KEY,
+      body.collapsedProjectGroups?.length ? body.collapsedProjectGroups : null,
+    );
   }
   if (body.selectedWorktreeByProject !== undefined) {
-    if (body.selectedWorktreeByProject === null) {
-      deleteSetting(SELECTED_WORKTREE_BY_PROJECT_KEY);
-    } else {
-      setSetting(
-        SELECTED_WORKTREE_BY_PROJECT_KEY,
-        JSON.stringify(body.selectedWorktreeByProject),
-      );
-    }
+    setOrClearJsonSetting(SELECTED_WORKTREE_BY_PROJECT_KEY, body.selectedWorktreeByProject);
   }
-  if (body.commitCli !== undefined) {
-    if (body.commitCli === null) {
-      deleteSetting(COMMIT_CLI_SETTING_KEY);
-    } else {
-      setSetting(COMMIT_CLI_SETTING_KEY, body.commitCli);
-    }
+  if (body.sessionHeaderButtons !== undefined) {
+    setSetting(SESSION_HEADER_BUTTONS_KEY, JSON.stringify(body.sessionHeaderButtons));
   }
+  if (body.headerButtons !== undefined) {
+    setSetting(HEADER_BUTTONS_KEY, JSON.stringify(body.headerButtons));
+  }
+}
+
+function writeTypographySettings(body: UpdateSettingsBody): void {
   if (body.terminalZoomLevel !== undefined) {
     setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
   }
   if (body.terminalFontFamily !== undefined) {
-    if (body.terminalFontFamily === null) {
-      deleteSetting(TERMINAL_FONT_FAMILY_KEY);
-    } else {
-      setSetting(TERMINAL_FONT_FAMILY_KEY, body.terminalFontFamily);
-    }
+    setOrClearSetting(TERMINAL_FONT_FAMILY_KEY, body.terminalFontFamily);
   }
   if (body.terminalFontWeight !== undefined) {
     setSetting(TERMINAL_FONT_WEIGHT_KEY, String(body.terminalFontWeight));
@@ -824,76 +788,36 @@ export async function update(request: Request): Promise<Response> {
     setSetting(TERMINAL_LETTER_SPACING_KEY, String(body.terminalLetterSpacing));
   }
   if (body.interfaceFontFamily !== undefined) {
-    if (body.interfaceFontFamily === null) {
-      deleteSetting(INTERFACE_FONT_FAMILY_KEY);
-    } else {
-      setSetting(INTERFACE_FONT_FAMILY_KEY, body.interfaceFontFamily);
-    }
+    setOrClearSetting(INTERFACE_FONT_FAMILY_KEY, body.interfaceFontFamily);
   }
   if (body.interfaceFontScale !== undefined) {
     setSetting(INTERFACE_FONT_SCALE_KEY, String(body.interfaceFontScale));
   }
-  if (body.sessionHeaderButtons !== undefined) {
-    setSetting(SESSION_HEADER_BUTTONS_KEY, JSON.stringify(body.sessionHeaderButtons));
-  }
-  if (body.headerButtons !== undefined) {
-    setSetting(HEADER_BUTTONS_KEY, JSON.stringify(body.headerButtons));
-  }
-  if (body.defaultAgent !== undefined) {
-    setSetting(DEFAULT_AGENT_SETTING_KEY, body.defaultAgent);
-  }
+}
+
+function writeAiRuntimeSettings(body: UpdateSettingsBody): void {
+  if (body.commitCli !== undefined) setOrClearSetting(COMMIT_CLI_SETTING_KEY, body.commitCli);
+  if (body.defaultAgent !== undefined) setSetting(DEFAULT_AGENT_SETTING_KEY, body.defaultAgent);
   if (body.defaultModel !== undefined) {
-    if (body.defaultModel === null) {
-      deleteSetting(DEFAULT_MODEL_SETTING_KEY);
-    } else {
-      setSetting(DEFAULT_MODEL_SETTING_KEY, body.defaultModel);
-    }
+    setOrClearSetting(DEFAULT_MODEL_SETTING_KEY, body.defaultModel);
   }
   if (body.annotationAgent !== undefined) {
     setSetting(ANNOTATION_AGENT_SETTING_KEY, body.annotationAgent);
   }
   if (body.annotationModel !== undefined) {
-    if (body.annotationModel === null) {
-      deleteSetting(ANNOTATION_MODEL_SETTING_KEY);
-    } else {
-      setSetting(ANNOTATION_MODEL_SETTING_KEY, body.annotationModel);
-    }
+    setOrClearSetting(ANNOTATION_MODEL_SETTING_KEY, body.annotationModel);
   }
-  if (body.shipAgent !== undefined) {
-    setSetting(SHIP_AGENT_SETTING_KEY, body.shipAgent);
-  }
-  if (body.shipModel !== undefined) {
-    if (body.shipModel === null) {
-      deleteSetting(SHIP_MODEL_SETTING_KEY);
-    } else {
-      setSetting(SHIP_MODEL_SETTING_KEY, body.shipModel);
-    }
-  }
-  if (body.shipPrompt !== undefined) {
-    setSetting(SHIP_PROMPT_SETTING_KEY, body.shipPrompt);
-  }
-  if (body.syncAgent !== undefined) {
-    setSetting(SYNC_AGENT_SETTING_KEY, body.syncAgent);
-  }
-  if (body.syncModel !== undefined) {
-    if (body.syncModel === null) {
-      deleteSetting(SYNC_MODEL_SETTING_KEY);
-    } else {
-      setSetting(SYNC_MODEL_SETTING_KEY, body.syncModel);
-    }
-  }
-  if (body.syncPrompt !== undefined) {
-    setSetting(SYNC_PROMPT_SETTING_KEY, body.syncPrompt);
-  }
+  if (body.shipAgent !== undefined) setSetting(SHIP_AGENT_SETTING_KEY, body.shipAgent);
+  if (body.shipModel !== undefined) setOrClearSetting(SHIP_MODEL_SETTING_KEY, body.shipModel);
+  if (body.shipPrompt !== undefined) setSetting(SHIP_PROMPT_SETTING_KEY, body.shipPrompt);
+  if (body.syncAgent !== undefined) setSetting(SYNC_AGENT_SETTING_KEY, body.syncAgent);
+  if (body.syncModel !== undefined) setOrClearSetting(SYNC_MODEL_SETTING_KEY, body.syncModel);
+  if (body.syncPrompt !== undefined) setSetting(SYNC_PROMPT_SETTING_KEY, body.syncPrompt);
   if (body.pullRequestAgent !== undefined) {
     setSetting(PULL_REQUEST_AGENT_SETTING_KEY, body.pullRequestAgent);
   }
   if (body.pullRequestModel !== undefined) {
-    if (body.pullRequestModel === null) {
-      deleteSetting(PULL_REQUEST_MODEL_SETTING_KEY);
-    } else {
-      setSetting(PULL_REQUEST_MODEL_SETTING_KEY, body.pullRequestModel);
-    }
+    setOrClearSetting(PULL_REQUEST_MODEL_SETTING_KEY, body.pullRequestModel);
   }
   if (body.pullRequestPrompt !== undefined) {
     setSetting(PULL_REQUEST_PROMPT_SETTING_KEY, body.pullRequestPrompt);
@@ -901,6 +825,12 @@ export async function update(request: Request): Promise<Response> {
   if (body.voiceCommandAliases !== undefined) {
     setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));
   }
+  if (body.agentLauncherConfig !== undefined) {
+    setSetting(AGENT_LAUNCHER_CONFIG_KEY, JSON.stringify(body.agentLauncherConfig));
+  }
+}
+
+function writeUsageSettings(body: UpdateSettingsBody): void {
   if (body.claudeUsageLimitsEnabled !== undefined) {
     setBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, body.claudeUsageLimitsEnabled);
   }
@@ -913,9 +843,7 @@ export async function update(request: Request): Promise<Response> {
   if (body.providerUsageEnabled !== undefined) {
     setBooleanSetting(PROVIDER_USAGE_ENABLED_KEY, body.providerUsageEnabled);
     // Keep Claude legacy flag aligned when Claude is among enabled providers.
-    const ids =
-      body.providerUsageIds ??
-      getProviderUsageIdsSetting();
+    const ids = body.providerUsageIds ?? getProviderUsageIdsSetting();
     if (ids.includes("claude")) {
       setBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, body.providerUsageEnabled);
     }
@@ -923,12 +851,11 @@ export async function update(request: Request): Promise<Response> {
   if (body.providerUsageIds !== undefined) {
     setSetting(PROVIDER_USAGE_IDS_KEY, JSON.stringify(body.providerUsageIds));
   }
-  if (body.agentLauncherConfig !== undefined) {
-    setSetting(AGENT_LAUNCHER_CONFIG_KEY, JSON.stringify(body.agentLauncherConfig));
-  }
-  if (body.petEnabled !== undefined) {
-    setBooleanSetting(PET_ENABLED_KEY, body.petEnabled);
-  }
+}
+
+/** Returns an error response when the incoming pet state fails normalization. */
+function writePetSettings(body: UpdateSettingsBody): Response | null {
+  if (body.petEnabled !== undefined) setBooleanSetting(PET_ENABLED_KEY, body.petEnabled);
   if (body.petMessagesEnabled !== undefined) {
     setBooleanSetting(PET_MESSAGES_ENABLED_KEY, body.petMessagesEnabled);
   }
@@ -938,31 +865,37 @@ export async function update(request: Request): Promise<Response> {
   if (body.petMultiplayerEnabled !== undefined) {
     setBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, body.petMultiplayerEnabled);
   }
-  if (body.petHomeSide !== undefined) {
-    setSetting(PET_HOME_SIDE_KEY, body.petHomeSide);
+  if (body.petHomeSide !== undefined) setSetting(PET_HOME_SIDE_KEY, body.petHomeSide);
+  if (body.petState === undefined) return null;
+  if (body.petState === null) {
+    deleteSetting(PET_STATE_KEY);
+    return null;
   }
-  if (body.petState !== undefined) {
-    if (body.petState === null) {
-      deleteSetting(PET_STATE_KEY);
-    } else {
-      const incoming = normalizePetState(body.petState);
-      if (!incoming) return jsonError(HTTP_BAD_REQUEST, "invalid petState");
-      // Merge against the stored state so a stale renderer window (each holds
-      // its own copy, hydrated once at boot) can't revert a molt, level-up, or
-      // lifetime counters that another window already persisted.
-      const stored = normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null));
-      setSetting(PET_STATE_KEY, JSON.stringify(mergePetStateWrite(stored, incoming)));
-    }
-  }
-  if (body.showGroupSwitcher !== undefined) {
-    setBooleanSetting(SHOW_GROUP_SWITCHER_KEY, body.showGroupSwitcher);
-  }
-  if (body.showProjectHeaderGroup !== undefined) {
-    setBooleanSetting(SHOW_PROJECT_HEADER_GROUP_KEY, body.showProjectHeaderGroup);
-  }
-  if (body.showBackgroundGrid !== undefined) {
-    setBooleanSetting(SHOW_BACKGROUND_GRID_KEY, body.showBackgroundGrid);
-  }
+  const incoming = normalizePetState(body.petState);
+  if (!incoming) return jsonError(HTTP_BAD_REQUEST, "invalid petState");
+  // Merge against the stored state so a stale renderer window (each holds
+  // its own copy, hydrated once at boot) can't revert a molt, level-up, or
+  // lifetime counters that another window already persisted.
+  const stored = normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null));
+  setSetting(PET_STATE_KEY, JSON.stringify(mergePetStateWrite(stored, incoming)));
+  return null;
+}
+
+export async function update(request: Request): Promise<Response> {
+  const parsed = await parseJsonBody(request, updateSettingsBody);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+  writeGeneralToggles(body);
+  writeThemeSettings(body);
+  writeLayoutPreferences(body);
+  writeTypographySettings(body);
+  writeAiRuntimeSettings(body);
+  writeUsageSettings(body);
+  // Pet state is validated last-but-one on purpose: a malformed payload must
+  // 400 before the chrome toggles and Recall flags below are touched.
+  const petError = writePetSettings(body);
+  if (petError) return petError;
+  writeChromeVisibility(body);
   writeRecallSettings({
     enabled: body.recallEnabled,
     autoCaptureEnabled: body.recallAutoCaptureEnabled,

@@ -8,6 +8,7 @@ import { resolveElectronBetterSqlite3NativeBinding } from "./better-sqlite3-nati
 import { migrateMultiSandbox } from "./migrate-multi-sandbox";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS } from "~/shared/domain";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { restrictDbFilePermissions } from "~/shared/sqlite-file-permissions";
 
 const migrationFiles = import.meta.glob("./migrations/*.sql", {
   eager: true,
@@ -29,22 +30,6 @@ export function resolveUserDataDir(): string {
 
 export function resolveSkillsDir(): string {
   return path.join(resolveUserDataDir(), "skills");
-}
-
-// missioncontrol.db holds the API bearer token and every sandbox pairing token
-// in cleartext. Created with default perms it is world-readable (~0644), so any
-// other local user / backup / sync process can lift those secrets straight off
-// disk. Tighten the directory to owner-only and the DB (plus its WAL/SHM
-// sidecars) to 0600. Best-effort: on filesystems/platforms without POSIX modes
-// (e.g. Windows) chmod is a harmless no-op.
-export function restrictDbFilePermissions(dbPath: string): void {
-  for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    try {
-      if (fs.existsSync(p)) fs.chmodSync(p, 0o600);
-    } catch {
-      /* best effort */
-    }
-  }
 }
 
 export function getDb() {
