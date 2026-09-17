@@ -43,7 +43,6 @@ function requireProject(projectId: string): Response | null {
 // Status/summary/index gate on the master switch only (the Recall panel drives
 // a manual index regardless of the sub-flag); the navigation reads also honor
 // the code-graph sub-flag. `enabled: false` forces `codeGraphEnabled` false.
-
 function requireGraphOn(): Response | null {
   return readRecallSettings().codeGraphEnabled
     ? null

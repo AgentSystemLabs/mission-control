@@ -89,12 +89,6 @@ const deleteQuery = z.object({
     .transform((v) => v === "true" || v === "1"),
 });
 
-// Refuse the memory API when the Recall master switch is off, so agent-facing
-// MCP tools keep working sessions honest — including sessions provisioned
-// before the toggle flipped, whose MCP config can't be hot-swapped. The task
-// `brief` endpoint stays open: it must hand back an EMPTY brief when disabled
-// so the spawn path strips any stale managed block from disk.
-
 export async function list(projectId: string, url: URL): Promise<Response> {
   const off = requireRecallOn();
   if (off) return off;
