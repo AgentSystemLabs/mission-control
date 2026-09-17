@@ -223,9 +223,53 @@ describe("agent hook installation", () => {
       type: "command",
       shell: "powershell",
     });
-    expect(hook?.command).toContain("Invoke-RestMethod");
+    expect(hook?.command).toContain("Invoke-WebRequest");
     expect(hook?.command).toContain("$env:MC_API_URL");
     expect(hook?.command).not.toContain("if [");
+  });
+
+  it("keeps non-Latin-1 payloads intact through the Windows PowerShell hooks", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hooks-"));
+
+    installAgentHooks("claude-code", cwd, "win32");
+
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude", "settings.local.json"), "utf8"),
+    ) as {
+      hooks: Record<string, Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>>;
+    };
+    const commandFor = (event: string, matcher?: string) =>
+      settings.hooks[event]?.find((g) => matcher === undefined || g.matcher === matcher)
+        ?.hooks?.[0]?.command ?? "";
+    const askQuestion = commandFor("PreToolUse", "AskUserQuestion");
+    const userPrompt = commandFor("UserPromptSubmit");
+    expect(askQuestion).not.toBe("");
+    expect(userPrompt).not.toBe("");
+
+    // Windows PowerShell 5.1 decodes stdin with the console code page and sends
+    // a string -Body as ISO-8859-1, so a Cyrillic AskUserQuestion reached the
+    // overlay as "?????" (issue #130). Stdin must be read as UTF-8 bytes and the
+    // body posted as bytes, which both 5.1 and pwsh send verbatim.
+    for (const command of [askQuestion, userPrompt]) {
+      expect(command).toContain(
+        "[System.IO.StreamReader]::new([Console]::OpenStandardInput(), [System.Text.UTF8Encoding]::new($false))",
+      );
+      expect(command).toContain("[System.Text.Encoding]::UTF8.GetBytes($payload)");
+      expect(command).toContain("-Body $body");
+      expect(command).toContain('-ContentType "application/json; charset=utf-8"');
+      expect(command).not.toContain("[Console]::In.ReadToEnd()");
+      expect(command).not.toContain("-Body $payload");
+    }
+
+    // injectContext events hand Claude the server's response bytes untouched
+    // (no ISO-8859-1 decode + ConvertTo-Json round trip); status-only events
+    // discard the response.
+    expect(userPrompt).toContain("$r.RawContentStream.ToArray()");
+    expect(userPrompt).toContain("[Console]::OpenStandardOutput()");
+    expect(userPrompt).not.toContain("ConvertTo-Json");
+    expect(userPrompt).not.toContain("Out-Null");
+    expect(askQuestion).toContain("| Out-Null");
+    expect(askQuestion).not.toContain("OpenStandardOutput");
   });
 
   it("registers Codex lifecycle hooks in Codex's matcher-group format", () => {
