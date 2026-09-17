@@ -34,6 +34,7 @@ export const HOTKEY_ACTIONS = [
   "screenshot.capture",
   "group.next",
   "group.prev",
+  "settings.open",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -137,5 +138,9 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   "group.prev": {
     label: "Previous group",
     description: "Cycle the active project group backward (Ungrouped → each group → All).",
+  },
+  "settings.open": {
+    label: "Open settings",
+    description: "Open or close Settings (the standard ⌘, / Ctrl+, preferences shortcut).",
   },
 };

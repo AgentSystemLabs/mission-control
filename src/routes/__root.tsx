@@ -16,6 +16,7 @@ import { screenshotSupported } from "~/lib/screenshot";
 import { TopBar, type Crumb } from "~/components/ui/TopBar";
 import { Btn } from "~/components/ui/Btn";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { useHotkey } from "~/lib/use-hotkey";
 import { KeybindingsProvider } from "~/lib/keybindings/store";
 import { useNavigationSwipe } from "~/lib/use-navigation-swipe";
@@ -684,6 +685,18 @@ function Shell() {
   useHotkey("group.next", () => cycleActiveGroup(1));
   useHotkey("group.prev", () => cycleActiveGroup(-1));
 
+  // Cmd/Ctrl+, — standard app Preferences shortcut. Capture so a focused
+  // terminal can't swallow it; allowWhenSettingsOpen so the same chord toggles
+  // the overlay closed (matching the settings rail button).
+  useHotkey(
+    "settings.open",
+    () => {
+      if (settingsOpen) requestCloseSettings();
+      else openSettings();
+    },
+    { capture: true, allowWhenSettingsOpen: true },
+  );
+
   useHotkey("terminal.toggle", () => togglePanel());
   useHotkey(
     "terminal.expandToggle",
@@ -911,15 +924,19 @@ function Shell() {
                 onClearNotification={clearAppNotificationItem}
                 onClearNotifications={clearAllAppNotifications}
               />
-              <Btn
-                variant="ghost"
-                icon="settings"
-                onClick={() =>
-                  settingsOpen ? requestCloseSettings() : openSettings()
-                }
-                aria-label={settingsOpen ? "Close settings" : "Open settings"}
-                title={settingsOpen ? "Close settings" : "Open settings"}
-              />
+              <HotkeyTooltip
+                action="settings.open"
+                label={settingsOpen ? "Close settings" : "Open settings"}
+              >
+                <Btn
+                  variant="ghost"
+                  icon="settings"
+                  onClick={() =>
+                    settingsOpen ? requestCloseSettings() : openSettings()
+                  }
+                  aria-label={settingsOpen ? "Close settings" : "Open settings"}
+                />
+              </HotkeyTooltip>
             </>
           }
         />
