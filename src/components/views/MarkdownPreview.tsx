@@ -234,7 +234,6 @@ function rangeIntersectsNode(range: Range, node: Node): boolean {
   }
 }
 
-
 function SelectionCommentButton({
   action,
   onAdd,

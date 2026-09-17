@@ -7,7 +7,6 @@ const COLORS = {
   cacheRead: "var(--text-faint)",
 } as const;
 
-
 /** Stacked bar chart: per-day token usage. Pure inline SVG, no deps. */
 export function TimeSeriesBars({
   data,

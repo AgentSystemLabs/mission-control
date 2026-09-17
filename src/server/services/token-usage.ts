@@ -242,7 +242,6 @@ export function getUsageSummary(daysBack: number = DEFAULT_USAGE_DAYS): UsageSum
   };
 }
 
-
 function startOfLocalDay(ms: number): number {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);

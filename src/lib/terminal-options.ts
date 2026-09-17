@@ -88,10 +88,6 @@ const EMBER_TERMINAL_THEME: TerminalTheme = {
   brightWhite: "#f7f2e7",
 };
 
-// The flat theme (data-minimal) carries the warm sepia terminal ramp + bundled
-// JetBrains Mono face and fills the terminal to the pane edge. (In light mode
-// the flat theme uses the standard light ramp — see createTerminalTheme.)
-
 // Transparency is scoped to flat DARK — the glass theme, the only mode whose
 // canvas clear color actually carries alpha. It must stay off everywhere else:
 // with allowTransparency on, xterm's glyph atlas rasterizes characters over a

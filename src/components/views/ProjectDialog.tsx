@@ -44,8 +44,6 @@ function FieldLabel({ children }: { children: ReactNode }) {
   return <span style={fieldLabelStyle}>{children}</span>;
 }
 
-/** Last segment of a filesystem path, ignoring trailing separators. */
-
 /**
  * A titled group in the dialog — same title/description vocabulary as the
  * Settings pages' SettingCard, but outlined (transparent fill) rather than
