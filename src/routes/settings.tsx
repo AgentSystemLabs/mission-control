@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import {
-  SETTINGS_PANEL_IDS,
+  normalizeSettingsPanelId,
   type SettingsPanelId,
 } from "~/components/views/settings-panel-ids";
 import { OPEN_SETTINGS_EVENT, type OpenSettingsEventDetail } from "~/lib/design-meta";
@@ -13,10 +13,8 @@ function validateSettingsSearch(
   search: Record<string, unknown>,
 ): { panel?: SettingsPanelId } {
   const panel = search.panel;
-  return typeof panel === "string" &&
-    (SETTINGS_PANEL_IDS as readonly string[]).includes(panel)
-    ? { panel: panel as SettingsPanelId }
-    : {};
+  const normalized = typeof panel === "string" ? normalizeSettingsPanelId(panel) : null;
+  return normalized ? { panel: normalized } : {};
 }
 
 export const Route = createFileRoute("/settings")({

@@ -21,10 +21,17 @@ import {
   startGraphIndex,
 } from "../services/code-graph-indexer";
 import { readRecallSettings } from "../services/recall-settings";
-import { forbidden, rethrowUnlessDomain, json, jsonError, notFound, parseSearchParams } from "./_helpers";
+import {
+  enumOf,
+  forbidden,
+  rethrowUnlessDomain,
+  json,
+  jsonError,
+  notFound,
+  parseSearchParams,
+} from "./_helpers";
+import { requireRecallOn } from "./_recall";
 import { HTTP_BAD_REQUEST, HTTP_CONFLICT } from "~/shared/http-status";
-
-const enumOf = <T extends string>(values: readonly T[]) => z.enum(values as unknown as [T, ...T[]]);
 
 function requireProject(projectId: string): Response | null {
   return projectExists(projectId) ? null : notFound("project not found");
@@ -36,10 +43,6 @@ function requireProject(projectId: string): Response | null {
 // Status/summary/index gate on the master switch only (the Recall panel drives
 // a manual index regardless of the sub-flag); the navigation reads also honor
 // the code-graph sub-flag. `enabled: false` forces `codeGraphEnabled` false.
-function requireRecallOn(): Response | null {
-  return readRecallSettings().enabled ? null : forbidden("Recall is disabled");
-}
-
 function requireGraphOn(): Response | null {
   return readRecallSettings().codeGraphEnabled
     ? null

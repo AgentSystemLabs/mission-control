@@ -28,7 +28,7 @@ export async function list(rawProjectId: string, _request: Request): Promise<Res
   const parsed = idParam.safeParse(rawProjectId);
   if (!parsed.success) return notFound();
   try {
-    return json({ worktrees: listWorktrees(parsed.data) });
+    return json({ worktrees: await listWorktrees(parsed.data) });
   } catch (e) {
     return handleDomainError(e) ?? asWorktreeErrorResponse(e);
   }

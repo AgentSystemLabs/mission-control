@@ -1,12 +1,10 @@
 // Header push-to-talk button. A pointer-hold (or focus + Space/Enter hold)
 // alternative to the `voice.pushToTalk` keybinding: press and hold to record,
-// release to transcribe + run the command. Visible only when voice control is
-// enabled (Settings → Beta), matching VoiceController's own gate. It dispatches
-// the PTT control events; VoiceController owns the actual recording flow.
+// release to transcribe + run the command. Desktop-only because VoiceController
+// relies on Electron's bundled Whisper runtime.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { isElectron } from "~/lib/electron";
-import { useSettings } from "~/queries";
 import { useFormattedBinding } from "~/lib/keybindings/store";
 import { Btn } from "~/components/ui/Btn";
 import {
@@ -15,10 +13,12 @@ import {
   dispatchVoicePttCancel,
 } from "~/lib/voice-events";
 
-export function VoicePushToTalkButton() {
-  const { data: settings } = useSettings();
-  // Same gate as VoiceController — only offer the button where the flow runs.
-  const enabled = isElectron() && (settings?.voiceControlEnabled ?? false);
+export function VoicePushToTalkButton({
+  onContextMenu,
+}: {
+  /** Right-click → Hide, supplied by the header's hideable-elements menu. */
+  onContextMenu?: (e: ReactMouseEvent) => void;
+}) {
   const shortcut = useFormattedBinding("voice.pushToTalk");
 
   const [holding, setHolding] = useState(false);
@@ -57,7 +57,7 @@ export function VoicePushToTalkButton() {
     };
   }, [holding]);
 
-  if (!enabled) return null;
+  if (!isElectron()) return null;
 
   const label = holding ? "Listening… release to send" : `Hold to talk (${shortcut})`;
   return (
@@ -85,7 +85,9 @@ export function VoicePushToTalkButton() {
           stop();
         }
       }}
-      onContextMenu={(e) => e.preventDefault()}
+      // Without a hide menu the native context menu is still suppressed — it
+      // would otherwise pop mid-hold on a right-click-adjacent press.
+      onContextMenu={onContextMenu ?? ((e) => e.preventDefault())}
       style={holding ? { color: "var(--status-failed, #e5484d)" } : undefined}
     />
   );

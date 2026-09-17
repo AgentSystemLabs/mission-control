@@ -1,4 +1,5 @@
 import type { ITerminalOptions } from "@xterm/xterm";
+import { isFlatThemeActive } from "~/lib/use-theme";
 import {
   getCurrentTerminalAppearanceOptions,
   terminalAppearanceKey,
@@ -87,16 +88,6 @@ const EMBER_TERMINAL_THEME: TerminalTheme = {
   brightWhite: "#f7f2e7",
 };
 
-// The flat theme (data-minimal) carries the warm sepia terminal ramp + bundled
-// JetBrains Mono face and fills the terminal to the pane edge. (In light mode
-// the flat theme uses the standard light ramp — see createTerminalTheme.)
-function isFlatActive(): boolean {
-  return (
-    typeof document !== "undefined" &&
-    document.documentElement.getAttribute("data-minimal") === "true"
-  );
-}
-
 // Transparency is scoped to flat DARK — the glass theme, the only mode whose
 // canvas clear color actually carries alpha. It must stay off everywhere else:
 // with allowTransparency on, xterm's glyph atlas rasterizes characters over a
@@ -108,7 +99,7 @@ function isFlatActive(): boolean {
 export function terminalNeedsTransparency(
   colorScheme: TerminalColorScheme = getTerminalColorScheme()
 ): boolean {
-  return colorScheme === "dark" && isFlatActive();
+  return colorScheme === "dark" && isFlatThemeActive();
 }
 
 export function getTerminalColorScheme(): TerminalColorScheme {
@@ -287,6 +278,12 @@ export function createTerminalOptions({
     // rebuilds its char atlas on any option change, so it applies in place.
     allowTransparency: terminalNeedsTransparency(colorScheme),
     allowProposedApi: true,
+    // Option must act as Meta on macOS or Claude Code's meta bindings
+    // (Option+P model picker, etc.) never arrive: xterm's default composes
+    // "π" instead of emitting ESC+p. Tradeoff: Option no longer composes
+    // special characters inside terminal panes. Alt+Arrow word-movement is
+    // unaffected — attachTerminalKeyHandler intercepts it before xterm.
+    macOptionIsMeta: true,
     scrollback: 5000,
   };
 }
@@ -354,7 +351,7 @@ function fitFillingScrollbarGutter(
   term: { cols: number; rows: number } & ScrollPreservingTerminal,
   fit: { fit: () => void },
 ): void {
-  if (!isFlatActive()) {
+  if (!isFlatThemeActive()) {
     fit.fit();
     return;
   }

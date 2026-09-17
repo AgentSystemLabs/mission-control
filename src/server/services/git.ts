@@ -10,7 +10,10 @@ import { COMMIT_CLI_LABEL, type CommitCli } from "~/shared/commit-cli";
 import { DEFAULT_BRANCH } from "~/shared/domain";
 import { buildGithubCompareUrl } from "~/shared/github-pr";
 import { detectGithubUrl } from "./projects";
-import { resolveProjectWorktreeCwd } from "./worktrees";
+import { canonicalPath, gitWorktreeList, resolveProjectWorktreeCwd } from "./worktrees";
+import { MAIN_WORKTREE_ID } from "~/shared/worktrees";
+import { findProjectById } from "../repositories/projects.repo";
+import { findWorktreesByProjectId } from "../repositories/worktrees.repo";
 import {
   DIFF_MAX_BYTES,
   DIFF_MAX_LINES,
@@ -44,6 +47,19 @@ class GitError extends Error {
   constructor(message: string, public stderr?: string) {
     super(message);
     this.name = "GitError";
+  }
+}
+
+/** Checkout refused because the branch is already checked out in another
+ * worktree — switching should repoint the UI at that worktree, not run git. */
+export class BranchInWorktreeError extends GitError {
+  constructor(
+    message: string,
+    public readonly worktreeId: string,
+    public readonly worktreeName: string,
+  ) {
+    super(message);
+    this.name = "BranchInWorktreeError";
   }
 }
 
@@ -788,9 +804,12 @@ export type GitErrorPayload = {
   message: string;
   stderr?: string;
   /** Identifies an AI-generation failure so the UI can render the recovery dialog. */
-  kind?: "commit-generation-failed" | "no-commit-cli";
+  kind?: "commit-generation-failed" | "no-commit-cli" | "branch-in-worktree";
   /** Which CLI was tried when kind === "commit-generation-failed". */
   cli?: CommitCli;
+  /** Owning worktree when kind === "branch-in-worktree" — the client repoints to it. */
+  worktreeId?: string;
+  worktreeName?: string;
 };
 
 /** Merge local and remote branch lists into deduplicated checkout targets. */
@@ -879,6 +898,7 @@ export async function checkoutGitBranch(
   if (current === name) return { branch: name, created: false };
 
   if (await localBranchExists(cwd, name)) {
+    await assertBranchNotInOtherWorktree(projectId, cwd, name);
     await gitOk(cwd, ["switch", name]);
     return { branch: name, created: false };
   }
@@ -900,6 +920,47 @@ export async function checkoutGitBranch(
   );
 }
 
+/**
+ * Refuse to `git switch` a branch that another worktree already has checked
+ * out — git would fail anyway ("already used by worktree …"), and the right
+ * behavior is for the client to repoint at that worktree instead. Throws
+ * BranchInWorktreeError when the owner maps to a known worktree; any guard
+ * failure is swallowed so git itself stays the backstop.
+ */
+async function assertBranchNotInOtherWorktree(
+  projectId: string,
+  cwd: string,
+  branch: string,
+): Promise<void> {
+  let owner: { id: string; name: string } | null = null;
+  try {
+    const entries = await gitWorktreeList(cwd);
+    const here = canonicalPath(cwd);
+    const entry = entries.find(
+      (e) => e.branch === branch && canonicalPath(e.path) !== here,
+    );
+    if (!entry) return;
+    const entryPath = canonicalPath(entry.path);
+    const project = findProjectById(projectId);
+    if (project && canonicalPath(project.path) === entryPath) {
+      owner = { id: MAIN_WORKTREE_ID, name: MAIN_WORKTREE_ID };
+    } else {
+      const row = findWorktreesByProjectId(projectId).find(
+        (r) => canonicalPath(r.path) === entryPath,
+      );
+      if (row) owner = { id: row.id, name: row.name };
+    }
+  } catch {
+    return;
+  }
+  if (!owner) return;
+  throw new BranchInWorktreeError(
+    `Branch "${branch}" is checked out in worktree "${owner.name}" — switch to that worktree instead.`,
+    owner.id,
+    owner.name,
+  );
+}
+
 /** Surface stderr to API consumers without leaking the GitError class. */
 export function gitErrorPayload(e: unknown): GitErrorPayload {
   if (e instanceof CommitGenerationFailedError) {
@@ -912,6 +973,14 @@ export function gitErrorPayload(e: unknown): GitErrorPayload {
   }
   if (e instanceof NoCommitCliInstalledError) {
     return { message: e.message, kind: "no-commit-cli" };
+  }
+  if (e instanceof BranchInWorktreeError) {
+    return {
+      message: e.message,
+      kind: "branch-in-worktree",
+      worktreeId: e.worktreeId,
+      worktreeName: e.worktreeName,
+    };
   }
   if (e instanceof GitError) {
     return { message: e.message, stderr: e.stderr };

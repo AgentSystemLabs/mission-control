@@ -46,6 +46,8 @@ function asGitErrorResponse(e: unknown): Response {
       stderr: payload.stderr,
       kind: payload.kind,
       cli: payload.cli,
+      worktreeId: payload.worktreeId,
+      worktreeName: payload.worktreeName,
     }),
     { status: HTTP_BAD_REQUEST, headers: { "content-type": "application/json" } },
   );

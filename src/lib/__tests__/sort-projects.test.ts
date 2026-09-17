@@ -9,8 +9,8 @@ import {
 import type { ProjectWithCounts } from "~/shared/projects";
 
 const groups: Group[] = [
-  { id: "g-alpha", name: "Alpha", color: "#ff0000", createdAt: 1 },
-  { id: "g-beta", name: "Beta", color: "#00ff00", createdAt: 2 },
+  { id: "g-alpha", name: "Alpha", color: "#ff0000", sortOrder: 0, createdAt: 1 },
+  { id: "g-beta", name: "Beta", color: "#00ff00", sortOrder: 1, createdAt: 2 },
 ];
 
 function makeProject(
@@ -34,6 +34,7 @@ function makeProject(
     savedAgent: null,
     savedSkipPermissions: false,
     savedBareSession: false,
+    defaultGridView: false,
     createdAt: 1_000,
     updatedAt: 1_000,
     taskCounts: {

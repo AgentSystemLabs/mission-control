@@ -16,7 +16,10 @@ import { fetchRecallEnabled } from "./recall-enabled";
 import { IPC } from "./ipc-channels";
 import { safeHandle } from "./ipc-safe-handle";
 import { PtyOutputBatcher } from "./pty-output-batch";
-import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
+import {
+  resolveAgentCommandMeetingVersion,
+  resolveAgentCommandOnPath,
+} from "./agent-cli-resolution";
 import {
   resolveShell,
   sanitizedProcessEnv,
@@ -31,8 +34,12 @@ import {
   type SpawnRequest,
 } from "./pty-spawn-policy";
 import { buildSyntheticHookUrl, type PtyHookEnv } from "./pty-hook-env";
+import { AGENT_HOOK_EVENTS } from "../src/shared/agent-hook-events";
 import { checkAgentCliVersionCached, agentVersionErrorMessage } from "./agent-cli-version";
-import { AGENT_CLI_CONFIG } from "./agent-cli-version-requirements";
+import {
+  AGENT_CLI_CONFIG,
+  AGENT_CLI_CONFIG_BY_COMMAND,
+} from "./agent-cli-version-requirements";
 import { applyAgentPtyEnv } from "../src/shared/agent-pty-env";
 
 function sanitizeEnv(): Record<string, string> {
@@ -159,7 +166,7 @@ function scanForCodexHookReview(p: Pty, haystack: string) {
   void postSyntheticHook(p, "PermissionRequest");
 }
 
-async function postSyntheticHook(p: Pty, event: string) {
+async function postSyntheticHook(p: Pty, event: string, extra?: Record<string, unknown>) {
   try {
     const url = buildSyntheticHookUrl(p.mcEnv!, p.agent, p.taskId);
     if (!url) return;
@@ -169,7 +176,7 @@ async function postSyntheticHook(p: Pty, event: string) {
         "content-type": "application/json",
         authorization: `Bearer ${p.mcEnv!.token}`,
       },
-      body: JSON.stringify({ hook_event_name: event }),
+      body: JSON.stringify({ hook_event_name: event, ...extra }),
     });
   } catch {
     /* swallow — best-effort status sync */
@@ -295,6 +302,14 @@ function killProcessTreeWindows(pid: number | undefined): void {
  * on its own. It isn't on the public `IPty` type but exists on both the Unix and
  * Windows terminals at runtime — fall back to `kill()` if a future version drops
  * it. This is the single teardown path; never call `proc.kill()` directly.
+ *
+ * NOTE: destroy() alone did not stop ptmx exhaustion. node-pty <= 1.1.0 ALSO
+ * leaked two fds inside every macOS spawn (a never-closed posix_openpt guard
+ * fd and the parent's copy of the slave fd), plus the master on failed spawns
+ * — so churn (warm pools) still crept toward the cap, and once near it every
+ * failed retry leaked 2-3 more fds until the whole machine couldn't allocate
+ * PTYs. Fixed by node-pty 1.2.0-beta.14 (closes slave + guard fds on all
+ * paths, master on error). Don't downgrade node-pty below that.
  */
 export function disposePty(proc: import("node-pty").IPty | null | undefined): void {
   if (!proc) return;
@@ -472,7 +487,14 @@ export function registerPtyHandlers(
         plan = resolveSpawnPlan(spawnReq, {
           projectRoots: loadProjectRoots,
           homeShellRoots: () => [os.homedir()],
-          resolveCommand: (name) => resolveAgentCommandOnPath(name, sanitizedProcessEnv()),
+          resolveCommand: (name) => {
+            const env = sanitizedProcessEnv();
+            const requirement = AGENT_CLI_CONFIG_BY_COMMAND[name];
+            if (requirement) {
+              return resolveAgentCommandMeetingVersion(name, requirement, env, platform)?.binary ?? null;
+            }
+            return resolveAgentCommandOnPath(name, env, platform);
+          },
           resolveShell: () => ({
             shell: resolveShell(),
             shellArgs: (cmd) => shellArgsForCommand(resolveShell(), cmd, platform),
@@ -677,6 +699,16 @@ export function registerPtyHandlers(
         if (initialInputFallback) clearTimeout(initialInputFallback);
         // Final output must land before the exit event or it's lost.
         outputBatcher.flush(id);
+        // Settle the task's status server-side no matter WHY the process died
+        // (user closed the pane, scope switch, crash, kill) — the renderer's
+        // own exit handler only runs while the pane is mounted, and skips
+        // intentional closes entirely. The server only moves tasks still in an
+        // active status, so respawn flows and settled tasks are unaffected.
+        if (p.mcEnv?.apiUrl && p.mcEnv?.token) {
+          void postSyntheticHook(p, AGENT_HOOK_EVENTS.sessionProcessExited, {
+            exit_code: exitCode,
+          });
+        }
         send(getWin, IPC.ptyExit, { ptyId: id, exitCode, signal });
         ptys.delete(id);
       });

@@ -25,10 +25,13 @@ import {
   type AiRuntimeHarness,
 } from "~/shared/ai-runtime-defaults";
 import {
+  ACTIVE_PROJECT_GROUP_MAX_LENGTH,
   GIT_DIFF_CHANGED_FILES_VIEWS,
   GIT_DIFF_CHANGED_FILES_WIDTH_MAX,
   GIT_DIFF_CHANGED_FILES_WIDTH_MIN,
   PROJECTS_DASHBOARD_VIEWS,
+  normalizeActiveProjectGroup,
+  normalizeCollapsedProjectGroups,
   normalizeGitDiffChangedFilesView,
   normalizeGitDiffChangedFilesWidth,
   normalizeProjectsDashboardView,
@@ -45,6 +48,10 @@ import {
   isSurfaceTint,
   type SurfaceTint,
 } from "~/shared/surface-tint";
+import {
+  BACKGROUND_IMAGE_MAX_LENGTH,
+  isBackgroundImage,
+} from "~/shared/background-image";
 import {
   DEFAULT_PROVIDER_USAGE_IDS,
   normalizeProviderUsageIds,
@@ -84,6 +91,10 @@ import {
   normalizeSessionHeaderButtonVisibility,
   type SessionHeaderButtonVisibility,
 } from "~/shared/session-header-buttons";
+import {
+  normalizeHeaderButtonVisibility,
+  type HeaderButtonVisibility,
+} from "~/shared/header-buttons";
 import { readRecallSettings, writeRecallSettings } from "../services/recall-settings";
 import { DEFAULT_SHIP_PROMPT, normalizeShipPrompt } from "~/shared/ship-defaults";
 import {
@@ -96,8 +107,25 @@ import {
 } from "~/shared/pet";
 import { HTTP_BAD_REQUEST } from "~/shared/http-status";
 import { DEFAULT_SYNC_PROMPT, normalizeSyncPrompt } from "~/shared/sync-defaults";
+import {
+  DEFAULT_PULL_REQUEST_PROMPT,
+  normalizePullRequestPrompt,
+} from "~/shared/pull-request-defaults";
 import { json, jsonError, parseJsonBody } from "./_helpers";
 
+const DEFAULT_AI_RUNTIME_HARNESS: AiRuntimeHarness = "claude-code";
+
+const AGENT_SYSTEM_BANNER_DISABLED_KEY = "agent_system_banner_disabled";
+const ACCENT_COLOR_KEY = "accent_color";
+const MOUSE_GRADIENT_DISABLED_KEY = "mouse_gradient_disabled";
+const BATTERY_SAVER_ENABLED_KEY = "battery_saver_enabled";
+const SPELLCHECK_ENABLED_KEY = "spellcheck_enabled";
+const SESSION_FINISH_TOAST_ENABLED_KEY = "session_finish_toast_enabled";
+const SESSION_FINISH_OS_NOTIFICATION_ENABLED_KEY = "session_finish_os_notification_enabled";
+const NOTIFICATION_SOUND_ENABLED_KEY = "notification_sound_enabled";
+const LAUNCH_OVERLAY_ENABLED_KEY = "launch_overlay_enabled";
+const AUTOMATIC_UPDATE_DOWNLOADS_ENABLED_KEY = "automatic_update_downloads_enabled";
+const AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED_KEY = "automatic_update_install_on_quit_enabled";
 const COMMIT_CLI_SETTING_KEY = "commit_cli";
 const DEFAULT_AGENT_SETTING_KEY = "default_agent";
 const DEFAULT_MODEL_SETTING_KEY = "default_model";
@@ -109,15 +137,22 @@ const SHIP_PROMPT_SETTING_KEY = "ship_prompt";
 const SYNC_AGENT_SETTING_KEY = "sync_agent";
 const SYNC_MODEL_SETTING_KEY = "sync_model";
 const SYNC_PROMPT_SETTING_KEY = "sync_prompt";
+const PULL_REQUEST_AGENT_SETTING_KEY = "pull_request_agent";
+const PULL_REQUEST_MODEL_SETTING_KEY = "pull_request_model";
+const PULL_REQUEST_PROMPT_SETTING_KEY = "pull_request_prompt";
 const GIT_DIFF_CHANGED_FILES_VIEW_KEY = "git_diff_changed_files_view";
 const GIT_DIFF_CHANGED_FILES_WIDTH_KEY = "git_diff_changed_files_width";
 const SELECTED_WORKTREE_BY_PROJECT_KEY = "selected_worktree_by_project";
 const PROJECTS_DASHBOARD_VIEW_KEY = "projects_dashboard_view";
+const ACTIVE_PROJECT_GROUP_KEY = "active_project_group";
+const COLLAPSED_PROJECT_GROUPS_KEY = "collapsed_project_groups";
 const TERMINAL_ZOOM_LEVEL_KEY = "terminal_zoom_level";
 const SESSION_HEADER_BUTTONS_KEY = "session_header_buttons";
+const HEADER_BUTTONS_KEY = "header_buttons";
 const THEME_STYLE_KEY = "theme_style";
 const MINIMAL_THEME_KEY = "minimal_theme";
 const SURFACE_TINT_KEY = "surface_tint";
+const BACKGROUND_IMAGE_KEY = "background_image";
 const VOICE_COMMAND_ALIASES_KEY = "voice_command_aliases";
 const CLAUDE_USAGE_LIMITS_ENABLED_KEY = "claude_usage_limits_enabled";
 const CLAUDE_USAGE_LIMITS_SHOW_SESSION_KEY = "claude_usage_limits_show_session";
@@ -138,6 +173,9 @@ const TERMINAL_LINE_HEIGHT_KEY = "terminal_line_height";
 const TERMINAL_LETTER_SPACING_KEY = "terminal_letter_spacing";
 const INTERFACE_FONT_FAMILY_KEY = "interface_font_family";
 const INTERFACE_FONT_SCALE_KEY = "interface_font_scale";
+const SHOW_GROUP_SWITCHER_KEY = "show_group_switcher";
+const SHOW_PROJECT_HEADER_GROUP_KEY = "show_project_header_group";
+const SHOW_BACKGROUND_GRID_KEY = "show_background_grid";
 
 const voiceCommandAliasesBody = z.unknown().transform((value, ctx): VoiceCommandAliases => {
   try {
@@ -176,6 +214,14 @@ const updateSettingsBody = z
     minimalTheme: z.boolean(),
     themeStyle: z.string().refine(isThemeStyle, { message: "invalid themeStyle" }),
     surfaceTint: z.string().refine(isSurfaceTint, { message: "invalid surfaceTint" }),
+    // Wallpaper for the flat theme: an image data URL, or null to clear. Capped
+    // so a runaway payload can't bloat the settings blob; the renderer
+    // downscales/compresses well under this before sending.
+    backgroundImage: z
+      .string()
+      .max(BACKGROUND_IMAGE_MAX_LENGTH)
+      .nullable()
+      .refine(isBackgroundImage, { message: "invalid backgroundImage" }),
     mouseGradientDisabled: z.boolean(),
     batterySaverEnabled: z.boolean(),
     spellcheckEnabled: z.boolean(),
@@ -196,6 +242,11 @@ const updateSettingsBody = z
       .max(GIT_DIFF_CHANGED_FILES_WIDTH_MAX)
       .nullable(),
     projectsDashboardView: z.enum(PROJECTS_DASHBOARD_VIEWS).nullable(),
+    // "ungrouped" or a group id; null clears back to "all projects". A stale
+    // id (deleted group) is tolerated here — the client validates against the
+    // live group list and falls back to "all".
+    activeProjectGroup: z.string().trim().min(1).max(ACTIVE_PROJECT_GROUP_MAX_LENGTH).nullable(),
+    collapsedProjectGroups: z.array(z.string().trim().min(1).max(ACTIVE_PROJECT_GROUP_MAX_LENGTH)).max(500).nullable(),
     selectedWorktreeByProject: z.record(z.string(), z.string()).nullable(),
     commitCli: z.union([z.enum(COMMIT_CLI_VALUES), z.null()]),
     terminalZoomLevel: z.number().int().min(TERMINAL_ZOOM_MIN).max(TERMINAL_ZOOM_MAX),
@@ -241,6 +292,9 @@ const updateSettingsBody = z
         (value): SessionHeaderButtonVisibility =>
           normalizeSessionHeaderButtonVisibility(value),
       ),
+    headerButtons: z
+      .record(z.string(), z.boolean())
+      .transform((value): HeaderButtonVisibility => normalizeHeaderButtonVisibility(value)),
     defaultAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     defaultModel: aiModelBody,
     annotationAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
@@ -251,6 +305,11 @@ const updateSettingsBody = z
     syncAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
     syncModel: aiModelBody,
     syncPrompt: z.string().transform((value) => normalizeSyncPrompt(value)),
+    pullRequestAgent: z.enum(AI_RUNTIME_HARNESS_VALUES),
+    pullRequestModel: aiModelBody,
+    pullRequestPrompt: z
+      .string()
+      .transform((value) => normalizePullRequestPrompt(value)),
     voiceCommandAliases: voiceCommandAliasesBody,
     claudeUsageLimitsEnabled: z.boolean(),
     claudeUsageLimitsShowSession: z.boolean(),
@@ -279,11 +338,14 @@ const updateSettingsBody = z
     // from a payload that fails normalization (rejected — a malformed write
     // must never erase the stored pet).
     petState: z.unknown(),
+    showGroupSwitcher: z.boolean(),
+    showProjectHeaderGroup: z.boolean(),
+    showBackgroundGrid: z.boolean(),
   })
   .partial();
 
 function getAccentColorSetting(): AccentColorId {
-  const value = getSetting("accent_color");
+  const value = getSetting(ACCENT_COLOR_KEY);
   return isAccentColorId(value) ? value : DEFAULT_ACCENT_COLOR;
 }
 
@@ -301,59 +363,35 @@ function getSurfaceTintSetting(): SurfaceTint {
   return isSurfaceTint(value) ? value : DEFAULT_SURFACE_TINT;
 }
 
+function getBackgroundImageSetting(): string | null {
+  const value = getSetting(BACKGROUND_IMAGE_KEY);
+  return isBackgroundImage(value) ? value : null;
+}
+
 function getCommitCliSetting(): CommitCli | null {
   const value = getSetting(COMMIT_CLI_SETTING_KEY);
   return isCommitCli(value) ? value : null;
 }
 
-function getDefaultAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(DEFAULT_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
+/** Harness selection stored under `key`, defaulting to Claude Code when unset/unknown. */
+function readHarnessSetting(key: string): AiRuntimeHarness {
+  const value = getSetting(key);
+  return isAiRuntimeHarness(value) ? value : DEFAULT_AI_RUNTIME_HARNESS;
 }
 
-function getDefaultModelSetting(): AiModelId | null {
-  const value = getSetting(DEFAULT_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
+/** Model id stored under `key`; null when unset or not a valid id. */
+function readModelSetting(key: string): AiModelId | null {
+  return normalizeAiModelId(getSetting(key));
 }
 
-function getAnnotationAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(ANNOTATION_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
-}
-
-function getAnnotationModelSetting(): AiModelId | null {
-  const value = getSetting(ANNOTATION_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
-}
-
-function getShipAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(SHIP_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
-}
-
-function getShipModelSetting(): AiModelId | null {
-  const value = getSetting(SHIP_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
-}
-
-function getShipPromptSetting(): string {
-  const value = getSetting(SHIP_PROMPT_SETTING_KEY);
-  return value === null ? DEFAULT_SHIP_PROMPT : normalizeShipPrompt(value);
-}
-
-function getSyncAgentSetting(): AiRuntimeHarness {
-  const value = getSetting(SYNC_AGENT_SETTING_KEY);
-  return isAiRuntimeHarness(value) ? value : "claude-code";
-}
-
-function getSyncModelSetting(): AiModelId | null {
-  const value = getSetting(SYNC_MODEL_SETTING_KEY);
-  return normalizeAiModelId(value);
-}
-
-function getSyncPromptSetting(): string {
-  const value = getSetting(SYNC_PROMPT_SETTING_KEY);
-  return value === null ? DEFAULT_SYNC_PROMPT : normalizeSyncPrompt(value);
+/** Prompt text stored under `key`, or `defaultPrompt` when the row was never written. */
+function readPromptSetting(
+  key: string,
+  defaultPrompt: string,
+  normalize: (value: string) => string,
+): string {
+  const value = getSetting(key);
+  return value === null ? defaultPrompt : normalize(value);
 }
 
 function getGitDiffChangedFilesViewSetting() {
@@ -366,6 +404,16 @@ function getGitDiffChangedFilesWidthSetting() {
 
 function getProjectsDashboardViewSetting() {
   return normalizeProjectsDashboardView(getSetting(PROJECTS_DASHBOARD_VIEW_KEY));
+}
+
+function getActiveProjectGroupSetting() {
+  return normalizeActiveProjectGroup(getSetting(ACTIVE_PROJECT_GROUP_KEY));
+}
+
+function getCollapsedProjectGroupsSetting() {
+  return normalizeCollapsedProjectGroups(
+    safeJsonParse<unknown>(getSetting(COLLAPSED_PROJECT_GROUPS_KEY), null),
+  );
 }
 
 function getSelectedWorktreeByProjectSetting() {
@@ -418,6 +466,12 @@ function getSessionHeaderButtonsSetting(): SessionHeaderButtonVisibility {
   );
 }
 
+function getHeaderButtonsSetting(): HeaderButtonVisibility {
+  return normalizeHeaderButtonVisibility(
+    safeJsonParse<unknown>(getSetting(HEADER_BUTTONS_KEY), null),
+  );
+}
+
 function getAgentLauncherConfigSetting(): AgentLauncherConfig {
   return normalizeAgentLauncherConfig(
     safeJsonParse<unknown>(getSetting(AGENT_LAUNCHER_CONFIG_KEY), null),
@@ -433,13 +487,26 @@ function getVoiceCommandAliasesSetting() {
   }
 }
 
+function getShowGroupSwitcherSetting(): boolean {
+  return getBooleanSetting(SHOW_GROUP_SWITCHER_KEY, true);
+}
+
+function getShowProjectHeaderGroupSetting(): boolean {
+  return getBooleanSetting(SHOW_PROJECT_HEADER_GROUP_KEY, true);
+}
+
+function getShowBackgroundGridSetting(): boolean {
+  return getBooleanSetting(SHOW_BACKGROUND_GRID_KEY, true);
+}
+
 function settingsPayload() {
   const themeStyle = getThemeStyleSetting();
   return {
-    agentSystemBannerDisabled: getBooleanSetting("agent_system_banner_disabled"),
+    agentSystemBannerDisabled: getBooleanSetting(AGENT_SYSTEM_BANNER_DISABLED_KEY),
     accentColor: getAccentColorSetting(),
     themeStyle,
     surfaceTint: getSurfaceTintSetting(),
+    backgroundImage: getBackgroundImageSetting(),
     // Derived: true whenever the style renders clean CSS chrome (the flat
     // theme). Layout consumers key off this; the style picker reads themeStyle.
     minimalTheme: themeStyle !== "painted",
@@ -449,38 +516,42 @@ function settingsPayload() {
     // theme picker; localStorage can't, because the renderer's localhost port
     // (and thus its storage origin) can change between launches.
     themeChosen:
-      getSetting("accent_color") !== null ||
+      getSetting(ACCENT_COLOR_KEY) !== null ||
       getSetting(THEME_STYLE_KEY) !== null ||
       getSetting(MINIMAL_THEME_KEY) !== null,
-    mouseGradientDisabled: getBooleanSetting("mouse_gradient_disabled"),
+    mouseGradientDisabled: getBooleanSetting(MOUSE_GRADIENT_DISABLED_KEY),
     // On battery, the renderer freezes decorative animations and slows idle
     // polls (see src/lib/power-save.ts). Default on.
-    batterySaverEnabled: getBooleanSetting("battery_saver_enabled", true),
+    batterySaverEnabled: getBooleanSetting(BATTERY_SAVER_ENABLED_KEY, true),
     // Default on: turning spellcheck off frees the Electron spellchecker's
     // dictionary + suggestion memory (~15-20 MB) while composing.
-    spellcheckEnabled: getBooleanSetting("spellcheck_enabled", true),
-    sessionFinishToastEnabled: getBooleanSetting("session_finish_toast_enabled", true),
+    spellcheckEnabled: getBooleanSetting(SPELLCHECK_ENABLED_KEY, true),
+    sessionFinishToastEnabled: getBooleanSetting(SESSION_FINISH_TOAST_ENABLED_KEY, true),
     sessionFinishOsNotificationEnabled: getBooleanSetting(
-      "session_finish_os_notification_enabled",
+      SESSION_FINISH_OS_NOTIFICATION_ENABLED_KEY,
       false,
     ),
-    notificationSoundEnabled: getBooleanSetting("notification_sound_enabled", true),
-    launchOverlayEnabled: getBooleanSetting("launch_overlay_enabled", false),
+    notificationSoundEnabled: getBooleanSetting(NOTIFICATION_SOUND_ENABLED_KEY, true),
+    launchOverlayEnabled: getBooleanSetting(LAUNCH_OVERLAY_ENABLED_KEY, false),
     automaticUpdateDownloadsEnabled: getBooleanSetting(
-      "automatic_update_downloads_enabled",
+      AUTOMATIC_UPDATE_DOWNLOADS_ENABLED_KEY,
       false,
     ),
     automaticUpdateInstallOnQuitEnabled: getBooleanSetting(
-      "automatic_update_install_on_quit_enabled",
+      AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED_KEY,
       false,
     ),
     // Always on — worktrees graduated from experimental; ignore any stored preference.
     worktreesEnabled: true,
-    voiceControlEnabled: getBooleanSetting("voice_control_enabled", false),
-    questionOverlayEnabled: getBooleanSetting("question_overlay_enabled", true),
+    // These features graduated from experimental; retained in the payload for
+    // compatibility with older renderers, but stored preferences no longer gate them.
+    voiceControlEnabled: true,
+    questionOverlayEnabled: true,
     gitDiffChangedFilesView: getGitDiffChangedFilesViewSetting(),
     gitDiffChangedFilesWidth: getGitDiffChangedFilesWidthSetting(),
     projectsDashboardView: getProjectsDashboardViewSetting(),
+    activeProjectGroup: getActiveProjectGroupSetting(),
+    collapsedProjectGroups: getCollapsedProjectGroupsSetting(),
     selectedWorktreeByProject: getSelectedWorktreeByProjectSetting(),
     commitCli: getCommitCliSetting(),
     terminalZoomLevel: getTerminalZoomLevelSetting(),
@@ -492,16 +563,24 @@ function settingsPayload() {
     interfaceFontFamily: getInterfaceFontFamilySetting(),
     interfaceFontScale: getInterfaceFontScaleSetting(),
     sessionHeaderButtons: getSessionHeaderButtonsSetting(),
-    defaultAgent: getDefaultAgentSetting(),
-    defaultModel: getDefaultModelSetting(),
-    annotationAgent: getAnnotationAgentSetting(),
-    annotationModel: getAnnotationModelSetting(),
-    shipAgent: getShipAgentSetting(),
-    shipModel: getShipModelSetting(),
-    shipPrompt: getShipPromptSetting(),
-    syncAgent: getSyncAgentSetting(),
-    syncModel: getSyncModelSetting(),
-    syncPrompt: getSyncPromptSetting(),
+    headerButtons: getHeaderButtonsSetting(),
+    defaultAgent: readHarnessSetting(DEFAULT_AGENT_SETTING_KEY),
+    defaultModel: readModelSetting(DEFAULT_MODEL_SETTING_KEY),
+    annotationAgent: readHarnessSetting(ANNOTATION_AGENT_SETTING_KEY),
+    annotationModel: readModelSetting(ANNOTATION_MODEL_SETTING_KEY),
+    shipAgent: readHarnessSetting(SHIP_AGENT_SETTING_KEY),
+    shipModel: readModelSetting(SHIP_MODEL_SETTING_KEY),
+    shipPrompt: readPromptSetting(SHIP_PROMPT_SETTING_KEY, DEFAULT_SHIP_PROMPT, normalizeShipPrompt),
+    syncAgent: readHarnessSetting(SYNC_AGENT_SETTING_KEY),
+    syncModel: readModelSetting(SYNC_MODEL_SETTING_KEY),
+    syncPrompt: readPromptSetting(SYNC_PROMPT_SETTING_KEY, DEFAULT_SYNC_PROMPT, normalizeSyncPrompt),
+    pullRequestAgent: readHarnessSetting(PULL_REQUEST_AGENT_SETTING_KEY),
+    pullRequestModel: readModelSetting(PULL_REQUEST_MODEL_SETTING_KEY),
+    pullRequestPrompt: readPromptSetting(
+      PULL_REQUEST_PROMPT_SETTING_KEY,
+      DEFAULT_PULL_REQUEST_PROMPT,
+      normalizePullRequestPrompt,
+    ),
     voiceCommandAliases: getVoiceCommandAliasesSetting(),
     // Off by default: usage reaches out to provider APIs using local logins.
     claudeUsageLimitsEnabled: getBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, false),
@@ -518,6 +597,9 @@ function settingsPayload() {
     petMultiplayerEnabled: getBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, false),
     petHomeSide: getPetHomeSideSetting(),
     petState: normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null)),
+    showGroupSwitcher: getShowGroupSwitcherSetting(),
+    showProjectHeaderGroup: getShowProjectHeaderGroupSetting(),
+    showBackgroundGrid: getShowBackgroundGridSetting(),
     ...recallSettingsPayload(),
   };
 }
@@ -568,16 +650,22 @@ export function read(): Response {
   return json(settingsPayload());
 }
 
-export async function update(request: Request): Promise<Response> {
-  const parsed = await parseJsonBody(request, updateSettingsBody);
-  if (!parsed.ok) return parsed.response;
-  const body = parsed.data;
-  if (body.agentSystemBannerDisabled !== undefined) {
-    setBooleanSetting("agent_system_banner_disabled", body.agentSystemBannerDisabled);
-  }
-  if (body.accentColor !== undefined) {
-    setSetting("accent_color", body.accentColor);
-  }
+/** Store `value` under `key`, or clear the row when the client sends null. */
+function setOrClearSetting(key: string, value: string | number | null): void {
+  if (value === null) deleteSetting(key);
+  else setSetting(key, String(value));
+}
+
+/** Store `value` as JSON under `key`, or clear the row when the client sends null. */
+function setOrClearJsonSetting(key: string, value: unknown): void {
+  if (value === null) deleteSetting(key);
+  else setSetting(key, JSON.stringify(value));
+}
+
+type UpdateSettingsBody = z.infer<typeof updateSettingsBody>;
+
+function writeThemeSettings(body: UpdateSettingsBody): void {
+  if (body.accentColor !== undefined) setSetting(ACCENT_COLOR_KEY, body.accentColor);
   if (body.minimalTheme !== undefined) {
     // Legacy toggle: on means the flat theme, off means painted. (getThemeStyle
     // -Setting already migrates any stored legacy style to "flat".)
@@ -589,99 +677,103 @@ export async function update(request: Request): Promise<Response> {
     // Keep the legacy boolean in sync so a downgraded build restores the choice.
     setBooleanSetting(MINIMAL_THEME_KEY, body.themeStyle !== "painted");
   }
-  if (body.surfaceTint !== undefined) {
-    setSetting(SURFACE_TINT_KEY, body.surfaceTint);
+  if (body.surfaceTint !== undefined) setSetting(SURFACE_TINT_KEY, body.surfaceTint);
+  if (body.backgroundImage !== undefined) {
+    setOrClearSetting(BACKGROUND_IMAGE_KEY, body.backgroundImage);
+  }
+}
+
+function writeGeneralToggles(body: UpdateSettingsBody): void {
+  if (body.agentSystemBannerDisabled !== undefined) {
+    setBooleanSetting(AGENT_SYSTEM_BANNER_DISABLED_KEY, body.agentSystemBannerDisabled);
   }
   if (body.mouseGradientDisabled !== undefined) {
-    setBooleanSetting("mouse_gradient_disabled", body.mouseGradientDisabled);
+    setBooleanSetting(MOUSE_GRADIENT_DISABLED_KEY, body.mouseGradientDisabled);
   }
   if (body.batterySaverEnabled !== undefined) {
-    setBooleanSetting("battery_saver_enabled", body.batterySaverEnabled);
+    setBooleanSetting(BATTERY_SAVER_ENABLED_KEY, body.batterySaverEnabled);
   }
   if (body.spellcheckEnabled !== undefined) {
-    setBooleanSetting("spellcheck_enabled", body.spellcheckEnabled);
+    setBooleanSetting(SPELLCHECK_ENABLED_KEY, body.spellcheckEnabled);
   }
   if (body.sessionFinishToastEnabled !== undefined) {
-    setBooleanSetting("session_finish_toast_enabled", body.sessionFinishToastEnabled);
+    setBooleanSetting(SESSION_FINISH_TOAST_ENABLED_KEY, body.sessionFinishToastEnabled);
   }
   if (body.sessionFinishOsNotificationEnabled !== undefined) {
     setBooleanSetting(
-      "session_finish_os_notification_enabled",
+      SESSION_FINISH_OS_NOTIFICATION_ENABLED_KEY,
       body.sessionFinishOsNotificationEnabled,
     );
   }
   if (body.notificationSoundEnabled !== undefined) {
-    setBooleanSetting("notification_sound_enabled", body.notificationSoundEnabled);
+    setBooleanSetting(NOTIFICATION_SOUND_ENABLED_KEY, body.notificationSoundEnabled);
   }
   if (body.launchOverlayEnabled !== undefined) {
-    setBooleanSetting("launch_overlay_enabled", body.launchOverlayEnabled);
+    setBooleanSetting(LAUNCH_OVERLAY_ENABLED_KEY, body.launchOverlayEnabled);
   }
   if (body.automaticUpdateDownloadsEnabled !== undefined) {
-    setBooleanSetting(
-      "automatic_update_downloads_enabled",
-      body.automaticUpdateDownloadsEnabled,
-    );
+    setBooleanSetting(AUTOMATIC_UPDATE_DOWNLOADS_ENABLED_KEY, body.automaticUpdateDownloadsEnabled);
   }
   if (body.automaticUpdateInstallOnQuitEnabled !== undefined) {
     setBooleanSetting(
-      "automatic_update_install_on_quit_enabled",
+      AUTOMATIC_UPDATE_INSTALL_ON_QUIT_ENABLED_KEY,
       body.automaticUpdateInstallOnQuitEnabled,
     );
   }
   // worktreesEnabled is always on; ignore writes so old clients can't turn it off.
-  if (body.voiceControlEnabled !== undefined) {
-    setBooleanSetting("voice_control_enabled", body.voiceControlEnabled);
+  // Voice control and native question popups are also always on; their legacy
+  // fields remain accepted so older clients can update other settings safely.
+}
+
+function writeChromeVisibility(body: UpdateSettingsBody): void {
+  if (body.showGroupSwitcher !== undefined) {
+    setBooleanSetting(SHOW_GROUP_SWITCHER_KEY, body.showGroupSwitcher);
   }
-  if (body.questionOverlayEnabled !== undefined) {
-    setBooleanSetting("question_overlay_enabled", body.questionOverlayEnabled);
+  if (body.showProjectHeaderGroup !== undefined) {
+    setBooleanSetting(SHOW_PROJECT_HEADER_GROUP_KEY, body.showProjectHeaderGroup);
   }
+  if (body.showBackgroundGrid !== undefined) {
+    setBooleanSetting(SHOW_BACKGROUND_GRID_KEY, body.showBackgroundGrid);
+  }
+}
+
+function writeLayoutPreferences(body: UpdateSettingsBody): void {
   if (body.gitDiffChangedFilesView !== undefined) {
-    if (body.gitDiffChangedFilesView === null) {
-      deleteSetting(GIT_DIFF_CHANGED_FILES_VIEW_KEY);
-    } else {
-      setSetting(GIT_DIFF_CHANGED_FILES_VIEW_KEY, body.gitDiffChangedFilesView);
-    }
+    setOrClearSetting(GIT_DIFF_CHANGED_FILES_VIEW_KEY, body.gitDiffChangedFilesView);
   }
   if (body.gitDiffChangedFilesWidth !== undefined) {
-    if (body.gitDiffChangedFilesWidth === null) {
-      deleteSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY);
-    } else {
-      setSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY, String(body.gitDiffChangedFilesWidth));
-    }
+    setOrClearSetting(GIT_DIFF_CHANGED_FILES_WIDTH_KEY, body.gitDiffChangedFilesWidth);
   }
   if (body.projectsDashboardView !== undefined) {
-    if (body.projectsDashboardView === null) {
-      deleteSetting(PROJECTS_DASHBOARD_VIEW_KEY);
-    } else {
-      setSetting(PROJECTS_DASHBOARD_VIEW_KEY, body.projectsDashboardView);
-    }
+    setOrClearSetting(PROJECTS_DASHBOARD_VIEW_KEY, body.projectsDashboardView);
+  }
+  if (body.activeProjectGroup !== undefined) {
+    setOrClearSetting(ACTIVE_PROJECT_GROUP_KEY, body.activeProjectGroup);
+  }
+  if (body.collapsedProjectGroups !== undefined) {
+    // An empty list means "nothing collapsed", which is the same as no row.
+    setOrClearJsonSetting(
+      COLLAPSED_PROJECT_GROUPS_KEY,
+      body.collapsedProjectGroups?.length ? body.collapsedProjectGroups : null,
+    );
   }
   if (body.selectedWorktreeByProject !== undefined) {
-    if (body.selectedWorktreeByProject === null) {
-      deleteSetting(SELECTED_WORKTREE_BY_PROJECT_KEY);
-    } else {
-      setSetting(
-        SELECTED_WORKTREE_BY_PROJECT_KEY,
-        JSON.stringify(body.selectedWorktreeByProject),
-      );
-    }
+    setOrClearJsonSetting(SELECTED_WORKTREE_BY_PROJECT_KEY, body.selectedWorktreeByProject);
   }
-  if (body.commitCli !== undefined) {
-    if (body.commitCli === null) {
-      deleteSetting(COMMIT_CLI_SETTING_KEY);
-    } else {
-      setSetting(COMMIT_CLI_SETTING_KEY, body.commitCli);
-    }
+  if (body.sessionHeaderButtons !== undefined) {
+    setSetting(SESSION_HEADER_BUTTONS_KEY, JSON.stringify(body.sessionHeaderButtons));
   }
+  if (body.headerButtons !== undefined) {
+    setSetting(HEADER_BUTTONS_KEY, JSON.stringify(body.headerButtons));
+  }
+}
+
+function writeTypographySettings(body: UpdateSettingsBody): void {
   if (body.terminalZoomLevel !== undefined) {
     setSetting(TERMINAL_ZOOM_LEVEL_KEY, String(body.terminalZoomLevel));
   }
   if (body.terminalFontFamily !== undefined) {
-    if (body.terminalFontFamily === null) {
-      deleteSetting(TERMINAL_FONT_FAMILY_KEY);
-    } else {
-      setSetting(TERMINAL_FONT_FAMILY_KEY, body.terminalFontFamily);
-    }
+    setOrClearSetting(TERMINAL_FONT_FAMILY_KEY, body.terminalFontFamily);
   }
   if (body.terminalFontWeight !== undefined) {
     setSetting(TERMINAL_FONT_WEIGHT_KEY, String(body.terminalFontWeight));
@@ -696,67 +788,49 @@ export async function update(request: Request): Promise<Response> {
     setSetting(TERMINAL_LETTER_SPACING_KEY, String(body.terminalLetterSpacing));
   }
   if (body.interfaceFontFamily !== undefined) {
-    if (body.interfaceFontFamily === null) {
-      deleteSetting(INTERFACE_FONT_FAMILY_KEY);
-    } else {
-      setSetting(INTERFACE_FONT_FAMILY_KEY, body.interfaceFontFamily);
-    }
+    setOrClearSetting(INTERFACE_FONT_FAMILY_KEY, body.interfaceFontFamily);
   }
   if (body.interfaceFontScale !== undefined) {
     setSetting(INTERFACE_FONT_SCALE_KEY, String(body.interfaceFontScale));
   }
-  if (body.sessionHeaderButtons !== undefined) {
-    setSetting(SESSION_HEADER_BUTTONS_KEY, JSON.stringify(body.sessionHeaderButtons));
-  }
-  if (body.defaultAgent !== undefined) {
-    setSetting(DEFAULT_AGENT_SETTING_KEY, body.defaultAgent);
-  }
+}
+
+function writeAiRuntimeSettings(body: UpdateSettingsBody): void {
+  if (body.commitCli !== undefined) setOrClearSetting(COMMIT_CLI_SETTING_KEY, body.commitCli);
+  if (body.defaultAgent !== undefined) setSetting(DEFAULT_AGENT_SETTING_KEY, body.defaultAgent);
   if (body.defaultModel !== undefined) {
-    if (body.defaultModel === null) {
-      deleteSetting(DEFAULT_MODEL_SETTING_KEY);
-    } else {
-      setSetting(DEFAULT_MODEL_SETTING_KEY, body.defaultModel);
-    }
+    setOrClearSetting(DEFAULT_MODEL_SETTING_KEY, body.defaultModel);
   }
   if (body.annotationAgent !== undefined) {
     setSetting(ANNOTATION_AGENT_SETTING_KEY, body.annotationAgent);
   }
   if (body.annotationModel !== undefined) {
-    if (body.annotationModel === null) {
-      deleteSetting(ANNOTATION_MODEL_SETTING_KEY);
-    } else {
-      setSetting(ANNOTATION_MODEL_SETTING_KEY, body.annotationModel);
-    }
+    setOrClearSetting(ANNOTATION_MODEL_SETTING_KEY, body.annotationModel);
   }
-  if (body.shipAgent !== undefined) {
-    setSetting(SHIP_AGENT_SETTING_KEY, body.shipAgent);
+  if (body.shipAgent !== undefined) setSetting(SHIP_AGENT_SETTING_KEY, body.shipAgent);
+  if (body.shipModel !== undefined) setOrClearSetting(SHIP_MODEL_SETTING_KEY, body.shipModel);
+  if (body.shipPrompt !== undefined) setSetting(SHIP_PROMPT_SETTING_KEY, body.shipPrompt);
+  if (body.syncAgent !== undefined) setSetting(SYNC_AGENT_SETTING_KEY, body.syncAgent);
+  if (body.syncModel !== undefined) setOrClearSetting(SYNC_MODEL_SETTING_KEY, body.syncModel);
+  if (body.syncPrompt !== undefined) setSetting(SYNC_PROMPT_SETTING_KEY, body.syncPrompt);
+  if (body.pullRequestAgent !== undefined) {
+    setSetting(PULL_REQUEST_AGENT_SETTING_KEY, body.pullRequestAgent);
   }
-  if (body.shipModel !== undefined) {
-    if (body.shipModel === null) {
-      deleteSetting(SHIP_MODEL_SETTING_KEY);
-    } else {
-      setSetting(SHIP_MODEL_SETTING_KEY, body.shipModel);
-    }
+  if (body.pullRequestModel !== undefined) {
+    setOrClearSetting(PULL_REQUEST_MODEL_SETTING_KEY, body.pullRequestModel);
   }
-  if (body.shipPrompt !== undefined) {
-    setSetting(SHIP_PROMPT_SETTING_KEY, body.shipPrompt);
-  }
-  if (body.syncAgent !== undefined) {
-    setSetting(SYNC_AGENT_SETTING_KEY, body.syncAgent);
-  }
-  if (body.syncModel !== undefined) {
-    if (body.syncModel === null) {
-      deleteSetting(SYNC_MODEL_SETTING_KEY);
-    } else {
-      setSetting(SYNC_MODEL_SETTING_KEY, body.syncModel);
-    }
-  }
-  if (body.syncPrompt !== undefined) {
-    setSetting(SYNC_PROMPT_SETTING_KEY, body.syncPrompt);
+  if (body.pullRequestPrompt !== undefined) {
+    setSetting(PULL_REQUEST_PROMPT_SETTING_KEY, body.pullRequestPrompt);
   }
   if (body.voiceCommandAliases !== undefined) {
     setSetting(VOICE_COMMAND_ALIASES_KEY, JSON.stringify(body.voiceCommandAliases));
   }
+  if (body.agentLauncherConfig !== undefined) {
+    setSetting(AGENT_LAUNCHER_CONFIG_KEY, JSON.stringify(body.agentLauncherConfig));
+  }
+}
+
+function writeUsageSettings(body: UpdateSettingsBody): void {
   if (body.claudeUsageLimitsEnabled !== undefined) {
     setBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, body.claudeUsageLimitsEnabled);
   }
@@ -769,9 +843,7 @@ export async function update(request: Request): Promise<Response> {
   if (body.providerUsageEnabled !== undefined) {
     setBooleanSetting(PROVIDER_USAGE_ENABLED_KEY, body.providerUsageEnabled);
     // Keep Claude legacy flag aligned when Claude is among enabled providers.
-    const ids =
-      body.providerUsageIds ??
-      getProviderUsageIdsSetting();
+    const ids = body.providerUsageIds ?? getProviderUsageIdsSetting();
     if (ids.includes("claude")) {
       setBooleanSetting(CLAUDE_USAGE_LIMITS_ENABLED_KEY, body.providerUsageEnabled);
     }
@@ -779,12 +851,11 @@ export async function update(request: Request): Promise<Response> {
   if (body.providerUsageIds !== undefined) {
     setSetting(PROVIDER_USAGE_IDS_KEY, JSON.stringify(body.providerUsageIds));
   }
-  if (body.agentLauncherConfig !== undefined) {
-    setSetting(AGENT_LAUNCHER_CONFIG_KEY, JSON.stringify(body.agentLauncherConfig));
-  }
-  if (body.petEnabled !== undefined) {
-    setBooleanSetting(PET_ENABLED_KEY, body.petEnabled);
-  }
+}
+
+/** Returns an error response when the incoming pet state fails normalization. */
+function writePetSettings(body: UpdateSettingsBody): Response | null {
+  if (body.petEnabled !== undefined) setBooleanSetting(PET_ENABLED_KEY, body.petEnabled);
   if (body.petMessagesEnabled !== undefined) {
     setBooleanSetting(PET_MESSAGES_ENABLED_KEY, body.petMessagesEnabled);
   }
@@ -794,22 +865,37 @@ export async function update(request: Request): Promise<Response> {
   if (body.petMultiplayerEnabled !== undefined) {
     setBooleanSetting(PET_MULTIPLAYER_ENABLED_KEY, body.petMultiplayerEnabled);
   }
-  if (body.petHomeSide !== undefined) {
-    setSetting(PET_HOME_SIDE_KEY, body.petHomeSide);
+  if (body.petHomeSide !== undefined) setSetting(PET_HOME_SIDE_KEY, body.petHomeSide);
+  if (body.petState === undefined) return null;
+  if (body.petState === null) {
+    deleteSetting(PET_STATE_KEY);
+    return null;
   }
-  if (body.petState !== undefined) {
-    if (body.petState === null) {
-      deleteSetting(PET_STATE_KEY);
-    } else {
-      const incoming = normalizePetState(body.petState);
-      if (!incoming) return jsonError(HTTP_BAD_REQUEST, "invalid petState");
-      // Merge against the stored state so a stale renderer window (each holds
-      // its own copy, hydrated once at boot) can't revert a molt, level-up, or
-      // lifetime counters that another window already persisted.
-      const stored = normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null));
-      setSetting(PET_STATE_KEY, JSON.stringify(mergePetStateWrite(stored, incoming)));
-    }
-  }
+  const incoming = normalizePetState(body.petState);
+  if (!incoming) return jsonError(HTTP_BAD_REQUEST, "invalid petState");
+  // Merge against the stored state so a stale renderer window (each holds
+  // its own copy, hydrated once at boot) can't revert a molt, level-up, or
+  // lifetime counters that another window already persisted.
+  const stored = normalizePetState(safeJsonParse<unknown>(getSetting(PET_STATE_KEY), null));
+  setSetting(PET_STATE_KEY, JSON.stringify(mergePetStateWrite(stored, incoming)));
+  return null;
+}
+
+export async function update(request: Request): Promise<Response> {
+  const parsed = await parseJsonBody(request, updateSettingsBody);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+  writeGeneralToggles(body);
+  writeThemeSettings(body);
+  writeLayoutPreferences(body);
+  writeTypographySettings(body);
+  writeAiRuntimeSettings(body);
+  writeUsageSettings(body);
+  // Pet state is validated last-but-one on purpose: a malformed payload must
+  // 400 before the chrome toggles and Recall flags below are touched.
+  const petError = writePetSettings(body);
+  if (petError) return petError;
+  writeChromeVisibility(body);
   writeRecallSettings({
     enabled: body.recallEnabled,
     autoCaptureEnabled: body.recallAutoCaptureEnabled,

@@ -24,7 +24,7 @@ import type { AgentLauncherConfig } from "~/shared/agent-launcher-config";
 import type { AgentAccountStatus, AgentLatestVersion } from "~/shared/agent-launchers";
 import type { PendingQuestion } from "~/shared/agent-questions";
 import type { PromptSearchResponse } from "~/shared/prompts";
-import type { WorktreeInfo } from "~/shared/worktrees";
+import { MAIN_WORKTREE_ID, type WorktreeInfo } from "~/shared/worktrees";
 import type { CommitCli, CommitCliDetection } from "~/shared/commit-cli";
 import type {
   AiModelId,
@@ -63,8 +63,10 @@ import type {
   GraphStatus,
   GraphSummary,
 } from "~/shared/code-graph";
+import type { ScratchPadView } from "~/shared/scratch-pads";
 import type { VoiceCommandAliases } from "~/shared/voice-command-aliases";
 import type { SessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
+import type { HeaderButtonVisibility } from "~/shared/header-buttons";
 import type { PetHomeSide, PetPersistentState } from "~/shared/pet";
 import { pruneStoredSessionFinishNotifications } from "~/lib/session-notification-store";
 import { HTTP_NO_CONTENT } from "~/shared/http-status";
@@ -81,6 +83,18 @@ export type AppSettings = {
   themeStyle: ThemeStyle;
   /** How much accent to mix into surface tokens (off / subtle / vivid). */
   surfaceTint: SurfaceTint;
+  /**
+   * Wallpaper for the flat theme: an image data URL that replaces the subtle
+   * `--bg` ground, or null for none. Only rendered under the flat theme;
+   * painted ignores it even while one is stored.
+   */
+  backgroundImage: string | null;
+  /**
+   * Paint the subtle grid ground (dots in painted, blueprint grid in flat)
+   * behind the dashboard and the project view. Off leaves the bare `--bg`
+   * (or the wallpaper) as the ground.
+   */
+  showBackgroundGrid: boolean;
   /** Derived server-side: true when themeStyle renders clean CSS chrome. */
   minimalTheme: boolean;
   /**
@@ -93,6 +107,10 @@ export type AppSettings = {
   batterySaverEnabled: boolean;
   /** Spellcheck in text fields (Electron). Off frees ~15-20 MB while composing. */
   spellcheckEnabled: boolean;
+  /** Show the active-group switcher pill in the top bar breadcrumb. */
+  showGroupSwitcher: boolean;
+  /** Show the group tag (colored dot + group name) in an open project's header. */
+  showProjectHeaderGroup: boolean;
   sessionFinishToastEnabled: boolean;
   sessionFinishOsNotificationEnabled: boolean;
   /** Ding when a session-finish or diagram-ready notification arrives. */
@@ -102,14 +120,21 @@ export type AppSettings = {
   automaticUpdateInstallOnQuitEnabled: boolean;
   /** Git worktrees per project (always on). */
   worktreesEnabled: boolean;
-  /** Experimental: push-to-talk voice control (off by default). */
+  /** Legacy compatibility field; push-to-talk is always enabled on desktop. */
   voiceControlEnabled: boolean;
-  /** Beta: native popup for Claude Code AskUserQuestion menus (on by default). */
+  /** Legacy compatibility field; native Claude Code question popups are always enabled. */
   questionOverlayEnabled: boolean;
   gitDiffChangedFilesView: GitDiffChangedFilesView | null;
   gitDiffChangedFilesWidth: number | null;
   /** Projects dashboard layout — cards (default) or table. */
   projectsDashboardView: ProjectsDashboardView | null;
+  /**
+   * Globally active project group scoping the dashboard, left rail, and
+   * project picker: "ungrouped", a group id, or null for "all projects".
+   */
+  activeProjectGroup: string | null;
+  /** Collapsed dashboard section keys — group ids plus "pinned"/"ungrouped". */
+  collapsedProjectGroups: string[] | null;
   selectedWorktreeByProject: SelectedWorktreeByProject | null;
   /**
    * Which CLI generates Ship's commit message. `null` means "not set yet" —
@@ -138,6 +163,11 @@ export type AppSettings = {
    */
   sessionHeaderButtons: SessionHeaderButtonVisibility;
   /**
+   * Which discretionary top-bar / project-header buttons are shown. All default
+   * on; each action keeps its keyboard shortcut while hidden.
+   */
+  headerButtons: HeaderButtonVisibility;
+  /**
    * Default harness/model for voice-started agents when the command doesn't name one.
    * `null` means "not set" — don't pass a model flag, so the CLI uses its own default.
    */
@@ -165,6 +195,14 @@ export type AppSettings = {
   syncAgent: AiRuntimeHarness;
   syncModel: AiModelId | null;
   syncPrompt: string;
+  /**
+   * Harness/model/prompt for the Ship split-button's Create PR action, which
+   * opens an AI session to commit/push, sync with upstream, then open a pull
+   * request in the browser. Mirrors the Ship trio.
+   */
+  pullRequestAgent: AiRuntimeHarness;
+  pullRequestModel: AiModelId | null;
+  pullRequestPrompt: string;
   /** User-defined phrases that map to built-in voice commands. */
   voiceCommandAliases: VoiceCommandAliases;
   /**
@@ -330,12 +368,39 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+type JsonMethod = "POST" | "PATCH" | "PUT" | "DELETE";
+
+/** `req` with a JSON-encoded body (omitted entirely when `body` is undefined). */
+function sendJson<T>(method: JsonMethod, url: string, body?: unknown): Promise<T> {
+  return req<T>(url, body === undefined ? { method } : { method, body: JSON.stringify(body) });
+}
+
+const postJson = <T>(url: string, body?: unknown) => sendJson<T>("POST", url, body);
+const patchJson = <T>(url: string, body?: unknown) => sendJson<T>("PATCH", url, body);
+const putJson = <T>(url: string, body?: unknown) => sendJson<T>("PUT", url, body);
+const deleteJson = <T>(url: string, body?: unknown) => sendJson<T>("DELETE", url, body);
+
+type QueryValue = string | number | boolean | null | undefined;
+
+/**
+ * `?a=b&c=d` from the defined entries of `params` (null/undefined are skipped),
+ * or "" when nothing is set. Insertion order is preserved.
+ */
+function queryString(params: Record<string, QueryValue>): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined) continue;
+    parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+  }
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
 export const api = {
   listProjects: () => req<{ projects: ProjectWithCounts[] }>("/api/projects"),
   getProject: (id: string) => req<{ project: ProjectWithCounts }>(`/api/projects/${id}`),
   getProjectPathStatus: (id: string, worktreeId?: string | null) =>
     req<{ status: ProjectPathStatus }>(
-      `/api/projects/${id}/path-status${worktreeId ? `?worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,
+      `/api/projects/${id}/path-status${queryString({ worktreeId: worktreeId || null })}`,
     ),
   createProject: (body: {
     name?: string;
@@ -345,33 +410,22 @@ export const api = {
     iconColor?: string;
     groupId?: string | null;
     sandboxId?: string | null;
+    savedAgent?: Project["savedAgent"] | null;
+    rememberAgentSettings?: boolean;
+    defaultGridView?: boolean;
+    pinned?: boolean;
   }) =>
-    req<{ project: Project }>("/api/projects", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<{ project: Project }>("/api/projects", body),
   updateProject: (id: string, body: Record<string, unknown>) =>
-    req<{ project: Project }>(`/api/projects/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    patchJson<{ project: Project }>(`/api/projects/${id}`, body),
   updateProjectLaunchUrl: (id: string, launchUrl: string | null) =>
-    req<{ project: Project }>(`/api/projects/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ launchUrl }),
-    }),
+    patchJson<{ project: Project }>(`/api/projects/${id}`, { launchUrl }),
   togglePin: (id: string) =>
-    req<{ project: Project }>(`/api/projects/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ togglePin: true }),
-    }),
+    patchJson<{ project: Project }>(`/api/projects/${id}`, { togglePin: true }),
   reorderPinnedProjects: (order: string[]) =>
-    req<{ projects: ProjectWithCounts[] }>("/api/projects/pinned-order", {
-      method: "PATCH",
-      body: JSON.stringify({ order }),
-    }),
+    patchJson<{ projects: ProjectWithCounts[] }>("/api/projects/pinned-order", { order }),
   deleteProject: async (id: string) => {
-    await req<void>(`/api/projects/${id}`, { method: "DELETE" });
+    await deleteJson<void>(`/api/projects/${id}`);
     pruneStoredSessionFinishNotifications({ type: "project", projectId: id });
   },
 
@@ -379,50 +433,43 @@ export const api = {
   // disabled, empty state.
   listSandboxes: () =>
     req<{ sandboxes: SandboxPublicView[]; enabled: boolean; activeScopeId: string }>("/api/sandboxes"),
+  connectSandbox: (input: {
+    name: string;
+    agentUrl: string;
+    apiKey: string;
+    agentCa?: string | null;
+  }) =>
+    postJson<{ sandbox: SandboxPublicView }>("/api/sandboxes/connect", input),
   updateSandbox: (id: string, body: Record<string, unknown>) =>
-    req<{ sandbox: SandboxPublicView }>(`/api/sandboxes/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    patchJson<{ sandbox: SandboxPublicView }>(`/api/sandboxes/${id}`, body),
   deleteSandbox: async (id: string) => {
-    await req<void>(`/api/sandboxes/${id}`, { method: "DELETE" });
+    await deleteJson<void>(`/api/sandboxes/${id}`);
   },
   revealSandboxApiKey: (id: string) =>
     req<{ apiKey: string }>(`/api/sandboxes/${id}/api-key`),
   setActiveScope: (scopeId: string) =>
-    req<{ activeScopeId: string }>("/api/sandboxes/active", {
-      method: "PUT",
-      body: JSON.stringify({ scopeId }),
-    }),
+    putJson<{ activeScopeId: string }>("/api/sandboxes/active", { scopeId }),
   setSandboxesEnabled: (enabled: boolean) =>
-    req<{ enabled: boolean }>("/api/sandboxes/enabled", {
-      method: "PUT",
-      body: JSON.stringify({ enabled }),
-    }),
+    putJson<{ enabled: boolean }>("/api/sandboxes/enabled", { enabled }),
 
   listWorktrees: (projectId: string) =>
     req<{ worktrees: WorktreeInfo[] }>(`/api/projects/${projectId}/worktrees`),
   createWorktree: (projectId: string) =>
-    req<{ worktree: WorktreeInfo; setupCommand: string | null }>(
+    postJson<{ worktree: WorktreeInfo; setupCommand: string | null }>(
       `/api/projects/${projectId}/worktrees`,
-      { method: "POST" },
     ),
   deleteWorktree: async (
     projectId: string,
     worktreeId: string,
     opts: { force?: boolean; stashChanges?: boolean } = {},
   ) => {
-    const params = new URLSearchParams();
-    if (opts.force) params.set("force", "true");
-    if (opts.stashChanges) params.set("stashChanges", "true");
-    const queryString = params.toString();
-    const query = queryString ? `?${queryString}` : "";
-    await req<void>(
+    const query = queryString({
+      force: opts.force || null,
+      stashChanges: opts.stashChanges || null,
+    });
+    await deleteJson<void>(
       `/api/projects/${projectId}/worktrees/${encodeURIComponent(worktreeId)}${query}`,
-      {
-        method: "DELETE",
-        body: JSON.stringify(opts),
-      },
+      opts,
     );
     pruneStoredSessionFinishNotifications({
       type: "worktree",
@@ -434,45 +481,51 @@ export const api = {
   // Recall — project memory.
   listMemory: (projectId: string, opts: { includeArchived?: boolean } = {}) =>
     req<{ memories: MemoryView[] }>(
-      `/api/projects/${projectId}/memory${opts.includeArchived ? "?includeArchived=true" : ""}`,
+      `/api/projects/${projectId}/memory${queryString({
+        includeArchived: opts.includeArchived || null,
+      })}`,
     ),
-  searchMemory: (projectId: string, query: string, limit?: number) => {
-    const params = new URLSearchParams();
-    if (query) params.set("q", query);
-    if (limit) params.set("limit", String(limit));
-    const qs = params.toString();
-    return req<{ memories: MemoryView[] }>(
-      `/api/projects/${projectId}/memory/search${qs ? `?${qs}` : ""}`,
-    );
-  },
+  searchMemory: (projectId: string, query: string, limit?: number) =>
+    req<{ memories: MemoryView[] }>(
+      `/api/projects/${projectId}/memory/search${queryString({
+        q: query || null,
+        limit: limit || null,
+      })}`,
+    ),
   createMemory: (projectId: string, body: Omit<MemoryCreateInput, "projectId">) =>
-    req<{ memory: MemoryView }>(`/api/projects/${projectId}/memory`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<{ memory: MemoryView }>(`/api/projects/${projectId}/memory`, body),
   updateMemory: (memoryId: string, body: MemoryUpdateInput) =>
-    req<{ memory: MemoryView }>(`/api/memory/${memoryId}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    patchJson<{ memory: MemoryView }>(`/api/memory/${memoryId}`, body),
   deleteMemory: (memoryId: string, opts: { hard?: boolean } = {}) =>
-    req<void>(`/api/memory/${memoryId}${opts.hard ? "?hard=true" : ""}`, { method: "DELETE" }),
+    deleteJson<void>(`/api/memory/${memoryId}${queryString({ hard: opts.hard || null })}`),
   // Verify a memory against the current code. Applies the verdict server-side
   // (verified / stale / contradicted→supersede) and returns the resulting memory.
   verifyMemory: (memoryId: string) =>
-    req<{ verdict: MemoryVerifyVerdict; memory: MemoryView }>(
+    postJson<{ verdict: MemoryVerifyVerdict; memory: MemoryView }>(
       `/api/memory/${memoryId}/verify`,
-      { method: "POST" },
     ),
   // The assembled Session Brief for a task (what gets injected). `record: false`
   // previews it without bumping memory usage — for a "view injected brief" panel.
   getTaskBrief: (taskId: string, opts: { record?: boolean } = {}) =>
     req<{ brief: string; memoryIds: string[] }>(
-      `/api/tasks/${taskId}/brief${opts.record === false ? "?record=false" : ""}`,
+      `/api/tasks/${taskId}/brief${queryString({ record: opts.record === false ? "false" : null })}`,
     ),
   // Preview the brief a new session in this project would get (no usage bump).
   getProjectBrief: (projectId: string) =>
     req<{ brief: string; memoryIds: string[] }>(`/api/projects/${projectId}/brief`),
+
+  // Scratch pads — per-project temporary text buffers.
+  listScratchPads: (projectId: string) =>
+    req<{ scratchPads: ScratchPadView[] }>(`/api/projects/${projectId}/scratch-pads`),
+  createScratchPad: (projectId: string, body: { content?: string } = {}) =>
+    postJson<{ scratchPad: ScratchPadView }>(`/api/projects/${projectId}/scratch-pads`, body),
+  updateScratchPad: (projectId: string, padId: string, body: { content: string }) =>
+    patchJson<{ scratchPad: ScratchPadView }>(
+      `/api/projects/${projectId}/scratch-pads/${padId}`,
+      body,
+    ),
+  deleteScratchPad: (projectId: string, padId: string) =>
+    deleteJson<void>(`/api/projects/${projectId}/scratch-pads/${padId}`),
 
   // Recall — code graph.
   getGraphStatus: (projectId: string) =>
@@ -480,40 +533,32 @@ export const api = {
   getGraphSummary: (projectId: string) =>
     req<{ summary: GraphSummary }>(`/api/projects/${projectId}/graph/summary`),
   buildGraph: (projectId: string, mode: GraphIndexMode = "full") =>
-    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/index?mode=${mode}`, {
-      method: "POST",
-    }),
+    postJson<{ status: GraphStatus }>(
+      `/api/projects/${projectId}/graph/index${queryString({ mode })}`,
+    ),
   cancelGraphBuild: (projectId: string) =>
-    req<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/index/cancel`, {
-      method: "POST",
-    }),
-  searchGraph: (projectId: string, query: string, limit?: number) => {
-    const params = new URLSearchParams();
-    if (query) params.set("q", query);
-    if (limit) params.set("limit", String(limit));
-    const qs = params.toString();
-    return req<{ nodes: GraphNodeView[] }>(
-      `/api/projects/${projectId}/graph/search${qs ? `?${qs}` : ""}`,
-    );
-  },
+    postJson<{ status: GraphStatus }>(`/api/projects/${projectId}/graph/index/cancel`),
+  searchGraph: (projectId: string, query: string, limit?: number) =>
+    req<{ nodes: GraphNodeView[] }>(
+      `/api/projects/${projectId}/graph/search${queryString({
+        q: query || null,
+        limit: limit || null,
+      })}`,
+    ),
   getGraphNeighbors: (projectId: string, node: string, direction: "in" | "out" | "both" = "both") =>
     req<{ node: GraphNodeView; neighbors: GraphNeighbor[] }>(
-      `/api/projects/${projectId}/graph/neighbors?node=${encodeURIComponent(node)}&direction=${direction}`,
+      `/api/projects/${projectId}/graph/neighbors${queryString({ node, direction })}`,
     ),
 
   listGroups: () => req<{ groups: Group[] }>("/api/groups"),
   createGroup: (body: { name: string; color?: string }) =>
-    req<{ group: Group }>("/api/groups", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<{ group: Group }>("/api/groups", body),
   updateGroup: (id: string, body: { name?: string; color?: string }) =>
-    req<{ group: Group }>(`/api/groups/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    patchJson<{ group: Group }>(`/api/groups/${id}`, body),
+  reorderGroups: (order: string[]) =>
+    patchJson<{ groups: Group[] }>("/api/groups/order", { order }),
   deleteGroup: (id: string) =>
-    req<void>(`/api/groups/${id}`, { method: "DELETE" }),
+    deleteJson<void>(`/api/groups/${id}`),
 
   listTasks: (projectId: string, worktreeId?: string | null, scopeId?: string | null) =>
     req<{ tasks: Task[] }>(
@@ -523,14 +568,13 @@ export const api = {
   getTaskQuestion: (id: string) =>
     req<{ question: PendingQuestion | null }>(`/api/tasks/${id}/question`),
   archiveTask: (id: string) =>
-    req<{ task: Task }>(`/api/tasks/${id}/archive`, { method: "POST" }),
+    postJson<{ task: Task }>(`/api/tasks/${id}/archive`),
   restoreTask: (id: string) =>
-    req<{ task: Task }>(`/api/tasks/${id}/restore`, { method: "POST" }),
-  updateTaskStatus: (id: string, body: { status?: TaskStatus; preview?: string; lines?: number; prompt?: string }) =>
-    req<{ task: Task }>(`/api/tasks/${id}/status`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<{ task: Task }>(`/api/tasks/${id}/restore`),
+  updateTaskStatus: (
+    id: string,
+    body: { status?: TaskStatus; preview?: string; lines?: number; prompt?: string },
+  ) => postJson<{ task: Task }>(`/api/tasks/${id}/status`, body),
   createTaskInternal: (
     projectId: string,
     body: {
@@ -545,10 +589,7 @@ export const api = {
       scopeId?: string | null;
     },
   ) =>
-    req<{ task: Task }>(`/api/projects/${projectId}/tasks`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<{ task: Task }>(`/api/projects/${projectId}/tasks`, body),
   updateTask: (
     id: string,
     body: {
@@ -560,12 +601,9 @@ export const api = {
       claudeBareSession?: boolean;
     }
   ) =>
-    req<{ task: Task }>(`/api/tasks/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    patchJson<{ task: Task }>(`/api/tasks/${id}`, body),
   deleteTask: async (id: string) => {
-    await req<void>(`/api/tasks/${id}`, { method: "DELETE" });
+    await deleteJson<void>(`/api/tasks/${id}`);
     pruneStoredSessionFinishNotifications({ type: "task", taskId: id });
   },
 
@@ -584,23 +622,17 @@ export const api = {
       scopeId?: string | null;
     },
   ) =>
-    req<{ terminal: UserTerminal }>(`/api/projects/${projectId}/user-terminals`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<{ terminal: UserTerminal }>(`/api/projects/${projectId}/user-terminals`, body),
   renameUserTerminal: (id: string, name: string) =>
-    req<{ terminal: UserTerminal }>(`/api/user-terminals/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ name }),
-    }),
+    patchJson<{ terminal: UserTerminal }>(`/api/user-terminals/${id}`, { name }),
   deleteUserTerminal: (id: string) =>
-    req<void>(`/api/user-terminals/${id}`, { method: "DELETE" }),
+    deleteJson<void>(`/api/user-terminals/${id}`),
 
   // Project-less "home" terminals (the dashboard terminals). Returned shaped as
   // UserTerminal (sentinel projectId) so the same terminal store/panel render them.
   listHomeTerminals: (scopeId: string) =>
     req<{ terminals: UserTerminal[] }>(
-      `/api/home/user-terminals?scopeId=${encodeURIComponent(scopeId)}`,
+      `/api/home/user-terminals${queryString({ scopeId })}`,
     ),
   createHomeTerminal: (body: {
     id?: string;
@@ -608,120 +640,34 @@ export const api = {
     cwd?: string | null;
     scopeId: string;
   }) =>
-    req<{ terminal: UserTerminal }>("/api/home/user-terminals", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<{ terminal: UserTerminal }>("/api/home/user-terminals", body),
   renameHomeTerminal: (id: string, name: string) =>
-    req<{ terminal: UserTerminal }>(`/api/home/user-terminals/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ name }),
-    }),
+    patchJson<{ terminal: UserTerminal }>(`/api/home/user-terminals/${id}`, { name }),
   deleteHomeTerminal: (id: string) =>
-    req<void>(`/api/home/user-terminals/${id}`, { method: "DELETE" }),
+    deleteJson<void>(`/api/home/user-terminals/${id}`),
 
   getKeybindings: () => req<{ bindings: BindingMap }>("/api/keybindings"),
   setKeybinding: (action: HotkeyAction, binding: Binding) =>
-    req<{ bindings: BindingMap }>("/api/keybindings", {
-      method: "PUT",
-      body: JSON.stringify({ action, binding }),
-    }),
+    putJson<{ bindings: BindingMap }>("/api/keybindings", { action, binding }),
   resetKeybinding: (action: HotkeyAction) =>
-    req<{ bindings: BindingMap }>(`/api/keybindings?action=${encodeURIComponent(action)}`, {
-      method: "DELETE",
-    }),
+    deleteJson<{ bindings: BindingMap }>(`/api/keybindings${queryString({ action })}`),
   resetAllKeybindings: () =>
-    req<{ bindings: BindingMap }>("/api/keybindings", { method: "DELETE" }),
+    deleteJson<{ bindings: BindingMap }>("/api/keybindings"),
 
   getSettings: () => req<AppSettings>("/api/settings"),
 
-  updateSettings: (
-    body: Partial<
-      Pick<
-        AppSettings,
-        | "agentSystemBannerDisabled"
-        | "accentColor"
-        | "themeStyle"
-        | "surfaceTint"
-        | "minimalTheme"
-        | "mouseGradientDisabled"
-        | "batterySaverEnabled"
-        | "spellcheckEnabled"
-        | "sessionFinishToastEnabled"
-        | "sessionFinishOsNotificationEnabled"
-        | "notificationSoundEnabled"
-        | "launchOverlayEnabled"
-        | "automaticUpdateDownloadsEnabled"
-        | "automaticUpdateInstallOnQuitEnabled"
-        | "worktreesEnabled"
-        | "voiceControlEnabled"
-        | "questionOverlayEnabled"
-        | "gitDiffChangedFilesView"
-        | "gitDiffChangedFilesWidth"
-        | "projectsDashboardView"
-        | "selectedWorktreeByProject"
-        | "commitCli"
-        | "terminalZoomLevel"
-        | "terminalFontFamily"
-        | "terminalFontWeight"
-        | "terminalFontWeightBold"
-        | "terminalLineHeight"
-        | "terminalLetterSpacing"
-        | "interfaceFontFamily"
-        | "interfaceFontScale"
-        | "sessionHeaderButtons"
-        | "defaultAgent"
-        | "defaultModel"
-        | "annotationAgent"
-        | "annotationModel"
-        | "shipAgent"
-        | "shipModel"
-        | "shipPrompt"
-        | "syncAgent"
-        | "syncModel"
-        | "syncPrompt"
-        | "voiceCommandAliases"
-        | "claudeUsageLimitsEnabled"
-        | "claudeUsageLimitsShowSession"
-        | "claudeUsageLimitsShowWeekly"
-        | "providerUsageEnabled"
-        | "providerUsageIds"
-        | "agentLauncherConfig"
-        | "recallEnabled"
-        | "recallAutoCaptureEnabled"
-        | "recallEngineEnabled"
-        | "recallEngineHarness"
-        | "recallEngineModel"
-        | "recallAgentWriteEnabled"
-        | "recallInjectBriefEnabled"
-        | "recallCodeGraphEnabled"
-        | "recallProactiveRecallEnabled"
-        | "recallLearnedToastEnabled"
-        | "petEnabled"
-        | "petMessagesEnabled"
-        | "petSoundsEnabled"
-        | "petMultiplayerEnabled"
-        | "petHomeSide"
-        | "petState"
-      >
-    >,
-  ) =>
-    req<AppSettings>("/api/settings", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  // Every field is writable except `themeChosen`, which the server derives.
+  updateSettings: (body: Partial<Omit<AppSettings, "themeChosen">>) =>
+    postJson<AppSettings>("/api/settings", body),
 
   refineMarkdown: (body: MarkdownRefineRequest) =>
-    req<MarkdownRefineResponse>("/api/markdown/refine", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    postJson<MarkdownRefineResponse>("/api/markdown/refine", body),
 
   detectCommitCli: () =>
     req<{ detected: CommitCliDetection }>("/api/commit-cli/detect"),
   listAiRuntimeModels: (agent: AiRuntimeHarness) =>
     req<AiRuntimeModelsResponse>(
-      `/api/ai-runtime/models?agent=${encodeURIComponent(agent)}`,
+      `/api/ai-runtime/models${queryString({ agent })}`,
     ),
 
   getGitStatus: (projectId: string, worktreeId?: string | null) =>
@@ -733,27 +679,28 @@ export const api = {
     branch: string,
     opts: { create?: boolean; worktreeId?: string | null } = {},
   ) =>
-    req<GitCheckoutResult>(`/api/projects/${projectId}/git/checkout`, {
-      method: "POST",
-      body: JSON.stringify({
-        branch,
-        create: opts.create,
-        worktreeId: opts.worktreeId ?? null,
-      }),
+    postJson<GitCheckoutResult>(`/api/projects/${projectId}/git/checkout`, {
+      branch,
+      create: opts.create,
+      worktreeId: opts.worktreeId ?? null,
     }),
   getGitDiff: (projectId: string, file: string, staged: boolean, worktreeId?: string | null) =>
     req<GitDiff>(
-      `/api/projects/${projectId}/git/diff?file=${encodeURIComponent(file)}&staged=${staged ? "1" : "0"}${worktreeId ? `&worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,
+      `/api/projects/${projectId}/git/diff${queryString({
+        file,
+        staged: staged ? "1" : "0",
+        worktreeId: worktreeId || null,
+      })}`,
     ),
   stageFiles: (projectId: string, files: string[], worktreeId?: string | null) =>
-    req<{ ok: true }>(`/api/projects/${projectId}/git/stage`, {
-      method: "POST",
-      body: JSON.stringify({ files, worktreeId: worktreeId ?? null }),
+    postJson<{ ok: true }>(`/api/projects/${projectId}/git/stage`, {
+      files,
+      worktreeId: worktreeId ?? null,
     }),
   unstageFiles: (projectId: string, files: string[], worktreeId?: string | null) =>
-    req<{ ok: true }>(`/api/projects/${projectId}/git/unstage`, {
-      method: "POST",
-      body: JSON.stringify({ files, worktreeId: worktreeId ?? null }),
+    postJson<{ ok: true }>(`/api/projects/${projectId}/git/unstage`, {
+      files,
+      worktreeId: worktreeId ?? null,
     }),
   gitCommit: (
     projectId: string,
@@ -768,87 +715,76 @@ export const api = {
       message?: string;
     } = {},
   ) =>
-    req<CommitResult>(`/api/projects/${projectId}/git/commit`, {
-      method: "POST",
-      body: JSON.stringify(opts),
-    }),
+    postJson<CommitResult>(`/api/projects/${projectId}/git/commit`, opts),
   gitPush: (projectId: string, worktreeId?: string | null) =>
-    req<PushResult>(`/api/projects/${projectId}/git/push`, {
-      method: "POST",
-      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
-    }),
+    postJson<PushResult>(`/api/projects/${projectId}/git/push`, { worktreeId: worktreeId ?? null }),
   gitFetch: (projectId: string, worktreeId?: string | null) =>
-    req<FetchResult>(`/api/projects/${projectId}/git/fetch`, {
-      method: "POST",
-      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
-    }),
+    postJson<FetchResult>(`/api/projects/${projectId}/git/fetch`, { worktreeId: worktreeId ?? null }),
   gitPull: (
     projectId: string,
     worktreeId?: string | null,
     mode: "ff-only" | "rebase" | "merge" = "ff-only",
   ) =>
-    req<PullResult>(`/api/projects/${projectId}/git/pull`, {
-      method: "POST",
-      body: JSON.stringify({ worktreeId: worktreeId ?? null, mode }),
+    postJson<PullResult>(`/api/projects/${projectId}/git/pull`, {
+      worktreeId: worktreeId ?? null,
+      mode,
     }),
   gitCreatePullRequest: (projectId: string, worktreeId?: string | null) =>
-    req<CreatePullRequestResult>(`/api/projects/${projectId}/git/create-pr`, {
-      method: "POST",
-      body: JSON.stringify({ worktreeId: worktreeId ?? null }),
+    postJson<CreatePullRequestResult>(`/api/projects/${projectId}/git/create-pr`, {
+      worktreeId: worktreeId ?? null,
     }),
   getUsage: (days: number = 30) =>
-    req<UsageSummary>(`/api/usage?days=${days}`),
+    req<UsageSummary>(`/api/usage${queryString({ days })}`),
   getClaudeUsageLimits: () =>
     req<ClaudeUsageLimits>("/api/claude-usage-limits"),
-  getProviderUsage: (providerIds?: readonly string[]) => {
-    const q =
-      providerIds && providerIds.length > 0
-        ? `?providers=${encodeURIComponent(providerIds.join(","))}`
-        : "";
-    return req<ProviderUsageResponse>(`/api/provider-usage${q}`);
-  },
+  getProviderUsage: (providerIds?: readonly string[]) =>
+    req<ProviderUsageResponse>(
+      `/api/provider-usage${queryString({
+        providers: providerIds?.length ? providerIds.join(",") : null,
+      })}`,
+    ),
   getAgentAccounts: () =>
     req<{ accounts: AgentAccountStatus[] }>("/api/agent-launchers/accounts"),
-  getAgentLatestVersions: (agents?: readonly TaskAgent[], opts?: { refresh?: boolean }) => {
-    const params = new URLSearchParams();
-    if (agents && agents.length > 0) params.set("agents", agents.join(","));
-    if (opts?.refresh) params.set("refresh", "1");
-    const q = params.size > 0 ? `?${params.toString()}` : "";
-    return req<{ versions: AgentLatestVersion[] }>(`/api/agent-launchers/latest-versions${q}`);
-  },
+  getAgentLatestVersions: (agents?: readonly TaskAgent[], opts?: { refresh?: boolean }) =>
+    req<{ versions: AgentLatestVersion[] }>(
+      `/api/agent-launchers/latest-versions${queryString({
+        agents: agents?.length ? agents.join(",") : null,
+        refresh: opts?.refresh ? "1" : null,
+      })}`,
+    ),
   searchPrompts: (query: string, limit?: number) =>
     req<PromptSearchResponse>(
-      `/api/prompts?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ""}`,
+      `/api/prompts${queryString({ q: query, limit: limit || null })}`,
     ),
   createEventsTicket: () =>
-    req<{ ticket: string; expiresAt: number }>("/api/events/ticket", {
-      method: "POST",
-    }),
+    postJson<{ ticket: string; expiresAt: number }>("/api/events/ticket"),
   listDiagrams: (projectId: string) =>
     req<{ diagrams: import("~/shared/diagram").StoredDiagram[] }>(
-      `/api/diagrams?projectId=${encodeURIComponent(projectId)}`,
+      `/api/diagrams${queryString({ projectId })}`,
     ),
   getDiagrams: (taskId: string) =>
     req<{ diagrams: import("~/shared/diagram").StoredDiagram[] }>(
-      `/api/diagram?taskId=${encodeURIComponent(taskId)}`,
+      `/api/diagram${queryString({ taskId })}`,
     ),
 
   deleteProjectFile: (projectId: string, filePath: string, worktreeId?: string | null) =>
-    req<{ ok: true }>(
-      `/api/projects/${projectId}/file?path=${encodeURIComponent(filePath)}${worktreeId ? `&worktreeId=${encodeURIComponent(worktreeId)}` : ""}`,
-      { method: "DELETE" },
+    deleteJson<{ ok: true }>(
+      `/api/projects/${projectId}/file${queryString({
+        path: filePath,
+        worktreeId: worktreeId || null,
+      })}`,
     ),
 };
 
+/** `?worktreeId=` when a worktree was specified (null/"" meaning the main checkout). */
 function worktreeQuery(worktreeId?: string | null): string {
   if (worktreeId === undefined) return "";
-  return `?worktreeId=${encodeURIComponent(worktreeId || "main")}`;
+  return queryString({ worktreeId: worktreeId || MAIN_WORKTREE_ID });
 }
 
 function scopedWorktreeQuery(worktreeId?: string | null, scopeId?: string | null): string {
-  const params = new URLSearchParams();
-  if (worktreeId !== undefined) params.set("worktreeId", worktreeId || "main");
-  if (scopeId) params.set("scopeId", scopeId);
-  const query = params.toString();
-  return query ? `?${query}` : "";
+  return queryString({
+    worktreeId: worktreeId === undefined ? null : worktreeId || MAIN_WORKTREE_ID,
+    scopeId: scopeId || null,
+  });
 }

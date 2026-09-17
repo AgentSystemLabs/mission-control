@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProjectWithCounts } from "~/shared/projects";
 import {
   SHELL_QUERY_CACHE_KEYS,
+  SHELL_QUERY_CACHE_VERSION,
   installShellQueryCache,
   readCachedProjects,
+  readCachedSandboxes,
 } from "../shell-query-cache";
 
 function mockWindowStorage() {
@@ -52,6 +54,7 @@ function makeProject(overrides: Partial<ProjectWithCounts> = {}): ProjectWithCou
     savedAgent: null,
     savedSkipPermissions: false,
     savedBareSession: false,
+    defaultGridView: false,
     createdAt: 1,
     updatedAt: 1,
     taskCounts: {
@@ -107,5 +110,23 @@ describe("shell query cache", () => {
     );
 
     expect(readCachedProjects()).toBeUndefined();
+  });
+
+  it("normalizes a legacy disabled sandbox cache in Electron", () => {
+    Object.defineProperty(window, "electronAPI", { value: {}, configurable: true });
+    storage.store.set(
+      SHELL_QUERY_CACHE_KEYS.sandboxes,
+      JSON.stringify({
+        version: SHELL_QUERY_CACHE_VERSION,
+        savedAt: Date.now(),
+        data: { sandboxes: [], enabled: false, activeScopeId: "local" },
+      }),
+    );
+
+    expect(readCachedSandboxes()).toEqual({
+      sandboxes: [],
+      enabled: true,
+      activeScopeId: "local",
+    });
   });
 });

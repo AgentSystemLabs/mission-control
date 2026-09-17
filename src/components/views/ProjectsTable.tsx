@@ -24,7 +24,7 @@ import {
 
 const COLUMN_LABELS: Record<ProjectSortColumn, string> = {
   name: "Name",
-  group: "Category",
+  group: "Group",
   status: "Status",
   running: "Running",
   createdAt: "Created",

@@ -16,9 +16,12 @@ import {
 import {
   DEFAULT_PROVIDER_USAGE_IDS,
   isProviderUsageId,
+  isSupportedProviderUsageId,
   normalizeProviderUsageIds,
   PROVIDER_USAGE_CATALOG,
   PROVIDER_USAGE_IDS,
+  SUPPORTED_PROVIDER_USAGE_CATALOG,
+  SUPPORTED_PROVIDER_USAGE_IDS,
 } from "../provider-usage";
 
 describe("provider-usage catalog (CodexBar fork)", () => {
@@ -39,6 +42,25 @@ describe("provider-usage catalog (CodexBar fork)", () => {
       "claude",
       "codex",
     ]);
+  });
+
+  it("only offers the four supported harnesses in settings", () => {
+    expect(SUPPORTED_PROVIDER_USAGE_IDS).toEqual(["claude", "codex", "cursor", "opencode"]);
+    expect(SUPPORTED_PROVIDER_USAGE_CATALOG.map((p) => p.id)).toEqual([
+      "claude",
+      "codex",
+      "cursor",
+      "opencode",
+    ]);
+    expect(isSupportedProviderUsageId("opencode")).toBe(true);
+    expect(isSupportedProviderUsageId("gemini")).toBe(false);
+    // Persisted ids outside the supported set are dropped on normalize…
+    expect(normalizeProviderUsageIds(["claude", "gemini", "openrouter", "opencode"])).toEqual([
+      "claude",
+      "opencode",
+    ]);
+    // …and a list left empty by the filter falls back to the defaults.
+    expect(normalizeProviderUsageIds(["gemini", "openrouter"])).toEqual(DEFAULT_PROVIDER_USAGE_IDS);
   });
 });
 

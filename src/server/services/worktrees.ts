@@ -11,6 +11,7 @@ import {
   findWorktreeByProjectAndName,
   findWorktreesByProjectId,
   insertWorktree,
+  updateWorktreeBranch,
 } from "../repositories/worktrees.repo";
 import { findTasksByProjectIdAllScopes } from "../repositories/tasks.repo";
 import { newId } from "./_ids";
@@ -113,15 +114,39 @@ function withinOrEqual(candidate: string, root: string): boolean {
   return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
+/**
+ * Resolve symlinks where possible so paths from different sources compare
+ * equal: git prints realpath'd worktree paths (`/private/var/…` on macOS)
+ * while project/worktree rows may store the symlinked spelling (`/var/…`).
+ */
+export function canonicalPath(p: string): string {
+  const resolved = path.resolve(p);
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 // `.worktrees` (plural) is the container older releases used; rows created back
 // then still point there and must stay deletable.
 const WORKTREE_CONTAINER_DIRS = [".worktree", ".worktrees"];
 
 function isContainedWorktreePath(projectRoot: string, worktreePath: string): boolean {
-  return WORKTREE_CONTAINER_DIRS.some((dir) => {
-    const rel = path.relative(path.join(projectRoot, dir), worktreePath);
-    return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
-  });
+  // Compare both the plain-resolved and realpath'd spellings: rows written by
+  // the app store the symlinked form while adopted rows store git's canonical
+  // form — and a deleted directory can no longer be realpath'd at all, so
+  // neither spelling alone covers every pairing.
+  const roots = [...new Set([path.resolve(projectRoot), canonicalPath(projectRoot)])];
+  const targets = [...new Set([path.resolve(worktreePath), canonicalPath(worktreePath)])];
+  return WORKTREE_CONTAINER_DIRS.some((dir) =>
+    roots.some((root) =>
+      targets.some((target) => {
+        const rel = path.relative(path.join(root, dir), target);
+        return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+      }),
+    ),
+  );
 }
 
 export function resolveWorktreePath(projectPath: string, name: string): string {
@@ -144,9 +169,18 @@ function toInfo(
     createdAt: number;
     updatedAt: number;
   },
+  projectRoot: string,
   taskCounts?: WorktreeTaskCounts,
 ): WorktreeInfo {
-  return { ...row, isMain: row.id === MAIN_WORKTREE_ID, taskCounts };
+  return {
+    ...row,
+    isMain: row.id === MAIN_WORKTREE_ID,
+    // Adopted worktrees living outside the app's container dirs (made with the
+    // git CLI at an arbitrary path) can't go through deleteWorktree — its
+    // container check would reject them — so the UI must not offer delete.
+    deletable: isContainedWorktreePath(projectRoot, path.resolve(row.path)),
+    taskCounts,
+  };
 }
 
 function mainInfo(
@@ -160,6 +194,7 @@ function mainInfo(
     path: project.path,
     branch: project.branch,
     isMain: true,
+    deletable: false,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     taskCounts,
@@ -213,15 +248,143 @@ export function reconcileProjectWorktrees(project: { id: string; path: string })
   if (pruned) events.emit("project:updated", { id: project.id });
 }
 
-export function listWorktrees(projectId: string): WorktreeInfo[] {
+export type GitWorktreeEntry = {
+  path: string;
+  branch: string | null;
+  head: string | null;
+  bare: boolean;
+  detached: boolean;
+  prunable: boolean;
+  locked: boolean;
+};
+
+/** Parse `git worktree list --porcelain` output (blank-line-separated blocks). */
+export function parseGitWorktreeList(porcelain: string): GitWorktreeEntry[] {
+  const entries: GitWorktreeEntry[] = [];
+  let current: GitWorktreeEntry | null = null;
+  for (const rawLine of porcelain.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (!line) {
+      if (current) entries.push(current);
+      current = null;
+      continue;
+    }
+    if (line.startsWith("worktree ")) {
+      if (current) entries.push(current);
+      current = {
+        path: path.resolve(line.slice("worktree ".length)),
+        branch: null,
+        head: null,
+        bare: false,
+        detached: false,
+        prunable: false,
+        locked: false,
+      };
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith("HEAD ")) current.head = line.slice("HEAD ".length);
+    else if (line.startsWith("branch ")) {
+      current.branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+    } else if (line === "bare") current.bare = true;
+    else if (line === "detached") current.detached = true;
+    else if (line === "prunable" || line.startsWith("prunable ")) current.prunable = true;
+    else if (line === "locked" || line.startsWith("locked ")) current.locked = true;
+  }
+  if (current) entries.push(current);
+  return entries;
+}
+
+export async function gitWorktreeList(repoCwd: string): Promise<GitWorktreeEntry[]> {
+  return parseGitWorktreeList(await gitOk(repoCwd, ["worktree", "list", "--porcelain"]));
+}
+
+/**
+ * Sync the worktrees table with what git actually knows: adopt worktrees the
+ * user created with the git CLI (`git worktree add …`, commonly under
+ * `.worktrees/`) so they're selectable in the app, and refresh the stored
+ * branch of known rows (an in-worktree `git switch` changes it behind our
+ * back). Never deletes rows — fs-based pruning in reconcileProjectWorktrees
+ * stays the only remover, so half-removed states on Windows aren't made worse.
+ */
+async function adoptAndRefreshFromGit(
+  project: NonNullable<ReturnType<typeof findProjectById>>,
+): Promise<void> {
+  const projectRoot = canonicalPath(project.path);
+  let entries: GitWorktreeEntry[];
+  try {
+    entries = await gitWorktreeList(projectRoot);
+  } catch {
+    // Not a git repo (or git unavailable) — projects without git must keep
+    // listing the synthetic main worktree.
+    return;
+  }
+  const rowsByPath = new Map(
+    findWorktreesByProjectId(project.id).map((row) => [canonicalPath(row.path), row]),
+  );
+  let changed = false;
+  for (const entry of entries) {
+    if (entry.bare || entry.prunable) continue;
+    const entryPath = canonicalPath(entry.path);
+    if (entryPath === projectRoot) continue;
+    const branch = entry.branch ?? "";
+    const existing = rowsByPath.get(entryPath);
+    if (existing) {
+      if (existing.branch !== branch) {
+        updateWorktreeBranch(existing.id, branch, Date.now());
+        changed = true;
+      }
+      continue;
+    }
+    const row = insertAdoptedWorktree(project.id, entryPath, branch);
+    if (row) {
+      events.emit("worktree:created", { id: row.id, projectId: project.id });
+      changed = true;
+    }
+  }
+  if (changed) events.emit("project:updated", { id: project.id });
+}
+
+function insertAdoptedWorktree(
+  projectId: string,
+  worktreePath: string,
+  branch: string,
+): { id: string } | null {
+  const base = path.basename(worktreePath) || "worktree";
+  const now = Date.now();
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    const name = attempt === 1 ? base : `${base}-${attempt}`;
+    if (findWorktreeByProjectAndName(projectId, name)) continue;
+    const row = {
+      id: newId("wt"),
+      projectId,
+      name,
+      path: worktreePath,
+      branch,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      insertWorktree(row);
+      return row;
+    } catch {
+      // unique(projectId, name) race — retry with the next suffix.
+    }
+  }
+  return null;
+}
+
+export async function listWorktrees(projectId: string): Promise<WorktreeInfo[]> {
   const project = findProjectById(projectId);
   if (!project) throw new Error("project not found");
   reconcileProjectWorktrees(project);
+  await adoptAndRefreshFromGit(project);
+  const projectRoot = path.resolve(project.path);
   const taskCounts = countTasksByWorktree(projectId);
   return [
     mainInfo(project, taskCounts.get(null) ?? emptyTaskCounts()),
     ...findWorktreesByProjectId(projectId).map((row) =>
-      toInfo(row, taskCounts.get(row.id) ?? emptyTaskCounts())
+      toInfo(row, projectRoot, taskCounts.get(row.id) ?? emptyTaskCounts())
     ),
   ];
 }
@@ -233,7 +396,7 @@ export function getWorktree(projectId: string, worktreeId?: string | null): Work
   if (!normalized) return mainInfo(project);
   const row = findWorktreeById(normalized);
   if (!row || row.projectId !== projectId) throw new Error("worktree not found");
-  return toInfo(row);
+  return toInfo(row, path.resolve(project.path));
 }
 
 export function resolveProjectWorktreeCwd(projectId: string, worktreeId?: string | null): string {
@@ -291,7 +454,7 @@ export async function createWorktree(projectId: string): Promise<{
     events.emit("worktree:created", { id: row.id, projectId });
     events.emit("project:updated", { id: projectId });
     return {
-      worktree: toInfo(row),
+      worktree: toInfo(row, projectRoot),
       setupCommand: project.worktreeSetupCommand?.trim() || null,
     };
   }
@@ -331,7 +494,7 @@ export async function deleteWorktree(input: {
   const status = worktreeOnDisk
     ? await runGit(worktreePath, ["status", "--porcelain"])
     : null;
-  const info = toInfo(row);
+  const info = toInfo(row, projectRoot);
   const isDirty = status?.code === 0 && status.stdout.trim().length > 0;
   if (isDirty && input.stashChanges) {
     await gitOk(worktreePath, [

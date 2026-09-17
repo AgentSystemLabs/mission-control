@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "0.48.28",
+  "version": "0.49.0",
   "description": "Desktop control surface for managing agentic coding work across many projects.",
   "license": "MIT",
   "private": true,
@@ -73,6 +73,7 @@
     "release:local": "node scripts/release-local.mjs",
     "remote-vm": "pnpm native:node && node scripts/remote-vm.mjs",
     "gen:theme-images": "node scripts/gen-theme-images.mjs",
+    "gen:icons": "node scripts/generate-icons.mjs",
     "postinstall": "pnpm native:electron || true",
     "doctor": "npx react-doctor@latest"
   },
@@ -95,7 +96,7 @@
     "@codemirror/lang-vue": "0.1.3",
     "@codemirror/lang-xml": "6.1.0",
     "@codemirror/lang-yaml": "6.1.3",
-    "@codemirror/language": "6.12.3",
+    "@codemirror/language": "6.12.4",
     "@codemirror/legacy-modes": "6.5.3",
     "@codemirror/state": "6.7.0",
     "@codemirror/theme-one-dark": "6.1.3",
@@ -121,10 +122,10 @@
     "drizzle-orm": "0.45.2",
     "electron-log": "5.4.4",
     "electron-updater": "6.8.3",
-    "ignore": "7.0.5",
+    "ignore": "7.0.6",
     "lucide-react": "1.16.0",
     "mermaid": "11.12.0",
-    "node-pty": "1.1.0",
+    "node-pty": "1.2.0-beta.14",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-icons": "5.6.0",
@@ -139,7 +140,7 @@
   "devDependencies": {
     "@electron/rebuild": "4.0.4",
     "@eslint/js": "10.0.1",
-    "@tailwindcss/vite": "4.3.0",
+    "@tailwindcss/vite": "4.3.2",
     "@tanstack/router-plugin": "1.168.19",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "25.8.0",
@@ -214,6 +215,7 @@
       }
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -230,11 +232,13 @@
       "notarize": true
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage"
       ]
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ],

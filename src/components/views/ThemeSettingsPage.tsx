@@ -1,10 +1,16 @@
 import { DEFAULT_AGENT_LAUNCHER_CONFIG } from "~/shared/agent-launcher-config";
-import { useId, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Field, SettingCard, SettingsSection } from "~/components/views/SettingsParts";
+import {
+  Field,
+  SettingCard,
+  SettingsSection,
+  ToggleRow,
+} from "~/components/views/SettingsParts";
 import { AccentColorGrid } from "~/components/views/AccentColorPicker";
 import { ThemeStylePreview } from "~/components/views/ThemeStylePreview";
 import { Icon } from "~/components/ui/Icon";
+import { Btn } from "~/components/ui/Btn";
 import {
   applyAccentColor,
   DEFAULT_ACCENT_COLOR,
@@ -19,6 +25,12 @@ import {
   type SurfaceTint,
 } from "~/shared/surface-tint";
 import { applySurfaceTint } from "~/lib/surface-tint";
+import {
+  applyBackgroundImage,
+  compressImageFile,
+  BackgroundImageError,
+} from "~/lib/background-image";
+import { applyBackgroundGrid } from "~/lib/background-grid";
 import { useTheme, type Theme } from "~/lib/use-theme";
 import { queryKeys, useSettings } from "~/queries";
 import {
@@ -44,9 +56,11 @@ import {
   useDetectedFonts,
 } from "~/lib/font-detection";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
-import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
+import { normalizeSessionHeaderButtonVisibility } from "~/shared/session-header-buttons";
+import { DEFAULT_HEADER_BUTTON_VISIBILITY } from "~/shared/header-buttons";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
+import { DEFAULT_PULL_REQUEST_PROMPT } from "~/shared/pull-request-defaults";
 
 export function ThemeSettingsPage() {
   const queryClient = useQueryClient();
@@ -55,6 +69,8 @@ export function ThemeSettingsPage() {
   const accentColor = settings?.accentColor ?? DEFAULT_ACCENT_COLOR;
   const themeStyle = settings?.themeStyle ?? DEFAULT_THEME_STYLE;
   const surfaceTint = settings?.surfaceTint ?? DEFAULT_SURFACE_TINT;
+  const backgroundImage = settings?.backgroundImage ?? null;
+  const showBackgroundGrid = settings?.showBackgroundGrid ?? true;
   const minimalTheme = settings?.minimalTheme ?? false;
   const interfaceFontFamily = settings?.interfaceFontFamily ?? null;
   const interfaceFontScale =
@@ -78,6 +94,8 @@ export function ThemeSettingsPage() {
         | "accentColor"
         | "themeStyle"
         | "surfaceTint"
+        | "backgroundImage"
+        | "showBackgroundGrid"
         | "minimalTheme"
         | "interfaceFontFamily"
         | "interfaceFontScale"
@@ -88,6 +106,7 @@ export function ThemeSettingsPage() {
     accentColor,
     themeStyle,
     surfaceTint,
+    backgroundImage,
     minimalTheme,
     // Every patch through here writes a theme setting, which marks it chosen.
     themeChosen: true,
@@ -106,6 +125,8 @@ export function ThemeSettingsPage() {
     gitDiffChangedFilesView: settings?.gitDiffChangedFilesView ?? null,
     gitDiffChangedFilesWidth: settings?.gitDiffChangedFilesWidth ?? null,
     projectsDashboardView: settings?.projectsDashboardView ?? null,
+    activeProjectGroup: settings?.activeProjectGroup ?? null,
+    collapsedProjectGroups: settings?.collapsedProjectGroups ?? null,
     selectedWorktreeByProject: settings?.selectedWorktreeByProject ?? null,
     commitCli: settings?.commitCli ?? null,
     terminalZoomLevel: settings?.terminalZoomLevel ?? DEFAULT_TERMINAL_ZOOM_LEVEL,
@@ -119,7 +140,8 @@ export function ThemeSettingsPage() {
     interfaceFontFamily: settings?.interfaceFontFamily ?? null,
     interfaceFontScale: settings?.interfaceFontScale ?? DEFAULT_INTERFACE_FONT_SCALE,
     sessionHeaderButtons:
-      settings?.sessionHeaderButtons ?? DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY,
+      normalizeSessionHeaderButtonVisibility(settings?.sessionHeaderButtons),
+    headerButtons: settings?.headerButtons ?? DEFAULT_HEADER_BUTTON_VISIBILITY,
     defaultAgent: settings?.defaultAgent ?? "claude-code",
     defaultModel: settings?.defaultModel ?? null,
     annotationAgent: settings?.annotationAgent ?? "claude-code",
@@ -130,8 +152,11 @@ export function ThemeSettingsPage() {
     syncAgent: settings?.syncAgent ?? "claude-code",
     syncModel: settings?.syncModel ?? null,
     syncPrompt: settings?.syncPrompt ?? DEFAULT_SYNC_PROMPT,
+    pullRequestAgent: settings?.pullRequestAgent ?? "claude-code",
+    pullRequestModel: settings?.pullRequestModel ?? null,
+    pullRequestPrompt: settings?.pullRequestPrompt ?? DEFAULT_PULL_REQUEST_PROMPT,
     voiceCommandAliases: settings?.voiceCommandAliases ?? emptyVoiceCommandAliases(),
-    voiceControlEnabled: settings?.voiceControlEnabled ?? false,
+    voiceControlEnabled: settings?.voiceControlEnabled ?? true,
     questionOverlayEnabled: settings?.questionOverlayEnabled ?? true,
     claudeUsageLimitsEnabled: settings?.claudeUsageLimitsEnabled ?? false,
     claudeUsageLimitsShowSession: settings?.claudeUsageLimitsShowSession ?? true,
@@ -155,6 +180,9 @@ export function ThemeSettingsPage() {
     petMultiplayerEnabled: settings?.petMultiplayerEnabled ?? false,
     petHomeSide: settings?.petHomeSide ?? DEFAULT_PET_HOME_SIDE,
     petState: settings?.petState ?? null,
+    showGroupSwitcher: settings?.showGroupSwitcher ?? true,
+    showProjectHeaderGroup: settings?.showProjectHeaderGroup ?? true,
+    showBackgroundGrid,
     ...queryClient.getQueryData<AppSettings>(queryKeys.settings),
     worktreesEnabled: true,
     ...patch,
@@ -176,26 +204,15 @@ export function ThemeSettingsPage() {
 
   const setThemeStyle = async (next: ThemeStyle) => {
     const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
-    // The flat theme is built around its warm terracotta accent (sampled from
-    // the reference) — default it out of the box; the user can still pick any
-    // accent afterward and it sticks.
-    const nextAccent =
-      next === "flat" && accentColor !== "terracotta"
-        ? ("terracotta" as AccentColorId)
-        : accentColor;
-    if (nextAccent !== accentColor) applyAccentColor(nextAccent);
+    // The accent is a separate choice and survives style switches — only the
+    // first-run onboarding overlay defaults flat to terracotta.
     const optimistic = optimisticSettings({
       themeStyle: next,
       minimalTheme: next !== "painted",
-      accentColor: nextAccent,
     });
     queryClient.setQueryData(queryKeys.settings, optimistic);
     try {
-      const updated = await api.updateSettings(
-        nextAccent !== accentColor
-          ? { themeStyle: next, accentColor: nextAccent }
-          : { themeStyle: next },
-      );
+      const updated = await api.updateSettings({ themeStyle: next });
       queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
     } catch (error) {
       if (previous) queryClient.setQueryData(queryKeys.settings, previous);
@@ -215,6 +232,40 @@ export function ThemeSettingsPage() {
       if (previous) {
         queryClient.setQueryData(queryKeys.settings, previous);
         applySurfaceTint(previous.surfaceTint ?? DEFAULT_SURFACE_TINT);
+      }
+      throw error;
+    }
+  };
+
+  const setBackgroundImage = async (next: string | null) => {
+    applyBackgroundImage(next);
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    const optimistic = optimisticSettings({ backgroundImage: next });
+    queryClient.setQueryData(queryKeys.settings, optimistic);
+    try {
+      const updated = await api.updateSettings({ backgroundImage: next });
+      queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(queryKeys.settings, previous);
+        applyBackgroundImage(previous.backgroundImage ?? null);
+      }
+      throw error;
+    }
+  };
+
+  const setShowBackgroundGrid = async (next: boolean) => {
+    applyBackgroundGrid(next);
+    const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
+    const optimistic = optimisticSettings({ showBackgroundGrid: next });
+    queryClient.setQueryData(queryKeys.settings, optimistic);
+    try {
+      const updated = await api.updateSettings({ showBackgroundGrid: next });
+      queryClient.setQueryData(queryKeys.settings, { ...optimistic, ...updated });
+    } catch (error) {
+      if (previous) {
+        queryClient.setQueryData(queryKeys.settings, previous);
+        applyBackgroundGrid(previous.showBackgroundGrid ?? true);
       }
       throw error;
     }
@@ -286,6 +337,27 @@ export function ThemeSettingsPage() {
       <Field label="Surface tint">
         <SurfaceTintToggle tint={surfaceTint} onChange={setSurfaceTint} />
       </Field>
+      <Field label="Background grid">
+        <ToggleRow
+          title="Show the background grid"
+          description={
+            themeStyle === "flat"
+              ? "The faint blueprint grid behind the dashboard and the project view. Off leaves the plain background (or your wallpaper) showing through."
+              : "The faint dot grid behind the dashboard and the project view. Off leaves the plain background showing through."
+          }
+          checked={showBackgroundGrid}
+          onChange={(next) => {
+            void setShowBackgroundGrid(next);
+          }}
+          label="Show the background grid"
+        />
+      </Field>
+      {themeStyle === "flat" && (
+        <BackgroundImageCard
+          image={backgroundImage}
+          onChange={setBackgroundImage}
+        />
+      )}
       <SettingCard
         title="Interface font family"
         description="Used for the application UI. Pulls from fonts installed on your system; terminal text is configured on the Terminal tab."
@@ -620,6 +692,122 @@ function DarkLightToggle({
         ))}
       </div>
     </div>
+  );
+}
+
+/** Upload / preview / remove a wallpaper for the flat theme. The picked file is
+ *  downscaled and re-encoded client-side (compressImageFile) before it's handed
+ *  up to the optimistic setter, which persists it and paints it immediately. */
+function BackgroundImageCard({
+  image,
+  onChange,
+}: {
+  image: string | null;
+  onChange: (next: string | null) => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pickFile = () => {
+    setError(null);
+    inputRef.current?.click();
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    // Reset the input so re-picking the same file still fires onChange.
+    if (inputRef.current) inputRef.current.value = "";
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const dataUrl = await compressImageFile(file);
+      await onChange(dataUrl);
+    } catch (err) {
+      setError(
+        err instanceof BackgroundImageError
+          ? err.message
+          : "Couldn't set that background. Try a different image.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await onChange(null);
+    } catch {
+      setError("Couldn't remove the background. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingCard
+      title="Background image"
+      description="Use your own image as the app background instead of the flat ground. It shows through the app's surfaces; a scrim keeps text readable. Flat theme only."
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        aria-hidden
+        tabIndex={-1}
+        style={{ display: "none" }}
+        onChange={(event) => void handleFile(event.target.files?.[0])}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {image && (
+          <div
+            aria-hidden
+            style={{
+              width: 96,
+              height: 60,
+              flexShrink: 0,
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              backgroundImage: `url("${image}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          />
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Btn
+            variant="frame"
+            size="sm"
+            icon="upload"
+            disabled={busy}
+            onClick={pickFile}
+          >
+            {busy ? "Processing…" : image ? "Replace image" : "Upload image"}
+          </Btn>
+          {image && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              icon="trash"
+              disabled={busy}
+              onClick={() => void remove()}
+            >
+              Remove
+            </Btn>
+          )}
+        </div>
+      </div>
+      {error && (
+        <div
+          role="alert"
+          style={{ marginTop: 10, fontSize: 12, color: "var(--status-failed)" }}
+        >
+          {error}
+        </div>
+      )}
+    </SettingCard>
   );
 }
 

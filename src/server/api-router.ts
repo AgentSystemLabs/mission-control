@@ -9,6 +9,7 @@ import {
   HTTP_INTERNAL_SERVER_ERROR,
   HTTP_NOT_FOUND,
 } from "~/shared/http-status";
+import { getSetCookieHeaders } from "~/shared/set-cookie-headers";
 import * as projectsController from "./controllers/projects.controller";
 import * as sandboxesController from "./controllers/sandboxes.controller";
 import * as worktreesController from "./controllers/worktrees.controller";
@@ -22,6 +23,7 @@ import * as skillsController from "./controllers/skills.controller";
 import * as hooksController from "./controllers/hooks.controller";
 import * as promptsController from "./controllers/prompts.controller";
 import * as projectMemoryController from "./controllers/project-memory.controller";
+import * as scratchPadsController from "./controllers/scratch-pads.controller";
 import * as codeGraphController from "./controllers/code-graph.controller";
 import * as usageController from "./controllers/usage.controller";
 import * as claudeUsageLimitsController from "./controllers/claude-usage-limits.controller";
@@ -49,6 +51,8 @@ const PROJECT_MEMORY_PATH = /^\/api\/projects\/([^/]+)\/memory$/;
 const PROJECT_BRIEF_PATH = /^\/api\/projects\/([^/]+)\/brief$/;
 const PROJECT_MEMORY_SEARCH_PATH = /^\/api\/projects\/([^/]+)\/memory\/search$/;
 const MEMORY_PATH = /^\/api\/memory\/([^/]+)$/;
+const PROJECT_SCRATCH_PADS_PATH = /^\/api\/projects\/([^/]+)\/scratch-pads$/;
+const PROJECT_SCRATCH_PAD_PATH = /^\/api\/projects\/([^/]+)\/scratch-pads\/([^/]+)$/;
 const MEMORY_VERIFY_PATH = /^\/api\/memory\/([^/]+)\/verify$/;
 const PROJECT_GRAPH_STATUS_PATH = /^\/api\/projects\/([^/]+)\/graph\/status$/;
 const PROJECT_GRAPH_SUMMARY_PATH = /^\/api\/projects\/([^/]+)\/graph\/summary$/;
@@ -62,6 +66,8 @@ const PROJECT_GRAPH_IMPACT_PATH = /^\/api\/projects\/([^/]+)\/graph\/impact$/;
 const SANDBOX_PATH = /^\/api\/sandboxes\/([^/]+)$/;
 const SANDBOX_API_KEY_PATH = /^\/api\/sandboxes\/([^/]+)\/api-key$/;
 const GROUP_PATH = /^\/api\/groups\/([^/]+)$/;
+// Literal path — checked before TASK_PATH so the id patterns never see it.
+const TASK_SWEEP_DISCONNECTED_PATH = "/api/tasks/sweep-disconnected";
 const TASK_PATH = /^\/api\/tasks\/([^/]+)$/;
 const TASK_STATUS_PATH = /^\/api\/tasks\/([^/]+)\/status$/;
 const TASK_QUESTION_PATH = /^\/api\/tasks\/([^/]+)\/question$/;
@@ -101,14 +107,6 @@ function applyRequestHeaders(
     statusText: response.statusText,
     headers,
   });
-}
-
-function getSetCookieHeaders(headers: Headers): string[] {
-  const withGetSetCookie = headers as Headers & { getSetCookie?: () => string[] };
-  const values = withGetSetCookie.getSetCookie?.();
-  if (values?.length) return values;
-  const value = headers.get("set-cookie");
-  return value ? value.split(/,(?=\s*[^;,]+=)/) : [];
 }
 
 // Routes that intentionally accept anonymous requests after the same-origin
@@ -237,6 +235,9 @@ async function dispatch(
   if (pathname === "/api/sandboxes") {
     if (method === "GET") return sandboxesController.list(request);
   }
+  if (pathname === "/api/sandboxes/connect" && method === "POST") {
+    return sandboxesController.connect(request);
+  }
   if (pathname === "/api/sandboxes/active" && method === "PUT") {
     return sandboxesController.setActive(request);
   }
@@ -321,6 +322,22 @@ async function dispatch(
     if (method === "DELETE") return projectMemoryController.remove(id, url);
   }
 
+  // Scratch pads — per-project temporary text buffers. Item routes stay nested
+  // under the project so ownership is checked against the addressed project.
+  m = pathname.match(PROJECT_SCRATCH_PADS_PATH);
+  if (m) {
+    const id = decode(m[1]);
+    if (method === "GET") return scratchPadsController.list(id);
+    if (method === "POST") return scratchPadsController.create(id, request);
+  }
+  m = pathname.match(PROJECT_SCRATCH_PAD_PATH);
+  if (m) {
+    const projectId = decode(m[1]);
+    const padId = decode(m[2]);
+    if (method === "PATCH") return scratchPadsController.update(projectId, padId, request);
+    if (method === "DELETE") return scratchPadsController.remove(projectId, padId);
+  }
+
   // Recall — code graph. Literal `/graph/index/cancel` before `/graph/index`.
   m = pathname.match(PROJECT_GRAPH_STATUS_PATH);
   if (m && method === "GET") return codeGraphController.status(decode(m[1]));
@@ -346,6 +363,10 @@ async function dispatch(
     if (method === "GET") return groupsController.list(request);
     if (method === "POST") return groupsController.create(request);
   }
+  // Must precede GROUP_PATH — otherwise "order" is captured as a group id.
+  if (pathname === "/api/groups/order" && method === "PATCH") {
+    return groupsController.reorder(request);
+  }
   m = pathname.match(GROUP_PATH);
   if (m) {
     const id = decode(m[1]);
@@ -354,6 +375,9 @@ async function dispatch(
   }
 
   // Tasks
+  if (pathname === TASK_SWEEP_DISCONNECTED_PATH && method === "POST") {
+    return tasksController.sweepDisconnected();
+  }
   m = pathname.match(TASK_PATH);
   if (m) {
     const id = decode(m[1]);

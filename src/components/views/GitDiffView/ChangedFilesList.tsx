@@ -13,8 +13,8 @@ import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/Dropdow
 import { Icon } from "~/components/ui/Icon";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
-import { useDismissableMenu } from "~/lib/use-dismissable-menu";
 import { useResizablePanel } from "~/lib/use-resizable-panel";
+import { displayFilePath } from "~/lib/file-tree";
 import { api, type AppSettings } from "~/lib/api";
 import {
   GIT_DIFF_CHANGED_FILES_WIDTH_STORAGE_KEY,
@@ -160,7 +160,6 @@ export function ChangedFilesList({
   );
 
   const closeMenu = useCallback(() => setMenu(null), []);
-  useDismissableMenu(menu !== null, closeMenu);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -310,7 +309,7 @@ export function ChangedFilesList({
         }}
       />
       {menu && (
-        <ContextMenuPopover anchor={menu} label="File actions" minWidth={168}>
+        <ContextMenuPopover anchor={menu} label="File actions" minWidth={168} onClose={closeMenu}>
             {menu.staged ? (
               <DropdownMenuItem
                 icon="x"
@@ -754,7 +753,7 @@ function FileRow({
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const { letter: statusLetter, color: statusColor } = STATUS_META[file.status];
-  const display = displayPath(file.path);
+  const display = displayFilePath(file.path);
   return (
     <div
       onClick={onSelect}
@@ -931,11 +930,11 @@ function dirChildren(dir: MutableTreeDir): FileTreeNode[] {
   const files: FileTreeNode[] = dir.files
     .slice()
     .sort((a, b) =>
-      displayPath(a.path).basename.localeCompare(displayPath(b.path).basename),
+      displayFilePath(a.path).basename.localeCompare(displayFilePath(b.path).basename),
     )
     .map((file) => ({
       kind: "file" as const,
-      name: displayPath(file.path).basename,
+      name: displayFilePath(file.path).basename,
       path: file.path,
       file,
     }));
@@ -949,12 +948,6 @@ function readSavedFileListView(initialCachedViewRef: {
   const cached = readCachedGitDiffChangedFilesView();
   initialCachedViewRef.current = cached;
   return cached ?? DEFAULT_GIT_DIFF_CHANGED_FILES_VIEW;
-}
-
-export function displayPath(p: string): { basename: string; dir: string } {
-  const idx = p.lastIndexOf("/");
-  if (idx < 0) return { basename: p, dir: "" };
-  return { basename: p.slice(idx + 1), dir: p.slice(0, idx) };
 }
 
 const textBtnStyle: CSSProperties = {

@@ -1,11 +1,12 @@
 // Which discretionary buttons the session (terminal) pane header shows. These
 // are the actions that also have keyboard shortcuts, so users who lean on the
 // hotkeys can hide them for a cleaner header. Zoom is hidden by default — most
-// people drive it with Cmd/Ctrl +/-/0. The structural Expand/Shrink and Close
-// controls are intentionally NOT toggleable here; they stay in the header (or
-// the "…" overflow menu on narrow panes) so a pane can always be managed.
+// people drive it with Cmd/Ctrl +/-/0. Expand/Shrink is toggleable since it
+// keeps its hotkey (terminal.expandToggle). The structural Close control is
+// intentionally NOT toggleable; it stays in the header (or the "…" overflow
+// menu on narrow panes) so a pane can always be dismissed.
 
-export const SESSION_HEADER_BUTTON_KEYS = ["rename", "zoom", "clone", "focus"] as const;
+export const SESSION_HEADER_BUTTON_KEYS = ["rename", "zoom", "clone", "focus", "expand"] as const;
 
 export type SessionHeaderButtonKey = (typeof SESSION_HEADER_BUTTON_KEYS)[number];
 
@@ -16,6 +17,7 @@ export const DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY: SessionHeaderButtonVisibi
   zoom: false,
   clone: true,
   focus: true,
+  expand: true,
 };
 
 /**

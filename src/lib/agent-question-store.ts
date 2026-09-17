@@ -63,29 +63,12 @@ export function isQuestionDesynced(questionId: string): boolean {
   return desynced.has(questionId);
 }
 
-// Feature flag mirrored from Settings → Beta. When off, panes never show the
-// overlay and never withhold output — questions are answered in the terminal.
-let overlayEnabled = true;
-
-export function setQuestionOverlayEnabled(enabled: boolean): void {
-  if (overlayEnabled === enabled) return;
-  overlayEnabled = enabled;
-  // Notifies pane holds too: turning the popup off mid-question flushes the
-  // withheld TUI menu straight into the terminal.
-  notify();
-}
-
-export function useQuestionOverlayEnabled(): boolean {
-  return useSyncExternalStore(subscribe, () => overlayEnabled);
-}
-
 /**
  * The question whose TUI menu should be suppressed in the terminal because
  * the popup overlay is answering it. Dismissing the overlay or typing in the
  * terminal (desync) hands the menu back to the terminal — returns null then.
  */
 export function getHoldQuestion(taskId: string): PendingQuestion | null {
-  if (!overlayEnabled) return null;
   const question = entries.get(taskId);
   if (!question) return null;
   return dismissed.has(question.id) || desynced.has(question.id) ? null : question;

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { CardFrame } from "~/components/ui/CardFrame";
 import type { ClaudeUsageLimits, ClaudeUsageWindow } from "~/shared/claude-usage-limits";
 import { useClaudeUsageLimits, useSettings } from "~/queries";
+import { useSuspendAppDragRegion } from "~/lib/use-dismissable-menu";
+import { formatReset, usageColor } from "~/lib/usage-indicator-format";
 
 /**
  * Top-bar indicator for Claude Code's live usage limits. Renders a compact
@@ -21,6 +23,7 @@ export function ClaudeUsageLimitsIndicator() {
   const { data, isLoading } = useClaudeUsageLimits(enabled);
 
   const [open, setOpen] = useState(false);
+  useSuspendAppDragRegion(open);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -368,28 +371,6 @@ function statusTip(isLoading: boolean, data: ClaudeUsageLimits | undefined): str
       // status "ok" but no windows returned for the enabled toggles.
       return "No usage windows reported for the selected options.";
   }
-}
-
-/** Green under 70%, amber 70–90%, red at/above 90% — theme-aware status colors. */
-function usageColor(pct: number): string {
-  if (pct >= 90) return "var(--status-failed)";
-  if (pct >= 70) return "var(--status-warning)";
-  return "var(--status-done)";
-}
-
-const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: "short" });
-const timeFmt = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-/** "Fri 06:49" — short weekday + 24h time in the user's local timezone. */
-function formatReset(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${weekdayFmt.format(d)} ${timeFmt.format(d)}`;
 }
 
 function buildTooltip(data: ClaudeUsageLimits): string {

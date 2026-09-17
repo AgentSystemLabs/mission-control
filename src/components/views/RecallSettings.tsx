@@ -172,8 +172,7 @@ export function RecallSettings() {
   );
 }
 
-// Standalone Recall settings page rendered from its own sidebar entry under the
-// Beta group, alongside Experimental.
+// Standalone Recall settings page rendered from its own sidebar entry under Beta.
 export function RecallSettingsPage() {
   return (
     <SettingsSection

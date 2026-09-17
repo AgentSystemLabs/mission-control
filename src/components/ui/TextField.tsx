@@ -17,6 +17,7 @@ export function TextField({
   required,
   ariaInvalid,
   onBlur,
+  disabled,
 }: {
   label?: string;
   hint?: string;
@@ -34,6 +35,7 @@ export function TextField({
   required?: boolean;
   ariaInvalid?: boolean;
   onBlur?: () => void;
+  disabled?: boolean;
 }) {
   const generatedId = useId();
   const inputId = `mc-text-field-${generatedId}`;
@@ -56,11 +58,14 @@ export function TextField({
         </label>
       )}
       <div
+        className="mc-text-field"
         style={{
           display: "flex",
           alignItems: "center",
+          // Explicit height (not font-derived) so fields line up when placed
+          // in a row with other 38px controls (selects, color triggers).
+          height: 38,
           background: "var(--surface-0)",
-          border: "1px solid var(--border)",
           borderRadius: 7,
           overflow: "hidden",
         }}
@@ -80,13 +85,15 @@ export function TextField({
           required={required}
           aria-invalid={ariaInvalid}
           onBlur={onBlur}
+          disabled={disabled}
           style={{
             flex: 1,
+            height: "100%",
             background: "transparent",
             border: 0,
             outline: 0,
             color: "var(--text)",
-            padding: "9px 12px",
+            padding: "0 12px",
             fontFamily: mono ? "var(--mono)" : "var(--sans)",
             fontSize: 13,
           }}

@@ -14,9 +14,11 @@ const {
   deleteWorktree,
   generateWorktreeName,
   listWorktrees,
+  parseGitWorktreeList,
   resolveWorktreePath,
 } = await import("../worktrees");
 const { createProject, listProjects } = await import("../projects");
+const { BranchInWorktreeError, checkoutGitBranch, gitErrorPayload } = await import("../git");
 const { archiveTask, createTask } = await import("../tasks");
 const { remove: removeWorktree } = await import("~/server/controllers/worktrees.controller");
 const { getDb } = await import("~/db/client");
@@ -256,7 +258,7 @@ describe("worktree helpers", () => {
     });
     fs.rmSync(worktree.path, { recursive: true, force: true });
 
-    const listed = listWorktrees(project.id);
+    const listed = await listWorktrees(project.id);
 
     expect(listed.map((w) => w.id)).toEqual(["main"]);
     expect(getDb().select().from(worktrees).all()).toHaveLength(0);
@@ -269,7 +271,7 @@ describe("worktree helpers", () => {
     const { project, root, worktree } = await createProjectWorktree();
     fs.rmSync(root, { recursive: true, force: true });
 
-    const listed = listWorktrees(project.id);
+    const listed = await listWorktrees(project.id);
 
     expect(listed.map((w) => w.id)).toContain(worktree.id);
     expect(getDb().select().from(worktrees).all()).toHaveLength(1);
@@ -301,7 +303,7 @@ describe("worktree helpers", () => {
     });
     archiveTask(archived.id);
 
-    const listed = listWorktrees(project.id);
+    const listed = await listWorktrees(project.id);
     const main = listed.find((w) => w.isMain);
     const branch = listed.find((w) => w.id === worktree.id);
 
@@ -329,6 +331,192 @@ describe("worktree helpers", () => {
 
     expect(listProjects()[0]!.taskCounts.finished).toBe(1);
     expect(getDb().select().from(worktrees).all()).toHaveLength(0);
+  });
+
+  it("adopts CLI-created worktrees from git worktree list", async () => {
+    const root = createCommittedRepo();
+    const project = createProject({ name: "cli adopt", path: root });
+    const containedPath = path.join(root, ".worktrees", "my-fix");
+    git(root, ["worktree", "add", "-b", "cli-branch", containedPath, "HEAD"]);
+    const externalPath = fs.mkdtempSync(path.join(os.tmpdir(), "mc-external-wt-"));
+    tempDirs.push(externalPath);
+    fs.rmSync(externalPath, { recursive: true, force: true });
+    git(root, ["worktree", "add", "-b", "external-branch", externalPath, "HEAD"]);
+
+    const listed = await listWorktrees(project.id);
+
+    const contained = listed.find((w) => w.branch === "cli-branch");
+    expect(contained).toBeDefined();
+    expect(contained!.name).toBe("my-fix");
+    expect(fs.realpathSync(contained!.path)).toBe(fs.realpathSync(containedPath));
+    expect(contained!.deletable).toBe(true);
+
+    const external = listed.find((w) => w.branch === "external-branch");
+    expect(external).toBeDefined();
+    expect(external!.deletable).toBe(false);
+
+    expect(listed.find((w) => w.isMain)?.deletable).toBe(false);
+
+    // Idempotent: a second listing must not insert duplicates.
+    const again = await listWorktrees(project.id);
+    expect(again).toHaveLength(listed.length);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(2);
+  });
+
+  it("refreshes a stale branch after an in-worktree checkout", async () => {
+    const { project, worktree } = await createProjectWorktree();
+    git(worktree.path, ["switch", "-c", "renamed-branch"]);
+
+    const listed = await listWorktrees(project.id);
+
+    expect(listed.find((w) => w.id === worktree.id)?.branch).toBe("renamed-branch");
+  });
+
+  it("adopts detached-HEAD worktrees with an empty branch", async () => {
+    const root = createCommittedRepo();
+    const project = createProject({ name: "detached adopt", path: root });
+    const detachedPath = path.join(root, ".worktrees", "detached-wt");
+    git(root, ["worktree", "add", "--detach", detachedPath, "HEAD"]);
+
+    const listed = await listWorktrees(project.id);
+
+    const detached = listed.find((w) => w.name === "detached-wt");
+    expect(detached).toBeDefined();
+    expect(detached!.branch).toBe("");
+  });
+
+  it("does not adopt prunable worktrees whose directory is gone", async () => {
+    const root = createCommittedRepo();
+    const project = createProject({ name: "prunable skip", path: root });
+    const gonePath = path.join(root, ".worktrees", "gone-wt");
+    git(root, ["worktree", "add", "-b", "gone-branch", gonePath, "HEAD"]);
+    fs.rmSync(gonePath, { recursive: true, force: true });
+
+    const listed = await listWorktrees(project.id);
+
+    expect(listed.map((w) => w.id)).toEqual(["main"]);
+    expect(getDb().select().from(worktrees).all()).toHaveLength(0);
+  });
+
+  it("suffixes adopted names that collide with existing rows", async () => {
+    const root = createCommittedRepo();
+    const project = createProject({ name: "collision", path: root });
+    const firstPath = path.join(root, ".worktrees", "dup");
+    git(root, ["worktree", "add", "-b", "dup-one", firstPath, "HEAD"]);
+    await listWorktrees(project.id);
+    const nestedPath = path.join(root, ".worktrees", "nested", "dup");
+    git(root, ["worktree", "add", "-b", "dup-two", nestedPath, "HEAD"]);
+
+    const listed = await listWorktrees(project.id);
+    const names = listed.filter((w) => !w.isMain).map((w) => w.name).sort();
+
+    expect(names).toEqual(["dup", "dup-2"]);
+  });
+
+  it("refuses to checkout a branch that is checked out in another worktree", async () => {
+    const { project, worktree } = await createProjectWorktree();
+
+    const error = await checkoutGitBranch(project.id, worktree.branch, null).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(BranchInWorktreeError);
+    expect(gitErrorPayload(error)).toMatchObject({
+      kind: "branch-in-worktree",
+      worktreeId: worktree.id,
+      worktreeName: worktree.name,
+    });
+  });
+
+  it("reports the main worktree as the owner when checking out its branch from a worktree", async () => {
+    const { project, root, worktree } = await createProjectWorktree();
+    const mainBranch = git(root, ["branch", "--show-current"]).trim();
+
+    const error = await checkoutGitBranch(project.id, mainBranch, worktree.id).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(BranchInWorktreeError);
+    expect(gitErrorPayload(error)).toMatchObject({
+      kind: "branch-in-worktree",
+      worktreeId: "main",
+    });
+  });
+
+  it("parses git worktree list porcelain output", () => {
+    const porcelain = [
+      "worktree /repo",
+      "HEAD 1111111111111111111111111111111111111111",
+      "branch refs/heads/main",
+      "",
+      "worktree /repo/.worktrees/feat",
+      "HEAD 2222222222222222222222222222222222222222",
+      "branch refs/heads/feat",
+      "locked agent running",
+      "",
+      "worktree /repo/.worktrees/loose",
+      "HEAD 3333333333333333333333333333333333333333",
+      "detached",
+      "",
+      "worktree /repo/.worktrees/gone",
+      "HEAD 4444444444444444444444444444444444444444",
+      "branch refs/heads/gone",
+      "prunable gitdir file points to non-existent location",
+      "",
+      "worktree /bare-repo",
+      "bare",
+      "",
+    ].join("\n");
+
+    expect(parseGitWorktreeList(porcelain)).toEqual([
+      {
+        path: path.resolve("/repo"),
+        branch: "main",
+        head: "1111111111111111111111111111111111111111",
+        bare: false,
+        detached: false,
+        prunable: false,
+        locked: false,
+      },
+      {
+        path: path.resolve("/repo/.worktrees/feat"),
+        branch: "feat",
+        head: "2222222222222222222222222222222222222222",
+        bare: false,
+        detached: false,
+        prunable: false,
+        locked: true,
+      },
+      {
+        path: path.resolve("/repo/.worktrees/loose"),
+        branch: null,
+        head: "3333333333333333333333333333333333333333",
+        bare: false,
+        detached: true,
+        prunable: false,
+        locked: false,
+      },
+      {
+        path: path.resolve("/repo/.worktrees/gone"),
+        branch: "gone",
+        head: "4444444444444444444444444444444444444444",
+        bare: false,
+        detached: false,
+        prunable: true,
+        locked: false,
+      },
+      {
+        path: path.resolve("/bare-repo"),
+        branch: null,
+        head: null,
+        bare: true,
+        detached: false,
+        prunable: false,
+        locked: false,
+      },
+    ]);
   });
 
   it("accepts stashChanges from the delete route query string", async () => {

@@ -34,7 +34,6 @@ export function VoiceCommandsPage() {
   const [drafts, setDrafts] = useState<Drafts>(() => emptyDrafts());
   const [errors, setErrors] = useState<Errors>({});
   const aliases = settings?.voiceCommandAliases ?? emptyVoiceCommandAliases();
-  const voiceEnabled = settings?.voiceControlEnabled ?? false;
 
   const updateAliases = async (nextAliases: VoiceCommandAliases) => {
     const previous = queryClient.getQueryData<AppSettings>(queryKeys.settings);
@@ -115,23 +114,6 @@ export function VoiceCommandsPage() {
       headingLevel="h1"
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {!voiceEnabled && (
-          <div
-            role="status"
-            style={{
-              padding: "10px 12px",
-              borderRadius: 8,
-              background: "color-mix(in srgb, var(--accent) 12%, transparent)",
-              border: "1px solid color-mix(in srgb, var(--accent) 40%, transparent)",
-              color: "var(--text)",
-              fontSize: 12.5,
-              lineHeight: 1.5,
-            }}
-          >
-            Voice control is experimental and currently <strong>off</strong>. Enable it in
-            Settings → Experimental → Voice control.
-          </div>
-        )}
         {VOICE_COMMANDS.map((cmd) => (
           <form
             key={cmd.id}

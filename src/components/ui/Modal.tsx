@@ -175,8 +175,10 @@ export function Modal({
       <div style={{ padding: 18, overflowY: "auto", flex: 1, ...contentStyle }}>{children}</div>
       {footer && (
         <div
+          className="mc-modal-footer"
           style={{
             display: "flex",
+            alignItems: "center",
             justifyContent: "flex-end",
             gap: 8,
             padding: "12px 18px",
@@ -190,12 +192,14 @@ export function Modal({
     </div>
   );
 
+  // No stopPropagation on panel clicks: backdrop-close already checks
+  // e.target === e.currentTarget, and swallowing clicks here breaks
+  // click-outside dismissal for menus opened inside the modal.
   const panelProps = {
     tabIndex: -1,
     role: "dialog",
     "aria-modal": true,
     "aria-labelledby": titleId,
-    onClick: (e: MouseEvent<HTMLElement>) => e.stopPropagation(),
   };
 
   const modal = (

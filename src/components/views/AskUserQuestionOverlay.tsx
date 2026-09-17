@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type CSSProperties,
@@ -79,7 +80,9 @@ export function AskUserQuestionOverlay({
   // Peek: collapse the panel to its header so the terminal (Claude's actual
   // question + the context above it) is readable without giving up the menu.
   const [collapsed, setCollapsed] = useState(false);
+  const overlayId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -91,13 +94,19 @@ export function AskUserQuestionOverlay({
   const typeRowIdx = multiSelect ? -1 : optionCount;
   const chatRowIdx = multiSelect ? -1 : optionCount + 1;
   const rowCount = multiSelect ? optionCount : optionCount + 2;
+  const headerId = `${overlayId}-header`;
+  const questionId = `${overlayId}-question`;
+  const optionId = (index: number) => `${overlayId}-option-${index}`;
 
   // Take keyboard focus only when the terminal underneath owned it — the menu
   // it was driving is now fronted by this overlay. Never yank focus from
   // another pane or dialog.
   useEffect(() => {
-    if (terminalOwnedFocus()) containerRef.current?.focus();
-  }, [questionIdx]);
+    if (!terminalOwnedFocus() || textMode) return;
+    const passive = desynced || !!finished || submitting;
+    if (!collapsed && !passive) optionsRef.current?.focus();
+    else containerRef.current?.focus();
+  }, [collapsed, desynced, finished, questionIdx, submitting, textMode]);
 
   useEffect(() => {
     if (textMode) textInputRef.current?.focus();
@@ -261,7 +270,10 @@ export function AskUserQuestionOverlay({
     // second Tab (or any answer key below) brings the menu back.
     if (e.key === "Tab") {
       e.preventDefault();
-      if (!(submitting || finished || desynced)) setCollapsed((c) => !c);
+      if (!(submitting || finished || desynced)) {
+        if (!collapsed) keepOverlayFocus();
+        setCollapsed((c) => !c);
+      }
       return;
     }
     if (submitting || finished || desynced) return;
@@ -332,6 +344,10 @@ export function AskUserQuestionOverlay({
         onClick={props.onClick}
         onMouseMove={() => setHighlightIdx(props.index)}
         disabled={submitting}
+        id={optionId(props.index)}
+        role="option"
+        aria-selected={multiSelect ? checked.has(props.index) : highlighted}
+        tabIndex={-1}
         style={{
           width: "100%",
           display: "flex",
@@ -392,7 +408,8 @@ export function AskUserQuestionOverlay({
       ref={containerRef}
       tabIndex={-1}
       role="dialog"
-      aria-label={question.header || "Agent question"}
+      aria-labelledby={headerId}
+      aria-describedby={peeking || passive ? undefined : questionId}
       onKeyDown={onKeyDown}
       onFocusCapture={() => {
         hasFocusRef.current = true;
@@ -450,6 +467,7 @@ export function AskUserQuestionOverlay({
           }}
         />
         <span
+          id={headerId}
           style={{
             fontFamily: "var(--mono)",
             fontSize: 11,
@@ -542,6 +560,7 @@ export function AskUserQuestionOverlay({
       ) : (
         <>
           <div
+            id={questionId}
             style={{
               padding: "12px 12px 8px",
               fontSize: 13.5,
@@ -579,7 +598,20 @@ export function AskUserQuestionOverlay({
               />
             </div>
           ) : (
-            <div style={{ overflowY: "auto", padding: "0 6px 6px", minHeight: 0 }}>
+            <div
+              ref={optionsRef}
+              role="listbox"
+              tabIndex={-1}
+              aria-labelledby={questionId}
+              aria-multiselectable={multiSelect || undefined}
+              aria-activedescendant={optionId(highlightIdx)}
+              style={{
+                overflowY: "auto",
+                padding: "0 6px 6px",
+                minHeight: 0,
+                outline: "none",
+              }}
+            >
               {question.options.map((option, i) =>
                 optionRow({
                   index: i,

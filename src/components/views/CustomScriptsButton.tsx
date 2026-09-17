@@ -7,6 +7,7 @@ import { DropdownMenuItem } from "~/components/ui/DropdownMenuItem";
 import { Tooltip } from "~/components/ui/Tooltip";
 import { Z_INDEX } from "~/lib/z-index";
 import type { CustomScript } from "~/shared/domain";
+import { useSuspendAppDragRegion } from "~/lib/use-dismissable-menu";
 
 /** Truncated label so a long script name can't blow out the header width. */
 function ScriptLabel({ name }: { name: string }) {
@@ -40,6 +41,7 @@ export function CustomScriptsButton({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  useSuspendAppDragRegion(open);
   const [menuRect, setMenuRect] = useState<{ top: number; right: number } | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLElement>(null);

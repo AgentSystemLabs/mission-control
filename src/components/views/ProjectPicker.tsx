@@ -10,6 +10,9 @@ import { StatusDot } from "~/components/ui/StatusDot";
 import { HotkeyTooltip } from "~/components/ui/Tooltip";
 import { STATUS_META } from "~/lib/design-meta";
 import { projectPickerSections } from "~/lib/group-projects";
+import { nextProjectPickerHighlight } from "~/lib/project-picker-navigation";
+import { ACTIVE_GROUP_ALL, useActiveGroup } from "~/lib/active-group";
+import { getGroupRailCluster } from "~/lib/rail-projects";
 import type { TaskStatus } from "~/shared/domain";
 import { useServerEvents } from "~/lib/use-events";
 import { useDebouncedCallback } from "~/lib/use-debounced-callback";
@@ -17,6 +20,7 @@ import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { useUserTerminals } from "~/lib/user-terminal-store";
 import { queryKeys, useGroups, useProjects, useScopedProjects } from "~/queries";
 import { getProjectActivity, isProjectActive, type ProjectWithCounts } from "~/shared/projects";
+import { useSuspendAppDragRegion } from "~/lib/use-dismissable-menu";
 
 function DotCount({ status, count, size }: { status: TaskStatus; count: number; size: number }) {
   return (
@@ -63,6 +67,7 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
   const queryClient = useQueryClient();
   const { hasRunningLaunchForProject } = useUserTerminals();
   const [open, setOpen] = useState(false);
+  useSuspendAppDragRegion(open);
   const { data: allProjects } = useProjects();
   const { data: projects } = useScopedProjects();
   const { data: groups = [] } = useGroups();
@@ -74,7 +79,12 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
 
   const current = allProjects?.find((p) => p.id === projectId) ?? null;
   const label = current?.name ?? "Project";
+  const { activeGroup, setActiveGroup } = useActiveGroup();
+  const groupScoped = activeGroup !== ACTIVE_GROUP_ALL;
+  const searching = query.trim().length > 0;
 
+  // Searching always sweeps ALL scoped projects — the group filter narrows
+  // the browse list, never the search, so the picker can't trap the user.
   const filtered = useMemo<ProjectWithCounts[]>(() => {
     if (!projects) return [];
     const q = query.trim().toLowerCase();
@@ -82,8 +92,16 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
     return projects.filter((p) => p.name.toLowerCase().includes(q));
   }, [projects, query]);
 
-  // Mirrors the landing page layout so the affordance is consistent.
-  const sections = useMemo(() => projectPickerSections(filtered, groups), [filtered, groups]);
+  // Mirrors the landing page layout so the affordance is consistent. With a
+  // group active (and no search) the browse list is that group's workspace:
+  // pinned first, then alphabetical.
+  const sections = useMemo(() => {
+    if (groupScoped && !searching) {
+      const cluster = getGroupRailCluster(projects ?? [], groups, activeGroup);
+      return [{ key: cluster.key, label: cluster.label, color: cluster.color, projects: cluster.projects }];
+    }
+    return projectPickerSections(filtered, groups);
+  }, [activeGroup, filtered, groups, groupScoped, projects, searching]);
   const launchRunningProjectIds = useMemo(
     () =>
       new Set(
@@ -96,6 +114,12 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
 
   // Flat list of selectable items, in render order — drives keyboard nav indexing.
   const flatItems = useMemo(() => sections.flatMap((s) => s.projects), [sections]);
+  // When browsing a group, the footer is part of the same keyboard sequence as
+  // the projects above it. Keeping its index directly after the project rows
+  // makes ArrowUp from the first project wrap straight to "All projects".
+  const showAllProjectsAction = groupScoped && !searching;
+  const allProjectsIndex = showAllProjectsAction ? flatItems.length : -1;
+  const selectableCount = flatItems.length + (showAllProjectsAction ? 1 : 0);
 
   // Coalesce task/project bursts into a single projects-list refetch.
   const debouncedInvalidateProjects = useDebouncedCallback(
@@ -120,6 +144,11 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
     setOpen(false);
     setQuery("");
     if (id !== projectId) router.navigate({ to: "/projects/$id", params: { id } });
+  };
+
+  const selectAllProjects = () => {
+    setHighlight(0);
+    setActiveGroup(ACTIVE_GROUP_ALL);
   };
 
   useHotkey(
@@ -147,10 +176,10 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
     return () => clearTimeout(t);
   }, [open]);
 
-  // Clamp highlight when filtered list shrinks.
+  // Clamp highlight when search/scope changes the selectable sequence.
   useEffect(() => {
-    if (highlight >= flatItems.length) setHighlight(0);
-  }, [flatItems, highlight]);
+    if (highlight >= selectableCount) setHighlight(0);
+  }, [highlight, selectableCount]);
 
   // Scroll highlighted item into view.
   useEffect(() => {
@@ -178,17 +207,38 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      const n = flatItems.length;
-      if (n > 0) setHighlight((h) => (h + 1) % n);
+      if (selectableCount > 0) {
+        setHighlight((currentHighlight) =>
+          nextProjectPickerHighlight(currentHighlight, selectableCount, "ArrowDown"),
+        );
+      }
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      const n = flatItems.length;
-      if (n > 0) setHighlight((h) => (h - 1 + n) % n);
+      if (selectableCount > 0) {
+        setHighlight((currentHighlight) =>
+          nextProjectPickerHighlight(currentHighlight, selectableCount, "ArrowUp"),
+        );
+      }
+      return;
+    }
+    if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      const navigationKey = e.key;
+      if (selectableCount > 0) {
+        setHighlight((currentHighlight) =>
+          nextProjectPickerHighlight(currentHighlight, selectableCount, navigationKey),
+        );
+      }
       return;
     }
     if (e.key === "Enter") {
+      if (highlight === allProjectsIndex) {
+        e.preventDefault();
+        selectAllProjects();
+        return;
+      }
       const target = flatItems[highlight];
       if (target) {
         e.preventDefault();
@@ -242,7 +292,7 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onInputKeyDown}
-              placeholder="Search projects…"
+              placeholder={groupScoped ? "Search all projects…" : "Search projects…"}
               style={{
                 width: "100%",
                 background: "transparent",
@@ -262,7 +312,7 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
               </div>
             ) : flatItems.length === 0 ? (
               <div style={{ padding: 10, fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-faint)" }}>
-                No matches.
+                {groupScoped && !searching ? "No projects in this group." : "No matches."}
               </div>
             ) : (
               (() => {
@@ -345,6 +395,43 @@ export function ProjectPicker({ projectId, disabled = false }: { projectId?: str
               })()
             )}
           </div>
+          {showAllProjectsAction && (
+            <div style={{ borderTop: "1px solid var(--border)", padding: 4 }}>
+              <button
+                ref={(element) => {
+                  itemRefs.current[allProjectsIndex] = element;
+                }}
+                type="button"
+                onClick={selectAllProjects}
+                onMouseMove={() => setHighlight(allProjectsIndex)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 8px",
+                  background:
+                    highlight === allProjectsIndex
+                      ? "var(--surface-2, var(--surface-1))"
+                      : "transparent",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontFamily: "var(--mono)",
+                  fontSize: 12,
+                  color: "var(--text-dim)",
+                  outline: highlight === allProjectsIndex ? "1px solid var(--border)" : "none",
+                }}
+              >
+                <Icon name="chevron-down" size={11} style={{ transform: "rotate(90deg)", color: "var(--text-faint)" }} />
+                <span style={{ flex: 1 }}>All projects</span>
+                <span style={{ fontSize: 11, color: "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>
+                  {projects?.length ?? 0}
+                </span>
+              </button>
+            </div>
+          )}
         </CardFrame>
       )}
     </div>

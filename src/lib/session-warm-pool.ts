@@ -8,7 +8,8 @@ import { newSessionId } from "~/lib/agent-command";
 import { buildOptimisticTask } from "~/lib/optimistic-task";
 import { commandForTask } from "~/lib/terminal-store";
 import { getElectron } from "~/lib/electron";
-import { api, resolveApiToken } from "~/lib/api";
+import { api } from "~/lib/api";
+import { resolveMcEnv } from "~/lib/mission-control-env";
 import { isDockerSandboxRuntime } from "~/lib/sandbox-runtime";
 import { getTerminalColorScheme } from "~/lib/terminal-options";
 import { TITLE_WAITING } from "~/lib/task-sentinels";
@@ -48,21 +49,6 @@ export function sessionCreateSignature(payload: SessionCreatePayload, cwd: strin
     // this fresh, so a theme mismatch falls through to a cold spawn.
     getTerminalColorScheme(),
   ].join("\0");
-}
-
-async function resolveMcEnv(
-  electron: NonNullable<ReturnType<typeof getElectron>>,
-): Promise<{ apiUrl: string; token: string } | undefined> {
-  try {
-    const [port, token] = await Promise.all([
-      electron.getRuntimePort(),
-      resolveApiToken(),
-    ]);
-    if (!port || !token) return undefined;
-    return { apiUrl: `http://127.0.0.1:${port}`, token };
-  } catch {
-    return undefined;
-  }
 }
 
 function buildDraftTask(

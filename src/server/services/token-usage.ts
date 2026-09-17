@@ -8,7 +8,7 @@ import type {
   TokenTotals,
   UsageSummary,
 } from "~/shared/token-usage";
-import { EMPTY_TOTALS } from "~/shared/token-usage";
+import { EMPTY_TOTALS, totalTokens } from "~/shared/token-usage";
 import {
   findAllSessionOffsets,
   getTokenUsageLastSyncedAt,
@@ -206,7 +206,7 @@ export function getUsageSummary(daysBack: number = DEFAULT_USAGE_DAYS): UsageSum
   const totals: TokenTotals = totalsRow ?? { ...EMPTY_TOTALS };
 
   const perProject: ProjectUsage[] = selectTotalsPerProject().sort(
-    (a, b) => totalOf(b) - totalOf(a),
+    (a, b) => totalTokens(b) - totalTokens(a),
   );
 
   const sinceMs = startOfLocalDay(Date.now() - (daysBack - 1) * MS_PER_DAY);
@@ -229,7 +229,7 @@ export function getUsageSummary(daysBack: number = DEFAULT_USAGE_DAYS): UsageSum
   }
 
   const perSession: SessionUsage[] = selectTotalsPerSession().sort(
-    (a, b) => totalOf(b) - totalOf(a),
+    (a, b) => totalTokens(b) - totalTokens(a),
   );
 
   return {
@@ -240,10 +240,6 @@ export function getUsageSummary(daysBack: number = DEFAULT_USAGE_DAYS): UsageSum
     lastSyncedAt: getTokenUsageLastSyncedAt(),
     syncing: false,
   };
-}
-
-function totalOf(t: TokenTotals): number {
-  return t.inputTokens + t.outputTokens + t.cacheCreationTokens + t.cacheReadTokens;
 }
 
 function startOfLocalDay(ms: number): number {

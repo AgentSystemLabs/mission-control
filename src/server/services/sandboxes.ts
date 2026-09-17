@@ -10,10 +10,12 @@ import {
   type SandboxRemoteConfig,
 } from "~/shared/sandbox";
 import { ACTIVE_SCOPE_KEY, SANDBOXES_ENABLED_KEY } from "~/db/migrate-multi-sandbox";
+import { randomUUID } from "node:crypto";
 import {
   deleteSandboxRow,
   findAllSandboxes,
   findSandboxById,
+  insertSandbox,
   updateSandboxRow,
 } from "../repositories/sandboxes.repo";
 import { findProjectIdsBySandboxId } from "../repositories/projects.repo";
@@ -22,7 +24,7 @@ import { deleteUserTerminalsByScope } from "../repositories/user-terminals.repo"
 import { deleteHomeTerminalsByScope } from "../repositories/home-terminals.repo";
 import { events } from "../events";
 import { deleteAllProjectImagesFor } from "./project-images";
-import { getBooleanSetting, getSetting, setBooleanSetting, setSetting } from "./settings";
+import { getSetting, setBooleanSetting, setSetting } from "./settings";
 
 // CRUD + scope-selection for sandboxes (isolated execution environments). The
 // container lifecycle is owned by the Electron main; Phase 1 manages only the
@@ -98,13 +100,79 @@ function toPublicSandbox(row: Sandbox): SandboxPublicView {
  *  selected scope (self-heals a dangling scope whose sandbox was deleted). */
 export function getSandboxState(): SandboxState {
   const list = findAllSandboxes();
-  const enabled = getBooleanSetting(SANDBOXES_ENABLED_KEY, false);
   let activeScopeId = getSetting(ACTIVE_SCOPE_KEY) ?? LOCAL_SCOPE_ID;
   if (activeScopeId !== LOCAL_SCOPE_ID && !list.some((s) => s.id === activeScopeId)) {
     activeScopeId = LOCAL_SCOPE_ID;
     setSetting(ACTIVE_SCOPE_KEY, activeScopeId);
   }
-  return { sandboxes: list.map(toPublicSandbox), enabled, activeScopeId };
+  return { sandboxes: list.map(toPublicSandbox), enabled: true, activeScopeId };
+}
+
+export type ConnectRemoteSandboxInput = {
+  name: string;
+  agentUrl: string;
+  apiKey: string;
+  agentCa?: string | null;
+};
+
+/**
+ * Register an externally-provisioned remote sandbox (the user installed and
+ * started the agent themselves) so the existing connect machinery can reach it.
+ * Unlike managed rows, no `provider`/`providerId`/`status` are persisted —
+ * provider-less rows are what mark a sandbox as manually connected, keeping
+ * every managed-cloud affordance (pause/resume/reconcile/teardown) off.
+ * Returns null when the agent URL does not survive normalization (plaintext
+ * ws:// to a non-loopback host, credentials/query in the URL, unparseable).
+ */
+export function connectRemoteSandbox(
+  input: ConnectRemoteSandboxInput,
+): SandboxPublicView | null {
+  const agentUrl = normalizeRemoteAgentUrl(input.agentUrl);
+  if (!agentUrl) return null;
+  const agentCa = input.agentCa?.trim() || null;
+  const now = Date.now();
+
+  // Idempotent by agent endpoint: re-connecting to the same URL (retry after a
+  // failed connect, rotated key, fresh CA) updates the existing manual row
+  // instead of piling up duplicates. Managed rows always carry a provider, so
+  // they can never be captured by this match.
+  const existing = findAllSandboxes().find((row) => {
+    if (row.kind !== "remote-vm") return false;
+    const remote = parseRemoteConfig(row.remoteConfig);
+    return !!remote && !remote.provider && remote.agentUrl === agentUrl;
+  });
+  const id = existing?.id ?? randomUUID();
+  const remoteConfig: SandboxRemoteConfig = {
+    agentUrl,
+    ...(agentCa ? { agentCa } : {}),
+    createdAt: existing ? parseRemoteConfig(existing.remoteConfig)?.createdAt ?? now : now,
+    updatedAt: now,
+  };
+  if (existing) {
+    updateSandboxRow(id, {
+      name: input.name.trim(),
+      pairingToken: input.apiKey,
+      remoteConfig: JSON.stringify(remoteConfig),
+      updatedAt: now,
+    });
+  } else {
+    insertSandbox({
+      id,
+      name: input.name.trim(),
+      kind: "remote-vm",
+      pairingToken: input.apiKey,
+      remoteConfig: JSON.stringify(remoteConfig),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  // Mirror the deploy CLI: registering a sandbox turns the scope switcher on so
+  // the new row is immediately reachable.
+  setBooleanSetting(SANDBOXES_ENABLED_KEY, true);
+  const row = findSandboxById(id);
+  // The row was just written; a miss is a server fault, not a bad request.
+  if (!row) throw new Error("sandbox row missing after connect write");
+  return toPublicSandbox(row);
 }
 
 export type UpdateSandboxPatch = Partial<{
@@ -173,6 +241,8 @@ export function setActiveScope(scopeId: string): string {
   return resolved;
 }
 
-export function setSandboxesEnabled(enabled: boolean): void {
-  setBooleanSetting(SANDBOXES_ENABLED_KEY, enabled);
+export function setSandboxesEnabled(_enabled: boolean): void {
+  // Compatibility for older clients: sandboxes have graduated from
+  // experimental and can no longer be disabled.
+  setBooleanSetting(SANDBOXES_ENABLED_KEY, true);
 }

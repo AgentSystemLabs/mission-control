@@ -58,8 +58,13 @@ const AGENT_HOOKS: Record<string, AgentHookSpec> = {
       // the question answered.
       { event: "PreToolUse", matcher: "AskUserQuestion" },
       { event: "PostToolUse", matcher: "AskUserQuestion" },
+      // Background subagents outlive the foreground turn's Stop, so the
+      // server tracks these to hold the session on "running" until the last
+      // subagent reports in (see hooks.controller + subagent-activity).
+      { event: "SubagentStart" },
+      { event: "SubagentStop" },
     ],
-    removeManagedEvents: ["SubagentStop", "UserInterrupt"],
+    removeManagedEvents: ["UserInterrupt"],
   },
   codex: {
     configPath: [".codex", "hooks.json"],

@@ -12,6 +12,11 @@ export type WorktreeInfo = {
   path: string;
   branch: string;
   isMain: boolean;
+  /**
+   * Whether the app's delete flow can remove this worktree — false for main
+   * and for adopted worktrees living outside `.worktree/`/`.worktrees/`.
+   */
+  deletable?: boolean;
   createdAt: number;
   updatedAt: number;
   /** Non-archived sessions on this worktree, by status. Present on list responses. */

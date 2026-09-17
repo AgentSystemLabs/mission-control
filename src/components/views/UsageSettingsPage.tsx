@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Icon } from "~/components/ui/Icon";
@@ -7,7 +7,7 @@ import { api, type AppSettings } from "~/lib/api";
 import { queryKeys, useProviderUsage, useSettings } from "~/queries";
 import {
   DEFAULT_PROVIDER_USAGE_IDS,
-  PROVIDER_USAGE_CATALOG,
+  SUPPORTED_PROVIDER_USAGE_CATALOG,
   type ProviderUsageId,
   type ProviderUsageSnapshot,
 } from "~/shared/provider-usage";
@@ -23,10 +23,10 @@ type UsagePatch = Partial<
   >
 >;
 
-/** Default agent providers first, then the rest of the catalog alphabetically. */
-const SETTINGS_PROVIDER_ORDER: readonly (typeof PROVIDER_USAGE_CATALOG)[number][] = [
-  ...PROVIDER_USAGE_CATALOG.filter((p) => p.defaultEnabled),
-  ...PROVIDER_USAGE_CATALOG.filter((p) => !p.defaultEnabled).sort((a, b) =>
+/** Only the harnesses mission-control supports — default-enabled ones first. */
+const SETTINGS_PROVIDER_ORDER: readonly (typeof SUPPORTED_PROVIDER_USAGE_CATALOG)[number][] = [
+  ...SUPPORTED_PROVIDER_USAGE_CATALOG.filter((p) => p.defaultEnabled),
+  ...SUPPORTED_PROVIDER_USAGE_CATALOG.filter((p) => !p.defaultEnabled).sort((a, b) =>
     a.displayName.localeCompare(b.displayName),
   ),
 ];
@@ -39,7 +39,6 @@ export function UsageSettingsPage() {
   const claudeShowSession = settings?.claudeUsageLimitsShowSession ?? true;
   const claudeShowWeekly = settings?.claudeUsageLimitsShowWeekly ?? true;
   const claudeOn = providerIds.includes("claude");
-  const [query, setQuery] = useState("");
 
   // Live status shares the indicator's query, so this adds no extra polling.
   const { data: usage } = useProviderUsage(enabled, providerIds);
@@ -48,14 +47,6 @@ export function UsageSettingsPage() {
     for (const p of usage?.providers ?? []) map.set(p.id, p);
     return map;
   }, [usage]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return SETTINGS_PROVIDER_ORDER;
-    return SETTINGS_PROVIDER_ORDER.filter(
-      (p) => p.displayName.toLowerCase().includes(q) || p.id.includes(q),
-    );
-  }, [query]);
 
   const needsAuth = useMemo(
     () =>
@@ -108,61 +99,9 @@ export function UsageSettingsPage() {
 
       <SettingsSection
         title="Providers"
-        subtitle="Every provider has a live adapter. Credentials come from env vars, ~/.codexbar/config.json, CLI auth files, or cookies; providers without credentials report “sign in”, never a dead stub."
+        subtitle="Usage for the harnesses mission-control supports. Credentials come from env vars, CLI auth files, or ~/.codexbar/config.json; providers without credentials report “sign in”, never a dead stub."
         headingLevel="h2"
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            opacity: enabled ? 1 : 0.6,
-          }}
-        >
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              background: "var(--surface-0)",
-              border: "1px solid var(--border)",
-              borderRadius: 7,
-              padding: "7px 10px",
-            }}
-          >
-            <Icon name="search" size={12} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter providers…"
-              aria-label="Filter providers"
-              disabled={!enabled}
-              style={{
-                flex: 1,
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                color: "var(--text)",
-                fontFamily: "var(--mono)",
-                fontSize: 12,
-              }}
-            />
-          </div>
-          <span
-            style={{
-              color: "var(--text-faint)",
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              fontVariantNumeric: "tabular-nums",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {providerIds.length} of {PROVIDER_USAGE_CATALOG.length} enabled
-          </span>
-        </div>
-
         <div
           role="group"
           aria-label="Providers to show in the top bar"
@@ -173,7 +112,7 @@ export function UsageSettingsPage() {
             opacity: enabled ? 1 : 0.6,
           }}
         >
-          {filtered.map((meta) => {
+          {SETTINGS_PROVIDER_ORDER.map((meta) => {
             const on = providerIds.includes(meta.id);
             const snapshot = enabled && on ? statusById.get(meta.id) : undefined;
             return (
@@ -187,11 +126,6 @@ export function UsageSettingsPage() {
               />
             );
           })}
-          {filtered.length === 0 && (
-            <span style={{ color: "var(--text-dim)", fontSize: 12, padding: "6px 2px" }}>
-              No providers match “{query}”.
-            </span>
-          )}
         </div>
 
         {enabled && (

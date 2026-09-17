@@ -16,7 +16,6 @@ import {
 } from "./sandbox-settings";
 import { SandboxRegistry, type RegistryDeps } from "./sandbox-registry";
 import {
-  isSandboxesEnabled,
   listSandboxConfigs,
   readActiveSandboxId,
   readSandboxConfig,
@@ -1198,7 +1197,7 @@ export function registerSandboxManager(
   userDataDir = appUserDataDir;
   getSandboxHookEnv = hookEnvAccessor ?? null;
   // Restore the persisted active scope so runtime routing is correct from launch.
-  activeSandboxId = isSandboxesEnabled(userDataDir) ? readActiveSandboxId(userDataDir) : null;
+  activeSandboxId = readActiveSandboxId(userDataDir);
 
   // Adopt any sandboxes already running (keep-all-running) on launch.
   void reconcile();

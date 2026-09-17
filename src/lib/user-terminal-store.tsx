@@ -84,6 +84,13 @@ type Ctx = {
     startCommand?: string | null;
     project?: ScopedProject;
     cwd?: string | null;
+    /**
+     * Whether the new terminal should grab focus on open. Defaults to true.
+     * The run/launch flow passes false so opening the launch terminals doesn't
+     * steal keyboard focus (which would break follow-up hotkeys like the
+     * open-browser shortcut a user presses right after running the project).
+     */
+    focusOnCreate?: boolean;
   }) => Promise<UserTerminal | null>;
   killTerminalsByStartCommand: (
     commands: string[],
@@ -355,8 +362,9 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createTerminal = useCallback(
-    async (opts?: { name?: string; startCommand?: string | null; project?: ScopedProject; cwd?: string | null }) => {
+    async (opts?: { name?: string; startCommand?: string | null; project?: ScopedProject; cwd?: string | null; focusOnCreate?: boolean }) => {
       const targetProject = opts?.project ?? project;
+      const focusOnCreate = opts?.focusOnCreate ?? true;
       // Home mode: no project context → create a project-less home terminal. The
       // cwd is resolved at spawn time per-runtime (host/remote home dir), so we
       // persist no host path here. Home terminals are never launch/ephemeral, so
@@ -368,7 +376,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
           scopeId: homeScopeId,
         });
         updateSessions(key, (prev) => [...prev, { terminal, ptyId: null }]);
-        setFocusFor(key, terminal.id);
+        if (focusOnCreate) setFocusFor(key, terminal.id);
         setPanelOpenByProject((prev) => ({ ...prev, [key]: true }));
         return terminal;
       }
@@ -395,7 +403,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
             name: opts?.name?.trim() || warmSlot.draftTerminal.name,
           };
           updateSessions(key, (prev) => [...prev, { terminal: draftTerminal, ptyId: warmSlot.ptyId }]);
-          setFocusFor(key, draftTerminal.id);
+          if (focusOnCreate) setFocusFor(key, draftTerminal.id);
           setPanelOpenByProject((prev) => ({ ...prev, [key]: true }));
 
           void (async () => {
@@ -435,7 +443,7 @@ export function UserTerminalProvider({ children }: { children: ReactNode }) {
         scopeId: targetProject.activeRuntimeScopeId ?? LOCAL_SCOPE_ID,
       });
       updateSessions(key, (prev) => [...prev, { terminal, ptyId: null }]);
-      setFocusFor(key, terminal.id);
+      if (focusOnCreate) setFocusFor(key, terminal.id);
       setPanelOpenByProject((prev) => ({ ...prev, [key]: true }));
       if (!startCommand && cwd) {
         replenishUserTerminalWarmSlot({ project: targetProject, cwd });

@@ -2,6 +2,17 @@ import { z } from "zod";
 import { AGENT_HOOK_EVENTS, mapHookEventToStatus } from "~/shared/agent-hook-events";
 import { ASK_USER_QUESTION_TOOL, parseAskUserQuestionInput } from "~/shared/agent-questions";
 import { getTask, updateStatus, updateTask } from "../services/tasks";
+import {
+  armDeferredFinish,
+  clearSubagentActivity,
+  clearTaskFinished,
+  disarmDeferredFinish,
+  hasActiveSubagents,
+  noteSubagentStart,
+  noteSubagentStop,
+  noteTaskFinished,
+  taskFinishedRecently,
+} from "../services/subagent-activity";
 import { setPendingQuestion } from "../services/pending-questions";
 import { recordPrompt } from "../services/prompts";
 import { maybeAutoIndexGraph } from "../services/graph-auto-index";
@@ -35,6 +46,9 @@ const hookPayload = z
     conversation_id: z.string(),
     tool_name: z.string(),
     tool_use_id: z.string(),
+    // SubagentStart/SubagentStop: unique id of the subagent instance, used to
+    // pair a stop with its start when counting still-active subagents.
+    agent_id: z.string(),
     tool_input: z.unknown(),
     // PostToolUse carries the tool's result; the pet sniffs it for errors.
     tool_response: z.unknown(),
@@ -47,6 +61,9 @@ const hookPayload = z
     // transcript file can lag the in-memory conversation (and may not be flushed
     // when Stop fires), so the pet remark prefers this over re-reading the file.
     last_assistant_message: z.string(),
+    // Synthetic MissionControlSessionEnded (electron/pty-manager): the PTY
+    // process's exit code, used to pick finished vs terminated.
+    exit_code: z.number(),
   })
   .partial();
 
@@ -76,6 +93,25 @@ function isPromptSubmitEvent(event: string): boolean {
     event === AGENT_HOOK_EVENTS.userPromptSubmit ||
     event === AGENT_HOOK_EVENTS.cursorBeforeSubmitPrompt
   );
+}
+
+function isSubagentLifecycleEvent(event: string): boolean {
+  return (
+    event === AGENT_HOOK_EVENTS.subagentStart ||
+    event === AGENT_HOOK_EVENTS.subagentStop
+  );
+}
+
+// Deferred-finish backstop callback: fires when a held or healed "running"
+// drained its subagents and no main-agent Stop landed within the grace.
+// Guarded so it can't stomp a state the user or a later event moved the task
+// into.
+function finishQuietTask(taskId: string): void {
+  const task = getTask(taskId);
+  if (task?.status === "running") {
+    updateStatus(taskId, { status: "finished" });
+    noteTaskFinished(taskId);
+  }
 }
 
 // Mirrors settings.controller.ts PET_ENABLED_KEY — the app_settings row that
@@ -197,15 +233,21 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   const payload = parsed.data;
 
   const event = payload.hook_event_name || url.searchParams.get("hookEvent") || "";
-  const status = mapHookEventToStatus({ ...payload, hook_event_name: event });
+  let status = mapHookEventToStatus({ ...payload, hook_event_name: event });
   const incomingSessionId = hookSessionId(payload);
 
   const task = getTask(taskId);
   if (!task) return jsonError(HTTP_NOT_FOUND, "task not found");
 
   // Stash the transcript path (present on most Claude hooks incl. Stop) so the
-  // auto-distill pass can read the full session. Latest wins; stable per session.
-  if (typeof payload.transcript_path === "string" && payload.transcript_path.trim()) {
+  // auto-distill pass can read the full session. Latest wins; stable per
+  // session. Subagent lifecycle hooks are excluded: they carry the SUBAGENT's
+  // own transcript path, which would point auto-distill at a child transcript.
+  if (
+    !isSubagentLifecycleEvent(event) &&
+    typeof payload.transcript_path === "string" &&
+    payload.transcript_path.trim()
+  ) {
     setTranscriptPath(taskId, payload.transcript_path.trim());
   }
 
@@ -213,6 +255,11 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   // never delays or faults the hook response.
   if (event === AGENT_HOOK_EVENTS.sessionStart) {
     maybeAutoIndexGraph(task.projectId);
+    // /clear kills background subagents but keeps the session id, so the
+    // session-id-change clear below never fires for it.
+    if (payload.source === "clear") {
+      clearSubagentActivity(taskId);
+    }
   }
   // Keep the live file watcher alive while the project is in active use (session
   // start or any prompt). It re-arms its idle timer and stops itself once quiet.
@@ -230,10 +277,74 @@ export async function receive(url: URL, request: Request): Promise<Response> {
     event,
     (id, sessionId) => {
       updateTask(id, { claudeSessionId: sessionId });
+      // A new session id means a new Claude process; the old session's
+      // subagents died with it, so they must not hold this task on "running".
+      clearSubagentActivity(id);
     },
   );
   if (sessionResult === "foreign-session") {
     return json({ ok: true, ignored: "foreign-session" });
+  }
+
+  // Sub-agent lifecycle bookkeeping. Claude fires the top-level Stop when the
+  // FOREGROUND turn ends — background subagents keep running, then their
+  // completion re-invokes the main agent, whose own Stop follows. Track which
+  // subagents are active so the Stop mapping below can hold the session on
+  // "running" until the last one is done. These events carry no status, but a
+  // subagent event arriving MOMENTS after a task finished means the Stop won
+  // the race against the turn's own subagent lifecycle POST — work is still
+  // happening, so heal to running, and arm the drain backstop in case no
+  // further Stop follows.
+  //
+  // Beyond that window, a subagent event on a finished task is one of Claude
+  // Code's post-turn internal helpers (away-summary generation fires
+  // SubagentStart/Stop when the user refocuses a finished session, with no
+  // Stop after). Healing on those wedges tasks on "running" forever; ignore
+  // them for status, and don't record their starts either — a lost helper
+  // SubagentStop would otherwise hold the NEXT turn's Stop for the whole TTL.
+  if (isSubagentLifecycleEvent(event)) {
+    const staleFinished = task.status === "finished" && !taskFinishedRecently(taskId);
+    if (event === AGENT_HOOK_EVENTS.subagentStart) {
+      if (!staleFinished) noteSubagentStart(taskId, payload.agent_id);
+    } else {
+      noteSubagentStop(taskId, payload.agent_id);
+    }
+    if (task.status === "finished" && !staleFinished) {
+      updateStatus(taskId, { status: "running" });
+      armDeferredFinish(taskId, finishQuietTask);
+    }
+    return json({ ok: true, event });
+  }
+
+  // Synthetic PTY-exit event (electron/pty-manager): the session process is
+  // gone, so a task still showing active work is wrong — settle it by exit
+  // code. Tasks already in a settled state (finished, interrupted, ...) keep
+  // it: the exit of an idle session isn't news. Dead process ⇒ its subagents
+  // died with it.
+  if (event === AGENT_HOOK_EVENTS.sessionProcessExited) {
+    clearSubagentActivity(taskId);
+    // No re-invocation can follow a dead process: laggard subagent POSTs
+    // still in flight must be ignored as stale, never heal to "running".
+    clearTaskFinished(taskId);
+    if (task.status === "running" || task.status === "needs-input") {
+      updateStatus(taskId, {
+        status: payload.exit_code === 0 ? "finished" : "terminated",
+      });
+    }
+    return json({ ok: true, event });
+  }
+  if (event === AGENT_HOOK_EVENTS.userPromptSubmit) {
+    // A new user turn supersedes any held Stop; the next Stop re-evaluates.
+    disarmDeferredFinish(taskId);
+  }
+  if (status === "finished" && hasActiveSubagents(taskId)) {
+    // Only the foreground turn ended; subagents are still working. The real
+    // finish — with the ding — lands on the next Stop that arrives with no
+    // active subagents left. The armed backstop only fires if the remaining
+    // subagents EXPIRE (their SubagentStop never arrived), so a lost POST
+    // can't wedge the task on "running" forever.
+    status = "running";
+    armDeferredFinish(taskId, finishQuietTask);
   }
 
   // Store the question before updateStatus so the overlay data is already in
@@ -318,7 +429,10 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   // Claude may have ended this turn with an invisible `<!-- pet: … -->` cue
   // (invited by the first-turn instruction below). Surface it BEFORE
   // updateStatus so the remark reaches the renderer ahead of session:finished
-  // — the pet then speaks Claude's line instead of a stock finish line.
+  // — the pet then speaks Claude's line instead of a stock finish line. Also
+  // fires for a held Stop (active subagents downgraded it to running, so no
+  // session:finished follows): the turn's cue is still current, and the
+  // lastRemarkByTask dedupe keeps the real finish from repeating it.
   if (event === AGENT_HOOK_EVENTS.stop && getBooleanSetting(PET_ENABLED_KEY, true)) {
     emitPetRemark(taskId, task.projectId, payload.last_assistant_message);
   }
@@ -326,6 +440,9 @@ export async function receive(url: URL, request: Request): Promise<Response> {
   try {
     const t = updateStatus(taskId, { status });
     if (!t) return jsonError(HTTP_NOT_FOUND, "task not found");
+    // Timestamp real finishes so the subagent branch above can tell a raced
+    // lifecycle POST (heal) from a post-turn helper event (ignore).
+    if (status === "finished") noteTaskFinished(taskId);
     if (
       isSessionCaptureEvent(event) &&
       typeof payload.prompt === "string" &&

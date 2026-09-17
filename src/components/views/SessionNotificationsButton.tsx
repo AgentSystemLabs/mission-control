@@ -8,6 +8,10 @@ import {
   requestSessionNotificationOpen,
   type AppNotification,
 } from "~/lib/session-notification-store";
+import { useHideableMenu } from "~/lib/hideable-elements";
+import { useSettings } from "~/queries";
+import { DEFAULT_HEADER_BUTTON_VISIBILITY } from "~/shared/header-buttons";
+import { useSuspendAppDragRegion } from "~/lib/use-dismissable-menu";
 
 export function SessionNotificationsButton({
   notifications,
@@ -19,7 +23,12 @@ export function SessionNotificationsButton({
   onClearNotifications: () => void;
 }) {
   const router = useRouter();
+  const { data: settings } = useSettings();
+  const visible =
+    settings?.headerButtons?.notifications ?? DEFAULT_HEADER_BUTTON_VISIBILITY.notifications;
+  const { hideElementContextMenu, hideableMenu } = useHideableMenu();
   const [open, setOpen] = useState(false);
+  useSuspendAppDragRegion(open);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const sorted = useMemo(
@@ -80,6 +89,10 @@ export function SessionNotificationsButton({
     }
   };
 
+  // Hidden from Settings → Interface (or right-click → Hide). Finish toasts and
+  // OS notifications are separate settings and keep firing.
+  if (!visible) return null;
+
   return (
     <div ref={rootRef} style={{ position: "relative", display: "inline-flex" }}>
       <button
@@ -87,6 +100,7 @@ export function SessionNotificationsButton({
         type="button"
         className="mc-btn mc-btn-ghost mc-btn-md"
         onClick={() => setOpen((value) => !value)}
+        onContextMenu={hideElementContextMenu("header-button:notifications")}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={
@@ -229,6 +243,7 @@ export function SessionNotificationsButton({
           </div>
         </CardFrame>
       )}
+      {hideableMenu}
     </div>
   );
 }

@@ -24,6 +24,10 @@ export { json, jsonError };
 // extracts an id from the URL.
 export const idParam = z.string().min(1);
 
+/** `z.enum` over a readonly tuple of string literals (e.g. a shared `*_VALUES` const). */
+export const enumOf = <T extends string>(values: readonly T[]) =>
+  z.enum(values as unknown as [T, ...T[]]);
+
 /** `?worktreeId=` → the id, `null` for main/empty, or `undefined` when the param is absent. */
 export function urlWorktreeId(request: Request): string | null | undefined {
   const value = new URL(request.url).searchParams.get("worktreeId");

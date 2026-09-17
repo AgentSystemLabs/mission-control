@@ -35,7 +35,7 @@ import {
 import { registerFileHandlers, disposeAllFileWatchers } from "./file-handlers";
 import { startPreviewServer, disposeAllPreviewServers } from "./preview-server";
 import { IPC } from "./ipc-channels";
-import { resolveAgentCommandOnPath } from "./agent-cli-resolution";
+import { resolveAgentCommandMeetingVersion, resolveAgentCommandOnPath } from "./agent-cli-resolution";
 import { augmentProcessEnv, sanitizedProcessEnv } from "./shell-env";
 import { registerUpdateManager } from "./update-manager";
 import { registerFocusMode } from "./focus-mode";
@@ -56,7 +56,6 @@ import { errMsg } from "../src/shared/err-msg";
 import { configureProjectRootsDb, disposeProjectRootsDb, loadProjectRoots } from "./project-roots";
 import { resolveSafeOpenPath } from "./open-path-policy";
 import { buildLocalMissionControlApiUrl } from "./pty-hook-env";
-import { checkAgentCliVersionCached } from "./agent-cli-version";
 import { runAgentCliUpdate } from "./agent-cli-update";
 import { AGENT_CLI_CONFIG_BY_COMMAND } from "./agent-cli-version-requirements";
 import { disposeAppSettingsStore, getBooleanAppSetting } from "./app-settings-store";
@@ -1129,6 +1128,35 @@ async function bootDevServer(): Promise<string> {
   return devUrl;
 }
 
+// One-shot per process: `activate` re-runs createWindow while this run's PTYs
+// are alive, and a second sweep would wrongly disconnect their tasks.
+let taskStatusSweepDone = false;
+
+/**
+ * Ask the server to mark tasks orphaned by the previous run (still
+ * running/needs-input with no possible PTY) as disconnected. Fail-soft: a
+ * miss just leaves stale statuses until their session is next interacted with.
+ */
+async function sweepOrphanedTaskStatuses(apiOrigin: string): Promise<void> {
+  if (taskStatusSweepDone) return;
+  taskStatusSweepDone = true;
+  try {
+    const res = await fetch(`${apiOrigin}/api/tasks/sweep-disconnected`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${getOrCreateApiToken(missionControlUserDataDir)}`,
+      },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (res.ok) {
+      const body = (await res.json().catch(() => null)) as { swept?: number } | null;
+      if (body?.swept) log.info("main.task-status-sweep", { swept: body.swept });
+    }
+  } catch (err) {
+    log.warn("main.task-status-sweep-failed", { error: errMsg(err) });
+  }
+}
+
 async function createWindow() {
   // macOS wires horizontal two-finger swipes (trackpad and Magic Mouse) to
   // session-history back/forward. Opt this window's app domain out so a swipe
@@ -1240,6 +1268,13 @@ async function createWindow() {
     }
     return;
   }
+
+  // Settle statuses orphaned by the previous run BEFORE the renderer loads:
+  // this process owns every local PTY, and none exist yet, so a task still
+  // marked running/needs-input died without its exit ever being reported (app
+  // quit or crash). Once per process — macOS `activate` re-runs createWindow
+  // while PTYs from this run are alive, and those must not be swept.
+  await sweepOrphanedTaskStatuses(url);
 
   // The renderer is only ever loaded from this URL — pin the IPC allow-list to
   // that origin (MUST be before the real loadURL) so a future renderer
@@ -1538,6 +1573,11 @@ function registerProjectImageProtocol() {
 // from copying arbitrary FS paths (e.g. /etc/passwd) into project-images/.
 const ALLOWED_PICKED_PATHS = new Set<string>();
 
+// NOTE on attestation: grants originally attested "the user picked this in a
+// main-process OS dialog". dialog:grantFolder (in-app folder browser / dialog
+// submit) records renderer-asserted paths, so a grant no longer proves an OS
+// dialog gesture — any consumer of directory-grants.json must not treat it as
+// stronger than "the app was asked to use this directory".
 function recordPickedDirectoryGrant(dir: string): void {
   const realDir = fs.realpathSync(dir);
   const target = path.join(missionControlUserDataDir, DIRECTORY_GRANTS_FILE);
@@ -1580,8 +1620,22 @@ safeHandle(IPC.dialogPickImage, async () => {
   if (!PROJECT_IMAGE_EXTENSION_SET.has(ext)) {
     return { error: `Unsupported file type: .${ext}` };
   }
-  ALLOWED_PICKED_PATHS.add(sourcePath);
-  return { sourcePath, extension: ext };
+  // Validate size and build an inline preview here, at pick time — the create
+  // flow renders the image before it's uploaded, and an oversized file should
+  // fail in the picker rather than on save.
+  try {
+    const stat = fs.statSync(sourcePath);
+    if (stat.size > MAX_PROJECT_IMAGE_BYTES) {
+      return { error: `Image exceeds ${MAX_PROJECT_IMAGE_BYTES / 1024 / 1024}MB` };
+    }
+    const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+    const previewDataUrl = `data:${mime};base64,${fs.readFileSync(sourcePath).toString("base64")}`;
+    ALLOWED_PICKED_PATHS.add(sourcePath);
+    return { sourcePath, extension: ext, previewDataUrl };
+  } catch (err) {
+    log.warn("project-image.pick-read-failed", { error: String(err) });
+    return { error: "could not read the selected image" };
+  }
 });
 
 safeHandle(
@@ -1632,6 +1686,131 @@ safeHandle(IPC.dialogBrowseFolder, async () => {
     log.warn("directory-grant.record-failed", { path: selected, error: String(err) });
   }
   return selected;
+});
+
+// In-app folder browser (ProjectDialog). Directories only, dotfolders hidden;
+// capped so a giant directory can't flood the renderer with entries.
+const FOLDER_LIST_MAX = 400;
+
+safeHandle(IPC.dialogListFolders, async (_evt, requested: unknown) => {
+  // Everything here is async: a cold network volume or a huge directory must
+  // not freeze the main process (this fires on every arrow-key drill).
+  const fsp = fs.promises;
+  const home = app.getPath("home");
+  const raw = typeof requested === "string" && requested.trim() ? requested : home;
+  let dir: string;
+  try {
+    dir = await fsp.realpath(path.resolve(raw));
+    if (!(await fsp.stat(dir)).isDirectory()) return { ok: false as const, error: "Not a folder" };
+  } catch {
+    return { ok: false as const, error: "Folder not found" };
+  }
+  let dirents: fs.Dirent[];
+  try {
+    dirents = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return { ok: false as const, error: "Can't read this folder" };
+  }
+  const visible = dirents
+    .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  const entries = await Promise.all(
+    visible.slice(0, FOLDER_LIST_MAX).map(async (d) => {
+      // Subfolder count powers the "n" badge and the drill-in affordance; an
+      // unreadable child (permissions) just reads as a leaf.
+      let childCount = 0;
+      try {
+        childCount = (await fsp.readdir(path.join(dir, d.name), { withFileTypes: true })).filter(
+          (c) => c.isDirectory() && !c.name.startsWith("."),
+        ).length;
+      } catch {}
+      return { name: d.name, childCount };
+    }),
+  );
+  const parent = path.dirname(dir);
+  const roots = [
+    { label: "Home", path: home },
+    ...(
+      await Promise.all(
+        ["Developer", "Documents", "Desktop", "Downloads"].map(async (label) => {
+          const p = path.join(home, label);
+          try {
+            return (await fsp.stat(p)).isDirectory() ? { label, path: p } : null;
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter((r): r is { label: string; path: string } => r !== null),
+  ];
+  return {
+    ok: true as const,
+    path: dir,
+    parent: parent === dir ? null : parent,
+    home,
+    roots,
+    entries,
+    truncated: visible.length > FOLDER_LIST_MAX,
+  };
+});
+
+// One plain (non-recursive) mkdir for the browser's "＋ Create folder" row.
+// Name is a single path segment — separators, traversal, and hidden names are
+// rejected here even though the renderer pre-filters them.
+safeHandle(IPC.dialogCreateFolder, async (_evt, parentRaw: unknown, nameRaw: unknown) => {
+  if (typeof parentRaw !== "string" || !parentRaw.trim()) {
+    return { ok: false as const, error: "Invalid location" };
+  }
+  const name = typeof nameRaw === "string" ? nameRaw.trim() : "";
+  if (
+    !name ||
+    name === ".." ||
+    name.startsWith(".") || // hidden folders are filtered from the listing; one would vanish on create
+    name.includes("\0") ||
+    // path separators + Windows-invalid characters (spaces are fine)
+    /[\\/:*?"<>|]/.test(name)
+  ) {
+    return { ok: false as const, error: "Invalid folder name" };
+  }
+  let parent: string;
+  try {
+    parent = await fs.promises.realpath(path.resolve(parentRaw));
+    if (!(await fs.promises.stat(parent)).isDirectory()) {
+      return { ok: false as const, error: "Location is not a folder" };
+    }
+  } catch {
+    return { ok: false as const, error: "Location not found" };
+  }
+  const target = path.join(parent, name);
+  try {
+    await fs.promises.mkdir(target);
+    return { ok: true as const, path: target };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "EEXIST") {
+      return { ok: false as const, error: "Something with that name already exists here" };
+    }
+    if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
+      return { ok: false as const, error: "No permission to create a folder here" };
+    }
+    log.warn("folder-create.failed", { target, error: String(err) });
+    return { ok: false as const, error: "Could not create the folder" };
+  }
+});
+
+// Committing a folder from the in-app browser records the same directory
+// grant an OS-dialog pick would, so both paths stay equivalent downstream.
+safeHandle(IPC.dialogGrantFolder, async (_evt, requested: unknown) => {
+  if (typeof requested !== "string" || !requested.trim()) return { ok: false as const };
+  try {
+    const dir = fs.realpathSync(path.resolve(requested));
+    if (!fs.statSync(dir).isDirectory()) return { ok: false as const };
+    recordPickedDirectoryGrant(dir);
+    return { ok: true as const };
+  } catch (err) {
+    log.warn("directory-grant.record-failed", { path: requested, error: String(err) });
+    return { ok: false as const };
+  }
 });
 
 safeHandle(IPC.shellOpenPath, async (_evt, p: string) => {
@@ -1752,24 +1931,22 @@ safeHandle(IPC.appReload, (event) => {
 safeHandle(IPC.cliCheck, (_evt, command: string, opts?: { verifyVersion?: boolean; fresh?: boolean }) => {
   if (!command) return { ok: false, reason: "empty" };
   const env = sanitizedProcessEnv();
-  const resolved = resolveAgentCommandOnPath(command, env);
-  if (resolved) {
-    const requirement = AGENT_CLI_CONFIG_BY_COMMAND[command];
-    if (requirement && opts?.verifyVersion) {
-      // Cached: shares the app-lifetime probe cache with pty spawns, so a
-      // repeat check doesn't re-spawn `<cli> --version` (which blocks main).
-      // `fresh` forces a re-probe for explicit user-initiated checks.
-      const versionCheck = checkAgentCliVersionCached(resolved, env, requirement, os.platform(), {
-        fresh: opts.fresh,
-      });
-      if (!versionCheck.ok) {
-        const { output: _output, ...safeVersionCheck } = versionCheck;
-        return { ...safeVersionCheck, path: resolved };
-      }
-      return { ok: true, path: resolved, version: versionCheck.version };
+  const requirement = AGENT_CLI_CONFIG_BY_COMMAND[command];
+  if (requirement && opts?.verifyVersion) {
+    // Prefer a PATH match that meets the minimum version when several installs
+    // coexist (stale Homebrew/Codex.app ahead of a newer npm/Herd binary).
+    const meeting = resolveAgentCommandMeetingVersion(command, requirement, env, os.platform(), {
+      fresh: opts.fresh,
+    });
+    if (!meeting) return { ok: false, reason: "not-found" };
+    if (!meeting.check.ok) {
+      const { output: _output, ...safeVersionCheck } = meeting.check;
+      return { ...safeVersionCheck, path: meeting.binary };
     }
-    return { ok: true, path: resolved };
+    return { ok: true, path: meeting.binary, version: meeting.check.version };
   }
+  const resolved = resolveAgentCommandOnPath(command, env);
+  if (resolved) return { ok: true, path: resolved };
   return { ok: false, reason: "not-found" };
 });
 

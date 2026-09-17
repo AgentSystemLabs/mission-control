@@ -38,6 +38,10 @@ import { GridLayoutButton } from "~/components/views/GridLayoutButton";
 import { SessionGrid } from "~/components/views/SessionGrid";
 import { archiveOpenSession, invalidateSessionQueries } from "~/lib/archive-session";
 import { enterFocusSession } from "~/lib/focus-session";
+import { consumeProjectOnboardIntent, type ProjectOnboardIntent } from "~/lib/project-onboard-intent";
+import { sandboxUsableForProject } from "~/lib/project-scoped-sandboxes";
+import { useHideableMenu } from "~/lib/hideable-elements";
+import { DEFAULT_HEADER_BUTTON_VISIBILITY } from "~/shared/header-buttons";
 import { ScriptArgsModal } from "~/components/views/ScriptArgsModal";
 import { WorktreeSetupCommandDialog } from "~/components/views/WorktreeSetupCommandDialog";
 import { NewAgentButton } from "~/components/views/NewAgentButton";
@@ -47,7 +51,7 @@ import { Modal } from "~/components/ui/Modal";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { RemoveProjectConfirmDialog } from "~/components/views/RemoveProjectConfirmDialog";
 import { TextField } from "~/components/ui/TextField";
-import { useHotkey } from "~/lib/use-hotkey";
+import { isEditableTarget, useHotkey } from "~/lib/use-hotkey";
 import { ApiError, api, type AppSettings } from "~/lib/api";
 import { getElectron } from "~/lib/electron";
 import {
@@ -85,10 +89,7 @@ import {
 } from "~/lib/session-warm-pool";
 import { useServerEvents } from "~/lib/use-events";
 import { useDebouncedCallback } from "~/lib/use-debounced-callback";
-import {
-  applyQuestionServerEvent,
-  setQuestionOverlayEnabled,
-} from "~/lib/agent-question-store";
+import { applyQuestionServerEvent } from "~/lib/agent-question-store";
 import { setPendingInitialInput, takePendingInitialInput } from "~/lib/voice-session-prompts";
 import {
   clearPendingSessionModel,
@@ -97,6 +98,7 @@ import {
 } from "~/lib/session-model-overrides";
 import { DEFAULT_SHIP_PROMPT } from "~/shared/ship-defaults";
 import { DEFAULT_SYNC_PROMPT } from "~/shared/sync-defaults";
+import { DEFAULT_PULL_REQUEST_PROMPT } from "~/shared/pull-request-defaults";
 import type { AiModelId } from "~/shared/ai-runtime-defaults";
 import {
   VOICE_NEW_AGENT_EVENT,
@@ -141,18 +143,13 @@ import {
   useWorktrees,
 } from "~/queries";
 import { useWorktreesEnabled } from "~/lib/use-worktrees-enabled";
+import { useActiveGroup } from "~/lib/active-group";
 import { useGitStatus, useUpstreamFetchPoll } from "~/queries/git";
 import { GitDiffModal } from "~/components/views/GitDiffView/GitDiffModal";
 import { CommitPushButton } from "~/components/views/CommitPushButton";
 import { RecallModal } from "~/components/views/RecallModal";
 import { BranchTypeahead } from "~/components/views/BranchTypeahead";
-import { SyncButton } from "~/components/views/SyncButton";
-import {
-  CreatePullRequestDialog,
-  CreatePullRequestMenuItem,
-  useCreatePullRequestAction,
-} from "~/components/views/CreatePullRequestButton";
-import { HeaderActions, HeaderBeforeSearch } from "~/components/ui/HeaderActionsSlot";
+import { HeaderActions } from "~/components/ui/HeaderActionsSlot";
 import { InstallDiagramSkillMenuItem } from "~/components/views/InstallDiagramSkillMenuItem";
 import { InstallDiagramSkillModal } from "~/components/views/InstallDiagramSkillModal";
 import { InstallShipSkillMenuItem } from "~/components/views/InstallShipSkillMenuItem";
@@ -199,6 +196,7 @@ import {
 import {
   ARCHIVE_ACTIVE_SESSION_EVENT,
   DUPLICATE_ACTIVE_SESSION_EVENT,
+  OPEN_SCOPE_SWITCHER_EVENT,
   pickByPriority,
   STATUS_META,
   type ArchiveActiveSessionEventDetail,
@@ -301,13 +299,10 @@ function ProjectPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSettings();
   const settingsLoaded = settings !== undefined;
-  // Mirror the beta flag into the question store: gates the pane overlays and
-  // releases any withheld TUI menu the moment the popup is switched off.
-  useEffect(() => {
-    if (typeof settings?.questionOverlayEnabled === "boolean") {
-      setQuestionOverlayEnabled(settings.questionOverlayEnabled);
-    }
-  }, [settings?.questionOverlayEnabled]);
+  const { hideElementContextMenu, hideableMenu } = useHideableMenu();
+  // Which discretionary project-header buttons are shown (Settings → Interface,
+  // or right-click → Hide on the button itself).
+  const headerButtons = settings?.headerButtons ?? DEFAULT_HEADER_BUTTON_VISIBILITY;
   const storedSelectedWorktreeByProject = settings?.selectedWorktreeByProject ?? null;
   const [selectedWorktreeByProject, setSelectedWorktreeByProject] =
     useState<SelectedWorktreeByProject>(() => {
@@ -386,6 +381,7 @@ function ProjectPage() {
     worktreeSelectionHydrated,
   ]);
   const projectQuery = useProject(id);
+  const { setActiveGroup } = useActiveGroup();
   const { data: sandboxState } = useSandboxes();
   useSyncProjectDiagrams(id);
   const worktreesQuery = useWorktrees(id);
@@ -414,9 +410,9 @@ function ProjectPage() {
       : null;
   const activeRuntimeScopeId =
     sandboxState?.enabled &&
-    activeRuntimeSandbox?.kind === "remote-vm" &&
-    activeRuntimeSandbox.remoteProvider === "aws" &&
-    activeRuntimeSandbox.projectId === project?.id
+    activeRuntimeSandbox &&
+    project &&
+    sandboxUsableForProject(activeRuntimeSandbox, project.id)
       ? sandboxState.activeScopeId
       : LOCAL_SCOPE_ID;
   const deploySandboxId = activeRuntimeSandbox?.id ?? null;
@@ -574,12 +570,6 @@ function ProjectPage() {
   });
   const gitUnavailable = projectPathReady && gitStatusIsError;
   const gitUnavailableMessage = gitUnavailable ? gitUnavailableTitle(gitStatusError) : null;
-  const createPullRequest = useCreatePullRequestAction({
-    projectId: id,
-    worktreeId: selectedWorktreeId,
-    branch: gitStatus?.branch,
-    projectPathUsable,
-  });
   // onToggleDiffView is defined lower down (after `terminals`) because opening
   // the diff must also drop out of the grid view — see the comment there.
   useEffect(() => {
@@ -799,6 +789,12 @@ function ProjectPage() {
   // between Active and Pinned (SessionGrid handles the empty-Pinned state).
   const showGrid =
     gridViewActive && sessionView !== "archived" && gridScopeSessionCount > 0;
+  // The Active/Pinned/Archived scope toggle must stay mounted even while the
+  // archived list is showing. Archived is a list-only view, so selecting it drops
+  // showGrid to false — gating the toggle on showGrid would unmount the very
+  // control the user needs to get back to Active/Pinned, stranding them in the
+  // archived list. Keep it visible whenever grid mode is engaged for this scope.
+  const showSessionScopeToggle = gridViewActive && gridScopeSessionCount > 0;
   const syncTask = terminals.syncTask;
   const rehydrateTerminal = terminals.rehydrate;
   const toggleTerminalSession = terminals.toggle;
@@ -906,7 +902,10 @@ function ProjectPage() {
         ports: launchPorts,
       });
       for (const c of launchCommands) {
-        await createTerminal({ name: c.name, startCommand: c.command });
+        // Don't steal keyboard focus: users commonly run (Cmd+.) then
+        // immediately hit another hotkey (e.g. open browser), and a focused
+        // terminal would swallow those keystrokes.
+        await createTerminal({ name: c.name, startCommand: c.command, focusOnCreate: false });
       }
       setPanelOpen(true);
     } finally {
@@ -1727,6 +1726,30 @@ function ProjectPage() {
 
   useHotkey("agent.new", onNewAgentPrimary, { ignoreEditable: true });
 
+  // Create-then-start onboarding: the Add-project flow hands off a one-shot
+  // intent (see project-onboard-intent). On first render for the new project we
+  // consume it, apply the chosen layout immediately, and — once the working
+  // directory is ready — launch the saved agent so the user lands in a live
+  // session instead of a dead empty page.
+  const onboardConsumedForRef = useRef<string | null>(null);
+  const onboardIntentRef = useRef<ProjectOnboardIntent | null>(null);
+  const onboardStartedRef = useRef(false);
+  useEffect(() => {
+    if (onboardConsumedForRef.current === id) return;
+    onboardConsumedForRef.current = id;
+    onboardStartedRef.current = false;
+    const intent = consumeProjectOnboardIntent(id);
+    onboardIntentRef.current = intent;
+    if (intent) terminals.setGridView(intent.gridView);
+  }, [id, terminals]);
+  useEffect(() => {
+    const intent = onboardIntentRef.current;
+    if (!intent?.autoStart || onboardStartedRef.current) return;
+    if (!project || !projectPathReady) return;
+    onboardStartedRef.current = true;
+    onNewAgentPrimary();
+  }, [project, projectPathReady, onNewAgentPrimary]);
+
   // New-row variant of agent.new: the session lands in a fresh grid row at the
   // bottom instead of beside the active one. Grid-only — rows don't exist
   // outside the grid.
@@ -1755,6 +1778,22 @@ function ProjectPage() {
       } else if (!launching) {
         void runLaunch();
       }
+    },
+    { ignoreEditable: true },
+  );
+
+  // Open the running project's launch URL in the browser — mirrors the globe
+  // button that appears beside Stop while the project is running.
+  useHotkey(
+    "project.openBrowser",
+    () => {
+      if (showNewAgent || showEdit || confirmRemove || projectPathIssue || projectPathCheck.state === "error") return;
+      if (!hasRunningLaunch) return;
+      if (!project?.launchUrl) {
+        toast.error("No launch URL configured for this project.");
+        return;
+      }
+      void openExternal(project.launchUrl);
     },
     { ignoreEditable: true },
   );
@@ -1829,6 +1868,42 @@ function ProjectPage() {
     settings?.shipAgent,
     settings?.shipModel,
     settings?.shipPrompt,
+    anchorSessionId,
+    terminals,
+  ]);
+
+  // Create PR: like Ship, but the injected prompt (Settings → Defaults →
+  // Create PR) has the agent commit/push local work, sync with upstream, then
+  // open a pull request in the browser.
+  const startCreatePullRequestSession = useCallback(() => {
+    if (!project || !projectPathReady) return;
+    if (activeRuntimeScopeId !== LOCAL_SCOPE_ID) {
+      toast.error("Create PR isn't supported in sandbox sessions yet.");
+      return;
+    }
+    const payload = defaultSessionPayload(project);
+    const anchor = anchorSessionId();
+    if (anchor) terminals.requestCloneInsertAfter(anchor);
+    void createSession(
+      {
+        ...payload,
+        agent: settings?.pullRequestAgent ?? "claude-code",
+        bareSession: false,
+      },
+      {
+        initialInput: settings?.pullRequestPrompt ?? DEFAULT_PULL_REQUEST_PROMPT,
+        focusOnCreate: true,
+        model: settings?.pullRequestModel ?? null,
+      },
+    );
+  }, [
+    project,
+    projectPathReady,
+    activeRuntimeScopeId,
+    createSession,
+    settings?.pullRequestAgent,
+    settings?.pullRequestModel,
+    settings?.pullRequestPrompt,
     anchorSessionId,
     terminals,
   ]);
@@ -2082,8 +2157,12 @@ function ProjectPage() {
   // listener — a focused xterm textarea would otherwise swallow the chord first.
   // The shifted-bracket combos (Cmd+Shift+] → e.key "}") are resolved by
   // matchBinding's e.code fallback, so no manual e.code handling is needed.
-  useHotkey("session.cycleNext", () => cycleSession(1), { capture: true });
-  useHotkey("session.cyclePrev", () => cycleSession(-1), { capture: true });
+  // List view only (cycleSession bails when the grid is on screen, which owns
+  // these chords via SessionGrid): the chords are intentionally inverted here —
+  // in the list the status-ordered cycle runs opposite to the visual direction
+  // users expect, so "next" walks the order backwards. Grid view is unaffected.
+  useHotkey("session.cycleNext", () => cycleSession(-1), { capture: true });
+  useHotkey("session.cyclePrev", () => cycleSession(1), { capture: true });
   useHotkey("session.clone", () => duplicateActiveSession(), { capture: true });
   useHotkey("screenshot.capture", () => void captureScreenshot(), {
     capture: true,
@@ -2119,6 +2198,18 @@ function ProjectPage() {
     () => {
       if (anyBlockingDialogOpen || !projectPathReady) return;
       onToggleDiffView();
+    },
+    { capture: true },
+  );
+
+  // Ship: open the commit/push/sync AI session. Capture phase mirrors git.diff so
+  // a focused session terminal can't swallow the chord first; startShipSession
+  // itself guards project/path-ready and the local-scope requirement.
+  useHotkey(
+    "project.ship",
+    () => {
+      if (anyBlockingDialogOpen || !projectPathReady) return;
+      startShipSession();
     },
     { capture: true },
   );
@@ -2264,6 +2355,35 @@ function ProjectPage() {
       [id, invalidateThisProjectTasks, invalidateProject, invalidateProjects, invalidateWorktrees, queryClient, settings?.recallLearnedToastEnabled]
     )
   );
+
+  // Auto-focus the board when a project's board first loads (and on every Cmd+U
+  // project switch). Without this, focus can land on / remain inside a session
+  // terminal's xterm <textarea> after the switch — which swallows bubble-phase
+  // hotkeys and trips useHotkey's ignoreEditable guard — so shortcuts do nothing
+  // until the user clicks the board background to blur the terminal. Moving focus
+  // to the (non-editable) board container restores every shortcut immediately.
+  const boardRef = useRef<HTMLDivElement>(null);
+  const lastAutoFocusedProjectIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project) return; // board not mounted yet (loading / error state)
+    if (anyBlockingDialogOpen) return; // a dialog/overlay owns focus — don't fight it
+    if (lastAutoFocusedProjectIdRef.current === id) return; // already handled this project
+    const board = boardRef.current;
+    if (!board) return;
+    lastAutoFocusedProjectIdRef.current = id;
+    // rAF so we win the parked-terminal reattach that happens on the same commit.
+    const raf = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      // Claim focus only from the states that actually eat shortcuts: a focused
+      // session terminal (xterm) or a loose body/null focus. Never yank focus out
+      // of a real form field the user may be typing in (search box, rename input,
+      // the bottom user terminal).
+      const onXterm = active instanceof HTMLElement && !!active.closest(".xterm");
+      if (isEditableTarget(active) && !onXterm) return;
+      board.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [id, project, anyBlockingDialogOpen]);
 
   if (projectQuery.isError) {
     return (
@@ -2756,6 +2876,7 @@ function ProjectPage() {
           shipDisabled={projectPathBlocked}
           shipEnabled={projectPathUsable}
           onShip={startShipSession}
+          onCreatePullRequest={startCreatePullRequestSession}
           behindCount={gitStatus?.behindCount ?? null}
           syncEnabled={projectPathUsable && activeRuntimeScopeId === LOCAL_SCOPE_ID}
           onSync={startSyncSession}
@@ -2773,34 +2894,37 @@ function ProjectPage() {
     </HeaderActions>
   );
 
-  // Grid-view toggle sits in the top bar beside prompt history (the
-  // before-search slot), a session view mode kept out of the run/git actions.
-  const headerBeforeSearch = (
-    <HeaderBeforeSearch>
-      <HotkeyTooltip
-        action="session.gridView"
-        label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+  // Grid-view toggle lives in the project header beside the other session
+  // controls — a session view mode, not app chrome, so it left the top bar.
+  const gridViewToggle = (
+    <HotkeyTooltip
+      action="session.gridView"
+      label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+    >
+      <Btn
+        variant="ghost"
+        onClick={toggleGridViewShowingAll}
+        aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
+        aria-pressed={terminals.gridView}
+        style={{
+          width: 40,
+          minWidth: 40,
+          paddingInline: 0,
+          background: terminals.gridView ? "var(--surface-2)" : undefined,
+          color: terminals.gridView ? "var(--text)" : undefined,
+        }}
       >
-        <Btn
-          variant="ghost"
-          onClick={toggleGridViewShowingAll}
-          aria-label={terminals.gridView ? "Exit grid view" : "Grid view — show all sessions"}
-          aria-pressed={terminals.gridView}
-          style={{
-            background: terminals.gridView ? "var(--surface-2)" : undefined,
-            color: terminals.gridView ? "var(--text)" : undefined,
-          }}
-        >
-          <GridViewToggleIcon gridView={terminals.gridView} />
-        </Btn>
-      </HotkeyTooltip>
-    </HeaderBeforeSearch>
+        <GridViewToggleIcon gridView={terminals.gridView} />
+      </Btn>
+    </HotkeyTooltip>
   );
 
   return (
     <>
       <CursorGlow />
       <div
+        ref={boardRef}
+        tabIndex={-1}
         style={{
           flex: 1,
           minHeight: 0,
@@ -2808,6 +2932,7 @@ function ProjectPage() {
           padding: 0,
           display: "flex",
           flexDirection: "column",
+          outline: "none",
         }}
         className="dot-grid-bg"
       >
@@ -3010,13 +3135,6 @@ function ProjectPage() {
                     )}
                   </DropdownMenuItem>
                 </HotkeyTooltip>
-                <CreatePullRequestMenuItem
-                  onSelect={() => {
-                    setOverflowOpen(false);
-                    void createPullRequest.onCreate();
-                  }}
-                  busy={createPullRequest.busy}
-                />
                 {worktreesEnabled ? (
                   <DropdownMenuItem
                     icon="terminal"
@@ -3026,6 +3144,20 @@ function ProjectPage() {
                     }}
                   >
                     Worktree init
+                  </DropdownMenuItem>
+                ) : null}
+                {sandboxState?.enabled ? (
+                  <DropdownMenuItem
+                    icon="globe"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      // The header scope chip hides while Local is active, so
+                      // this is the way into the sandbox switcher/manager.
+                      window.dispatchEvent(new Event(OPEN_SCOPE_SWITCHER_EVENT));
+                    }}
+                    title="Switch scope or create a sandbox for this project"
+                  >
+                    Manage sandboxes
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuSeparator />
@@ -3103,12 +3235,62 @@ function ProjectPage() {
               document.body,
             )}
           </div>
+          {(() => {
+            if (!(settings?.showProjectHeaderGroup ?? true)) return null;
+            const projectGroup = project.groupId
+              ? groups.find((g) => g.id === project.groupId)
+              : undefined;
+            if (!projectGroup) return null;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveGroup(projectGroup.id);
+                  void router.navigate({ to: "/" });
+                }}
+                onContextMenu={hideElementContextMenu("project-header-group")}
+                title={`Group: ${projectGroup.name} — open dashboard scoped to this group`}
+                aria-label={`Group ${projectGroup.name} — open dashboard scoped to this group`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "4px 11px",
+                  borderRadius: 999,
+                  border: "1px solid var(--border-strong)",
+                  background: "var(--surface-1)",
+                  color: "var(--text-dim)",
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  maxWidth: 160,
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: projectGroup.color,
+                    boxShadow: `0 0 6px ${projectGroup.color}66`,
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {projectGroup.name}
+                </span>
+              </button>
+            );
+          })()}
+          {hideableMenu}
           <CustomScriptsButton
             scripts={customScripts}
             onRun={runScript}
             disabled={!projectPathUsable}
           />
-          {showGrid && (
+          {showSessionScopeToggle && (
             <SessionScopeToggle
               view={sessionView}
               activeCount={activeTasks.length}
@@ -3135,7 +3317,7 @@ function ProjectPage() {
               minWidth: 0,
             }}
           >
-            {screenshotSupported && (
+            {screenshotSupported && headerButtons.screenshot && (
               <HotkeyTooltip
                 action="screenshot.capture"
                 label="Screenshot"
@@ -3144,28 +3326,40 @@ function ProjectPage() {
                   variant="ghost"
                   icon="camera"
                   onClick={captureScreenshot}
+                  onContextMenu={hideElementContextMenu("header-button:screenshot")}
                   aria-label="Capture a screenshot"
                   style={{ width: 40, minWidth: 40, paddingInline: 0 }}
                 />
               </HotkeyTooltip>
             )}
             {headerActions}
-            {headerBeforeSearch}
-            <HotkeyTooltip action="file.finder" label="Find file">
-              <Btn
-                variant="ghost"
-                icon="file-search"
-                onClick={openFileFinderFresh}
-                disabled={!projectPathUsable}
-                aria-label="Find file in project"
-                title={
-                  projectPathBlocked
-                    ? "Project folder unavailable"
-                    : "Find file in project"
-                }
-                style={{ width: 40, minWidth: 40, paddingInline: 0 }}
-              />
-            </HotkeyTooltip>
+            {headerButtons.gridView && gridViewToggle}
+            {headerButtons.fileFinder && (
+              // Hide sits on an outer wrapper, not the button: it disables when
+              // the project folder is missing, and disabled buttons never fire
+              // contextmenu. Wrapping outside the tooltip keeps the Btn as the
+              // tooltip's clone target (it injects aria-describedby there).
+              <span
+                style={{ display: "inline-flex" }}
+                onContextMenu={hideElementContextMenu("header-button:fileFinder")}
+              >
+                <HotkeyTooltip action="file.finder" label="Find file">
+                  <Btn
+                    variant="ghost"
+                    icon="file-search"
+                    onClick={openFileFinderFresh}
+                    disabled={!projectPathUsable}
+                    aria-label="Find file in project"
+                    title={
+                      projectPathBlocked
+                        ? "Project folder unavailable"
+                        : "Find file in project"
+                    }
+                    style={{ width: 40, minWidth: 40, paddingInline: 0 }}
+                  />
+                </HotkeyTooltip>
+              </span>
+            )}
             {!worktreesEnabled && (
               <div
                 role="group"
@@ -3190,6 +3384,7 @@ function ProjectPage() {
                   splitTrailing
                   enabled={projectPathUsable}
                   onShip={startShipSession}
+                  onCreatePullRequest={startCreatePullRequestSession}
                 />
               </div>
             )}
@@ -3649,11 +3844,6 @@ function ProjectPage() {
           />
         </Suspense>
       )}
-
-      <CreatePullRequestDialog
-        state={createPullRequest.dialog}
-        onClose={createPullRequest.closeDialog}
-      />
 
       <InstallDiagramSkillModal
         open={showInstallDiagramSkill}
@@ -4200,8 +4390,8 @@ function WorktreeBadgeDots({
             width: 6,
             height: 6,
             borderRadius: "50%",
-            background: "var(--accent)",
-            boxShadow: "0 0 6px var(--accent-glow)",
+            background: "var(--status-running)",
+            boxShadow: "0 0 6px var(--status-running)",
           }}
         />
       )}
@@ -4212,8 +4402,9 @@ function WorktreeBadgeDots({
             width: 5,
             height: 5,
             borderRadius: "50%",
-            background: status === "running" ? "var(--accent)" : TASK_STATUS_META[status].color,
-            boxShadow: status === "running" ? "0 0 5px var(--accent-glow)" : "none",
+            background: TASK_STATUS_META[status].color,
+            boxShadow:
+              status === "running" ? `0 0 5px ${TASK_STATUS_META[status].color}` : "none",
           }}
         />
       ))}
@@ -4237,6 +4428,7 @@ function WorktreeToggleGroup({
   shipDisabled = false,
   shipEnabled = true,
   onShip,
+  onCreatePullRequest,
   behindCount = null,
   syncEnabled = true,
   onSync,
@@ -4261,6 +4453,8 @@ function WorktreeToggleGroup({
   shipDisabled?: boolean;
   shipEnabled?: boolean;
   onShip: () => void;
+  /** Opens the Create PR AI session from the Ship split-button's dropdown. */
+  onCreatePullRequest?: () => void;
   /** Commits the current branch is behind its upstream; > 0 reveals Sync. */
   behindCount?: number | null;
   syncEnabled?: boolean;
@@ -4288,7 +4482,9 @@ function WorktreeToggleGroup({
   );
   const branchLabel = selectedIsMain ? mainBranchLabel : selectedWorktree.branch;
   // Sync stays main-only: behindCount is the main worktree's upstream delta.
-  const showSync = selectedIsMain && (behindCount ?? 0) > 0 && !!onSync;
+  // The action lives inside the branch dropdown now (with a ↓N badge on the
+  // trigger) — no standalone Sync split-button.
+  const syncBehindCount = selectedIsMain ? behindCount ?? 0 : 0;
   // Un-fused: Changes (quiet, review diff) and Ship (bold primary) read as two
   // distinct controls with hierarchy, not one welded segment.
   const shipControls = (
@@ -4303,6 +4499,7 @@ function WorktreeToggleGroup({
         variant={changedCount === 0 ? "gray-frame" : "primary"}
         enabled={shipEnabled}
         onShip={onShip}
+        onCreatePullRequest={onCreatePullRequest}
       />
     </>
   );
@@ -4347,8 +4544,7 @@ function WorktreeToggleGroup({
           </span>
         </Btn>
       ) : (
-        // Zero-gap wrapper so the branch selector and Sync half touch (welded
-        // split-button); badge dots sit above it via the relative parent.
+        // Badge dots sit above the branch button via the relative parent.
         <div
           style={{
             position: "relative",
@@ -4368,7 +4564,9 @@ function WorktreeToggleGroup({
             disabled={branchSwitchDisabled}
             worktreePath={selectedWorktree.path}
             selected={!selectedIsMain}
-            attachedTrailing={showSync}
+            behindCount={syncBehindCount}
+            syncEnabled={syncEnabled}
+            onSync={onSync}
             onCreateWorktree={onCreateWorktree}
             createWorktreeDisabled={createWorktreeDisabled}
             createWorktreeTitle={createWorktreeTitle}
@@ -4378,14 +4576,6 @@ function WorktreeToggleGroup({
             onDeleteWorktree={onDeleteSelected}
             runningKeys={runningKeys}
           />
-          {showSync && onSync && (
-            <SyncButton
-              behindCount={behindCount ?? 0}
-              attachedLeading
-              enabled={syncEnabled}
-              onSync={onSync}
-            />
-          )}
         </div>
       )}
       {shipControls}
@@ -4551,14 +4741,15 @@ function RunStatusPill({
           />
         </HotkeyTooltip>
         {launchUrl ? (
-          <Btn
-            variant="ghost"
-            icon="globe"
-            onClick={onOpenUrl}
-            title={`Open ${launchUrl} in browser`}
-            aria-label={`Open ${launchUrl} in browser`}
-            style={activeFrameIconStyle}
-          />
+          <HotkeyTooltip action="project.openBrowser" label="Open in browser">
+            <Btn
+              variant="ghost"
+              icon="globe"
+              onClick={onOpenUrl}
+              aria-label={`Open ${launchUrl} in browser`}
+              style={activeFrameIconStyle}
+            />
+          </HotkeyTooltip>
         ) : null}
       </div>
     );

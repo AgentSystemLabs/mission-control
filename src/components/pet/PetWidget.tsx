@@ -44,6 +44,7 @@ const MOOD_EMOTE: Record<PetMood, string> = {
   celebrating: "♪",
   shipping: "…",
   startled: "!",
+  singing: "♫",
 };
 
 /** Resting distance from the window's bottom edge when there's no dock. */
@@ -86,6 +87,7 @@ const MOOD_DESCRIPTION: Record<PetMood, string> = {
   celebrating: "celebrating a finished session",
   shipping: "shipping your changes",
   startled: "startled",
+  singing: "singing you a song",
 };
 
 /**

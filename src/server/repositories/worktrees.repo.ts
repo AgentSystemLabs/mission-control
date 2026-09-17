@@ -31,6 +31,10 @@ export function insertWorktree(row: Worktree): void {
   getDb().insert(worktrees).values(row).run();
 }
 
+export function updateWorktreeBranch(id: string, branch: string, updatedAt: number): void {
+  getDb().update(worktrees).set({ branch, updatedAt }).where(eq(worktrees.id, id)).run();
+}
+
 export function deleteWorktreeRow(id: string): number {
   const result = getDb().delete(worktrees).where(eq(worktrees.id, id)).run();
   return result.changes;

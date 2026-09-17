@@ -9,6 +9,8 @@ export function FormErrorBox({ error }: { error: ReactNode }) {
   if (!error) return null;
   return (
     <div
+      role="alert"
+      aria-live="assertive"
       style={{
         padding: "8px 12px",
         border: "1px solid var(--status-failed)",

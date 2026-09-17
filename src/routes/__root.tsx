@@ -9,7 +9,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { getPinnedProjects } from "~/lib/pinned-project-order";
+import { getRailClusters, usesDirectRailProjectShortcuts } from "~/lib/rail-projects";
 import { getElectron } from "~/lib/electron";
 import { isFocusPath } from "~/lib/focus-session";
 import { screenshotSupported } from "~/lib/screenshot";
@@ -42,12 +42,16 @@ import { ProjectPicker } from "~/components/views/ProjectPicker";
 import { ProjectBar } from "~/components/views/ProjectBar";
 import { ScreenshotThumbnail } from "~/components/views/ScreenshotThumbnail";
 import { AddProjectProvider } from "~/lib/add-project-store";
+import { GroupsDialogProvider } from "~/lib/groups-dialog-store";
+import { ACTIVE_GROUP_ALL, ACTIVE_GROUP_UNGROUPED, useActiveGroup } from "~/lib/active-group";
+import { GroupSwitcher } from "~/components/views/GroupSwitcher";
 import { PromptSearchProvider } from "~/lib/prompt-search-store";
-import { PromptSearchButton } from "~/components/views/PromptSearchButton";
+import { ScratchPadProvider } from "~/lib/scratch-pad-store";
+import { HeaderToolsCluster } from "~/components/views/HeaderToolsCluster";
+import { projectIdFromPath } from "~/lib/project-id-from-path";
 import {
   HeaderActionsProvider,
   HeaderActionsSlot,
-  HeaderBeforeSearchSlot,
 } from "~/components/ui/HeaderActionsSlot";
 import { apiTokenQueryOptions, useSettings, useScopedProjects, useSandboxes } from "~/queries";
 import { SandboxResumingOverlay } from "~/components/views/SandboxResumingOverlay";
@@ -72,7 +76,7 @@ import {
   DEFAULT_TERMINAL_LINE_HEIGHT,
 } from "~/shared/terminal-appearance";
 import {
-  SETTINGS_PANEL_IDS,
+  normalizeSettingsPanelId,
   type SettingsPanelId,
 } from "~/components/views/settings-panel-ids";
 // Lazy: the settings overlay is conditionally rendered (settingsOpen) inside
@@ -91,7 +95,6 @@ import {
 
 import { UsagePanel } from "~/components/views/UsagePanel";
 import { VoiceController } from "~/components/views/VoiceController";
-import { VoicePushToTalkButton } from "~/components/views/VoicePushToTalkButton";
 import { SessionNotificationsButton } from "~/components/views/SessionNotificationsButton";
 import { Toaster } from "sonner";
 import { MC_TOAST_CLASS_NAMES, MC_TOAST_CLOSE_ICON } from "~/lib/mc-toast";
@@ -137,6 +140,14 @@ import {
   SURFACE_TINT_CACHE_KEY,
   applySurfaceTint,
 } from "~/lib/surface-tint";
+import {
+  BACKGROUND_IMAGE_CACHE_KEY,
+  applyBackgroundImage,
+} from "~/lib/background-image";
+import {
+  BACKGROUND_GRID_CACHE_KEY,
+  applyBackgroundGrid,
+} from "~/lib/background-grid";
 import { ThemeOnboardingGate } from "~/components/views/ThemeOnboardingOverlay";
 import "~/styles.css";
 
@@ -153,7 +164,8 @@ const useThemeLayoutEffect =
 // (painted+orange, dark) theme for one frame — every accent-tinted surface
 // flashes before React/useSettings hydrate, and a flat-light user sees a dark
 // flash. Mirrors `applyThemeStyle` (src/lib/theme-style.ts), `useTheme`
-// (src/lib/use-theme.ts), `applySurfaceTint` (src/lib/surface-tint.ts) and
+// (src/lib/use-theme.ts), `applySurfaceTint` (src/lib/surface-tint.ts),
+// `applyBackgroundGrid` (src/lib/background-grid.ts) and
 // `applyAccentColor` (src/lib/accent-colors.ts); keep them in sync. Legacy
 // minimal/noir/ember styles collapse to flat here.
 const PRE_HYDRATION_THEME_SCRIPT = `(function(){try{
@@ -166,6 +178,9 @@ var th=localStorage.getItem(${JSON.stringify(THEME_CACHE_KEY)})==="light"?"light
 d.setAttribute("data-theme",(flat&&th==="light")?"light":"dark");
 var tt=localStorage.getItem(${JSON.stringify(SURFACE_TINT_CACHE_KEY)});
 if(tt==="subtle"||tt==="vivid"||tt==="intense"){d.setAttribute("data-tint",tt);}
+var bg=localStorage.getItem(${JSON.stringify(BACKGROUND_IMAGE_CACHE_KEY)});
+if(bg&&bg.indexOf("data:image/")===0){d.setAttribute("data-bg-image","true");d.style.setProperty("--mc-bg-image",'url("'+bg+'")');}
+if(localStorage.getItem(${JSON.stringify(BACKGROUND_GRID_CACHE_KEY)})==="1"){d.setAttribute("data-bg-grid","off");}
 if(localStorage.getItem(${JSON.stringify(LAUNCH_INTRO_CACHE_KEY)})==="1"){d.setAttribute("data-launch-intro","true");}
 var t=${JSON.stringify(
   Object.fromEntries(
@@ -228,7 +243,9 @@ function RootComponent() {
           <TerminalProvider>
             <UserTerminalProvider>
               <AddProjectProvider>
+                <GroupsDialogProvider>
                 <PromptSearchProvider>
+                <ScratchPadProvider>
                   <HeaderActionsProvider>
                     <DiagramDialogHost>
                       {/*
@@ -254,7 +271,9 @@ function RootComponent() {
                       </ClientOnly>
                     </DiagramDialogHost>
                   </HeaderActionsProvider>
+                </ScratchPadProvider>
                 </PromptSearchProvider>
+                </GroupsDialogProvider>
               </AddProjectProvider>
             </UserTerminalProvider>
           </TerminalProvider>
@@ -328,15 +347,18 @@ function Shell() {
   const [activePanel, setActivePanel] = useState<"usage" | null>(null);
   // Settings renders as a Shell-level overlay (see <SettingsPanel> below) rather
   // than a route, so the live app stays mounted behind it and the sliding panels
-  // reveal the app instead of a black void. `settingsInitialPanel` is non-null
-  // exactly when the overlay is open; its value seeds the panel's initial tab.
-  const [settingsInitialPanel, setSettingsInitialPanel] =
-    useState<SettingsPanelId | null>(null);
-  const settingsOpen = settingsInitialPanel !== null;
-  const openSettings = (initial: SettingsPanelId = "general") => {
-    setSettingsInitialPanel((current) => current ?? initial);
+  // reveal the app instead of a black void. `settingsRequest` is non-null
+  // exactly when the overlay is open; its `panel` is the explicitly requested
+  // tab (deep link, a leaf's settings shortcut) or null for a generic open,
+  // which lets SettingsPanel restore the last-visited tab instead.
+  const [settingsRequest, setSettingsRequest] = useState<{
+    panel: SettingsPanelId | null;
+  } | null>(null);
+  const settingsOpen = settingsRequest !== null;
+  const openSettings = (initial: SettingsPanelId | null = null) => {
+    setSettingsRequest((current) => current ?? { panel: initial });
   };
-  const closeSettingsPanel = () => setSettingsInitialPanel(null);
+  const closeSettingsPanel = () => setSettingsRequest(null);
 
   // Mirror the React open-state into the module flag that non-React global
   // keydown listeners (use-hotkey, the project route) read to suppress app
@@ -351,10 +373,7 @@ function Shell() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ panel?: string }>).detail;
-      const panel = detail?.panel;
-      openSettings(SETTINGS_PANEL_IDS.includes(panel as SettingsPanelId)
-        ? (panel as SettingsPanelId)
-        : "general");
+      openSettings(normalizeSettingsPanelId(detail?.panel));
     };
     window.addEventListener(OPEN_SETTINGS_EVENT, handler);
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
@@ -368,6 +387,7 @@ function Shell() {
   useWindowIdleController();
   const { data: settings } = useSettings();
   const { data: projects } = useScopedProjects();
+  const { activeGroup, setActiveGroup, groups } = useActiveGroup();
   // While the active sandbox's remote VM is resuming, the workspace isn't usable
   // yet: cover the route with a spinner and disable project navigation.
   const { data: sandboxState } = useSandboxes();
@@ -382,6 +402,10 @@ function Shell() {
   const { close, deselect, setPtyId } = useTerminalActions();
   const gridView = useGridView();
   const workspaceRef = useRef<HTMLDivElement>(null);
+  // First digit of a group→project rail chord (Cmd held, group digit pressed,
+  // awaiting the project digit or a Cmd release). Only used in "All" mode
+  // when at least one real group exists.
+  const pendingRailGroupRef = useRef<number | null>(null);
   const userTerminals = useUserTerminals();
   const {
     togglePanel,
@@ -431,8 +455,7 @@ function Shell() {
   useWarmCliAvailability();
 
   const path = useRouterState({ select: (state) => state.location.pathname });
-  const projectMatch = path.match(/^\/projects\/([^/]+)/);
-  const projectId = projectMatch ? projectMatch[1]! : null;
+  const projectId = projectIdFromPath(path);
   // Flip-only: true iff this project has a materialized active session. Gates
   // the expanded-terminal layout without subscribing to the churning data slice.
   const hasActiveSession = useHasActiveSession(projectId);
@@ -492,14 +515,27 @@ function Shell() {
   // Grid view takes over the whole workspace: the Outlet (which renders the
   // grid below the project header) spans full width and the single right-hand
   // terminal panel is hidden.
-  const gridActive = !!projectMatch && gridView;
+  const gridActive = !!projectId && gridView;
+  // The group is the broadest context, so it leads the breadcrumb:
+  // Group › Project › Scope. Omitted (not just null-rendered) when no groups
+  // exist so no dangling separator renders, and absent on the app-global
+  // Settings/Usage screens where a group scope is meaningless. Also omitted
+  // when hidden via Settings → Interface (right-click the pill → Hide);
+  // groups stay reachable through the dashboard chips and the cycle hotkey.
+  const groupCrumb: Crumb[] =
+    groups.length > 0 && (settings?.showGroupSwitcher ?? true)
+      ? [{ label: "Group", node: <GroupSwitcher /> }]
+      : [];
   const crumbs: Crumb[] = settingsOpen
     ? [{ label: "Settings" }]
-    : projectMatch
-    ? [{ label: "Project", node: <ProjectPicker projectId={projectMatch[1]} disabled={activeResuming} /> }]
+    : projectId
+    ? [
+        ...groupCrumb,
+        { label: "Project", node: <ProjectPicker projectId={projectId} disabled={activeResuming} /> },
+      ]
       : activePanel === "usage"
         ? [{ label: "Usage" }]
-      : [{ label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
+      : [...groupCrumb, { label: "Project", node: <ProjectPicker disabled={activeResuming} /> }];
 
   const closePanel = () => setActivePanel(null);
 
@@ -576,6 +612,23 @@ function Shell() {
     applySurfaceTint(surfaceTint);
   }, [surfaceTint]);
 
+  // Wallpaper is null far more often than set; only reconcile once settings
+  // have loaded so a transient `undefined` doesn't clear a pre-hydrated image.
+  const backgroundImage = settings?.backgroundImage ?? null;
+  useThemeLayoutEffect(() => {
+    if (!settings) return;
+    applyBackgroundImage(backgroundImage);
+  }, [settings, backgroundImage]);
+
+  // Same guard as the wallpaper: only reconcile once settings have loaded, so a
+  // transient `undefined` doesn't repaint a grid the pre-hydration script
+  // correctly left off.
+  const showBackgroundGrid = settings?.showBackgroundGrid ?? true;
+  useThemeLayoutEffect(() => {
+    if (!settings) return;
+    applyBackgroundGrid(showBackgroundGrid);
+  }, [settings, showBackgroundGrid]);
+
   // Recompute + re-observe the workspace bounds whenever the workspace div is
   // (un)mounted. Focus mode early-returns above and tears down the whole #root
   // subtree, so on entry `workspaceRef.current` is null and on exit it's a brand
@@ -615,6 +668,21 @@ function Shell() {
       document.documentElement.style.removeProperty("--mc-workspace-bottom");
     };
   }, [focusActive]);
+
+  // Cycle the active group context: All → each group → Ungrouped → All.
+  const cycleActiveGroup = useCallback(
+    (direction: 1 | -1) => {
+      const order: string[] = [ACTIVE_GROUP_ALL, ...groups.map((g) => g.id)];
+      if ((projects ?? []).some((p) => p.groupId == null)) order.push(ACTIVE_GROUP_UNGROUPED);
+      if (order.length <= 1) return;
+      const index = order.indexOf(activeGroup);
+      const next = order[(index + direction + order.length) % order.length]!;
+      setActiveGroup(next);
+    },
+    [activeGroup, groups, projects, setActiveGroup],
+  );
+  useHotkey("group.next", () => cycleActiveGroup(1));
+  useHotkey("group.prev", () => cycleActiveGroup(-1));
 
   useHotkey("terminal.toggle", () => togglePanel());
   useHotkey(
@@ -681,20 +749,77 @@ function Shell() {
       if (!e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
         // Pinned-project nav is disabled while the active sandbox resumes.
         if (activeResuming) return;
-        const pinned = getPinnedProjects(projects ?? []);
-        const idx = Number(e.key) - 1;
-        const target = pinned[idx];
-        if (target) {
+        if (e.repeat) {
+          // Ignore auto-repeat so a held digit doesn't re-fire the chord.
+          e.preventDefault();
+          return;
+        }
+        const digit = Number(e.key);
+        // Same clusters the rail renders — badges and hotkeys must agree.
+        const clusters = getRailClusters(projects ?? [], groups, activeGroup);
+        const navigateTo = (id: string) => {
           e.preventDefault();
           e.stopPropagation();
-          router.navigate({ to: "/projects/$id", params: { id: target.id } });
+          router.navigate({ to: "/projects/$id", params: { id } });
+        };
+
+        // A single group is active, or no real groups exist: the rail is one
+        // flat project list, so the digit addresses a project directly.
+        if (usesDirectRailProjectShortcuts(groups, activeGroup)) {
+          pendingRailGroupRef.current = null;
+          const target = clusters[0]?.projects[digit - 1];
+          if (target) navigateTo(target.id);
+          else e.preventDefault();
+          return;
         }
+
+        // "All" mode: two-level chord. First digit picks the group cluster;
+        // the second digit (this handler, next press) picks the project. A
+        // Cmd release before the second digit jumps to the group's first
+        // project (see the keyup handler below).
+        e.preventDefault();
+        e.stopPropagation();
+        if (pendingRailGroupRef.current == null) {
+          // First digit — remember the group if it exists; otherwise ignore.
+          if (clusters[digit - 1]) pendingRailGroupRef.current = digit;
+          return;
+        }
+        const groupIdx = pendingRailGroupRef.current - 1;
+        pendingRailGroupRef.current = null;
+        const target = clusters[groupIdx]?.projects[digit - 1];
+        if (target) navigateTo(target.id);
         return;
       }
     };
+    // Releasing Cmd/Ctrl with a group digit still pending jumps to that
+    // group's first project (a single-digit chord).
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Meta" && e.key !== "Control") return;
+      const pending = pendingRailGroupRef.current;
+      pendingRailGroupRef.current = null;
+      if (
+        pending == null ||
+        activeResuming ||
+        usesDirectRailProjectShortcuts(groups, activeGroup)
+      ) return;
+      const clusters = getRailClusters(projects ?? [], groups, activeGroup);
+      const target = clusters[pending - 1]?.projects[0];
+      if (target) router.navigate({ to: "/projects/$id", params: { id: target.id } });
+    };
+    // Losing focus mid-chord (e.g. clicking away while Cmd is held) would
+    // otherwise leave a group digit pending and misread the next chord.
+    const onBlur = () => {
+      pendingRailGroupRef.current = null;
+    };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [activeResuming, createTerminal, cycleNext, cyclePrev, projects, router]);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [activeGroup, activeResuming, createTerminal, cycleNext, cyclePrev, groups, projects, router]);
 
   // Cmd/Ctrl+W is intercepted in the Electron main process (otherwise the
   // default app menu's "Close Window" item closes the BrowserWindow before any
@@ -777,9 +902,10 @@ function Shell() {
             <>
               <UpdateAvailableButton />
               <ProviderUsageIndicator />
-              <HeaderBeforeSearchSlot />
-              <PromptSearchButton />
-              <VoicePushToTalkButton />
+              {/* Scratch pads / prompt search / voice collapse behind "…" so
+               * the rail stays at status + settings; grid view moved into the
+               * project header beside the session controls it acts on. */}
+              <HeaderToolsCluster />
               <SessionNotificationsButton
                 notifications={appNotifications}
                 onClearNotification={clearAppNotificationItem}
@@ -823,16 +949,16 @@ function Shell() {
                 // right; floor the left panel so dragging the terminal wider
                 // shrinks the terminal instead of wrapping the session columns.
                 // In grid view the panel is hidden, so let the Outlet go full width.
-                minWidth: projectMatch && !gridActive ? 640 : 0,
+                minWidth: projectId && !gridActive ? 640 : 0,
                 minHeight: 0,
               }}
             >
               <Outlet />
               {activeResuming && activeSandbox && <SandboxResumingOverlay name={activeSandbox.name} />}
             </div>
-            {projectMatch && !gridActive && (
+            {projectId && !gridActive && (
               <ProjectTerminalPanel
-                projectId={projectMatch[1]!}
+                projectId={projectId}
                 onClose={close}
                 onHide={deselect}
                 onPtyReady={setPtyId}
@@ -847,7 +973,7 @@ function Shell() {
         {settingsOpen && (
           <Suspense fallback={null}>
             <SettingsPanel
-              initialPanel={settingsInitialPanel ?? "general"}
+              initialPanel={settingsRequest?.panel ?? null}
               onBack={closeSettingsPanel}
             />
           </Suspense>

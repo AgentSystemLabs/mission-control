@@ -4,7 +4,13 @@ import { ASK_USER_QUESTION_TOOL } from "./agent-questions";
 export const AGENT_HOOK_EVENTS = {
   userPromptSubmit: "UserPromptSubmit",
   stop: "Stop",
+  subagentStart: "SubagentStart",
+  subagentStop: "SubagentStop",
   userInterrupt: "UserInterrupt",
+  // Synthetic (posted by electron/pty-manager, not the agent): the session's
+  // PTY process exited. Named to never collide with Claude Code's real
+  // SessionEnd hook, which also fires on /clear while the process lives on.
+  sessionProcessExited: "MissionControlSessionEnded",
   permissionRequest: "PermissionRequest",
   questionRequest: "QuestionRequest",
   notification: "Notification",
@@ -49,6 +55,16 @@ export function mapHookEventToStatus(payload: AgentHookPayload): TaskStatus | nu
       return payload.tool_name === ASK_USER_QUESTION_TOOL ? "needs-input" : null;
     case AGENT_HOOK_EVENTS.postToolUse:
       return payload.tool_name === ASK_USER_QUESTION_TOOL ? "running" : null;
+    // Subagent lifecycle events carry no status of their own — the hooks
+    // controller counts them to decide whether a Stop really ends the session
+    // (background subagents outlive the foreground turn's Stop).
+    case AGENT_HOOK_EVENTS.subagentStart:
+    case AGENT_HOOK_EVENTS.subagentStop:
+      return null;
+    // Synthetic PTY-exit event: the hooks controller maps it conditionally
+    // (only tasks still in an active status move to terminated/finished).
+    case AGENT_HOOK_EVENTS.sessionProcessExited:
+      return null;
     default:
       return null;
   }

@@ -34,13 +34,17 @@ import {
   type WorktreeInfo,
 } from "~/shared/worktrees";
 import { getPinnedProjectStatusDots } from "~/components/views/project-bar-status-dots";
+import { partitionBranches } from "~/components/views/branch-picker-model";
 import { TASK_STATUS_META } from "~/shared/domain";
 import type { GitBranch } from "~/lib/api";
+import { useSuspendAppDragRegion } from "~/lib/use-dismissable-menu";
 
 type BranchCheckoutError = {
   title: string;
   message: string;
   stderr?: string;
+  kind?: string;
+  worktreeId?: string;
 };
 
 type MenuRect = {
@@ -53,7 +57,12 @@ function parseCheckoutError(error: unknown): BranchCheckoutError {
   if (error instanceof ApiError) {
     const body =
       error.body && typeof error.body === "object"
-        ? (error.body as { error?: unknown; stderr?: unknown })
+        ? (error.body as {
+            error?: unknown;
+            stderr?: unknown;
+            kind?: unknown;
+            worktreeId?: unknown;
+          })
         : null;
     const message =
       typeof body?.error === "string" && body.error.trim()
@@ -64,6 +73,8 @@ function parseCheckoutError(error: unknown): BranchCheckoutError {
       title: "Could not switch branch",
       message,
       stderr: stderr && stderr !== message ? stderr : undefined,
+      kind: typeof body?.kind === "string" ? body.kind : undefined,
+      worktreeId: typeof body?.worktreeId === "string" ? body.worktreeId : undefined,
     };
   }
   return {
@@ -121,8 +132,14 @@ export function BranchTypeahead({
   disabled = false,
   worktreePath,
   selected = false,
-  /** Drop the right frame edge so this can fuse with a trailing sync control. */
-  attachedTrailing = false,
+  /**
+   * Commits the current branch is behind its upstream. When > 0 the trigger
+   * grows a ↓N badge and the dropdown footer gains a Sync action — the old
+   * standalone Sync split-button folded into this one control.
+   */
+  behindCount = 0,
+  syncEnabled = true,
+  onSync,
   /** When provided, the dropdown gains a "New worktree" action in its footer. */
   onCreateWorktree,
   createWorktreeDisabled = false,
@@ -144,7 +161,9 @@ export function BranchTypeahead({
   disabled?: boolean;
   worktreePath?: string;
   selected?: boolean;
-  attachedTrailing?: boolean;
+  behindCount?: number;
+  syncEnabled?: boolean;
+  onSync?: () => void;
   onCreateWorktree?: () => void;
   createWorktreeDisabled?: boolean;
   createWorktreeTitle?: string;
@@ -157,6 +176,7 @@ export function BranchTypeahead({
   const branchLabel = branch?.trim() || "…";
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  useSuspendAppDragRegion(open);
   const [query, setQuery] = useState("");
   const [menuRect, setMenuRect] = useState<MenuRect | null>(null);
   const [checkoutError, setCheckoutError] = useState<BranchCheckoutError | null>(null);
@@ -216,13 +236,21 @@ export function BranchTypeahead({
   }, [open]);
 
   const branches = branchesQuery.data?.branches ?? [];
-  const filteredBranches = useMemo(
-    () => branches.filter((item) => branchMatchesQuery(item, query)),
-    [branches, query],
-  );
   // Only fold worktrees into the dropdown once there's more than one to switch
   // between — a solo-main project keeps the plain branch typeahead it had.
   const showWorktreeSection = worktrees.length > 1 && !!onSelectWorktree;
+  const { plainBranches, worktreeByBranch } = useMemo(
+    () =>
+      showWorktreeSection
+        ? partitionBranches(branches, worktrees)
+        : { plainBranches: branches, worktreeByBranch: new Map<string, WorktreeInfo>() },
+    [showWorktreeSection, branches, worktrees],
+  );
+  const filteredBranches = useMemo(
+    () => plainBranches.filter((item) => branchMatchesQuery(item, query)),
+    [plainBranches, query],
+  );
+  const showSyncAction = behindCount > 0 && !!onSync;
   const filteredWorktrees = useMemo(
     () =>
       showWorktreeSection
@@ -294,6 +322,16 @@ export function BranchTypeahead({
       // Only pull branches when checkout is actually available — when opened
       // purely to switch worktrees (branch actions disabled) we skip the fetch.
       if (next && !disabled) void refreshBranches();
+      if (next) {
+        // Refresh the worktree list on open so worktrees created outside the
+        // app (git CLI) show up without waiting for a parent refetch.
+        // exact:true is load-bearing — this key is a prefix of every git query
+        // key, and a fuzzy invalidation would refetch all of them.
+        void queryClient.invalidateQueries({
+          queryKey: ["projects", projectId, "worktrees"],
+          exact: true,
+        });
+      }
       return next;
     });
   };
@@ -309,9 +347,37 @@ export function BranchTypeahead({
       await checkout.mutateAsync({ branch: next, create });
       closeTypeahead();
     } catch (error) {
-      setCheckoutError(parseCheckoutError(error));
+      const parsed = parseCheckoutError(error);
+      // Stale client raced the server: the branch is owned by a worktree we
+      // didn't know about — repoint to it instead of surfacing an error.
+      if (
+        parsed.kind === "branch-in-worktree" &&
+        parsed.worktreeId &&
+        onSelectWorktree &&
+        worktrees.some((item) => item.id === parsed.worktreeId)
+      ) {
+        closeTypeahead();
+        if (parsed.worktreeId !== selectedWorktreeId) onSelectWorktree(parsed.worktreeId);
+        return;
+      }
+      setCheckoutError(parsed);
       closeTypeahead();
     }
+  };
+
+  /**
+   * Branches living in a worktree never go through git checkout — selecting
+   * one just repoints the UI at that worktree, so no dirty-tree warning and
+   * no active-session confirm apply.
+   */
+  const redirectToWorktree = (target: string): boolean => {
+    const worktree = worktreeByBranch.get(target);
+    if (!worktree || !onSelectWorktree) return false;
+    closeTypeahead();
+    if (worktree.id !== selectedWorktreeId && !isOptimisticWorktree(worktree)) {
+      onSelectWorktree(worktree.id);
+    }
+    return true;
   };
 
   const requestCheckout = (target: string, create?: boolean) => {
@@ -321,6 +387,7 @@ export function BranchTypeahead({
       closeTypeahead();
       return;
     }
+    if (!create && redirectToWorktree(next)) return;
     if (hasActiveSession) {
       setPendingCheckout({ branch: next, create });
       closeTypeahead();
@@ -464,7 +531,11 @@ export function BranchTypeahead({
                       ? getPinnedProjectStatusDots(item.taskCounts)
                       : [];
                     const canDelete =
-                      isSelected && !item.isMain && !optimistic && !!onDeleteWorktree;
+                      isSelected &&
+                      !item.isMain &&
+                      !optimistic &&
+                      item.deletable !== false &&
+                      !!onDeleteWorktree;
                     return (
                       <div
                         key={item.id}
@@ -530,6 +601,11 @@ export function BranchTypeahead({
                             }}
                           >
                             {label}
+                            {!!item.branch && item.branch !== label && (
+                              <span style={{ color: "var(--text-faint)" }}>
+                                {" "}· {item.branch}
+                              </span>
+                            )}
                           </span>
                           {optimistic && (
                             <span style={{ color: "var(--text-faint)", fontSize: 10, flexShrink: 0 }}>
@@ -551,8 +627,8 @@ export function BranchTypeahead({
                                   width: 6,
                                   height: 6,
                                   borderRadius: "50%",
-                                  background: "var(--accent)",
-                                  boxShadow: "0 0 6px var(--accent-glow)",
+                                  background: "var(--status-running)",
+                                  boxShadow: "0 0 6px var(--status-running)",
                                 }}
                               />
                             )}
@@ -563,12 +639,11 @@ export function BranchTypeahead({
                                   width: 5,
                                   height: 5,
                                   borderRadius: "50%",
-                                  background:
-                                    status === "running"
-                                      ? "var(--accent)"
-                                      : TASK_STATUS_META[status].color,
+                                  background: TASK_STATUS_META[status].color,
                                   boxShadow:
-                                    status === "running" ? "0 0 5px var(--accent-glow)" : "none",
+                                    status === "running"
+                                      ? `0 0 5px ${TASK_STATUS_META[status].color}`
+                                      : "none",
                                 }}
                               />
                             ))}
@@ -713,8 +788,56 @@ export function BranchTypeahead({
                 )
               )}
             </div>
-            {onCreateWorktree && (
+            {(showSyncAction || onCreateWorktree) && (
               <div style={{ borderTop: "1px solid var(--border)", padding: 6 }}>
+                {showSyncAction && (
+                  <button
+                    type="button"
+                    className="mc-branch-menu-item"
+                    disabled={!syncEnabled}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      if (!syncEnabled) return;
+                      closeTypeahead();
+                      onSync?.();
+                    }}
+                    title={
+                      syncEnabled
+                        ? `${behindCount} ${behindCount === 1 ? "commit" : "commits"} behind upstream — open an AI session to pull and sync`
+                        : "Sync unavailable in sandbox sessions"
+                    }
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      minHeight: 32,
+                      border: 0,
+                      borderRadius: 6,
+                      color: syncEnabled ? "var(--accent-ink)" : "var(--text-faint)",
+                      cursor: syncEnabled ? "pointer" : "default",
+                      padding: "7px 9px",
+                      textAlign: "left",
+                      fontFamily: "var(--mono)",
+                      fontSize: 11.5,
+                      opacity: syncEnabled ? 1 : 0.6,
+                    }}
+                  >
+                    <Icon name="download" size={12} />
+                    <span style={{ flex: 1, minWidth: 0 }}>Sync with upstream</span>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        fontSize: 10.5,
+                        color: syncEnabled ? "var(--accent-ink)" : "var(--text-faint)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      ↓{behindCount}
+                    </span>
+                  </button>
+                )}
+                {onCreateWorktree && (
                 <button
                   type="button"
                   className="mc-branch-menu-item"
@@ -745,6 +868,7 @@ export function BranchTypeahead({
                   <Icon name="git-branch" size={12} />
                   New worktree
                 </button>
+                )}
               </div>
             )}
           </CardFrame>,
@@ -770,14 +894,18 @@ export function BranchTypeahead({
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls="branch-typeahead-options"
-          className={attachedTrailing ? "mc-btn-attached-right" : undefined}
-          title={
+          aria-label={
+            showSyncAction
+              ? `Switch branch — ${behindCount} ${behindCount === 1 ? "commit" : "commits"} behind upstream`
+              : undefined
+          }
+          title={`${
             worktreePath
               ? `${worktreePath}${branch ? ` · branch ${branch}` : ""}`
               : branch
               ? `Switch branch (${branch})`
               : "Switch branch"
-          }
+          }${showSyncAction ? ` · ${behindCount} behind upstream — Sync from this menu` : ""}`}
           style={{
             fontFamily: "var(--mono)",
             maxWidth: "min(36ch, 42vw)",
@@ -799,6 +927,30 @@ export function BranchTypeahead({
           >
             {branchLabel}
           </span>
+          {showSyncAction && (
+            <span
+              aria-hidden
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 1,
+                minWidth: 16,
+                height: 16,
+                padding: "0 5px",
+                borderRadius: 999,
+                fontSize: 10.5,
+                fontWeight: 700,
+                lineHeight: 1,
+                flexShrink: 0,
+                color: "var(--accent-ink)",
+                background: "color-mix(in srgb, var(--accent) 20%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--accent) 45%, transparent)",
+              }}
+            >
+              ↓{behindCount}
+            </span>
+          )}
           <Icon
             name="chevron-down"
             size={11}

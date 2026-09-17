@@ -42,8 +42,9 @@ const RECAP_FROM_HOUR = 15;
 const HATCH_DAY_MIN_AGE_DAYS = 330;
 
 // Ship detection rides on the stable mutationKey suffixes defined in
-// src/queries/git.ts (useGitCommit / useGitPush / useGitCreatePullRequest).
-// Renaming those keys silently kills the pet's shipping reactions.
+// src/queries/git.ts (useGitCommit / useGitPush). Renaming those keys silently
+// kills the pet's shipping reactions. ("create-pr" is kept for compat: the
+// Create PR button now opens an AI session instead of a direct mutation.)
 type ShipKind = "commit" | "push" | "create-pr";
 
 function shipKindOf(mutation: Mutation<unknown, unknown, unknown, unknown>): ShipKind | null {

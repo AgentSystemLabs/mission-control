@@ -2,6 +2,7 @@ node_modules
 .codex
 .claude
 .cursor
+.impeccable
 dist
 dist-electron
 dist-server

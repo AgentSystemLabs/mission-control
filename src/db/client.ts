@@ -8,6 +8,7 @@ import { resolveElectronBetterSqlite3NativeBinding } from "./better-sqlite3-nati
 import { migrateMultiSandbox } from "./migrate-multi-sandbox";
 import { DEFAULT_BRANCH, DEFAULT_TASK_STATUS } from "~/shared/domain";
 import { LOCAL_SCOPE_ID } from "~/shared/sandbox";
+import { restrictDbFilePermissions } from "~/shared/sqlite-file-permissions";
 
 const migrationFiles = import.meta.glob("./migrations/*.sql", {
   eager: true,
@@ -29,22 +30,6 @@ export function resolveUserDataDir(): string {
 
 export function resolveSkillsDir(): string {
   return path.join(resolveUserDataDir(), "skills");
-}
-
-// missioncontrol.db holds the API bearer token and every sandbox pairing token
-// in cleartext. Created with default perms it is world-readable (~0644), so any
-// other local user / backup / sync process can lift those secrets straight off
-// disk. Tighten the directory to owner-only and the DB (plus its WAL/SHM
-// sidecars) to 0600. Best-effort: on filesystems/platforms without POSIX modes
-// (e.g. Windows) chmod is a harmless no-op.
-export function restrictDbFilePermissions(dbPath: string): void {
-  for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    try {
-      if (fs.existsSync(p)) fs.chmodSync(p, 0o600);
-    } catch {
-      /* best effort */
-    }
-  }
 }
 
 export function getDb() {
@@ -359,6 +344,7 @@ function ensureSchema(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       color TEXT NOT NULL,
+      sort_order INTEGER,
       created_at INTEGER NOT NULL
     );
 
@@ -402,6 +388,7 @@ function ensureSchema(sqlite: Database.Database) {
       saved_agent TEXT,
       saved_skip_permissions INTEGER NOT NULL DEFAULT 0,
       saved_bare_session INTEGER NOT NULL DEFAULT 0,
+      default_grid_view INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -620,6 +607,16 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS project_memory_status_idx ON project_memory(status);
     CREATE INDEX IF NOT EXISTS project_memory_pinned_idx ON project_memory(pinned);
 
+    CREATE TABLE IF NOT EXISTS scratch_pads (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      content TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS scratch_pads_project_idx ON scratch_pads(project_id);
+    CREATE INDEX IF NOT EXISTS scratch_pads_project_updated_idx ON scratch_pads(project_id, updated_at);
+
     CREATE TABLE IF NOT EXISTS graph_nodes (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -672,6 +669,10 @@ function ensureSchema(sqlite: Database.Database) {
   // created only after the column is guaranteed present. See docs/multi-sandbox-plan.md.
   ensureColumn(sqlite, "projects", "sandbox_id", "TEXT REFERENCES sandboxes(id) ON DELETE CASCADE");
   ensureProjectSandboxIndex(sqlite);
+
+  // Manual group ordering. Legacy rows keep NULL until the user reorders (they
+  // sort last by created_at meanwhile) — see groups.repo findAllGroups.
+  ensureColumn(sqlite, "groups", "sort_order", "INTEGER");
 
   // Per-project custom scripts (JSON array of {id,name,command}). Tolerate a
   // pre-existing column: a fresh bootstrap marks migrations applied-only, so
@@ -838,10 +839,55 @@ export function ensureMemoryFts(sqlite: Database.Database): boolean {
         `);
       }
     }
+
+    // Detect and repair a corrupt/desynced FTS index every boot. This MUST go
+    // through a call that never throws: a corruption error raised here would
+    // otherwise be swallowed by the outer catch and misread as "no FTS5 in this
+    // build", skipping the repair entirely.
+    repairMemoryFtsIfCorrupt(sqlite);
     return true;
   } catch {
     // No FTS5 in this build — leave searchMemory on its LIKE path.
     return false;
+  }
+}
+
+/**
+ * Verify the `project_memory` FTS5 index is consistent and rebuild it from the
+ * content table if it is not.
+ *
+ * A corrupt or content-desynced FTS5 index throws SQLITE_CORRUPT ("database
+ * disk image is malformed") the moment a delete/update trigger writes to it.
+ * Deleting a project cascades into `project_memory`, whose AFTER DELETE trigger
+ * writes to this index — so a corrupt index silently blocks *project deletion*
+ * and every memory edit, not just search, surfacing only as a generic 500.
+ * Ordinary `PRAGMA integrity_check` does not inspect FTS5 shadow tables; the
+ * FTS5 `('integrity-check', 1)` command — which also checks the index against
+ * the content table — is the only reliable detector.
+ *
+ * Fail-soft: never throws. Returns what it did so callers and tests can assert.
+ */
+export function repairMemoryFtsIfCorrupt(
+  sqlite: Database.Database,
+): "ok" | "rebuilt" | "unavailable" {
+  try {
+    sqlite
+      .prepare("INSERT INTO project_memory_fts(project_memory_fts, rank) VALUES ('integrity-check', 1)")
+      .run();
+    return "ok";
+  } catch {
+    // Index is corrupt/desynced (or FTS5/the table is unavailable). Rebuild it
+    // from the content table; if even that fails, leave search on its LIKE
+    // fallback rather than breaking boot.
+    try {
+      sqlite
+        .prepare("INSERT INTO project_memory_fts(project_memory_fts) VALUES ('rebuild')")
+        .run();
+      console.warn("[db] project_memory FTS index was corrupt or out of sync; rebuilt it");
+      return "rebuilt";
+    } catch {
+      return "unavailable";
+    }
   }
 }
 

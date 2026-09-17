@@ -36,7 +36,7 @@ type EyeKind = "open" | "wide" | "closed" | "happy";
 
 function eyeKindFor(mood: PetMood): EyeKind {
   if (mood === "sleeping") return "closed";
-  if (mood === "celebrating") return "happy";
+  if (mood === "celebrating" || mood === "singing") return "happy";
   if (mood === "alert" || mood === "startled") return "wide";
   return "open";
 }
@@ -86,6 +86,9 @@ function Mouth({ mood, y }: { mood: PetMood; y: number }) {
       return <path className="mc-pet-mouth" d={`M 43 ${y - 2} Q 50 ${y + 7} 57 ${y - 2}`} />;
     case "alert":
       return <ellipse className="mc-pet-mouth-o" cx={50} cy={y + 1} rx={3} ry={3.6} />;
+    case "singing":
+      // Mouth open mid-note — a taller oval than the alert "o".
+      return <ellipse className="mc-pet-mouth-o mc-pet-mouth-sing" cx={50} cy={y + 1} rx={3.2} ry={4.6} />;
     case "startled":
       return (
         <path
@@ -152,6 +155,69 @@ function MoodProps({ mood, intensity }: { mood: PetMood; intensity: 1 | 2 | 3 })
           <line x1="90" y1="14" x2="90" y2="26" />
           <circle cx="90" cy="33" r="1.9" />
         </g>
+      ) : null}
+      {mood === "singing" ? (
+        <>
+          {/* A little acoustic guitar cradled across the belly. Drawn in its own
+              local frame (body center at origin, neck along -x) then placed with
+              the outer translate/rotate; the inner group is what CSS strums, so
+              the rock animation never fights the placement transform. Drawn last
+              so it sits over body and arms. */}
+          {/* While singing the stub arms hide (CSS) and these reach-arms take
+              over — drawn under the guitar so the wrists tuck behind it and
+              the paws on the neck and strings read as the hands. */}
+          <g className="mc-pet-sing-arms">
+            <path d="M 20 63 Q 28 68 38 61" />
+            <path d="M 82 64 Q 77 72 69 72" />
+          </g>
+          <g className="mc-pet-guitar-pos" transform="translate(62 74) rotate(34)">
+            <g className="mc-pet-guitar">
+              <rect className="mc-pet-guitar-neck" x="-38" y="-2" width="24.5" height="4" rx="1.1" />
+              <g className="mc-pet-guitar-frets">
+                <line x1="-34" y1="-1.9" x2="-34" y2="1.9" />
+                <line x1="-30.5" y1="-1.9" x2="-30.5" y2="1.9" />
+                <line x1="-27.3" y1="-1.9" x2="-27.3" y2="1.9" />
+                <line x1="-24.4" y1="-1.9" x2="-24.4" y2="1.9" />
+                <line x1="-21.8" y1="-1.9" x2="-21.8" y2="1.9" />
+              </g>
+              <line className="mc-pet-guitar-nut" x1="-37.6" y1="-2.1" x2="-37.6" y2="2.1" />
+              <rect className="mc-pet-guitar-head" x="-45" y="-3.1" width="7.4" height="6.2" rx="1.7" />
+              <circle className="mc-pet-guitar-peg" cx="-43.2" cy="-4.2" r="0.95" />
+              <circle className="mc-pet-guitar-peg" cx="-40.6" cy="-4.2" r="0.95" />
+              <circle className="mc-pet-guitar-peg" cx="-43.2" cy="4.2" r="0.95" />
+              <circle className="mc-pet-guitar-peg" cx="-40.6" cy="4.2" r="0.95" />
+              <path
+                className="mc-pet-guitar-body"
+                d="M -13.5 0 C -13.5 -7.8 -9.2 -8.4 -5.2 -7.7 C -2.4 -7.2 -2.2 -5.9 0 -5.9 C 2.2 -5.9 2.4 -7.4 6 -8.2 C 12 -9.4 15 -5.2 15 0 C 15 5.2 12 9.4 6 8.2 C 2.4 7.4 2.2 5.9 0 5.9 C -2.2 5.9 -2.4 7.2 -5.2 7.7 C -9.2 8.4 -13.5 7.8 -13.5 0 Z"
+              />
+              <circle className="mc-pet-guitar-rosette" cx="-3.5" cy="0" r="4.5" />
+              <circle className="mc-pet-guitar-hole" cx="-3.5" cy="0" r="3" />
+              <rect className="mc-pet-guitar-bridge" x="7" y="-3.1" width="2.1" height="6.2" rx="0.9" />
+              <g className="mc-pet-guitar-strings">
+                <line x1="7.6" y1="-1.7" x2="-37.4" y2="-1.05" />
+                <line x1="7.6" y1="0" x2="-37.4" y2="0" />
+                <line x1="7.6" y1="1.7" x2="-37.4" y2="1.05" />
+              </g>
+              <circle className="mc-pet-guitar-paw" cx="-26" cy="0.3" r="2.7" />
+              <g className="mc-pet-strum-hand">
+                <circle className="mc-pet-guitar-paw" cx="2.6" cy="-4" r="2.6" />
+                <path className="mc-pet-guitar-pick" d="M 1.5 -1.8 L 3.9 -1.8 L 2.7 1.2 Z" />
+              </g>
+            </g>
+          </g>
+          {/* Music notes drifting up and away; CSS floats and fades each. */}
+          <g className="mc-pet-notes">
+            <text x="78" y="34" className="mc-pet-note-glyph">
+              ♪
+            </text>
+            <text x="88" y="22" className="mc-pet-note-glyph mc-pet-note-glyph-2">
+              ♫
+            </text>
+            <text x="72" y="16" className="mc-pet-note-glyph mc-pet-note-glyph-3">
+              ♪
+            </text>
+          </g>
+        </>
       ) : null}
     </>
   );

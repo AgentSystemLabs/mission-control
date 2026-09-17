@@ -84,8 +84,9 @@ export function VoiceController() {
   const ctx = useRef({ projects, pathname, voiceCommandAliases });
   ctx.current = { projects, pathname, voiceCommandAliases };
 
-  // Experimental: gated behind Settings → Experimental → Voice control.
-  const enabled = isElectron() && (settings?.voiceControlEnabled ?? false);
+  // Voice control is part of the desktop app; the web build has no local
+  // Whisper runtime or microphone bridge.
+  const enabled = isElectron();
 
   useEffect(() => {
     if (!enabled) return;

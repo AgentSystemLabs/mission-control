@@ -1,4 +1,4 @@
-import type { DailyUsage } from "~/shared/token-usage";
+import { totalTokens, type DailyUsage } from "~/shared/token-usage";
 
 const COLORS = {
   input: "var(--accent)",
@@ -6,12 +6,6 @@ const COLORS = {
   cacheCreate: "#8a8aff",
   cacheRead: "var(--text-faint)",
 } as const;
-
-function totalOf(d: DailyUsage): number {
-  return (
-    d.inputTokens + d.outputTokens + d.cacheCreationTokens + d.cacheReadTokens
-  );
-}
 
 /** Stacked bar chart: per-day token usage. Pure inline SVG, no deps. */
 export function TimeSeriesBars({
@@ -21,7 +15,7 @@ export function TimeSeriesBars({
   data: DailyUsage[];
   height?: number;
 }) {
-  const max = Math.max(1, ...data.map(totalOf));
+  const max = Math.max(1, ...data.map(totalTokens));
   const barGap = 2;
   const W = 100; // logical units, scales via viewBox
   const barW = (W - barGap * (data.length - 1)) / data.length;
@@ -47,7 +41,7 @@ export function TimeSeriesBars({
           let yCursor = height;
           return (
             <g key={d.day}>
-              <title>{`${d.day} — ${formatN(totalOf(d))} tokens`}</title>
+              <title>{`${d.day} — ${formatN(totalTokens(d))} tokens`}</title>
               {segments.map((s, idx) => {
                 if (s.v <= 0) return null;
                 const h = s.v * scale;

@@ -55,7 +55,8 @@ export type PetMood =
   | "alert"
   | "celebrating"
   | "shipping"
-  | "startled";
+  | "startled"
+  | "singing";
 
 export type PetBubble = { id: number; text: string; priority: PetMessagePriority };
 
@@ -165,6 +166,9 @@ export type PetInputs = {
   shippingActive: boolean;
   startleUntil: number;
   celebrateUntil: number;
+  /** A serenade — commanded ("Pixel, sing") or struck up as an idle antic —
+   *  holds the singing mood until this passes. */
+  singUntil: number;
   lastKeyAt: number;
   lastActivityAt: number;
   hiddenSince: number | null;
@@ -178,6 +182,8 @@ const IDLE_AFTER_MS = 5 * 60_000;
 const HIDDEN_SLEEP_AFTER_MS = 60_000;
 const CELEBRATE_MS = 5_000;
 const STARTLE_MS = 3_000;
+/** How long a serenade (commanded or idle-antic) holds the guitar out. */
+const SING_MS = 6_000;
 /**
  * How long a commanded nap ("Pixel, sleep") lasts. Long enough to be a real
  * state — the agent answering and the session finishing must not wake it
@@ -261,6 +267,10 @@ export function resolvePetMood(
   // celebrating) would wake the pet within a second. Only a blocked session
   // or a startle interrupts.
   if (now < inputs.napUntil) return { mood: "sleeping", intensity };
+  // A serenade — commanded or struck up on an idle whim — outranks ambient
+  // work chatter so it reliably plays out, but still yields to a genuine
+  // alert, startle, or nap above.
+  if (now < inputs.singUntil) return { mood: "singing", intensity };
   if (inputs.shippingActive) return { mood: "shipping", intensity };
   if (now < inputs.celebrateUntil) return { mood: "celebrating", intensity };
   if (inputs.runningCount > 0) return { mood: "working", intensity };
@@ -279,6 +289,7 @@ const INSTANT_MOODS: ReadonlySet<PetMood> = new Set([
   "startled",
   "shipping",
   "celebrating",
+  "singing",
 ]);
 
 export function isNightHour(now: number): boolean {
@@ -314,6 +325,7 @@ const inputs: PetInputs = {
   shippingActive: false,
   startleUntil: 0,
   celebrateUntil: 0,
+  singUntil: 0,
   lastKeyAt: 0,
   lastActivityAt: Date.now(),
   hiddenSince: null,
@@ -624,6 +636,12 @@ function ensureBehaviorLoop(): void {
     else if (roll < 0.72) doFlourish("stretch");
     // Veterans show off: the occasional unprompted backflip from level 7.
     else if (roll < 0.78 && (persistent?.level ?? 1) >= 7) doFlourish("flip");
+    // Or strike up a little unprompted serenade, right where it stands —
+    // same timed mood as "Pixel, sing", just self-initiated.
+    else if (roll >= 0.78 && roll < 0.86) {
+      inputs.singUntil = Date.now() + SING_MS;
+      recompute();
+    }
   }, BEHAVIOR_TICK_MS);
 }
 
@@ -675,8 +693,10 @@ function commitMood(next: { mood: PetMood; intensity: 1 | 2 | 3 }): void {
   // Every mood change enters on a fresh variant of that mood's move set.
   rollMove();
   // Real activity (or bedtime) interrupts the stroll — hurry back to the
-  // corner, unless the pet is posted under a blocked cell.
-  if (mood !== "idle" && !(mood === "alert" && alertWalkX !== null)) walkHome();
+  // corner, unless the pet is posted under a blocked cell. A serenade is the
+  // exception: the pet sings right where it stands, mid-stroll or not.
+  if (mood !== "idle" && mood !== "singing" && !(mood === "alert" && alertWalkX !== null))
+    walkHome();
   // Watching decays with no further event; re-check just after its window.
   if (watchTimer) clearTimeout(watchTimer);
   if (mood === "watching" && typeof window !== "undefined") {
@@ -1099,6 +1119,9 @@ export function petIngestServerEvent(event: ServerEvent): void {
       // explicit command, and ambient work shouldn't undo it.
       if (command === "sleep") inputs.napUntil = now + PET_NAP_MS;
       else if (addressed) inputs.napUntil = 0;
+      // Strike up the serenade before the recompute below so the singing mood
+      // (guitar + notes) commits on this same signal, the way a nap does.
+      if (command === "sing") inputs.singUntil = now + SING_MS;
       const napping = now < inputs.napUntil;
       // Visibly react to the hand-off: count it as fresh activity (wakes a
       // sleeping pet, calls a wanderer home, perks it to "watching") and play

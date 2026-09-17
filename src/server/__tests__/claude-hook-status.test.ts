@@ -20,7 +20,10 @@ describe("agent hook status mapping", () => {
     );
   });
 
-  it("does not treat subagent completion as task completion", () => {
+  it("does not treat subagent lifecycle events as status changes", () => {
+    // The hooks controller tracks these as active-work bookkeeping; neither
+    // maps to a task status on its own.
+    expect(mapHookEventToStatus({ hook_event_name: "SubagentStart" })).toBeNull();
     expect(mapHookEventToStatus({ hook_event_name: "SubagentStop" })).toBeNull();
   });
 

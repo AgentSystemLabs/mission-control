@@ -1,6 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TaskAgent } from "../src/shared/domain";
+import {
+  SKILL_MANIFEST_FILENAME,
+  findBundledSkillSource,
+  installSkillWhereMissing,
+} from "./skill-install-fs";
 
 // Per-harness skill folder segments (mirrors DIAGRAM_SKILL_INSTALL_TARGETS).
 // The Recall skill is just instructions, so it installs into whichever CLI's
@@ -27,27 +32,6 @@ function bundledRecallSkillSourceDirs(appPath: string): string[] {
   ];
 }
 
-function resolveBundledRecallSkillSource(appPath: string): string | null {
-  for (const candidate of bundledRecallSkillSourceDirs(appPath)) {
-    if (fs.existsSync(path.join(candidate, "SKILL.md"))) return candidate;
-  }
-  return null;
-}
-
-function copySkillTree(sourceDir: string, targetDir: string): void {
-  fs.mkdirSync(targetDir, { recursive: true });
-  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    const from = path.join(sourceDir, entry.name);
-    const to = path.join(targetDir, entry.name);
-    if (entry.isDirectory()) {
-      copySkillTree(from, to);
-      continue;
-    }
-    if (!entry.isFile()) continue;
-    fs.copyFileSync(from, to);
-  }
-}
-
 function recallSkillTargetPaths(cwd: string, agent: TaskAgent): string[] {
   const segments = HARNESS_SEGMENTS[agent];
   if (!segments) return [];
@@ -72,18 +56,10 @@ export function ensureRecallSkillForAgent(
   const targets = recallSkillTargetPaths(cwd, agent);
   if (!targets.length) return;
 
-  const sourceDir = resolveBundledRecallSkillSource(appPath);
+  const sourceDir = findBundledSkillSource(bundledRecallSkillSourceDirs(appPath));
   if (!sourceDir) return;
 
-  for (const targetDir of targets) {
-    if (fs.existsSync(path.join(targetDir, "SKILL.md"))) continue;
-    try {
-      fs.rmSync(targetDir, { recursive: true, force: true });
-      copySkillTree(sourceDir, targetDir);
-    } catch {
-      /* swallow — skill install must never block PTY spawn */
-    }
-  }
+  installSkillWhereMissing(sourceDir, targets);
 }
 
 // A copy is only "ours" when its SKILL.md self-identifies as Mission Control's
@@ -109,7 +85,7 @@ export function removeRecallSkillForAgent(cwd: string, agent: TaskAgent | undefi
   if (!agent) return;
   for (const targetDir of recallSkillTargetPaths(cwd, agent)) {
     try {
-      if (!isManagedRecallSkill(path.join(targetDir, "SKILL.md"))) continue;
+      if (!isManagedRecallSkill(path.join(targetDir, SKILL_MANIFEST_FILENAME))) continue;
       fs.rmSync(targetDir, { recursive: true, force: true });
     } catch {
       /* swallow */

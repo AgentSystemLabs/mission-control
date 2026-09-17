@@ -33,9 +33,20 @@ export const DEFAULT_BINDINGS: BindingMap = {
   "file.finder": makeBinding({ mod: true, key: "p" }),
   "file.save": makeBinding({ mod: true, key: "s" }),
   "git.diff": makeBinding({ mod: true, key: "g" }),
+  // Ship reads as the "big commit & submit": mod+Shift+Enter escalates
+  // dialog.submit's mod+Enter. mod+S (the natural mnemonic) is file.save and
+  // mod+Shift+S is screenshot.capture, so Enter keeps it collision-free.
+  "project.ship": makeBinding({ mod: true, shift: true, key: "Enter" }),
   "project.runToggle": makeBinding({ mod: true, key: "." }),
+  "project.openBrowser": makeBinding({ mod: true, key: "b" }),
   "voice.pushToTalk": makeBinding({ mod: true, shift: true, key: "v" }),
   "prompt.search": makeBinding({ mod: true, shift: true, key: "p" }),
+  // "J for jot" — mod+J is one of the few free single-modifier chords left.
+  "scratch.toggle": makeBinding({ mod: true, key: "j" }),
   "screenshot.capture": makeBinding({ mod: true, shift: true, key: "s" }),
+  // Alt variants of the terminal (mod) and session (mod+shift) cycle chords —
+  // same ]/[ mnemonic, third modifier tier for the group context.
+  "group.next": makeBinding({ mod: true, alt: true, key: "]" }),
+  "group.prev": makeBinding({ mod: true, alt: true, key: "[" }),
 };
 

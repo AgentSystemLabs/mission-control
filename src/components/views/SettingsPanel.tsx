@@ -6,14 +6,13 @@ import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { CLOSE_SETTINGS_EVENT } from "~/lib/design-meta";
 import { useHotkey } from "~/lib/use-hotkey";
 import { Z_INDEX } from "~/lib/z-index";
-import { BetaSettingsPage } from "./BetaSettingsPage";
 import { DefaultsSettingsPage } from "./DefaultsSettingsPage";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { PetSettingsPage } from "./PetSettingsPage";
 import { ProvidersSettingsPage } from "./ProvidersSettingsPage";
 import { RecallSettingsPage } from "./RecallSettings";
-import { SessionButtonsSettingsPage } from "./SessionButtonsSettingsPage";
+import { InterfaceSettingsPage } from "./InterfaceSettingsPage";
 import { TerminalSettingsPage } from "./TerminalSettingsPage";
 import { ThemeSettingsPage } from "./ThemeSettingsPage";
 import { TermsSettingsPage } from "./TermsSettingsPage";
@@ -25,17 +24,11 @@ import { VoiceCommandsPage } from "./VoiceCommandsPage";
 // the entry chunk. Re-exported here for existing call sites.
 export { SETTINGS_PANEL_IDS } from "./settings-panel-ids";
 export type { SettingsPanelId } from "./settings-panel-ids";
-import { SETTINGS_PANEL_IDS, type SettingsPanelId } from "./settings-panel-ids";
+import { normalizeSettingsPanelId, type SettingsPanelId } from "./settings-panel-ids";
 type NavItem = { id: SettingsPanelId; label: string; icon: IconName };
 
 function normalizeStoredPanel(stored: string | null, fallback: SettingsPanelId): SettingsPanelId {
-  if (stored === "sandbox") return "beta";
-  // Recall's old "memory" panel id now maps to its restored "recall" page.
-  if (stored === "memory") return "recall";
-  if (stored && SETTINGS_PANEL_IDS.includes(stored as SettingsPanelId)) {
-    return stored as SettingsPanelId;
-  }
-  return fallback;
+  return normalizeSettingsPanelId(stored) ?? fallback;
 }
 
 // Settings panel slides in slightly slower than it slides out so the entrance
@@ -56,15 +49,18 @@ const BACKDROP_OUT = `mc-settings-backdrop-out ${SLIDE_OUT_MS}ms ${SLIDE_OUT_EAS
 
 export function SettingsPanel({
   onBack,
-  initialPanel = "general",
+  initialPanel = null,
 }: {
   onBack: () => void;
-  initialPanel?: SettingsPanelId;
+  // An explicitly requested panel always wins; null means a generic open,
+  // which restores the last-visited panel from localStorage.
+  initialPanel?: SettingsPanelId | null;
 }) {
   const [activePanel, setActivePanel] = useState<SettingsPanelId>(() => {
-    if (typeof window === "undefined") return initialPanel;
+    if (initialPanel) return initialPanel;
+    if (typeof window === "undefined") return "general";
     const stored = window.localStorage.getItem("mc-settings-active-panel");
-    return normalizeStoredPanel(stored, initialPanel);
+    return normalizeStoredPanel(stored, "general");
   });
   const [isExiting, setIsExiting] = useState(false);
 
@@ -94,9 +90,9 @@ export function SettingsPanel({
     { id: "providers", label: "Providers", icon: "grid" },
     { id: "usage", label: "Usage", icon: "chart" },
     { id: "terminal", label: "Terminal", icon: "terminal" },
-    { id: "session", label: "Session buttons", icon: "eye" },
+    { id: "interface", label: "Interface", icon: "eye" },
     { id: "theme", label: "Theme", icon: "sun" },
-    { id: "pet", label: "Pet", icon: "sparkles" },
+    { id: "pet", label: "Pet", icon: "pet" },
     { id: "voice", label: "Voice", icon: "play" },
     { id: "keybindings", label: "Keybindings", icon: "settings" },
   ];
@@ -262,13 +258,6 @@ export function SettingsPanel({
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <SettingsNavButton
-                id="beta"
-                label="Experimental"
-                icon="sparkles"
-                active={activePanel === "beta"}
-                onClick={() => setActivePanel("beta")}
-              />
-              <SettingsNavButton
                 id="recall"
                 label="Recall"
                 icon="sparkles"
@@ -336,8 +325,8 @@ export function SettingsPanel({
             <UsageSettingsPage />
           ) : activePanel === "terminal" ? (
             <TerminalSettingsPage />
-          ) : activePanel === "session" ? (
-            <SessionButtonsSettingsPage />
+          ) : activePanel === "interface" ? (
+            <InterfaceSettingsPage />
           ) : activePanel === "theme" ? (
             <ThemeSettingsPage />
           ) : activePanel === "pet" ? (
@@ -346,8 +335,6 @@ export function SettingsPanel({
             <VoiceCommandsPage />
           ) : activePanel === "recall" ? (
             <RecallSettingsPage />
-          ) : activePanel === "beta" ? (
-            <BetaSettingsPage />
           ) : activePanel === "keybindings" ? (
             <KeybindingsPage />
           ) : (

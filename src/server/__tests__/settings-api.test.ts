@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { emptyVoiceCommandAliases } from "~/shared/voice-command-aliases";
 import { DEFAULT_SESSION_HEADER_BUTTON_VISIBILITY } from "~/shared/session-header-buttons";
+import { DEFAULT_HEADER_BUTTON_VISIBILITY } from "~/shared/header-buttons";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-settings-test-"));
 process.env.MC_USER_DATA_DIR = tmpRoot;
@@ -350,6 +351,95 @@ describe("settings API", () => {
     const expected = { rename: true, zoom: true, clone: false, focus: true };
     expect(await jsonBody(update!)).toMatchObject({ sessionHeaderButtons: expected });
     expect(await jsonBody(read!)).toMatchObject({ sessionHeaderButtons: expected });
+  });
+
+  it("shows every top-bar and project-header button by default", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({
+      headerButtons: DEFAULT_HEADER_BUTTON_VISIBILITY,
+    });
+    expect(DEFAULT_HEADER_BUTTON_VISIBILITY).toMatchObject({
+      scratchPad: true,
+      promptSearch: true,
+      voice: true,
+      notifications: true,
+      screenshot: true,
+      gridView: true,
+      fileFinder: true,
+    });
+  });
+
+  it("persists header button visibility, merging a partial payload over defaults", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        // Only the two the user hid; unknown keys are dropped and the rest
+        // fall back to their defaults.
+        body: JSON.stringify({
+          headerButtons: { notifications: false, screenshot: false, bogus: true },
+        }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    const expected = {
+      ...DEFAULT_HEADER_BUTTON_VISIBILITY,
+      notifications: false,
+      screenshot: false,
+    };
+    const persisted = await jsonBody(read!);
+    expect(await jsonBody(update!)).toMatchObject({ headerButtons: expected });
+    expect(persisted).toMatchObject({ headerButtons: expected });
+    expect(persisted.headerButtons).not.toHaveProperty("bogus");
+  });
+
+  it("shows the group switcher and the project header group tag by default", async () => {
+    const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(response!)).toMatchObject({
+      showGroupSwitcher: true,
+      showProjectHeaderGroup: true,
+    });
+  });
+
+  it("persists hiding the group switcher and the project header group tag", async () => {
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ showGroupSwitcher: false, showProjectHeaderGroup: false }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      showGroupSwitcher: false,
+      showProjectHeaderGroup: false,
+    });
+    expect(await jsonBody(read!)).toMatchObject({
+      showGroupSwitcher: false,
+      showProjectHeaderGroup: false,
+    });
+  });
+
+  it("shows the background grid by default and persists turning it off", async () => {
+    const initial = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+    expect(await jsonBody(initial!)).toMatchObject({ showBackgroundGrid: true });
+
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ showBackgroundGrid: false }),
+      }),
+    );
+    const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
+
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({ showBackgroundGrid: false });
+    expect(await jsonBody(read!)).toMatchObject({ showBackgroundGrid: false });
   });
 
   it("defaults voice agents to Claude Code with no model until one is chosen", async () => {
@@ -738,17 +828,17 @@ describe("settings API", () => {
     });
   });
 
-  it("keeps voice control disabled by default (experimental)", async () => {
+  it("keeps voice control enabled", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
-    expect(await jsonBody(response!)).toMatchObject({ voiceControlEnabled: false });
+    expect(await jsonBody(response!)).toMatchObject({ voiceControlEnabled: true });
   });
 
-  it("persists the voice control preference", async () => {
+  it("ignores attempts from older clients to disable voice control", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ voiceControlEnabled: true }),
+        body: JSON.stringify({ voiceControlEnabled: false }),
       }),
     );
     const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
@@ -809,12 +899,12 @@ describe("settings API", () => {
     expect(rejected?.status).toBe(400);
   });
 
-  it("keeps the question overlay enabled by default (beta)", async () => {
+  it("keeps the question overlay enabled", async () => {
     const response = await handleApiRequest(authedRequest("http://localhost/api/settings"));
     expect(await jsonBody(response!)).toMatchObject({ questionOverlayEnabled: true });
   });
 
-  it("persists the question overlay preference", async () => {
+  it("ignores attempts from older clients to disable the question overlay", async () => {
     const update = await handleApiRequest(
       authedRequest("http://localhost/api/settings", {
         method: "POST",
@@ -825,8 +915,8 @@ describe("settings API", () => {
     const read = await handleApiRequest(authedRequest("http://localhost/api/settings"));
 
     expect(update?.status).toBe(200);
-    expect(await jsonBody(update!)).toMatchObject({ questionOverlayEnabled: false });
-    expect(await jsonBody(read!)).toMatchObject({ questionOverlayEnabled: false });
+    expect(await jsonBody(update!)).toMatchObject({ questionOverlayEnabled: true });
+    expect(await jsonBody(read!)).toMatchObject({ questionOverlayEnabled: true });
   });
 
   it("persists durable UI preferences", async () => {
@@ -894,6 +984,31 @@ describe("settings API", () => {
     expect(await jsonBody(read!)).toMatchObject({
       themeStyle: "flat",
       minimalTheme: true,
+    });
+  });
+
+  it("keeps the stored accent color when only the theme style changes", async () => {
+    // Regression: switching painted → flat used to reset the accent to
+    // terracotta. The accent is an independent choice and must survive a
+    // style-only update.
+    await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accentColor: "teal" }),
+      }),
+    );
+    const update = await handleApiRequest(
+      authedRequest("http://localhost/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeStyle: "flat" }),
+      }),
+    );
+    expect(update?.status).toBe(200);
+    expect(await jsonBody(update!)).toMatchObject({
+      themeStyle: "flat",
+      accentColor: "teal",
     });
   });
 

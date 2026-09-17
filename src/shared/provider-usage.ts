@@ -166,6 +166,28 @@ export const PROVIDER_USAGE_CATALOG: readonly ProviderUsageMeta[] = [
   { id: "wayfinder", displayName: "Wayfinder", implemented: true, defaultEnabled: false },
 ] as const;
 
+/**
+ * Harnesses mission-control actually supports. The full CodexBar catalog stays
+ * above for adapter parity, but settings/UI only ever offer these four.
+ */
+export const SUPPORTED_PROVIDER_USAGE_IDS = [
+  "claude",
+  "codex",
+  "cursor",
+  "opencode",
+] as const satisfies readonly ProviderUsageId[];
+
+export const SUPPORTED_PROVIDER_USAGE_CATALOG: readonly ProviderUsageMeta[] =
+  PROVIDER_USAGE_CATALOG.filter((p) =>
+    (SUPPORTED_PROVIDER_USAGE_IDS as readonly string[]).includes(p.id),
+  );
+
+export function isSupportedProviderUsageId(value: unknown): value is ProviderUsageId {
+  return (
+    typeof value === "string" && (SUPPORTED_PROVIDER_USAGE_IDS as readonly string[]).includes(value)
+  );
+}
+
 export const DEFAULT_PROVIDER_USAGE_IDS: ProviderUsageId[] = PROVIDER_USAGE_CATALOG.filter(
   (p) => p.defaultEnabled,
 ).map((p) => p.id);
@@ -198,7 +220,7 @@ export function normalizeProviderUsageIds(raw: unknown): ProviderUsageId[] {
   const out: ProviderUsageId[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
-    if (!isProviderUsageId(item) || seen.has(item)) continue;
+    if (!isSupportedProviderUsageId(item) || seen.has(item)) continue;
     seen.add(item);
     out.push(item);
   }

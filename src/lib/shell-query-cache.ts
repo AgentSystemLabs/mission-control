@@ -1,6 +1,7 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { Group } from "~/db/schema";
 import type { AppSettings } from "~/lib/api";
+import { isElectron } from "~/lib/electron";
 import type { ProjectWithCounts } from "~/shared/projects";
 import { filterProjectsByScope, type SandboxPublicView, type SandboxScopeState } from "~/shared/sandbox";
 
@@ -96,7 +97,8 @@ export function readCachedSandboxes(): CachedSandboxListState | undefined {
   if (!isObject(data)) return undefined;
   if (typeof data.enabled !== "boolean" || typeof data.activeScopeId !== "string") return undefined;
   if (!Array.isArray(data.sandboxes)) return undefined;
-  return data as CachedSandboxListState;
+  const cached = data as CachedSandboxListState;
+  return isElectron() ? { ...cached, enabled: true } : cached;
 }
 
 export function writeCachedProjects(
