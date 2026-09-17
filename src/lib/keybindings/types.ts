@@ -141,6 +141,6 @@ export const ACTION_META: Record<HotkeyAction, { label: string; description: str
   },
   "settings.open": {
     label: "Open settings",
-    description: "Open or close Settings (standard macOS ⌘, / Ctrl+,).",
+    description: "Open or close Settings (the standard ⌘, / Ctrl+, preferences shortcut).",
   },
 };

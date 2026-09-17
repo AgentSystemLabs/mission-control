@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { matchBinding } from "~/lib/keybindings/match";
+import { isKeybindingRecording } from "~/lib/keybindings/recording";
 import { useKeybindings } from "~/lib/keybindings/store";
 import { HOTKEY_ACTIONS, type HotkeyAction } from "~/lib/keybindings/types";
 import { isSettingsOverlayOpen } from "~/lib/settings-navigation";
@@ -26,6 +27,15 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   const tag = target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   return target.isContentEditable;
+}
+
+/** Whether a matched hotkey must stand down because of app-level modal state. */
+export function isHotkeySuppressed(target: HotkeyTarget, allowWhenSettingsOpen: boolean): boolean {
+  // The keybindings recorder is capturing this chord as a new binding; running
+  // a rebindable action on it would hijack the recording. Literal targets
+  // (Enter/Esc) stay live — the recorder handles those itself.
+  if (isAction(target) && isKeybindingRecording()) return true;
+  return !allowWhenSettingsOpen && isSettingsOverlayOpen();
 }
 
 export type HotkeyOptions = {
@@ -68,7 +78,7 @@ export function useHotkey(
         ? matchBinding(e, bindingsRef.current[target])
         : matchLiteral(e, target);
       if (!matched) return;
-      if (!allowWhenSettingsOpen && isSettingsOverlayOpen()) return;
+      if (isHotkeySuppressed(target, allowWhenSettingsOpen)) return;
       if (ignoreEditable && isEditableTarget(e.target)) return;
       if (preventDefault) e.preventDefault();
       if (capture) e.stopPropagation();

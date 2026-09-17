@@ -4,6 +4,7 @@ import { KbdCombo } from "~/components/ui/Kbd";
 import { StaticHotkeyTooltip } from "~/components/ui/Tooltip";
 import { useKeybindings } from "~/lib/keybindings/store";
 import { bindingComboKey, bindingsEqual, eventToBinding, isValidBinding } from "~/lib/keybindings/match";
+import { setKeybindingRecording } from "~/lib/keybindings/recording";
 import { DEFAULT_BINDINGS } from "~/lib/keybindings/defaults";
 import { KEYBINDING_GROUPS } from "~/lib/keybindings/groups";
 import { formatPinnedSlotBindingParts } from "~/lib/keybindings/format";
@@ -221,6 +222,14 @@ function BindingRow({
   onReset: () => void;
 }) {
   const captureRef = useRef<HTMLDivElement | null>(null);
+
+  // Tell `useHotkey` to stand down while this row records, so an always-on
+  // hotkey (e.g. `settings.open`) can't act on the chord being captured.
+  useEffect(() => {
+    if (!recording) return;
+    setKeybindingRecording(true);
+    return () => setKeybindingRecording(false);
+  }, [recording]);
 
   useEffect(() => {
     if (!recording) return;
