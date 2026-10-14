@@ -242,7 +242,7 @@ jobs:
       # marks the release ready for Approve on agentsystem.dev (updater still
       # waits on that approval).
       - name: Upload installer for GitHub Release
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installer-${{ matrix.platform }}
           path: artifacts/*.${{ matrix.artifact_ext }}
@@ -251,7 +251,7 @@ jobs:
 
       # Per-platform manifests (incl. mac zip sha512) for compose-mac-update-manifest.
       - name: Upload release manifest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-manifest-${{ matrix.platform }}
           path: artifacts/manifest.json
